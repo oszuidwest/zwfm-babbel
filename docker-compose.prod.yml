@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:9.1
+    container_name: babbel-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: babbel
+      MYSQL_USER: babbel
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./migrations/001_complete_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  babbel:
+    build: .
+    container_name: babbel-app
+    environment:
+      BABBEL_DB_HOST: mysql
+      BABBEL_DB_USER: babbel
+      BABBEL_DB_PASSWORD: ${MYSQL_PASSWORD}
+      BABBEL_DB_NAME: babbel
+      BABBEL_SERVER_ADDRESS: ":8080"
+      BABBEL_AUTH_METHOD: ${AUTH_METHOD}
+      BABBEL_SESSION_SECRET: ${SESSION_SECRET}
+      BABBEL_ENV: production
+      BABBEL_FFMPEG_PATH: "ffmpeg"
+      # Optional OAuth/OIDC
+      BABBEL_OIDC_PROVIDER_URL: ${OIDC_PROVIDER_URL}
+      BABBEL_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      BABBEL_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+      BABBEL_OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL}
+      TZ: ${TZ}
+    ports:
+      - "${API_PORT}:8080"
+    volumes:
+      - babbel_uploads:/app/uploads
+      - babbel_audio:/app/audio
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  mysql_data:
+  babbel_uploads:
+  babbel_audio:

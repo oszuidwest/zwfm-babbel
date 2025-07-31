@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:9.1
+    container_name: babbel-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: babbel
+      MYSQL_USER: babbel
+      MYSQL_PASSWORD: babbel
+      TZ: Europe/Amsterdam
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./migrations/001_complete_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  babbel:
+    build: .
+    container_name: babbel-app
+    environment:
+      BABBEL_DB_HOST: mysql
+      BABBEL_DB_USER: babbel
+      BABBEL_DB_PASSWORD: babbel
+      BABBEL_DB_NAME: babbel
+      BABBEL_SERVER_ADDRESS: ":8080"
+      BABBEL_AUTH_METHOD: local
+      BABBEL_SESSION_SECRET: this-is-a-32-character-secret-key-for-testing
+      BABBEL_ENV: development
+      BABBEL_FFMPEG_PATH: "ffmpeg"
+      TZ: Europe/Amsterdam
+    ports:
+      - "8080:8080"
+    volumes:
+      - babbel_uploads:/app/uploads
+      - ./audio:/app/audio
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  babbel_uploads:

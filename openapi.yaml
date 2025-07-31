@@ -1,0 +1,1719 @@
+openapi: 3.0.3
+info:
+  title: Babbel API
+  description: |
+    HTTP API for generating audio news bulletins. Combines news stories with station-specific jingles using FFmpeg.
+    
+    ## Authentication
+    
+    - Local: Username/password with session cookies
+    - OAuth/OIDC: Azure AD, Google, Okta support
+    - Account lockout protection
+    
+    ## Authorization
+    
+    Role-based access control:
+    - admin: Full access including user management
+    - editor: Content management (stations, voices, stories, bulletins)
+    - viewer: Read-only access
+    
+    ## Architecture
+    
+    Station-voice junction table:
+    - Each voice has different jingles per station
+    - Mix point defines when voice starts over jingle
+    - Files stored as `station_{id}_voice_{id}_jingle.wav`
+  version: 1.0.0
+  x-changelog:
+    1.0.0:
+      - "Initial stable release"
+      - "HTTP API for audio news bulletin generation"
+      - "Station-specific voice jingles with mix points"
+      - "Local and OAuth/OIDC authentication"
+      - "Role-based access control (admin, editor, viewer)"
+      - "Soft delete for stories and users"
+      - "FFmpeg audio processing"
+      - "Pagination and filtering on all list endpoints"
+      - "RESTful design for radio automation"
+      - "Removed redundant /broadcasts endpoint"
+  contact:
+    name: Streekomroep ZuidWest
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Development server
+  - url: https://your-api-server.com/api/v1
+    description: Production server (configure with your domain)
+
+tags:
+  - name: System
+    description: System health and status endpoints
+  - name: Authentication
+    description: User authentication and session management
+  - name: Stations
+    description: Radio station management
+  - name: Voices
+    description: Voice/presenter management
+  - name: Stories
+    description: News story management
+  - name: Audio
+    description: Audio file serving
+  - name: Users
+    description: User account management
+  - name: Bulletin
+    description: Audio bulletin generation
+  - name: Station-Voices
+    description: Station-specific voice jingle management
+
+security:
+  - cookieAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      tags:
+        - System
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: babbel-api
+
+  /session/login:
+    post:
+      summary: Login with username and password (local authentication)
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: admin
+                password:
+                  type: string
+                  example: password
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                description: Session cookie
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /session/oauth/start:
+    get:
+      summary: Start OAuth/OIDC authentication flow
+      tags:
+        - Authentication
+      security: []
+      description: Redirects to the configured OAuth provider (Azure AD, Google, etc.)
+      responses:
+        '302':
+          description: Redirect to OAuth provider
+          headers:
+            Location:
+              schema:
+                type: string
+                description: OAuth provider authorization URL
+        '400':
+          description: OAuth authentication is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /session/oauth/callback:
+    get:
+      summary: OAuth callback endpoint
+      tags:
+        - Authentication
+      security: []
+      description: Handles the OAuth callback from the provider
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Authorization code from OAuth provider
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF protection state
+      responses:
+        '302':
+          description: Redirect to dashboard after successful authentication
+          headers:
+            Location:
+              schema:
+                type: string
+                default: /dashboard
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /session:
+    get:
+      summary: Get current user information
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  username:
+                    type: string
+                  role:
+                    type: string
+                    enum: [admin, editor, viewer]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      summary: Logout and destroy session
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logout successful
+
+  /stations:
+    get:
+      summary: List all stations
+      tags:
+        - Stations
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: List of stations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Station'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create a new station
+      tags:
+        - Stations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationInput'
+      responses:
+        '201':
+          description: Station created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Station'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /stations/{id}:
+    get:
+      summary: Get station by ID
+      tags:
+        - Stations
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Station details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Station'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update station
+      tags:
+        - Stations
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StationInput'
+      responses:
+        '200':
+          description: Station updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Station'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete station
+      tags:
+        - Stations
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Station deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /voices:
+    get:
+      summary: List all voices
+      tags:
+        - Voices
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: List of voices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Voice'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create a new voice
+      tags:
+        - Voices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Voice created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Voice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /voices/{id}:
+    get:
+      summary: Get voice by ID
+      tags:
+        - Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Voice details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Voice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update voice
+      tags:
+        - Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Voice updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Voice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete voice
+      tags:
+        - Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Voice deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /stories:
+    get:
+      summary: List all stories
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: include_deleted
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include soft-deleted stories in the results
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, active, expired]
+          description: Filter by status
+        - name: voice_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by voice ID
+        - name: date
+          in: query
+          schema:
+            type: string
+            format: date
+          description: Filter stories active on this date
+        - name: weekday
+          in: query
+          schema:
+            type: string
+            enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
+          description: Filter by weekday
+      responses:
+        '200':
+          description: List of stories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Story'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create a new story
+      tags:
+        - Stories
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StoryInput'
+      responses:
+        '201':
+          description: Story created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /stories/{id}/audio:
+    get:
+      summary: Download story audio file
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Audio file
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Story not found or no audio file
+
+  /stories/{id}:
+    get:
+      summary: Get story by ID
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Story details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update story
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/StoryInput'
+      responses:
+        '200':
+          description: Story updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete story (soft delete)
+      description: |
+        Performs a soft delete by setting deleted_at timestamp. 
+        The story will no longer appear in listings unless include_deleted=true is specified.
+        Story data and audio files are preserved for potential restoration.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Story soft deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update story state
+      description: Update story status (draft, active, expired) or other state fields without requiring full story data.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [draft, active, expired]
+                  description: Story status
+              example:
+                status: "active"
+      responses:
+        '200':
+          description: Story state updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Story status updated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /stories/{id}/bulletins:
+    get:
+      summary: Get bulletin history for a story
+      description: Returns all bulletins that have included this specific story, ordered by most recent first.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Story bulletin history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  story_id:
+                    type: integer
+                  story_title:
+                    type: string
+                  bulletins:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        station_id:
+                          type: integer
+                        station_name:
+                          type: string
+                        filename:
+                          type: string
+                        created_at:
+                          type: string
+                          format: date-time
+                        duration:
+                          type: number
+                        story_order:
+                          type: integer
+                        included_at:
+                          type: string
+                          format: date-time
+                  total:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users:
+    get:
+      summary: List all users
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: include_suspended
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include suspended users in the results
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [admin, editor, viewer]
+          description: Filter by user role
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create a new user
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInput'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /users/{id}:
+    get:
+      summary: Get user by ID
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update user
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInput'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Permanently delete user
+      description: |
+        Permanently deletes a user account and all associated data.
+        This action cannot be undone. All active sessions for the user will be terminated.
+        Cannot delete the last admin user.
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: User permanently deleted
+        '400':
+          description: Cannot delete the last admin user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update user state
+      description: Update user state (suspend/restore) without requiring full user data. This endpoint handles suspension and restoration of user accounts.
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [suspend, restore]
+                  description: Action to perform on user account
+              required:
+                - action
+              example:
+                action: "suspend"
+      responses:
+        '200':
+          description: User state updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "User suspended successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users/{id}/password:
+    put:
+      summary: Change user password
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+              properties:
+                password:
+                  type: string
+                  minLength: 8
+                  description: New password (minimum 8 characters)
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Password updated successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /bulletins:
+    get:
+      summary: List bulletins
+      description: |
+        Returns a paginated list of generated bulletins with optional filtering.
+        
+        Query parameters:
+        - `station_id` - Filter bulletins by station ID
+        - `limit` - Maximum number of bulletins to return (default: 20)
+        - `offset` - Number of bulletins to skip for pagination (default: 0)
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: station_id
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by station ID
+        - name: include_stories
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include detailed story information in bulletin response
+      responses:
+        '200':
+          description: List of bulletins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BulletinResponse'
+                  total:
+                    type: integer
+                    description: Total number of bulletins
+                  limit:
+                    type: integer
+                    description: Number of items per page
+                  offset:
+                    type: integer
+                    description: Number of items skipped
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+
+  /stations/{id}/bulletins/generate:
+    post:
+      summary: Generate news bulletin for a station
+      description: |
+        Generates a news bulletin for a specific station with smart caching and flexible response options.
+        
+        Query parameters:
+        - `download=true` - Directly download the WAV file instead of JSON response
+        - `include_story_list=true` - Include detailed story information in response
+        - `max_age=300` - Return existing bulletin if created within 300 seconds
+        - `force=true` - Force new generation even if recent bulletin exists
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - name: download
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Return WAV file for download instead of JSON
+        - name: include_story_list
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include detailed story list in response
+        - name: max_age
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max age in seconds to reuse existing bulletin
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Force new generation ignoring cache
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date:
+                  type: string
+                  format: date
+                  description: Date for bulletin (defaults to today)
+      responses:
+        '200':
+          description: Bulletin generated successfully or WAV file if download=true
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                    description: Bulletin ID (if saved to database)
+                  station_id:
+                    type: integer
+                    description: Station ID
+                  station_name:
+                    type: string
+                    description: Station name
+                  bulletin_url:
+                    type: string
+                    description: URL to download the bulletin
+                  filename:
+                    type: string
+                    description: Bulletin filename
+                  created_at:
+                    type: string
+                    format: date-time
+                    description: When the bulletin was created
+                  duration:
+                    type: number
+                    format: float
+                    description: Duration in seconds
+                  file_size:
+                    type: integer
+                    format: int64
+                    description: File size in bytes
+                  story_count:
+                    type: integer
+                    description: Number of stories in the bulletin
+                  cached:
+                    type: boolean
+                    description: Whether this is a cached bulletin (when max_age is used)
+                  stories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Story'
+                    description: Stories included (only if include_story_list=true)
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+                description: WAV audio file (when download=true)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Station not found or no stories available
+
+  /stations/{id}/bulletins/latest:
+    get:
+      summary: Get latest bulletin for a station
+      description: Returns the most recently generated bulletin for a specific station. This endpoint is ideal for radio automation systems that need to fetch the latest news bulletin.
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Latest bulletin found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  station_id:
+                    type: integer
+                    description: Station ID
+                  station_name:
+                    type: string
+                    description: Station name
+                  bulletin_url:
+                    type: string
+                    description: URL to download the bulletin
+                  filename:
+                    type: string
+                    description: Bulletin filename
+                  created_at:
+                    type: string
+                    format: date-time
+                    description: When the bulletin was created
+                  duration:
+                    type: number
+                    format: float
+                    description: Duration in seconds
+                  file_size:
+                    type: integer
+                    format: int64
+                    description: File size in bytes
+                  story_count:
+                    type: integer
+                    description: Number of stories in the bulletin
+        '404':
+          description: Station not found or no bulletin available
+
+  /stations/{id}/bulletins/latest/audio:
+    get:
+      summary: Download latest bulletin audio for a station
+      description: |
+        Downloads the audio file of the most recently generated bulletin for a specific station.
+        This endpoint is specifically designed for radio automation systems that need to directly
+        fetch and play the latest news bulletin without additional API calls.
+        
+        Perfect for radio automation workflows where you need:
+        - One URL call that always returns audio
+        - Latest bulletin audio for immediate playback
+        - No metadata parsing required
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Latest bulletin audio file
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+                description: WAV audio file of the latest bulletin
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                description: Attachment with filename
+                example: 'attachment; filename="bulletin_1_20240315_143022.wav"'
+            Content-Length:
+              schema:
+                type: integer
+                description: File size in bytes
+        '404':
+          description: Station not found or no bulletin available for this station
+
+  /bulletins/{id}/audio:
+    get:
+      summary: Download bulletin audio file
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Audio file
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Bulletin not found or no audio file
+
+  /bulletins/{id}/stories:
+    get:
+      summary: List stories included in a bulletin
+      description: Returns a paginated list of stories that were included in a specific bulletin, ordered by their appearance order.
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: List of stories in the bulletin
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        bulletin_id:
+                          type: integer
+                        story_id:
+                          type: integer
+                        story_order:
+                          type: integer
+                        created_at:
+                          type: string
+                          format: date-time
+                        station:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            name:
+                              type: string
+                        story:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            title:
+                              type: string
+                        bulletin:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                            filename:
+                              type: string
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /station_voices:
+    get:
+      summary: List station-voice relationships
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - name: station_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by station ID
+        - name: voice_id
+          in: query
+          schema:
+            type: integer
+          description: Filter by voice ID
+      responses:
+        '200':
+          description: List of station-voice relationships
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StationVoice'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+    post:
+      summary: Create a new station-voice relationship
+      tags:
+        - Station-Voices
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - station_id
+                - voice_id
+              properties:
+                station_id:
+                  type: integer
+                voice_id:
+                  type: integer
+                mix_point:
+                  type: number
+                  format: float
+                  minimum: 0
+                  default: 0.0
+                jingle:
+                  type: string
+                  format: binary
+                  description: Station-specific jingle audio file
+      responses:
+        '201':
+          description: Station-voice relationship created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationVoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /station_voices/{id}/audio:
+    get:
+      summary: Download station-voice jingle file
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Jingle audio file
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Station-voice not found or no jingle file
+
+  /station_voices/{id}:
+    get:
+      summary: Get station-voice relationship by ID
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Station-voice relationship details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationVoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update station-voice relationship
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                mix_point:
+                  type: number
+                  format: float
+                  minimum: 0
+                jingle:
+                  type: string
+                  format: binary
+                  description: New station-specific jingle audio file (optional)
+      responses:
+        '200':
+          description: Station-voice relationship updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationVoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      summary: Delete station-voice relationship
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '204':
+          description: Station-voice relationship deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: babbel_session
+      description: Session-based authentication using secure cookies
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+      description: Resource ID
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+      description: Maximum number of items to return
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+      description: Number of items to skip
+
+  schemas:
+    Station:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Unique station name
+        max_stories_per_block:
+          type: integer
+        pause_seconds:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10
+          default: 2.0
+          description: Pause time in seconds between messages in bulletin
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StationInput:
+      type: object
+      required:
+        - name
+        - max_stories_per_block
+      properties:
+        name:
+          type: string
+          description: Unique station name (must be unique across all stations)
+        max_stories_per_block:
+          type: integer
+          minimum: 1
+          maximum: 50
+        pause_seconds:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 10
+          default: 2.0
+          description: Pause time in seconds between messages in bulletin
+
+    Voice:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StationVoice:
+      type: object
+      properties:
+        id:
+          type: integer
+        station_id:
+          type: integer
+        voice_id:
+          type: integer
+        jingle_url:
+          type: string
+          nullable: true
+          description: API URL to download the jingle file
+        mix_point:
+          type: number
+          format: float
+          minimum: 0
+          description: Time in seconds when voice should start over the jingle
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        station_name:
+          type: string
+          description: Name of the station (populated by joins)
+        voice_name:
+          type: string
+          description: Name of the voice (populated by joins)
+
+    Story:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        text:
+          type: string
+        voice_id:
+          type: integer
+        voice:
+          $ref: '#/components/schemas/Voice'
+        audio_url:
+          type: string
+          nullable: true
+          description: API URL to download the audio file
+        duration_seconds:
+          type: number
+          format: float
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, expired]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        weekdays:
+          type: object
+          properties:
+            monday:
+              type: boolean
+            tuesday:
+              type: boolean
+            wednesday:
+              type: boolean
+            thursday:
+              type: boolean
+            friday:
+              type: boolean
+            saturday:
+              type: boolean
+            sunday:
+              type: boolean
+          description: |
+            Weekday selection for scheduling. 
+            API returns JSON object format for convenience.
+            Internally stored as bitmask for efficiency.
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the story was soft-deleted
+
+    StoryInput:
+      type: object
+      required:
+        - title
+        - text
+        - voice_id
+        - start_date
+        - end_date
+      properties:
+        title:
+          type: string
+        text:
+          type: string
+        voice_id:
+          type: integer
+        audio:
+          type: string
+          format: binary
+          description: Audio file (optional)
+        status:
+          type: string
+          enum: [draft, active, expired]
+          default: draft
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        weekdays:
+          type: object
+          properties:
+            monday:
+              type: boolean
+              default: false
+            tuesday:
+              type: boolean
+              default: false
+            wednesday:
+              type: boolean
+              default: false
+            thursday:
+              type: boolean
+              default: false
+            friday:
+              type: boolean
+              default: false
+            saturday:
+              type: boolean
+              default: false
+            sunday:
+              type: boolean
+              default: false
+          description: |
+            Weekday selection for scheduling. Pass as JSON object in multipart form.
+            Example: {"monday":true,"tuesday":true,"wednesday":true,"thursday":true,"friday":true,"saturday":false,"sunday":false}
+            Internally stored as bitmask but API accepts/returns JSON object format.
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        full_name:
+          type: string
+        email:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+          description: |
+            User roles:
+            - admin: Full access to all resources
+            - editor: Can manage content (stations, voices, stories)
+            - viewer: Read-only access
+        suspended_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when the user was suspended
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        login_count:
+          type: integer
+        password_changed_at:
+          type: string
+          format: date-time
+        metadata:
+          type: string
+          description: JSON metadata for user-specific settings
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserInput:
+      type: object
+      required:
+        - username
+        - full_name
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          description: Required when creating a new user, optional when updating
+        email:
+          type: string
+          format: email
+          nullable: true
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+          default: viewer
+          description: |
+            User roles and permissions:
+            - admin: Full access to all resources including user management
+            - editor: Can manage content (stations, voices, stories, bulletins)
+            - viewer: Read-only access to content
+
+    BulletinResponse:
+      type: object
+      description: Bulletin with additional API response fields
+      properties:
+        id:
+          type: integer
+        station_id:
+          type: integer
+        station_name:
+          type: string
+          description: Name of the station
+        bulletin_url:
+          type: string
+          description: URL to download the bulletin audio file
+        filename:
+          type: string
+          description: Filename of the bulletin audio file
+        created_at:
+          type: string
+          format: date-time
+        duration:
+          type: number
+          format: float
+          description: Duration of the bulletin in seconds
+        file_size:
+          type: integer
+          format: int64
+          description: Size of the audio file in bytes
+        story_count:
+          type: integer
+          description: Number of stories included in the bulletin
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

@@ -1,0 +1,173 @@
+package api
+
+import (
+	"log"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
+	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+)
+
+// SetupRouter configures and returns the main API router with all routes and middleware.
+func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
+	// Create services
+	audioSvc := audio.NewService(cfg)
+	h := handlers.NewHandlers(db, audioSvc, cfg)
+
+	// Create auth configuration
+	authConfig := &auth.Config{
+		Method: cfg.Auth.Method,
+		OIDC: auth.OIDCConfig{
+			ProviderURL:  cfg.Auth.OIDCProviderURL,
+			ClientID:     cfg.Auth.OIDCClientID,
+			ClientSecret: cfg.Auth.OIDCClientSecret,
+			RedirectURL:  cfg.Auth.OIDCRedirectURL,
+		},
+		Local: auth.LocalConfig{
+			Enabled:                cfg.Auth.Method == "local" || cfg.Auth.Method == "both",
+			MinPasswordLength:      8,
+			RequireUppercase:       true,
+			RequireLowercase:       true,
+			RequireNumbers:         true,
+			MaxFailedAttempts:      5,
+			LockoutDurationMinutes: 30,
+		},
+		Session: auth.SessionConfig{
+			StoreType:      "memory",
+			MaxAge:         86400,
+			CookieName:     "babbel_session",
+			CookiePath:     "/",
+			CookieSecure:   cfg.Environment == "production",
+			CookieHTTPOnly: true,
+			CookieSameSite: "lax",
+			SecretKey:      cfg.Auth.SessionSecret,
+		},
+	}
+
+	// Create auth service
+	authService, err := auth.NewService(authConfig, db)
+	if err != nil {
+		log.Fatalf("Failed to create auth service: %v", err)
+	}
+
+	authHandlers := NewAuthHandlers(authService)
+
+	// Set Gin mode based on environment
+	if cfg.Environment == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	} else {
+		gin.SetMode(gin.DebugMode)
+	}
+
+	// Create router
+	r := gin.Default()
+
+	// Session middleware - must be first
+	r.Use(authService.SessionMiddleware())
+
+	// CORS middleware
+	r.Use(corsMiddleware())
+
+	// API v1 routes
+	v1 := r.Group("/api/v1")
+	{
+		// Authentication endpoints (keep SSO functionality)
+		authGroup := v1.Group("/session")
+		{
+			authGroup.POST("/login", authHandlers.Login)
+			authGroup.GET("/oauth/start", authHandlers.StartOAuthFlow)
+			authGroup.GET("/oauth/callback", authHandlers.HandleOAuthCallback)
+		}
+
+		// Protected routes
+		protected := v1.Group("")
+		protected.Use(authService.Middleware())
+		{
+			// Session management
+			protected.DELETE("/session", authHandlers.Logout)
+			protected.GET("/session", authHandlers.GetCurrentUser)
+
+			// Station routes
+			protected.GET("/stations", authService.RequirePermission("stations", "read"), h.ListStations)
+			protected.GET("/stations/:id", authService.RequirePermission("stations", "read"), h.GetStation)
+			protected.POST("/stations", authService.RequirePermission("stations", "write"), h.CreateStation)
+			protected.PUT("/stations/:id", authService.RequirePermission("stations", "write"), h.UpdateStation)
+			protected.DELETE("/stations/:id", authService.RequirePermission("stations", "write"), h.DeleteStation)
+
+			// Voice routes
+			protected.GET("/voices", authService.RequirePermission("voices", "read"), h.ListVoices)
+			protected.GET("/voices/:id", authService.RequirePermission("voices", "read"), h.GetVoice)
+			protected.POST("/voices", authService.RequirePermission("voices", "write"), h.CreateVoice)
+			protected.PUT("/voices/:id", authService.RequirePermission("voices", "write"), h.UpdateVoice)
+			protected.DELETE("/voices/:id", authService.RequirePermission("voices", "write"), h.DeleteVoice)
+
+			// Story routes
+			protected.GET("/stories", authService.RequirePermission("stories", "read"), h.ListStories)
+			protected.GET("/stories/:id", authService.RequirePermission("stories", "read"), h.GetStory)
+			protected.GET("/stories/:id/audio", authService.RequirePermission("stories", "read"), h.GetStoryAudio)
+			protected.POST("/stories", authService.RequirePermission("stories", "write"), h.CreateStory)
+			protected.PUT("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStory)
+			protected.DELETE("/stories/:id", authService.RequirePermission("stories", "write"), h.DeleteStory)
+			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStoryState)
+
+			// User routes (admin only)
+			protected.GET("/users", authService.RequirePermission("users", "read"), h.ListUsers)
+			protected.GET("/users/:id", authService.RequirePermission("users", "read"), h.GetUser)
+			protected.POST("/users", authService.RequirePermission("users", "write"), h.CreateUser)
+			protected.PUT("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUser)
+			protected.DELETE("/users/:id", authService.RequirePermission("users", "write"), h.DeleteUser)
+			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUserState)
+			protected.PUT("/users/:id/password", authService.RequirePermission("users", "write"), h.ChangePassword)
+
+			// Station-Voice routes (for managing station-specific jingles)
+			protected.GET("/station_voices", authService.RequirePermission("voices", "read"), h.ListStationVoices)
+			protected.GET("/station_voices/:id", authService.RequirePermission("voices", "read"), h.GetStationVoice)
+			protected.GET("/station_voices/:id/audio", authService.RequirePermission("voices", "read"), h.GetStationVoiceAudio)
+			protected.POST("/station_voices", authService.RequirePermission("voices", "write"), h.CreateStationVoice)
+			protected.PUT("/station_voices/:id", authService.RequirePermission("voices", "write"), h.UpdateStationVoice)
+			protected.DELETE("/station_voices/:id", authService.RequirePermission("voices", "write"), h.DeleteStationVoice)
+
+			// Bulletin routes
+			protected.GET("/bulletins", authService.RequirePermission("bulletins", "read"), h.ListBulletins)
+			protected.POST("/stations/:id/bulletins/generate", authService.RequirePermission("bulletins", "generate"), h.GenerateBulletin)
+			protected.GET("/stations/:id/bulletins/latest", authService.RequirePermission("bulletins", "read"), h.GetLatestBulletin)
+			protected.GET("/stations/:id/bulletins/latest/audio", authService.RequirePermission("bulletins", "read"), h.GetLatestBulletinAudio)
+			protected.GET("/bulletins/:id/audio", authService.RequirePermission("bulletins", "read"), h.GetBulletinAudio)
+
+			// Story bulletin history
+			protected.GET("/stories/:id/bulletins", authService.RequirePermission("stories", "read"), h.GetStoryBulletinHistory)
+
+			// Stories included in bulletins
+			protected.GET("/bulletins/:id/stories", authService.RequirePermission("stories", "read"), h.GetBulletinStories)
+		}
+	}
+
+	// Health check
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status":  "ok",
+			"service": "babbel-api",
+		})
+	})
+
+	return r
+}
+
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
