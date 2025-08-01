@@ -22,6 +22,14 @@ Station-voice junction table:
 - Mix point defines when voice starts over jingle
 - Files stored as `station_{id}_voice_{id}_jingle.wav`
 
+## CORS
+
+Cross-Origin Resource Sharing (CORS) is configurable:
+- Set `BABBEL_ALLOWED_ORIGINS` environment variable
+- Empty/unset: API-only access (no browser access)
+- Comma-separated list: Only listed origins can access from browsers
+- Credentials (cookies) are supported when origin is allowed
+
 
 **Version:** 1.0.0  
 **Base URL:** http://localhost:8080/api/v1
