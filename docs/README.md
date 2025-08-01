@@ -10,17 +10,16 @@ Complete API documentation suite generated from the OpenAPI specification.
 ## Documentation Types
 
 ### Interactive HTML (`index.html`)
-- **Interactive**: Try API calls directly from the docs
-- **Responsive**: Works on desktop and mobile  
-- **Search**: Quick navigation through endpoints
-- **Code examples**: Multiple programming languages
-- **Modern UI**: Clean, professional design
+- Try API calls directly from the docs
+- Works on desktop and mobile  
+- Navigate through endpoints with search
+- Code examples in multiple languages
 
 ### Simple Markdown (`API_REFERENCE.md`)
-- **Quick reference**: Fast lookup of endpoints and parameters
-- **Copy-friendly**: Easy to copy/paste examples
-- **Version control**: Readable diffs in git
-- **Terminal-friendly**: View with `cat`, `less`, etc.
+- Fast lookup of endpoints and parameters
+- Copy/paste examples
+- Readable diffs in git
+- View with `cat`, `less`, etc.
 
 ## Generation
 
