@@ -26,7 +26,7 @@ services:
         max-file: "3"
 
   babbel:
-    build: .
+    image: ghcr.io/oszuidwest/zwfm-babbel:latest
     container_name: babbel-app
     environment:
       BABBEL_DB_HOST: mysql
