@@ -1,0 +1,75 @@
+name: Generate Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'openapi.yaml' ]
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  generate-docs:
+    name: Generate API Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    
+    - name: Check if docs exist
+      id: check_docs
+      run: |
+        if [[ ! -d "docs" ]] || [[ -z "$(ls -A docs/ 2>/dev/null)" ]]; then
+          echo "docs_missing=true" >> $GITHUB_OUTPUT
+          echo "📝 Documentation directory missing or empty"
+        else
+          echo "docs_missing=false" >> $GITHUB_OUTPUT
+          echo "✅ Documentation directory exists"
+        fi
+    
+    - name: Generate documentation
+      run: |
+        mkdir -p docs
+        echo "📝 Generating simple Markdown documentation..."
+        go run tools/docgen.go -input openapi.yaml -output docs/API_REFERENCE.md
+        
+        echo "📝 Generating interactive HTML documentation..."
+        npx -y @redocly/cli build-docs openapi.yaml \
+          --output=docs/index.html \
+          --title="Babbel API Documentation" 2>/dev/null
+        
+        echo "✅ Both simple and interactive documentation generated"
+    
+    - name: Check for changes
+      id: changes
+      run: |
+        # Check if docs were missing or if there are actual changes
+        if [[ "${{ steps.check_docs.outputs.docs_missing }}" == "true" ]] || [[ -n $(git status --porcelain docs/) ]]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "📝 Documentation changes detected"
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+          echo "✅ No documentation changes"
+        fi
+    
+    - name: Commit and push docs
+      if: steps.changes.outputs.has_changes == 'true'
+      run: |
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add docs/
+        git commit -m "docs: auto-update API documentation
+        
+        Generated from openapi.yaml v$(grep -m1 'version:' openapi.yaml | sed 's/.*version: //' | tr -d ' \"')
+        
+        [skip ci]"
+        git push
