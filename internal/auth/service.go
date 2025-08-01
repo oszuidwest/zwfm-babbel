@@ -27,11 +27,6 @@ type Service struct {
 	ginStore interface{} // Store the gin-contrib/sessions store
 }
 
-// GetAuthMethod returns the configured authentication method
-func (s *Service) GetAuthMethod() string {
-	return s.config.Method
-}
-
 // IsLocalEnabled returns true if local authentication is enabled
 func (s *Service) IsLocalEnabled() bool {
 	return s.config.Method == "local" || s.config.Method == "both"
