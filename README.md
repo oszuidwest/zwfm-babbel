@@ -101,13 +101,15 @@ make build
 
 | Variable | Description | Default | Example |
 |----------|-------------|---------|---------|
-| `BABBEL_DB_HOST` | MySQL host | `localhost` | `mysql` |
+| `MYSQL_ROOT_PASSWORD` | MySQL root password | - | `strong-root-password` |
+| `MYSQL_PASSWORD` | MySQL user password | - | `strong-user-password` |
+| `BABBEL_DB_HOST` | MySQL host | `mysql` (in Docker) | `mysql`, `localhost` |
 | `BABBEL_DB_USER` | MySQL user | `babbel` | `babbel` |
-| `BABBEL_DB_PASSWORD` | MySQL password | `babbel` | `secret123` |
+| `BABBEL_DB_PASSWORD` | MySQL password | - | Use `MYSQL_PASSWORD` |
 | `BABBEL_DB_NAME` | MySQL database | `babbel` | `babbel` |
 | `BABBEL_SESSION_SECRET` | 32-char session key | - | `your-32-character-secret-key-here` |
 | `BABBEL_AUTH_METHOD` | Auth method | `local` | `local`, `oauth`, `both` |
-| `BABBEL_ENVIRONMENT` | Environment | `development` | `production` |
+| `BABBEL_ENV` | Environment | `production` | `development`, `production` |
 | `BABBEL_ALLOWED_ORIGINS` | CORS origins | - | `https://babbel.zuidwest.cloud` |
 
 ### CORS Configuration

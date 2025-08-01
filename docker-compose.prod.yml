@@ -4,8 +4,8 @@ services:
     container_name: babbel-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: babbel
-      MYSQL_USER: babbel
+      MYSQL_DATABASE: ${BABBEL_DB_NAME:-babbel}
+      MYSQL_USER: ${BABBEL_DB_USER:-babbel}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: ${TZ}
     volumes:
@@ -27,14 +27,15 @@ services:
     image: ghcr.io/oszuidwest/zwfm-babbel:latest
     container_name: babbel-app
     environment:
-      BABBEL_DB_HOST: mysql
-      BABBEL_DB_USER: babbel
+      # Database configuration - can be overridden in .env
+      BABBEL_DB_HOST: ${BABBEL_DB_HOST:-mysql}
+      BABBEL_DB_USER: ${BABBEL_DB_USER:-babbel}
       BABBEL_DB_PASSWORD: ${MYSQL_PASSWORD}
-      BABBEL_DB_NAME: babbel
+      BABBEL_DB_NAME: ${BABBEL_DB_NAME:-babbel}
       BABBEL_SERVER_ADDRESS: ":8080"
       BABBEL_AUTH_METHOD: ${AUTH_METHOD}
       BABBEL_SESSION_SECRET: ${SESSION_SECRET}
-      BABBEL_ENV: production
+      BABBEL_ENV: ${BABBEL_ENV:-production}
       BABBEL_FFMPEG_PATH: "ffmpeg"
       # Optional OAuth/OIDC
       BABBEL_OIDC_PROVIDER_URL: ${OIDC_PROVIDER_URL}
