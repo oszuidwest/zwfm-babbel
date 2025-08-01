@@ -175,31 +175,3 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 
 	return buf.String(), nil
 }
-
-func formatSchema(schema interface{}) string {
-	// Simplified schema formatting
-	if schemaMap, ok := schema.(map[string]interface{}); ok {
-		if schemaData, ok := schemaMap["schema"].(map[string]interface{}); ok {
-			return formatSchemaData(schemaData, 0)
-		}
-	}
-	return "See OpenAPI specification for schema details"
-}
-
-func formatSchemaData(schema map[string]interface{}, indent int) string {
-	var result strings.Builder
-	prefix := strings.Repeat("  ", indent)
-
-	if t, ok := schema["type"].(string); ok {
-		result.WriteString(fmt.Sprintf("%sType: %s\n", prefix, t))
-	}
-
-	if props, ok := schema["properties"].(map[string]interface{}); ok {
-		result.WriteString(fmt.Sprintf("%sProperties:\n", prefix))
-		for name := range props {
-			result.WriteString(fmt.Sprintf("%s  - %s\n", prefix, name))
-		}
-	}
-
-	return result.String()
-}
