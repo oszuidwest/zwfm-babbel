@@ -80,16 +80,16 @@ func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := gin.H{
 		"methods": []string{},
 	}
-	
+
 	// Build available methods array
 	if h.authService.IsLocalEnabled() {
 		response["methods"] = append(response["methods"].([]string), "local")
 	}
-	
+
 	if h.authService.IsOAuthEnabled() {
 		response["methods"] = append(response["methods"].([]string), "oauth")
 		response["oauth_url"] = "/api/v1/session/oauth/start"
 	}
-	
+
 	c.JSON(http.StatusOK, response)
 }

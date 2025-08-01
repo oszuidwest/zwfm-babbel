@@ -827,7 +827,7 @@ test_api_endpoints() {
     # Test auth config endpoint
     response=$(curl -s -w "\n%{http_code}" "$API_URL/auth/config")
     http_code=$(echo "$response" | tail -n1)
-    body=$(echo "$response" | head -n -1)
+    body=$(echo "$response" | sed '$d')  # Remove last line (http_code)
     if [ "$http_code" = "200" ]; then
         # Check if response contains methods array
         if echo "$body" | jq -e '.methods | type == "array"' > /dev/null 2>&1; then

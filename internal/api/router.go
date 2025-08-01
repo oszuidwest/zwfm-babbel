@@ -181,7 +181,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
 			c.Writer.Header().Del("Access-Control-Allow-Headers")
 			c.Writer.Header().Del("Access-Control-Allow-Methods")
-			
+
 			// Set our CORS headers
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
