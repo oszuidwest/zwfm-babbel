@@ -585,6 +585,9 @@ if 'data' in data and len(data['data']) > 0:
         if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
             print_success "Story soft deleted: $story_title"
             
+            # Small delay to ensure database transaction completes
+            sleep 0.5
+            
             # Verify story is not in default list
             stories_after=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
             if echo "$stories_after" | grep -q "\"id\":$story_id"; then
@@ -992,6 +995,9 @@ if 'data' in data and len(data['data']) > 0:
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "204" ]; then
             print_success "Story soft deleted via PATCH: $story_title"
+            
+            # Small delay to ensure database transaction completes
+            sleep 0.5
             
             # Verify story is hidden
             stories_after=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
