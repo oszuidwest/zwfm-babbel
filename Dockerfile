@@ -1,5 +1,10 @@
 FROM golang:1.24-alpine AS builder
 
+# Build arguments
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+
 # Install FFmpeg
 RUN apk add --no-cache ffmpeg
 
@@ -12,8 +17,10 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o babbel cmd/babbel/main.go
+# Build the application with version information
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=${BUILD_TIME}" \
+    -o babbel cmd/babbel/main.go
 
 # Final stage
 FROM alpine:3.22

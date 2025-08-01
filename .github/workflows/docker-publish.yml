@@ -1,0 +1,156 @@
+name: Build and Publish Docker Image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to build'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., "v1.2.3", "latest", or "edge")'
+        required: true
+        default: 'latest'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set version from tag or latest
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION=${{ github.ref_name }}
+          elif [ "${{ github.event_name }}" = "workflow_call" ]; then
+            VERSION="${{ inputs.version }}"
+            # Checkout the tag if it's a version tag
+            if [[ "$VERSION" =~ ^v[0-9] ]]; then
+              git checkout "$VERSION"
+            fi
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.version }}" = "latest" ]; then
+              # Get the most recent tag
+              VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+              if [ -z "$VERSION" ]; then
+                echo "No tags found"
+                exit 1
+              fi
+              echo "GITHUB_REF=refs/tags/$VERSION" >> $GITHUB_ENV
+            elif [ "${{ inputs.version }}" = "edge" ]; then
+              VERSION="edge"
+            else
+              VERSION="${{ inputs.version }}"
+              # If version doesn't start with v, check if it's a valid tag
+              if [[ ! "$VERSION" =~ ^v ]]; then
+                # Check if tag exists with v prefix
+                if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+                  VERSION="v$VERSION"
+                fi
+              fi
+            fi
+          else
+            echo "Invalid workflow trigger"
+            exit 1
+          fi
+          
+          # Set outputs
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          
+          # Create Docker-compatible version (without 'v' prefix)
+          if [[ "$VERSION" =~ ^v[0-9] ]]; then
+            DOCKER_TAG="${VERSION#v}"
+          else
+            DOCKER_TAG="$VERSION"
+          fi
+          echo "docker_tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+          
+          # Parse semantic version components if applicable
+          if [[ $DOCKER_TAG =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "major=${BASH_REMATCH[1]}" >> $GITHUB_OUTPUT
+            echo "minor=${BASH_REMATCH[2]}" >> $GITHUB_OUTPUT
+            echo "patch=${BASH_REMATCH[3]}" >> $GITHUB_OUTPUT
+            echo "is_semver=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_semver=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "Version: ${VERSION} (Docker: ${DOCKER_TAG})"
+
+      - name: Checkout tag (for manual builds with tag)
+        if: github.event_name == 'workflow_dispatch' && inputs.use_latest_tag && steps.version.outputs.version != 'edge'
+        run: |
+          git checkout ${{ steps.version.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # For tag pushes: Docker tags without v prefix (1.2.3) from Git tags (v1.2.3)
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ steps.version.outputs.is_semver == 'true' && inputs.version != 'edge' }}
+            
+            # For manual builds with latest tag - explicit version tags
+            # For manual edge builds
+            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' && inputs.version == 'edge' }}
+            
+            # For manual version builds
+            type=raw,value=${{ steps.version.outputs.docker_tag }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != 'edge' && inputs.version != 'latest' && steps.version.outputs.is_semver == 'true' }}
+            type=raw,value=${{ steps.version.outputs.major }}.${{ steps.version.outputs.minor }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != 'edge' && inputs.version != 'latest' && steps.version.outputs.is_semver == 'true' }}
+            type=raw,value=${{ steps.version.outputs.major }},enable=${{ github.event_name == 'workflow_dispatch' && inputs.version != 'edge' && inputs.version != 'latest' && steps.version.outputs.is_semver == 'true' }}
+          labels: |
+            org.opencontainers.image.title=Babbel
+            org.opencontainers.image.description=Audio bulletin generation API for radio automation
+            org.opencontainers.image.vendor=Streekomroep ZuidWest
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.version=${{ steps.version.outputs.version == 'edge' && 'edge' || steps.version.outputs.docker_tag }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.event.repository.updated_at }}

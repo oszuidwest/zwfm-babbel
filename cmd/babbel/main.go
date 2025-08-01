@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,9 +17,19 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/database"
 	"github.com/oszuidwest/zwfm-babbel/internal/scheduler"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"github.com/oszuidwest/zwfm-babbel/pkg/version"
 )
 
 func main() {
+	// Parse command line flags
+	showVersion := flag.Bool("version", false, "Show version information")
+	flag.Parse()
+
+	// Show version if requested
+	if *showVersion {
+		fmt.Printf("babbel %s (commit: %s, built: %s)\n", version.Version, version.Commit, version.BuildTime)
+		os.Exit(0)
+	}
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -67,7 +79,7 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		logger.Info("Starting Babbel API server on %s", cfg.Server.Address)
+		logger.Info("Starting Babbel API server on %s (version: %s, commit: %s)", cfg.Server.Address, version.Version, version.Commit)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Fatal("Failed to start server: %v", err)
 		}

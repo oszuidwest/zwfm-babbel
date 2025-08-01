@@ -14,7 +14,7 @@ help:
 
 # Build the application
 build:
-	go build -o babbel cmd/babbel/main.go
+	go build -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=dev -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=$$(git rev-parse --short HEAD) -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=$$(date -u +%FT%TZ)" -o babbel cmd/babbel/main.go
 
 # Run the application
 run:
