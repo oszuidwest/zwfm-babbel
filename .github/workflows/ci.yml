@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: true
+    
+    - name: Install FFmpeg
+      run: sudo apt-get update && sudo apt-get install -y ffmpeg
+    
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+    
+    - name: Install tools
+      run: |
+        go install golang.org/x/tools/cmd/deadcode@latest
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Quality checks
+      run: |
+        export PATH="$PATH:$(go env GOPATH)/bin"
+        make quality
+    
+    - name: Setup docker-compose compatibility
+      run: |
+        # Create symlink for docker-compose v1 compatibility
+        sudo ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+        docker --version
+        docker-compose --version
+    
+    - name: Run complete tests
+      run: |
+        mkdir -p audio/{processed,output,temp,voices,stories}
+        # Add debugging to see what files are created
+        ./scripts/test-everything.sh || {
+          echo "Test failed, showing debug info:"
+          echo "Audio directory contents:"
+          find audio -type f -ls || true
+          echo "Docker logs:"
+          docker-compose logs babbel || true
+          exit 1
+        }
