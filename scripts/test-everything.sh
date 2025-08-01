@@ -824,6 +824,21 @@ test_api_endpoints() {
         print_error "Health endpoint"
     fi
     
+    # Test auth config endpoint
+    response=$(curl -s -w "\n%{http_code}" "$API_URL/auth/config")
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | head -n -1)
+    if [ "$http_code" = "200" ]; then
+        # Check if response contains methods array
+        if echo "$body" | jq -e '.methods | type == "array"' > /dev/null 2>&1; then
+            print_success "Auth config endpoint"
+        else
+            print_error "Auth config endpoint - invalid response format"
+        fi
+    else
+        print_error "Auth config endpoint"
+    fi
+    
     # Test current user endpoint
     response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/session" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)

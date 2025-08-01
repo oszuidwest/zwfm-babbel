@@ -97,6 +97,35 @@ paths:
                     type: string
                     example: babbel-api
 
+  /auth/config:
+    get:
+      summary: Get authentication configuration
+      description: Returns available authentication methods for the API
+      tags:
+        - Authentication
+      security: []
+      responses:
+        '200':
+          description: Authentication configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - methods
+                properties:
+                  methods:
+                    type: array
+                    description: Available authentication methods
+                    items:
+                      type: string
+                      enum: [local, oauth]
+                    example: ["local", "oauth"]
+                  oauth_url:
+                    type: string
+                    description: URL to start OAuth flow (only present when OAuth is enabled)
+                    example: "/api/v1/session/oauth/start"
+
   /session/login:
     post:
       summary: Login with username and password (local authentication)
