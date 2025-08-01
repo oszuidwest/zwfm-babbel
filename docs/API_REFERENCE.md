@@ -44,6 +44,7 @@ All endpoints require session-based authentication (except health and login).
 
 | Method | Endpoint | Description | Parameters | Request Body |
 |--------|----------|-------------|------------|--------------|
+| GET | /auth/config | Get authentication configuration | - | - |
 | GET | /bulletins | List bulletins | , , station_id, include_stories | - |
 | GET | /bulletins/{id}/audio | Download bulletin audio file |  | - |
 | GET | /bulletins/{id}/stories | List stories included in a bulletin | , ,  | - |
