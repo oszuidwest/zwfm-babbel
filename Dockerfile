@@ -29,8 +29,8 @@ FROM alpine:3.22
 RUN apk add --no-cache ffmpeg tzdata
 
 # Create app user
-RUN addgroup -g 1001 -S app && \
-    adduser -u 1001 -S app -G app
+RUN addgroup -g 1001 -S app \
+    && adduser -u 1001 -S app -G app
 
 WORKDIR /app
 
@@ -41,11 +41,13 @@ COPY --from=builder /app/babbel .
 COPY migrations/ ./migrations/
 
 # Create required directories
-RUN mkdir -p uploads audio/{processed,output,temp} && \
-    chown -R app:app /app
+RUN mkdir -p uploads audio/{processed,output,temp} \
+    && chown -R app:app /app
 
 USER app
 
 EXPOSE 8080
 
+# Environment variables (including CORS) are configured via docker-compose
+# See docker-compose.yml and .env.example for configuration options
 CMD ["./babbel"]

@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+LICENSE
+
+# CI/CD
+.github/
+
+# Development files
+docker-compose*.yml
+Dockerfile
+.dockerignore
+Makefile
+
+# Environment files
+.env
+.env.*
+
+# Test files
+*_test.go
+test_cookies.txt
+scripts/test-everything.sh
+
+# Build artifacts
+babbel
+dist/
+
+# Audio files (will be created at runtime)
+audio/
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Go
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Workflow diff overview (temporary file)
+workflow-diff-overview.md

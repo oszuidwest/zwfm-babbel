@@ -18,7 +18,8 @@ type Config struct {
 
 // ServerConfig holds server-related configuration.
 type ServerConfig struct {
-	Address string
+	Address        string
+	AllowedOrigins string // Comma-separated list of allowed origins for CORS
 }
 
 // DatabaseConfig holds database connection configuration.
@@ -58,7 +59,8 @@ type AudioConfig struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
-			Address: getEnv("BABBEL_SERVER_ADDRESS", ":8080"),
+			Address:        getEnv("BABBEL_SERVER_ADDRESS", ":8080"),
+			AllowedOrigins: getEnv("BABBEL_ALLOWED_ORIGINS", ""),
 		},
 		Database: DatabaseConfig{
 			Host:           getEnv("BABBEL_DB_HOST", "localhost"),

@@ -23,6 +23,14 @@ info:
     - Each voice has different jingles per station
     - Mix point defines when voice starts over jingle
     - Files stored as `station_{id}_voice_{id}_jingle.wav`
+    
+    ## CORS
+    
+    Cross-Origin Resource Sharing (CORS) is configurable:
+    - Set `BABBEL_ALLOWED_ORIGINS` environment variable
+    - Empty/unset: API-only access (no browser access)
+    - Comma-separated list: Only listed origins can access from browsers
+    - Credentials (cookies) are supported when origin is allowed
   version: 1.0.0
   x-changelog:
     1.0.0:

@@ -57,6 +57,7 @@ curl http://localhost:8080/api/v1/stations/1/bulletins/latest/audio \
 | **MySQL port** | Exposed (3306) | Internal only |
 | **Auth method** | Local only | Configurable (local/oauth) |
 | **Environment** | `development` | `production` |
+| **CORS** | Localhost ports | Configurable via `BABBEL_ALLOWED_ORIGINS` |
 | **Health checks** | Basic | Full monitoring |
 | **Log rotation** | None | 10MB/3 files |
 | **Restart policy** | `unless-stopped` | `always` |
@@ -85,6 +86,8 @@ make build
    export BABBEL_DB_USER=babbel  
    export BABBEL_DB_PASSWORD=your_password
    export BABBEL_SESSION_SECRET=your-32-char-secret
+   # Optional: Enable CORS for web frontend
+   export BABBEL_ALLOWED_ORIGINS=http://localhost:3000
    ```
 3. **Run**: `go run cmd/babbel/main.go`
 
@@ -93,6 +96,27 @@ make build
 - Local: Username/password (default: admin/admin)
 - OAuth: Azure AD, Google, or any OIDC provider
 - Sessions: HTTP-only cookies
+
+## Environment Variables
+
+| Variable | Description | Default | Example |
+|----------|-------------|---------|---------|
+| `BABBEL_DB_HOST` | MySQL host | `localhost` | `mysql` |
+| `BABBEL_DB_USER` | MySQL user | `babbel` | `babbel` |
+| `BABBEL_DB_PASSWORD` | MySQL password | `babbel` | `secret123` |
+| `BABBEL_DB_NAME` | MySQL database | `babbel` | `babbel` |
+| `BABBEL_SESSION_SECRET` | 32-char session key | - | `your-32-character-secret-key-here` |
+| `BABBEL_AUTH_METHOD` | Auth method | `local` | `local`, `oauth`, `both` |
+| `BABBEL_ENVIRONMENT` | Environment | `development` | `production` |
+| `BABBEL_ALLOWED_ORIGINS` | CORS origins | - | `https://babbel.zuidwest.cloud` |
+
+### CORS Configuration
+
+Control browser access to the API:
+- **Empty/unset**: API-only access (no browser access)
+- **Single origin**: `BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud`
+- **Multiple origins**: `BABBEL_ALLOWED_ORIGINS=https://app1.com,https://app2.com`
+- **Development**: `BABBEL_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173`
 
 ## Workflow
 

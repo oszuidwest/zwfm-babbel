@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -69,7 +70,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	r.Use(authService.SessionMiddleware())
 
 	// CORS middleware
-	r.Use(corsMiddleware())
+	r.Use(corsMiddleware(cfg))
 
 	// API v1 routes
 	v1 := r.Group("/api/v1")
@@ -156,12 +157,27 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	return r
 }
 
-func corsMiddleware() gin.HandlerFunc {
+func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		origin := c.Request.Header.Get("Origin")
+
+		// If no allowed origins are configured, disable CORS (secure by default)
+		if cfg.Server.AllowedOrigins == "" {
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(204)
+				return
+			}
+			c.Next()
+			return
+		}
+
+		// Check if the origin is in the allowed list
+		if isAllowedOrigin(origin, cfg.Server.AllowedOrigins) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		}
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -170,4 +186,22 @@ func corsMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+// isAllowedOrigin checks if the origin is in the comma-separated list of allowed origins
+func isAllowedOrigin(origin string, allowedOrigins string) bool {
+	if origin == "" {
+		return false
+	}
+
+	// Split the allowed origins by comma
+	origins := strings.Split(allowedOrigins, ",")
+	for _, allowed := range origins {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == origin {
+			return true
+		}
+	}
+
+	return false
 }
