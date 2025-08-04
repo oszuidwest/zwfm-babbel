@@ -93,9 +93,39 @@ make build
 
 ## Authentication
 
-- Local: Username/password (default: admin/admin)
-- OAuth: Azure AD, Google, or any OIDC provider
-- Sessions: HTTP-only cookies
+- **Local**: Username/password (default: admin/admin)
+- **OAuth/OIDC**: Microsoft Entra ID, Google, or any OIDC provider
+- **Sessions**: HTTP-only cookies with CSRF protection
+
+### OAuth Setup (Microsoft Entra ID)
+
+For headless setups with separate frontend:
+
+1. **Azure AD App Registration**:
+   - Redirect URI: `https://your-api-domain.com/api/v1/session/oauth/callback`
+   - API permissions: `openid`, `profile`, `email`
+
+2. **Environment variables**:
+   ```bash
+   AUTH_METHOD=both                    # Enable both local and OAuth
+   OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
+   OIDC_CLIENT_ID=your-client-id
+   OIDC_CLIENT_SECRET=your-client-secret
+   OIDC_REDIRECT_URL=https://your-api-domain.com/api/v1/session/oauth/callback
+   BABBEL_FRONTEND_URL=https://your-frontend-domain.com  # Required for OAuth
+   ```
+
+3. **Frontend integration**:
+   ```javascript
+   // Redirect to Microsoft login
+   window.location.href = 'https://your-api-domain.com/api/v1/session/oauth/start?frontend_url=' 
+     + encodeURIComponent('https://your-frontend.com/dashboard');
+   
+   // After login, user returns to: https://your-frontend.com/dashboard?login=success
+   ```
+
+- **Auto-provisioning**: New users get 'viewer' role automatically
+- **Tenant restriction**: Only users from your Azure AD tenant can login
 
 ## Environment Variables
 
@@ -110,7 +140,17 @@ make build
 | `BABBEL_SESSION_SECRET` | 32-char session key | - | `your-32-character-secret-key-here` |
 | `BABBEL_AUTH_METHOD` | Auth method | `local` | `local`, `oauth`, `both` |
 | `BABBEL_ENV` | Environment | `production` | `development`, `production` |
+| `BABBEL_FRONTEND_URL` | Frontend redirect URL | - | `https://your-frontend.com` |
 | `BABBEL_ALLOWED_ORIGINS` | CORS origins | - | `https://babbel.zuidwest.cloud` |
+
+### OAuth/OIDC Variables
+
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `OIDC_PROVIDER_URL` | OIDC provider URL | Yes | `https://login.microsoftonline.com/TENANT-ID/v2.0` |
+| `OIDC_CLIENT_ID` | OAuth client ID | Yes | `12345678-1234-1234-1234-123456789012` |
+| `OIDC_CLIENT_SECRET` | OAuth client secret | Yes | `your-client-secret` |
+| `OIDC_REDIRECT_URL` | OAuth callback URL | Yes | `https://api.domain.com/api/v1/session/oauth/callback` |
 
 ### CORS Configuration
 

@@ -2,6 +2,7 @@ package api
 
 import (
 	"log"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -55,7 +56,12 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 		log.Fatalf("Failed to create auth service: %v", err)
 	}
 
-	authHandlers := NewAuthHandlers(authService)
+	// Get frontend URL from environment (required if using OAuth)
+	frontendURL := getEnv("BABBEL_FRONTEND_URL", "")
+	if frontendURL == "" && (cfg.Auth.Method == "oidc" || cfg.Auth.Method == "both") {
+		log.Fatalf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
+	}
+	authHandlers := NewAuthHandlers(authService, frontendURL)
 
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
@@ -215,4 +221,12 @@ func isAllowedOrigin(origin string, allowedOrigins string) bool {
 	}
 
 	return false
+}
+
+// getEnv gets environment variable with default fallback
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

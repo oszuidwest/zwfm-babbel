@@ -11,12 +11,14 @@ import (
 // AuthHandlers handles authentication endpoints
 type AuthHandlers struct {
 	authService *auth.Service
+	frontendURL string
 }
 
 // NewAuthHandlers creates new auth handlers
-func NewAuthHandlers(authService *auth.Service) *AuthHandlers {
+func NewAuthHandlers(authService *auth.Service, frontendURL string) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
+		frontendURL: frontendURL,
 	}
 }
 
@@ -47,13 +49,28 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 
 // HandleOAuthCallback processes the OAuth provider callback
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// Get frontend URL from session or use configured fallback
+	session := h.authService.GetSession(c)
+	var frontendURL string
+	if sessionURL := session.Get("frontend_url"); sessionURL != nil {
+		frontendURL = sessionURL.(string)
+	} else if h.frontendURL != "" {
+		frontendURL = h.frontendURL
+	} else {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No frontend URL configured"})
 		return
 	}
 
-	// Return success instead of redirect
-	c.JSON(http.StatusOK, gin.H{"message": "Login successful", "redirect": "/dashboard"})
+	if err := h.authService.FinishOAuthFlow(c); err != nil {
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+err.Error())
+		return
+	}
+
+	// Clean up session
+	session.Delete("frontend_url")
+	session.Save(c)
+	
+	c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?login=success")
 }
 
 // Logout destroys the session

@@ -314,6 +314,12 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	state := generateState()
 	session := s.sessions.Get(c)
 	session.Set("oauth_state", state)
+	
+	// Store frontend URL for later redirect
+	frontendURL := c.Query("frontend_url")
+	if frontendURL != "" {
+		session.Set("frontend_url", frontendURL)
+	}
 	_ = session.Save(c)
 
 	// Redirect to provider
@@ -410,6 +416,16 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session.Set("role", role)
 
 	return session.Save(c)
+}
+
+// GetSession returns the session for a context
+func (s *Service) GetSession(c *gin.Context) interface {
+	Get(key string) interface{}
+	Set(key string, value interface{})
+	Delete(key string)
+	Save(c *gin.Context) error
+} {
+	return s.sessions.Get(c)
 }
 
 // Logout destroys the user session

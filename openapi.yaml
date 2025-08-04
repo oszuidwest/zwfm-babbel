@@ -6,9 +6,11 @@ info:
     
     ## Authentication
     
-    - Local: Username/password with session cookies
-    - OAuth/OIDC: Azure AD, Google, Okta support
-    - Account lockout protection
+    - **Local**: Username/password with session cookies
+    - **OAuth/OIDC**: Microsoft Entra ID, Google, Okta support
+    - **Headless Support**: Frontend redirect flow for separate API/UI domains
+    - **Auto-provisioning**: New OAuth users get 'viewer' role automatically
+    - **Account lockout protection**: Failed login attempt tracking
     
     ## Authorization
     
@@ -173,7 +175,20 @@ paths:
       tags:
         - Authentication
       security: []
-      description: Redirects to the configured OAuth provider (Azure AD, Google, etc.)
+      description: |
+        Redirects to the configured OAuth provider (Azure AD, Google, etc.).
+        For headless frontends, specify `frontend_url` parameter to control where users are redirected after login.
+      parameters:
+        - name: frontend_url
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+          description: |
+            Frontend URL to redirect to after successful authentication.
+            If not provided, uses BABBEL_FRONTEND_URL environment variable.
+          example: "https://your-frontend.com/dashboard"
       responses:
         '302':
           description: Redirect to OAuth provider
@@ -195,7 +210,9 @@ paths:
       tags:
         - Authentication
       security: []
-      description: Handles the OAuth callback from the provider
+      description: |
+        Handles the OAuth callback from the provider and redirects to the frontend.
+        This endpoint is called by the OAuth provider after user authentication.
       parameters:
         - name: code
           in: query
@@ -209,16 +226,34 @@ paths:
           schema:
             type: string
           description: CSRF protection state
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Error from OAuth provider (if authentication failed)
       responses:
         '302':
-          description: Redirect to dashboard after successful authentication
+          description: Redirect to frontend application
           headers:
             Location:
               schema:
                 type: string
-                default: /dashboard
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                description: |
+                  Frontend URL with status parameters:
+                  - Success: `https://frontend.com/dashboard?login=success`
+                  - Error: `https://frontend.com/dashboard?error=<error_message>`
+              examples:
+                success:
+                  value: "https://your-frontend.com/dashboard?login=success"
+                error:
+                  value: "https://your-frontend.com/dashboard?error=invalid_credentials"
+        '500':
+          description: No frontend URL configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /session:
     get:
