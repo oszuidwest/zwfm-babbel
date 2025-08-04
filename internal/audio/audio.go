@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Service handles audio processing operations.
@@ -99,7 +100,9 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int
 			return "", fmt.Errorf("failed to open temp file: %w", err)
 		}
 		defer func() {
-			_ = input.Close()
+			if err := input.Close(); err != nil {
+				logger.Error("Failed to close input file: %v", err)
+			}
 		}()
 
 		// #nosec G304 - finalPath is internally generated path, not user input
@@ -108,14 +111,18 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int
 			return "", fmt.Errorf("failed to create output file: %w", err)
 		}
 		defer func() {
-			_ = output.Close()
+			if err := output.Close(); err != nil {
+				logger.Error("Failed to close output file: %v", err)
+			}
 		}()
 
 		if _, err := io.Copy(output, input); err != nil {
 			return "", fmt.Errorf("failed to copy file: %w", err)
 		}
 
-		_ = os.Remove(tempOutput)
+		if err := os.Remove(tempOutput); err != nil {
+			logger.Error("Failed to remove temp file %s: %v", tempOutput, err)
+		}
 	}
 
 	return finalPath, nil

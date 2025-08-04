@@ -10,6 +10,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/validation"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetStationVoiceAudioURL returns the API URL for a station-voice jingle file
@@ -150,7 +151,9 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 
 		// Clean up temp file after processing
 		defer func() {
-			_ = os.Remove(tempPath)
+			if err := os.Remove(tempPath); err != nil {
+				logger.Error("Failed to remove temp file %s: %v", tempPath, err)
+			}
 		}()
 
 		// Process jingle with audio service using station-specific processing
@@ -247,7 +250,9 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 		// Clean up temp file after processing
 		defer func() {
-			_ = os.Remove(tempPath)
+			if err := os.Remove(tempPath); err != nil {
+				logger.Error("Failed to remove temp file %s: %v", tempPath, err)
+			}
 		}()
 
 		// Process jingle with audio service using station-specific processing

@@ -16,6 +16,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
+
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Service handles authentication and authorization
@@ -218,7 +220,9 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		err := s.db.Get(&user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userID)
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete("user_id")
-			_ = session.Save(c)
+			if err := session.Save(c); err != nil {
+				logger.Error("Failed to save session during cleanup: %v", err)
+			}
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
 			c.Abort()
 			return
@@ -281,17 +285,21 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		// Update failed login attempts
-		_, _ = s.db.Exec("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?", user.ID)
+		if _, dbErr := s.db.Exec("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?", user.ID); dbErr != nil {
+			logger.Error("Failed to update failed login attempts: %v", dbErr)
+		}
 		return fmt.Errorf("invalid credentials")
 	}
 
 	// Update login stats
-	_, _ = s.db.Exec(`
+	if _, err := s.db.Exec(`
 		UPDATE users 
 		SET last_login_at = NOW(), 
 		    login_count = login_count + 1,
 		    failed_login_attempts = 0
-		WHERE id = ?`, user.ID)
+		WHERE id = ?`, user.ID); err != nil {
+		logger.Error("Failed to update login stats: %v", err)
+	}
 
 	// Create session
 	session := s.sessions.Get(c)
@@ -314,13 +322,17 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	state := generateState()
 	session := s.sessions.Get(c)
 	session.Set("oauth_state", state)
-	
+
 	// Store frontend URL for later redirect
 	frontendURL := c.Query("frontend_url")
 	if frontendURL != "" {
 		session.Set("frontend_url", frontendURL)
 	}
-	_ = session.Save(c)
+	if err := session.Save(c); err != nil {
+		logger.Error("Failed to save OAuth session: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session error"})
+		return
+	}
 
 	// Redirect to provider
 	url := s.config.OIDC.OAuth2Config.AuthCodeURL(state)
@@ -412,7 +424,11 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	// Get user role
 	var role string
-	_ = s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID)
+	if err := s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
+		logger.Error("Failed to get user role: %v", err)
+		// Default to viewer role if query fails
+		role = "viewer"
+	}
 	session.Set("role", role)
 
 	return session.Save(c)
@@ -432,7 +448,9 @@ func (s *Service) GetSession(c *gin.Context) interface {
 func (s *Service) Logout(c *gin.Context) {
 	session := s.sessions.Get(c)
 	session.Clear()
-	_ = session.Save(c)
+	if err := session.Save(c); err != nil {
+		logger.Error("Failed to save session during logout: %v", err)
+	}
 }
 
 // generateState generates a random state string for OAuth2

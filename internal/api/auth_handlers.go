@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // AuthHandlers handles authentication endpoints
@@ -68,8 +69,10 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 
 	// Clean up session
 	session.Delete("frontend_url")
-	session.Save(c)
-	
+	if err := session.Save(c); err != nil {
+		logger.Error("Failed to save session after cleanup: %v", err)
+	}
+
 	c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?login=success")
 }
 

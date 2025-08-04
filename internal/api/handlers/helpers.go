@@ -5,6 +5,8 @@ import (
 	"mime/multipart"
 	"os"
 	"strings"
+
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // saveFile saves a file to the specified path
@@ -16,7 +18,9 @@ func saveFile(file multipart.File, dst string) error {
 		return err
 	}
 	defer func() {
-		_ = out.Close()
+		if err := out.Close(); err != nil {
+			logger.Error("Failed to close output file: %v", err)
+		}
 	}()
 
 	_, err = io.Copy(out, file)

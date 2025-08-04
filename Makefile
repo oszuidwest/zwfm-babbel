@@ -42,8 +42,12 @@ lint:
 quality: lint
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
-	@if command -v deadcode >/dev/null 2>&1; then \
-		deadcode_output=$$(deadcode ./... 2>&1 | grep -v "database/connection.go:.*func: Migrate" || true); \
+	@if command -v deadcode >/dev/null 2>&1 || [ -f "$$(go env GOPATH)/bin/deadcode" ]; then \
+		DEADCODE_CMD="deadcode"; \
+		if ! command -v deadcode >/dev/null 2>&1; then \
+			DEADCODE_CMD="$$(go env GOPATH)/bin/deadcode"; \
+		fi; \
+		deadcode_output=$$($$DEADCODE_CMD ./... 2>&1 | grep -v "database/connection.go:.*func: Migrate" || true); \
 		if [ -n "$$deadcode_output" ]; then \
 			echo "❌ Found dead code:"; \
 			echo "$$deadcode_output"; \
@@ -55,8 +59,12 @@ quality: lint
 		echo "deadcode not installed, install with: go install golang.org/x/tools/cmd/deadcode@latest"; \
 	fi
 	@echo "Running staticcheck..."
-	@if command -v staticcheck >/dev/null 2>&1; then \
-		staticcheck ./...; \
+	@if command -v staticcheck >/dev/null 2>&1 || [ -f "$$(go env GOPATH)/bin/staticcheck" ]; then \
+		STATICCHECK_CMD="staticcheck"; \
+		if ! command -v staticcheck >/dev/null 2>&1; then \
+			STATICCHECK_CMD="$$(go env GOPATH)/bin/staticcheck"; \
+		fi; \
+		$$STATICCHECK_CMD ./...; \
 		echo "✅ staticcheck passed!"; \
 	else \
 		echo "staticcheck not installed, install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; \

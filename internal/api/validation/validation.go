@@ -6,6 +6,8 @@ import (
 	"mime/multipart"
 	"path/filepath"
 	"strings"
+
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // AllowedAudioExtensions defines the allowed audio file extensions
@@ -60,7 +62,9 @@ func ValidateAudioFile(fileHeader *multipart.FileHeader) error {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer func() {
-		_ = file.Close()
+		if err := file.Close(); err != nil {
+			logger.Error("Failed to close validation file: %v", err)
+		}
 	}()
 
 	// Read first 512 bytes to detect content type

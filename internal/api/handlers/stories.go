@@ -13,6 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/validation"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetStoryAudioURL returns the API URL for a story's audio file, or nil if no audio exists.
@@ -303,7 +304,9 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	file, header, err := c.Request.FormFile("audio")
 	if err == nil {
 		defer func() {
-			_ = file.Close()
+			if err := file.Close(); err != nil {
+				logger.Error("Failed to close uploaded file: %v", err)
+			}
 		}()
 
 		// Validate audio file
@@ -441,7 +444,9 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	file, header, err := c.Request.FormFile("audio")
 	if err == nil {
 		defer func() {
-			_ = file.Close()
+			if err := file.Close(); err != nil {
+				logger.Error("Failed to close uploaded file: %v", err)
+			}
 		}()
 
 		// Validate audio file
