@@ -4,9 +4,11 @@ HTTP API for generating audio news bulletins. Combines news stories with station
 
 ## Authentication
 
-- Local: Username/password with session cookies
-- OAuth/OIDC: Azure AD, Google, Okta support
-- Account lockout protection
+- **Local**: Username/password with session cookies
+- **OAuth/OIDC**: Microsoft Entra ID, Google, Okta support
+- **Headless Support**: Frontend redirect flow for separate API/UI domains
+- **Auto-provisioning**: New OAuth users get 'viewer' role automatically
+- **Account lockout protection**: Failed login attempt tracking
 
 ## Authorization
 
@@ -52,8 +54,8 @@ All endpoints require session-based authentication (except health and login).
 | DELETE | /session | Logout and destroy session | - | - |
 | GET | /session | Get current user information | - | - |
 | POST | /session/login | Login with username and password (local authentication) | - | JSON |
-| GET | /session/oauth/callback | OAuth callback endpoint | code*, state* | - |
-| GET | /session/oauth/start | Start OAuth/OIDC authentication flow | - | - |
+| GET | /session/oauth/callback | OAuth callback endpoint | code*, state*, error | - |
+| GET | /session/oauth/start | Start OAuth/OIDC authentication flow | frontend_url | - |
 | GET | /station_voices | List station-voice relationships | , , station_id, voice_id | - |
 | POST | /station_voices | Create a new station-voice relationship | - | Form |
 | DELETE | /station_voices/{id} | Delete station-voice relationship |  | - |
