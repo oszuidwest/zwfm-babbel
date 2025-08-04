@@ -52,8 +52,8 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	// Redirect to frontend dashboard or return success
-	c.Redirect(http.StatusTemporaryRedirect, "/dashboard")
+	// Return success instead of redirect
+	c.JSON(http.StatusOK, gin.H{"message": "Login successful", "redirect": "/dashboard"})
 }
 
 // Logout destroys the session

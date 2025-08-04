@@ -26,6 +26,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			ClientID:     cfg.Auth.OIDCClientID,
 			ClientSecret: cfg.Auth.OIDCClientSecret,
 			RedirectURL:  cfg.Auth.OIDCRedirectURL,
+			Scopes:       []string{"openid", "profile", "email"},
 		},
 		Local: auth.LocalConfig{
 			Enabled:                cfg.Auth.Method == "local" || cfg.Auth.Method == "both",
