@@ -66,18 +66,24 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	responses.Paginated(c, users, total, limit, offset)
 }
 
-// GetUser returns a single user by ID.
-func (h *Handlers) GetUser(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "user")
-	if !ok {
-		return
-	}
-
+// fetchUserByID retrieves a user from the database by ID.
+// It returns the user data and any database error encountered.
+func (h *Handlers) fetchUserByID(id int) (*UserResponse, error) {
 	var user UserResponse
 	err := h.db.Get(&user,
 		"SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, password_changed_at, created_at, updated_at FROM users WHERE id = ?",
 		id,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+// RespondWithUser handles the standard user response pattern including error handling.
+// It sends appropriate HTTP responses based on the error type.
+func (h *Handlers) RespondWithUser(c *gin.Context, id int) {
+	user, err := h.fetchUserByID(id)
 	if err == sql.ErrNoRows {
 		responses.NotFound(c, "User not found")
 		return
@@ -88,6 +94,16 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	}
 
 	responses.Success(c, user)
+}
+
+// GetUser handles GET /users/:id requests.
+func (h *Handlers) GetUser(c *gin.Context) {
+	id, ok := validateAndGetIDParam(c, "user")
+	if !ok {
+		return
+	}
+
+	h.RespondWithUser(c, id)
 }
 
 // CreateUser creates a new user account.

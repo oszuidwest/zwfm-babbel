@@ -33,8 +33,12 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 1.0.0
+  version: 1.0.4
   x-changelog:
+    1.0.4:
+      - "GET /session endpoint now returns complete User object with all fields"
+    1.0.2:
+      - "Added GET /api/v1/auth/config endpoint for authentication method discovery"
     1.0.0:
       - "Initial stable release"
       - "HTTP API for audio news bulletin generation"
@@ -260,21 +264,14 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
+      description: Returns the complete user object for the authenticated user, including full_name, email, and login statistics.
       responses:
         '200':
           description: Current user information
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                  username:
-                    type: string
-                  role:
-                    type: string
-                    enum: [admin, editor, viewer]
+                $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
     delete:

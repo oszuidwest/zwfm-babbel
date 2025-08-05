@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2025-08-06
+
+### Changed
+- GET /session endpoint now returns complete User object with all fields (full_name, email, last_login_at, login_count, etc.)
+
+### Fixed
+- OAuth/OIDC login now properly updates last_login_at and login_count
+- OAuth/OIDC login now updates user's full_name and email from identity provider claims
+- Malformed function signature in auth service
+
+## [1.0.3] - 2025-08-01
+
+### Added
+- Frontend redirect support for SSO/OAuth flows
+
+### Changed
+- Improved error handling throughout the application
+
+### Fixed
+- SSO authentication flow issues
+
+### Dependencies
+- Updated github.com/casbin/casbin/v2 from 2.111.0 to 2.115.0
+
+## [1.0.2] - 2025-08-01
+
+### Added
+- Public GET /auth/config endpoint for frontend authentication discovery
+
+## [1.0.1] - 2025-08-01
+
+### Fixed
+- CORS security configuration
+- CI test environment issues
+- Docker production image configuration
+
 ## [1.0.0] - 2025-01-08
 
 ### Added

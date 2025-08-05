@@ -61,7 +61,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	if frontendURL == "" && (cfg.Auth.Method == "oidc" || cfg.Auth.Method == "both") {
 		log.Fatalf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
 	}
-	authHandlers := NewAuthHandlers(authService, frontendURL)
+	authHandlers := NewAuthHandlers(authService, frontendURL, h)
 
 	// Set Gin mode based on environment
 	if cfg.Environment == "production" {

@@ -5,21 +5,24 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// AuthHandlers handles authentication endpoints
+// AuthHandlers contains handlers for authentication-related endpoints.
 type AuthHandlers struct {
 	authService *auth.Service
 	frontendURL string
+	handlers    *handlers.Handlers
 }
 
-// NewAuthHandlers creates new auth handlers
-func NewAuthHandlers(authService *auth.Service, frontendURL string) *AuthHandlers {
+// NewAuthHandlers creates a new AuthHandlers instance.
+func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.Handlers) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
 		frontendURL: frontendURL,
+		handlers:    h,
 	}
 }
 
@@ -82,17 +85,12 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
 }
 
-// GetCurrentUser returns the current user info
+// GetCurrentUser handles GET /session requests to retrieve the authenticated user's information.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt("user_id")
-	username := c.GetString("username")
-	role := c.GetString("user_role")
-
-	c.JSON(http.StatusOK, gin.H{
-		"id":       userID,
-		"username": username,
-		"role":     role,
-	})
+	
+	// Delegate to the shared user response handler
+	h.handlers.RespondWithUser(c, userID)
 }
 
 // GetAuthConfig returns the authentication configuration

@@ -402,8 +402,8 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	if err != nil {
 		// Create new user
 		result, err := s.db.Exec(`
-			INSERT INTO users (username, full_name, email, role, password_hash)
-			VALUES (?, ?, ?, 'viewer', '')`,
+			INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
+			VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
 			username, claims.Name, claims.Email)
 		if err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
@@ -413,8 +413,29 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 			return fmt.Errorf("failed to get created user ID: %w", err)
 		}
 		user.ID = int(id)
-	} else if user.SuspendedAt != nil {
-		return fmt.Errorf("account is suspended")
+	} else {
+		if user.SuspendedAt != nil {
+			return fmt.Errorf("account is suspended")
+		}
+		
+		// Update existing user's last login and increment login count
+		if _, err := s.db.Exec(`
+			UPDATE users 
+			SET last_login_at = NOW(), 
+			    login_count = login_count + 1,
+			    failed_login_attempts = 0
+			WHERE id = ?`, user.ID); err != nil {
+			logger.Error("Failed to update OAuth login stats: %v", err)
+		}
+		
+		// Update name and email if they've changed
+		if _, err := s.db.Exec(`
+			UPDATE users 
+			SET full_name = ?, email = ?
+			WHERE id = ? AND (full_name != ? OR email != ? OR email IS NULL)`,
+			claims.Name, claims.Email, user.ID, claims.Name, claims.Email); err != nil {
+			logger.Error("Failed to update OAuth user info: %v", err)
+		}
 	}
 
 	// Create session
@@ -434,13 +455,8 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	return session.Save(c)
 }
 
-// GetSession returns the session for a context
-func (s *Service) GetSession(c *gin.Context) interface {
-	Get(key string) interface{}
-	Set(key string, value interface{})
-	Delete(key string)
-	Save(c *gin.Context) error
-} {
+// GetSession returns the session for the given context.
+func (s *Service) GetSession(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 
