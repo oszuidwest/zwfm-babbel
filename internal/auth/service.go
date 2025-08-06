@@ -417,7 +417,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		if user.SuspendedAt != nil {
 			return fmt.Errorf("account is suspended")
 		}
-		
+
 		// Update existing user's last login and increment login count
 		if _, err := s.db.Exec(`
 			UPDATE users 
@@ -427,7 +427,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 			WHERE id = ?`, user.ID); err != nil {
 			logger.Error("Failed to update OAuth login stats: %v", err)
 		}
-		
+
 		// Update name and email if they've changed
 		if _, err := s.db.Exec(`
 			UPDATE users 

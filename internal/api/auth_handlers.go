@@ -88,7 +88,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 // GetCurrentUser handles GET /session requests to retrieve the authenticated user's information.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt("user_id")
-	
+
 	// Delegate to the shared user response handler
 	h.handlers.RespondWithUser(c, userID)
 }
