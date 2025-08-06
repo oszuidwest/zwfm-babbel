@@ -391,6 +391,43 @@ create_station_voices() {
             fi
         done <<< "$voice_ids"
     done <<< "$station_ids"
+    
+    # Create one station-voice relationship without a jingle to test null audio_url
+    print_info "Creating station-voice without jingle to test null audio_url..."
+    first_station_id=$(echo "$station_ids" | head -n1 | cut -d: -f1)
+    first_voice_id=$(echo "$voice_ids" | head -n1 | cut -d: -f1)
+    
+    # Create a new unique combination that doesn't exist yet (using mix_point 99 as identifier)
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station_voices" \
+        -b "$COOKIE_FILE" \
+        -F "station_id=$first_station_id" \
+        -F "voice_id=$first_voice_id" \
+        -F "mix_point=99")
+    
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+        print_success "Created station-voice without jingle (for null audio_url test)"
+    elif [ "$http_code" = "400" ]; then
+        # Try deleting the existing one and recreating without jingle
+        sv_list=$(curl -s -X GET "$API_URL/station_voices?station_id=$first_station_id&voice_id=$first_voice_id" -b "$COOKIE_FILE")
+        sv_id=$(echo "$sv_list" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if data.get('data') and len(data['data']) > 0:
+    for sv in data['data']:
+        if sv.get('mix_point') == 99:
+            print(sv['id'])
+            break
+" 2>/dev/null || echo "")
+        
+        if [ -n "$sv_id" ]; then
+            print_info "Station-voice with mix_point=99 already exists (ID: $sv_id)"
+        else
+            print_warning "Could not create station-voice without jingle (may already exist)"
+        fi
+    else
+        print_error "Failed to create station-voice without jingle (HTTP $http_code)"
+    fi
 }
 
 # Step 7: Create stories
@@ -412,6 +449,8 @@ create_stories() {
         "Entertainment: Concert tonight"
         "Safety: Fire prevention tips"
         "Politics: Election update"
+        "Text-only story: No audio content"  # Story without audio
+        "Another text story: Also no audio"   # Another story without audio
     )
     
     # Extract first two voice IDs
@@ -430,24 +469,44 @@ create_stories() {
             voice_id="$voice_id_2"
         fi
         
-        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" \
-            -b "$COOKIE_FILE" \
-            -F "title=${stories[$i]}" \
-            -F "text=Full text for: ${stories[$i]}" \
-            -F "voice_id=$voice_id" \
-            -F "start_date=$current_date" \
-            -F "end_date=$next_week" \
-            -F "weekdays=$weekdays" \
-            -F "status=active" \
-            -F "audio=@$AUDIO_DIR/stories/story${story_num}.wav")
-        
-        http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
-            print_success "Created story: ${stories[$i]} (voice $voice_id)"
+        # Create stories 9 and 10 without audio files
+        if [ $i -ge 8 ]; then
+            response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" \
+                -b "$COOKIE_FILE" \
+                -F "title=${stories[$i]}" \
+                -F "text=Full text for: ${stories[$i]}" \
+                -F "voice_id=$voice_id" \
+                -F "start_date=$current_date" \
+                -F "end_date=$next_week" \
+                -F "weekdays=$weekdays" \
+                -F "status=active")
+            
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                print_success "Created story without audio: ${stories[$i]} (voice $voice_id)"
+            else
+                print_error "Failed to create story: ${stories[$i]} (HTTP $http_code)"
+                echo "Response: $(echo "$response" | sed '$d')" >&2
+            fi
         else
-            print_error "Failed to create story: ${stories[$i]} (HTTP $http_code)"
-            # Show error details to stderr
-            echo "Response: $(echo "$response" | sed '$d')" >&2
+            response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" \
+                -b "$COOKIE_FILE" \
+                -F "title=${stories[$i]}" \
+                -F "text=Full text for: ${stories[$i]}" \
+                -F "voice_id=$voice_id" \
+                -F "start_date=$current_date" \
+                -F "end_date=$next_week" \
+                -F "weekdays=$weekdays" \
+                -F "status=active" \
+                -F "audio=@$AUDIO_DIR/stories/story${story_num}.wav")
+            
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+                print_success "Created story: ${stories[$i]} (voice $voice_id)"
+            else
+                print_error "Failed to create story: ${stories[$i]} (HTTP $http_code)"
+                echo "Response: $(echo "$response" | sed '$d')" >&2
+            fi
         fi
     done
 }
@@ -479,7 +538,7 @@ if 'data' in data:
         if [ "$http_code" = "200" ]; then
             duration=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['duration'])" 2>/dev/null || echo "0")
             stories=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(len(json.load(sys.stdin)['stories']))" 2>/dev/null || echo "0")
-            bulletin_url=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['bulletin_url'])" 2>/dev/null || echo "")
+            bulletin_url=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['audio_url'])" 2>/dev/null || echo "")
             print_success "Bulletin for $name: ${stories} stories, ${duration}s duration"
             
             # Verify station-specific elements
@@ -526,7 +585,7 @@ if 'data' in data and len(data['data']) > 0:
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
             bulletin_data=$(echo "$response" | sed '$d')
-            bulletin_url=$(echo "$bulletin_data" | python3 -c "import sys, json; print(json.load(sys.stdin).get('bulletin_url', ''))" 2>/dev/null || echo "")
+            bulletin_url=$(echo "$bulletin_data" | python3 -c "import sys, json; print(json.load(sys.stdin).get('audio_url', ''))" 2>/dev/null || echo "")
             duration=$(echo "$bulletin_data" | python3 -c "import sys, json; print(json.load(sys.stdin).get('duration', 0))" 2>/dev/null || echo "0")
             story_count=$(echo "$bulletin_data" | python3 -c "import sys, json; print(json.load(sys.stdin).get('story_count', 0))" 2>/dev/null || echo "0")
             filename=$(echo "$bulletin_data" | python3 -c "import sys, json; print(json.load(sys.stdin).get('filename', ''))" 2>/dev/null || echo "")
@@ -1113,7 +1172,19 @@ if 'data' in data and len(data['data']) > 0:
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
             if [ -f /tmp/test_story.wav ] && [ -s /tmp/test_story.wav ]; then
-                print_success "Story audio download successful"
+                # Verify it's actually a valid audio file using ffprobe
+                audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_story.wav 2>&1)
+                if echo "$audio_info" | grep -q "codec_type=audio"; then
+                    # Get audio duration to verify it's valid
+                    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_story.wav 2>/dev/null)
+                    if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
+                        print_success "Story audio download successful (valid WAV, duration: ${duration}s)"
+                    else
+                        print_error "Story audio file has invalid duration"
+                    fi
+                else
+                    print_error "Downloaded file is not a valid audio file"
+                fi
                 rm -f /tmp/test_story.wav
             else
                 print_error "Story audio file empty or not created"
@@ -1132,6 +1203,56 @@ if 'data' in data and len(data['data']) > 0:
         fi
     fi
     
+    # Test stories without audio have null audio_url
+    print_info "Testing stories without audio return null audio_url..."
+    stories_response=$(curl -s -X GET "$API_URL/stories?limit=100" -b "$COOKIE_FILE")
+    stories_without_audio=$(echo "$stories_response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+stories_with_null = []
+if 'data' in data:
+    for story in data['data']:
+        if story.get('audio_url') is None:
+            stories_with_null.append(story['title'])
+if stories_with_null:
+    print(f'Found {len(stories_with_null)} stories with null audio_url: ' + ', '.join(stories_with_null[:3]))
+else:
+    print('NO_NULL_FOUND')
+" 2>/dev/null || echo "ERROR")
+    
+    if [[ "$stories_without_audio" == *"null audio_url"* ]]; then
+        print_success "$stories_without_audio"
+    elif [[ "$stories_without_audio" == "NO_NULL_FOUND" ]]; then
+        print_warning "No stories found with null audio_url (all have audio)"
+    else
+        print_error "Failed to check stories with null audio_url"
+    fi
+    
+    # Test station-voices without jingles have null audio_url
+    print_info "Testing station-voices without jingles return null audio_url..."
+    sv_response=$(curl -s -X GET "$API_URL/station_voices?limit=100" -b "$COOKIE_FILE")
+    sv_without_jingles=$(echo "$sv_response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+sv_with_null = []
+if 'data' in data:
+    for sv in data['data']:
+        if sv.get('audio_url') is None:
+            sv_with_null.append(f\"Station {sv.get('station_id')} + Voice {sv.get('voice_id')}\")
+if sv_with_null:
+    print(f'Found {len(sv_with_null)} station-voices with null audio_url: ' + ', '.join(sv_with_null[:2]))
+else:
+    print('NO_NULL_FOUND')
+" 2>/dev/null || echo "ERROR")
+    
+    if [[ "$sv_without_jingles" == *"null audio_url"* ]]; then
+        print_success "$sv_without_jingles"
+    elif [[ "$sv_without_jingles" == "NO_NULL_FOUND" ]]; then
+        print_warning "No station-voices found with null audio_url (all have jingles)"
+    else
+        print_error "Failed to check station-voices with null audio_url"
+    fi
+    
     # Test station-voice jingle download
     print_info "Testing station-voice jingle downloads..."
     sv_data=$(curl -s -X GET "$API_URL/station_voices" -b "$COOKIE_FILE")
@@ -1148,7 +1269,19 @@ if 'data' in data and len(data['data']) > 0:
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
             if [ -f /tmp/test_jingle.wav ] && [ -s /tmp/test_jingle.wav ]; then
-                print_success "Station-voice jingle download successful"
+                # Verify it's actually a valid audio file using ffprobe
+                audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_jingle.wav 2>&1)
+                if echo "$audio_info" | grep -q "codec_type=audio"; then
+                    # Get audio duration to verify it's valid
+                    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_jingle.wav 2>/dev/null)
+                    if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
+                        print_success "Station-voice jingle download successful (valid WAV, duration: ${duration}s)"
+                    else
+                        print_error "Station-voice jingle has invalid duration"
+                    fi
+                else
+                    print_error "Downloaded jingle is not a valid audio file"
+                fi
                 rm -f /tmp/test_jingle.wav
             else
                 print_error "Jingle file empty or not created"
@@ -1174,7 +1307,21 @@ if 'data' in data and len(data['data']) > 0:
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
             if [ -f /tmp/test_bulletin.wav ] && [ -s /tmp/test_bulletin.wav ]; then
-                print_success "Bulletin audio download successful"
+                # Verify it's actually a valid audio file using ffprobe
+                audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_bulletin.wav 2>&1)
+                if echo "$audio_info" | grep -q "codec_type=audio"; then
+                    # Get audio duration and verify it's valid
+                    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_bulletin.wav 2>/dev/null)
+                    # Get file size in human-readable format
+                    file_size=$(ls -lh /tmp/test_bulletin.wav | awk '{print $5}')
+                    if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
+                        print_success "Bulletin audio download successful (valid WAV, duration: ${duration}s, size: $file_size)"
+                    else
+                        print_error "Bulletin audio has invalid duration"
+                    fi
+                else
+                    print_error "Downloaded bulletin is not a valid audio file"
+                fi
                 rm -f /tmp/test_bulletin.wav
             else
                 print_error "Bulletin file empty or not created"
