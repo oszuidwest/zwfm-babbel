@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2025-08-06
+
+### Fixed
+- MySQL GROUP BY compatibility issue in bulletin generation (ONLY_FULL_GROUP_BY mode)
+- Story selection now uses proper Least Recently Used (LRU) algorithm
+- Standardized `audio_url` field naming across all API endpoints for consistency
+
+### Changed
+- Bulletin story order is now randomized for playback variety
+- Stories are prioritized based on broadcast history to ensure fair rotation
+- Improved query structure for better MySQL 8.0+ compatibility
+
+### Documentation
+- Updated API documentation to reflect audio_url field standardization
+
 ## [1.0.4] - 2025-08-06
 
 ### Changed
