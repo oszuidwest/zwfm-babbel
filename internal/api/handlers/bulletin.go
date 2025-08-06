@@ -66,19 +66,30 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	var stories []models.Story
 	err = h.db.Select(&stories, `
-		SELECT s.*, v.name as voice_name, sv.jingle_file as voice_jingle, sv.mix_point as voice_mix_point
-		FROM stories s 
+		SELECT s.*, v.name as voice_name, sv.jingle_file as voice_jingle, sv.mix_point as voice_mix_point FROM (
+			SELECT s.id, COALESCE(MAX(b.created_at), '1970-01-01 00:00:00') as last_used
+			FROM stories s 
+			LEFT JOIN bulletin_stories bs ON bs.story_id = s.id
+			LEFT JOIN bulletins b ON b.id = bs.bulletin_id AND b.station_id = ?
+			WHERE s.deleted_at IS NULL 
+			AND s.audio_file IS NOT NULL 
+			AND s.audio_file != ''
+			AND s.start_date <= ? 
+			AND s.end_date >= ?
+			AND (s.weekdays & ?) > 0
+			AND EXISTS (
+				SELECT 1 FROM station_voices sv2 
+				WHERE sv2.station_id = ? AND sv2.voice_id = s.voice_id
+			)
+			GROUP BY s.id
+			ORDER BY last_used ASC
+			LIMIT ?
+		) AS selected
+		JOIN stories s ON s.id = selected.id
 		JOIN voices v ON s.voice_id = v.id 
 		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
-		WHERE s.deleted_at IS NULL 
-		AND s.audio_file IS NOT NULL 
-		AND s.audio_file != ''
-		AND s.start_date <= ? 
-		AND s.end_date >= ?
-		AND (s.weekdays & ?) > 0
-		ORDER BY RAND()
-		LIMIT ?`,
-		req.StationID, targetDate, targetDate, weekday, station.MaxStoriesPerBlock)
+		ORDER BY RAND()`,
+		req.StationID, targetDate, targetDate, weekday, req.StationID, station.MaxStoriesPerBlock, req.StationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch stories: %w", err)
 	}
