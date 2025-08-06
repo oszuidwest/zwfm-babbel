@@ -1035,9 +1035,9 @@ paths:
                   station_name:
                     type: string
                     description: Station name
-                  bulletin_url:
+                  audio_url:
                     type: string
-                    description: URL to download the bulletin
+                    description: URL to download the audio file
                   filename:
                     type: string
                     description: Bulletin filename
@@ -1096,9 +1096,9 @@ paths:
                   station_name:
                     type: string
                     description: Station name
-                  bulletin_url:
+                  audio_url:
                     type: string
-                    description: URL to download the bulletin
+                    description: URL to download the audio file
                   filename:
                     type: string
                     description: Bulletin filename
@@ -1491,10 +1491,10 @@ components:
           type: integer
         voice_id:
           type: integer
-        jingle_url:
+        audio_url:
           type: string
           nullable: true
-          description: API URL to download the jingle file
+          description: API URL to download the audio file
         mix_point:
           type: number
           format: float
@@ -1729,9 +1729,9 @@ components:
         station_name:
           type: string
           description: Name of the station
-        bulletin_url:
+        audio_url:
           type: string
-          description: URL to download the bulletin audio file
+          description: URL to download the audio file
         filename:
           type: string
           description: Filename of the bulletin audio file

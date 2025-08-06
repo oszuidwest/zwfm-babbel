@@ -62,7 +62,7 @@ type StationVoice struct {
 	VoiceName   string `db:"voice_name" json:"voice_name,omitempty"`
 
 	// Computed fields
-	JingleURL *string `json:"jingle_url,omitempty"`
+	AudioURL *string `json:"audio_url,omitempty"`
 }
 
 // Broadcast represents a broadcast history entry

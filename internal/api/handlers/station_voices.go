@@ -55,7 +55,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	// Convert to response format with jingle URLs
 	svResponses := make([]interface{}, len(stationVoices))
 	for i, sv := range stationVoices {
-		sv.JingleURL = GetStationVoiceAudioURL(sv.ID, sv.JingleFile != "")
+		sv.AudioURL = GetStationVoiceAudioURL(sv.ID, sv.JingleFile != "")
 		svResponses[i] = sv
 	}
 
@@ -90,7 +90,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 	// Add jingle URL if exists
 	if stationVoice.JingleFile != "" {
-		stationVoice.JingleURL = GetStationVoiceAudioURL(stationVoice.ID, true)
+		stationVoice.AudioURL = GetStationVoiceAudioURL(stationVoice.ID, true)
 	}
 
 	responses.Success(c, stationVoice)
@@ -196,7 +196,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 
 	// Add jingle URL if exists
 	if stationVoice.JingleFile != "" {
-		stationVoice.JingleURL = GetStationVoiceAudioURL(stationVoice.ID, true)
+		stationVoice.AudioURL = GetStationVoiceAudioURL(stationVoice.ID, true)
 	}
 
 	responses.Created(c, stationVoice)
@@ -300,7 +300,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 	// Add jingle URL if exists
 	if stationVoice.JingleFile != "" {
-		stationVoice.JingleURL = GetStationVoiceAudioURL(stationVoice.ID, true)
+		stationVoice.AudioURL = GetStationVoiceAudioURL(stationVoice.ID, true)
 	}
 
 	responses.Success(c, stationVoice)

@@ -13,8 +13,12 @@ import (
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func GetBulletinAudioURL(bulletinID int) string {
-	return fmt.Sprintf("/api/v1/bulletins/%d/audio", bulletinID)
+func GetBulletinAudioURL(bulletinID int) *string {
+	if bulletinID <= 0 {
+		return nil
+	}
+	url := fmt.Sprintf("/api/v1/bulletins/%d/audio", bulletinID)
+	return &url
 }
 
 // BulletinRequest represents the request parameters for bulletin generation.
@@ -25,10 +29,10 @@ type BulletinRequest struct {
 
 // BulletinResponse represents the API response for bulletin generation.
 type BulletinResponse struct {
-	BulletinURL string         `json:"bulletin_url"`
-	Duration    float64        `json:"duration"`
-	Stories     []models.Story `json:"stories"`
-	Station     models.Station `json:"station"`
+	AudioURL *string        `json:"audio_url"`
+	Duration float64        `json:"duration"`
+	Stories  []models.Story `json:"stories"`
+	Station  models.Station `json:"station"`
 }
 
 // BulletinInfo contains metadata about a generated bulletin.
@@ -380,12 +384,12 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
 func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]interface{} {
-	bulletinURL := GetBulletinAudioURL(bulletin.ID)
+	audioURL := GetBulletinAudioURL(bulletin.ID)
 
 	response := map[string]interface{}{
 		"station_id":   bulletin.StationID,
 		"station_name": bulletin.StationName,
-		"bulletin_url": bulletinURL,
+		"audio_url":    audioURL,
 		"filename":     bulletin.Filename,
 		"created_at":   bulletin.CreatedAt,
 		"duration":     bulletin.DurationSeconds,
@@ -402,12 +406,12 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]inte
 
 // bulletinInfoToResponse creates response from BulletinInfo
 func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList bool) map[string]interface{} {
-	bulletinURL := GetBulletinAudioURL(int(info.ID))
+	audioURL := GetBulletinAudioURL(int(info.ID))
 
 	response := map[string]interface{}{
 		"station_id":   info.Station.ID,
 		"station_name": info.Station.Name,
-		"bulletin_url": bulletinURL,
+		"audio_url":    audioURL,
 		"filename":     filepath.Base(info.BulletinPath),
 		"created_at":   info.CreatedAt,
 		"duration":     info.Duration,
