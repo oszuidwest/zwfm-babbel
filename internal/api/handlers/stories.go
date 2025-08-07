@@ -123,28 +123,39 @@ func (h *Handlers) ListStories(c *gin.Context) {
 
 	// By default, exclude deleted stories
 	if !includeDeleted {
-		query += " AND s.deleted_at IS NULL"
-		countQuery += " AND s.deleted_at IS NULL"
+		clause := " AND s.deleted_at IS NULL"
+		query += clause
+		countQuery += clause
 	}
 
 	// Status filter
 	if status := c.Query("status"); status != "" {
-		query += " AND s.status = ?"
-		countQuery += " AND s.status = ?"
+		clause := " AND s.status = ?"
+		query += clause
+		countQuery += clause
 		args = append(args, status)
 	}
 
 	// Voice filter
 	if voiceID := c.Query("voice_id"); voiceID != "" {
-		query += " AND s.voice_id = ?"
-		countQuery += " AND s.voice_id = ?"
-		args = append(args, voiceID)
+		var clause string
+		if voiceID == "null" {
+			// Filter for stories without a voice assigned
+			clause = " AND s.voice_id IS NULL"
+		} else {
+			// Filter for stories with specific voice ID
+			clause = " AND s.voice_id = ?"
+			args = append(args, voiceID)
+		}
+		query += clause
+		countQuery += clause
 	}
 
 	// Date filter
 	if date := c.Query("date"); date != "" {
-		query += " AND s.start_date <= ? AND s.end_date >= ?"
-		countQuery += " AND s.start_date <= ? AND s.end_date >= ?"
+		clause := " AND s.start_date <= ? AND s.end_date >= ?"
+		query += clause
+		countQuery += clause
 		args = append(args, date, date)
 	}
 
@@ -168,8 +179,9 @@ func (h *Handlers) ListStories(c *gin.Context) {
 			bitmask = models.Sunday
 		}
 		if bitmask > 0 {
-			query += " AND (s.weekdays & ?) > 0"
-			countQuery += " AND (s.weekdays & ?) > 0"
+			clause := " AND (s.weekdays & ?) > 0"
+			query += clause
+			countQuery += clause
 			args = append(args, bitmask)
 		}
 	}
