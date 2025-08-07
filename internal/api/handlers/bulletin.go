@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
@@ -162,16 +164,10 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 			fmt.Printf("WARNING: Failed to get bulletin ID: %v\n", idErr)
 		}
 
-		// Insert bulletin-story relationships with order
 		if bulletinID > 0 {
-			for i, story := range stories {
-				_, err = h.db.ExecContext(c.Request.Context(),
-					"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
-					bulletinID, story.ID, i,
-				)
-				if err != nil {
-					fmt.Printf("WARNING: Failed to save bulletin-story relationship: %v\n", err)
-				}
+			bsh := h.bulletinStoryHandler()
+			if err := bsh.Create(c.Request.Context(), int(bulletinID), stories); err != nil {
+				fmt.Printf("WARNING: Failed to save bulletin-story relationships: %v\n", err)
 			}
 		}
 	} else {
@@ -491,15 +487,29 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	includeStories := c.Query("include_stories") == "true"
 
+	var bulletinStories map[int][]models.Story
+	if includeStories && len(bulletins) > 0 {
+		bulletinIDs := make([]int, len(bulletins))
+		for i, bulletin := range bulletins {
+			bulletinIDs[i] = bulletin.ID
+		}
+
+		bsh := h.bulletinStoryHandler()
+		var err error
+		bulletinStories, err = bsh.LoadStories(context.Background(), bulletinIDs)
+		if err != nil {
+			logger.Error("Failed to load stories for bulletins: %v", err)
+			bulletinStories = make(map[int][]models.Story)
+		}
+	}
+
 	// Convert to response format using existing helper
 	bulletinResponses := make([]map[string]interface{}, len(bulletins))
 	for i, bulletin := range bulletins {
 		response := h.bulletinToResponse(&bulletin)
 
-		// Add stories if requested
 		if includeStories {
-			stories, err := h.getStoriesForBulletin(&bulletin)
-			if err == nil && len(stories) > 0 {
+			if stories, exists := bulletinStories[bulletin.ID]; exists && len(stories) > 0 {
 				response["stories"] = stories
 			}
 		}
@@ -511,22 +521,10 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	responses.Paginated(c, bulletinResponses, total, limit, offset)
 }
 
-// getStoriesForBulletin retrieves the stories that were used in a bulletin
+// getStoriesForBulletin retrieves stories for a bulletin.
 func (h *Handlers) getStoriesForBulletin(bulletin *models.Bulletin) ([]models.Story, error) {
-	var stories []models.Story
-
-	// Get stories from junction table, ordered by story_order
-	err := h.db.Select(&stories, `
-		SELECT s.*, v.name as voice_name
-		FROM bulletin_stories bs
-		JOIN stories s ON bs.story_id = s.id
-		JOIN voices v ON s.voice_id = v.id
-		WHERE bs.bulletin_id = ?
-		ORDER BY bs.story_order`,
-		bulletin.ID,
-	)
-
-	return stories, err
+	bsh := h.bulletinStoryHandler()
+	return bsh.LoadStory(context.Background(), bulletin.ID)
 }
 
 // GetStoryBulletinHistory returns all bulletins that included a specific story.

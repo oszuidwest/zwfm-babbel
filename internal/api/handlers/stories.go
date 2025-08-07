@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime/multipart"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -246,7 +247,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 		logger.Error("Failed to load stations data: %v", err)
 		// Continue without stations data rather than failing the request
 	}
-	
+
 	// Convert to response format
 	responses.Success(c, storyToResponse(stories[0]))
 }
@@ -316,7 +317,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if metadata == "" {
 		metadata = "{}"
 	}
-	
+
 	// Parse stations (optional)
 	var stationIDs []int
 	stationsStr := c.PostForm("stations")
@@ -403,7 +404,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		logger.Error("Failed to load stations data: %v", err)
 		// Continue without stations data rather than failing the request
 	}
-	
+
 	// Convert to response format
 	responses.Created(c, storyToResponse(stories[0]))
 }
@@ -494,7 +495,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		updates = append(updates, "metadata = ?")
 		args = append(args, metadata)
 	}
-	
+
 	// Parse stations (optional) - handle station relationships separately
 	var stationIDs []int
 	var updateStations bool
@@ -565,7 +566,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		logger.Error("Failed to load stations data: %v", err)
 		// Continue without stations data rather than failing the request
 	}
-	
+
 	// Convert to response format
 	responses.Success(c, storyToResponse(stories[0]))
 }
@@ -652,19 +653,22 @@ func (h *Handlers) UpdateStoryState(c *gin.Context) {
 	}
 }
 
-// updateStoryStations updates the story-station relationships
+// updateStoryStations updates the story-station relationships with efficient bulk operations
 func (h *Handlers) updateStoryStations(ctx context.Context, storyID int, stationIDs []int) error {
-	// Begin transaction
 	tx, err := h.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if p := recover(); p != nil {
-			tx.Rollback()
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logger.Error("Failed to rollback transaction during panic: %v", rollbackErr)
+			}
 			panic(p)
 		} else if err != nil {
-			tx.Rollback()
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				logger.Error("Failed to rollback transaction: %v", rollbackErr)
+			}
 		} else {
 			err = tx.Commit()
 		}
@@ -678,7 +682,6 @@ func (h *Handlers) updateStoryStations(ctx context.Context, storyID int, station
 
 	// If no stations specified, story is available to all stations (backwards compatibility)
 	if len(stationIDs) == 0 {
-		// Insert relationship with all existing stations
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO story_stations (story_id, station_id)
 			SELECT ?, id FROM stations
@@ -686,48 +689,55 @@ func (h *Handlers) updateStoryStations(ctx context.Context, storyID int, station
 		return err
 	}
 
-	// Insert new relationships for specified stations
-	for _, stationID := range stationIDs {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO story_stations (story_id, station_id)
-			VALUES (?, ?)
-		`, storyID, stationID)
-		if err != nil {
-			return err
+	// Efficient bulk insert for specified stations
+	if len(stationIDs) > 0 {
+		placeholders := make([]string, len(stationIDs))
+		args := make([]interface{}, len(stationIDs)*2)
+
+		for i, stationID := range stationIDs {
+			placeholders[i] = "(?, ?)"
+			args[i*2] = storyID
+			args[i*2+1] = stationID
 		}
+
+		query := "INSERT INTO story_stations (story_id, station_id) VALUES " +
+			strings.Join(placeholders, ", ")
+		_, err = tx.ExecContext(ctx, query, args...)
 	}
 
-	return nil
+	return err
 }
 
-// loadStationsForStories loads station data for a slice of stories
+// loadStationsForStories efficiently loads station data for a slice of stories with bulk query
 func (h *Handlers) loadStationsForStories(ctx context.Context, stories []models.Story) error {
 	if len(stories) == 0 {
 		return nil
 	}
 
-	// Build story IDs for IN clause
-	storyIDs := make([]interface{}, len(stories))
+	// Build IN clause efficiently
 	placeholders := make([]string, len(stories))
+	args := make([]interface{}, len(stories))
 	for i, story := range stories {
-		storyIDs[i] = story.ID
 		placeholders[i] = "?"
+		args[i] = story.ID
 	}
 
-	// Query all station relationships for these stories
-	query := fmt.Sprintf(`
+	query := `
 		SELECT ss.story_id, s.id, s.name
 		FROM story_stations ss
 		JOIN stations s ON ss.station_id = s.id
-		WHERE ss.story_id IN (%s)
-		ORDER BY ss.story_id, s.name
-	`, joinStrings(placeholders, ","))
+		WHERE ss.story_id IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY ss.story_id, s.name`
 
-	rows, err := h.db.QueryContext(ctx, query, storyIDs...)
+	rows, err := h.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			logger.Error("Failed to close database rows: %v", closeErr)
+		}
+	}()
 
 	// Group stations by story ID
 	storyStations := make(map[int][]models.Station)
