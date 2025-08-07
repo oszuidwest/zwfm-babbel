@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2025-08-07
+
+### Changed
+- **BREAKING**: `voice_id` field is now optional for stories
+- Stories can be created and updated without assigning a voice
+- Stories without a voice are excluded from bulletin generation
+- Database schema updated: `voice_id` column is now nullable with `ON DELETE SET NULL`
+
+### Technical details
+- Go model: `VoiceID` changed from `int` to `*int` (nullable pointer)
+- Database: Foreign key constraint updated with `ON DELETE SET NULL`
+- API responses: `voice` field is now `null` when no voice is assigned
+- Base schema updated for fresh installations
+
 ## [1.0.5] - 2025-08-06
 
 ### Fixed

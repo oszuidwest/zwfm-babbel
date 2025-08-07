@@ -33,8 +33,10 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 1.0.5
+  version: 1.0.6
   x-changelog:
+    1.0.6:
+      - "BREAKING: voice_id field is now optional for stories"
     1.0.5:
       - "Standardized audio_url field naming across all endpoints"
     1.0.4:
