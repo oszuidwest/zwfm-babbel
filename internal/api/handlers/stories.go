@@ -114,7 +114,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 
 	// Build query with filters
 	query := `
-		SELECT s.*, v.name as voice_name
+		SELECT s.*, COALESCE(v.name, '') as voice_name
 		FROM stories s 
 		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE 1=1`
