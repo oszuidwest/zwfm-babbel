@@ -2027,7 +2027,7 @@ if 'data' in data and len(data['data']) > 1:
         -F "text=This story should only appear on station 1" \
         -F "voice_id=1" \
         -F "start_date=$(date +%Y-%m-%d)" \
-        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "end_date=$(date -v+7d +%Y-%m-%d 2>/dev/null || date -d '+7 days' +%Y-%m-%d)" \
         -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
         -F "stations=[$station1_id]" \
         -F "status=active")
@@ -2064,7 +2064,7 @@ else:
         -F "text=This story should appear on both stations" \
         -F "voice_id=2" \
         -F "start_date=$(date +%Y-%m-%d)" \
-        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "end_date=$(date -v+7d +%Y-%m-%d 2>/dev/null || date -d '+7 days' +%Y-%m-%d)" \
         -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
         -F "stations=[$station1_id, $station2_id]" \
         -F "status=active")
@@ -2098,7 +2098,7 @@ print(len(stations))
         -F "text=This story should appear on all stations" \
         -F "voice_id=1" \
         -F "start_date=$(date +%Y-%m-%d)" \
-        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "end_date=$(date -v+7d +%Y-%m-%d 2>/dev/null || date -d '+7 days' +%Y-%m-%d)" \
         -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
         -F "status=active")
     
