@@ -295,6 +295,16 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if metadata == "" {
 		metadata = "{}"
 	}
+	
+	// Parse stations (optional)
+	var stationIDs []int
+	stationsStr := c.PostForm("stations")
+	if stationsStr != "" {
+		if err := json.Unmarshal([]byte(stationsStr), &stationIDs); err != nil {
+			responses.BadRequest(c, "Invalid stations format - expected array of station IDs")
+			return
+		}
+	}
 
 	// Create story
 	result, err := h.db.ExecContext(c.Request.Context(), `
@@ -342,6 +352,16 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 			responses.InternalServerError(c, fmt.Sprintf("Failed to process audio: %v", err))
 			return
 		}
+	}
+
+	// Handle station relationships
+	if err := h.updateStoryStations(c.Request.Context(), int(storyID), stationIDs); err != nil {
+		// Delete the story if station association fails
+		if delErr := h.removeStoryFromDatabase(c.Request.Context(), int(storyID)); delErr != nil {
+			logger.Error("Failed to cleanup story after station association failure: %v", delErr)
+		}
+		responses.InternalServerError(c, "Failed to associate story with stations")
+		return
 	}
 
 	// Fetch the created story
@@ -575,4 +595,52 @@ func (h *Handlers) UpdateStoryState(c *gin.Context) {
 	} else {
 		crud.SoftDelete(c, id)
 	}
+}
+
+// updateStoryStations updates the story-station relationships
+func (h *Handlers) updateStoryStations(ctx context.Context, storyID int, stationIDs []int) error {
+	// Begin transaction
+	tx, err := h.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback()
+			panic(p)
+		} else if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	// Delete existing relationships
+	_, err = tx.ExecContext(ctx, "DELETE FROM story_stations WHERE story_id = ?", storyID)
+	if err != nil {
+		return err
+	}
+
+	// If no stations specified, story is available to all stations (backwards compatibility)
+	if len(stationIDs) == 0 {
+		// Insert relationship with all existing stations
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO story_stations (story_id, station_id)
+			SELECT ?, id FROM stations
+		`, storyID)
+		return err
+	}
+
+	// Insert new relationships for specified stations
+	for _, stationID := range stationIDs {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO story_stations (story_id, station_id)
+			VALUES (?, ?)
+		`, storyID, stationID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

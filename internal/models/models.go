@@ -37,6 +37,9 @@ type Story struct {
 	// These fields are populated from station_voices table via JOIN during bulletin generation
 	VoiceJingle   string  `db:"voice_jingle" json:"-"`    // Station-specific jingle path
 	VoiceMixPoint float64 `db:"voice_mix_point" json:"-"` // Mix point in seconds
+	
+	// Station relationships (filled by joins or separate queries)
+	Stations []Station `json:"stations,omitempty"`
 }
 
 // Voice represents a news reader
@@ -140,4 +143,12 @@ type Bulletin struct {
 
 	// Relations (filled by joins)
 	StationName string `db:"station_name" json:"station_name,omitempty"`
+}
+
+// StoryStation represents the junction table for story-station relationships
+type StoryStation struct {
+	ID        int       `db:"id" json:"id"`
+	StoryID   int       `db:"story_id" json:"story_id"`
+	StationID int       `db:"station_id" json:"station_id"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }

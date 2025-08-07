@@ -143,3 +143,16 @@ CREATE TABLE station_voices (
 CREATE INDEX idx_station_voices_station_id ON station_voices(station_id);
 CREATE INDEX idx_station_voices_voice_id ON station_voices(voice_id);
 
+-- Create story_stations junction table for station-specific story inclusion
+CREATE TABLE story_stations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    story_id INT NOT NULL,
+    station_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (story_id) REFERENCES stories(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_story_station (story_id, station_id),
+    INDEX idx_story_stations_story_id (story_id),
+    INDEX idx_story_stations_station_id (station_id)
+);
+
