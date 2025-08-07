@@ -1527,8 +1527,14 @@ components:
           type: string
         voice_id:
           type: integer
+          nullable: true
+          description: Voice ID if assigned, null if no voice is assigned
         voice:
-          $ref: '#/components/schemas/Voice'
+          type: object
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Voice'
+          description: Voice details if assigned, null if no voice is assigned
         audio_url:
           type: string
           nullable: true
@@ -1587,7 +1593,6 @@ components:
       required:
         - title
         - text
-        - voice_id
         - start_date
         - end_date
       properties:
@@ -1597,6 +1602,8 @@ components:
           type: string
         voice_id:
           type: integer
+          nullable: true
+          description: Optional voice ID. Stories without a voice will not be included in bulletin generation
         audio:
           type: string
           format: binary

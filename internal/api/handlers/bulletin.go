@@ -67,6 +67,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 		JOIN voices v ON s.voice_id = v.id 
 		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
 		WHERE s.deleted_at IS NULL 
+		AND s.voice_id IS NOT NULL
 		AND s.audio_file IS NOT NULL 
 		AND s.audio_file != ''
 		AND s.start_date <= ? 
