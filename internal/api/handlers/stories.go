@@ -213,7 +213,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 
 	var story models.Story
 	err = h.db.Get(&story, `
-		SELECT s.*, v.name as voice_name
+		SELECT s.*, COALESCE(v.name, '') as voice_name
 		FROM stories s 
 		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ? AND s.deleted_at IS NULL`, id)
@@ -347,7 +347,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	// Fetch the created story
 	var story models.Story
 	err = h.db.Get(&story, `
-		SELECT s.*, v.name as voice_name
+		SELECT s.*, COALESCE(v.name, '') as voice_name
 		FROM stories s 
 		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ?`, storyID)
@@ -482,7 +482,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Fetch updated story
 	var story models.Story
 	err = h.db.Get(&story, `
-		SELECT s.*, v.name as voice_name
+		SELECT s.*, COALESCE(v.name, '') as voice_name
 		FROM stories s 
 		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ?`, id)
