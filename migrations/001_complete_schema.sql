@@ -36,7 +36,7 @@ CREATE TABLE stories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(500) NOT NULL,
     text TEXT NOT NULL,
-    voice_id INT NOT NULL,
+    voice_id INT NULL,
     audio_file VARCHAR(500) DEFAULT '',
     duration_seconds DECIMAL(8,2) DEFAULT 0,
     status VARCHAR(50) DEFAULT 'draft',
@@ -47,7 +47,7 @@ CREATE TABLE stories (
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (voice_id) REFERENCES voices(id)
+    FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE SET NULL
 );
 
 -- Create bulletins table

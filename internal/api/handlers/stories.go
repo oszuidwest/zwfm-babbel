@@ -27,7 +27,7 @@ func GetStoryAudioURL(storyID int, hasAudio bool) *string {
 
 // storyToResponse converts a story model to API response format
 func storyToResponse(story models.Story) map[string]interface{} {
-	return map[string]interface{}{
+	response := map[string]interface{}{
 		"id":               story.ID,
 		"title":            story.Title,
 		"text":             story.Text,
@@ -42,11 +42,19 @@ func storyToResponse(story models.Story) map[string]interface{} {
 		"deleted_at":       story.DeletedAt,
 		"created_at":       story.CreatedAt,
 		"updated_at":       story.UpdatedAt,
-		"voice": map[string]interface{}{
-			"id":   story.VoiceID,
-			"name": story.VoiceName,
-		},
 	}
+
+	// Add voice information if a voice is assigned
+	if story.VoiceID != nil {
+		response["voice"] = map[string]interface{}{
+			"id":   *story.VoiceID,
+			"name": story.VoiceName,
+		}
+	} else {
+		response["voice"] = nil
+	}
+
+	return response
 }
 
 // WeekdaysInput represents weekday selection in API requests.
@@ -108,7 +116,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	query := `
 		SELECT s.*, v.name as voice_name
 		FROM stories s 
-		JOIN voices v ON s.voice_id = v.id 
+		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE 1=1`
 	countQuery := "SELECT COUNT(*) FROM stories s WHERE 1=1"
 	args := []interface{}{}
@@ -207,7 +215,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	err = h.db.Get(&story, `
 		SELECT s.*, v.name as voice_name
 		FROM stories s 
-		JOIN voices v ON s.voice_id = v.id 
+		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ? AND s.deleted_at IS NULL`, id)
 	if err == sql.ErrNoRows {
 		responses.NotFound(c, "Story not found")
@@ -237,15 +245,20 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	startDateStr := c.PostForm("start_date")
 	endDateStr := c.PostForm("end_date")
 
-	if title == "" || text == "" || voiceIDStr == "" || startDateStr == "" || endDateStr == "" {
-		responses.BadRequest(c, "Missing required fields: title, text, voice_id, start_date, and end_date are required")
+	if title == "" || text == "" || startDateStr == "" || endDateStr == "" {
+		responses.BadRequest(c, "Missing required fields: title, text, start_date, and end_date are required")
 		return
 	}
 
-	voiceID, err := strconv.Atoi(voiceIDStr)
-	if err != nil {
-		responses.BadRequest(c, "Invalid voice ID")
-		return
+	// Parse optional voice_id
+	var voiceID *int
+	if voiceIDStr != "" {
+		parsedVoiceID, err := strconv.Atoi(voiceIDStr)
+		if err != nil {
+			responses.BadRequest(c, "Invalid voice ID")
+			return
+		}
+		voiceID = &parsedVoiceID
 	}
 
 	startDate, err := time.Parse("2006-01-02", startDateStr)
@@ -336,7 +349,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	err = h.db.Get(&story, `
 		SELECT s.*, v.name as voice_name
 		FROM stories s 
-		JOIN voices v ON s.voice_id = v.id 
+		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ?`, storyID)
 	if err != nil {
 		responses.InternalServerError(c, "Failed to fetch created story")
@@ -380,13 +393,18 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-		voiceID, err := strconv.Atoi(voiceIDStr)
-		if err != nil {
-			responses.BadRequest(c, "Invalid voice ID")
-			return
+		if voiceIDStr == "null" || voiceIDStr == "" {
+			// Allow setting voice_id to NULL
+			updates = append(updates, "voice_id = NULL")
+		} else {
+			voiceID, err := strconv.Atoi(voiceIDStr)
+			if err != nil {
+				responses.BadRequest(c, "Invalid voice ID")
+				return
+			}
+			updates = append(updates, "voice_id = ?")
+			args = append(args, voiceID)
 		}
-		updates = append(updates, "voice_id = ?")
-		args = append(args, voiceID)
 	}
 
 	if status := c.PostForm("status"); status != "" {
@@ -466,7 +484,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	err = h.db.Get(&story, `
 		SELECT s.*, v.name as voice_name
 		FROM stories s 
-		JOIN voices v ON s.voice_id = v.id 
+		LEFT JOIN voices v ON s.voice_id = v.id 
 		WHERE s.id = ?`, id)
 	if err != nil {
 		responses.InternalServerError(c, "Failed to fetch updated story")

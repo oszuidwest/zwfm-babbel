@@ -20,7 +20,7 @@ type Story struct {
 	ID              int        `db:"id" json:"id"`
 	Title           string     `db:"title" json:"title"`
 	Text            string     `db:"text" json:"text"` // Plaintext content
-	VoiceID         int        `db:"voice_id" json:"voice_id"`
+	VoiceID         *int       `db:"voice_id" json:"voice_id"`
 	AudioFile       string     `db:"audio_file" json:"audio_file"`
 	DurationSeconds *float64   `db:"duration_seconds" json:"duration_seconds"`
 	Status          string     `db:"status" json:"status"` // draft, active, expired
