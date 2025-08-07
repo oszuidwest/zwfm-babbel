@@ -1994,6 +1994,169 @@ verify_files() {
     fi
 }
 
+# Test station-specific story functionality
+test_station_specific_stories() {
+    print_section "Testing Station-Specific Story Assignment"
+    
+    # Get station IDs for testing
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station1_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if 'data' in data and len(data['data']) > 0:
+    print(data['data'][0]['id'])
+" 2>/dev/null)
+    
+    station2_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if 'data' in data and len(data['data']) > 1:
+    print(data['data'][1]['id'])
+" 2>/dev/null)
+    
+    if [ -z "$station1_id" ] || [ -z "$station2_id" ]; then
+        print_warning "Insufficient stations for testing - need at least 2 stations"
+        return
+    fi
+    
+    print_info "Testing story creation with station assignment..."
+    
+    # Test 1: Create story for specific station
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" -b "$COOKIE_FILE" \
+        -F "title=Station 1 Only Story" \
+        -F "text=This story should only appear on station 1" \
+        -F "voice_id=1" \
+        -F "start_date=$(date +%Y-%m-%d)" \
+        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
+        -F "stations=[$station1_id]" \
+        -F "status=active")
+    
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "201" ]; then
+        story_data=$(echo "$response" | sed '$d')
+        station1_story_id=$(echo "$story_data" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
+        
+        # Verify stations field in response
+        stations_in_response=$(echo "$story_data" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+stations = data.get('stations', [])
+if len(stations) == 1 and stations[0]['id'] == $station1_id:
+    print('PASS')
+else:
+    print('FAIL')
+" 2>/dev/null)
+        
+        if [ "$stations_in_response" = "PASS" ]; then
+            print_success "Story created with station assignment (station $station1_id)"
+        else
+            print_error "Story created but station assignment incorrect"
+        fi
+    else
+        print_error "Failed to create station-specific story (HTTP $http_code)"
+        return
+    fi
+    
+    # Test 2: Create story for multiple stations
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" -b "$COOKIE_FILE" \
+        -F "title=Multi-Station Story" \
+        -F "text=This story should appear on both stations" \
+        -F "voice_id=2" \
+        -F "start_date=$(date +%Y-%m-%d)" \
+        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
+        -F "stations=[$station1_id, $station2_id]" \
+        -F "status=active")
+    
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "201" ]; then
+        story_data=$(echo "$response" | sed '$d')
+        multi_story_id=$(echo "$story_data" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
+        
+        # Verify stations field in response
+        stations_count=$(echo "$story_data" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+stations = data.get('stations', [])
+print(len(stations))
+" 2>/dev/null)
+        
+        if [ "$stations_count" = "2" ]; then
+            print_success "Multi-station story created correctly"
+        else
+            print_error "Multi-station story created but station assignment incorrect (got $stations_count stations)"
+        fi
+    else
+        print_error "Failed to create multi-station story (HTTP $http_code)"
+        return
+    fi
+    
+    # Test 3: Create story with no station assignment (should be available to all)
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" -b "$COOKIE_FILE" \
+        -F "title=All Stations Story" \
+        -F "text=This story should appear on all stations" \
+        -F "voice_id=1" \
+        -F "start_date=$(date +%Y-%m-%d)" \
+        -F "end_date=$(date -d '+7 days' +%Y-%m-%d)" \
+        -F "weekdays={\"monday\": true, \"tuesday\": true, \"wednesday\": true, \"thursday\": true, \"friday\": true, \"saturday\": false, \"sunday\": false}" \
+        -F "status=active")
+    
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "201" ]; then
+        story_data=$(echo "$response" | sed '$d')
+        all_story_id=$(echo "$story_data" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
+        
+        # Verify stations field shows all stations (backwards compatibility)
+        stations_count=$(echo "$story_data" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+stations = data.get('stations', [])
+print(len(stations))
+" 2>/dev/null)
+        
+        if [ "$stations_count" = "2" ]; then
+            print_success "Story with no station restriction created (available to all stations)"
+        else
+            print_error "Story with no stations should be available to all ($stations_count stations found)"
+        fi
+    else
+        print_error "Failed to create all-stations story (HTTP $http_code)"
+        return
+    fi
+    
+    # Test 4: Update story station assignment
+    if [ -n "$station1_story_id" ]; then
+        print_info "Testing story station assignment update..."
+        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories/$station1_story_id" -b "$COOKIE_FILE" \
+            -F "stations=[$station2_id]")
+        
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            story_data=$(echo "$response" | sed '$d')
+            updated_station=$(echo "$story_data" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+stations = data.get('stations', [])
+if len(stations) == 1 and stations[0]['id'] == $station2_id:
+    print('PASS')
+else:
+    print('FAIL')
+" 2>/dev/null)
+            
+            if [ "$updated_station" = "PASS" ]; then
+                print_success "Story station assignment updated successfully"
+            else
+                print_error "Story station assignment update failed"
+            fi
+        else
+            print_error "Failed to update story station assignment (HTTP $http_code)"
+        fi
+    fi
+    
+    print_info "Station-specific story tests completed"
+}
+
 # Step 15: Show final summary
 show_summary() {
     print_header "TEST COMPLETE"
@@ -2126,6 +2289,9 @@ main() {
     
     echo "Testing bulletin parameters..." >&2
     test_bulletin_parameters
+    
+    echo "Testing station-specific stories..." >&2
+    test_station_specific_stories
     
     echo "Verifying files..." >&2
     verify_files

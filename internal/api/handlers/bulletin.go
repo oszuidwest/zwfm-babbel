@@ -82,6 +82,10 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 				SELECT 1 FROM station_voices sv2 
 				WHERE sv2.station_id = ? AND sv2.voice_id = s.voice_id
 			)
+			AND EXISTS (
+				SELECT 1 FROM story_stations ss 
+				WHERE ss.story_id = s.id AND ss.station_id = ?
+			)
 			GROUP BY s.id
 			ORDER BY last_used ASC
 			LIMIT ?
@@ -90,7 +94,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 		JOIN voices v ON s.voice_id = v.id 
 		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
 		ORDER BY RAND()`,
-		req.StationID, targetDate, targetDate, weekday, req.StationID, station.MaxStoriesPerBlock, req.StationID)
+		req.StationID, targetDate, targetDate, weekday, req.StationID, req.StationID, station.MaxStoriesPerBlock, req.StationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch stories: %w", err)
 	}

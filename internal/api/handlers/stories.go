@@ -54,6 +54,14 @@ func storyToResponse(story models.Story) map[string]interface{} {
 		response["voice"] = nil
 	}
 
+	// Add stations information (populated from Stations slice if available)
+	if len(story.Stations) > 0 {
+		response["stations"] = story.Stations
+	} else {
+		// This will be populated by a separate helper function if needed
+		response["stations"] = []interface{}{}
+	}
+
 	return response
 }
 
@@ -194,6 +202,12 @@ func (h *Handlers) ListStories(c *gin.Context) {
 		return
 	}
 
+	// Load stations data for all stories
+	if err := h.loadStationsForStories(c.Request.Context(), stories); err != nil {
+		logger.Error("Failed to load stations data: %v", err)
+		// Continue without stations data rather than failing the request
+	}
+
 	// Convert stories to response format with weekdays object
 	storyResponses := make([]map[string]interface{}, len(stories))
 	for i, story := range stories {
@@ -226,8 +240,15 @@ func (h *Handlers) GetStory(c *gin.Context) {
 		return
 	}
 
+	// Load stations data for the story
+	stories := []models.Story{story}
+	if err := h.loadStationsForStories(c.Request.Context(), stories); err != nil {
+		logger.Error("Failed to load stations data: %v", err)
+		// Continue without stations data rather than failing the request
+	}
+	
 	// Convert to response format
-	responses.Success(c, storyToResponse(story))
+	responses.Success(c, storyToResponse(stories[0]))
 }
 
 // CreateStory creates a new story with optional audio upload.
@@ -376,8 +397,15 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		return
 	}
 
+	// Load stations data for the story
+	stories := []models.Story{story}
+	if err := h.loadStationsForStories(c.Request.Context(), stories); err != nil {
+		logger.Error("Failed to load stations data: %v", err)
+		// Continue without stations data rather than failing the request
+	}
+	
 	// Convert to response format
-	responses.Created(c, storyToResponse(story))
+	responses.Created(c, storyToResponse(stories[0]))
 }
 
 // UpdateStory updates an existing story.
@@ -466,6 +494,18 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		updates = append(updates, "metadata = ?")
 		args = append(args, metadata)
 	}
+	
+	// Parse stations (optional) - handle station relationships separately
+	var stationIDs []int
+	var updateStations bool
+	stationsStr := c.PostForm("stations")
+	if stationsStr != "" {
+		updateStations = true
+		if err := json.Unmarshal([]byte(stationsStr), &stationIDs); err != nil {
+			responses.BadRequest(c, "Invalid stations format - expected array of station IDs")
+			return
+		}
+	}
 
 	// Execute update if there are fields to update
 	if len(updates) > 0 {
@@ -499,6 +539,14 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		}
 	}
 
+	// Handle station relationships if specified
+	if updateStations {
+		if err := h.updateStoryStations(c.Request.Context(), id, stationIDs); err != nil {
+			responses.InternalServerError(c, "Failed to update story station relationships")
+			return
+		}
+	}
+
 	// Fetch updated story
 	var story models.Story
 	err = h.db.Get(&story, `
@@ -511,8 +559,15 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
+	// Load stations data for the story
+	stories := []models.Story{story}
+	if err := h.loadStationsForStories(c.Request.Context(), stories); err != nil {
+		logger.Error("Failed to load stations data: %v", err)
+		// Continue without stations data rather than failing the request
+	}
+	
 	// Convert to response format
-	responses.Success(c, storyToResponse(story))
+	responses.Success(c, storyToResponse(stories[0]))
 }
 
 // DeleteStory soft deletes a story by setting deleted_at timestamp.
@@ -639,6 +694,58 @@ func (h *Handlers) updateStoryStations(ctx context.Context, storyID int, station
 		`, storyID, stationID)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// loadStationsForStories loads station data for a slice of stories
+func (h *Handlers) loadStationsForStories(ctx context.Context, stories []models.Story) error {
+	if len(stories) == 0 {
+		return nil
+	}
+
+	// Build story IDs for IN clause
+	storyIDs := make([]interface{}, len(stories))
+	placeholders := make([]string, len(stories))
+	for i, story := range stories {
+		storyIDs[i] = story.ID
+		placeholders[i] = "?"
+	}
+
+	// Query all station relationships for these stories
+	query := fmt.Sprintf(`
+		SELECT ss.story_id, s.id, s.name
+		FROM story_stations ss
+		JOIN stations s ON ss.station_id = s.id
+		WHERE ss.story_id IN (%s)
+		ORDER BY ss.story_id, s.name
+	`, joinStrings(placeholders, ","))
+
+	rows, err := h.db.QueryContext(ctx, query, storyIDs...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	// Group stations by story ID
+	storyStations := make(map[int][]models.Station)
+	for rows.Next() {
+		var storyID int
+		var station models.Station
+		if err := rows.Scan(&storyID, &station.ID, &station.Name); err != nil {
+			return err
+		}
+		storyStations[storyID] = append(storyStations[storyID], station)
+	}
+
+	// Assign stations to stories
+	for i := range stories {
+		if stations, exists := storyStations[stories[i].ID]; exists {
+			stories[i].Stations = stations
+		} else {
+			stories[i].Stations = []models.Station{}
 		}
 	}
 
