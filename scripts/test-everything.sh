@@ -934,6 +934,51 @@ test_api_endpoints() {
         print_error "Stories list endpoint"
     fi
     
+    # Test individual story retrieval
+    stories_response=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
+    first_story_id=$(echo "$stories_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+    else:
+        print('')
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$first_story_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$first_story_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            # Validate response structure
+            story_data=$(echo "$response" | sed '$d')
+            if echo "$story_data" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    required_fields = ['id', 'title', 'text', 'voice_id', 'status', 'weekdays', 'metadata']
+    missing = [f for f in required_fields if f not in data]
+    if missing:
+        print(f'Missing fields: {missing}')
+        sys.exit(1)
+    print('Valid story structure')
+except Exception as e:
+    print(f'Invalid JSON or structure: {e}')
+    sys.exit(1)
+" 2>/dev/null; then
+                print_success "Individual story retrieval"
+            else
+                print_error "Individual story retrieval - invalid response structure"
+            fi
+        else
+            print_error "Individual story retrieval (HTTP $http_code)"
+        fi
+    else
+        print_warning "Skipping individual story test - no stories available"
+    fi
+    
     # Test station_voices list
     response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
