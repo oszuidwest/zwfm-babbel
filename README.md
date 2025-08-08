@@ -1,19 +1,22 @@
 # Babbel
 
-Audio bulletin generator for radio automation systems. Combines news stories with station-specific jingles to create ready-to-air bulletins.
+Headless REST API for generating radio news bulletins. Combines news stories with station jingles to create ready-to-air audio files.
 
-## What it does
+## Overview
 
-Babbel is an HTTP API that generates audio news bulletins. Upload news stories once, then generate bulletins with the right jingles for each radio station.
+Babbel is a headless API-only system designed for integration with existing newsroom workflows and front-ends. It provides REST endpoints for managing stations, stories, and bulletin generation. No built-in UI - bring your own front-end or integrate directly with your systems.
+
+Works with any radio automation system that can fetch audio via HTTP (mAirList, RadioDJ, PlayoutONE, StationPlaylist, etc.) and any newsroom system that can make HTTP requests.
 
 ## Features
 
-- Multiple radio stations with their own jingles and settings
-- Story scheduling by date and weekday
-- Automatic audio mixing with FFmpeg
-- REST API for integration with automation systems
-- Local auth or OAuth/OIDC (Microsoft, Google)
-- Role-based access control
+- **Headless API** - REST API designed for integration, no built-in UI
+- **Single or multi-station** - Manage one or multiple stations
+- **Station branding** - Custom jingles and audio identity per station
+- **Story scheduling** - Air dates and weekday scheduling
+- **Voice management** - Multiple newsreaders with station preferences
+- **Audio processing** - FFmpeg-based mixing and normalization
+- **Direct audio URLs** - Automation systems can fetch bulletins directly
 
 ## Installation
 
@@ -21,24 +24,41 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 For production deployment, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## Usage
+## Newsroom Workflow
 
-1. Create stations and voices (newsreaders)
-2. Upload station-specific jingles
-3. Upload news stories
-4. Generate bulletins via API
-5. Radio automation downloads bulletin audio
+1. **Setup**: Configure your stations and newsreaders
+2. **Upload jingles**: Add station-specific intro/outro jingles
+3. **Create stories**: Upload news items with scheduling info
+4. **Generate**: API creates bulletins with appropriate jingles
+5. **Broadcast**: Automation systems fetch bulletins via HTTP
 
-Example endpoint for radio automation:
+## Radio Automation Integration
+
+Automation systems can fetch the latest bulletin directly:
 ```
-GET /api/v1/stations/{id}/bulletins/latest/audio
+GET /api/v1/stations/{station_id}/bulletins/latest/audio
 ```
+
+Returns a WAV file ready for broadcast. Most automation systems can schedule HTTP audio downloads.
+
+### Compatible Systems
+
+- mAirList (HTTP audio source)
+- RadioDJ (URL tracks)
+- PlayoutONE (Network audio)
+- StationPlaylist (Remote files)
+- Any system that supports HTTP audio
 
 ## Requirements
 
 - Docker and Docker Compose
 - 2GB RAM minimum
 - 20GB disk space
+- Linux server recommended
+
+## API Documentation
+
+OpenAPI specification available at `/docs` when running.
 
 ## Development
 
@@ -48,12 +68,6 @@ cd zwfm-babbel
 docker-compose up -d
 make test
 ```
-
-## API Documentation
-
-OpenAPI specification available at `/docs` when running.
-
-Full documentation in [docs/](docs/) directory.
 
 ## Tech Stack
 
@@ -73,4 +87,4 @@ MIT License - see [LICENSE](LICENSE) file.
 
 ## Credits
 
-Developed by ZuidWest FM, a local radio station in the Netherlands.
+Developed by ZuidWest FM for newsroom operations across multiple local radio stations in the Netherlands.
