@@ -1,180 +1,76 @@
-# Babbel - Audio News Bulletin API
+# Babbel
 
-HTTP API for generating audio news bulletins. Mixes stories with station-specific jingles for radio automation systems.
+Audio bulletin generator for radio automation systems. Combines news stories with station-specific jingles to create ready-to-air bulletins.
 
-## Quick Start
+## What it does
 
-```bash
-# Development
-docker-compose up -d
-
-# Production  
-cp .env.example .env  # Configure secrets
-docker-compose -f docker-compose.prod.yml up -d
-
-# API runs on http://localhost:8080
-# Login: admin/admin
-```
+Babbel is an HTTP API that generates audio news bulletins. Upload news stories once, then generate bulletins with the right jingles for each radio station.
 
 ## Features
 
-- Multi-station: Different jingles per station/voice combo
-- Scheduling: Stories run on specific weekdays  
-- Audio mixing: FFmpeg combines stories + jingles
-- RESTful API with OpenAPI spec
+- Multiple radio stations with their own jingles and settings
+- Story scheduling by date and weekday
+- Automatic audio mixing with FFmpeg
+- REST API for integration with automation systems
+- Local auth or OAuth/OIDC (Microsoft, Google)
+- Role-based access control
 
-## Core API
+## Installation
 
-```bash
-# Login
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -d '{"username":"admin","password":"admin"}'
+See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
-# Generate bulletin
-curl -X POST http://localhost:8080/api/v1/bulletins \
-  -d '{"station_id":1}' 
+For production deployment, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
-# Download audio
-curl http://localhost:8080/api/v1/stations/1/bulletins/latest/audio \
-  -o bulletin.wav
+## Usage
+
+1. Create stations and voices (newsreaders)
+2. Upload station-specific jingles
+3. Upload news stories
+4. Generate bulletins via API
+5. Radio automation downloads bulletin audio
+
+Example endpoint for radio automation:
 ```
-
-**API documentation**: [docs/](docs/) (auto-generated from OpenAPI spec)  
-**OpenAPI spec**: [openapi.yaml](openapi.yaml)
+GET /api/v1/stations/{id}/bulletins/latest/audio
+```
 
 ## Requirements
 
-- Go 1.24+
-- MySQL 8.0+  
-- FFmpeg
-- Docker (recommended)
-
-## Docker Environments
-
-| Feature | Development | Production |
-|---------|-------------|------------|
-| **Secrets** | Hardcoded | From `.env` file |
-| **MySQL port** | Exposed (3306) | Internal only |
-| **Auth method** | Local only | Configurable (local/oauth) |
-| **Environment** | `development` | `production` |
-| **CORS** | Localhost ports | Configurable via `BABBEL_ALLOWED_ORIGINS` |
-| **Health checks** | Basic | Full monitoring |
-| **Log rotation** | None | 10MB/3 files |
-| **Restart policy** | `unless-stopped` | `always` |
-| **Audio volume** | Host mounted | Docker volume |
+- Docker and Docker Compose
+- 2GB RAM minimum
+- 20GB disk space
 
 ## Development
 
 ```bash
-# Setup
-make install-tools
+git clone https://github.com/oszuidwest/zwfm-babbel.git
+cd zwfm-babbel
 docker-compose up -d
-
-# Test
-make test-all
-
-# Build
-make build
+make test
 ```
 
-## Manual Install
+## API Documentation
 
-1. **Database**: Create MySQL database `babbel`
-2. **Config**: Set environment variables:
-   ```bash
-   export BABBEL_DB_HOST=localhost
-   export BABBEL_DB_USER=babbel  
-   export BABBEL_DB_PASSWORD=your_password
-   export BABBEL_SESSION_SECRET=your-32-char-secret
-   # Optional: Enable CORS for web frontend
-   export BABBEL_ALLOWED_ORIGINS=http://localhost:3000
-   ```
-3. **Run**: `go run cmd/babbel/main.go`
+OpenAPI specification available at `/docs` when running.
 
-## Authentication
+Full documentation in [docs/](docs/) directory.
 
-- **Local**: Username/password (default: admin/admin)
-- **OAuth/OIDC**: Microsoft Entra ID, Google, or any OIDC provider
-- **Sessions**: HTTP-only cookies with CSRF protection
+## Tech Stack
 
-### OAuth Setup (Microsoft Entra ID)
+- Go with Gin framework
+- MySQL database
+- FFmpeg for audio processing
+- Docker for deployment
 
-For headless setups with separate frontend:
+## License
 
-1. **Azure AD App Registration**:
-   - Redirect URI: `https://your-api-domain.com/api/v1/session/oauth/callback`
-   - API permissions: `openid`, `profile`, `email`
+MIT License - see [LICENSE](LICENSE) file.
 
-2. **Environment variables**:
-   ```bash
-   AUTH_METHOD=both                    # Enable both local and OAuth
-   OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
-   OIDC_CLIENT_ID=your-client-id
-   OIDC_CLIENT_SECRET=your-client-secret
-   OIDC_REDIRECT_URL=https://your-api-domain.com/api/v1/session/oauth/callback
-   BABBEL_FRONTEND_URL=https://your-frontend-domain.com  # Required for OAuth
-   ```
+## Support
 
-3. **Frontend integration**:
-   ```javascript
-   // Redirect to Microsoft login
-   window.location.href = 'https://your-api-domain.com/api/v1/session/oauth/start?frontend_url=' 
-     + encodeURIComponent('https://your-frontend.com/dashboard');
-   
-   // After login, user returns to: https://your-frontend.com/dashboard?login=success
-   ```
+- Issues: https://github.com/oszuidwest/zwfm-babbel/issues
+- Security: security@zuidwest.nl
 
-- **Auto-provisioning**: New users get 'viewer' role automatically
-- **Tenant restriction**: Only users from your Azure AD tenant can login
+## Credits
 
-## Environment Variables
-
-| Variable | Description | Default | Example |
-|----------|-------------|---------|---------|
-| `MYSQL_ROOT_PASSWORD` | MySQL root password | - | `strong-root-password` |
-| `MYSQL_PASSWORD` | MySQL user password | - | `strong-user-password` |
-| `BABBEL_DB_HOST` | MySQL host | `mysql` (in Docker) | `mysql`, `localhost` |
-| `BABBEL_DB_USER` | MySQL user | `babbel` | `babbel` |
-| `BABBEL_DB_PASSWORD` | MySQL password | - | Use `MYSQL_PASSWORD` |
-| `BABBEL_DB_NAME` | MySQL database | `babbel` | `babbel` |
-| `BABBEL_SESSION_SECRET` | 32-char session key | - | `your-32-character-secret-key-here` |
-| `BABBEL_AUTH_METHOD` | Auth method | `local` | `local`, `oauth`, `both` |
-| `BABBEL_ENV` | Environment | `production` | `development`, `production` |
-| `BABBEL_FRONTEND_URL` | Frontend redirect URL | - | `https://your-frontend.com` |
-| `BABBEL_ALLOWED_ORIGINS` | CORS origins | - | `https://babbel.zuidwest.cloud` |
-
-### OAuth/OIDC Variables
-
-| Variable | Description | Required | Example |
-|----------|-------------|----------|---------|
-| `OIDC_PROVIDER_URL` | OIDC provider URL | Yes | `https://login.microsoftonline.com/TENANT-ID/v2.0` |
-| `OIDC_CLIENT_ID` | OAuth client ID | Yes | `12345678-1234-1234-1234-123456789012` |
-| `OIDC_CLIENT_SECRET` | OAuth client secret | Yes | `your-client-secret` |
-| `OIDC_REDIRECT_URL` | OAuth callback URL | Yes | `https://api.domain.com/api/v1/session/oauth/callback` |
-
-### CORS Configuration
-
-Control browser access to the API:
-- **Empty/unset**: API-only access (no browser access)
-- **Single origin**: `BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud`
-- **Multiple origins**: `BABBEL_ALLOWED_ORIGINS=https://app1.com,https://app2.com`
-- **Development**: `BABBEL_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173`
-
-## Workflow
-
-1. Upload stories - Audio files with weekday schedules
-2. Configure stations - Each station has pause settings  
-3. Setup voices - Newsreaders with station-specific jingles
-4. Generate bulletins - API mixes stories + jingles automatically
-5. Download audio - WAV files ready for radio automation
-
-## Files
-
-- `openapi.yaml` - API specification
-- `docker-compose.yml` - Development setup
-- `migrations/` - Database schema
-- `scripts/test-everything.sh` - Full integration test
-
----
-
-**Streekomroep ZuidWest** | Internal radio automation tool
+Developed by ZuidWest FM, a local radio station in the Netherlands.
