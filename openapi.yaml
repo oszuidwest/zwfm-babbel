@@ -33,8 +33,10 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 1.0.6
+  version: 1.0.7
   x-changelog:
+    1.0.7:
+      - "Added support for voice_id=null filter to find stories without assigned voice"
     1.0.6:
       - "BREAKING: voice_id field is now optional for stories"
     1.0.5:
@@ -517,8 +519,11 @@ paths:
         - name: voice_id
           in: query
           schema:
-            type: integer
-          description: Filter by voice ID
+            oneOf:
+              - type: integer
+              - type: string
+                enum: ["null"]
+          description: Filter by voice ID. Use 'null' to filter for stories without a voice assigned
         - name: date
           in: query
           schema:
