@@ -33,6 +33,9 @@ services:
       BABBEL_FFMPEG_PATH: "ffmpeg"
       # CORS is disabled by default. Enable for web frontend development:
       BABBEL_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,https://babbel.zuidwest.cloud"
+      # Cookie configuration (empty = default single domain cookies)
+      BABBEL_COOKIE_DOMAIN: ""
+      BABBEL_COOKIE_SAMESITE: "lax"
       TZ: Europe/Amsterdam
     ports:
       - "8080:8080"
