@@ -33,7 +33,7 @@ Cross-Origin Resource Sharing (CORS) is configurable:
 - Credentials (cookies) are supported when origin is allowed
 
 
-**Version:** 1.0.6  
+**Version:** 1.0.7  
 **Base URL:** http://localhost:8080/api/v1
 
 ## Authentication
