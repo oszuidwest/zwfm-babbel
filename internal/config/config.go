@@ -40,6 +40,10 @@ type AuthConfig struct {
 	// Session secret key
 	SessionSecret string
 
+	// Cookie configuration for cross-subdomain support
+	CookieDomain   string
+	CookieSameSite string
+
 	// OIDC configuration (for Azure AD, Google, etc.)
 	OIDCProviderURL  string
 	OIDCClientID     string
@@ -73,6 +77,8 @@ func Load() (*Config, error) {
 		Auth: AuthConfig{
 			Method:           getEnv("BABBEL_AUTH_METHOD", "local"),
 			SessionSecret:    getEnv("BABBEL_SESSION_SECRET", "your-secret-key-change-in-production"),
+			CookieDomain:     getEnv("BABBEL_COOKIE_DOMAIN", ""),
+			CookieSameSite:   getEnv("BABBEL_COOKIE_SAMESITE", "lax"),
 			OIDCProviderURL:  getEnv("BABBEL_OIDC_PROVIDER_URL", ""),
 			OIDCClientID:     getEnv("BABBEL_OIDC_CLIENT_ID", ""),
 			OIDCClientSecret: getEnv("BABBEL_OIDC_CLIENT_SECRET", ""),

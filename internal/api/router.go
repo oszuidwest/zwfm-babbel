@@ -43,9 +43,10 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			MaxAge:         86400,
 			CookieName:     "babbel_session",
 			CookiePath:     "/",
+			CookieDomain:   cfg.Auth.CookieDomain,
 			CookieSecure:   cfg.Environment == "production",
 			CookieHTTPOnly: true,
-			CookieSameSite: "lax",
+			CookieSameSite: cfg.Auth.CookieSameSite,
 			SecretKey:      cfg.Auth.SessionSecret,
 		},
 	}
