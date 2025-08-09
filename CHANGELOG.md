@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2025-08-09
+
+### Added
+- Cross-subdomain cookie authentication support for separated frontend/backend deployments
+- New environment variables for cookie configuration: `BABBEL_COOKIE_DOMAIN` and `BABBEL_COOKIE_SAMESITE`
+- Comprehensive installation guide (QUICKSTART.md) with step-by-step setup instructions
+- Cross-subdomain authentication setup documentation (CROSS_SUBDOMAIN_AUTH.md)
+- Example production configuration for zuidwest.cloud deployment (.env.zuidwest.example)
+
+### Changed
+- Enhanced MySQL connection with timezone support (`loc=Local` parameter) for proper datetime handling
+- Improved integration documentation
+
+### Fixed
+- Timezone-related issues in database operations
+- Cookie sharing limitations between subdomains
+
 ## [1.0.6] - 2025-08-07
 
 ### Changed
