@@ -1,12 +1,12 @@
 # Babbel
 
-Headless REST API for generating radio news bulletins. Combines news stories with station jingles to create ready-to-air audio files.
+Headless REST API for generating audio news bulletins. Combines news stories with station jingles to create ready-to-air audio files.
 
 ## Overview
 
-Babbel is a headless API-only system designed for integration with existing newsroom workflows and front-ends. It provides REST endpoints for managing stations, stories, and bulletin generation. No built-in UI - bring your own front-end or integrate directly with your systems.
+Babbel is a headless API-only system designed for integration with newsroom workflows and front-ends. It provides REST endpoints for managing stations, stories, and bulletin generation. No built-in UI - bring your own front-end or integrate directly with your systems.
 
-Works with any radio automation system that can fetch audio via HTTP (mAirList, RadioDJ, PlayoutONE, StationPlaylist, etc.) and any newsroom system that can make HTTP requests.
+Works with any radio automation that can fetch audio over HTTP and any newsroom system that can connect via REST/HTTP.
 
 ## Features
 
@@ -22,13 +22,11 @@ Works with any radio automation system that can fetch audio via HTTP (mAirList, 
 
 See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
-For production deployment, see [DEPLOYMENT.md](DEPLOYMENT.md).
-
 ## Newsroom Workflow
 
 1. **Setup**: Configure your stations and newsreaders
 2. **Upload jingles**: Add station-specific intro/outro jingles
-3. **Create stories**: Upload news items with scheduling info
+3. **Create stories**: Upload or POST news items with scheduling info
 4. **Generate**: API creates bulletins with appropriate jingles
 5. **Broadcast**: Automation systems fetch bulletins via HTTP
 
@@ -47,6 +45,7 @@ Returns a WAV file ready for broadcast. Most automation systems can schedule HTT
 - RadioDJ (URL tracks)
 - PlayoutONE (Network audio)
 - StationPlaylist (Remote files)
+- RTV AudioDownload Tool
 - Any system that supports HTTP audio
 
 ## Requirements
@@ -58,7 +57,7 @@ Returns a WAV file ready for broadcast. Most automation systems can schedule HTT
 
 ## API Documentation
 
-OpenAPI specification available at `/docs` when running.
+OpenAPI specification available in the Git repository and human-readable API docs in `/docs`.
 
 ## Development
 
@@ -80,11 +79,6 @@ make test
 
 MIT License - see [LICENSE](LICENSE) file.
 
-## Support
-
-- Issues: https://github.com/oszuidwest/zwfm-babbel/issues
-- Security: security@zuidwest.nl
-
 ## Credits
 
-Developed by ZuidWest FM for newsroom operations across multiple local radio stations in the Netherlands.
+Developed by Streekomroep ZuidWest for newsroom operations across multiple local radio stations in the Netherlands.
