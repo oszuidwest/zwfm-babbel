@@ -16,7 +16,7 @@ import (
 
 // Connect establishes a connection to the MySQL database.
 func Connect(cfg config.DatabaseConfig) (*sqlx.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=Local",
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
 
 	db, err := sqlx.Connect("mysql", dsn)

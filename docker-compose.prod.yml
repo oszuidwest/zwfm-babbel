@@ -45,6 +45,9 @@ services:
       # CORS configuration - set in .env file
       # Empty = API-only (no browser), or comma-separated origins
       BABBEL_ALLOWED_ORIGINS: ${BABBEL_ALLOWED_ORIGINS}
+      # Cookie configuration for cross-subdomain auth
+      BABBEL_COOKIE_DOMAIN: ${BABBEL_COOKIE_DOMAIN}
+      BABBEL_COOKIE_SAMESITE: ${BABBEL_COOKIE_SAMESITE}
       TZ: ${TZ}
     ports:
       - "${API_PORT}:8080"
