@@ -31,9 +31,9 @@ wget -O migrations/001_complete_schema.sql \
 cp .env.example .env
 
 # Generate passwords
-openssl rand -hex 32  # Save as MYSQL_ROOT_PASSWORD bf79079b0d103ea0feb65874e4a218d2e5090ba8c460b8aed899fa9754f9fa5b
-openssl rand -hex 32  # Save as MYSQL_PASSWORD  26cecd7802a43a0fb13843aa78c19b13ca801ec5e06518600df1b29064d99649
-openssl rand -hex 16  # Save as SESSION_SECRET 9f1c7765812148a66567ed14c63d378f
+openssl rand -hex 32  # Save as MYSQL_ROOT_PASSWORD
+openssl rand -hex 32  # Save as MYSQL_PASSWORD
+openssl rand -hex 16  # Save as SESSION_SECRET
 
 # Edit .env file
 nano .env
