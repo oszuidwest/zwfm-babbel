@@ -2,23 +2,20 @@ package handlers
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
+	"github.com/oszuidwest/zwfm-babbel/internal/api"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func GetBulletinAudioURL(bulletinID int) *string {
-	if bulletinID <= 0 {
-		return nil
-	}
-	url := fmt.Sprintf("/api/v1/bulletins/%d/audio", bulletinID)
-	return &url
+func GetBulletinAudioURL(bulletinID int) string {
+	return fmt.Sprintf("/api/v1/bulletins/%d/audio", bulletinID)
 }
 
 // BulletinRequest represents the request parameters for bulletin generation.
@@ -29,10 +26,10 @@ type BulletinRequest struct {
 
 // BulletinResponse represents the API response for bulletin generation.
 type BulletinResponse struct {
-	AudioURL *string        `json:"audio_url"`
-	Duration float64        `json:"duration"`
-	Stories  []models.Story `json:"stories"`
-	Station  models.Station `json:"station"`
+	BulletinURL string         `json:"bulletin_url"`
+	Duration    float64        `json:"duration"`
+	Stories     []models.Story `json:"stories"`
+	Station     models.Station `json:"station"`
 }
 
 // BulletinInfo contains metadata about a generated bulletin.
@@ -66,31 +63,19 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	var stories []models.Story
 	err = h.db.Select(&stories, `
-		SELECT s.*, v.name as voice_name, sv.jingle_file as voice_jingle, sv.mix_point as voice_mix_point FROM (
-			SELECT s.id, COALESCE(MAX(b.created_at), '1970-01-01 00:00:00') as last_used
-			FROM stories s 
-			LEFT JOIN bulletin_stories bs ON bs.story_id = s.id
-			LEFT JOIN bulletins b ON b.id = bs.bulletin_id AND b.station_id = ?
-			WHERE s.deleted_at IS NULL 
-			AND s.voice_id IS NOT NULL
-			AND s.audio_file IS NOT NULL 
-			AND s.audio_file != ''
-			AND s.start_date <= ? 
-			AND s.end_date >= ?
-			AND (s.weekdays & ?) > 0
-			AND EXISTS (
-				SELECT 1 FROM station_voices sv2 
-				WHERE sv2.station_id = ? AND sv2.voice_id = s.voice_id
-			)
-			GROUP BY s.id
-			ORDER BY last_used ASC
-			LIMIT ?
-		) AS selected
-		JOIN stories s ON s.id = selected.id
+		SELECT s.*, v.name as voice_name, sv.jingle_file as voice_jingle, sv.mix_point as voice_mix_point
+		FROM stories s 
 		JOIN voices v ON s.voice_id = v.id 
 		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
-		ORDER BY RAND()`,
-		req.StationID, targetDate, targetDate, weekday, req.StationID, station.MaxStoriesPerBlock, req.StationID)
+		WHERE s.deleted_at IS NULL 
+		AND s.audio_file IS NOT NULL 
+		AND s.audio_file != ''
+		AND s.start_date <= ? 
+		AND s.end_date >= ?
+		AND (s.weekdays & ?) > 0
+		ORDER BY RAND()
+		LIMIT ?`,
+		req.StationID, targetDate, targetDate, weekday, station.MaxStoriesPerBlock)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch stories: %w", err)
 	}
@@ -196,7 +181,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		Date string `json:"date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body")
 		return
 	}
 
@@ -242,7 +227,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 					}
 				}
 
-				responses.Success(c, response)
+				c.JSON(http.StatusOK, response)
 				return
 			}
 		}
@@ -253,14 +238,14 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "station not found"):
-			responses.NotFound(c, "Station not found")
+			c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
 		case strings.Contains(err.Error(), "no stories available"):
-			responses.NotFound(c, "No stories available for the specified date")
+			c.JSON(http.StatusNotFound, gin.H{"error": "No stories available for the specified date")
 		case strings.Contains(err.Error(), "invalid date format"):
-			responses.BadRequest(c, "Invalid date format")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format")
 		default:
 			fmt.Printf("ERROR: Failed to generate bulletin: %v\n", err)
-			responses.InternalServerError(c, "Failed to generate bulletin")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate bulletin")
 		}
 		return
 	}
@@ -281,7 +266,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	// Build response based on include_story_list parameter
 	response := h.bulletinInfoToResponse(bulletinInfo, includeStoryList)
 	response["cached"] = false
-	responses.Success(c, response)
+	c.JSON(http.StatusOK, response)
 }
 
 // BulletinStoryQueryConfig encapsulates query parameters for bulletin-story relationships.
@@ -377,7 +362,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	limit, offset := extractPaginationParams(c)
+	limit, offset := api.GetPagination(c)
 
 	config := BulletinStoryQueryConfig{
 		WhereClause: "bs.bulletin_id = ?",
@@ -387,21 +372,26 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 	stories, total, err := h.getBulletinStoryRelationships(c, config, limit, offset)
 	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch bulletin stories")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletin stories")
 		return
 	}
 
-	responses.Paginated(c, stories, total, limit, offset)
+	c.JSON(http.StatusOK, gin.H{
+		"data":   stories,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
 func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]interface{} {
-	audioURL := GetBulletinAudioURL(bulletin.ID)
+	bulletinURL := GetBulletinAudioURL(bulletin.ID)
 
 	response := map[string]interface{}{
 		"station_id":   bulletin.StationID,
 		"station_name": bulletin.StationName,
-		"audio_url":    audioURL,
+		"bulletin_url": bulletinURL,
 		"filename":     bulletin.Filename,
 		"created_at":   bulletin.CreatedAt,
 		"duration":     bulletin.DurationSeconds,
@@ -418,12 +408,12 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]inte
 
 // bulletinInfoToResponse creates response from BulletinInfo
 func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList bool) map[string]interface{} {
-	audioURL := GetBulletinAudioURL(int(info.ID))
+	bulletinURL := GetBulletinAudioURL(int(info.ID))
 
 	response := map[string]interface{}{
 		"station_id":   info.Station.ID,
 		"station_name": info.Station.Name,
-		"audio_url":    audioURL,
+		"bulletin_url": bulletinURL,
 		"filename":     filepath.Base(info.BulletinPath),
 		"created_at":   info.CreatedAt,
 		"duration":     info.Duration,
@@ -444,44 +434,60 @@ func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList b
 
 // GetLatestBulletin returns the most recent bulletin for a station.
 func (h *Handlers) GetLatestBulletin(c *gin.Context) {
-	stationID, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid station ID")
+	stationID, ok := api.GetIDParam(c)
+	if !ok {
 		return
 	}
 
 	// Check if station exists first (using existing helper)
 	if !h.stationExists(stationID) {
-		responses.NotFound(c, "Station not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
 		return
 	}
 
 	// Get the latest bulletin using shared helper function (DRY!)
 	bulletin, err := h.getLatestBulletin(stationID, nil)
 	if err != nil {
-		responses.NotFound(c, "No bulletin found for this station")
+		c.JSON(http.StatusNotFound, gin.H{"error": "No bulletin found for this station")
 		return
 	}
 
 	response := h.bulletinToResponse(bulletin)
-	responses.Success(c, response)
+	c.JSON(http.StatusOK, response)
 }
 
 // ListBulletins returns a paginated list of all bulletins with optional filters.
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	crud := NewCRUDHandler(h.db, "bulletins b",
-		WithSelectColumns("b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name"),
-		WithJoins("JOIN stations s ON b.station_id = s.id"),
-		WithOrderBy("b.created_at DESC"))
+	limit, offset := api.GetPagination(c)
 
-	filters := map[string]string{
-		"b.station_id": "station_id",
+	// Build query with optional filters
+	query := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
+	          FROM bulletins b 
+	          JOIN stations s ON b.station_id = s.id`
+	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
+	args := []interface{}{}
+
+	// Add station filter if provided
+	if stationID := c.Query("station_id"); stationID != "" {
+		query += " WHERE b.station_id = ?"
+		countQuery += " WHERE b.station_id = ?"
+		args = append(args, stationID)
 	}
 
+	// Get total count
+	var total int64
+	if err := h.db.Get(&total, countQuery, args...); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count bulletins"})
+		return
+	}
+
+	// Get paginated data
+	query += " ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
 	var bulletins []models.Bulletin
-	total, err := crud.List(c, &bulletins, filters)
-	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch bulletins")
+	if err := h.db.Select(&bulletins, query, args...); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletins"})
 		return
 	}
 
@@ -503,8 +509,13 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		bulletinResponses[i] = response
 	}
 
-	limit, offset := extractPaginationParams(c)
-	responses.Paginated(c, bulletinResponses, total, limit, offset)
+	limit, offset := api.GetPagination(c)
+	c.JSON(http.StatusOK, gin.H{
+		"data":   bulletinResponses,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
+	})
 }
 
 // getStoriesForBulletin retrieves the stories that were used in a bulletin
@@ -527,9 +538,8 @@ func (h *Handlers) getStoriesForBulletin(bulletin *models.Bulletin) ([]models.St
 
 // GetStoryBulletinHistory returns all bulletins that included a specific story.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
-	storyID, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid story ID")
+	storyID, ok := api.GetIDParam(c)
+	if !ok {
 		return
 	}
 
@@ -537,7 +547,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	var story models.Story
 	err = h.db.Get(&story, "SELECT * FROM stories WHERE id = ?", storyID)
 	if err != nil {
-		responses.NotFound(c, "Story not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Story not found")
 		return
 	}
 
@@ -559,7 +569,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	)
 
 	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch bulletin history")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletin history")
 		return
 	}
 
@@ -572,7 +582,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		bulletinHistory[i] = response
 	}
 
-	responses.Success(c, map[string]interface{}{
+	c.JSON(http.StatusOK, map[string]interface{}{
 		"story_id":    story.ID,
 		"story_title": story.Title,
 		"bulletins":   bulletinHistory,
@@ -621,22 +631,21 @@ func (h *Handlers) getLatestBulletin(stationID int, maxAge *time.Duration) (*mod
 
 // GetLatestBulletinAudio serves the audio file for the latest bulletin of a station.
 func (h *Handlers) GetLatestBulletinAudio(c *gin.Context) {
-	stationID, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid station ID")
+	stationID, ok := api.GetIDParam(c)
+	if !ok {
 		return
 	}
 
 	// Check if station exists first (using existing helper)
 	if !h.stationExists(stationID) {
-		responses.NotFound(c, "Station not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
 		return
 	}
 
 	// Get the latest bulletin using helper function
 	bulletin, err := h.getLatestBulletin(stationID, nil)
 	if err != nil {
-		responses.NotFound(c, "No bulletin found for this station")
+		c.JSON(http.StatusNotFound, gin.H{"error": "No bulletin found for this station")
 		return
 	}
 

@@ -4,10 +4,11 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
+	"github.com/oszuidwest/zwfm-babbel/internal/api"
 )
 
 // AudioConfig defines configuration parameters for serving audio files.
@@ -21,9 +22,8 @@ type AudioConfig struct {
 
 // ServeAudio serves an audio file with proper headers and error handling.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
-	id, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid ID")
+	id, ok := api.GetIDParam(c)
+	if !ok {
 		return
 	}
 
@@ -34,17 +34,17 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	var filePath sql.NullString
 	err = h.db.Get(&filePath, query, id)
 	if err == sql.ErrNoRows {
-		responses.NotFound(c, "Record not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found")
 		return
 	}
 	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch record")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch record")
 		return
 	}
 
 	// Check if file path exists
 	if !filePath.Valid || filePath.String == "" {
-		responses.NotFound(c, "No audio file for this record")
+		c.JSON(http.StatusNotFound, gin.H{"error": "No audio file for this record")
 		return
 	}
 
@@ -53,7 +53,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 
 	// Check if file exists
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		responses.NotFound(c, "Audio file not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found")
 		return
 	}
 
