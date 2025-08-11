@@ -2,15 +2,14 @@ package handlers
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
@@ -172,7 +171,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 // GenerateBulletin generates a news bulletin for a station.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
-	stationID, ok := validateAndGetIDParam(c, "station")
+	stationID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
@@ -181,7 +180,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		Date string `json:"date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body")
+		utils.BadRequest(c, "Invalid request body")
 		return
 	}
 
@@ -192,9 +191,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	}
 
 	// Parse query parameters using helper functions
-	includeStoryList := getBoolQuery(c, "include_story_list")
-	forceNew := getBoolQuery(c, "force")
-	download := getBoolQuery(c, "download")
+	includeStoryList := c.Query("include_story_list") == "true"
+	forceNew := c.Query("force") == "true"
+	download := c.Query("download") == "true"
 	maxAgeStr := c.Query("max_age")
 
 	// Check if we should return existing bulletin
@@ -227,7 +226,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 					}
 				}
 
-				c.JSON(http.StatusOK, response)
+				utils.Success(c, response)
 				return
 			}
 		}
@@ -238,14 +237,14 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "station not found"):
-			c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
+			utils.NotFound(c, "Station")
 		case strings.Contains(err.Error(), "no stories available"):
-			c.JSON(http.StatusNotFound, gin.H{"error": "No stories available for the specified date")
+			utils.NotFound(c, "No stories available for the specified date")
 		case strings.Contains(err.Error(), "invalid date format"):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid date format")
+			utils.BadRequest(c, "Invalid date format")
 		default:
 			fmt.Printf("ERROR: Failed to generate bulletin: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate bulletin")
+			utils.InternalServerError(c, "Failed to generate bulletin")
 		}
 		return
 	}
@@ -266,7 +265,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	// Build response based on include_story_list parameter
 	response := h.bulletinInfoToResponse(bulletinInfo, includeStoryList)
 	response["cached"] = false
-	c.JSON(http.StatusOK, response)
+	utils.Success(c, response)
 }
 
 // BulletinStoryQueryConfig encapsulates query parameters for bulletin-story relationships.
@@ -352,17 +351,17 @@ func (h *Handlers) getBulletinStoryRelationships(c *gin.Context, config Bulletin
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
-	bulletinID, ok := validateAndGetIDParam(c, "bulletin")
+	bulletinID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if bulletin exists first (using existing helper)
-	if !h.validateRecordExists(c, "bulletins", "Bulletin", bulletinID) {
+	// Check if bulletin exists first
+	if !utils.ValidateResourceExists(c, h.db, "bulletins", "Bulletin", bulletinID) {
 		return
 	}
 
-	limit, offset := api.GetPagination(c)
+	limit, offset := utils.GetPagination(c)
 
 	config := BulletinStoryQueryConfig{
 		WhereClause: "bs.bulletin_id = ?",
@@ -372,16 +371,11 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 	stories, total, err := h.getBulletinStoryRelationships(c, config, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletin stories")
+		utils.InternalServerError(c, "Failed to fetch bulletin stories")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":   stories,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
+	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
@@ -434,31 +428,30 @@ func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList b
 
 // GetLatestBulletin returns the most recent bulletin for a station.
 func (h *Handlers) GetLatestBulletin(c *gin.Context) {
-	stationID, ok := api.GetIDParam(c)
+	stationID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if station exists first (using existing helper)
-	if !h.stationExists(stationID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
+	// Check if station exists first
+	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
 		return
 	}
 
 	// Get the latest bulletin using shared helper function (DRY!)
 	bulletin, err := h.getLatestBulletin(stationID, nil)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No bulletin found for this station")
+		utils.NotFound(c, "No bulletin found for this station")
 		return
 	}
 
 	response := h.bulletinToResponse(bulletin)
-	c.JSON(http.StatusOK, response)
+	utils.Success(c, response)
 }
 
 // ListBulletins returns a paginated list of all bulletins with optional filters.
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	limit, offset := api.GetPagination(c)
+	limit, offset := utils.GetPagination(c)
 
 	// Build query with optional filters
 	query := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
@@ -477,7 +470,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	// Get total count
 	var total int64
 	if err := h.db.Get(&total, countQuery, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count bulletins"})
+		utils.InternalServerError(c, "Failed to count bulletins")
 		return
 	}
 
@@ -487,7 +480,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	var bulletins []models.Bulletin
 	if err := h.db.Select(&bulletins, query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletins"})
+		utils.InternalServerError(c, "Failed to fetch bulletins")
 		return
 	}
 
@@ -509,13 +502,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		bulletinResponses[i] = response
 	}
 
-	limit, offset := api.GetPagination(c)
-	c.JSON(http.StatusOK, gin.H{
-		"data":   bulletinResponses,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
+	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
 }
 
 // getStoriesForBulletin retrieves the stories that were used in a bulletin
@@ -538,16 +525,16 @@ func (h *Handlers) getStoriesForBulletin(bulletin *models.Bulletin) ([]models.St
 
 // GetStoryBulletinHistory returns all bulletins that included a specific story.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
-	storyID, ok := api.GetIDParam(c)
+	storyID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
 	// Verify story exists
 	var story models.Story
-	err = h.db.Get(&story, "SELECT * FROM stories WHERE id = ?", storyID)
+	err := h.db.Get(&story, "SELECT * FROM stories WHERE id = ?", storyID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Story not found")
+		utils.NotFound(c, "Story")
 		return
 	}
 
@@ -569,7 +556,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bulletin history")
+		utils.InternalServerError(c, "Failed to fetch bulletin history")
 		return
 	}
 
@@ -582,7 +569,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		bulletinHistory[i] = response
 	}
 
-	c.JSON(http.StatusOK, map[string]interface{}{
+	utils.Success(c, map[string]interface{}{
 		"story_id":    story.ID,
 		"story_title": story.Title,
 		"bulletins":   bulletinHistory,
@@ -596,6 +583,29 @@ func parseTargetDate(dateStr string) (time.Time, error) {
 		return time.Now(), nil
 	}
 	return time.Parse("2006-01-02", dateStr)
+}
+
+// dateToWeekdayBitmask converts a date to the corresponding weekday bitmask
+func dateToWeekdayBitmask(date time.Time) uint8 {
+	weekday := date.Weekday()
+	switch weekday {
+	case time.Monday:
+		return models.Monday
+	case time.Tuesday:
+		return models.Tuesday
+	case time.Wednesday:
+		return models.Wednesday
+	case time.Thursday:
+		return models.Thursday
+	case time.Friday:
+		return models.Friday
+	case time.Saturday:
+		return models.Saturday
+	case time.Sunday:
+		return models.Sunday
+	default:
+		return models.Monday // fallback
+	}
 }
 
 // getLatestBulletin is a helper function to fetch the latest bulletin for a station
@@ -631,21 +641,20 @@ func (h *Handlers) getLatestBulletin(stationID int, maxAge *time.Duration) (*mod
 
 // GetLatestBulletinAudio serves the audio file for the latest bulletin of a station.
 func (h *Handlers) GetLatestBulletinAudio(c *gin.Context) {
-	stationID, ok := api.GetIDParam(c)
+	stationID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if station exists first (using existing helper)
-	if !h.stationExists(stationID) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Station not found")
+	// Check if station exists first
+	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
 		return
 	}
 
 	// Get the latest bulletin using helper function
 	bulletin, err := h.getLatestBulletin(stationID, nil)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No bulletin found for this station")
+		utils.NotFound(c, "No bulletin found for this station")
 		return
 	}
 

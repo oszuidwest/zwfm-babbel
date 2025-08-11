@@ -2,12 +2,12 @@ package handlers
 
 import (
 	"database/sql"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,7 +28,7 @@ type UserResponse struct {
 
 // ListUsers returns a paginated list of users
 func (h *Handlers) ListUsers(c *gin.Context) {
-	limit, offset := api.GetPagination(c)
+	limit, offset := utils.GetPagination(c)
 
 	// Build query with optional filters
 	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, password_changed_at, created_at, updated_at FROM users"
@@ -55,9 +55,9 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	}
 
 	// Get total count
-	var total int64
-	if err := h.db.Get(&total, countQuery, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count users"})
+	total, err := utils.CountWithJoins(h.db, countQuery, args...)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to count users")
 		return
 	}
 
@@ -67,21 +67,16 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 	var users []UserResponse
 	if err := h.db.Select(&users, query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
+		utils.InternalServerError(c, "Failed to fetch users")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":   users,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
+	utils.PaginatedResponse(c, users, total, limit, offset)
 }
 
 // GetUser returns a single user by ID
 func (h *Handlers) GetUser(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
@@ -90,33 +85,33 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, password_changed_at, created_at, updated_at FROM users WHERE id = ?"
 	if err := h.db.Get(&user, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			utils.NotFound(c, "User")
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
+			utils.InternalServerError(c, "Failed to fetch user")
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, user)
+	utils.Success(c, user)
 }
 
 // CreateUser creates a new user account
 func (h *Handlers) CreateUser(c *gin.Context) {
-	var req api.UserCreateRequest
-	if !api.BindAndValidate(c, &req) {
+	var req utils.UserCreateRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
 	// Check username uniqueness
-	if err := api.CheckUnique(h.db, "users", "username", req.Username, nil); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Username already exists"})
+	if err := utils.CheckUnique(h.db, "users", "username", req.Username, nil); err != nil {
+		utils.BadRequest(c, "Username already exists")
 		return
 	}
 
 	// Check email uniqueness (if provided)
 	if req.Email != nil && *req.Email != "" {
-		if err := api.CheckUnique(h.db, "users", "email", *req.Email, nil); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Email already exists"})
+		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, nil); err != nil {
+			utils.BadRequest(c, "Email already exists")
 			return
 		}
 	}
@@ -124,7 +119,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		utils.InternalServerError(c, "Failed to hash password")
 		return
 	}
 
@@ -134,27 +129,27 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		req.Username, req.FullName, req.Email, string(hashedPassword), req.Role, req.Metadata,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		utils.InternalServerError(c, "Failed to create user")
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User created successfully"})
+	utils.Created(c, gin.H{"message": "User created successfully"})
 }
 
 // UpdateUser updates an existing user's information
 func (h *Handlers) UpdateUser(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	var req api.UserUpdateRequest
-	if !api.BindAndValidate(c, &req) {
+	var req utils.UserUpdateRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
 	// Check if user exists
-	if !api.ValidateResourceExists(c, h.db, "users", "User", id) {
+	if !utils.ValidateResourceExists(c, h.db, "users", "User", id) {
 		return
 	}
 
@@ -163,8 +158,8 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	args := []interface{}{}
 
 	if req.Username != "" {
-		if err := api.CheckUnique(h.db, "users", "username", req.Username, &id); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Username already exists"})
+		if err := utils.CheckUnique(h.db, "users", "username", req.Username, &id); err != nil {
+			utils.BadRequest(c, "Username already exists")
 			return
 		}
 		updates = append(updates, "username = ?")
@@ -177,8 +172,8 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	if req.Email != nil && *req.Email != "" {
-		if err := api.CheckUnique(h.db, "users", "email", *req.Email, &id); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Email already exists"})
+		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, &id); err != nil {
+			utils.BadRequest(c, "Email already exists")
 			return
 		}
 		updates = append(updates, "email = ?")
@@ -196,7 +191,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		utils.BadRequest(c, "No fields to update")
 		return
 	}
 
@@ -205,127 +200,131 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	args = append(args, id)
 
 	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
+		utils.InternalServerError(c, "Failed to update user")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
+	utils.SuccessWithMessage(c, "User updated successfully")
 }
 
 // SuspendUser suspends a user account
 func (h *Handlers) SuspendUser(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
 	// Check if this would be the last admin
-	var adminCount int
-	if err := h.db.Get(&adminCount, "SELECT COUNT(*) FROM users WHERE role = 'admin' AND suspended_at IS NULL AND id != ?", id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check admin count"})
+	adminCount, err := utils.CountActivesExcludingID(h.db, "users", "role = 'admin' AND suspended_at IS NULL", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to check admin count")
 		return
 	}
 
 	var userRole string
 	if err := h.db.Get(&userRole, "SELECT role FROM users WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			utils.NotFound(c, "User")
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
+			utils.InternalServerError(c, "Failed to fetch user")
 		}
 		return
 	}
 
 	if userRole == "admin" && adminCount == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot suspend the last admin user"})
+		utils.BadRequest(c, "Cannot suspend the last admin user")
 		return
 	}
 
 	// Suspend user and invalidate sessions
-	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE users SET suspended_at = NOW() WHERE id = ?", id)
+	_, err = h.db.ExecContext(c.Request.Context(), "UPDATE users SET suspended_at = NOW() WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to suspend user"})
+		utils.InternalServerError(c, "Failed to suspend user")
 		return
 	}
 
 	// Invalidate all sessions
-	h.db.ExecContext(c.Request.Context(), "DELETE FROM user_sessions WHERE user_id = ?", id)
+	if _, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM user_sessions WHERE user_id = ?", id); err != nil {
+		logger.Error("Failed to delete user sessions: %v", err)
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "User suspended successfully"})
+	utils.SuccessWithMessage(c, "User suspended successfully")
 }
 
 // RestoreUser restores a suspended user account
 func (h *Handlers) RestoreUser(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
 	result, err := h.db.ExecContext(c.Request.Context(), "UPDATE users SET suspended_at = NULL WHERE id = ? AND suspended_at IS NOT NULL", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore user"})
+		utils.InternalServerError(c, "Failed to restore user")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found or not suspended"})
+		utils.NotFound(c, "User not found or not suspended")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "User restored successfully"})
+	utils.SuccessWithMessage(c, "User restored successfully")
 }
 
 // DeleteUser permanently deletes a user account
 func (h *Handlers) DeleteUser(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
 	// Check if this would be the last admin
-	var adminCount int
-	if err := h.db.Get(&adminCount, "SELECT COUNT(*) FROM users WHERE role = 'admin' AND suspended_at IS NULL AND id != ?", id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check admin count"})
+	adminCount, err := utils.CountActivesExcludingID(h.db, "users", "role = 'admin' AND suspended_at IS NULL", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to check admin count")
 		return
 	}
 
 	var userRole string
 	if err := h.db.Get(&userRole, "SELECT role FROM users WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			utils.NotFound(c, "User")
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
+			utils.InternalServerError(c, "Failed to fetch user")
 		}
 		return
 	}
 
 	if userRole == "admin" && adminCount == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete the last admin user"})
+		utils.BadRequest(c, "Cannot delete the last admin user")
 		return
 	}
 
 	// Delete user and all sessions
-	h.db.ExecContext(c.Request.Context(), "DELETE FROM user_sessions WHERE user_id = ?", id)
+	if _, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM user_sessions WHERE user_id = ?", id); err != nil {
+		logger.Error("Failed to delete user sessions: %v", err)
+	}
 
 	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM users WHERE id = ?", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
+		utils.InternalServerError(c, "Failed to delete user")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		utils.NotFound(c, "User")
 		return
 	}
 
-	c.Status(http.StatusNoContent)
+	utils.NoContent(c)
 }
 
 // ChangePassword updates a user's password
 func (h *Handlers) ChangePassword(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
@@ -334,19 +333,19 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		Password string `json:"password" binding:"required,min=8"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Password must be at least 8 characters"})
+		utils.BadRequest(c, "Password must be at least 8 characters")
 		return
 	}
 
 	// Check if user exists
-	if !api.ValidateResourceExists(c, h.db, "users", "User", id) {
+	if !utils.ValidateResourceExists(c, h.db, "users", "User", id) {
 		return
 	}
 
 	// Hash new password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		utils.InternalServerError(c, "Failed to hash password")
 		return
 	}
 
@@ -356,9 +355,9 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		string(hashedPassword), id,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		utils.InternalServerError(c, "Failed to update password")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
+	utils.SuccessWithMessage(c, "Password updated successfully")
 }

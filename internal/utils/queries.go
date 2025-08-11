@@ -1,4 +1,4 @@
-package api
+package utils
 
 import "strings"
 
@@ -15,7 +15,7 @@ const (
 // BuildStoryQuery creates story queries with common joins and conditions
 func BuildStoryQuery(baseWhere string, includeDeleted bool) string {
 	query := StoryWithVoiceQuery
-	
+
 	conditions := []string{}
 	if baseWhere != "" {
 		conditions = append(conditions, baseWhere)
@@ -23,10 +23,10 @@ func BuildStoryQuery(baseWhere string, includeDeleted bool) string {
 	if !includeDeleted {
 		conditions = append(conditions, "s.deleted_at IS NULL")
 	}
-	
+
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	
+
 	return query
 }

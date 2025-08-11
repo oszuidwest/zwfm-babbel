@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api"
 )
 
 // AudioConfig defines configuration parameters for serving audio files.
@@ -22,8 +22,9 @@ type AudioConfig struct {
 
 // ServeAudio serves an audio file with proper headers and error handling.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
-	id, ok := api.GetIDParam(c)
-	if !ok {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID parameter"})
 		return
 	}
 
@@ -34,17 +35,17 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	var filePath sql.NullString
 	err = h.db.Get(&filePath, query, id)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch record")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch record"})
 		return
 	}
 
 	// Check if file path exists
 	if !filePath.Valid || filePath.String == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No audio file for this record")
+		c.JSON(http.StatusNotFound, gin.H{"error": "No audio file for this record"})
 		return
 	}
 
@@ -53,7 +54,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 
 	// Check if file exists
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found")
+		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
 		return
 	}
 

@@ -4,36 +4,34 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StoryResponse represents the response format for stories
 type StoryResponse struct {
-	ID              int        `json:"id" db:"id"`
-	Title           string     `json:"title" db:"title"`
-	Text            string     `json:"text" db:"text"`
-	VoiceID         *int       `json:"voice_id" db:"voice_id"`
-	AudioFile       string     `json:"-" db:"audio_file"`
-	DurationSeconds *int       `json:"duration_seconds" db:"duration_seconds"`
-	Status          string     `json:"status" db:"status"`
-	StartDate       time.Time  `json:"start_date" db:"start_date"`
-	EndDate         time.Time  `json:"end_date" db:"end_date"`
-	Weekdays        uint8      `json:"-" db:"weekdays"`
-	Metadata        string     `json:"metadata" db:"metadata"`
-	DeletedAt       *time.Time `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at" db:"updated_at"`
-	VoiceName       string     `json:"voice_name" db:"voice_name"`
-	AudioURL        *string    `json:"audio_url,omitempty"`
+	ID              int             `json:"id" db:"id"`
+	Title           string          `json:"title" db:"title"`
+	Text            string          `json:"text" db:"text"`
+	VoiceID         *int            `json:"voice_id" db:"voice_id"`
+	AudioFile       string          `json:"-" db:"audio_file"`
+	DurationSeconds *int            `json:"duration_seconds" db:"duration_seconds"`
+	Status          string          `json:"status" db:"status"`
+	StartDate       time.Time       `json:"start_date" db:"start_date"`
+	EndDate         time.Time       `json:"end_date" db:"end_date"`
+	Weekdays        uint8           `json:"-" db:"weekdays"`
+	Metadata        string          `json:"metadata" db:"metadata"`
+	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+	VoiceName       string          `json:"voice_name" db:"voice_name"`
+	AudioURL        *string         `json:"audio_url,omitempty"`
 	WeekdaysMap     map[string]bool `json:"weekdays"`
 }
 
@@ -61,10 +59,10 @@ func bitmaskToWeekdays(bitmask uint8) map[string]bool {
 
 // ListStories returns a paginated list of stories
 func (h *Handlers) ListStories(c *gin.Context) {
-	limit, offset := api.GetPagination(c)
+	limit, offset := utils.GetPagination(c)
 
 	// Build query with optional filters
-	query := api.BuildStoryQuery("", c.Query("include_deleted") == "true")
+	query := utils.BuildStoryQuery("", c.Query("include_deleted") == "true")
 	countQuery := "SELECT COUNT(*) FROM stories s"
 	args := []interface{}{}
 
@@ -101,9 +99,9 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	}
 
 	// Get total count
-	var total int64
-	if err := h.db.Get(&total, countQuery, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count stories"})
+	total, err := utils.CountWithJoins(h.db, countQuery, args...)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to count stories")
 		return
 	}
 
@@ -113,7 +111,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 
 	var stories []StoryResponse
 	if err := h.db.Select(&stories, query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch stories"})
+		utils.InternalServerError(c, "Failed to fetch stories")
 		return
 	}
 
@@ -124,28 +122,23 @@ func (h *Handlers) ListStories(c *gin.Context) {
 		stories[i].WeekdaysMap = bitmaskToWeekdays(stories[i].Weekdays)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"data":   stories,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
+	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
 // GetStory returns a single story by ID
 func (h *Handlers) GetStory(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
 	var story StoryResponse
-	query := api.BuildStoryQuery("s.id = ?", true)
+	query := utils.BuildStoryQuery("s.id = ?", true)
 	if err := h.db.Get(&story, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Story not found"})
+			utils.NotFound(c, "Story")
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch story"})
+			utils.InternalServerError(c, "Failed to fetch story")
 		}
 		return
 	}
@@ -155,7 +148,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	story.AudioURL = GetStoryAudioURL(story.ID, hasAudio)
 	story.WeekdaysMap = bitmaskToWeekdays(story.Weekdays)
 
-	c.JSON(http.StatusOK, story)
+	utils.Success(c, story)
 }
 
 // CreateStory creates a new story with optional audio upload
@@ -163,13 +156,13 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	// Parse form data
 	title := c.PostForm("title")
 	if title == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Title is required"})
+		utils.BadRequest(c, "Title is required")
 		return
 	}
 
 	text := c.PostForm("text")
 	if text == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Text is required"})
+		utils.BadRequest(c, "Text is required")
 		return
 	}
 
@@ -178,7 +171,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		status = "draft"
 	}
 	if status != "draft" && status != "active" && status != "expired" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Status must be one of: draft, active, expired"})
+		utils.BadRequest(c, "Status must be one of: draft, active, expired")
 		return
 	}
 
@@ -187,21 +180,21 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
 		id, err := strconv.Atoi(voiceIDStr)
 		if err != nil || id <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Valid voice_id is required"})
+			utils.BadRequest(c, "Valid voice_id is required")
 			return
 		}
-		if !api.ValidateResourceExists(c, h.db, "voices", "Voice", id) {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", id) {
 			return
 		}
 		voiceID = &id
 	}
 
 	// Parse dates
-	startDate, ok := api.ParseFormDate(c, "start_date", "start date")
+	startDate, ok := utils.ParseFormDate(c, "start_date", "start date")
 	if !ok {
 		return
 	}
-	endDate, ok := api.ParseFormDate(c, "end_date", "end date")
+	endDate, ok := utils.ParseFormDate(c, "end_date", "end date")
 	if !ok {
 		return
 	}
@@ -211,13 +204,13 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if weekdaysStr := c.PostForm("weekdays"); weekdaysStr != "" {
 		var weekdaysMap map[string]bool
 		if err := json.Unmarshal([]byte(weekdaysStr), &weekdaysMap); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid weekdays format - must be valid JSON"})
+			utils.BadRequest(c, "Invalid weekdays format - must be valid JSON")
 			return
 		}
 
 		for day, enabled := range weekdaysMap {
 			if enabled {
-				weekdaysBitmask |= api.WeekdayStringToBitmask(day)
+				weekdaysBitmask |= utils.WeekdayStringToBitmask(day)
 			}
 		}
 	}
@@ -229,7 +222,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		"INSERT INTO stories (title, text, voice_id, status, start_date, end_date, weekdays, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadata)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create story"})
+		utils.InternalServerError(c, "Failed to create story")
 		return
 	}
 
@@ -238,20 +231,19 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	// Handle optional audio file upload
 	_, _, err = c.Request.FormFile("audio")
 	if err == nil {
-		tempPath, cleanup, err := api.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", storyID))
+		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", storyID))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			utils.BadRequest(c, err.Error())
 			return
 		}
 		defer cleanup()
 
 		// Process audio with audio service
-		filename := fmt.Sprintf("story_%d.wav", storyID)
-		finalPath := filepath.Join(h.config.Audio.ProcessedPath, filename)
+		filename := utils.GetStoryFilename(int(storyID))
 
-		if err := h.audioSvc.ConvertStoryToWAV(tempPath, finalPath); err != nil {
+		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), int(storyID), tempPath); err != nil {
 			logger.Error("Failed to process story audio: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process audio"})
+			utils.InternalServerError(c, "Failed to process audio")
 			return
 		}
 
@@ -259,25 +251,22 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		_, err = h.db.ExecContext(c.Request.Context(),
 			"UPDATE stories SET audio_file = ? WHERE id = ?", filename, storyID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update audio reference"})
+			utils.InternalServerError(c, "Failed to update audio reference")
 			return
 		}
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"id":      storyID,
-		"message": "Story created successfully",
-	})
+	utils.CreatedWithID(c, storyID, "Story created successfully")
 }
 
 // UpdateStory updates an existing story
 func (h *Handlers) UpdateStory(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	if !api.ValidateResourceExists(c, h.db, "stories", "Story", id) {
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
 		return
 	}
 
@@ -297,7 +286,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 
 	if status := c.PostForm("status"); status != "" {
 		if status != "draft" && status != "active" && status != "expired" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Status must be one of: draft, active, expired"})
+			utils.BadRequest(c, "Status must be one of: draft, active, expired")
 			return
 		}
 		updates = append(updates, "status = ?")
@@ -307,22 +296,22 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
 		voiceID, err := strconv.Atoi(voiceIDStr)
 		if err != nil || voiceID <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Valid voice_id is required"})
+			utils.BadRequest(c, "Valid voice_id is required")
 			return
 		}
-		if !api.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
 			return
 		}
 		updates = append(updates, "voice_id = ?")
 		args = append(args, voiceID)
 	}
 
-	if startDate, ok := api.ParseFormDate(c, "start_date", "start date"); ok && !startDate.IsZero() {
+	if startDate, ok := utils.ParseFormDate(c, "start_date", "start date"); ok && !startDate.IsZero() {
 		updates = append(updates, "start_date = ?")
 		args = append(args, startDate)
 	}
 
-	if endDate, ok := api.ParseFormDate(c, "end_date", "end date"); ok && !endDate.IsZero() {
+	if endDate, ok := utils.ParseFormDate(c, "end_date", "end date"); ok && !endDate.IsZero() {
 		updates = append(updates, "end_date = ?")
 		args = append(args, endDate)
 	}
@@ -330,14 +319,14 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	if weekdaysStr := c.PostForm("weekdays"); weekdaysStr != "" {
 		var weekdaysMap map[string]bool
 		if err := json.Unmarshal([]byte(weekdaysStr), &weekdaysMap); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid weekdays format - must be valid JSON"})
+			utils.BadRequest(c, "Invalid weekdays format - must be valid JSON")
 			return
 		}
 
 		var weekdaysBitmask uint8
 		for day, enabled := range weekdaysMap {
 			if enabled {
-				weekdaysBitmask |= api.WeekdayStringToBitmask(day)
+				weekdaysBitmask |= utils.WeekdayStringToBitmask(day)
 			}
 		}
 		updates = append(updates, "weekdays = ?")
@@ -350,7 +339,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	if len(updates) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		utils.BadRequest(c, "No fields to update")
 		return
 	}
 
@@ -359,55 +348,55 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	args = append(args, id)
 
 	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update story"})
+		utils.InternalServerError(c, "Failed to update story")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Story updated successfully"})
+	utils.SuccessWithMessage(c, "Story updated successfully")
 }
 
 // SoftDeleteStory marks a story as deleted
 func (h *Handlers) SoftDeleteStory(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.db.ExecContext(c.Request.Context(), 
+	result, err := h.db.ExecContext(c.Request.Context(),
 		"UPDATE stories SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete story"})
+		utils.InternalServerError(c, "Failed to delete story")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Story not found or already deleted"})
+		utils.NotFound(c, "Story not found or already deleted")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Story deleted successfully"})
+	utils.SuccessWithMessage(c, "Story deleted successfully")
 }
 
 // RestoreStory restores a soft-deleted story
 func (h *Handlers) RestoreStory(c *gin.Context) {
-	id, ok := api.GetIDParam(c)
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.db.ExecContext(c.Request.Context(), 
+	result, err := h.db.ExecContext(c.Request.Context(),
 		"UPDATE stories SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL", id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore story"})
+		utils.InternalServerError(c, "Failed to restore story")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Story not found or not deleted"})
+		utils.NotFound(c, "Story not found or not deleted")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Story restored successfully"})
+	utils.SuccessWithMessage(c, "Story restored successfully")
 }
