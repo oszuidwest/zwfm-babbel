@@ -14,7 +14,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Service handles audio processing operations.
@@ -51,81 +50,6 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath 
 	}
 
 	return outputPath, duration, nil
-}
-
-// ConvertJingleToWAV converts station-specific jingle to standard WAV format
-func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int, inputPath string) (string, error) {
-	finalPath := utils.GetJinglePath(s.config, stationID, voiceID)
-
-	// Process in /tmp first for atomic file operations (process then move)
-	tempOutput := utils.GetTempJinglePath(stationID, voiceID, time.Now().UnixNano())
-
-	// Convert to WAV 48kHz stereo
-	// #nosec G204 - FFmpegPath is from config, paths are internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
-		"-i", inputPath,
-		"-ar", "48000",
-		"-ac", "2",
-		"-acodec", "pcm_s16le",
-		"-y", tempOutput,
-	)
-
-	// Capture stderr for better error reporting
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start ffmpeg: %w", err)
-	}
-
-	// Read stderr
-	stderrBytes, readErr := io.ReadAll(stderr)
-	if readErr != nil {
-		// Log the error but continue - we still want to see the main error if cmd.Wait fails
-		fmt.Printf("Failed to read stderr: %v\n", readErr)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("ffmpeg failed for station %d voice %d: %w. stderr: %s", stationID, voiceID, err, string(stderrBytes))
-	}
-
-	// Move the processed file to the final location
-	if err := os.Rename(tempOutput, finalPath); err != nil {
-		// If rename fails (e.g., across filesystems), copy and delete
-		// #nosec G304 - tempOutput is internally generated path, not user input
-		input, err := os.Open(tempOutput)
-		if err != nil {
-			return "", fmt.Errorf("failed to open temp file: %w", err)
-		}
-		defer func() {
-			if err := input.Close(); err != nil {
-				logger.Error("Failed to close input file: %v", err)
-			}
-		}()
-
-		// #nosec G304 - finalPath is internally generated path, not user input
-		output, err := os.Create(finalPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to create output file: %w", err)
-		}
-		defer func() {
-			if err := output.Close(); err != nil {
-				logger.Error("Failed to close output file: %v", err)
-			}
-		}()
-
-		if _, err := io.Copy(output, input); err != nil {
-			return "", fmt.Errorf("failed to copy file: %w", err)
-		}
-
-		if err := os.Remove(tempOutput); err != nil {
-			logger.Error("Failed to remove temp file %s: %v", tempOutput, err)
-		}
-	}
-
-	return finalPath, nil
 }
 
 // GetDuration gets audio file duration

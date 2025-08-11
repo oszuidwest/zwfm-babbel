@@ -51,19 +51,6 @@ func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID 
 	return nil
 }
 
-// CheckRecordExists validates that a record exists
-func CheckRecordExists(db *sqlx.DB, table string, id int) error {
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE id = ?)"
-	if err := db.Get(&exists, query, id); err != nil {
-		return err
-	}
-	if !exists {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
 // GetPagination extracts limit and offset from query parameters
 func GetPagination(c *gin.Context) (limit, offset int) {
 	limit = 20 // default
@@ -125,7 +112,7 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	}
 
 	if err := ValidateAudioFile(header); err != nil {
-		file.Close()
+		_ = file.Close() // Ignore error on cleanup
 		return "", nil, fmt.Errorf("invalid audio file: %w", err)
 	}
 
@@ -133,13 +120,13 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	tempPath = filepath.Join("/tmp", fmt.Sprintf("%s_%s", prefix, safeFilename))
 
 	if err := saveFileToPath(file, tempPath); err != nil {
-		file.Close()
+		_ = file.Close() // Ignore error on cleanup
 		return "", nil, err
 	}
 
 	cleanup = func() {
-		file.Close()
-		os.Remove(tempPath)
+		_ = file.Close()        // Ignore error on cleanup
+		_ = os.Remove(tempPath) // Ignore error on cleanup
 	}
 
 	return tempPath, cleanup, nil
@@ -176,6 +163,7 @@ func SanitizeFilename(filename string) string {
 
 // saveFileToPath saves uploaded file to specified path
 func saveFileToPath(file multipart.File, dst string) error {
+	// #nosec G304 - dst is sanitized temp path from ValidateAndSaveAudioFile
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -190,17 +178,19 @@ func saveFileToPath(file multipart.File, dst string) error {
 	return err
 }
 
-// Request structs for all entities
+// StationRequest represents the request structure for creating/updating stations
 type StationRequest struct {
 	Name               string  `json:"name" binding:"required,min=1,max=255"`
 	MaxStoriesPerBlock int     `json:"max_stories_per_block" binding:"gte=1,lte=50"`
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
+// VoiceRequest represents the request structure for creating/updating voices
 type VoiceRequest struct {
 	Name string `json:"name" binding:"required,min=1,max=255"`
 }
 
+// UserCreateRequest represents the request structure for creating users
 type UserCreateRequest struct {
 	Username string  `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string  `json:"full_name" binding:"required,min=1,max=255"`
@@ -210,6 +200,7 @@ type UserCreateRequest struct {
 	Metadata string  `json:"metadata" binding:"omitempty,json"`
 }
 
+// UserUpdateRequest represents the request structure for updating users
 type UserUpdateRequest struct {
 	Username string  `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName string  `json:"full_name" binding:"omitempty,min=1,max=255"`
@@ -218,6 +209,7 @@ type UserUpdateRequest struct {
 	Metadata string  `json:"metadata" binding:"omitempty,json"`
 }
 
+// StationVoiceRequest represents the request structure for creating/updating station-voice relationships
 type StationVoiceRequest struct {
 	StationID int     `json:"station_id" binding:"required,min=1"`
 	VoiceID   int     `json:"voice_id" binding:"required,min=1"`

@@ -24,11 +24,6 @@ func GetBulletinPath(config *config.Config, stationID int, timestamp time.Time) 
 	return filepath.Join(config.Audio.OutputPath, fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405")))
 }
 
-// GetTempJinglePath returns a temporary path for jingle processing
-func GetTempJinglePath(stationID, voiceID int, timestamp int64) string {
-	return fmt.Sprintf("/tmp/station_%d_voice_%d_jingle_%d.wav", stationID, voiceID, timestamp)
-}
-
 // GetTempBulletinDir returns a temporary directory path for bulletin creation
 func GetTempBulletinDir(config *config.Config, uuid string) string {
 	return filepath.Join(config.Audio.TempPath, uuid)

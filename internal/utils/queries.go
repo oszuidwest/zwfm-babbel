@@ -1,3 +1,4 @@
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries
 package utils
 
 import "strings"
