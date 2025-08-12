@@ -114,7 +114,9 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 	whereClause, filterArgs := BuildWhereClause(config.Filters)
 
 	// Combine base arguments with filter arguments
-	allArgs := append(config.AllowedArgs, filterArgs...)
+	var allArgs []interface{}
+	allArgs = append(allArgs, config.AllowedArgs...)
+	allArgs = append(allArgs, filterArgs...)
 
 	// Build count query
 	countQuery := config.CountQuery
@@ -142,10 +144,10 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 
 	// Add pagination
 	mainQuery += " LIMIT ? OFFSET ?"
-	queryArgs := append(allArgs, limit, offset)
+	allArgs = append(allArgs, limit, offset)
 
 	// Execute query
-	if err := db.Select(result, mainQuery, queryArgs...); err != nil {
+	if err := db.Select(result, mainQuery, allArgs...); err != nil {
 		InternalServerError(c, "Failed to fetch records")
 		return
 	}

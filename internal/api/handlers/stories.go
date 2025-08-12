@@ -422,16 +422,14 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			}
 			utils.SuccessWithMessage(c, "Story restored")
 			return
-		} else {
-			// Soft delete story (set deleted_at to NOW())
-			_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
-			if err != nil {
-				utils.InternalServerError(c, "Failed to soft delete story")
-				return
-			}
-			utils.NoContent(c)
+		}
+		// Soft delete story (set deleted_at to NOW())
+		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+		if err != nil {
+			utils.InternalServerError(c, "Failed to soft delete story")
 			return
 		}
+		utils.NoContent(c)
 	}
 
 	// Handle status update

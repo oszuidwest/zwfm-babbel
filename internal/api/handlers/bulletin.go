@@ -499,11 +499,11 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	// Add ORDER BY and pagination
 	baseQuery += " ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
-	queryArgs := append(filterArgs, limit, offset)
+	filterArgs = append(filterArgs, limit, offset)
 
 	// Execute main query
 	var bulletins []models.Bulletin
-	if err := h.db.Select(&bulletins, baseQuery, queryArgs...); err != nil {
+	if err := h.db.Select(&bulletins, baseQuery, filterArgs...); err != nil {
 		utils.InternalServerError(c, "Failed to fetch bulletins")
 		return
 	}

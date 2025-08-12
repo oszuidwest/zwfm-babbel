@@ -1376,22 +1376,33 @@ test_audio_downloads() {
     # Test story audio download
     print_info "Testing story audio downloads..."
     stories=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
-    first_story_id=$(echo "$stories" | python3 -c "
+    # Find a story that has audio (should be stories 1-8, which have audio files)
+    story_with_audio_id=$(echo "$stories" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-if 'data' in data and len(data['data']) > 0:
-    print(data['data'][0]['id'])
+if 'data' in data:
+    for story in data['data']:
+        # Look for stories that have audio_url (indicating they have audio files)
+        if story.get('audio_url') is not None:
+            print(story['id'])
+            break
 " 2>/dev/null)
     
-    if [ -n "$first_story_id" ]; then
+    # Fallback to story ID 1-8 if no story with audio_url found
+    if [ -z "$story_with_audio_id" ]; then
+        print_info "No story with audio_url found, using fallback story ID 1"
+        story_with_audio_id=1
+    fi
+    
+    if [ -n "$story_with_audio_id" ]; then
         # First, verify the source story audio file exists  
-        story_source_file="$AUDIO_DIR/processed/story_${first_story_id}.wav"
+        story_source_file="$AUDIO_DIR/processed/story_${story_with_audio_id}.wav"
         if [ ! -f "$story_source_file" ] || [ ! -s "$story_source_file" ]; then
             print_warning "Story source file not available, trying different approach"
         fi
         
         # Use retry logic for download with file verification
-        if simple_download "$API_URL/stories/$first_story_id/audio" "/tmp/test_story.wav"; then
+        if simple_download "$API_URL/stories/$story_with_audio_id/audio" "/tmp/test_story.wav"; then
             # Verify it's actually a valid audio file using ffprobe
             audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_story.wav 2>&1)
             if echo "$audio_info" | grep -q "codec_type=audio"; then
@@ -1417,6 +1428,31 @@ if 'data' in data and len(data['data']) > 0:
             print_success "Non-existent story audio correctly returns 404"
         else
             print_error "Non-existent story audio returned HTTP $http_code (expected 404)"
+        fi
+        
+        # Test text-only story audio (should return 404)
+        # Stories 9-10 are created without audio files
+        text_only_story_id=$(echo "$stories" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if 'data' in data:
+    for story in data['data']:
+        # Look for stories that don't have audio_url (text-only stories)
+        if story.get('audio_url') is None:
+            print(story['id'])
+            break
+" 2>/dev/null)
+        
+        if [ -n "$text_only_story_id" ]; then
+            response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$text_only_story_id/audio" -b "$COOKIE_FILE")
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "404" ]; then
+                print_success "Text-only story audio correctly returns 404 (story ID: $text_only_story_id)"
+            else
+                print_error "Text-only story audio returned HTTP $http_code (expected 404, story ID: $text_only_story_id)"
+            fi
+        else
+            print_info "No text-only stories found to test 404 response"
         fi
     fi
     

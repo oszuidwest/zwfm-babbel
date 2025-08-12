@@ -18,6 +18,8 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // GetIDParam extracts and validates the ID parameter from the request URL.
@@ -390,7 +392,7 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", strings.Title(strings.ReplaceAll(field, "_", " ")))})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", cases.Title(language.English).String(strings.ReplaceAll(field, "_", " ")))})
 		return 0, false
 	}
 
@@ -418,8 +420,8 @@ func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
 	return &value, nil
 }
 
-// ParseFloatForm parses optional float from form with consistent error handling, returning nil if empty.
-func ParseFloatForm(c *gin.Context, field string) (*float64, error) {
+// ParseFloatFormWithRange parses optional float from form with range validation between minVal and maxVal values.
+func ParseFloatFormWithRange(c *gin.Context, field string, minVal, maxVal float64) (*float64, error) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
 		return nil, nil // empty is ok for optional fields
@@ -430,23 +432,8 @@ func ParseFloatForm(c *gin.Context, field string) (*float64, error) {
 		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
 	}
 
-	return &value, nil
-}
-
-// ParseFloatFormWithRange parses optional float from form with range validation between min and max values.
-func ParseFloatFormWithRange(c *gin.Context, field string, min, max float64) (*float64, error) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		return nil, nil // empty is ok for optional fields
-	}
-
-	value, err := strconv.ParseFloat(valueStr, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
-	}
-
-	if value < min || value > max {
-		return nil, fmt.Errorf("%s must be between %.1f and %.1f", strings.ToLower(strings.ReplaceAll(field, "_", " ")), min, max)
+	if value < minVal || value > maxVal {
+		return nil, fmt.Errorf("%s must be between %.1f and %.1f", strings.ToLower(strings.ReplaceAll(field, "_", " ")), minVal, maxVal)
 	}
 
 	return &value, nil
