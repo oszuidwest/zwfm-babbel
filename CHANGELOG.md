@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2025-08-12
+
+### Fixed
+- Generic HTTP 500 errors now return specific, actionable error messages
+
+### Improved
+- Enhanced error handling with user-friendly messages for:
+  - Field length validation (title max 500 chars, station name max 255 chars)
+  - Duplicate entry detection
+  - Foreign key constraint violations
+  - Missing required fields
+  - Invalid date formats
+- Pre-validation of field lengths before database operations
+
+### Changed
+- All database errors are now logged with full details while returning secure messages to users
+- Removed unused HandleDatabaseError helper function (code cleanup)
+
 ## [1.0.8] - 2025-08-09
 
 ### Added
