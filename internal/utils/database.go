@@ -3,11 +3,8 @@ package utils
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // CountRecords returns the total number of records in the specified table with optional WHERE clause.
@@ -71,34 +68,4 @@ func CountActivesExcludingID(db *sqlx.DB, tableName, condition string, id int) (
 	}
 
 	return count, nil
-}
-
-// HandleDatabaseError provides user-friendly error messages for common database errors
-// while logging the actual error for debugging purposes
-func HandleDatabaseError(c *gin.Context, err error, operation string) {
-	if err == nil {
-		return
-	}
-
-	// Log the actual error for debugging
-	logger.Error("Database error during %s: %v", operation, err)
-
-	// Provide user-friendly error messages based on error type
-	errStr := err.Error()
-	switch {
-	case strings.Contains(errStr, "Data too long"):
-		BadRequest(c, "One or more fields exceed maximum length")
-	case strings.Contains(errStr, "Duplicate entry"):
-		BadRequest(c, "A resource with these details already exists")
-	case strings.Contains(errStr, "foreign key constraint"):
-		BadRequest(c, "Cannot complete operation: resource is referenced by other data")
-	case strings.Contains(errStr, "cannot be null"):
-		BadRequest(c, "Required field is missing")
-	case strings.Contains(errStr, "Out of range"):
-		BadRequest(c, "Numeric value is out of acceptable range")
-	case strings.Contains(errStr, "Incorrect datetime"):
-		BadRequest(c, "Invalid date or time format")
-	default:
-		InternalServerError(c, fmt.Sprintf("Failed to %s due to database error", operation))
-	}
 }
