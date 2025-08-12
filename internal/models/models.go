@@ -27,7 +27,7 @@ type Story struct {
 	StartDate       time.Time  `db:"start_date" json:"start_date"`
 	EndDate         time.Time  `db:"end_date" json:"end_date"`
 	Weekdays        uint8      `db:"weekdays" json:"weekdays"` // bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun
-	Metadata        string     `db:"metadata" json:"metadata"` // JSON metadata
+	Metadata        *string    `db:"metadata" json:"metadata"` // JSON metadata
 	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
 	DeletedAt       *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
@@ -87,7 +87,7 @@ type User struct {
 	FailedLoginAttempts int        `db:"failed_login_attempts" json:"-"`
 	LockedUntil         *time.Time `db:"locked_until" json:"locked_until,omitempty"`
 	PasswordChangedAt   time.Time  `db:"password_changed_at" json:"password_changed_at"`
-	Metadata            string     `db:"metadata" json:"metadata"`
+	Metadata            *string    `db:"metadata" json:"metadata"`
 	CreatedAt           time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time  `db:"updated_at" json:"updated_at"`
 }

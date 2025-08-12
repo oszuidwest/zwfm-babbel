@@ -155,18 +155,71 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 				if !utils.ValidateResourceExists(c, db, "stories", "Story", id) {
 					return
 				}
+
+				// Support both status updates and soft delete/restore
 				var req struct {
-					Status string `json:"status" binding:"required,oneof=draft active expired"`
+					Status    *string `json:"status"`
+					DeletedAt *string `json:"deleted_at"`
 				}
-				if !utils.BindAndValidate(c, &req) {
+				if err := c.ShouldBindJSON(&req); err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
 					return
 				}
-				_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", req.Status, id)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update story status"})
+
+				// Validate that at least one field is provided
+				if req.Status == nil && req.DeletedAt == nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "At least one field (status or deleted_at) is required"})
 					return
 				}
-				c.JSON(http.StatusOK, gin.H{"message": "Story status updated"})
+
+				// Validate status field if provided
+				if req.Status != nil {
+					validStatuses := []string{"draft", "active", "expired"}
+					isValid := false
+					for _, validStatus := range validStatuses {
+						if *req.Status == validStatus {
+							isValid = true
+							break
+						}
+					}
+					if !isValid {
+						c.JSON(http.StatusBadRequest, gin.H{"error": "Status must be one of: draft, active, expired"})
+						return
+					}
+				}
+
+				// Handle soft delete/restore
+				if req.DeletedAt != nil {
+					if *req.DeletedAt == "" {
+						// Restore story (set deleted_at to NULL)
+						_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
+						if err != nil {
+							c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore story"})
+							return
+						}
+						c.JSON(http.StatusOK, gin.H{"message": "Story restored"})
+						return
+					} else {
+						// Soft delete story (set deleted_at to NOW())
+						_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+						if err != nil {
+							c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to soft delete story"})
+							return
+						}
+						c.Status(http.StatusNoContent)
+						return
+					}
+				}
+
+				// Handle status update
+				if req.Status != nil {
+					_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", *req.Status, id)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update story status"})
+						return
+					}
+					c.JSON(http.StatusOK, gin.H{"message": "Story status updated"})
+				}
 			})
 
 			// User routes (admin only)

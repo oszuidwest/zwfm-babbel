@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -49,16 +50,12 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	// Use the stored path directly (it already includes the full path)
-	audioPath := filePath.String
+	audioPath := filepath.Join(h.config.Audio.AppRoot, filePath.String)
 
-	// Check if file exists
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
 		return
 	}
-
-	// Set appropriate headers
 	c.Header("Content-Type", config.ContentType)
 	c.Header("Content-Disposition",
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))

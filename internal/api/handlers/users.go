@@ -13,60 +13,71 @@ import (
 
 // UserResponse represents the user data returned by the API
 type UserResponse struct {
-	ID                int        `json:"id" db:"id"`
-	Username          string     `json:"username" db:"username"`
-	FullName          string     `json:"full_name" db:"full_name"`
-	Email             string     `json:"email" db:"email"`
-	Role              string     `json:"role" db:"role"`
-	SuspendedAt       *time.Time `json:"suspended_at" db:"suspended_at"`
-	LastLoginAt       *time.Time `json:"last_login_at" db:"last_login_at"`
-	LoginCount        int        `json:"login_count" db:"login_count"`
-	PasswordChangedAt time.Time  `json:"password_changed_at" db:"password_changed_at"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+	ID                     int        `json:"id" db:"id"`
+	Username               string     `json:"username" db:"username"`
+	FullName               *string    `json:"full_name" db:"full_name"`
+	Email                  *string    `json:"email" db:"email"`
+	Role                   string     `json:"role" db:"role"`
+	SuspendedAt            *time.Time `json:"suspended_at" db:"suspended_at"`
+	LastLoginAt            *time.Time `json:"last_login_at" db:"last_login_at"`
+	LoginCount             int        `json:"login_count" db:"login_count"`
+	FailedLoginAttempts    int        `json:"failed_login_attempts" db:"failed_login_attempts"`
+	LockedUntil            *time.Time `json:"locked_until" db:"locked_until"`
+	PasswordChangedAt      *time.Time `json:"password_changed_at" db:"password_changed_at"`
+	Metadata               *string    `json:"metadata" db:"metadata"`
+	CreatedAt              time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at" db:"updated_at"`
 }
 
-// ListUsers returns a paginated list of users
+// ListUsers returns a paginated list of users with optional filtering
 func (h *Handlers) ListUsers(c *gin.Context) {
 	limit, offset := utils.GetPagination(c)
 
-	// Build query with optional filters
-	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, password_changed_at, created_at, updated_at FROM users"
+	// Build base query
+	baseQuery := `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
+	              login_count, failed_login_attempts, locked_until, password_changed_at, 
+	              metadata, created_at, updated_at FROM users`
 	countQuery := "SELECT COUNT(*) FROM users"
-	args := []interface{}{}
-	whereClauses := []string{}
+	
+	// Build WHERE clauses based on query parameters
+	var whereConditions []string
+	var args []interface{}
 
-	// Add soft delete filter (exclude suspended users by default)
-	if c.Query("include_suspended") != "true" {
-		whereClauses = append(whereClauses, "suspended_at IS NULL")
+	// Filter out suspended users by default
+	includeSuspended := c.Query("include_suspended") == "true"
+	if !includeSuspended {
+		whereConditions = append(whereConditions, "suspended_at IS NULL")
 	}
 
-	// Add role filter if provided
+	// Filter by role if specified
 	if role := c.Query("role"); role != "" {
-		whereClauses = append(whereClauses, "role = ?")
+		whereConditions = append(whereConditions, "role = ?")
 		args = append(args, role)
 	}
 
-	// Apply WHERE clauses
-	if len(whereClauses) > 0 {
-		whereClause := " WHERE " + strings.Join(whereClauses, " AND ")
-		query += whereClause
+	// Apply WHERE clauses to both queries
+	var whereClause string
+	if len(whereConditions) > 0 {
+		whereClause = " WHERE " + strings.Join(whereConditions, " AND ")
+		baseQuery += whereClause
 		countQuery += whereClause
 	}
 
 	// Get total count
-	total, err := utils.CountWithJoins(h.db, countQuery, args...)
-	if err != nil {
+	var total int64
+	if err := h.db.Get(&total, countQuery, args...); err != nil {
+		logger.Error("Failed to count users: %v", err)
 		utils.InternalServerError(c, "Failed to count users")
 		return
 	}
 
 	// Get paginated data
-	query += " ORDER BY username ASC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	query := baseQuery + " ORDER BY username ASC LIMIT ? OFFSET ?"
+	queryArgs := append(args, limit, offset)
 
 	var users []UserResponse
-	if err := h.db.Select(&users, query, args...); err != nil {
+	if err := h.db.Select(&users, query, queryArgs...); err != nil {
+		logger.Error("Failed to fetch users: %v", err)
 		utils.InternalServerError(c, "Failed to fetch users")
 		return
 	}
@@ -123,10 +134,18 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		return
 	}
 
+	// Handle metadata - empty string should be NULL for JSON column
+	var metadataValue interface{}
+	if req.Metadata == "" {
+		metadataValue = nil
+	} else {
+		metadataValue = req.Metadata
+	}
+
 	// Create user
 	_, err = h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO users (username, full_name, email, password_hash, role, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-		req.Username, req.FullName, req.Email, string(hashedPassword), req.Role, req.Metadata,
+		req.Username, req.FullName, req.Email, string(hashedPassword), req.Role, metadataValue,
 	)
 	if err != nil {
 		utils.InternalServerError(c, "Failed to create user")

@@ -21,12 +21,12 @@ type StoryResponse struct {
 	Text            string          `json:"text" db:"text"`
 	VoiceID         *int            `json:"voice_id" db:"voice_id"`
 	AudioFile       string          `json:"-" db:"audio_file"`
-	DurationSeconds *int            `json:"duration_seconds" db:"duration_seconds"`
+	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
 	Status          string          `json:"status" db:"status"`
 	StartDate       time.Time       `json:"start_date" db:"start_date"`
 	EndDate         time.Time       `json:"end_date" db:"end_date"`
 	Weekdays        uint8           `json:"-" db:"weekdays"`
-	Metadata        string          `json:"metadata" db:"metadata"`
+	Metadata        *string         `json:"metadata" db:"metadata"`
 	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
 	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
@@ -35,7 +35,7 @@ type StoryResponse struct {
 	WeekdaysMap     map[string]bool `json:"weekdays"`
 }
 
-// GetStoryAudioURL returns the API URL for a story's audio file
+// GetStoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
 func GetStoryAudioURL(storyID int, hasAudio bool) *string {
 	if !hasAudio {
 		return nil
@@ -189,12 +189,12 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		voiceID = &id
 	}
 
-	// Parse dates
-	startDate, ok := utils.ParseFormDate(c, "start_date", "start date")
+	// Parse dates (required for story creation)
+	startDate, ok := utils.ParseRequiredFormDate(c, "start_date", "Start date")
 	if !ok {
 		return
 	}
-	endDate, ok := utils.ParseFormDate(c, "end_date", "end date")
+	endDate, ok := utils.ParseRequiredFormDate(c, "end_date", "End date")
 	if !ok {
 		return
 	}
@@ -216,12 +216,20 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	metadata := c.PostForm("metadata")
+	// Handle empty metadata - MySQL JSON column requires NULL not empty string
+	var metadataValue interface{}
+	if metadata == "" {
+		metadataValue = nil
+	} else {
+		metadataValue = metadata
+	}
 
 	// Create story
 	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO stories (title, text, voice_id, status, start_date, end_date, weekdays, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadata)
+		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadataValue)
 	if err != nil {
+		logger.Error("Database error creating story: %v", err)
 		utils.InternalServerError(c, "Failed to create story")
 		return
 	}
@@ -239,17 +247,16 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		defer cleanup()
 
 		// Process audio with audio service
-		filename := utils.GetStoryFilename(int(storyID))
-
 		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), int(storyID), tempPath); err != nil {
 			logger.Error("Failed to process story audio: %v", err)
 			utils.InternalServerError(c, "Failed to process audio")
 			return
 		}
 
-		// Update database with audio filename
+		// Update database with relative audio path
+		relativePath := utils.GetStoryRelativePath(h.config, int(storyID))
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE stories SET audio_file = ? WHERE id = ?", filename, storyID)
+			"UPDATE stories SET audio_file = ? WHERE id = ?", relativePath, storyID)
 		if err != nil {
 			utils.InternalServerError(c, "Failed to update audio reference")
 			return
@@ -333,9 +340,16 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		args = append(args, weekdaysBitmask)
 	}
 
-	if metadata := c.PostForm("metadata"); metadata != "" {
+	// Check if metadata field was provided (could be empty string to set NULL)
+	if _, exists := c.Request.PostForm["metadata"]; exists {
+		metadata := c.PostForm("metadata")
 		updates = append(updates, "metadata = ?")
-		args = append(args, metadata)
+		// Handle JSON column - empty string should be NULL
+		if metadata == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, metadata)
+		}
 	}
 
 	if len(updates) == 0 {

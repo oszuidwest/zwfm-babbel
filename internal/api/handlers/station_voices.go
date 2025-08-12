@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -26,7 +27,7 @@ type StationVoiceResponse struct {
 	AudioURL    *string `json:"audio_url,omitempty"`
 }
 
-// GetStationVoiceAudioURL returns the API URL for a station-voice jingle file
+// GetStationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
 func GetStationVoiceAudioURL(stationVoiceID int, hasJingle bool) *string {
 	if !hasJingle {
 		return nil
@@ -192,20 +193,20 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		}
 		defer cleanup()
 
-		// Generate final filename and move from temp
-		filename := utils.GetJingleFilename(stationID, voiceID)
+		// Generate final path and move from temp
 		finalPath := utils.GetJinglePath(h.config, stationID, voiceID)
 
-		// Move from temp to final location
-		if err := os.Rename(tempPath, finalPath); err != nil {
+		// Move from temp to final location (handles cross-device moves)
+		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
 			logger.Error("Failed to move jingle file: %v", err)
 			utils.InternalServerError(c, "Failed to save jingle file")
 			return
 		}
 
-		// Update database with jingle filename
+		// Update database with relative jingle path
+		relativePath := utils.GetJingleRelativePath(h.config, stationID, voiceID)
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", filename, id)
+			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
 		if err != nil {
 			// Clean up file on database error
 			if err := os.Remove(finalPath); err != nil {
@@ -231,41 +232,120 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Parse form data
-	var req utils.StationVoiceRequest
-	if !utils.BindAndValidate(c, &req) {
+	// Build dynamic update query
+	updates := []string{}
+	args := []interface{}{}
+
+	// Handle station_id update
+	if stationIDStr := c.PostForm("station_id"); stationIDStr != "" {
+		stationID, err := strconv.Atoi(stationIDStr)
+		if err != nil || stationID <= 0 {
+			utils.BadRequest(c, "Valid station_id is required")
+			return
+		}
+		if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
+			return
+		}
+		updates = append(updates, "station_id = ?")
+		args = append(args, stationID)
+	}
+
+	// Handle voice_id update
+	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
+		voiceID, err := strconv.Atoi(voiceIDStr)
+		if err != nil || voiceID <= 0 {
+			utils.BadRequest(c, "Valid voice_id is required")
+			return
+		}
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
+			return
+		}
+		updates = append(updates, "voice_id = ?")
+		args = append(args, voiceID)
+	}
+
+	// Handle mix_point update
+	if mixPointStr := c.PostForm("mix_point"); mixPointStr != "" {
+		mixPoint, err := strconv.ParseFloat(mixPointStr, 64)
+		if err != nil || mixPoint < 0 || mixPoint > 300 {
+			utils.BadRequest(c, "Mix point must be between 0 and 300 seconds")
+			return
+		}
+		updates = append(updates, "mix_point = ?")
+		args = append(args, mixPoint)
+	}
+
+	if len(updates) == 0 {
+		utils.BadRequest(c, "No fields to update")
 		return
 	}
 
-	// Check if referenced records exist
-	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", req.StationID) {
-		return
-	}
-	if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", req.VoiceID) {
-		return
+	// Check uniqueness if station_id or voice_id is being updated
+	if stationIDStr := c.PostForm("station_id"); stationIDStr != "" || c.PostForm("voice_id") != "" {
+		// Get current record to determine final combination
+		var current struct {
+			StationID int `db:"station_id"`
+			VoiceID   int `db:"voice_id"`
+		}
+
+		err := h.db.Get(&current, "SELECT station_id, voice_id FROM station_voices WHERE id = ?", id)
+		if err != nil {
+			utils.InternalServerError(c, "Failed to fetch current values")
+			return
+		}
+
+		// Determine final values (use new if provided, current otherwise)
+		finalStationID := current.StationID
+		finalVoiceID := current.VoiceID
+
+		if stationIDStr != "" {
+			finalStationID, _ = strconv.Atoi(stationIDStr)
+		}
+		if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
+			finalVoiceID, _ = strconv.Atoi(voiceIDStr)
+		}
+
+		// Check if this combination would create a duplicate (excluding current record)
+		count, err := utils.CountByCondition(h.db, "station_voices",
+			"station_id = ? AND voice_id = ? AND id != ?",
+			finalStationID, finalVoiceID, id)
+
+		if err != nil {
+			utils.InternalServerError(c, "Failed to check uniqueness")
+			return
+		}
+
+		if count > 0 {
+			utils.BadRequest(c, "Station-voice combination already exists")
+			return
+		}
 	}
 
-	// Check uniqueness (excluding current record)
-	count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ? AND id != ?", req.StationID, req.VoiceID, id)
-	if err != nil {
-		utils.InternalServerError(c, "Failed to check uniqueness")
-		return
-	}
-	if count > 0 {
-		utils.BadRequest(c, "Station-voice combination already exists")
-		return
-	}
+	// Execute update
+	query := "UPDATE station_voices SET " + strings.Join(updates, ", ") + " WHERE id = ?"
+	args = append(args, id)
 
-	// Update station-voice
-	_, err = h.db.ExecContext(c.Request.Context(),
-		"UPDATE station_voices SET station_id = ?, voice_id = ?, mix_point = ? WHERE id = ?",
-		req.StationID, req.VoiceID, req.MixPoint, id)
+	_, err := h.db.ExecContext(c.Request.Context(), query, args...)
 	if err != nil {
 		utils.InternalServerError(c, "Failed to update station-voice")
 		return
 	}
 
-	utils.SuccessWithMessage(c, "Station-voice relationship updated successfully")
+	// Get updated record for response
+	var updatedRecord models.StationVoice
+	err = h.db.Get(&updatedRecord, `
+		SELECT sv.id, sv.station_id, sv.voice_id, sv.mix_point, sv.created_at, sv.updated_at,
+			   s.name as station_name, v.name as voice_name
+		FROM station_voices sv
+		JOIN stations s ON sv.station_id = s.id  
+		JOIN voices v ON sv.voice_id = v.id
+		WHERE sv.id = ?`, id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to fetch updated record")
+		return
+	}
+
+	utils.Success(c, updatedRecord)
 }
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file

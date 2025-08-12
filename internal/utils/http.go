@@ -29,6 +29,17 @@ func GetIDParam(c *gin.Context) (int, bool) {
 	return id, true
 }
 
+// ValidateResourceExists checks if a record exists and responds with 404 error if not
+func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName string, id int) bool {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
+	if err := db.Get(&exists, query, id); err != nil || !exists {
+		NotFound(c, resourceName)
+		return false
+	}
+	return true
+}
+
 // CheckUnique validates uniqueness for common fields
 func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID *int) error {
 	var count int
@@ -63,22 +74,29 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-// ValidateResourceExists checks if a record exists and responds with error if not
-func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName string, id int) bool {
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
-	if err := db.Get(&exists, query, id); err != nil || !exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s not found", resourceName)})
-		return false
-	}
-	return true
-}
 
 // ParseFormDate parses date from form with consistent error handling
 func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
 	dateStr := c.PostForm(fieldName)
 	if dateStr == "" {
 		return time.Time{}, true // empty is ok for updates
+	}
+
+	date, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel))})
+		return time.Time{}, false
+	}
+
+	return date, true
+}
+
+// ParseRequiredFormDate parses required date from form with consistent error handling
+func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
+	dateStr := c.PostForm(fieldName)
+	if dateStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", fieldLabel)})
+		return time.Time{}, false
 	}
 
 	date, err := time.Parse("2006-01-02", dateStr)
@@ -159,6 +177,60 @@ func SanitizeFilename(filename string) string {
 	filename = filepath.Base(filename)
 	filename = strings.ReplaceAll(filename, " ", "_")
 	return filename
+}
+
+// SafeMoveFile safely moves a file from source to destination, handling cross-device scenarios
+func SafeMoveFile(src, dst string) error {
+	// First, try a simple rename (works if on same filesystem)
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+
+	// If rename failed, fall back to copy + delete
+	// This handles cross-device moves (e.g., /tmp to Docker volume)
+
+	// Open source file
+	// #nosec G304 - src path is internally generated and validated
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer func() {
+		_ = srcFile.Close() // Ignore error on cleanup
+	}()
+
+	// Create destination file
+	// #nosec G304 - dst path is internally generated and validated
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer func() {
+		_ = dstFile.Close() // Ignore error on cleanup
+	}()
+
+	// Copy file contents
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		// If copy failed, clean up destination file
+		_ = os.Remove(dst)
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	// Ensure data is written to disk
+	if err := dstFile.Sync(); err != nil {
+		// If sync failed, clean up destination file
+		_ = os.Remove(dst)
+		return fmt.Errorf("failed to sync destination file: %w", err)
+	}
+
+	// Copy succeeded, now remove source file
+	if err := os.Remove(src); err != nil {
+		// Log warning but don't fail - the copy succeeded
+		// We use fmt.Printf since logger might not be available in utils
+		fmt.Printf("Warning: failed to remove source file %s after successful copy: %v\n", src, err)
+	}
+
+	return nil
 }
 
 // saveFileToPath saves uploaded file to specified path

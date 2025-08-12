@@ -122,13 +122,15 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 	// The bulletin ends when all stories finish playing (jingle plays underneath)
 	totalDuration = storiesDuration + mixPointDelay
 
-	// Save bulletin record to database
+	// Save bulletin record to database with consistent relative path
+	relativePath := utils.GetBulletinRelativePath(h.config, req.StationID, time.Now())
+
 	result, err := h.db.ExecContext(c.Request.Context(), `
 		INSERT INTO bulletins (station_id, filename, file_path, duration_seconds, file_size, story_count)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		req.StationID,
 		filepath.Base(bulletinPath),
-		bulletinPath,
+		relativePath,
 		totalDuration,
 		fileSize,
 		len(stories),

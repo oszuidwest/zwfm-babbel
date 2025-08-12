@@ -53,6 +53,10 @@ print_info() {
     echo -e "${YELLOW}ℹ $1${NC}" >&2
 }
 
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}" >&2
+}
+
 # Check if FFmpeg is installed
 check_ffmpeg() {
     if ! command -v ffmpeg &> /dev/null; then
