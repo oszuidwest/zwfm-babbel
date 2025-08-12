@@ -208,13 +208,28 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		metadataValue = metadata
 	}
 
+	// Validate title length (MySQL column is VARCHAR(500))
+	if len(title) > 500 {
+		utils.BadRequest(c, "Title is too long (maximum 500 characters)")
+		return
+	}
+
 	// Create story
 	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO stories (title, text, voice_id, status, start_date, end_date, weekdays, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadataValue)
 	if err != nil {
 		logger.Error("Database error creating story: %v", err)
-		utils.InternalServerError(c, "Failed to create story")
+		// Provide more specific error messages for common database errors
+		if strings.Contains(err.Error(), "Data too long") {
+			utils.BadRequest(c, "One or more fields exceed maximum length")
+		} else if strings.Contains(err.Error(), "Duplicate entry") {
+			utils.BadRequest(c, "A story with similar details already exists")
+		} else if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Invalid reference to related resource")
+		} else {
+			utils.InternalServerError(c, "Failed to create story due to database error")
+		}
 		return
 	}
 
@@ -266,6 +281,11 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	args := []interface{}{}
 
 	if title := c.PostForm("title"); title != "" {
+		// Validate title length (MySQL column is VARCHAR(500))
+		if len(title) > 500 {
+			utils.BadRequest(c, "Title is too long (maximum 500 characters)")
+			return
+		}
 		updates = append(updates, "title = ?")
 		args = append(args, title)
 	}
@@ -346,7 +366,17 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	args = append(args, id)
 
 	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		utils.InternalServerError(c, "Failed to update story")
+		logger.Error("Database error updating story: %v", err)
+		// Provide more specific error messages for common database errors
+		if strings.Contains(err.Error(), "Data too long") {
+			utils.BadRequest(c, "One or more fields exceed maximum length")
+		} else if strings.Contains(err.Error(), "Duplicate entry") {
+			utils.BadRequest(c, "A story with similar details already exists")
+		} else if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Invalid reference to related resource")
+		} else {
+			utils.InternalServerError(c, "Failed to update story due to database error")
+		}
 		return
 	}
 
@@ -364,7 +394,8 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	}
 	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to delete story")
+		logger.Error("Database error deleting story: %v", err)
+		utils.InternalServerError(c, "Failed to delete story due to database error")
 		return
 	}
 	utils.NoContent(c)
@@ -417,7 +448,8 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			// Restore story (set deleted_at to NULL)
 			_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
 			if err != nil {
-				utils.InternalServerError(c, "Failed to restore story")
+				logger.Error("Database error restoring story: %v", err)
+				utils.InternalServerError(c, "Failed to restore story due to database error")
 				return
 			}
 			utils.SuccessWithMessage(c, "Story restored")
@@ -426,7 +458,8 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		// Soft delete story (set deleted_at to NOW())
 		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
 		if err != nil {
-			utils.InternalServerError(c, "Failed to soft delete story")
+			logger.Error("Database error soft deleting story: %v", err)
+			utils.InternalServerError(c, "Failed to soft delete story due to database error")
 			return
 		}
 		utils.NoContent(c)
@@ -436,7 +469,8 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	if req.Status != nil {
 		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", *req.Status, id)
 		if err != nil {
-			utils.InternalServerError(c, "Failed to update story status")
+			logger.Error("Database error updating story status: %v", err)
+			utils.InternalServerError(c, "Failed to update story status due to database error")
 			return
 		}
 		utils.SuccessWithMessage(c, "Story status updated")

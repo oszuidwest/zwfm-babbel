@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // ListStations returns a paginated list of all radio stations with their configuration.
@@ -102,7 +105,12 @@ func (h *Handlers) DeleteStation(c *gin.Context) {
 	// Delete station
 	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM stations WHERE id = ?", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to delete station")
+		logger.Error("Database error deleting station: %v", err)
+		if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Cannot delete station: it is referenced by other resources")
+		} else {
+			utils.InternalServerError(c, "Failed to delete station due to database error")
+		}
 		return
 	}
 
