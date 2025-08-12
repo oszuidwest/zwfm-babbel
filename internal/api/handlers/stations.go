@@ -6,19 +6,19 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStations returns a paginated list of all stations
+// ListStations returns a paginated list of all radio stations with their configuration.
 func (h *Handlers) ListStations(c *gin.Context) {
 	var stations []models.Station
 	utils.GenericList(c, h.db, "stations", "*", &stations)
 }
 
-// GetStation returns a single station by ID
+// GetStation returns a single radio station by ID with all its configuration details.
 func (h *Handlers) GetStation(c *gin.Context) {
 	var station models.Station
 	utils.GenericGetByID(c, h.db, "stations", "Station", &station)
 }
 
-// CreateStation creates a new station
+// CreateStation creates a new radio station with the provided configuration and validates uniqueness.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -45,7 +45,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 	utils.CreatedWithID(c, id, "Station created successfully")
 }
 
-// UpdateStation updates an existing station
+// UpdateStation updates an existing radio station with new configuration while validating uniqueness.
 func (h *Handlers) UpdateStation(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {
@@ -81,7 +81,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Station updated successfully")
 }
 
-// DeleteStation deletes a station by ID
+// DeleteStation deletes a radio station by ID after checking for dependencies like station-voices.
 func (h *Handlers) DeleteStation(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {

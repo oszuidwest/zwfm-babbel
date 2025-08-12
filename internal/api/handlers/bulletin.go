@@ -83,13 +83,22 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 		return nil, fmt.Errorf("no stories available")
 	}
 
-	// Create bulletin (using existing audio service with station and stories)
-	bulletinPath, err := h.audioSvc.CreateBulletin(c.Request.Context(), &station, stories)
+	// Generate consistent paths using single timestamp
+	timestamp := time.Now()
+	bulletinPath, relativePath := utils.GenerateBulletinPaths(h.config, req.StationID, timestamp)
+
+	// Create bulletin using the generated absolute path
+	createdPath, err := h.audioSvc.CreateBulletin(c.Request.Context(), &station, stories, bulletinPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bulletin: %w", err)
 	}
 
-	// Get file info (bulletinPath is already the full absolute path)
+	// Verify the paths match (should always be true with unified function)
+	if createdPath != bulletinPath {
+		fmt.Printf("WARNING: Path mismatch - expected %s, got %s\n", bulletinPath, createdPath)
+	}
+
+	// Get file info (bulletinPath is the full absolute path)
 	fileInfo, err := os.Stat(bulletinPath)
 	var fileSize int64
 	if err == nil {
@@ -122,8 +131,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 	// The bulletin ends when all stories finish playing (jingle plays underneath)
 	totalDuration = storiesDuration + mixPointDelay
 
-	// Save bulletin record to database with consistent relative path
-	relativePath := utils.GetBulletinRelativePath(h.config, req.StationID, time.Now())
+	// Save bulletin record to database using the consistent relative path
 
 	result, err := h.db.ExecContext(c.Request.Context(), `
 		INSERT INTO bulletins (station_id, filename, file_path, duration_seconds, file_size, story_count)

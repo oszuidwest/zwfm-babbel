@@ -1,4 +1,4 @@
-// Package utils provides database utilities for count query operations
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -7,7 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// CountRecords returns the count of records in a table with optional WHERE clause
+// CountRecords returns the total number of records in the specified table with optional WHERE clause.
 func CountRecords(db *sqlx.DB, tableName string, whereClause string, args ...interface{}) (int64, error) {
 	var count int64
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
@@ -23,7 +23,7 @@ func CountRecords(db *sqlx.DB, tableName string, whereClause string, args ...int
 	return count, nil
 }
 
-// CountWithJoins returns the count of records with complex query (with joins)
+// CountWithJoins returns the count of records using complex query with joins and custom conditions.
 func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, error) {
 	var count int64
 
@@ -34,7 +34,7 @@ func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, erro
 	return count, nil
 }
 
-// CountDependencies counts records that depend on a specific foreign key
+// CountDependencies counts records that depend on a specific foreign key for cascade delete validation.
 func CountDependencies(db *sqlx.DB, tableName, foreignKeyColumn string, id int) (int, error) {
 	var count int
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = ?", tableName, foreignKeyColumn)
@@ -46,7 +46,7 @@ func CountDependencies(db *sqlx.DB, tableName, foreignKeyColumn string, id int) 
 	return count, nil
 }
 
-// CountByCondition counts records that meet a specific condition
+// CountByCondition counts records that meet a specific condition with parameterized arguments.
 func CountByCondition(db *sqlx.DB, tableName, condition string, args ...interface{}) (int, error) {
 	var count int
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", tableName, condition)
@@ -58,7 +58,7 @@ func CountByCondition(db *sqlx.DB, tableName, condition string, args ...interfac
 	return count, nil
 }
 
-// CountActivesExcludingID counts active records (not suspended/deleted) excluding a specific ID
+// CountActivesExcludingID counts active records (not suspended/deleted) excluding a specific ID for uniqueness validation.
 func CountActivesExcludingID(db *sqlx.DB, tableName, condition string, id int) (int, error) {
 	var count int
 	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND id != ?", tableName, condition)

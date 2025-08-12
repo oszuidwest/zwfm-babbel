@@ -1,3 +1,4 @@
+// Package auth provides authentication and authorization services for the Babbel API.
 package auth
 
 import (
@@ -39,7 +40,7 @@ func (s *Service) IsOAuthEnabled() bool {
 	return s.config.Method == "oidc" || s.config.Method == "both"
 }
 
-// NewService creates a new authentication service
+// NewService creates a new authentication service with the provided configuration and database connection.
 func NewService(cfg *Config, db *sqlx.DB) (*Service, error) {
 	s := &Service{
 		config: cfg,

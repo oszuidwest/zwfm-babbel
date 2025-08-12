@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -75,13 +74,12 @@ func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, er
 	return duration, nil
 }
 
-// CreateBulletin creates an audio bulletin from stories
-func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story) (string, error) {
+// CreateBulletin creates an audio bulletin from stories using the provided output path.
+// The output path should be generated externally to ensure consistency with database storage.
+func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story, outputPath string) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
-
-	outputPath := utils.GetBulletinPath(s.config, station.ID, time.Now())
 
 	// Create temp directory for mixing
 	tempDir := utils.GetTempBulletinDir(s.config, uuid.New().String())

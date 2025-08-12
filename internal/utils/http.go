@@ -1,3 +1,4 @@
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -19,7 +20,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// GetIDParam extracts and validates ID parameter
+// GetIDParam extracts and validates the ID parameter from the request URL.
 func GetIDParam(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -29,7 +30,7 @@ func GetIDParam(c *gin.Context) (int, bool) {
 	return id, true
 }
 
-// ValidateResourceExists checks if a record exists and responds with 404 error if not
+// ValidateResourceExists checks if a record exists and responds with 404 error if not found.
 func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName string, id int) bool {
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
@@ -40,7 +41,7 @@ func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName
 	return true
 }
 
-// CheckUnique validates uniqueness for common fields
+// CheckUnique validates uniqueness for common fields in database tables.
 func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID *int) error {
 	var count int
 	var err error
@@ -62,7 +63,7 @@ func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID 
 	return nil
 }
 
-// GetPagination extracts limit and offset from query parameters
+// GetPagination extracts limit and offset from query parameters with defaults and validation.
 func GetPagination(c *gin.Context) (limit, offset int) {
 	limit = 20 // default
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
@@ -74,7 +75,7 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-// ParseFormDate parses date from form with consistent error handling
+// ParseFormDate parses date from form with consistent error handling and returns zero time if empty.
 func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
 	dateStr := c.PostForm(fieldName)
 	if dateStr == "" {
@@ -90,7 +91,7 @@ func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, boo
 	return date, true
 }
 
-// ParseRequiredFormDate parses required date from form with consistent error handling
+// ParseRequiredFormDate parses required date from form with consistent error handling and returns error if empty.
 func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
 	dateStr := c.PostForm(fieldName)
 	if dateStr == "" {
@@ -107,7 +108,7 @@ func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.T
 	return date, true
 }
 
-// WeekdayStringToBitmask converts weekday string to bitmask
+// WeekdayStringToBitmask converts weekday string to bitmask using the models constants.
 func WeekdayStringToBitmask(weekday string) uint8 {
 	weekdayMap := map[string]uint8{
 		"monday":    models.Monday,
@@ -121,7 +122,7 @@ func WeekdayStringToBitmask(weekday string) uint8 {
 	return weekdayMap[strings.ToLower(weekday)]
 }
 
-// ValidateAndSaveAudioFile validates audio file and saves to temp location
+// ValidateAndSaveAudioFile validates audio file and saves to temporary location with cleanup function.
 func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
 	file, header, err := c.Request.FormFile(fieldName)
 	if err != nil {
@@ -149,7 +150,7 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	return tempPath, cleanup, nil
 }
 
-// ValidateAudioFile validates audio file type and size
+// ValidateAudioFile validates audio file type and size against allowed formats and limits.
 func ValidateAudioFile(header *multipart.FileHeader) error {
 	// Check file size (100MB max)
 	const maxSize = 100 * 1024 * 1024
@@ -170,7 +171,7 @@ func ValidateAudioFile(header *multipart.FileHeader) error {
 	return fmt.Errorf("unsupported file type: %s", ext)
 }
 
-// SanitizeFilename removes unsafe characters from filename
+// SanitizeFilename removes unsafe characters from filename to prevent path traversal attacks.
 func SanitizeFilename(filename string) string {
 	// Remove path separators and other unsafe characters
 	filename = filepath.Base(filename)
@@ -287,7 +288,7 @@ type StationVoiceRequest struct {
 	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
 }
 
-// BindAndValidate handles JSON binding with developer-friendly error messages
+// BindAndValidate handles JSON binding with developer-friendly error messages and validation.
 func BindAndValidate(c *gin.Context, req interface{}) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		errorDetails := formatValidationErrors(err)
@@ -344,7 +345,7 @@ func formatValidationErrors(err error) []string {
 	return errors
 }
 
-// GenericList handles paginated list requests for any table
+// GenericList handles paginated list requests for any table with automatic counting and ordering.
 func GenericList(c *gin.Context, db *sqlx.DB, tableName string, selectFields string, result interface{}) {
 	limit, offset := GetPagination(c)
 
@@ -365,7 +366,7 @@ func GenericList(c *gin.Context, db *sqlx.DB, tableName string, selectFields str
 	PaginatedResponse(c, result, total, limit, offset)
 }
 
-// GenericGetByID handles get-by-ID requests for any table
+// GenericGetByID handles get-by-ID requests for any table with proper error handling.
 func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
 	id, ok := GetIDParam(c)
 	if !ok {
@@ -385,7 +386,7 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 	Success(c, result)
 }
 
-// ParseRequiredIntForm parses required integer from form with consistent error handling
+// ParseRequiredIntForm parses required integer from form with consistent error handling and validation.
 func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
@@ -402,7 +403,7 @@ func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
 	return value, true
 }
 
-// ParseOptionalIntForm parses optional integer from form with consistent error handling
+// ParseOptionalIntForm parses optional integer from form with consistent error handling, returning nil if empty.
 func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
@@ -417,7 +418,7 @@ func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
 	return &value, nil
 }
 
-// ParseFloatForm parses optional float from form with consistent error handling
+// ParseFloatForm parses optional float from form with consistent error handling, returning nil if empty.
 func ParseFloatForm(c *gin.Context, field string) (*float64, error) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
@@ -432,7 +433,7 @@ func ParseFloatForm(c *gin.Context, field string) (*float64, error) {
 	return &value, nil
 }
 
-// ParseFloatFormWithRange parses optional float from form with range validation
+// ParseFloatFormWithRange parses optional float from form with range validation between min and max values.
 func ParseFloatFormWithRange(c *gin.Context, field string, min, max float64) (*float64, error) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {

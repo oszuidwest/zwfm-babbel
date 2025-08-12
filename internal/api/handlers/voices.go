@@ -6,19 +6,19 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListVoices returns a paginated list of all voices
+// ListVoices returns a paginated list of all newsreader voices available in the system.
 func (h *Handlers) ListVoices(c *gin.Context) {
 	var voices []models.Voice
 	utils.GenericList(c, h.db, "voices", "*", &voices)
 }
 
-// GetVoice returns a single voice by ID
+// GetVoice returns a single newsreader voice by ID with all its details.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	var voice models.Voice
 	utils.GenericGetByID(c, h.db, "voices", "Voice", &voice)
 }
 
-// CreateVoice creates a new voice
+// CreateVoice creates a new newsreader voice with the provided name and validates uniqueness.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -42,7 +42,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 	utils.CreatedWithID(c, id, "Voice created successfully")
 }
 
-// UpdateVoice updates an existing voice
+// UpdateVoice updates an existing newsreader voice with new name while validating uniqueness.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {
@@ -75,7 +75,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Voice updated successfully")
 }
 
-// DeleteVoice deletes a voice if it has no dependencies
+// DeleteVoice deletes a newsreader voice if it has no dependencies like stories or station-voices.
 func (h *Handlers) DeleteVoice(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {

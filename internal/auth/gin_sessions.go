@@ -1,3 +1,4 @@
+// Package auth provides authentication and authorization services for the Babbel API.
 package auth
 
 import (

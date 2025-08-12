@@ -1,4 +1,4 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -18,7 +18,7 @@ const (
 	StoryWithVoiceWhereActive = StoryWithVoiceQuery + ` WHERE s.deleted_at IS NULL`
 )
 
-// BuildStoryQuery creates story queries with common joins and conditions
+// BuildStoryQuery creates story queries with common joins and conditions for filtering deleted records.
 func BuildStoryQuery(baseWhere string, includeDeleted bool) string {
 	query := StoryWithVoiceQuery
 
@@ -58,7 +58,7 @@ type QueryConfig struct {
 	PostProcessor PostProcessor  // Optional function to process results after query
 }
 
-// BuildWhereClause builds WHERE clause and arguments from filter configurations
+// BuildWhereClause builds WHERE clause and arguments from filter configurations for dynamic querying.
 func BuildWhereClause(filters []FilterConfig) (whereClause string, args []interface{}) {
 	if len(filters) == 0 {
 		return "", nil
@@ -106,8 +106,7 @@ func BuildWhereClause(filters []FilterConfig) (whereClause string, args []interf
 	return whereClause, args
 }
 
-// GenericListWithJoins handles paginated list requests with complex JOINs and filtering
-// This replaces the manual query building pattern used in handlers
+// GenericListWithJoins handles paginated list requests with complex JOINs and filtering configurations.
 func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, result interface{}) {
 	limit, offset := GetPagination(c)
 
