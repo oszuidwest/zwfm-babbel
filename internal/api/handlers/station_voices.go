@@ -38,60 +38,47 @@ func GetStationVoiceAudioURL(stationVoiceID int, hasJingle bool) *string {
 
 // ListStationVoices returns a paginated list of station-voice relationships
 func (h *Handlers) ListStationVoices(c *gin.Context) {
-	limit, offset := utils.GetPagination(c)
+	// Build query configuration with JOINs to stations and voices
+	config := utils.QueryConfig{
+		BaseQuery: `SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, 
+		                 s.name as station_name, v.name as voice_name 
+		          FROM station_voices sv 
+		          JOIN stations s ON sv.station_id = s.id 
+		          JOIN voices v ON sv.voice_id = v.id`,
+		CountQuery:   "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id",
+		DefaultOrder: "sv.id DESC",
+		Filters:      []utils.FilterConfig{},
+		PostProcessor: func(result interface{}) {
+			// Add audio URLs to response
+			if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
+				for i := range *stationVoices {
+					hasJingle := (*stationVoices)[i].JingleFile != ""
+					(*stationVoices)[i].AudioURL = GetStationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
+				}
+			}
+		},
+	}
 
-	// Build query with optional filters
-	query := `SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, 
-	                 s.name as station_name, v.name as voice_name 
-	          FROM station_voices sv 
-	          JOIN stations s ON sv.station_id = s.id 
-	          JOIN voices v ON sv.voice_id = v.id`
-
-	countQuery := "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id"
-	args := []interface{}{}
-	whereClauses := []string{}
-
-	// Add filters if provided
+	// Add station_id filter if specified
 	if stationID := c.Query("station_id"); stationID != "" {
-		whereClauses = append(whereClauses, "sv.station_id = ?")
-		args = append(args, stationID)
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "station_id",
+			Table:  "sv",
+			Value:  stationID,
+		})
 	}
+
+	// Add voice_id filter if specified
 	if voiceID := c.Query("voice_id"); voiceID != "" {
-		whereClauses = append(whereClauses, "sv.voice_id = ?")
-		args = append(args, voiceID)
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "voice_id",
+			Table:  "sv",
+			Value:  voiceID,
+		})
 	}
-
-	// Apply WHERE clauses
-	if len(whereClauses) > 0 {
-		whereClause := " WHERE " + strings.Join(whereClauses, " AND ")
-		query += whereClause
-		countQuery += whereClause
-	}
-
-	// Get total count
-	total, err := utils.CountWithJoins(h.db, countQuery, args...)
-	if err != nil {
-		utils.InternalServerError(c, "Failed to count station-voices")
-		return
-	}
-
-	// Get paginated data
-	query += " ORDER BY sv.id DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
 
 	var stationVoices []StationVoiceResponse
-	if err := h.db.Select(&stationVoices, query, args...); err != nil {
-		utils.InternalServerError(c, "Failed to fetch station-voices")
-		return
-	}
-
-	// Add audio URLs
-	for i := range stationVoices {
-		hasJingle := stationVoices[i].JingleFile != ""
-		stationVoices[i].AudioURL = GetStationVoiceAudioURL(stationVoices[i].ID, hasJingle)
-	}
-
-	utils.PaginatedResponse(c, stationVoices, total, limit, offset)
+	utils.GenericListWithJoins(c, h.db, config, &stationVoices)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID
@@ -127,30 +114,25 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 // CreateStationVoice creates a new station-voice relationship with optional jingle upload
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
-	// Parse form data
-	stationIDStr := c.PostForm("station_id")
-	voiceIDStr := c.PostForm("voice_id")
-	mixPointStr := c.PostForm("mix_point")
-
-	stationID, err := strconv.Atoi(stationIDStr)
-	if err != nil || stationID <= 0 {
-		utils.BadRequest(c, "Valid station_id is required")
+	// Parse form data using the new utilities
+	stationID, ok := utils.ParseRequiredIntForm(c, "station_id")
+	if !ok {
 		return
 	}
 
-	voiceID, err := strconv.Atoi(voiceIDStr)
-	if err != nil || voiceID <= 0 {
-		utils.BadRequest(c, "Valid voice_id is required")
+	voiceID, ok := utils.ParseRequiredIntForm(c, "voice_id")
+	if !ok {
 		return
 	}
 
+	mixPointPtr, err := utils.ParseFloatFormWithRange(c, "mix_point", 0, 300)
+	if err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
 	mixPoint := 0.0
-	if mixPointStr != "" {
-		mixPoint, err = strconv.ParseFloat(mixPointStr, 64)
-		if err != nil || mixPoint < 0 || mixPoint > 300 {
-			utils.BadRequest(c, "mix_point must be between 0 and 300")
-			return
-		}
+	if mixPointPtr != nil {
+		mixPoint = *mixPointPtr
 	}
 
 	// Check if station and voice exist

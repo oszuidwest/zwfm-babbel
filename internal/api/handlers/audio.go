@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // AudioConfig defines configuration parameters for serving audio files.
@@ -23,9 +23,8 @@ type AudioConfig struct {
 
 // ServeAudio serves an audio file with proper headers and error handling.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
-	id, err := strconv.Atoi(c.Param("id"))
-	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID parameter"})
+	id, ok := utils.GetIDParam(c)
+	if !ok {
 		return
 	}
 
@@ -34,7 +33,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		config.FileColumn, config.TableName, config.IDColumn)
 
 	var filePath sql.NullString
-	err = h.db.Get(&filePath, query, id)
+	err := h.db.Get(&filePath, query, id)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
 		return

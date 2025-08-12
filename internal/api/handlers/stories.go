@@ -59,70 +59,56 @@ func bitmaskToWeekdays(bitmask uint8) map[string]bool {
 
 // ListStories returns a paginated list of stories
 func (h *Handlers) ListStories(c *gin.Context) {
-	limit, offset := utils.GetPagination(c)
-
-	// Build query with optional filters
-	query := utils.BuildStoryQuery("", c.Query("include_deleted") == "true")
-	countQuery := "SELECT COUNT(*) FROM stories s"
-	args := []interface{}{}
-
-	// Add deleted filter to count query
-	if c.Query("include_deleted") != "true" {
-		countQuery += " WHERE s.deleted_at IS NULL"
-	}
-
-	// Add filters
-	if status := c.Query("status"); status != "" {
-		if c.Query("include_deleted") != "true" {
-			query += " AND s.status = ?"
-			countQuery += " AND s.status = ?"
-		} else {
-			query += " AND s.status = ?"
-			countQuery += " WHERE s.status = ?"
-		}
-		args = append(args, status)
-	}
-
-	if voiceID := c.Query("voice_id"); voiceID != "" {
-		if len(args) > 0 {
-			query += " AND s.voice_id = ?"
-			countQuery += " AND s.voice_id = ?"
-		} else {
-			query += " AND s.voice_id = ?"
-			if c.Query("include_deleted") == "true" {
-				countQuery += " WHERE s.voice_id = ?"
-			} else {
-				countQuery += " AND s.voice_id = ?"
+	// Build query configuration with JOIN to voices
+	config := utils.QueryConfig{
+		BaseQuery: `SELECT s.*, v.name as voice_name
+		           FROM stories s 
+		           JOIN voices v ON s.voice_id = v.id`,
+		CountQuery:   "SELECT COUNT(*) FROM stories s",
+		DefaultOrder: "s.id DESC",
+		Filters:      []utils.FilterConfig{},
+		PostProcessor: func(result interface{}) {
+			// Add audio URLs and weekdays map to response
+			if stories, ok := result.(*[]StoryResponse); ok {
+				for i := range *stories {
+					hasAudio := (*stories)[i].AudioFile != ""
+					(*stories)[i].AudioURL = GetStoryAudioURL((*stories)[i].ID, hasAudio)
+					(*stories)[i].WeekdaysMap = bitmaskToWeekdays((*stories)[i].Weekdays)
+				}
 			}
-		}
-		args = append(args, voiceID)
+		},
 	}
 
-	// Get total count
-	total, err := utils.CountWithJoins(h.db, countQuery, args...)
-	if err != nil {
-		utils.InternalServerError(c, "Failed to count stories")
-		return
+	// Filter deleted records by default
+	includeDeleted := c.Query("include_deleted") == "true"
+	if !includeDeleted {
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column:   "deleted_at",
+			Table:    "s",
+			Operator: "IS NULL",
+		})
 	}
 
-	// Get paginated data
-	query += " ORDER BY s.id DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	// Add status filter if specified
+	if status := c.Query("status"); status != "" {
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "status",
+			Table:  "s",
+			Value:  status,
+		})
+	}
+
+	// Add voice_id filter if specified
+	if voiceID := c.Query("voice_id"); voiceID != "" {
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "voice_id",
+			Table:  "s",
+			Value:  voiceID,
+		})
+	}
 
 	var stories []StoryResponse
-	if err := h.db.Select(&stories, query, args...); err != nil {
-		utils.InternalServerError(c, "Failed to fetch stories")
-		return
-	}
-
-	// Add audio URLs and weekdays map
-	for i := range stories {
-		hasAudio := stories[i].AudioFile != ""
-		stories[i].AudioURL = GetStoryAudioURL(stories[i].ID, hasAudio)
-		stories[i].WeekdaysMap = bitmaskToWeekdays(stories[i].Weekdays)
-	}
-
-	utils.PaginatedResponse(c, stories, total, limit, offset)
+	utils.GenericListWithJoins(c, h.db, config, &stories)
 }
 
 // GetStory returns a single story by ID
@@ -176,17 +162,15 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	// Parse voice ID (optional)
-	var voiceID *int
-	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-		id, err := strconv.Atoi(voiceIDStr)
-		if err != nil || id <= 0 {
-			utils.BadRequest(c, "Valid voice_id is required")
+	voiceID, err := utils.ParseOptionalIntForm(c, "voice_id")
+	if err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
+	if voiceID != nil {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *voiceID) {
 			return
 		}
-		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", id) {
-			return
-		}
-		voiceID = &id
 	}
 
 	// Parse dates (required for story creation)
@@ -367,4 +351,96 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	utils.SuccessWithMessage(c, "Story updated successfully")
+}
+
+// DeleteStory soft deletes a story by setting deleted_at timestamp
+func (h *Handlers) DeleteStory(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
+		return
+	}
+	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to delete story")
+		return
+	}
+	utils.NoContent(c)
+}
+
+// UpdateStoryStatus updates a story's status or handles soft delete/restore operations
+func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
+		return
+	}
+
+	// Support both status updates and soft delete/restore
+	var req struct {
+		Status    *string `json:"status"`
+		DeletedAt *string `json:"deleted_at"`
+	}
+	if !utils.BindAndValidate(c, &req) {
+		return
+	}
+
+	// Validate that at least one field is provided
+	if req.Status == nil && req.DeletedAt == nil {
+		utils.BadRequest(c, "At least one field (status or deleted_at) is required")
+		return
+	}
+
+	// Validate status field if provided
+	if req.Status != nil {
+		validStatuses := []string{"draft", "active", "expired"}
+		isValid := false
+		for _, validStatus := range validStatuses {
+			if *req.Status == validStatus {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			utils.BadRequest(c, "Status must be one of: draft, active, expired")
+			return
+		}
+	}
+
+	// Handle soft delete/restore
+	if req.DeletedAt != nil {
+		if *req.DeletedAt == "" {
+			// Restore story (set deleted_at to NULL)
+			_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
+			if err != nil {
+				utils.InternalServerError(c, "Failed to restore story")
+				return
+			}
+			utils.SuccessWithMessage(c, "Story restored")
+			return
+		} else {
+			// Soft delete story (set deleted_at to NOW())
+			_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+			if err != nil {
+				utils.InternalServerError(c, "Failed to soft delete story")
+				return
+			}
+			utils.NoContent(c)
+			return
+		}
+	}
+
+	// Handle status update
+	if req.Status != nil {
+		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", *req.Status, id)
+		if err != nil {
+			utils.InternalServerError(c, "Failed to update story status")
+			return
+		}
+		utils.SuccessWithMessage(c, "Story status updated")
+	}
 }

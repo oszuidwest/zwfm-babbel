@@ -74,7 +74,6 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-
 // ParseFormDate parses date from form with consistent error handling
 func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
 	dateStr := c.PostForm(fieldName)
@@ -384,4 +383,70 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 	}
 
 	Success(c, result)
+}
+
+// ParseRequiredIntForm parses required integer from form with consistent error handling
+func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
+	valueStr := c.PostForm(field)
+	if valueStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", strings.Title(strings.ReplaceAll(field, "_", " ")))})
+		return 0, false
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil || value <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Valid %s is required", strings.ToLower(strings.ReplaceAll(field, "_", " ")))})
+		return 0, false
+	}
+
+	return value, true
+}
+
+// ParseOptionalIntForm parses optional integer from form with consistent error handling
+func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
+	valueStr := c.PostForm(field)
+	if valueStr == "" {
+		return nil, nil // empty is ok for optional fields
+	}
+
+	value, err := strconv.Atoi(valueStr)
+	if err != nil || value <= 0 {
+		return nil, fmt.Errorf("invalid %s", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
+	}
+
+	return &value, nil
+}
+
+// ParseFloatForm parses optional float from form with consistent error handling
+func ParseFloatForm(c *gin.Context, field string) (*float64, error) {
+	valueStr := c.PostForm(field)
+	if valueStr == "" {
+		return nil, nil // empty is ok for optional fields
+	}
+
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
+	}
+
+	return &value, nil
+}
+
+// ParseFloatFormWithRange parses optional float from form with range validation
+func ParseFloatFormWithRange(c *gin.Context, field string, min, max float64) (*float64, error) {
+	valueStr := c.PostForm(field)
+	if valueStr == "" {
+		return nil, nil // empty is ok for optional fields
+	}
+
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
+	}
+
+	if value < min || value > max {
+		return nil, fmt.Errorf("%s must be between %.1f and %.1f", strings.ToLower(strings.ReplaceAll(field, "_", " ")), min, max)
+	}
+
+	return &value, nil
 }

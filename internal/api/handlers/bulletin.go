@@ -454,39 +454,51 @@ func (h *Handlers) GetLatestBulletin(c *gin.Context) {
 // ListBulletins returns a paginated list of all bulletins with optional filters.
 func (h *Handlers) ListBulletins(c *gin.Context) {
 	limit, offset := utils.GetPagination(c)
+	includeStories := c.Query("include_stories") == "true"
 
-	// Build query with optional filters
-	query := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
-	          FROM bulletins b 
-	          JOIN stations s ON b.station_id = s.id`
-	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
-	args := []interface{}{}
-
-	// Add station filter if provided
+	// Build filters using standardized pattern
+	filters := []utils.FilterConfig{}
 	if stationID := c.Query("station_id"); stationID != "" {
-		query += " WHERE b.station_id = ?"
-		countQuery += " WHERE b.station_id = ?"
-		args = append(args, stationID)
+		filters = append(filters, utils.FilterConfig{
+			Column: "station_id",
+			Table:  "b",
+			Value:  stationID,
+		})
 	}
 
-	// Get total count
-	var total int64
-	if err := h.db.Get(&total, countQuery, args...); err != nil {
+	// Build WHERE clause from filters using helper
+	whereClause, filterArgs := utils.BuildWhereClause(filters)
+
+	// Build queries
+	baseQuery := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
+	              b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
+	              FROM bulletins b 
+	              JOIN stations s ON b.station_id = s.id`
+	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
+
+	// Add WHERE clause if needed
+	if whereClause != "" {
+		baseQuery += " " + whereClause
+		countQuery += " " + whereClause
+	}
+
+	// Get total count using helper
+	total, err := utils.CountWithJoins(h.db, countQuery, filterArgs...)
+	if err != nil {
 		utils.InternalServerError(c, "Failed to count bulletins")
 		return
 	}
 
-	// Get paginated data
-	query += " ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
+	// Add ORDER BY and pagination
+	baseQuery += " ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
+	queryArgs := append(filterArgs, limit, offset)
 
+	// Execute main query
 	var bulletins []models.Bulletin
-	if err := h.db.Select(&bulletins, query, args...); err != nil {
+	if err := h.db.Select(&bulletins, baseQuery, queryArgs...); err != nil {
 		utils.InternalServerError(c, "Failed to fetch bulletins")
 		return
 	}
-
-	includeStories := c.Query("include_stories") == "true"
 
 	// Convert to response format using existing helper
 	bulletinResponses := make([]map[string]interface{}, len(bulletins))

@@ -2,7 +2,6 @@ package api
 
 import (
 	"log"
-	"net/http"
 	"os"
 	"strings"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
-	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // SetupRouter configures and returns the main API router with all routes and middleware.
@@ -132,95 +130,8 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			})
 			protected.POST("/stories", authService.RequirePermission("stories", "write"), h.CreateStory)
 			protected.PUT("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStory)
-			protected.DELETE("/stories/:id", authService.RequirePermission("stories", "write"), func(c *gin.Context) {
-				id, ok := utils.GetIDParam(c)
-				if !ok {
-					return
-				}
-				if !utils.ValidateResourceExists(c, db, "stories", "Story", id) {
-					return
-				}
-				_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete story"})
-					return
-				}
-				c.JSON(http.StatusNoContent, nil)
-			})
-			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), func(c *gin.Context) {
-				id, ok := utils.GetIDParam(c)
-				if !ok {
-					return
-				}
-				if !utils.ValidateResourceExists(c, db, "stories", "Story", id) {
-					return
-				}
-
-				// Support both status updates and soft delete/restore
-				var req struct {
-					Status    *string `json:"status"`
-					DeletedAt *string `json:"deleted_at"`
-				}
-				if err := c.ShouldBindJSON(&req); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
-					return
-				}
-
-				// Validate that at least one field is provided
-				if req.Status == nil && req.DeletedAt == nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "At least one field (status or deleted_at) is required"})
-					return
-				}
-
-				// Validate status field if provided
-				if req.Status != nil {
-					validStatuses := []string{"draft", "active", "expired"}
-					isValid := false
-					for _, validStatus := range validStatuses {
-						if *req.Status == validStatus {
-							isValid = true
-							break
-						}
-					}
-					if !isValid {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "Status must be one of: draft, active, expired"})
-						return
-					}
-				}
-
-				// Handle soft delete/restore
-				if req.DeletedAt != nil {
-					if *req.DeletedAt == "" {
-						// Restore story (set deleted_at to NULL)
-						_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
-						if err != nil {
-							c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to restore story"})
-							return
-						}
-						c.JSON(http.StatusOK, gin.H{"message": "Story restored"})
-						return
-					} else {
-						// Soft delete story (set deleted_at to NOW())
-						_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
-						if err != nil {
-							c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to soft delete story"})
-							return
-						}
-						c.Status(http.StatusNoContent)
-						return
-					}
-				}
-
-				// Handle status update
-				if req.Status != nil {
-					_, err := db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", *req.Status, id)
-					if err != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update story status"})
-						return
-					}
-					c.JSON(http.StatusOK, gin.H{"message": "Story status updated"})
-				}
-			})
+			protected.DELETE("/stories/:id", authService.RequirePermission("stories", "write"), h.DeleteStory)
+			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStoryStatus)
 
 			// User routes (admin only)
 			protected.GET("/users", authService.RequirePermission("users", "read"), h.ListUsers)
@@ -228,31 +139,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			protected.POST("/users", authService.RequirePermission("users", "write"), h.CreateUser)
 			protected.PUT("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUser)
 			protected.DELETE("/users/:id", authService.RequirePermission("users", "write"), h.DeleteUser)
-			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), func(c *gin.Context) {
-				id, ok := utils.GetIDParam(c)
-				if !ok {
-					return
-				}
-				if !utils.ValidateResourceExists(c, db, "users", "User", id) {
-					return
-				}
-				var req struct {
-					Action string `json:"action" binding:"required,oneof=suspend restore"`
-				}
-				if !utils.BindAndValidate(c, &req) {
-					return
-				}
-				query := "UPDATE users SET suspended_at = NOW() WHERE id = ?"
-				if req.Action == "restore" {
-					query = "UPDATE users SET suspended_at = NULL WHERE id = ?"
-				}
-				_, err := db.ExecContext(c.Request.Context(), query, id)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user state"})
-					return
-				}
-				c.JSON(http.StatusOK, gin.H{"message": "User state updated"})
-			})
+			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUserStatus)
 			protected.PUT("/users/:id/password", authService.RequirePermission("users", "write"), h.ChangePassword)
 
 			// Station-Voice routes (for managing station-specific jingles)
