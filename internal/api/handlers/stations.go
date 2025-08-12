@@ -1,120 +1,124 @@
 package handlers
 
 import (
+	"strings"
+
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// StationInput represents the request parameters for creating or updating a station.
-type StationInput struct {
-	Name               string  `json:"name" binding:"required"`
-	MaxStoriesPerBlock int     `json:"max_stories_per_block" binding:"required,min=1,max=50"`
-	PauseSeconds       float64 `json:"pause_seconds" binding:"min=0,max=10"`
-}
-
-// ListStations returns a paginated list of all stations.
+// ListStations returns a paginated list of all radio stations with their configuration.
 func (h *Handlers) ListStations(c *gin.Context) {
-	crud := NewCRUDHandler(h.db, "stations", WithOrderBy("name ASC"))
-
 	var stations []models.Station
-	filters := map[string]string{}
-
-	total, err := crud.List(c, &stations, filters)
-	if err != nil {
-		responses.InternalServerError(c, err.Error())
-		return
-	}
-
-	limit, offset := extractPaginationParams(c)
-	responses.Paginated(c, stations, total, limit, offset)
+	utils.GenericList(c, h.db, "stations", "*", &stations)
 }
 
-// GetStation returns a single station by ID.
+// GetStation returns a single radio station by ID with all its configuration details.
 func (h *Handlers) GetStation(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "station")
-	if !ok {
+	var station models.Station
+	utils.GenericGetByID(c, h.db, "stations", "Station", &station)
+}
+
+// CreateStation creates a new radio station with the provided configuration and validates uniqueness.
+func (h *Handlers) CreateStation(c *gin.Context) {
+	var req utils.StationRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	crud := NewCRUDHandler(h.db, "stations")
-	var station models.Station
-	crud.GetByID(c, id, &station)
-}
-
-// CreateStation creates a new station.
-func (h *Handlers) CreateStation(c *gin.Context) {
-	var input StationInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+	// Check name uniqueness
+	if err := utils.CheckUnique(h.db, "stations", "name", req.Name, nil); err != nil {
+		utils.BadRequest(c, "Station name already exists")
 		return
 	}
 
 	// Create station
 	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO stations (name, max_stories_per_block, pause_seconds) VALUES (?, ?, ?)",
-		input.Name, input.MaxStoriesPerBlock, input.PauseSeconds,
+		req.Name, req.MaxStoriesPerBlock, req.PauseSeconds,
 	)
 	if err != nil {
-		handleDatabaseError(c, err, "create")
+		utils.InternalServerError(c, "Failed to create station")
 		return
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		responses.InternalServerError(c, "Failed to get station ID")
-		return
-	}
-
-	// Fetch the created station
-	var station models.Station
-	h.fetchAndRespond(c, "SELECT * FROM stations WHERE id = ?", id, &station, true)
+	id, _ := result.LastInsertId()
+	utils.CreatedWithID(c, id, "Station created successfully")
 }
 
-// UpdateStation updates an existing station.
+// UpdateStation updates an existing radio station with new configuration while validating uniqueness.
 func (h *Handlers) UpdateStation(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "station")
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	var input StationInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+	var req utils.StationRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
 	// Check if station exists
-	if !h.validateRecordExists(c, "stations", "Station", id) {
+	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", id) {
 		return
 	}
 
-	// Use query builder for dynamic updates
-	qb := NewQueryBuilder()
-	qb.AddUpdate("name", input.Name)
-	qb.AddUpdateInt("max_stories_per_block", input.MaxStoriesPerBlock)
-	qb.AddUpdateFloat("pause_seconds", input.PauseSeconds, true)
-
-	if qb.HasUpdates() {
-		query, args := qb.BuildUpdateQuery("stations", id)
-		if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-			handleDatabaseError(c, err, "update")
-			return
-		}
+	// Check name uniqueness (excluding current record)
+	if err := utils.CheckUnique(h.db, "stations", "name", req.Name, &id); err != nil {
+		utils.BadRequest(c, "Station name already exists")
+		return
 	}
 
-	// Fetch updated station
-	var station models.Station
-	h.fetchAndRespond(c, "SELECT * FROM stations WHERE id = ?", id, &station, false)
+	// Update station
+	_, err := h.db.ExecContext(c.Request.Context(),
+		"UPDATE stations SET name = ?, max_stories_per_block = ?, pause_seconds = ? WHERE id = ?",
+		req.Name, req.MaxStoriesPerBlock, req.PauseSeconds, id,
+	)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to update station")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "Station updated successfully")
 }
 
-// DeleteStation deletes a station by ID.
+// DeleteStation deletes a radio station by ID after checking for dependencies like station-voices.
 func (h *Handlers) DeleteStation(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "station")
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	crud := NewCRUDHandler(h.db, "stations")
-	crud.Delete(c, id)
+	// Check for dependencies first
+	count, err := utils.CountDependencies(h.db, "station_voices", "station_id", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to check dependencies")
+		return
+	}
+	if count > 0 {
+		utils.BadRequest(c, "Cannot delete station: it has associated voices")
+		return
+	}
+
+	// Delete station
+	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM stations WHERE id = ?", id)
+	if err != nil {
+		logger.Error("Database error deleting station: %v", err)
+		if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Cannot delete station: it is referenced by other resources")
+		} else {
+			utils.InternalServerError(c, "Failed to delete station due to database error")
+		}
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		utils.NotFound(c, "Station")
+		return
+	}
+
+	utils.NoContent(c)
 }

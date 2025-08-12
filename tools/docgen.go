@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// OpenAPI structures (simplified)
+// OpenAPISpec represents a simplified OpenAPI specification structure for documentation generation.
 type OpenAPISpec struct {
 	OpenAPI string `yaml:"openapi"`
 	Info    struct {
@@ -28,6 +28,7 @@ type OpenAPISpec struct {
 	Paths map[string]map[string]Operation `yaml:"paths"`
 }
 
+// Operation represents an OpenAPI operation definition with its metadata and parameters.
 type Operation struct {
 	Summary     string                 `yaml:"summary"`
 	Description string                 `yaml:"description"`
@@ -37,6 +38,7 @@ type Operation struct {
 	Responses   map[string]interface{} `yaml:"responses"`
 }
 
+// Parameter represents an OpenAPI parameter definition with validation schema.
 type Parameter struct {
 	Name        string                 `yaml:"name"`
 	In          string                 `yaml:"in"`

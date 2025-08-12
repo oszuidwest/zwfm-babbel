@@ -7,14 +7,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // Service handles audio processing operations.
@@ -29,7 +27,7 @@ func NewService(cfg *config.Config) *Service {
 
 // ConvertStoryToWAV converts uploaded audio to standard WAV format
 func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath string) (string, float64, error) {
-	outputPath := filepath.Join(s.config.Audio.ProcessedPath, fmt.Sprintf("story_%d.wav", storyID))
+	outputPath := utils.GetStoryPath(s.config, storyID)
 
 	// Convert to WAV 48kHz mono
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
@@ -51,81 +49,6 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath 
 	}
 
 	return outputPath, duration, nil
-}
-
-// ConvertJingleToWAV converts station-specific jingle to standard WAV format
-func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int, inputPath string) (string, error) {
-	finalPath := filepath.Join(s.config.Audio.ProcessedPath, fmt.Sprintf("station_%d_voice_%d_jingle.wav", stationID, voiceID))
-
-	// Process in /tmp first for atomic file operations (process then move)
-	tempOutput := fmt.Sprintf("/tmp/station_%d_voice_%d_jingle_%d.wav", stationID, voiceID, time.Now().UnixNano())
-
-	// Convert to WAV 48kHz stereo
-	// #nosec G204 - FFmpegPath is from config, paths are internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
-		"-i", inputPath,
-		"-ar", "48000",
-		"-ac", "2",
-		"-acodec", "pcm_s16le",
-		"-y", tempOutput,
-	)
-
-	// Capture stderr for better error reporting
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start ffmpeg: %w", err)
-	}
-
-	// Read stderr
-	stderrBytes, readErr := io.ReadAll(stderr)
-	if readErr != nil {
-		// Log the error but continue - we still want to see the main error if cmd.Wait fails
-		fmt.Printf("Failed to read stderr: %v\n", readErr)
-	}
-
-	if err := cmd.Wait(); err != nil {
-		return "", fmt.Errorf("ffmpeg failed for station %d voice %d: %w. stderr: %s", stationID, voiceID, err, string(stderrBytes))
-	}
-
-	// Move the processed file to the final location
-	if err := os.Rename(tempOutput, finalPath); err != nil {
-		// If rename fails (e.g., across filesystems), copy and delete
-		// #nosec G304 - tempOutput is internally generated path, not user input
-		input, err := os.Open(tempOutput)
-		if err != nil {
-			return "", fmt.Errorf("failed to open temp file: %w", err)
-		}
-		defer func() {
-			if err := input.Close(); err != nil {
-				logger.Error("Failed to close input file: %v", err)
-			}
-		}()
-
-		// #nosec G304 - finalPath is internally generated path, not user input
-		output, err := os.Create(finalPath)
-		if err != nil {
-			return "", fmt.Errorf("failed to create output file: %w", err)
-		}
-		defer func() {
-			if err := output.Close(); err != nil {
-				logger.Error("Failed to close output file: %v", err)
-			}
-		}()
-
-		if _, err := io.Copy(output, input); err != nil {
-			return "", fmt.Errorf("failed to copy file: %w", err)
-		}
-
-		if err := os.Remove(tempOutput); err != nil {
-			logger.Error("Failed to remove temp file %s: %v", tempOutput, err)
-		}
-	}
-
-	return finalPath, nil
 }
 
 // GetDuration gets audio file duration
@@ -151,17 +74,15 @@ func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, er
 	return duration, nil
 }
 
-// CreateBulletin creates an audio bulletin from stories
-func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story) (string, error) {
+// CreateBulletin creates an audio bulletin from stories using the provided output path.
+// The output path should be generated externally to ensure consistency with database storage.
+func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story, outputPath string) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	outputPath := filepath.Join(s.config.Audio.OutputPath,
-		fmt.Sprintf("bulletin_%d_%s.wav", station.ID, time.Now().Format("20060102_150405")))
-
 	// Create temp directory for mixing
-	tempDir := filepath.Join(s.config.Audio.TempPath, uuid.New().String())
+	tempDir := utils.GetTempBulletinDir(s.config, uuid.New().String())
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return "", err
 	}
@@ -178,7 +99,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 
 	// Step 1: Add all story audio files
 	for i, story := range stories {
-		storyPath := filepath.Join(s.config.Audio.ProcessedPath, fmt.Sprintf("story_%d.wav", story.ID))
+		storyPath := utils.GetStoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
 
 		// Add padding after each story except the last one
@@ -210,7 +131,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	// Step 3: Add the bed/jingle (use the first story's voice as the bed)
 	if len(stories) > 0 {
 		// Use station-specific jingle
-		jinglePath := filepath.Join(s.config.Audio.ProcessedPath, fmt.Sprintf("station_%d_voice_%d_jingle.wav", station.ID, stories[0].VoiceID))
+		jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
 
 		if _, err := os.Stat(jinglePath); err == nil {
 			args = append(args, "-i", jinglePath)

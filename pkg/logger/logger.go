@@ -1,4 +1,7 @@
-// Package logger provides simple logging utilities for the application.
+// Package logger provides structured logging utilities.
+//
+// This package sets up different loggers for different message types
+// and provides simple logging functions with consistent formatting.
 package logger
 
 import (

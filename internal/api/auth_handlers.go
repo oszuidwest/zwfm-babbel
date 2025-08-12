@@ -1,7 +1,8 @@
-// Package api provides HTTP handlers and routing for the Babbel API.
+// Package api provides HTTP routing and middleware setup for the Babbel API server.
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -89,8 +90,9 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
-	// Delegate to the shared user response handler
-	h.handlers.RespondWithUser(c, userID)
+	// Delegate to GetUser handler
+	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: fmt.Sprintf("%d", userID)})
+	h.handlers.GetUser(c)
 }
 
 // GetAuthConfig returns the authentication configuration

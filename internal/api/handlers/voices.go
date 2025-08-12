@@ -2,116 +2,120 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// VoiceInput represents the request parameters for creating or updating a voice.
-type VoiceInput struct {
-	Name string `json:"name" binding:"required"`
-}
-
-// ListVoices returns a paginated list of all voices.
+// ListVoices returns a paginated list of all newsreader voices available in the system.
 func (h *Handlers) ListVoices(c *gin.Context) {
-	crud := NewCRUDHandler(h.db, "voices", WithOrderBy("name ASC"))
-
 	var voices []models.Voice
-	filters := map[string]string{}
-
-	total, err := crud.List(c, &voices, filters)
-	if err != nil {
-		responses.InternalServerError(c, err.Error())
-		return
-	}
-
-	limit, offset := extractPaginationParams(c)
-	responses.Paginated(c, voices, total, limit, offset)
+	utils.GenericList(c, h.db, "voices", "*", &voices)
 }
 
-// GetVoice returns a single voice by ID.
+// GetVoice returns a single newsreader voice by ID with all its details.
 func (h *Handlers) GetVoice(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "voice")
-	if !ok {
-		return
-	}
-
-	crud := NewCRUDHandler(h.db, "voices")
 	var voice models.Voice
-	crud.GetByID(c, id, &voice)
+	utils.GenericGetByID(c, h.db, "voices", "Voice", &voice)
 }
 
-// CreateVoice creates a new voice.
+// CreateVoice creates a new newsreader voice with the provided name and validates uniqueness.
 func (h *Handlers) CreateVoice(c *gin.Context) {
-	var input VoiceInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+	var req utils.VoiceRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Create voice (without jingle - jingles are station-specific)
-	result, err := h.db.ExecContext(c.Request.Context(),
-		"INSERT INTO voices (name) VALUES (?)",
-		input.Name,
-	)
+	// Check name uniqueness
+	if err := utils.CheckUnique(h.db, "voices", "name", req.Name, nil); err != nil {
+		utils.BadRequest(c, "Voice name already exists")
+		return
+	}
+
+	// Create voice
+	result, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO voices (name) VALUES (?)", req.Name)
 	if err != nil {
-		responses.InternalServerError(c, "Failed to create voice")
+		utils.InternalServerError(c, "Failed to create voice")
 		return
 	}
 
-	voiceID, err := result.LastInsertId()
-	if err != nil {
-		responses.InternalServerError(c, "Failed to get voice ID")
-		return
-	}
-
-	// Fetch the created voice
-	var voice models.Voice
-	h.fetchAndRespond(c, "SELECT * FROM voices WHERE id = ?", voiceID, &voice, true)
+	id, _ := result.LastInsertId()
+	utils.CreatedWithID(c, id, "Voice created successfully")
 }
 
-// UpdateVoice updates an existing voice.
+// UpdateVoice updates an existing newsreader voice with new name while validating uniqueness.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "voice")
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	var input VoiceInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+	var req utils.VoiceRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
 	// Check if voice exists
-	if !h.validateRecordExists(c, "voices", "Voice", id) {
+	if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", id) {
 		return
 	}
 
-	// Update voice name
-	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE voices SET name = ? WHERE id = ?", input.Name, id)
+	// Check name uniqueness (excluding current record)
+	if err := utils.CheckUnique(h.db, "voices", "name", req.Name, &id); err != nil {
+		utils.BadRequest(c, "Voice name already exists")
+		return
+	}
+
+	// Update voice
+	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE voices SET name = ? WHERE id = ?", req.Name, id)
 	if err != nil {
-		responses.InternalServerError(c, "Failed to update voice")
+		utils.InternalServerError(c, "Failed to update voice")
 		return
 	}
 
-	// Fetch updated voice
-	var voice models.Voice
-	h.fetchAndRespond(c, "SELECT * FROM voices WHERE id = ?", id, &voice, false)
+	utils.SuccessWithMessage(c, "Voice updated successfully")
 }
 
-// DeleteVoice deletes a voice if it has no dependencies.
+// DeleteVoice deletes a newsreader voice if it has no dependencies like stories or station-voices.
 func (h *Handlers) DeleteVoice(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "voice")
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	crud := NewCRUDHandler(h.db, "voices")
-	checks := []DependencyCheck{
-		{
-			Query:        "SELECT COUNT(*) FROM stories WHERE voice_id = ?",
-			ErrorMessage: "Cannot delete voice: %d stories are still using this voice",
-		},
+	// Check for dependencies
+	count, err := utils.CountDependencies(h.db, "stories", "voice_id", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to check dependencies")
+		return
 	}
-	crud.DeleteWithCheck(c, id, checks)
+	if count > 0 {
+		utils.BadRequest(c, "Cannot delete voice: it is used by stories")
+		return
+	}
+
+	// Check station_voices dependencies
+	count, err = utils.CountDependencies(h.db, "station_voices", "voice_id", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to check dependencies")
+		return
+	}
+	if count > 0 {
+		utils.BadRequest(c, "Cannot delete voice: it is used by stations")
+		return
+	}
+
+	// Delete voice
+	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM voices WHERE id = ?", id)
+	if err != nil {
+		utils.InternalServerError(c, "Failed to delete voice")
+		return
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		utils.NotFound(c, "Voice")
+		return
+	}
+
+	utils.NoContent(c)
 }

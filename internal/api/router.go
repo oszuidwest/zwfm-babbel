@@ -1,3 +1,4 @@
+// Package api provides HTTP routing and middleware setup for the Babbel API server.
 package api
 
 import (
@@ -119,11 +120,19 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			// Story routes
 			protected.GET("/stories", authService.RequirePermission("stories", "read"), h.ListStories)
 			protected.GET("/stories/:id", authService.RequirePermission("stories", "read"), h.GetStory)
-			protected.GET("/stories/:id/audio", authService.RequirePermission("stories", "read"), h.GetStoryAudio)
+			protected.GET("/stories/:id/audio", authService.RequirePermission("stories", "read"), func(c *gin.Context) {
+				h.ServeAudio(c, handlers.AudioConfig{
+					TableName:   "stories",
+					IDColumn:    "id",
+					FileColumn:  "audio_file",
+					FilePrefix:  "story",
+					ContentType: "audio/wav",
+				})
+			})
 			protected.POST("/stories", authService.RequirePermission("stories", "write"), h.CreateStory)
 			protected.PUT("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStory)
 			protected.DELETE("/stories/:id", authService.RequirePermission("stories", "write"), h.DeleteStory)
-			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStoryState)
+			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStoryStatus)
 
 			// User routes (admin only)
 			protected.GET("/users", authService.RequirePermission("users", "read"), h.ListUsers)
@@ -131,13 +140,21 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			protected.POST("/users", authService.RequirePermission("users", "write"), h.CreateUser)
 			protected.PUT("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUser)
 			protected.DELETE("/users/:id", authService.RequirePermission("users", "write"), h.DeleteUser)
-			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUserState)
+			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUserStatus)
 			protected.PUT("/users/:id/password", authService.RequirePermission("users", "write"), h.ChangePassword)
 
 			// Station-Voice routes (for managing station-specific jingles)
 			protected.GET("/station_voices", authService.RequirePermission("voices", "read"), h.ListStationVoices)
 			protected.GET("/station_voices/:id", authService.RequirePermission("voices", "read"), h.GetStationVoice)
-			protected.GET("/station_voices/:id/audio", authService.RequirePermission("voices", "read"), h.GetStationVoiceAudio)
+			protected.GET("/station_voices/:id/audio", authService.RequirePermission("voices", "read"), func(c *gin.Context) {
+				h.ServeAudio(c, handlers.AudioConfig{
+					TableName:   "station_voices",
+					IDColumn:    "id",
+					FileColumn:  "jingle_file",
+					FilePrefix:  "jingle",
+					ContentType: "audio/wav",
+				})
+			})
 			protected.POST("/station_voices", authService.RequirePermission("voices", "write"), h.CreateStationVoice)
 			protected.PUT("/station_voices/:id", authService.RequirePermission("voices", "write"), h.UpdateStationVoice)
 			protected.DELETE("/station_voices/:id", authService.RequirePermission("voices", "write"), h.DeleteStationVoice)

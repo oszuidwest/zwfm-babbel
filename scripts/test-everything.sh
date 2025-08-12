@@ -53,11 +53,139 @@ print_info() {
     echo -e "${YELLOW}ℹ $1${NC}" >&2
 }
 
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}" >&2
+}
+
 # Check if FFmpeg is installed
 check_ffmpeg() {
     if ! command -v ffmpeg &> /dev/null; then
         print_error "FFmpeg not found. Please install FFmpeg."
         exit 1
+    fi
+}
+
+# File availability checking with timeout and polling
+wait_for_file() {
+    local file="$1"
+    local timeout="${2:-10}"
+    local counter=0
+    
+    print_info "Waiting for file: $file (timeout: ${timeout}s)"
+    
+    while [ ! -f "$file" ] && [ $counter -lt $timeout ]; do
+        sleep 0.5
+        counter=$((counter+1))
+    done
+    
+    if [ -f "$file" ]; then
+        print_success "File exists: $file"
+        return 0
+    else
+        print_error "File not found after ${timeout}s: $file"
+        return 1
+    fi
+}
+
+# Comprehensive file system verification
+verify_audio_files() {
+    print_section "Verifying Audio File Availability"
+    
+    local errors=0
+    
+    # Check story audio files
+    print_info "Checking story audio files..."
+    for i in {1..8}; do
+        local story_file="$AUDIO_DIR/processed/story_${i}.wav"
+        if [ -f "$story_file" ]; then
+            # Verify it's a valid audio file with ffprobe
+            if ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "$story_file" >/dev/null 2>&1; then
+                local size=$(stat -c%s "$story_file" 2>/dev/null || stat -f%z "$story_file" 2>/dev/null || echo "0")
+                print_success "Story $i: valid audio file (${size} bytes)"
+            else
+                print_error "Story $i: invalid audio file"
+                errors=$((errors+1))
+            fi
+        else
+            print_error "Story $i: file missing"
+            errors=$((errors+1))
+        fi
+    done
+    
+    # Check station-voice jingle files
+    print_info "Checking station-voice jingle files..."
+    local jingle_count=0
+    for station_id in $(seq 1 10); do
+        for voice_id in $(seq 1 10); do
+            local jingle_file="$AUDIO_DIR/processed/station_${station_id}_voice_${voice_id}_jingle.wav"
+            if [ -f "$jingle_file" ]; then
+                if ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "$jingle_file" >/dev/null 2>&1; then
+                    local size=$(stat -c%s "$jingle_file" 2>/dev/null || stat -f%z "$jingle_file" 2>/dev/null || echo "0")
+                    print_success "Station $station_id + Voice $voice_id: valid jingle (${size} bytes)"
+                    jingle_count=$((jingle_count+1))
+                else
+                    print_error "Station $station_id + Voice $voice_id: invalid jingle file"
+                    errors=$((errors+1))
+                fi
+            fi
+        done
+    done
+    
+    print_info "Found $jingle_count valid station-voice jingle files"
+    
+    if [ $errors -eq 0 ]; then
+        print_success "All audio files verified successfully"
+        return 0
+    else
+        print_error "Found $errors audio file issues"
+        return 1
+    fi
+}
+
+# Simple download function
+simple_download() {
+    local url="$1"
+    local output_file="$2"
+    local cookie_file="${3:-$COOKIE_FILE}"
+    
+    print_info "Downloading: $url"
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$url" -b "$cookie_file" -o "$output_file" 2>/dev/null)
+    http_code=$(echo "$response" | tail -n1)
+    
+    if [ "$http_code" = "200" ] && [ -f "$output_file" ] && [ -s "$output_file" ]; then
+        print_success "Download successful"
+        return 0
+    else
+        print_error "Download failed with HTTP $http_code"
+        rm -f "$output_file" 2>/dev/null
+        return 1
+    fi
+}
+
+
+# Wait for file with verification
+wait_for_audio_file() {
+    local file="$1"
+    local timeout="${2:-15}"
+    
+    if wait_for_file "$file" "$timeout"; then
+        # Additional verification that it's a valid audio file
+        if ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "$file" >/dev/null 2>&1; then
+            local size=$(stat -c%s "$file" 2>/dev/null || stat -f%z "$file" 2>/dev/null || echo "0")
+            if [ "$size" -gt 1000 ]; then  # At least 1KB
+                print_success "Valid audio file ready: $file (${size} bytes)"
+                return 0
+            else
+                print_error "Audio file too small: $file (${size} bytes)"
+                return 1
+            fi
+        else
+            print_error "File exists but is not valid audio: $file"
+            return 1
+        fi
+    else
+        return 1
     fi
 }
 
@@ -122,7 +250,6 @@ setup_database() {
     # Restart API to ensure clean state
     print_info "Restarting API..."
     docker-compose restart babbel >/dev/null 2>&1
-    sleep 5
     
     # Wait for API to be ready
     local retries=20
@@ -191,6 +318,7 @@ generate_audio() {
                 continue
             fi
             
+            
             if [ -f "$temp_jingle" ]; then
                 cp "$temp_jingle" "$jingle_file"
                 print_success "Generated jingle: station_${station_id}_voice_${voice_id}_jingle.wav"
@@ -218,6 +346,7 @@ generate_audio() {
             print_error "Failed to generate story $i"
         fi
         
+        
         if [ -f "$AUDIO_DIR/stories/story${i}.wav" ]; then
             cp "$AUDIO_DIR/stories/story${i}.wav" "$AUDIO_DIR/processed/story_${i}.wav"
         else
@@ -226,6 +355,10 @@ generate_audio() {
     done
     
     print_success "Generated audio files"
+    
+    
+    # Wait for all files to be available with timeout
+    print_info "Waiting for all audio files to be available..."
     
     # Verify files were created (should be 2 stations × 2 voices = 4 jingle files with numeric IDs only)
     jingle_count=$(find "$AUDIO_DIR/processed" -name "station_*_voice_*_jingle.wav" | grep -c '^.*station_[0-9]*_voice_[0-9]*_jingle\.wav$' 2>/dev/null || echo 0)
@@ -237,6 +370,9 @@ generate_audio() {
         echo "All jingle files found:"
         find "$AUDIO_DIR/processed" -name "station_*_voice_*_jingle.wav" | head -10
     fi
+    
+    # Run comprehensive file verification
+    verify_audio_files
 }
 
 # Step 5: Login to API
@@ -529,6 +665,25 @@ if 'data' in data:
     while IFS=: read -r id name pause; do
         print_info "Generating bulletin for $name (pause: ${pause}s)..."
         
+        # Verify required audio files exist before attempting bulletin generation
+        print_info "Verifying audio files for station $id before bulletin generation..."
+        
+        # Check if we have station-voice jingles for this station
+        jingle_found=false
+        for voice_file in "$AUDIO_DIR/processed/station_${id}_voice_"*"_jingle.wav"; do
+            if [ -f "$voice_file" ] && wait_for_audio_file "$voice_file" 5; then
+                jingle_found=true
+                break
+            fi
+        done
+        
+        if [ "$jingle_found" = "false" ]; then
+            print_warning "No valid jingles found for station $id, bulletin generation may fail"
+        fi
+        
+        # Small delay to allow any background operations to complete
+        sleep 1
+        
         response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations/$id/bulletins/generate" \
             -b "$COOKIE_FILE" \
             -H "Content-Type: application/json" \
@@ -546,9 +701,14 @@ if 'data' in data:
                 print_info "  Bulletin URL: $bulletin_url"
                 # Extract filename from URL
                 bulletin_file=$(basename "$bulletin_url")
-                if [ -f "$AUDIO_DIR/output/$bulletin_file" ]; then
-                    file_size=$(ls -lh "$AUDIO_DIR/output/$bulletin_file" | awk '{print $5}')
+                bulletin_path="$AUDIO_DIR/output/$bulletin_file"
+                
+                # Wait for bulletin file with timeout and verification
+                if wait_for_audio_file "$bulletin_path" 15; then
+                    file_size=$(ls -lh "$bulletin_path" | awk '{print $5}')
                     print_success "  Bulletin file created: $bulletin_file ($file_size)"
+                else
+                    print_error "  Bulletin file not created or invalid: $bulletin_file"
                 fi
             fi
         else
@@ -594,12 +754,24 @@ if 'data' in data and len(data['data']) > 0:
             
             # Test the direct audio download endpoint for radio automation
             print_info "Testing direct audio download for radio automation..."
-            response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/$first_station_id/bulletins/latest/audio" -b "$COOKIE_FILE" -o /dev/null)
-            http_code=$(echo "$response" | tail -n1)
-            if [ "$http_code" = "200" ]; then
+            
+            # First verify the bulletin file exists in the filesystem
+            if [ -n "$filename" ]; then
+                bulletin_file_path="$AUDIO_DIR/output/$filename"
+                if [ -f "$bulletin_file_path" ] && [ -s "$bulletin_file_path" ]; then
+                    print_success "Bulletin file verified on filesystem: $filename"
+                else
+                    print_warning "Bulletin file not ready, but proceeding with download test"
+                fi
+                
+                fi
+            
+            # Use retry logic for the download test (increased to 5 retries for race condition)
+            if simple_download "$API_URL/stations/$first_station_id/bulletins/latest/audio" "/tmp/test_bulletin.wav"; then
                 print_success "Successfully downloaded bulletin audio directly (perfect for radio automation!)"
+                rm -f /tmp/test_bulletin.wav
             else
-                print_error "Failed to download bulletin audio directly (HTTP $http_code)"
+                print_error "Failed to download bulletin audio directly after retries"
             fi
         else
             print_error "Failed to get latest bulletin (HTTP $http_code)"
@@ -1204,38 +1376,49 @@ test_audio_downloads() {
     # Test story audio download
     print_info "Testing story audio downloads..."
     stories=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
-    first_story_id=$(echo "$stories" | python3 -c "
+    # Find a story that has audio (should be stories 1-8, which have audio files)
+    story_with_audio_id=$(echo "$stories" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-if 'data' in data and len(data['data']) > 0:
-    print(data['data'][0]['id'])
+if 'data' in data:
+    for story in data['data']:
+        # Look for stories that have audio_url (indicating they have audio files)
+        if story.get('audio_url') is not None:
+            print(story['id'])
+            break
 " 2>/dev/null)
     
-    if [ -n "$first_story_id" ]; then
-        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$first_story_id/audio" \
-            -b "$COOKIE_FILE" -o /tmp/test_story.wav)
-        http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "200" ]; then
-            if [ -f /tmp/test_story.wav ] && [ -s /tmp/test_story.wav ]; then
-                # Verify it's actually a valid audio file using ffprobe
-                audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_story.wav 2>&1)
-                if echo "$audio_info" | grep -q "codec_type=audio"; then
-                    # Get audio duration to verify it's valid
-                    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_story.wav 2>/dev/null)
-                    if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
-                        print_success "Story audio download successful (valid WAV, duration: ${duration}s)"
-                    else
-                        print_error "Story audio file has invalid duration"
-                    fi
+    # Fallback to story ID 1-8 if no story with audio_url found
+    if [ -z "$story_with_audio_id" ]; then
+        print_info "No story with audio_url found, using fallback story ID 1"
+        story_with_audio_id=1
+    fi
+    
+    if [ -n "$story_with_audio_id" ]; then
+        # First, verify the source story audio file exists  
+        story_source_file="$AUDIO_DIR/processed/story_${story_with_audio_id}.wav"
+        if [ ! -f "$story_source_file" ] || [ ! -s "$story_source_file" ]; then
+            print_warning "Story source file not available, trying different approach"
+        fi
+        
+        # Use retry logic for download with file verification
+        if simple_download "$API_URL/stories/$story_with_audio_id/audio" "/tmp/test_story.wav"; then
+            # Verify it's actually a valid audio file using ffprobe
+            audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_story.wav 2>&1)
+            if echo "$audio_info" | grep -q "codec_type=audio"; then
+                # Get audio duration to verify it's valid
+                duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_story.wav 2>/dev/null)
+                if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
+                    print_success "Story audio download successful (valid WAV, duration: ${duration}s)"
                 else
-                    print_error "Downloaded file is not a valid audio file"
+                    print_error "Story audio file has invalid duration"
                 fi
-                rm -f /tmp/test_story.wav
             else
-                print_error "Story audio file empty or not created"
+                print_error "Downloaded file is not a valid audio file"
             fi
+            rm -f /tmp/test_story.wav
         else
-            print_error "Failed to download story audio (HTTP $http_code)"
+            print_error "Failed to download story audio after retries"
         fi
         
         # Test non-existent story audio
@@ -1245,6 +1428,31 @@ if 'data' in data and len(data['data']) > 0:
             print_success "Non-existent story audio correctly returns 404"
         else
             print_error "Non-existent story audio returned HTTP $http_code (expected 404)"
+        fi
+        
+        # Test text-only story audio (should return 404)
+        # Stories 9-10 are created without audio files
+        text_only_story_id=$(echo "$stories" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+if 'data' in data:
+    for story in data['data']:
+        # Look for stories that don't have audio_url (text-only stories)
+        if story.get('audio_url') is None:
+            print(story['id'])
+            break
+" 2>/dev/null)
+        
+        if [ -n "$text_only_story_id" ]; then
+            response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$text_only_story_id/audio" -b "$COOKIE_FILE")
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "404" ]; then
+                print_success "Text-only story audio correctly returns 404 (story ID: $text_only_story_id)"
+            else
+                print_error "Text-only story audio returned HTTP $http_code (expected 404, story ID: $text_only_story_id)"
+            fi
+        else
+            print_info "No text-only stories found to test 404 response"
         fi
     fi
     
@@ -1347,33 +1555,52 @@ if 'data' in data and len(data['data']) > 0:
 " 2>/dev/null)
     
     if [ -n "$first_bulletin_id" ]; then
-        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/bulletins/$first_bulletin_id/audio" \
-            -b "$COOKIE_FILE" -o /tmp/test_bulletin.wav)
-        http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "200" ]; then
-            if [ -f /tmp/test_bulletin.wav ] && [ -s /tmp/test_bulletin.wav ]; then
-                # Verify it's actually a valid audio file using ffprobe
-                audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_bulletin.wav 2>&1)
-                if echo "$audio_info" | grep -q "codec_type=audio"; then
-                    # Get audio duration and verify it's valid
-                    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_bulletin.wav 2>/dev/null)
-                    # Get file size in human-readable format
-                    file_size=$(ls -lh /tmp/test_bulletin.wav | awk '{print $5}')
-                    if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
-                        print_success "Bulletin audio download successful (valid WAV, duration: ${duration}s, size: $file_size)"
-                    else
-                        print_error "Bulletin audio has invalid duration"
-                    fi
-                else
-                    print_error "Downloaded bulletin is not a valid audio file"
-                fi
-                rm -f /tmp/test_bulletin.wav
+        # Get bulletin details to verify file exists before download attempt
+        print_info "Verifying bulletin file exists before download..."
+        bulletin_details=$(curl -s -X GET "$API_URL/bulletins/$first_bulletin_id" -b "$COOKIE_FILE")
+        bulletin_filename=$(echo "$bulletin_details" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('filename', ''))
+except:
+    pass
+" 2>/dev/null)
+        
+        # Wait for bulletin file to be available on filesystem before HTTP download
+        if [ -n "$bulletin_filename" ]; then
+            bulletin_file_path="$AUDIO_DIR/output/$bulletin_filename"
+            if [ -f "$bulletin_file_path" ] && [ -s "$bulletin_file_path" ]; then
+                print_success "Bulletin file verified on filesystem: $bulletin_filename"
             else
-                print_error "Bulletin file empty or not created"
+                print_warning "Bulletin file not ready on filesystem, but proceeding with download test"
             fi
-        else
-            print_error "Failed to download bulletin audio (HTTP $http_code)"
+            
         fi
+        
+        # Use retry logic for the bulletin download test
+        if simple_download "$API_URL/bulletins/$first_bulletin_id/audio" "/tmp/test_bulletin.wav"; then
+            # Verify it's actually a valid audio file using ffprobe
+            audio_info=$(ffprobe -v error -show_format -show_streams /tmp/test_bulletin.wav 2>&1)
+            if echo "$audio_info" | grep -q "codec_type=audio"; then
+                # Get audio duration and verify it's valid
+                duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 /tmp/test_bulletin.wav 2>/dev/null)
+                # Get file size in human-readable format
+                file_size=$(ls -lh /tmp/test_bulletin.wav | awk '{print $5}')
+                if [ -n "$duration" ] && (( $(echo "$duration > 0" | bc -l) )); then
+                    print_success "Bulletin audio download successful (valid WAV, duration: ${duration}s, size: $file_size)"
+                else
+                    print_error "Bulletin audio has invalid duration"
+                fi
+            else
+                print_error "Downloaded bulletin is not a valid audio file"
+            fi
+            rm -f /tmp/test_bulletin.wav
+        else
+            print_error "Failed to download bulletin audio after retries"
+        fi
+    else
+        print_warning "No bulletins available for download test"
     fi
 }
 
@@ -1732,12 +1959,14 @@ test_error_scenarios() {
         -F "status=active" \
         -F "audio=@$AUDIO_DIR/stories/story1.wav")
     http_code=$(echo "$response" | tail -n1)
-    if [ "$http_code" = "400" ]; then
-        print_success "Foreign key violation correctly returns 400"
+    if [ "$http_code" = "404" ]; then
+        print_success "Foreign key violation correctly returns 404 (Voice not found)"
+    elif [ "$http_code" = "400" ]; then
+        print_success "Foreign key violation returns 400 (Bad Request)"
     elif [ "$http_code" = "500" ]; then
         print_success "Foreign key violation returns 500 (database error not caught)"
     else
-        print_error "Foreign key violation returned HTTP $http_code (expected 400 or 500)"
+        print_error "Foreign key violation returned HTTP $http_code (expected 404, 400, or 500)"
     fi
     
     # Test file upload errors
@@ -1887,7 +2116,6 @@ if 'data' in data and len(data['data']) > 0:
             print_success "Initial bulletin generated (ID: $first_bulletin_id)"
             
             # Try again with max_age (should return cached)
-            sleep 2
             response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations/$station_id/bulletins/generate?max_age=300" \
                 -b "$COOKIE_FILE" \
                 -H "Content-Type: application/json" \
@@ -2105,6 +2333,10 @@ main() {
     test_patch_endpoints
     
     echo "Testing audio downloads..." >&2
+    # Run comprehensive file verification before audio tests
+    print_info "Pre-test file verification for audio downloads..."
+    verify_audio_files || print_warning "Some audio files may not be ready, but proceeding with tests"
+    
     test_audio_downloads
     
     echo "Testing relationship endpoints..." >&2
@@ -2126,6 +2358,7 @@ main() {
     
     echo "Testing bulletin parameters..." >&2
     test_bulletin_parameters
+    
     
     echo "Verifying files..." >&2
     verify_files

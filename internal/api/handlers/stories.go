@@ -1,22 +1,41 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"mime/multipart"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/responses"
-	"github.com/oszuidwest/zwfm-babbel/internal/api/validation"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// GetStoryAudioURL returns the API URL for a story's audio file, or nil if no audio exists.
+// StoryResponse represents the response format for stories
+type StoryResponse struct {
+	ID              int             `json:"id" db:"id"`
+	Title           string          `json:"title" db:"title"`
+	Text            string          `json:"text" db:"text"`
+	VoiceID         *int            `json:"voice_id" db:"voice_id"`
+	AudioFile       string          `json:"-" db:"audio_file"`
+	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
+	Status          string          `json:"status" db:"status"`
+	StartDate       time.Time       `json:"start_date" db:"start_date"`
+	EndDate         time.Time       `json:"end_date" db:"end_date"`
+	Weekdays        uint8           `json:"-" db:"weekdays"`
+	Metadata        *string         `json:"metadata" db:"metadata"`
+	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+	VoiceName       string          `json:"voice_name" db:"voice_name"`
+	AudioURL        *string         `json:"audio_url,omitempty"`
+	WeekdaysMap     map[string]bool `json:"weekdays"`
+}
+
+// GetStoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
 func GetStoryAudioURL(storyID int, hasAudio bool) *string {
 	if !hasAudio {
 		return nil
@@ -25,76 +44,7 @@ func GetStoryAudioURL(storyID int, hasAudio bool) *string {
 	return &url
 }
 
-// storyToResponse converts a story model to API response format
-func storyToResponse(story models.Story) map[string]interface{} {
-	response := map[string]interface{}{
-		"id":               story.ID,
-		"title":            story.Title,
-		"text":             story.Text,
-		"voice_id":         story.VoiceID,
-		"audio_url":        GetStoryAudioURL(story.ID, story.AudioFile != ""),
-		"duration_seconds": story.DurationSeconds,
-		"status":           story.Status,
-		"start_date":       story.StartDate.Format("2006-01-02"),
-		"end_date":         story.EndDate.Format("2006-01-02"),
-		"weekdays":         bitmaskToWeekdays(story.Weekdays),
-		"metadata":         story.Metadata,
-		"deleted_at":       story.DeletedAt,
-		"created_at":       story.CreatedAt,
-		"updated_at":       story.UpdatedAt,
-	}
-
-	// Add voice information if a voice is assigned
-	if story.VoiceID != nil {
-		response["voice"] = map[string]interface{}{
-			"id":   *story.VoiceID,
-			"name": story.VoiceName,
-		}
-	} else {
-		response["voice"] = nil
-	}
-
-	return response
-}
-
-// WeekdaysInput represents weekday selection in API requests.
-type WeekdaysInput struct {
-	Monday    bool `json:"monday"`
-	Tuesday   bool `json:"tuesday"`
-	Wednesday bool `json:"wednesday"`
-	Thursday  bool `json:"thursday"`
-	Friday    bool `json:"friday"`
-	Saturday  bool `json:"saturday"`
-	Sunday    bool `json:"sunday"`
-}
-
-// ConvertToBitmask converts WeekdaysInput to a uint8 bitmask representation.
-func (w WeekdaysInput) ConvertToBitmask() uint8 {
-	var bitmask uint8
-	if w.Monday {
-		bitmask |= models.Monday
-	}
-	if w.Tuesday {
-		bitmask |= models.Tuesday
-	}
-	if w.Wednesday {
-		bitmask |= models.Wednesday
-	}
-	if w.Thursday {
-		bitmask |= models.Thursday
-	}
-	if w.Friday {
-		bitmask |= models.Friday
-	}
-	if w.Saturday {
-		bitmask |= models.Saturday
-	}
-	if w.Sunday {
-		bitmask |= models.Sunday
-	}
-	return bitmask
-}
-
+// bitmaskToWeekdays converts weekday bitmask to map
 func bitmaskToWeekdays(bitmask uint8) map[string]bool {
 	return map[string]bool{
 		"monday":    bitmask&models.Monday != 0,
@@ -107,294 +57,235 @@ func bitmaskToWeekdays(bitmask uint8) map[string]bool {
 	}
 }
 
-// ListStories returns a paginated list of stories with optional filters.
+// ListStories returns a paginated list of stories
 func (h *Handlers) ListStories(c *gin.Context) {
-	limit, offset := extractPaginationParams(c)
-	includeDeleted := getBoolQuery(c, "include_deleted")
+	// Build query configuration with JOIN to voices
+	config := utils.QueryConfig{
+		BaseQuery: `SELECT s.*, v.name as voice_name
+		           FROM stories s 
+		           JOIN voices v ON s.voice_id = v.id`,
+		CountQuery:   "SELECT COUNT(*) FROM stories s",
+		DefaultOrder: "s.id DESC",
+		Filters:      []utils.FilterConfig{},
+		PostProcessor: func(result interface{}) {
+			// Add audio URLs and weekdays map to response
+			if stories, ok := result.(*[]StoryResponse); ok {
+				for i := range *stories {
+					hasAudio := (*stories)[i].AudioFile != ""
+					(*stories)[i].AudioURL = GetStoryAudioURL((*stories)[i].ID, hasAudio)
+					(*stories)[i].WeekdaysMap = bitmaskToWeekdays((*stories)[i].Weekdays)
+				}
+			}
+		},
+	}
 
-	// Build query with filters
-	query := `
-		SELECT s.*, COALESCE(v.name, '') as voice_name
-		FROM stories s 
-		LEFT JOIN voices v ON s.voice_id = v.id 
-		WHERE 1=1`
-	countQuery := "SELECT COUNT(*) FROM stories s WHERE 1=1"
-	args := []interface{}{}
-
-	// By default, exclude deleted stories
+	// Filter deleted records by default
+	includeDeleted := c.Query("include_deleted") == "true"
 	if !includeDeleted {
-		clause := " AND s.deleted_at IS NULL"
-		query += clause
-		countQuery += clause
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column:   "deleted_at",
+			Table:    "s",
+			Operator: "IS NULL",
+		})
 	}
 
-	// Status filter
+	// Add status filter if specified
 	if status := c.Query("status"); status != "" {
-		clause := " AND s.status = ?"
-		query += clause
-		countQuery += clause
-		args = append(args, status)
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "status",
+			Table:  "s",
+			Value:  status,
+		})
 	}
 
-	// Voice filter
+	// Add voice_id filter if specified
 	if voiceID := c.Query("voice_id"); voiceID != "" {
-		var clause string
-		if voiceID == "null" {
-			// Filter for stories without a voice assigned
-			clause = " AND s.voice_id IS NULL"
-		} else {
-			// Filter for stories with specific voice ID
-			clause = " AND s.voice_id = ?"
-			args = append(args, voiceID)
-		}
-		query += clause
-		countQuery += clause
+		config.Filters = append(config.Filters, utils.FilterConfig{
+			Column: "voice_id",
+			Table:  "s",
+			Value:  voiceID,
+		})
 	}
 
-	// Date filter
-	if date := c.Query("date"); date != "" {
-		clause := " AND s.start_date <= ? AND s.end_date >= ?"
-		query += clause
-		countQuery += clause
-		args = append(args, date, date)
-	}
-
-	// Weekday filter
-	if weekday := c.Query("weekday"); weekday != "" {
-		var bitmask uint8
-		switch weekday {
-		case "monday":
-			bitmask = models.Monday
-		case "tuesday":
-			bitmask = models.Tuesday
-		case "wednesday":
-			bitmask = models.Wednesday
-		case "thursday":
-			bitmask = models.Thursday
-		case "friday":
-			bitmask = models.Friday
-		case "saturday":
-			bitmask = models.Saturday
-		case "sunday":
-			bitmask = models.Sunday
-		}
-		if bitmask > 0 {
-			clause := " AND (s.weekdays & ?) > 0"
-			query += clause
-			countQuery += clause
-			args = append(args, bitmask)
-		}
-	}
-
-	// Get total count
-	var total int64
-	countArgs := make([]interface{}, len(args))
-	copy(countArgs, args)
-	if err := h.db.Get(&total, countQuery, countArgs...); err != nil {
-		responses.InternalServerError(c, "Failed to count stories")
-		return
-	}
-
-	// Add ordering and pagination
-	query += " ORDER BY s.created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
-
-	// Get stories
-	var stories []models.Story
-	if err := h.db.Select(&stories, query, args...); err != nil {
-		responses.InternalServerError(c, "Failed to fetch stories")
-		return
-	}
-
-	// Convert stories to response format with weekdays object
-	storyResponses := make([]map[string]interface{}, len(stories))
-	for i, story := range stories {
-		storyResponses[i] = storyToResponse(story)
-	}
-
-	responses.Paginated(c, storyResponses, total, limit, offset)
+	var stories []StoryResponse
+	utils.GenericListWithJoins(c, h.db, config, &stories)
 }
 
-// GetStory returns a single story by ID.
+// GetStory returns a single story by ID
 func (h *Handlers) GetStory(c *gin.Context) {
-	id, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid story ID")
-		return
-	}
-
-	var story models.Story
-	err = h.db.Get(&story, `
-		SELECT s.*, COALESCE(v.name, '') as voice_name
-		FROM stories s 
-		LEFT JOIN voices v ON s.voice_id = v.id 
-		WHERE s.id = ? AND s.deleted_at IS NULL`, id)
-	if err == sql.ErrNoRows {
-		responses.NotFound(c, "Story not found")
-		return
-	}
-	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch story")
-		return
-	}
-
-	// Convert to response format
-	responses.Success(c, storyToResponse(story))
-}
-
-// CreateStory creates a new story with optional audio upload.
-func (h *Handlers) CreateStory(c *gin.Context) {
-	// Parse multipart form
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		responses.BadRequest(c, "Failed to parse multipart form")
-		return
-	}
-
-	// Get and validate required fields
-	title := c.PostForm("title")
-	text := c.PostForm("text")
-	voiceIDStr := c.PostForm("voice_id")
-	startDateStr := c.PostForm("start_date")
-	endDateStr := c.PostForm("end_date")
-
-	if title == "" || text == "" || startDateStr == "" || endDateStr == "" {
-		responses.BadRequest(c, "Missing required fields: title, text, start_date, and end_date are required")
-		return
-	}
-
-	// Parse optional voice_id
-	var voiceID *int
-	if voiceIDStr != "" {
-		parsedVoiceID, err := strconv.Atoi(voiceIDStr)
-		if err != nil {
-			responses.BadRequest(c, "Invalid voice ID")
-			return
-		}
-		voiceID = &parsedVoiceID
-	}
-
-	startDate, err := time.Parse("2006-01-02", startDateStr)
-	if err != nil {
-		responses.BadRequest(c, "Invalid start date format")
-		return
-	}
-
-	endDate, err := time.Parse("2006-01-02", endDateStr)
-	if err != nil {
-		responses.BadRequest(c, "Invalid end date format")
-		return
-	}
-
-	// Get optional fields
-	status := c.PostForm("status")
-	if status == "" {
-		status = "draft"
-	}
-
-	// Parse weekdays
-	weekdaysStr := c.PostForm("weekdays")
-	var weekdays WeekdaysInput
-	if weekdaysStr != "" {
-		if err := json.Unmarshal([]byte(weekdaysStr), &weekdays); err != nil {
-			responses.BadRequest(c, "Invalid weekdays format")
-			return
-		}
-	}
-	weekdaysBitmask := weekdays.ConvertToBitmask()
-
-	// Parse metadata
-	metadata := c.PostForm("metadata")
-	if metadata == "" {
-		metadata = "{}"
-	}
-
-	// Create story
-	result, err := h.db.ExecContext(c.Request.Context(), `
-		INSERT INTO stories (title, text, voice_id, status, start_date, end_date, weekdays, metadata) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadata,
-	)
-	if err != nil {
-		responses.InternalServerError(c, "Failed to create story")
-		return
-	}
-
-	storyID, err := result.LastInsertId()
-	if err != nil {
-		responses.InternalServerError(c, "Failed to get story ID")
-		return
-	}
-
-	// Handle audio upload if provided
-	file, header, err := c.Request.FormFile("audio")
-	if err == nil {
-		defer func() {
-			if err := file.Close(); err != nil {
-				logger.Error("Failed to close uploaded file: %v", err)
-			}
-		}()
-
-		// Validate audio file
-		if err := validation.ValidateAudioFile(header); err != nil {
-			// Delete the story if validation fails
-			if delErr := h.removeStoryFromDatabase(c.Request.Context(), int(storyID)); delErr != nil {
-				// Log the error but continue with the main error response
-				fmt.Printf("Failed to delete story after validation error: %v\n", delErr)
-			}
-			responses.BadRequest(c, fmt.Sprintf("Invalid audio file: %v", err))
-			return
-		}
-
-		if err := h.handleAudioUpload(c, int(storyID), file, header); err != nil {
-			// Delete the story if audio processing fails
-			if delErr := h.removeStoryFromDatabase(c.Request.Context(), int(storyID)); delErr != nil {
-				// Log the error but continue with the main error response
-				fmt.Printf("Failed to delete story after processing error: %v\n", delErr)
-			}
-			responses.InternalServerError(c, fmt.Sprintf("Failed to process audio: %v", err))
-			return
-		}
-	}
-
-	// Fetch the created story
-	var story models.Story
-	err = h.db.Get(&story, `
-		SELECT s.*, COALESCE(v.name, '') as voice_name
-		FROM stories s 
-		LEFT JOIN voices v ON s.voice_id = v.id 
-		WHERE s.id = ?`, storyID)
-	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch created story")
-		return
-	}
-
-	// Convert to response format
-	responses.Created(c, storyToResponse(story))
-}
-
-// UpdateStory updates an existing story.
-func (h *Handlers) UpdateStory(c *gin.Context) {
-	id, ok := validateAndGetIDParam(c, "story")
+	id, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if story exists using DRY helper
-	if !h.validateRecordExists(c, "stories", "Story", id) {
+	var story StoryResponse
+	query := utils.BuildStoryQuery("s.id = ?", true)
+	if err := h.db.Get(&story, query, id); err != nil {
+		if err == sql.ErrNoRows {
+			utils.NotFound(c, "Story")
+		} else {
+			utils.InternalServerError(c, "Failed to fetch story")
+		}
 		return
 	}
 
-	// Parse multipart form
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		responses.BadRequest(c, "Failed to parse multipart form")
+	// Add audio URL and weekdays map
+	hasAudio := story.AudioFile != ""
+	story.AudioURL = GetStoryAudioURL(story.ID, hasAudio)
+	story.WeekdaysMap = bitmaskToWeekdays(story.Weekdays)
+
+	utils.Success(c, story)
+}
+
+// CreateStory creates a new story with optional audio upload
+func (h *Handlers) CreateStory(c *gin.Context) {
+	// Parse form data
+	title := c.PostForm("title")
+	if title == "" {
+		utils.BadRequest(c, "Title is required")
 		return
 	}
 
-	// Build update query dynamically
+	text := c.PostForm("text")
+	if text == "" {
+		utils.BadRequest(c, "Text is required")
+		return
+	}
+
+	status := c.PostForm("status")
+	if status == "" {
+		status = "draft"
+	}
+	if status != "draft" && status != "active" && status != "expired" {
+		utils.BadRequest(c, "Status must be one of: draft, active, expired")
+		return
+	}
+
+	// Parse voice ID (optional)
+	voiceID, err := utils.ParseOptionalIntForm(c, "voice_id")
+	if err != nil {
+		utils.BadRequest(c, err.Error())
+		return
+	}
+	if voiceID != nil {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *voiceID) {
+			return
+		}
+	}
+
+	// Parse dates (required for story creation)
+	startDate, ok := utils.ParseRequiredFormDate(c, "start_date", "Start date")
+	if !ok {
+		return
+	}
+	endDate, ok := utils.ParseRequiredFormDate(c, "end_date", "End date")
+	if !ok {
+		return
+	}
+
+	// Parse weekdays
+	var weekdaysBitmask uint8
+	if weekdaysStr := c.PostForm("weekdays"); weekdaysStr != "" {
+		var weekdaysMap map[string]bool
+		if err := json.Unmarshal([]byte(weekdaysStr), &weekdaysMap); err != nil {
+			utils.BadRequest(c, "Invalid weekdays format - must be valid JSON")
+			return
+		}
+
+		for day, enabled := range weekdaysMap {
+			if enabled {
+				weekdaysBitmask |= utils.WeekdayStringToBitmask(day)
+			}
+		}
+	}
+
+	metadata := c.PostForm("metadata")
+	// Handle empty metadata - MySQL JSON column requires NULL not empty string
+	var metadataValue interface{}
+	if metadata == "" {
+		metadataValue = nil
+	} else {
+		metadataValue = metadata
+	}
+
+	// Validate title length (MySQL column is VARCHAR(500))
+	if len(title) > 500 {
+		utils.BadRequest(c, "Title is too long (maximum 500 characters)")
+		return
+	}
+
+	// Create story
+	result, err := h.db.ExecContext(c.Request.Context(),
+		"INSERT INTO stories (title, text, voice_id, status, start_date, end_date, weekdays, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		title, text, voiceID, status, startDate, endDate, weekdaysBitmask, metadataValue)
+	if err != nil {
+		logger.Error("Database error creating story: %v", err)
+		// Provide more specific error messages for common database errors
+		if strings.Contains(err.Error(), "Data too long") {
+			utils.BadRequest(c, "One or more fields exceed maximum length")
+		} else if strings.Contains(err.Error(), "Duplicate entry") {
+			utils.BadRequest(c, "A story with similar details already exists")
+		} else if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Invalid reference to related resource")
+		} else {
+			utils.InternalServerError(c, "Failed to create story due to database error")
+		}
+		return
+	}
+
+	storyID, _ := result.LastInsertId()
+
+	// Handle optional audio file upload
+	_, _, err = c.Request.FormFile("audio")
+	if err == nil {
+		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", storyID))
+		if err != nil {
+			utils.BadRequest(c, err.Error())
+			return
+		}
+		defer cleanup()
+
+		// Process audio with audio service
+		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), int(storyID), tempPath); err != nil {
+			logger.Error("Failed to process story audio: %v", err)
+			utils.InternalServerError(c, "Failed to process audio")
+			return
+		}
+
+		// Update database with relative audio path
+		relativePath := utils.GetStoryRelativePath(h.config, int(storyID))
+		_, err = h.db.ExecContext(c.Request.Context(),
+			"UPDATE stories SET audio_file = ? WHERE id = ?", relativePath, storyID)
+		if err != nil {
+			utils.InternalServerError(c, "Failed to update audio reference")
+			return
+		}
+	}
+
+	utils.CreatedWithID(c, storyID, "Story created successfully")
+}
+
+// UpdateStory updates an existing story
+func (h *Handlers) UpdateStory(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
+		return
+	}
+
+	// Build dynamic update query
 	updates := []string{}
 	args := []interface{}{}
 
 	if title := c.PostForm("title"); title != "" {
+		// Validate title length (MySQL column is VARCHAR(500))
+		if len(title) > 500 {
+			utils.BadRequest(c, "Title is too long (maximum 500 characters)")
+			return
+		}
 		updates = append(updates, "title = ?")
 		args = append(args, title)
 	}
@@ -404,187 +295,184 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		args = append(args, text)
 	}
 
-	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-		if voiceIDStr == "null" || voiceIDStr == "" {
-			// Allow setting voice_id to NULL
-			updates = append(updates, "voice_id = NULL")
-		} else {
-			voiceID, err := strconv.Atoi(voiceIDStr)
-			if err != nil {
-				responses.BadRequest(c, "Invalid voice ID")
-				return
-			}
-			updates = append(updates, "voice_id = ?")
-			args = append(args, voiceID)
-		}
-	}
-
 	if status := c.PostForm("status"); status != "" {
+		if status != "draft" && status != "active" && status != "expired" {
+			utils.BadRequest(c, "Status must be one of: draft, active, expired")
+			return
+		}
 		updates = append(updates, "status = ?")
 		args = append(args, status)
 	}
 
-	if startDateStr := c.PostForm("start_date"); startDateStr != "" {
-		startDate, err := time.Parse("2006-01-02", startDateStr)
-		if err != nil {
-			responses.BadRequest(c, "Invalid start date format")
+	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
+		voiceID, err := strconv.Atoi(voiceIDStr)
+		if err != nil || voiceID <= 0 {
+			utils.BadRequest(c, "Valid voice_id is required")
 			return
 		}
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
+			return
+		}
+		updates = append(updates, "voice_id = ?")
+		args = append(args, voiceID)
+	}
+
+	if startDate, ok := utils.ParseFormDate(c, "start_date", "start date"); ok && !startDate.IsZero() {
 		updates = append(updates, "start_date = ?")
 		args = append(args, startDate)
 	}
 
-	if endDateStr := c.PostForm("end_date"); endDateStr != "" {
-		endDate, err := time.Parse("2006-01-02", endDateStr)
-		if err != nil {
-			responses.BadRequest(c, "Invalid end date format")
-			return
-		}
+	if endDate, ok := utils.ParseFormDate(c, "end_date", "end date"); ok && !endDate.IsZero() {
 		updates = append(updates, "end_date = ?")
 		args = append(args, endDate)
 	}
 
 	if weekdaysStr := c.PostForm("weekdays"); weekdaysStr != "" {
-		var weekdays WeekdaysInput
-		if err := json.Unmarshal([]byte(weekdaysStr), &weekdays); err != nil {
-			responses.BadRequest(c, "Invalid weekdays format")
+		var weekdaysMap map[string]bool
+		if err := json.Unmarshal([]byte(weekdaysStr), &weekdaysMap); err != nil {
+			utils.BadRequest(c, "Invalid weekdays format - must be valid JSON")
 			return
+		}
+
+		var weekdaysBitmask uint8
+		for day, enabled := range weekdaysMap {
+			if enabled {
+				weekdaysBitmask |= utils.WeekdayStringToBitmask(day)
+			}
 		}
 		updates = append(updates, "weekdays = ?")
-		args = append(args, weekdays.ConvertToBitmask())
+		args = append(args, weekdaysBitmask)
 	}
 
-	if metadata := c.PostForm("metadata"); metadata != "" {
+	// Check if metadata field was provided (could be empty string to set NULL)
+	if _, exists := c.Request.PostForm["metadata"]; exists {
+		metadata := c.PostForm("metadata")
 		updates = append(updates, "metadata = ?")
-		args = append(args, metadata)
-	}
-
-	// Execute update if there are fields to update
-	if len(updates) > 0 {
-		query := fmt.Sprintf("UPDATE stories SET %s WHERE id = ?", joinStrings(updates, ", "))
-		args = append(args, id)
-
-		if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-			responses.InternalServerError(c, "Failed to update story")
-			return
+		// Handle JSON column - empty string should be NULL
+		if metadata == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, metadata)
 		}
 	}
 
-	// Handle new audio upload if provided
-	file, header, err := c.Request.FormFile("audio")
-	if err == nil {
-		defer func() {
-			if err := file.Close(); err != nil {
-				logger.Error("Failed to close uploaded file: %v", err)
-			}
-		}()
-
-		// Validate audio file
-		if err := validation.ValidateAudioFile(header); err != nil {
-			responses.BadRequest(c, fmt.Sprintf("Invalid audio file: %v", err))
-			return
-		}
-
-		if err := h.handleAudioUpload(c, id, file, header); err != nil {
-			responses.InternalServerError(c, fmt.Sprintf("Failed to process audio: %v", err))
-			return
-		}
-	}
-
-	// Fetch updated story
-	var story models.Story
-	err = h.db.Get(&story, `
-		SELECT s.*, COALESCE(v.name, '') as voice_name
-		FROM stories s 
-		LEFT JOIN voices v ON s.voice_id = v.id 
-		WHERE s.id = ?`, id)
-	if err != nil {
-		responses.InternalServerError(c, "Failed to fetch updated story")
+	if len(updates) == 0 {
+		utils.BadRequest(c, "No fields to update")
 		return
 	}
 
-	// Convert to response format
-	responses.Success(c, storyToResponse(story))
+	// Execute update
+	query := "UPDATE stories SET " + strings.Join(updates, ", ") + " WHERE id = ?"
+	args = append(args, id)
+
+	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
+		logger.Error("Database error updating story: %v", err)
+		// Provide more specific error messages for common database errors
+		if strings.Contains(err.Error(), "Data too long") {
+			utils.BadRequest(c, "One or more fields exceed maximum length")
+		} else if strings.Contains(err.Error(), "Duplicate entry") {
+			utils.BadRequest(c, "A story with similar details already exists")
+		} else if strings.Contains(err.Error(), "foreign key constraint") {
+			utils.BadRequest(c, "Invalid reference to related resource")
+		} else {
+			utils.InternalServerError(c, "Failed to update story due to database error")
+		}
+		return
+	}
+
+	utils.SuccessWithMessage(c, "Story updated successfully")
 }
 
-// DeleteStory soft deletes a story by setting deleted_at timestamp.
+// DeleteStory soft deletes a story by setting deleted_at timestamp
 func (h *Handlers) DeleteStory(c *gin.Context) {
-	id, err := getIDParam(c)
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
+		return
+	}
+	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
 	if err != nil {
-		responses.BadRequest(c, "Invalid story ID")
+		logger.Error("Database error deleting story: %v", err)
+		utils.InternalServerError(c, "Failed to delete story due to database error")
+		return
+	}
+	utils.NoContent(c)
+}
+
+// UpdateStoryStatus updates a story's status or handles soft delete/restore operations
+func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", id) {
 		return
 	}
 
-	crud := NewCRUDHandler(h.db, "stories", WithSoftDelete("deleted_at"))
-	crud.Delete(c, id)
-}
-
-// GetStoryAudio serves the audio file for a story.
-func (h *Handlers) GetStoryAudio(c *gin.Context) {
-	h.ServeAudio(c, AudioConfig{
-		TableName:   "stories",
-		IDColumn:    "id",
-		FileColumn:  "audio_file",
-		FilePrefix:  "story",
-		ContentType: "audio/wav",
-	})
-}
-
-func (h *Handlers) handleAudioUpload(c *gin.Context, storyID int, file multipart.File, header *multipart.FileHeader) error {
-	// Save uploaded file temporarily with sanitized filename
-	tempPath := fmt.Sprintf("/tmp/upload_%d_%s", storyID, validation.SanitizeFilename(header.Filename))
-
-	// Create temp file and copy content
-	if err := saveFile(file, tempPath); err != nil {
-		return err
-	}
-
-	// Process audio with audio service
-	audioPath, duration, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), storyID, tempPath)
-	if err != nil {
-		return err
-	}
-
-	// Update story with audio info
-	_, err = h.db.ExecContext(c.Request.Context(), "UPDATE stories SET audio_file = ?, duration_seconds = ? WHERE id = ?",
-		audioPath, duration, storyID)
-	return err
-}
-
-// removeStoryFromDatabase is a helper to delete a story from the database
-func (h *Handlers) removeStoryFromDatabase(ctx context.Context, storyID int) error {
-	_, err := h.db.ExecContext(ctx, "DELETE FROM stories WHERE id = ?", storyID)
-	return err
-}
-
-// UpdateStoryState handles story soft delete and restore operations via PATCH.
-func (h *Handlers) UpdateStoryState(c *gin.Context) {
-	id, err := getIDParam(c)
-	if err != nil {
-		responses.BadRequest(c, "Invalid story ID")
-		return
-	}
-
+	// Support both status updates and soft delete/restore
 	var req struct {
+		Status    *string `json:"status"`
 		DeletedAt *string `json:"deleted_at"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		responses.BadRequest(c, "Invalid request body")
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	if req.DeletedAt == nil {
-		responses.BadRequest(c, "deleted_at field is required")
+	// Validate that at least one field is provided
+	if req.Status == nil && req.DeletedAt == nil {
+		utils.BadRequest(c, "At least one field (status or deleted_at) is required")
 		return
 	}
 
-	crud := NewCRUDHandler(h.db, "stories", WithSoftDelete("deleted_at"))
+	// Validate status field if provided
+	if req.Status != nil {
+		validStatuses := []string{"draft", "active", "expired"}
+		isValid := false
+		for _, validStatus := range validStatuses {
+			if *req.Status == validStatus {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			utils.BadRequest(c, "Status must be one of: draft, active, expired")
+			return
+		}
+	}
 
-	// null or empty string = restore, any other value = soft delete
-	if *req.DeletedAt == "" || *req.DeletedAt == "null" {
-		crud.Restore(c, id)
-	} else {
-		crud.SoftDelete(c, id)
+	// Handle soft delete/restore
+	if req.DeletedAt != nil {
+		if *req.DeletedAt == "" {
+			// Restore story (set deleted_at to NULL)
+			_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
+			if err != nil {
+				logger.Error("Database error restoring story: %v", err)
+				utils.InternalServerError(c, "Failed to restore story due to database error")
+				return
+			}
+			utils.SuccessWithMessage(c, "Story restored")
+			return
+		}
+		// Soft delete story (set deleted_at to NOW())
+		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+		if err != nil {
+			logger.Error("Database error soft deleting story: %v", err)
+			utils.InternalServerError(c, "Failed to soft delete story due to database error")
+			return
+		}
+		utils.NoContent(c)
+	}
+
+	// Handle status update
+	if req.Status != nil {
+		_, err := h.db.ExecContext(c.Request.Context(), "UPDATE stories SET status = ? WHERE id = ?", *req.Status, id)
+		if err != nil {
+			logger.Error("Database error updating story status: %v", err)
+			utils.InternalServerError(c, "Failed to update story status due to database error")
+			return
+		}
+		utils.SuccessWithMessage(c, "Story status updated")
 	}
 }

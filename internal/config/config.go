@@ -1,4 +1,7 @@
-// Package config provides configuration loading and management.
+// Package config provides application configuration loading and management.
+//
+// This package handles loading configuration from environment variables
+// with sensible defaults, and creates necessary directories.
 package config
 
 import (
@@ -57,9 +60,10 @@ type AudioConfig struct {
 	ProcessedPath string
 	OutputPath    string
 	TempPath      string
+	AppRoot       string
 }
 
-// Load creates a simple config with environment variables and sensible defaults
+// Load loads application configuration from environment variables with defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -89,6 +93,7 @@ func Load() (*Config, error) {
 			ProcessedPath: getEnv("BABBEL_PROCESSED_PATH", "./audio/processed"),
 			OutputPath:    getEnv("BABBEL_OUTPUT_PATH", "./audio/output"),
 			TempPath:      getEnv("BABBEL_TEMP_PATH", "./audio/temp"),
+			AppRoot:       getEnv("BABBEL_APP_ROOT", "/app"),
 		},
 		LogLevel:    4, // info level
 		Environment: getEnv("BABBEL_ENV", "development"),
@@ -112,7 +117,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// getEnv gets environment variable with default fallback
+// getEnv returns the environment variable value or defaultValue if not set.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
