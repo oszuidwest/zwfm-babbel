@@ -61,9 +61,9 @@ func bitmaskToWeekdays(bitmask uint8) map[string]bool {
 func (h *Handlers) ListStories(c *gin.Context) {
 	// Build query configuration with JOIN to voices
 	config := utils.QueryConfig{
-		BaseQuery: `SELECT s.*, v.name as voice_name
+		BaseQuery: `SELECT s.*, COALESCE(v.name, '') as voice_name
 		           FROM stories s 
-		           JOIN voices v ON s.voice_id = v.id`,
+		           LEFT JOIN voices v ON s.voice_id = v.id`,
 		CountQuery:   "SELECT COUNT(*) FROM stories s",
 		DefaultOrder: "s.id DESC",
 		Filters:      []utils.FilterConfig{},

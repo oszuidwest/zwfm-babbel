@@ -11,9 +11,9 @@ import (
 // Story query constants for common JOIN operations
 const (
 	StoryWithVoiceQuery = `
-        SELECT s.*, v.name as voice_name
+        SELECT s.*, COALESCE(v.name, '') as voice_name
         FROM stories s 
-        JOIN voices v ON s.voice_id = v.id`
+        LEFT JOIN voices v ON s.voice_id = v.id`
 
 	StoryWithVoiceWhereActive = StoryWithVoiceQuery + ` WHERE s.deleted_at IS NULL`
 )
