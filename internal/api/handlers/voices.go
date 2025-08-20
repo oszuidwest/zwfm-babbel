@@ -1,3 +1,4 @@
+// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -6,7 +7,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListVoices returns a paginated list of newsreader voices with modern query parameter support
+// ListVoices returns a paginated list of newsreader voices with search and sorting support.
+// Supports query parameters: search, sort, limit, offset. Requires 'voices' read permission.
+// Returns voice data with metadata including total count and pagination info.
 func (h *Handlers) ListVoices(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseListParams(c)
@@ -72,13 +75,16 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 	})
 }
 
-// GetVoice returns a single newsreader voice by ID with all its details.
+// GetVoice returns a single newsreader voice by ID with all configuration details.
+// Requires 'voices' read permission. Returns 404 if voice doesn't exist.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	var voice models.Voice
 	utils.GenericGetByID(c, h.db, "voices", "Voice", &voice)
 }
 
-// CreateVoice creates a new newsreader voice with the provided name and validates uniqueness.
+// CreateVoice creates a new newsreader voice for text-to-speech and jingle association.
+// Validates that voice names are unique across the system. Requires 'voices' write permission.
+// Returns 201 Created with the new voice ID on success, 409 Conflict for duplicate names.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -102,7 +108,9 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 	utils.CreatedWithID(c, id, "Voice created successfully")
 }
 
-// UpdateVoice updates an existing newsreader voice with new name while validating uniqueness.
+// UpdateVoice updates an existing newsreader voice's name and configuration.
+// Validates voice existence and name uniqueness (excluding current voice).
+// Requires 'voices' write permission. Returns 404 if voice doesn't exist, 409 for name conflicts.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {
@@ -135,7 +143,9 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Voice updated successfully")
 }
 
-// DeleteVoice deletes a newsreader voice if it has no dependencies like stories or station-voices.
+// DeleteVoice removes a newsreader voice after validating no dependencies exist.
+// Checks for associated stories and station-voices before deletion to maintain referential integrity.
+// Requires 'voices' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
 func (h *Handlers) DeleteVoice(c *gin.Context) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {

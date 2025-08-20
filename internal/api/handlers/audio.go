@@ -12,7 +12,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// AudioConfig defines configuration parameters for serving audio files.
+// AudioConfig defines configuration parameters for serving audio files from database records.
+// Used to configure which table, columns, and content type to use for audio serving.
+// Enables reusable audio serving logic across different resource types (stories, jingles, bulletins).
 type AudioConfig struct {
 	TableName   string
 	IDColumn    string
@@ -21,7 +23,17 @@ type AudioConfig struct {
 	ContentType string
 }
 
-// ServeAudio serves an audio file with proper headers and error handling.
+// ServeAudio serves an audio file from the filesystem with proper HTTP headers and security.
+// Looks up the file path in the database using the provided configuration, validates the file exists,
+// and streams it to the client with appropriate Content-Type and Content-Disposition headers.
+//
+// Security features:
+//   - Database lookup prevents path traversal attacks
+//   - File existence validation
+//   - Proper error handling for missing files
+//   - Content-Type enforcement
+//
+// Returns 404 if record or file doesn't exist, 500 for database errors.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	id, ok := utils.GetIDParam(c)
 	if !ok {

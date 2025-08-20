@@ -15,7 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// Service handles audio processing operations.
+// Service handles audio processing operations using FFmpeg.
 type Service struct {
 	config *config.Config
 }
@@ -25,7 +25,7 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertStoryToWAV converts uploaded audio to standard WAV format
+// ConvertStoryToWAV converts uploaded audio files to standardized WAV format.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath string) (string, float64, error) {
 	outputPath := utils.GetStoryPath(s.config, storyID)
 
@@ -51,7 +51,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath 
 	return outputPath, duration, nil
 }
 
-// GetDuration gets audio file duration
+// GetDuration retrieves the duration of an audio file in seconds using ffprobe.
 func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {
 	// #nosec G204 - ffprobe binary is trusted, filePath is internally validated
 	cmd := exec.CommandContext(ctx, "ffprobe",
@@ -74,8 +74,7 @@ func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, er
 	return duration, nil
 }
 
-// CreateBulletin creates an audio bulletin from stories using the provided output path.
-// The output path should be generated externally to ensure consistency with database storage.
+// CreateBulletin generates a complete audio bulletin by combining multiple stories with station-specific jingles.
 func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story, outputPath string) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
@@ -88,7 +87,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	}
 	defer func() {
 		if err := os.RemoveAll(tempDir); err != nil {
-			// Log error but continue
+			// Ignore cleanup errors
 			fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", tempDir, err)
 		}
 	}()
@@ -156,7 +155,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
-	// Debug: print the command being executed
+	// Print command for debugging
 	fmt.Printf("DEBUG: Executing FFmpeg command: %s %s\n", s.config.Audio.FFmpegPath, strings.Join(args, " "))
 	fmt.Printf("DEBUG: Filter complex: %s\n", strings.Join(filters, ";"))
 
@@ -170,10 +169,9 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 		return "", fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 
-	// Read stderr
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
-		// Log the error but continue - we still want to see the main error if cmd.Wait fails
+		// Continue despite read error
 		fmt.Printf("Failed to read stderr: %v\n", readErr)
 	}
 

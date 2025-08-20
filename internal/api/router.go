@@ -16,6 +16,15 @@ import (
 )
 
 // SetupRouter configures and returns the main API router with all routes and middleware.
+// Creates a complete Gin router with authentication, CORS, session management, and all API endpoints.
+// The router is configured with role-based access control and comprehensive error handling.
+//
+// Authentication methods supported:
+//   - Local username/password authentication
+//   - OAuth/OIDC authentication
+//   - Combined authentication (both methods enabled)
+//
+// Returns a configured Gin engine ready for HTTP serving.
 func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	// Create services
 	audioSvc := audio.NewService(cfg)
@@ -187,6 +196,9 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	return r
 }
 
+// corsMiddleware creates a CORS middleware that respects the configured allowed origins.
+// Provides secure CORS handling by default (disabled unless origins are explicitly configured).
+// When enabled, supports credentials and common HTTP methods for API access.
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
@@ -225,7 +237,8 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// isAllowedOrigin checks if the origin is in the comma-separated list of allowed origins
+// isAllowedOrigin checks if the origin is in the comma-separated list of allowed origins.
+// Used by CORS middleware to validate cross-origin requests for security.
 func isAllowedOrigin(origin string, allowedOrigins string) bool {
 	if origin == "" {
 		return false
@@ -243,7 +256,8 @@ func isAllowedOrigin(origin string, allowedOrigins string) bool {
 	return false
 }
 
-// getEnv gets environment variable with default fallback
+// getEnv retrieves an environment variable with fallback to default value if unset.
+// Utility function for configuration loading within the router setup.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

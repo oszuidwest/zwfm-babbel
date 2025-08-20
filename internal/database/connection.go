@@ -11,7 +11,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// Connect establishes a connection to the MySQL database.
+// Connect establishes a connection to the MySQL database using the provided configuration.
+// The connection is configured with optimized pool settings and includes a connectivity test.
+// Returns a configured database connection or an error if connection fails.
 func Connect(cfg config.DatabaseConfig) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=Local",
 		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)

@@ -1,11 +1,11 @@
-// Package models contains the data models for the Babbel API.
+// Package models defines the data models for the Babbel API.
 package models
 
 import (
 	"time"
 )
 
-// Station represents a radio station
+// Station represents a radio station.
 type Station struct {
 	ID                 int       `db:"id" json:"id"`
 	Name               string    `db:"name" json:"name"`
@@ -15,11 +15,11 @@ type Station struct {
 	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
 }
 
-// Story represents a news story
+// Story represents a news story with scheduling and audio.
 type Story struct {
 	ID              int        `db:"id" json:"id"`
 	Title           string     `db:"title" json:"title"`
-	Text            string     `db:"text" json:"text"` // Plaintext content
+	Text            string     `db:"text" json:"text"`
 	VoiceID         *int       `db:"voice_id" json:"voice_id"`
 	AudioFile       string     `db:"audio_file" json:"audio_file"`
 	DurationSeconds *float64   `db:"duration_seconds" json:"duration_seconds"`
@@ -33,19 +33,18 @@ type Story struct {
 	Friday          bool       `db:"friday" json:"friday"`
 	Saturday        bool       `db:"saturday" json:"saturday"`
 	Sunday          bool       `db:"sunday" json:"sunday"`
-	Metadata        *string    `db:"metadata" json:"metadata"` // JSON metadata
+	Metadata        *string    `db:"metadata" json:"metadata"`
 	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
 	DeletedAt       *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
 
-	// Relations (filled by joins)
-	VoiceName string `db:"voice_name" json:"voice_name"`
-	// These fields are populated from station_voices table via JOIN during bulletin generation
-	VoiceJingle   string  `db:"voice_jingle" json:"-"`    // Station-specific jingle path
-	VoiceMixPoint float64 `db:"voice_mix_point" json:"-"` // Mix point in seconds
+	// Relations populated by joins
+	VoiceName     string  `db:"voice_name" json:"voice_name"`
+	VoiceJingle   string  `db:"voice_jingle" json:"-"`
+	VoiceMixPoint float64 `db:"voice_mix_point" json:"-"`
 }
 
-// IsActiveOnWeekday checks if the story is scheduled for a specific weekday
+// IsActiveOnWeekday returns whether the story is scheduled for the given weekday.
 func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
 	switch weekday {
 	case time.Monday:
@@ -67,7 +66,11 @@ func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
 	}
 }
 
-// GetWeekdaysMap returns a map representation of weekday booleans for API responses
+// GetWeekdaysMap returns the story's weekday schedule as a map.
+//
+// The returned map uses lowercase weekday names as keys ("monday" through "sunday")
+// with boolean values indicating whether the story is scheduled for each day.
+// This format provides a consistent interface for API responses.
 func (s *Story) GetWeekdaysMap() map[string]bool {
 	return map[string]bool{
 		"monday":    s.Monday,
@@ -80,7 +83,7 @@ func (s *Story) GetWeekdaysMap() map[string]bool {
 	}
 }
 
-// Voice represents a news reader
+// Voice represents a text-to-speech voice configuration.
 type Voice struct {
 	ID        int       `db:"id" json:"id"`
 	Name      string    `db:"name" json:"name"`
@@ -88,25 +91,26 @@ type Voice struct {
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 }
 
-// StationVoice represents the relationship between a station and voice with station-specific jingle
+// StationVoice represents the many-to-many relationship between stations and voices.
 type StationVoice struct {
-	ID         int       `db:"id" json:"id"`
-	StationID  int       `db:"station_id" json:"station_id"`
-	VoiceID    int       `db:"voice_id" json:"voice_id"`
-	JingleFile string    `db:"jingle_file" json:"-"` // Hide from JSON
-	MixPoint   float64   `db:"mix_point" json:"mix_point"`
-	CreatedAt  time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at" json:"updated_at"`
+	ID         int     `db:"id" json:"id"`
+	StationID  int     `db:"station_id" json:"station_id"`
+	VoiceID    int     `db:"voice_id" json:"voice_id"`
+	JingleFile string  `db:"jingle_file" json:"-"`
+	// MixPoint is the time offset (in seconds) where story audio is mixed into the jingle
+	MixPoint  float64   `db:"mix_point" json:"mix_point"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
 
-	// Relations (filled by joins)
+	// Relations populated by joins
 	StationName string `db:"station_name" json:"station_name,omitempty"`
 	VoiceName   string `db:"voice_name" json:"voice_name,omitempty"`
 
-	// Computed fields
+	// AudioURL is dynamically generated for API responses
 	AudioURL *string `json:"audio_url,omitempty"`
 }
 
-// Broadcast represents a broadcast history entry
+// Broadcast represents a historical record of when a story was broadcast.
 type Broadcast struct {
 	ID        int       `db:"id" json:"id"`
 	StationID int       `db:"station_id" json:"station_id"`
@@ -114,14 +118,15 @@ type Broadcast struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-// User represents a system user for authentication and access control
+// User represents a system user with authentication credentials and role-based permissions.
 type User struct {
 	ID                  int        `db:"id" json:"id"`
 	Username            string     `db:"username" json:"username"`
 	FullName            string     `db:"full_name" json:"full_name"`
 	PasswordHash        string     `db:"password_hash" json:"-"`
 	Email               *string    `db:"email" json:"email"`
-	Role                string     `db:"role" json:"role"` // admin, editor, viewer
+	// Role defines the user's access level: admin, editor, or viewer
+	Role                string     `db:"role" json:"role"`
 	SuspendedAt         *time.Time `db:"suspended_at" json:"suspended_at,omitempty"`
 	LastLoginAt         *time.Time `db:"last_login_at" json:"last_login_at"`
 	LoginCount          int        `db:"login_count" json:"login_count"`
@@ -133,7 +138,7 @@ type User struct {
 	UpdatedAt           time.Time  `db:"updated_at" json:"updated_at"`
 }
 
-// UserSession represents an active user session
+// UserSession represents an active authentication session.
 type UserSession struct {
 	ID        int       `db:"id" json:"id"`
 	UserID    int       `db:"user_id" json:"user_id"`
@@ -144,14 +149,14 @@ type UserSession struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-// Role constants define the access levels within the system.
+// Role permission levels for the RBAC system.
 const (
 	RoleAdmin  = "admin"
 	RoleEditor = "editor"
 	RoleViewer = "viewer"
 )
 
-// Bulletin represents a generated news bulletin
+// Bulletin represents a completed audio bulletin generated from multiple stories.
 type Bulletin struct {
 	ID              int       `db:"id" json:"id"`
 	StationID       int       `db:"station_id" json:"station_id"`
@@ -163,6 +168,6 @@ type Bulletin struct {
 	Metadata        *string   `db:"metadata" json:"metadata"`
 	CreatedAt       time.Time `db:"created_at" json:"created_at"`
 
-	// Relations (filled by joins)
+	// Relations populated by joins
 	StationName string `db:"station_name" json:"station_name,omitempty"`
 }

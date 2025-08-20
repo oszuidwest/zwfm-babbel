@@ -1,3 +1,4 @@
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -52,7 +53,9 @@ const (
 	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
 )
 
-// NewProblemDetail creates a new ProblemDetail with the specified parameters.
+// NewProblemDetail creates a new RFC 9457 compliant problem detail response.
+// Automatically sets the timestamp to the current UTC time in RFC3339 format.
+// Used as the base constructor for all problem types.
 func NewProblemDetail(problemType, title string, status int, detail, instance string) *ProblemDetail {
 	return &ProblemDetail{
 		Type:      problemType,
@@ -64,7 +67,9 @@ func NewProblemDetail(problemType, title string, status int, detail, instance st
 	}
 }
 
-// NewValidationProblem creates a new ProblemDetail for validation errors.
+// NewValidationProblem creates a standardized 422 Unprocessable Entity response for validation errors.
+// Includes detailed field-level error information in the errors array.
+// Used when request data fails validation constraints.
 func NewValidationProblem(detail, instance string, errors []ValidationError) *ProblemDetail {
 	problem := NewProblemDetail(
 		ProblemTypeValidationError,
@@ -77,7 +82,8 @@ func NewValidationProblem(detail, instance string, errors []ValidationError) *Pr
 	return problem
 }
 
-// NewNotFoundProblem creates a new ProblemDetail for resource not found errors.
+// NewNotFoundProblem creates a standardized 404 Not Found response for missing resources.
+// Automatically formats the detail message to indicate which resource was not found.
 func NewNotFoundProblem(resource, instance string) *ProblemDetail {
 	return NewProblemDetail(
 		ProblemTypeResourceNotFound,
@@ -88,7 +94,8 @@ func NewNotFoundProblem(resource, instance string) *ProblemDetail {
 	)
 }
 
-// NewDuplicateProblem creates a new ProblemDetail for duplicate resource errors.
+// NewDuplicateProblem creates a standardized 409 Conflict response for resource conflicts.
+// Used when attempting to create resources that already exist or violate uniqueness constraints.
 func NewDuplicateProblem(resource, instance string) *ProblemDetail {
 	return NewProblemDetail(
 		ProblemTypeDuplicateResource,
@@ -99,7 +106,8 @@ func NewDuplicateProblem(resource, instance string) *ProblemDetail {
 	)
 }
 
-// NewAuthenticationProblem creates a new ProblemDetail for authentication errors.
+// NewAuthenticationProblem creates a standardized 401 Unauthorized response for authentication failures.
+// Used when credentials are invalid, missing, or authentication has failed.
 func NewAuthenticationProblem(detail, instance string) *ProblemDetail {
 	return NewProblemDetail(
 		ProblemTypeAuthenticationRequired,
@@ -110,7 +118,8 @@ func NewAuthenticationProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// NewInternalServerProblem creates a new ProblemDetail for internal server errors.
+// NewInternalServerProblem creates a standardized 500 Internal Server Error response.
+// Used for unexpected server-side failures that are not the client's fault.
 func NewInternalServerProblem(detail, instance string) *ProblemDetail {
 	return NewProblemDetail(
 		ProblemTypeInternalServerError,
@@ -121,7 +130,8 @@ func NewInternalServerProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// NewBadRequestProblem creates a new ProblemDetail for bad request errors.
+// NewBadRequestProblem creates a standardized 400 Bad Request response for malformed requests.
+// Used when the request syntax is invalid or cannot be processed.
 func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 	return NewProblemDetail(
 		ProblemTypeBadRequest,
@@ -132,13 +142,16 @@ func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// WithTraceID adds a trace ID to the problem detail.
+// WithTraceID adds a trace ID to the problem detail for distributed tracing support.
+// Returns the same problem detail instance for method chaining.
 func (p *ProblemDetail) WithTraceID(traceID string) *ProblemDetail {
 	p.TraceID = traceID
 	return p
 }
 
-// SendProblem sends an RFC 9457 Problem Details response with the correct content type.
+// SendProblem sends an RFC 9457 compliant problem details response with proper HTTP headers.
+// Sets the Content-Type to 'application/problem+json' and automatically populates
+// the instance field with the request path if not already set.
 func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	// Set the correct content type for RFC 9457
 	c.Header("Content-Type", "application/problem+json")
@@ -151,7 +164,9 @@ func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	c.JSON(problem.Status, problem)
 }
 
-// Helper function to extract trace ID from context (if available)
+// getTraceID extracts the trace ID from the Gin context for distributed tracing.
+// Returns an empty string if no trace ID is found or if it's not a string type.
+// Can be customized based on the specific tracing implementation used.
 func getTraceID(c *gin.Context) string {
 	// This can be customized based on your tracing implementation
 	if traceID, exists := c.Get("trace_id"); exists {

@@ -19,6 +19,8 @@ import (
 )
 
 // GetIDParam extracts and validates the ID parameter from the request URL.
+// Returns the ID as an integer and a boolean indicating success.
+// Automatically responds with 400 Bad Request if the ID is invalid or non-positive.
 func GetIDParam(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -28,7 +30,9 @@ func GetIDParam(c *gin.Context) (int, bool) {
 	return id, true
 }
 
-// ValidateResourceExists checks if a record exists and responds with 404 error if not found.
+// ValidateResourceExists checks if a database record exists by ID.
+// Automatically responds with 404 Not Found if the record doesn't exist.
+// Returns true if the record exists, false if not found or database error occurs.
 func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName string, id int) bool {
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
@@ -39,7 +43,9 @@ func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName
 	return true
 }
 
-// CheckUnique validates uniqueness for common fields in database tables.
+// CheckUnique validates that a field value is unique within a database table.
+// Supports excluding a specific record ID (useful for updates).
+// Returns an error if the value already exists, nil if unique or database errors occur.
 func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID *int) error {
 	var count int
 	var err error
@@ -61,7 +67,9 @@ func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID 
 	return nil
 }
 
-// GetPagination extracts limit and offset from query parameters with defaults and validation.
+// GetPagination extracts pagination parameters from query string with validation.
+// Returns limit (default 20, max 100) and offset (default 0, min 0).
+// Invalid values are ignored and defaults are used instead.
 func GetPagination(c *gin.Context) (limit, offset int) {
 	limit = 20 // default
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
@@ -74,7 +82,10 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 }
 
 
-// ValidateAndSaveAudioFile validates audio file and saves to temporary location with cleanup function.
+// ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
+// Performs security checks on file type, size, and filename.
+// Returns the temporary file path, a cleanup function, and any validation errors.
+// The cleanup function should always be called to prevent resource leaks.
 func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
 	file, header, err := c.Request.FormFile(fieldName)
 	if err != nil {
@@ -102,7 +113,9 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	return tempPath, cleanup, nil
 }
 
-// ValidateAudioFile validates audio file type and size against allowed formats and limits.
+// ValidateAudioFile validates an uploaded audio file against security and format constraints.
+// Checks file size (max 100MB) and allowed extensions (.wav, .mp3, .m4a, .aac, .ogg, .flac, .opus).
+// Returns an error if the file fails validation requirements.
 func ValidateAudioFile(header *multipart.FileHeader) error {
 	// Check file size (100MB max)
 	const maxSize = 100 * 1024 * 1024
@@ -123,7 +136,9 @@ func ValidateAudioFile(header *multipart.FileHeader) error {
 	return fmt.Errorf("unsupported file type: %s", ext)
 }
 
-// SanitizeFilename removes unsafe characters from filename to prevent path traversal attacks.
+// SanitizeFilename removes unsafe characters from filenames to prevent security vulnerabilities.
+// Strips path separators and replaces spaces with underscores.
+// Essential for preventing path traversal attacks when handling user uploads.
 func SanitizeFilename(filename string) string {
 	// Remove path separators and other unsafe characters
 	filename = filepath.Base(filename)
@@ -131,7 +146,9 @@ func SanitizeFilename(filename string) string {
 	return filename
 }
 
-// SafeMoveFile safely moves a file from source to destination, handling cross-device scenarios
+// SafeMoveFile safely moves a file from source to destination with cross-filesystem support.
+// First attempts an efficient rename operation, falling back to copy+delete for cross-device moves.
+// Ensures data integrity with sync operations and proper error handling.
 func SafeMoveFile(src, dst string) error {
 	// First, try a simple rename (works if on same filesystem)
 	if err := os.Rename(src, dst); err == nil {
@@ -185,7 +202,8 @@ func SafeMoveFile(src, dst string) error {
 	return nil
 }
 
-// saveFileToPath saves uploaded file to specified path
+// saveFileToPath saves an uploaded multipart file to the specified filesystem path.
+// Used internally by ValidateAndSaveAudioFile for secure file operations.
 func saveFileToPath(file multipart.File, dst string) error {
 	// #nosec G304 - dst is sanitized temp path from ValidateAndSaveAudioFile
 	out, err := os.Create(dst)
@@ -202,33 +220,41 @@ func saveFileToPath(file multipart.File, dst string) error {
 	return err
 }
 
-// StationRequest represents the request structure for creating/updating stations
+// StationRequest represents the request structure for creating and updating radio stations.
+// Contains broadcast configuration including content limits and pause intervals.
 type StationRequest struct {
 	Name               string  `json:"name" binding:"required,notblank,max=255"`
 	MaxStoriesPerBlock int     `json:"max_stories_per_block" binding:"gte=1,lte=50"`
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
-// VoiceRequest represents the request structure for creating/updating voices
+// VoiceRequest represents the request structure for creating and updating voices.
+// Voices are used for text-to-speech generation and jingle association.
 type VoiceRequest struct {
 	Name string `json:"name" binding:"required,notblank,max=255"`
 }
 
-// StationVoiceRequest represents the request structure for creating station-voice relationships
+// StationVoiceRequest represents the request structure for creating station-voice relationships.
+// Links stations to voices with specific mix points for jingle integration.
+// Used for multipart form data when uploading jingle audio files.
 type StationVoiceRequest struct {
 	StationID int     `json:"station_id" form:"station_id" binding:"required,min=1"`
 	VoiceID   int     `json:"voice_id" form:"voice_id" binding:"required,min=1"`
 	MixPoint  float64 `json:"mix_point" form:"mix_point" binding:"gte=0,lte=300"`
 }
 
-// StationVoiceUpdateRequest represents the request structure for updating station-voice relationships
+// StationVoiceUpdateRequest represents the request structure for updating station-voice relationships.
+// All fields are optional pointers to support partial updates.
+// Used for multipart form data when updating jingle audio files.
 type StationVoiceUpdateRequest struct {
 	StationID *int     `json:"station_id,omitempty" form:"station_id" binding:"omitempty,min=1"`
 	VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id" binding:"omitempty,min=1"`
 	MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point" binding:"omitempty,gte=0,lte=300"`
 }
 
-// UserCreateRequest represents the request structure for creating users
+// UserCreateRequest represents the request structure for creating new user accounts.
+// Supports local authentication with role-based access control.
+// Password field is required and will be bcrypt hashed before storage.
 type UserCreateRequest struct {
 	Username string  `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string  `json:"full_name" binding:"required,notblank,max=255"`
@@ -238,7 +264,9 @@ type UserCreateRequest struct {
 	Metadata string  `json:"metadata" binding:"omitempty,json"`
 }
 
-// UserUpdateRequest represents the request structure for updating users
+// UserUpdateRequest represents the request structure for updating existing user accounts.
+// All fields are optional to support partial updates.
+// Password field, if provided, will be bcrypt hashed before storage.
 type UserUpdateRequest struct {
 	Username  string  `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  string  `json:"full_name" binding:"omitempty,notblank,max=255"`
@@ -249,7 +277,9 @@ type UserUpdateRequest struct {
 	Suspended *bool   `json:"suspended" binding:"omitempty"`
 }
 
-// StoryCreateRequest represents the request structure for creating stories
+// StoryCreateRequest represents the request structure for creating news stories.
+// Supports both JSON and multipart form data for text content and optional audio upload.
+// Includes scheduling configuration with weekday selection and date ranges.
 type StoryCreateRequest struct {
 	Title     string         `json:"title" form:"title" binding:"required,notblank,max=500"`
 	Text      string         `json:"text" form:"text" binding:"required,notblank"`
@@ -268,7 +298,9 @@ type StoryCreateRequest struct {
 	Metadata  *string        `json:"metadata" form:"metadata"`
 }
 
-// StoryUpdateRequest represents the request structure for updating stories  
+// StoryUpdateRequest represents the request structure for updating existing stories.
+// All fields are optional pointers to support partial updates.
+// Supports both JSON and multipart form data for content and audio updates.
 type StoryUpdateRequest struct {
 	Title     *string         `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string         `json:"text" form:"text" binding:"omitempty,notblank"`
@@ -287,7 +319,9 @@ type StoryUpdateRequest struct {
 	Metadata  *string        `json:"metadata" form:"metadata"`
 }
 
-// ValidateDateRange validates that EndDate is after or equal to StartDate for story requests
+// ValidateDateRange validates that the story's end date is not before the start date.
+// Used for story creation requests to ensure logical date ranges.
+// Returns an error if dates are invalid, nil if validation passes or dates are missing.
 func (req *StoryCreateRequest) ValidateDateRange() error {
 	if req.StartDate == "" || req.EndDate == "" {
 		return nil // Individual date validation will catch required field errors
@@ -310,7 +344,9 @@ func (req *StoryCreateRequest) ValidateDateRange() error {
 	return nil
 }
 
-// ValidateDateRange validates that EndDate is after or equal to StartDate for story update requests
+// ValidateDateRange validates date ranges for story update requests.
+// Only validates when both start and end dates are provided in the update.
+// Returns an error if end date is before start date, nil otherwise.
 func (req *StoryUpdateRequest) ValidateDateRange() error {
 	// Only validate if both dates are provided
 	if req.StartDate == nil || req.EndDate == nil {
@@ -334,8 +370,9 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 	return nil
 }
 
-// BindAndValidate handles JSON binding with developer-friendly error messages and validation.
-// Always returns 422 status code for validation errors.
+// BindAndValidate handles JSON request binding with comprehensive validation and error reporting.
+// Converts validation errors into user-friendly messages with field-level detail.
+// Always returns 422 Unprocessable Entity for validation failures with structured error responses.
 func BindAndValidate(c *gin.Context, req interface{}) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		validationErrors := convertValidationErrors(err)
@@ -345,9 +382,10 @@ func BindAndValidate(c *gin.Context, req interface{}) bool {
 	return true
 }
 
-// BindFormAndValidate handles both JSON and form data binding with unified validation.
-// Automatically detects content type and uses appropriate binding method.
-// Always returns 422 status code for validation errors.
+// BindFormAndValidate handles both JSON and form data binding with automatic content type detection.
+// Supports multipart/form-data, application/x-www-form-urlencoded, and application/json.
+// Provides unified validation error handling across all content types.
+// Returns 422 Unprocessable Entity for validation failures.
 func BindFormAndValidate(c *gin.Context, req interface{}) bool {
 	contentType := c.GetHeader("Content-Type")
 	var err error
@@ -367,7 +405,9 @@ func BindFormAndValidate(c *gin.Context, req interface{}) bool {
 	return true
 }
 
-// convertValidationErrors converts validation errors to ValidationError struct format
+// convertValidationErrors converts Go validator errors into structured, user-friendly error messages.
+// Maps validation tags to human-readable descriptions with field context.
+// Used internally by binding functions to provide consistent error responses.
 func convertValidationErrors(err error) []ValidationError {
 	var errors []ValidationError
 
@@ -428,7 +468,10 @@ func convertValidationErrors(err error) []ValidationError {
 	return errors
 }
 
-// GenericGetByID handles get-by-ID requests for any table with proper error handling.
+// GenericGetByID provides a generic handler for retrieving database records by ID.
+// Handles parameter extraction, database queries, and error responses automatically.
+// Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
+// The result parameter must be a pointer to the appropriate struct type.
 func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
 	id, ok := GetIDParam(c)
 	if !ok {
