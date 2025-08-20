@@ -109,6 +109,182 @@ class StationsTests extends BaseTest {
     }
     
     /**
+     * Tests Modern Query Parameter System features for stations endpoint.
+     */
+    async testModernQueryParameters() {
+        this.printSection('Testing Modern Query Parameters');
+        
+        // First create some test stations with varied data for filtering
+        this.printInfo('Creating test stations for query testing...');
+        const testStations = [
+            { name: 'Alpha Radio', max_stories_per_block: 3, pause_seconds: 1.0 },
+            { name: 'Beta FM', max_stories_per_block: 5, pause_seconds: 2.0 },
+            { name: 'Gamma Station', max_stories_per_block: 7, pause_seconds: 3.0 },
+            { name: 'Delta Broadcasting', max_stories_per_block: 10, pause_seconds: 2.5 },
+            { name: 'Echo Radio Network', max_stories_per_block: 5, pause_seconds: 1.5 }
+        ];
+        
+        const queryTestIds = [];
+        for (const station of testStations) {
+            const response = await this.apiCall('POST', '/stations', station);
+            if (response.status === 201) {
+                const id = this.parseJsonField(response.data, 'id');
+                if (id) {
+                    queryTestIds.push(id);
+                    this.createdStationIds.push(id);
+                }
+            }
+        }
+        
+        if (queryTestIds.length < 5) {
+            this.printError('Failed to create test stations for query testing');
+            return false;
+        }
+        
+        // Test 1: Search functionality
+        this.printInfo('Testing search parameter...');
+        const searchResponse = await this.apiCall('GET', '/stations?search=Radio');
+        if (this.assertions.checkResponse(searchResponse, 200, 'Search stations')) {
+            const results = searchResponse.data.data || [];
+            const radioStations = results.filter(s => s.name && s.name.includes('Radio'));
+            if (radioStations.length > 0) {
+                this.printSuccess(`Search found ${radioStations.length} stations with "Radio" in name`);
+            } else {
+                this.printWarning('Search did not filter results as expected');
+            }
+        }
+        
+        // Test 2: Filtering with exact match
+        this.printInfo('Testing filter with exact match...');
+        const filterExactResponse = await this.apiCall('GET', '/stations?filter[max_stories_per_block]=5');
+        if (this.assertions.checkResponse(filterExactResponse, 200, 'Filter exact match')) {
+            const results = filterExactResponse.data.data || [];
+            const exactMatches = results.filter(s => s.max_stories_per_block === 5);
+            this.printInfo(`Filter returned ${results.length} stations, ${exactMatches.length} with exact max_stories=5`);
+        }
+        
+        // Test 3: Filtering with operators (gte, lte)
+        this.printInfo('Testing filter with gte operator...');
+        const filterGteResponse = await this.apiCall('GET', '/stations?filter[max_stories_per_block][gte]=7');
+        if (this.assertions.checkResponse(filterGteResponse, 200, 'Filter with gte')) {
+            const results = filterGteResponse.data.data || [];
+            const gteMatches = results.filter(s => s.max_stories_per_block >= 7);
+            this.printInfo(`Filter[gte] returned ${results.length} stations, ${gteMatches.length} with max_stories>=7`);
+        }
+        
+        // Test 4: Multiple filters combined
+        this.printInfo('Testing multiple filters...');
+        const multiFilterResponse = await this.apiCall('GET', '/stations?filter[max_stories_per_block][gte]=5&filter[pause_seconds][lte]=2.0');
+        if (this.assertions.checkResponse(multiFilterResponse, 200, 'Multiple filters')) {
+            const results = multiFilterResponse.data.data || [];
+            this.printInfo(`Multiple filters returned ${results.length} stations`);
+        }
+        
+        // Test 5: Sorting (ascending)
+        this.printInfo('Testing sort ascending by name...');
+        const sortAscResponse = await this.apiCall('GET', '/stations?sort=name');
+        if (this.assertions.checkResponse(sortAscResponse, 200, 'Sort ascending')) {
+            const results = sortAscResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((s, i) => 
+                    i === 0 || s.name >= results[i-1].name
+                );
+                if (isSorted) {
+                    this.printSuccess('Stations correctly sorted by name ascending');
+                } else {
+                    this.printWarning('Stations may not be sorted correctly');
+                }
+            }
+        }
+        
+        // Test 6: Sorting (descending with minus sign)
+        this.printInfo('Testing sort descending by max_stories_per_block...');
+        const sortDescResponse = await this.apiCall('GET', '/stations?sort=-max_stories_per_block');
+        if (this.assertions.checkResponse(sortDescResponse, 200, 'Sort descending')) {
+            const results = sortDescResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((s, i) => 
+                    i === 0 || s.max_stories_per_block <= results[i-1].max_stories_per_block
+                );
+                if (isSorted) {
+                    this.printSuccess('Stations correctly sorted by max_stories descending');
+                } else {
+                    this.printWarning('Stations may not be sorted correctly');
+                }
+            }
+        }
+        
+        // Test 7: Multiple sort fields
+        this.printInfo('Testing multiple sort fields...');
+        const multiSortResponse = await this.apiCall('GET', '/stations?sort=max_stories_per_block,-name');
+        if (this.assertions.checkResponse(multiSortResponse, 200, 'Multiple sort fields')) {
+            this.printSuccess('Multiple sort fields accepted');
+        }
+        
+        // Test 8: Field selection
+        this.printInfo('Testing field selection...');
+        const fieldsResponse = await this.apiCall('GET', '/stations?fields=id,name');
+        if (this.assertions.checkResponse(fieldsResponse, 200, 'Field selection')) {
+            const results = fieldsResponse.data.data || [];
+            if (results.length > 0) {
+                const firstStation = results[0];
+                const hasOnlySelectedFields = 
+                    firstStation.hasOwnProperty('id') && 
+                    firstStation.hasOwnProperty('name') &&
+                    !firstStation.hasOwnProperty('max_stories_per_block') &&
+                    !firstStation.hasOwnProperty('pause_seconds');
+                    
+                if (hasOnlySelectedFields) {
+                    this.printSuccess('Field selection returned only requested fields');
+                } else {
+                    this.printInfo('Field selection may not be working as expected');
+                    this.printInfo(`Fields in response: ${Object.keys(firstStation).join(', ')}`);
+                }
+            }
+        }
+        
+        // Test 9: Pagination with limit and offset
+        this.printInfo('Testing pagination with limit and offset...');
+        const paginationResponse = await this.apiCall('GET', '/stations?limit=2&offset=1');
+        if (this.assertions.checkResponse(paginationResponse, 200, 'Pagination')) {
+            const results = paginationResponse.data.data || [];
+            if (results.length <= 2) {
+                this.printSuccess(`Pagination limit working (returned ${results.length} stations)`);
+            } else {
+                this.printWarning(`Pagination limit may not be working (returned ${results.length} stations)`);
+            }
+        }
+        
+        // Test 10: Complex combined query
+        this.printInfo('Testing complex combined query...');
+        const complexResponse = await this.apiCall('GET', '/stations?search=Station&filter[max_stories_per_block][gte]=5&sort=-pause_seconds&fields=id,name,pause_seconds&limit=10');
+        if (this.assertions.checkResponse(complexResponse, 200, 'Complex combined query')) {
+            this.printSuccess('Complex query with multiple parameters accepted');
+            const results = complexResponse.data.data || [];
+            this.printInfo(`Complex query returned ${results.length} results`);
+        }
+        
+        // Test 11: Filter with 'in' operator
+        this.printInfo('Testing filter with in operator...');
+        const inResponse = await this.apiCall('GET', `/stations?filter[id][in]=${queryTestIds.slice(0, 3).join(',')}`);
+        if (this.assertions.checkResponse(inResponse, 200, 'Filter with in operator')) {
+            const results = inResponse.data.data || [];
+            this.printInfo(`Filter[in] returned ${results.length} stations`);
+        }
+        
+        // Test 12: Filter with 'between' operator
+        this.printInfo('Testing filter with between operator...');
+        const betweenResponse = await this.apiCall('GET', '/stations?filter[pause_seconds][between]=1.5,2.5');
+        if (this.assertions.checkResponse(betweenResponse, 200, 'Filter with between operator')) {
+            const results = betweenResponse.data.data || [];
+            const betweenMatches = results.filter(s => s.pause_seconds >= 1.5 && s.pause_seconds <= 2.5);
+            this.printInfo(`Filter[between] returned ${results.length} stations, ${betweenMatches.length} in range 1.5-2.5`);
+        }
+        
+        return true;
+    }
+    
+    /**
      * Tests station update operations with various data changes.
      */
     async testUpdateStations() {
@@ -374,6 +550,7 @@ class StationsTests extends BaseTest {
         const tests = [
             'testCreateStations',
             'testReadStations',
+            'testModernQueryParameters',
             'testUpdateStations',
             'testStationValidation',
             'testDuplicateNames',

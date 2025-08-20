@@ -351,10 +351,23 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 		args = append(args, config.AllowedArgs...)
 	}
 
-	// Handle status filtering
-	statusCondition := buildStatusCondition(params.Status, &args)
-	if statusCondition != "" {
-		conditions = append(conditions, statusCondition)
+	// Handle status filtering (skip if soft delete is disabled)
+	if !config.DisableSoftDelete {
+		statusCondition := buildStatusCondition(params.Status, &args)
+		if statusCondition != "" {
+			conditions = append(conditions, statusCondition)
+		}
+	} else if params.Status != "" && params.Status != "all" {
+		// If soft delete is disabled but status is explicitly provided, handle it
+		switch params.Status {
+		case "active":
+			conditions = append(conditions, "status = 'active'")
+		case "suspended":
+			conditions = append(conditions, "suspended_at IS NOT NULL")
+		default:
+			args = append(args, params.Status)
+			conditions = append(conditions, "status = ?")
+		}
 	}
 
 	// Handle search functionality
@@ -585,6 +598,7 @@ type EnhancedQueryConfig struct {
 	FieldMapping  map[string]string // Map API field names to database columns
 	TableAlias    string            // Table alias for prefixing columns
 	DefaultFields string            // Default SELECT fields
+	DisableSoftDelete bool          // If true, don't apply soft delete filtering
 }
 
 // ModernListWithQuery handles paginated list requests with modern query parameters
@@ -610,10 +624,11 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 			AllowedArgs:   config.AllowedArgs,
 			PostProcessor: config.PostProcessor,
 		},
-		SearchFields:  config.SearchFields,
-		FieldMapping:  config.FieldMapping,
-		TableAlias:    config.TableAlias,
-		DefaultFields: config.DefaultFields,
+		SearchFields:      config.SearchFields,
+		FieldMapping:      config.FieldMapping,
+		TableAlias:        config.TableAlias,
+		DefaultFields:     config.DefaultFields,
+		DisableSoftDelete: config.DisableSoftDelete,
 	}
 
 	// Use custom field selection if requested

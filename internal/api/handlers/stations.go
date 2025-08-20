@@ -11,34 +11,32 @@ import (
 )
 
 // ListStations returns a paginated list of all radio stations with their configuration.
-// Currently returns all stations ordered by name. Requires 'stations' read permission.
-// Returns station data with metadata including total count and pagination info.
+// Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
+// Requires 'stations' read permission. Returns station data with metadata including total count and pagination info.
 func (h *Handlers) ListStations(c *gin.Context) {
-	// Simplified version for debugging
+	// Configure modern query with field mappings and search fields
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery:    "SELECT s.* FROM stations s",
+			CountQuery:   "SELECT COUNT(*) FROM stations s",
+			DefaultOrder: "s.name ASC",
+		},
+		SearchFields:  []string{"s.name"},
+		TableAlias:    "s",
+		DefaultFields: "s.*",
+		DisableSoftDelete: true,  // Stations table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":                   "s.id",
+			"name":                 "s.name",
+			"max_stories_per_block": "s.max_stories_per_block",
+			"pause_seconds":        "s.pause_seconds",
+			"created_at":           "s.created_at",
+			"updated_at":           "s.updated_at",
+		},
+	}
+
 	var stations []models.Station
-
-	// Get total count
-	var total int64
-	err := h.db.Get(&total, "SELECT COUNT(*) FROM stations")
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to count stations")
-		return
-	}
-
-	// Get stations
-	err = h.db.Select(&stations, "SELECT * FROM stations ORDER BY name ASC")
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch stations")
-		return
-	}
-
-	// Return simple response
-	c.JSON(200, gin.H{
-		"data":   stations,
-		"total":  total,
-		"limit":  50,
-		"offset": 0,
-	})
+	utils.ModernListWithQuery(c, h.db, config, &stations)
 }
 
 // GetStation returns a single radio station by ID with all configuration details.
