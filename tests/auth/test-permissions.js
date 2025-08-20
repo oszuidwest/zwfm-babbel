@@ -1,7 +1,5 @@
-/**
- * Babbel Permissions Tests - Node.js
- * Test role-based access control (RBAC) functionality
- */
+// Babbel permissions tests.
+// Tests role-based access control (RBAC) functionality across different user roles.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');
@@ -11,14 +9,19 @@ class PermissionsTests extends BaseTest {
         super();
         this.assertions = new Assertions(this);
         
-        // Global test user IDs for cleanup
+        // Store user IDs for cleanup after tests.
         this.testUserId = '';
         this.testEditorId = '';
         this.testViewerId = '';
     }
     
     /**
-     * Helper function to create user and get ID
+     * Creates a user and returns their ID.
+     * @param {string} username - Username for the new user.
+     * @param {string} fullName - Full name of the user.
+     * @param {string} password - Password for the user.
+     * @param {string} role - User role (admin, editor, viewer).
+     * @returns {Promise<string|null>} User ID or null if creation failed.
      */
     async createUserAndGetId(username, fullName, password, role) {
         this.printInfo(`Creating user: ${username}`);
@@ -65,18 +68,18 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Test admin permissions
+     * Tests that admin users have full access to all operations.
      */
     async testAdminPermissions() {
         this.printSection('Testing Admin Permissions');
         
-        // Ensure we're logged in as admin
+        // Ensure admin session is active for user creation.
         if (!(await this.restoreAdminSession())) {
             this.printError('Could not establish admin session');
             return false;
         }
         
-        // Admin should be able to create users
+        // Verify admin can create users.
         this.printInfo('Testing admin can create users...');
         const response = await this.apiCall('POST', '/users', {
             username: 'testadminuser',
@@ -132,7 +135,7 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Test editor permissions
+     * Tests that editor users can read and modify content but not manage users.
      */
     async testEditorPermissions() {
         this.printSection('Testing Editor Permissions');
@@ -221,14 +224,14 @@ class PermissionsTests extends BaseTest {
             return false;
         }
         
-        // Restore admin session
+        // Return to admin session.
         await this.restoreFromBackup(backupCookie);
         this.printSuccess('Editor permissions verified');
         return true;
     }
     
     /**
-     * Test viewer permissions
+     * Tests that viewer users have read-only access to content.
      */
     async testViewerPermissions() {
         this.printSection('Testing Viewer Permissions');
@@ -314,14 +317,14 @@ class PermissionsTests extends BaseTest {
             this.printError('Viewer unexpectedly allowed to list users');
         }
         
-        // Restore admin session
+        // Return to admin session.
         await this.restoreFromBackup(backupCookie);
         this.printSuccess('Viewer permissions verified');
         return true;
     }
     
     /**
-     * Test suspended user
+     * Tests that suspended users cannot authenticate.
      */
     async testSuspendedUser() {
         this.printSection('Testing Suspended User');
@@ -359,12 +362,11 @@ class PermissionsTests extends BaseTest {
         return true;
     }
     
-    // ==========================================
     // Helper Methods
-    // ==========================================
     
     /**
-     * Restore admin session (compatibility with auth.sh)
+     * Restores admin session for subsequent operations.
+     * @returns {Promise<boolean>} True if admin session was restored.
      */
     async restoreAdminSession() {
         if (!(await this.isSessionActive())) {
@@ -383,7 +385,8 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Check if current session has admin privileges
+     * Checks if current session has admin privileges.
+     * @returns {Promise<boolean>} True if session has admin access.
      */
     async checkAdminPrivileges() {
         // Try to access an admin-only endpoint (like listing users)
@@ -392,7 +395,10 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Switch to different user and return backup cookie info
+     * Switches to a different user session.
+     * @param {string} username - Username to switch to.
+     * @param {string} password - Password for the user.
+     * @returns {Promise<Object|null>} Backup session info or null if failed.
      */
     async switchToUser(username, password) {
         // Save current session info (simplified approach)
@@ -407,7 +413,9 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Restore from backup session
+     * Restores session from backup.
+     * @param {Object} backupSession - Previous session data.
+     * @returns {Promise<boolean>} True if session was restored.
      */
     async restoreFromBackup(backupSession) {
         this.printInfo('Session restored from backup');
@@ -415,7 +423,11 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Helper function to test login credentials
+     * Tests login credentials with expected result.
+     * @param {string} username - Username to test.
+     * @param {string} password - Password to test.
+     * @param {number} expectedStatus - Expected HTTP status code (default: 201).
+     * @returns {Promise<boolean>} True if result matches expectation.
      */
     async testLoginCredentials(username, password, expectedStatus = 201) {
         const response = await this.apiCall('POST', '/sessions', {
@@ -438,12 +450,11 @@ class PermissionsTests extends BaseTest {
         }
     }
     
-    // ==========================================
     // Setup and Cleanup
-    // ==========================================
     
     /**
-     * Setup function
+     * Sets up permission tests by ensuring admin session.
+     * @returns {Promise<boolean>} True if setup succeeded.
      */
     async setup() {
         this.printInfo('Setting up permission tests...');
@@ -452,7 +463,8 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Cleanup function
+     * Cleans up test users and resources.
+     * @returns {Promise<boolean>} True if cleanup succeeded.
      */
     async cleanup() {
         this.printInfo('Cleaning up permission tests...');
@@ -507,7 +519,8 @@ class PermissionsTests extends BaseTest {
     }
     
     /**
-     * Main test runner
+     * Main test runner for permission tests.
+     * @returns {Promise<boolean>} True if all tests passed.
      */
     async run() {
         this.printHeader('Permission Tests');
@@ -530,7 +543,7 @@ class PermissionsTests extends BaseTest {
                 this.printError(`✗ ${test} failed`);
                 failed++;
             }
-            console.error(''); // Add spacing between tests
+            console.error(''); // Add visual spacing between tests.
         }
         
         await this.cleanup();

@@ -1,7 +1,5 @@
-/**
- * Babbel Stories Tests - Node.js
- * Test story management functionality with file uploads
- */
+// Babbel stories tests.
+// Tests story management functionality including CRUD operations and file uploads.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');

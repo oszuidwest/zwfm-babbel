@@ -1,7 +1,5 @@
-/**
- * Babbel Stations Tests - Node.js
- * Test station management functionality
- */
+// Babbel stations tests.
+// Tests station management functionality including CRUD operations and validation.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');
@@ -11,12 +9,12 @@ class StationsTests extends BaseTest {
         super();
         this.assertions = new Assertions(this);
         
-        // Global variables for cleanup
+        // Track created resources for cleanup.
         this.createdStationIds = [];
     }
     
     /**
-     * Test creating stations
+     * Tests station creation with multiple test cases.
      */
     async testCreateStations() {
         this.printSection('Testing Station Creation');
@@ -39,7 +37,7 @@ class StationsTests extends BaseTest {
                 this.createdStationIds.push(stationId);
                 this.printSuccess(`Created station: ${name} (ID: ${stationId})`);
                 
-                // The API returns just {id, message}, so fetch the full station to verify
+                // The API returns basic response, so fetch full station data to verify creation.
                 this.printInfo('Fetching created station to verify data...');
                 const verifyResponse = await this.apiCall('GET', `/stations/${stationId}`);
                 
@@ -62,7 +60,7 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Test reading stations
+     * Tests station retrieval operations including listing and individual access.
      */
     async testReadStations() {
         this.printSection('Testing Station Reading');
@@ -78,7 +76,7 @@ class StationsTests extends BaseTest {
             const stationCount = body.data ? body.data.length : 0;
             this.printSuccess(`Listed stations (count: ${stationCount})`);
             
-            // Verify structure of first station
+            // Verify response structure of first station.
             if (body.data && body.data.length > 0) {
                 const firstStation = body.data[0];
                 this.assertions.assertJsonField(firstStation, 'id', 'First station ID');
@@ -111,7 +109,7 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Test updating stations
+     * Tests station update operations with various data changes.
      */
     async testUpdateStations() {
         this.printSection('Testing Station Updates');
@@ -185,7 +183,7 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Test station validation
+     * Tests station field validation and error handling.
      */
     async testStationValidation() {
         this.printSection('Testing Station Validation');
@@ -217,7 +215,7 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Test station deletion
+     * Tests station deletion functionality.
      */
     async testDeleteStations() {
         this.printSection('Testing Station Deletion');
@@ -264,7 +262,7 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Test station duplicate names
+     * Tests that duplicate station names are properly rejected.
      */
     async testDuplicateNames() {
         this.printSection('Testing Duplicate Station Names');
@@ -328,7 +326,8 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Setup function
+     * Sets up station tests by ensuring admin session.
+     * @returns {Promise<boolean>} True if setup succeeded.
      */
     async setup() {
         this.printInfo('Setting up station tests...');
@@ -341,7 +340,8 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Cleanup function
+     * Cleans up test stations and resources.
+     * @returns {Promise<boolean>} True if cleanup succeeded.
      */
     async cleanup() {
         this.printInfo('Cleaning up station tests...');
@@ -363,7 +363,8 @@ class StationsTests extends BaseTest {
     }
     
     /**
-     * Main test runner
+     * Main test runner for station tests.
+     * @returns {Promise<boolean>} True if all tests passed.
      */
     async run() {
         this.printHeader('Station Tests');
@@ -388,7 +389,7 @@ class StationsTests extends BaseTest {
                 this.printError(`✗ ${test} failed`);
                 failed++;
             }
-            console.error(''); // Add spacing between tests
+            console.error(''); // Add visual spacing between tests.
         }
         
         await this.cleanup();

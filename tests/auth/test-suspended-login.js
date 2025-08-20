@@ -1,7 +1,5 @@
-/**
- * Test suspended user login prevention
- * Verifies that suspended users cannot authenticate
- */
+// Test suspended user login prevention.
+// Verifies that suspended users cannot authenticate and can be restored.
 
 const BaseTest = require('../lib/BaseTest');
 
@@ -11,19 +9,20 @@ class SuspendedLoginTest extends BaseTest {
     }
     
     /**
-     * Test that suspended users cannot login
+     * Tests the complete suspension and restoration workflow.
+     * Verifies users can login normally, cannot login when suspended, and can login again when restored.
      */
     async testSuspendedUserCannotLogin() {
         this.printSection('Testing Suspended User Login Prevention');
         
-        // First login as admin to create and manage users
+        // Login as admin to create and manage test users.
         this.printInfo('Logging in as admin...');
         if (!await this.apiLogin()) {
             this.printError('Failed to login as admin');
             return false;
         }
         
-        // Create a test user
+        // Create a test user for suspension testing.
         this.printInfo('Creating test user...');
         const timestamp = Date.now();
         const username = `suspendtest${timestamp}`;
@@ -46,10 +45,10 @@ class SuspendedLoginTest extends BaseTest {
         const userId = this.parseJsonField(createResponse.data, 'id');
         this.printSuccess(`Created test user (ID: ${userId})`);
         
-        // Logout admin
+        // Logout admin to test user login.
         await this.apiLogout();
         
-        // Test 1: User can login normally before suspension
+        // Test 1: Verify user can login normally before suspension.
         this.printInfo('Testing normal login before suspension...');
         const loginResponse = await this.apiCall('POST', '/sessions', {
             username: username,
@@ -63,17 +62,17 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Logout the test user
+        // Logout the test user after successful login.
         await this.apiLogout();
         
-        // Login as admin again to suspend the user
+        // Re-authenticate as admin to perform suspension.
         this.printInfo('Logging back as admin to suspend user...');
         if (!await this.apiLogin()) {
             this.printError('Failed to login as admin');
             return false;
         }
         
-        // Suspend the user
+        // Suspend the test user account.
         this.printInfo('Suspending the user...');
         const suspendResponse = await this.apiCall('PUT', `/users/${userId}`, {
             suspended: true
@@ -84,7 +83,7 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Verify suspension
+        // Verify the user account shows suspended status.
         const getUserResponse = await this.apiCall('GET', `/users/${userId}`);
         if (getUserResponse.status === 200) {
             const userData = getUserResponse.data;
@@ -99,10 +98,10 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Logout admin
+        // Logout admin to test user login.
         await this.apiLogout();
         
-        // Test 2: Suspended user cannot login
+        // Test 2: Verify suspended user cannot login.
         this.printInfo('Testing suspended user login (should fail)...');
         const suspendedLoginResponse = await this.apiCall('POST', '/sessions', {
             username: username,
@@ -112,7 +111,7 @@ class SuspendedLoginTest extends BaseTest {
         if (suspendedLoginResponse.status === 401) {
             this.printSuccess('Suspended user correctly prevented from logging in');
             
-            // Check error message
+            // Verify appropriate error message is returned.
             const errorMsg = this.extractErrorMessage(suspendedLoginResponse.data);
             if (errorMsg && errorMsg.toLowerCase().includes('suspend')) {
                 this.printSuccess(`Appropriate error message: ${errorMsg}`);
@@ -124,16 +123,16 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Test 3: Restore user and verify they can login again
+        // Test 3: Restore user and verify login functionality is restored.
         this.printInfo('Testing user restoration...');
         
-        // Login as admin to restore
+        // Re-authenticate as admin to perform restoration.
         if (!await this.apiLogin()) {
             this.printError('Failed to login as admin');
             return false;
         }
         
-        // Restore the user
+        // Restore the suspended user account.
         this.printInfo('Restoring the user...');
         const restoreResponse = await this.apiCall('PUT', `/users/${userId}`, {
             suspended: false
@@ -144,10 +143,10 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Logout admin
+        // Logout admin to test user login.
         await this.apiLogout();
         
-        // Test that restored user can login again
+        // Verify that restored user can login successfully.
         this.printInfo('Testing restored user can login...');
         const restoredLoginResponse = await this.apiCall('POST', '/sessions', {
             username: username,
@@ -161,7 +160,7 @@ class SuspendedLoginTest extends BaseTest {
             return false;
         }
         
-        // Cleanup: Delete the test user
+        // Clean up by deleting the test user account.
         await this.apiLogout();
         if (await this.apiLogin()) {
             await this.apiCall('DELETE', `/users/${userId}`);
@@ -172,7 +171,8 @@ class SuspendedLoginTest extends BaseTest {
     }
     
     /**
-     * Main test runner
+     * Main test runner for suspended login tests.
+     * @returns {Promise<boolean>} True if all tests passed.
      */
     async run() {
         this.printHeader('Suspended User Login Test');

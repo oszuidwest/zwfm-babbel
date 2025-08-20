@@ -1,7 +1,5 @@
-/**
- * Babbel Users Tests - Node.js
- * Test user management functionality
- */
+// Babbel users tests.
+// Tests user management functionality including CRUD operations and permissions.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');

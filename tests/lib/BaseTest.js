@@ -7,18 +7,18 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 
-// Force color support if terminal supports it but chalk doesn't detect it
+// Force color support for terminals that support it but aren't auto-detected by chalk.
 if (!chalk.supportsColor && (process.env.TERM && process.env.TERM.includes('color'))) {
     process.env.FORCE_COLOR = '1';
-    // Re-require chalk to pick up the new environment variable
+    // Re-import chalk to pick up the updated environment variable.
     delete require.cache[require.resolve('chalk')];
     const chalkModule = require('chalk');
     Object.assign(chalk, chalkModule);
 }
 
 /**
- * Base Test Class for Babbel API Tests
- * Provides common functionality for HTTP requests, authentication, 
+ * Base test class for Babbel API tests.
+ * Provides common functionality for HTTP requests, authentication,
  * cookie management, colored output, and test tracking.
  */
 class BaseTest {
@@ -29,7 +29,7 @@ class BaseTest {
         this.audioDir = path.join(__dirname, '../../audio');
         this.cookieFile = './test_cookies.txt';
         
-        // Initialize cookie jar and axios instance
+        // Initialize cookie jar and HTTP client instance.
         this.cookieJar = new CookieJar();
         this.http = wrapper(axios.create({
             jar: this.cookieJar,
@@ -37,12 +37,11 @@ class BaseTest {
             timeout: 30000 // 30 second timeout
         }));
         
-        // Test counters - start fresh for each test run
+        // Test counters start fresh for each test run.
         this.testsPassed = 0;
         this.testsFailed = 0;
         
-        // Don't load existing counters - each test file should have its own count
-        // this.loadTestCounters();
+        // Each test file maintains its own counters instead of loading existing ones.
         
         // Default admin credentials
         this.defaultAdminUsername = 'admin';
@@ -54,12 +53,10 @@ class BaseTest {
         this.mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
     }
     
-    // ==========================================
     // Cookie Management
-    // ==========================================
     
     /**
-     * Load cookies from file to maintain session persistence
+     * Loads cookies from file to maintain session persistence.
      */
     async loadCookies() {
         try {
@@ -82,7 +79,7 @@ class BaseTest {
     }
     
     /**
-     * Save cookies to file for persistence
+     * Saves cookies to file for persistence.
      */
     async saveCookies() {
         try {
@@ -104,13 +101,13 @@ class BaseTest {
     }
     
     /**
-     * Clear all cookies
+     * Clears all cookies and reinitializes the HTTP client.
      */
     async clearCookies() {
         try {
             await fs.unlink(this.cookieFile);
         } catch (error) {
-            // File doesn't exist, that's fine
+            // File doesn't exist, which is acceptable.
         }
         this.cookieJar = new CookieJar();
         this.http = wrapper(axios.create({
@@ -120,12 +117,10 @@ class BaseTest {
         }));
     }
     
-    // ==========================================
     // Test Counter Management
-    // ==========================================
     
     /**
-     * Load test counters from temp file
+     * Loads test counters from temporary file.
      */
     loadTestCounters() {
         try {
@@ -148,15 +143,14 @@ class BaseTest {
     }
     
     /**
-     * Save test counters to temp file
+     * Saves test counters to temporary file.
      */
     saveTestCounters() {
-        // Disabled - each test file maintains its own counters
-        // The orchestrator will count suite results
+        // Disabled - each test file maintains its own counters while orchestrator counts suite results.
     }
     
     /**
-     * Reset test counters
+     * Resets test counters to zero.
      */
     resetTestCounters() {
         this.testsPassed = 0;
@@ -164,13 +158,11 @@ class BaseTest {
         try {
             fsSync.unlinkSync('/tmp/babbel_test_counters');
         } catch (error) {
-            // File doesn't exist, that's fine
+            // File doesn't exist, which is acceptable.
         }
     }
     
-    // ==========================================
     // Output Functions (styled output)
-    // ==========================================
     
     printHeader(text) {
         const line = '═'.repeat(60);
@@ -215,12 +207,15 @@ class BaseTest {
         }
     }
     
-    // ==========================================
     // HTTP Request Methods
-    // ==========================================
     
     /**
-     * Make API call with automatic cookie handling
+     * Makes API call with automatic cookie handling.
+     * @param {string} method - HTTP method (GET, POST, etc.).
+     * @param {string} endpoint - API endpoint path.
+     * @param {Object} data - Request data (optional).
+     * @param {Object} options - Additional options (optional).
+     * @returns {Promise<Object>} Response object with status, data, and headers.
      */
     async apiCall(method, endpoint, data = null, options = {}) {
         await this.loadCookies();
@@ -252,19 +247,25 @@ class BaseTest {
     }
     
     /**
-     * Upload file using multipart form data
+     * Uploads file using multipart form data.
+     * @param {string} endpoint - API endpoint path.
+     * @param {Object} formFields - Form field data.
+     * @param {string} filePath - Path to file to upload (optional).
+     * @param {string} fileFieldName - Name of file field (default: 'file').
+     * @param {string} method - HTTP method (default: 'POST').
+     * @returns {Promise<Object>} Response object with status, data, and headers.
      */
     async uploadFile(endpoint, formFields, filePath = null, fileFieldName = 'file', method = 'POST') {
         await this.loadCookies();
         
         const form = new FormData();
         
-        // Add regular form fields
+        // Add regular form fields to multipart data.
         for (const [key, value] of Object.entries(formFields)) {
             form.append(key, value);
         }
         
-        // Add file if provided
+        // Add file to form data if provided.
         if (filePath && fsSync.existsSync(filePath)) {
             const fileStream = fsSync.createReadStream(filePath);
             form.append(fileFieldName, fileStream);
@@ -289,7 +290,12 @@ class BaseTest {
     }
     
     /**
-     * Download file
+     * Downloads a file from API endpoint.
+     * @param {string} endpoint - API endpoint path.
+     * @param {string} outputPath - Local path to save file.
+     * @param {string} method - HTTP method (default: 'GET').
+     * @param {Object} data - Request data (optional).
+     * @returns {Promise<number>} HTTP status code.
      */
     async downloadFile(endpoint, outputPath, method = 'GET', data = null) {
         await this.loadCookies();
@@ -322,12 +328,13 @@ class BaseTest {
         return response.status;
     }
     
-    // ==========================================
     // Authentication Methods
-    // ==========================================
     
     /**
-     * Login to API
+     * Authenticates with the API using provided credentials.
+     * @param {string} username - Username (optional, defaults to admin).
+     * @param {string} password - Password (optional, defaults to admin).
+     * @returns {Promise<boolean>} True if login succeeded.
      */
     async apiLogin(username = null, password = null) {
         username = username || this.defaultAdminUsername;
@@ -356,7 +363,8 @@ class BaseTest {
     }
     
     /**
-     * Logout from API
+     * Logs out from the API and clears session cookies.
+     * @returns {Promise<boolean>} True if logout succeeded.
      */
     async apiLogout() {
         this.printSection('API Logout');
@@ -380,7 +388,8 @@ class BaseTest {
     }
     
     /**
-     * Get current session info
+     * Retrieves current session information.
+     * @returns {Promise<Object|null>} Session data or null if not authenticated.
      */
     async getCurrentSession() {
         const response = await this.apiCall('GET', '/sessions/current');
@@ -392,19 +401,20 @@ class BaseTest {
     }
     
     /**
-     * Check if session is active
+     * Checks if there is an active session.
+     * @returns {Promise<boolean>} True if session is active.
      */
     async isSessionActive() {
         const session = await this.getCurrentSession();
         return session !== null;
     }
     
-    // ==========================================
     // Utility Methods
-    // ==========================================
     
     /**
-     * Extract error message from RFC 9457 Problem Details response
+     * Extracts error message from RFC 9457 Problem Details response.
+     * @param {Object} responseData - Response data object.
+     * @returns {string} Extracted error message or empty string.
      */
     extractErrorMessage(responseData) {
         if (!responseData || typeof responseData !== 'object') {
@@ -412,7 +422,7 @@ class BaseTest {
         }
         
         try {
-            // RFC 9457 format: {"title": "...", "detail": "..."}
+            // RFC 9457 format includes title and optional detail fields.
             if (responseData.title) {
                 const title = responseData.title;
                 const detail = responseData.detail;
@@ -422,14 +432,17 @@ class BaseTest {
                 return title;
             }
         } catch (error) {
-            // Ignore parsing errors
+            // Ignore any JSON parsing errors.
         }
         
         return '';
     }
     
     /**
-     * Parse JSON field from response
+     * Parses a specific field from JSON response data.
+     * @param {Object} data - JSON data object.
+     * @param {string} field - Field name to extract.
+     * @returns {string} Field value as string or empty string.
      */
     parseJsonField(data, field) {
         if (!data || typeof data !== 'object') {
@@ -441,7 +454,10 @@ class BaseTest {
     }
     
     /**
-     * Parse nested JSON field (e.g., "data.0.id")
+     * Parses a nested JSON field using dot notation.
+     * @param {Object} data - JSON data object.
+     * @param {string} fieldPath - Dot-notation path (e.g., 'data.0.id').
+     * @returns {string} Field value as string or empty string.
      */
     parseJsonNested(data, fieldPath) {
         if (!data || typeof data !== 'object') {
@@ -471,7 +487,10 @@ class BaseTest {
     }
     
     /**
-     * Wait for file to exist
+     * Waits for a file to exist with timeout.
+     * @param {string} filePath - Path to file to wait for.
+     * @param {number} timeout - Timeout in seconds (default: 10).
+     * @returns {Promise<boolean>} True if file exists within timeout.
      */
     async waitForFile(filePath, timeout = 10) {
         this.printInfo(`Waiting for file: ${filePath} (timeout: ${timeout}s)`);
@@ -492,14 +511,22 @@ class BaseTest {
     }
     
     /**
-     * Wait for audio file to exist (alias for waitForFile)
+     * Waits for audio file to exist (alias for waitForFile).
+     * @param {string} filePath - Path to audio file.
+     * @param {number} timeout - Timeout in seconds (default: 10).
+     * @returns {Promise<boolean>} True if file exists within timeout.
      */
     async waitForAudioFile(filePath, timeout = 10) {
         return await this.waitForFile(filePath, timeout);
     }
     
     /**
-     * Make API call with FormData
+     * Makes API call with FormData for file uploads.
+     * @param {string} method - HTTP method.
+     * @param {string} endpoint - API endpoint path.
+     * @param {FormData} formData - FormData object.
+     * @param {Object} options - Additional options (optional).
+     * @returns {Promise<Object>} Response object with status, data, and headers.
      */
     async apiCallFormData(method, endpoint, formData, options = {}) {
         await this.loadCookies();
@@ -526,7 +553,10 @@ class BaseTest {
     }
     
     /**
-     * Run a test function with error handling
+     * Runs a test function with error handling and result tracking.
+     * @param {Function} testFunction - Test function to execute.
+     * @param {string} testName - Name of the test (optional).
+     * @returns {Promise<boolean>} True if test passed.
      */
     async runTest(testFunction, testName = null) {
         testName = testName || testFunction.name;

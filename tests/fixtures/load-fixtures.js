@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-/**
- * Load test fixtures into the database
- * This script can be run to populate the database with test data
- */
+// Load test fixtures into the database.
+// This script populates the database with test data for consistent testing.
 
 const { execSync } = require('child_process');
 const path = require('path');
@@ -11,13 +9,13 @@ const fs = require('fs');
 
 const fixtureFile = path.join(__dirname, 'test-data.sql');
 
-// Check if fixture file exists
+// Verify that the test data fixture file exists.
 if (!fs.existsSync(fixtureFile)) {
     console.error('❌ Fixture file not found:', fixtureFile);
     process.exit(1);
 }
 
-// MySQL connection parameters
+// Configure MySQL connection parameters from environment or defaults.
 const mysqlUser = process.env.MYSQL_USER || 'babbel';
 const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
 const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';

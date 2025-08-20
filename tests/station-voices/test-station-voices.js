@@ -1,7 +1,5 @@
-/**
- * Babbel Station-Voices Tests - Node.js
- * Test station-voice relationship management functionality
- */
+// Babbel station-voices tests.
+// Tests station-voice relationship management and jingle functionality.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');

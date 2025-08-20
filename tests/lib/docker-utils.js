@@ -1,7 +1,5 @@
-/**
- * Docker Utilities for Babbel API Tests
- * Handles Docker container management and service health checks
- */
+// Docker utilities for Babbel API tests.
+// Handles Docker container management and service health checks.
 
 const { execSync, spawn } = require('child_process');
 const axios = require('axios');
@@ -13,7 +11,8 @@ class DockerUtils {
     }
     
     /**
-     * Check dependencies (Docker, docker-compose, etc.)
+     * Checks required dependencies including Docker and docker-compose.
+     * @returns {boolean} True if all dependencies are available.
      */
     checkDependencies() {
         this.baseTest.printSection('Checking Dependencies');
@@ -55,7 +54,8 @@ class DockerUtils {
     }
     
     /**
-     * Start Docker services with full clean rebuild
+     * Starts Docker services with a complete clean rebuild.
+     * @returns {Promise<boolean>} True if services started successfully.
      */
     async startDocker() {
         this.baseTest.printSection('Starting Docker Services (Full Clean Rebuild)');
@@ -82,12 +82,12 @@ class DockerUtils {
             try {
                 execSync('docker rmi oszw-zwfm-babbel-babbel:latest', { stdio: 'pipe' });
             } catch (error) {
-                // Image might not exist, that's fine
+                // Image might not exist, which is acceptable.
             }
             try {
                 execSync('docker rmi oszw-zwfm-babbel-mysql:latest', { stdio: 'pipe' });
             } catch (error) {
-                // Image might not exist, that's fine
+                // Image might not exist, which is acceptable.
             }
             this.baseTest.printSuccess('✓ Old images removed');
             
@@ -105,7 +105,7 @@ class DockerUtils {
             });
             this.baseTest.printSuccess('✓ Docker containers started');
             
-            // Wait for services to be ready
+            // Allow time for services to initialize.
             this.baseTest.printInfo('Waiting for services to be ready...');
             await new Promise(resolve => setTimeout(resolve, 10000));
             
@@ -128,29 +128,30 @@ class DockerUtils {
         } catch (error) {
             this.baseTest.printError(`Docker startup failed: ${error.message}`);
             try {
-                // Show docker-compose logs for debugging
+                // Display docker-compose logs for debugging purposes.
                 const logs = execSync('docker-compose logs --tail=50', { 
                     encoding: 'utf8', 
                     cwd: projectRoot 
                 });
                 console.error(logs);
             } catch (logError) {
-                // Ignore log errors
+                // Ignore any errors when retrieving logs.
             }
             return false;
         }
     }
     
     /**
-     * Initialize test environment (database setup and initial login)
+     * Initializes the test environment with database setup and authentication.
+     * @returns {Promise<boolean>} True if initialization succeeded.
      */
     async initializeEnvironment() {
         this.baseTest.printSection('Initializing Test Environment');
         
-        // Reset test counters
+        // Reset global test counters.
         this.baseTest.resetTestCounters();
         
-        // Clean audio directories
+        // Clean audio directories before testing.
         this.cleanAudio();
         
         // Initialize database
@@ -177,7 +178,7 @@ class DockerUtils {
     }
     
     /**
-     * Clean audio files
+     * Cleans audio directories and removes generated files.
      */
     cleanAudio() {
         this.baseTest.printSection('Cleaning Audio Files');
@@ -185,10 +186,10 @@ class DockerUtils {
         const audioDir = this.baseTest.audioDir;
         
         try {
-            // Create audio directories if they don't exist
+            // Ensure audio directories exist before cleanup.
             execSync(`mkdir -p ${audioDir}/processed ${audioDir}/output ${audioDir}/stories`, { stdio: 'pipe' });
             
-            // Remove existing generated files
+            // Remove previously generated audio files.
             execSync(`rm -f ${audioDir}/output/*.wav`, { stdio: 'pipe' });
             execSync(`rm -f ${audioDir}/processed/station_*_voice_*_jingle.wav`, { stdio: 'pipe' });
             
@@ -199,7 +200,10 @@ class DockerUtils {
     }
     
     /**
-     * Simple download function
+     * Downloads a file from the given URL.
+     * @param {string} url - The URL to download from.
+     * @param {string} outputFile - The local file path to save to.
+     * @returns {Promise<boolean>} True if download succeeded.
      */
     async simpleDownload(url, outputFile) {
         this.baseTest.printInfo(`Downloading: ${url}`);
@@ -234,7 +238,7 @@ class DockerUtils {
                 const fs = require('fs');
                 fs.unlinkSync(outputFile);
             } catch (e) {
-                // Ignore cleanup errors
+                // Ignore any cleanup-related errors.
             }
             return false;
         }

@@ -1,7 +1,5 @@
-/**
- * Babbel Voices Tests - Node.js
- * Test voice management functionality
- */
+// Babbel voices tests.
+// Tests voice management functionality including CRUD operations and story associations.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');
@@ -11,7 +9,7 @@ class VoicesTests extends BaseTest {
         super();
         this.assertions = new Assertions(this);
         
-        // Global variables for tracking created resources
+        // Track created resources for cleanup.
         this.createdVoiceIds = [];
     }
     
@@ -181,7 +179,7 @@ class VoicesTests extends BaseTest {
     async testVoiceUpdates() {
         this.printSection('Testing Voice Updates');
         
-        // Create a voice to update
+        // Create voice for testing. to update
         this.printInfo('Creating voice for update tests...');
         const voiceData = await this.createVoice('Update Test Voice');
         
@@ -254,7 +252,7 @@ class VoicesTests extends BaseTest {
     async testVoiceDeletion() {
         this.printSection('Testing Voice Deletion');
         
-        // Create a voice to delete
+        // Create voice for testing. to delete
         this.printInfo('Creating voice for deletion test...');
         const voiceData = await this.createVoice('Delete Test Voice');
         
@@ -303,7 +301,7 @@ class VoicesTests extends BaseTest {
     async testVoiceWithStories() {
         this.printSection('Testing Voice with Associated Stories');
         
-        // Create a voice
+        // Create voice for testing.
         this.printInfo('Creating voice for story association test...');
         const voiceData = await this.createVoice('Story Test Voice');
         
@@ -444,7 +442,7 @@ class VoicesTests extends BaseTest {
                 this.printError(`✗ ${test} failed`);
                 failed++;
             }
-            console.error(''); // Add spacing between tests
+            console.error(''); // Add visual spacing between tests.
         }
         
         await this.cleanup();

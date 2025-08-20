@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 
-/**
- * Babbel Test Suite - Node.js Orchestrator
- * Runs all tests in the correct order
- */
+// Babbel test suite orchestrator.
+// Runs all test suites in the correct order with comprehensive reporting.
 
 const { spawn } = require('child_process');
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
 
-// Force color support if terminal supports it but chalk doesn't detect it
+// Force color support for terminals that support it but aren't auto-detected by chalk.
 if (!chalk.supportsColor && (process.env.TERM && process.env.TERM.includes('color'))) {
     process.env.FORCE_COLOR = '1';
-    // Re-require chalk to pick up the new environment variable
+    // Re-import chalk to pick up the updated environment variable.
     delete require.cache[require.resolve('chalk')];
     const chalkModule = require('chalk');
     Object.assign(chalk, chalkModule);
@@ -21,21 +19,21 @@ if (!chalk.supportsColor && (process.env.TERM && process.env.TERM.includes('colo
 
 class TestOrchestrator {
     constructor() {
-        // Test suites configuration
+        // Configuration for available test suites.
         this.availableSuites = [
             'auth', 'permissions', 'stations', 
             'voices', 'station-voices', 'stories', 
             'bulletins', 'users', 'validation'
         ];
         
-        // Test suite order (ensures dependencies are met)
+        // Execution order ensures dependencies are met.
         this.testOrder = [
             'auth', 'permissions', 'stations',
             'voices', 'station-voices', 'stories',
             'bulletins', 'users', 'validation'
         ];
         
-        // Test suite scripts
+        // Mapping of suite names to their script paths.
         this.suiteScripts = {
             'auth': './auth/test-auth.js',
             'permissions': './auth/test-permissions.js',
@@ -48,7 +46,7 @@ class TestOrchestrator {
             'validation': './validation/validation-tests.js'
         };
         
-        // Global test tracking
+        // Global counters for test result tracking.
         this.totalTests = 0;
         this.passedTests = 0;
         this.failedTests = 0;
@@ -56,7 +54,7 @@ class TestOrchestrator {
         this.suitesPassed = 0;
         this.suitesFailed = 0;
         
-        // Parse command line arguments
+        // Process command line arguments for configuration.
         this.args = process.argv.slice(2);
         this.options = {
             quick: this.args.includes('--quick'),

@@ -1,7 +1,5 @@
-/**
- * Babbel Bulletins Tests - Node.js
- * Test bulletin generation and audio handling functionality
- */
+// Babbel bulletins tests.
+// Tests bulletin generation and audio handling functionality.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');

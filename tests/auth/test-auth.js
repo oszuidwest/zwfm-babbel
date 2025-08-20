@@ -1,7 +1,5 @@
-/**
- * Babbel Authentication Tests - Node.js
- * Test basic authentication functionality
- */
+// Babbel authentication tests.
+// Tests basic authentication functionality including login, logout, and session management.
 
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');
@@ -13,7 +11,7 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test successful login
+     * Tests successful admin login and session verification.
      */
     async testSuccessfulLogin() {
         this.printSection('Testing Successful Login');
@@ -22,7 +20,7 @@ class AuthTests extends BaseTest {
         if (await this.apiLogin('admin', 'admin')) {
             this.printSuccess('Admin login successful');
             
-            // Verify session is active
+            // Verify that the session is now active.
             if (await this.isSessionActive()) {
                 this.printSuccess('Session is active after login');
             } else {
@@ -30,7 +28,7 @@ class AuthTests extends BaseTest {
                 return false;
             }
             
-            // Get session info
+            // Retrieve and verify session information.
             const sessionInfo = await this.getCurrentSession();
             if (sessionInfo) {
                 const username = this.parseJsonField(sessionInfo, 'username');
@@ -51,7 +49,7 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test login failures
+     * Tests various login failure scenarios.
      */
     async testLoginFailures() {
         this.printSection('Testing Login Failures');
@@ -85,7 +83,7 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test session management
+     * Tests session creation, retrieval, and destruction.
      */
     async testSessionManagement() {
         this.printSection('Testing Session Management');
@@ -108,7 +106,7 @@ class AuthTests extends BaseTest {
         if (await this.apiLogout()) {
             this.printSuccess('Logout successful');
             
-            // Verify session is destroyed
+            // Verify that the session was properly destroyed.
             if (!(await this.isSessionActive())) {
                 this.printSuccess('Session correctly destroyed after logout');
             } else {
@@ -116,7 +114,7 @@ class AuthTests extends BaseTest {
                 return false;
             }
             
-            // Test accessing protected endpoint after logout
+            // Test that protected endpoints are inaccessible after logout.
             const response = await this.apiCall('GET', '/sessions/current');
             
             if (this.assertions.assertHttpError(response.status, 'Access after logout')) {
@@ -133,7 +131,7 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test unauthorized access
+     * Tests that protected endpoints reject unauthorized requests.
      */
     async testUnauthorizedAccess() {
         this.printSection('Testing Unauthorized Access');
@@ -167,12 +165,12 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test invalid session token
+     * Tests handling of invalid or malformed session tokens.
      */
     async testInvalidSession() {
         this.printSection('Testing Invalid Session Token');
         
-        // Clear cookies and set invalid session
+        // Clear existing cookies and test with invalid session.
         await this.clearCookies();
         
         // Test with completely invalid session token
@@ -209,12 +207,12 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Test auth config endpoint
+     * Tests the public auth configuration endpoint.
      */
     async testAuthConfig() {
         this.printSection('Testing Auth Configuration');
         
-        // Auth config should be publicly accessible
+        // The auth config endpoint should be publicly accessible.
         const response = await this.http({
             method: 'get',
             url: `${this.apiUrl}/auth/config`
@@ -223,19 +221,19 @@ class AuthTests extends BaseTest {
         if (this.assertions.assertStatusCode(response.status, 200, 'Auth config endpoint')) {
             this.printSuccess('Auth config endpoint accessible');
             
-            // Should have methods array
+            // Response should contain a methods array.
             if (this.assertions.assertJsonField(response.data, 'methods', 'Auth methods field')) {
                 const methods = response.data.methods;
                 if (Array.isArray(methods)) {
                     this.printSuccess(`Auth methods is an array with ${methods.length} method(s)`);
                     this.printInfo(`Available methods: ${methods.join(', ')}`);
                     
-                    // Check if local auth is available
+                    // Verify local authentication availability.
                     if (methods.includes('local')) {
                         this.printSuccess('Local authentication is available');
                     }
                     
-                    // Check if OAuth is available
+                    // Check for OAuth/OIDC authentication availability.
                     if (methods.includes('oauth') || methods.includes('oidc')) {
                         this.printInfo('OAuth/OIDC authentication is available');
                     }
@@ -254,7 +252,11 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Helper function to test login credentials
+     * Helper function to test login credentials.
+     * @param {string} username - Username to test.
+     * @param {string} password - Password to test.
+     * @param {number} expectedStatus - Expected HTTP status code (default: 201).
+     * @returns {Promise<boolean>} True if result matches expectation.
      */
     async testLoginCredentials(username, password, expectedStatus = 201) {
         const response = await this.apiCall('POST', '/sessions', {
@@ -265,7 +267,7 @@ class AuthTests extends BaseTest {
         if (response.status === expectedStatus) {
             if (expectedStatus === 201) {
                 this.printSuccess(`Login successful for ${username}`);
-                // Clean up the successful login
+                // Clean up the successful login session.
                 await this.apiLogout();
             } else {
                 this.printSuccess(`Login correctly failed for ${username} (HTTP ${response.status})`);
@@ -278,27 +280,30 @@ class AuthTests extends BaseTest {
     }
     
     /**
-     * Setup function
+     * Sets up authentication tests by ensuring clean session state.
+     * @returns {Promise<boolean>} True if setup succeeded.
      */
     async setup() {
         this.printInfo('Setting up authentication tests...');
-        // Ensure we start with a clean session
+        // Start tests with a clean session state.
         await this.apiLogout();
         return true;
     }
     
     /**
-     * Cleanup function
+     * Cleans up authentication tests by restoring admin session.
+     * @returns {Promise<boolean>} True if cleanup succeeded.
      */
     async cleanup() {
         this.printInfo('Cleaning up authentication tests...');
-        // Ensure we're logged back in as admin for other tests
+        // Restore admin session for subsequent tests.
         await this.apiLogin('admin', 'admin');
         return true;
     }
     
     /**
-     * Main test runner
+     * Main test runner for authentication tests.
+     * @returns {Promise<boolean>} True if all tests passed.
      */
     async run() {
         this.printHeader('Authentication Tests');
@@ -323,7 +328,7 @@ class AuthTests extends BaseTest {
                 this.printError(`✗ ${test} failed`);
                 failed++;
             }
-            console.error(''); // Add spacing between tests
+            console.error(''); // Add visual spacing between tests.
         }
         
         await this.cleanup();

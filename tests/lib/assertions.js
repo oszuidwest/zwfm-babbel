@@ -1,7 +1,5 @@
-/**
- * Test Assertion Functions for Babbel API Tests
- * These functions provide assertion capabilities similar to the bash version
- */
+// Test assertion functions for Babbel API tests.
+// Provides assertion capabilities similar to the bash version with improved error handling.
 
 const fsSync = require('fs');
 const { execSync } = require('child_process');
@@ -11,9 +9,7 @@ class Assertions {
         this.baseTest = baseTest;
     }
     
-    // ==========================================
     // HTTP Status Assertions
-    // ==========================================
     
     assertStatusCode(actualCode, expectedCode, description = 'HTTP status code') {
         if (actualCode === expectedCode) {
@@ -45,9 +41,7 @@ class Assertions {
         }
     }
     
-    // ==========================================
     // JSON Field Assertions
-    // ==========================================
     
     assertJsonField(data, field, description = null) {
         description = description || `Field ${field}`;
@@ -77,9 +71,7 @@ class Assertions {
         }
     }
     
-    // ==========================================
     // String Assertions
-    // ==========================================
     
     assertContains(text, substring, description = 'String contains') {
         if (text && text.includes(substring)) {
@@ -121,9 +113,7 @@ class Assertions {
         }
     }
     
-    // ==========================================
     // File Assertions
-    // ==========================================
     
     assertFileExists(filePath, description = 'File exists') {
         if (fsSync.existsSync(filePath)) {
@@ -169,7 +159,7 @@ class Assertions {
                 return false;
             }
             
-            // Use ffprobe to verify it's valid audio
+            // Verify audio validity using ffprobe.
             execSync(`ffprobe -v quiet -select_streams a:0 -show_entries stream=codec_type -of csv=p=0 "${filePath}"`, 
                 { stdio: 'pipe' });
             
@@ -182,23 +172,21 @@ class Assertions {
         }
     }
     
-    // ==========================================
     // Response Checking
-    // ==========================================
     
     checkResponse(response, expectedStatus, description = 'API response') {
         if (this.assertStatusCode(response.status, expectedStatus, description)) {
-            // If successful, try to extract common fields
+            // Extract common fields from successful responses.
             if (expectedStatus === 201 || expectedStatus === 200) {
                 const id = this.baseTest.parseJsonField(response.data, 'id');
                 if (id && id !== 'null') {
                     this.baseTest.printInfo(`Created/Retrieved ID: ${id}`);
-                    return id; // Return the ID for use in other tests
+                    return id; // Return ID for use in subsequent tests.
                 }
             }
             return true;
         } else {
-            // On error, try to extract error message
+            // Extract error message from failed responses.
             const errorMsg = this.baseTest.extractErrorMessage(response.data);
             if (errorMsg) {
                 this.baseTest.printError(`Error message: ${errorMsg}`);
@@ -207,9 +195,7 @@ class Assertions {
         }
     }
     
-    // ==========================================
     // API Endpoint Testing
-    // ==========================================
     
     async testApiEndpoint(method, endpoint, expectedStatus, data = null, description = null) {
         description = description || `${method} ${endpoint}`;
@@ -221,9 +207,7 @@ class Assertions {
         return this.checkResponse(response, expectedStatus, description);
     }
     
-    // ==========================================
     // Array and Numeric Assertions
-    // ==========================================
     
     assertArrayLength(data, arrayField, expectedLength, description = 'Array length') {
         try {

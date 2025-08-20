@@ -1,21 +1,19 @@
 #!/usr/bin/env node
 
-/**
- * Babbel Validation Tests - Node.js Implementation
- * 
- * Comprehensive validation testing for all API endpoints with proper JSON handling.
- * Tests field validation, data types, boundaries, business rules, and input sanitization.
- * 
- * This script replaces the bash implementation to solve JSON parsing issues when
- * using colons as delimiters in test data that also contains colons.
- */
+// Babbel validation tests - Node.js implementation.
+// 
+// Comprehensive validation testing for all API endpoints with proper JSON handling.
+// Tests field validation, data types, boundaries, business rules, and input sanitization.
+// 
+// This script replaces the bash implementation to solve JSON parsing issues when
+// using colons as delimiters in test data that also contains colons.
 
 const fs = require('fs');
 const path = require('path');
 const BaseTest = require('../lib/BaseTest');
 const Assertions = require('../lib/assertions');
 
-// Test result types
+// Enum for test result types.
 const TestResult = {
     PASS: "PASS",
     FAIL: "FAIL",
@@ -23,7 +21,8 @@ const TestResult = {
 };
 
 /**
- * Represents a single test case
+ * Represents a single test case.
+ * @class
  */
 class TestCase {
     constructor(name, data, expectedStatus, description, endpoint = "", method = "POST") {
@@ -37,7 +36,8 @@ class TestCase {
 }
 
 /**
- * Main class for running validation tests
+ * Main class for running validation tests.
+ * @class
  */
 class ValidationTester extends BaseTest {
     constructor() {

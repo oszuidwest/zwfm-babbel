@@ -4,16 +4,15 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-/**
- * Script to check the migration status of bash tests to Node.js
- */
+// Script to check the migration status of bash tests to Node.js.
+// Compares test functions between bash and Node.js implementations.
 
 function extractBashTests(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf8');
         const testFunctions = [];
         
-        // Match test functions (test_* or function test_*)
+        // Match test functions using regex patterns for bash syntax.
         const regex = /(?:^|\n)(?:function\s+)?(test_\w+)\s*\(\)/gm;
         let match;
         while ((match = regex.exec(content)) !== null) {
@@ -31,7 +30,7 @@ function extractNodeTests(filePath) {
         const content = fs.readFileSync(filePath, 'utf8');
         const testFunctions = [];
         
-        // Match async test methods
+        // Match async test methods in Node.js classes.
         const regex = /async\s+(test\w+)\s*\(/gm;
         let match;
         while ((match = regex.exec(content)) !== null) {
@@ -60,7 +59,7 @@ function compareTests(bashTests, nodeTests) {
         if (nodeTests.includes(test)) {
             implemented.push({ bash: bashTests[index], node: test });
         } else {
-            // Check for similar names
+            // Check for similar test names with different naming conventions.
             const similar = nodeTests.find(nt => 
                 nt.toLowerCase() === test.toLowerCase() ||
                 nt.toLowerCase().includes(test.toLowerCase().replace('test', ''))
@@ -101,7 +100,7 @@ function checkTestSuite(suiteName) {
     };
 }
 
-// Test suites to check
+// List of test suites to check for migration completeness.
 const testSuites = [
     'auth',
     'permissions',
@@ -125,10 +124,10 @@ let totalExtra = 0;
 const results = [];
 
 testSuites.forEach(suite => {
-    // Handle special cases
+    // Handle special cases for suite directory structure.
     let checkSuite = suite;
     if (suite === 'permissions') {
-        checkSuite = 'auth'; // permissions is in auth folder
+        checkSuite = 'auth'; // Permissions tests are located in the auth folder.
         const bashPath = path.join(__dirname, 'auth', `test-permissions.sh`);
         const nodePath = path.join(__dirname, 'auth', `test-permissions.js`);
         
@@ -163,7 +162,7 @@ testSuites.forEach(suite => {
     }
 });
 
-// Print detailed results
+// Display detailed migration results for each test suite.
 results.forEach(result => {
     console.log(`\n${result.suite.toUpperCase()} Test Suite`);
     console.log('-'.repeat(40));
@@ -189,7 +188,7 @@ results.forEach(result => {
     }
 });
 
-// Print summary
+// Display overall migration summary.
 console.log('\n' + '='.repeat(50));
 console.log('SUMMARY');
 console.log('='.repeat(50));
@@ -204,7 +203,7 @@ if (totalMissing === 0) {
     console.log(`\n⚠ ${totalMissing} tests still need to be migrated`);
 }
 
-// Export results for other scripts
+// Export results in JSON format if requested.
 if (process.argv.includes('--json')) {
     console.log('\n' + JSON.stringify(results, null, 2));
 }
