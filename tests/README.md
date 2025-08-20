@@ -1,18 +1,31 @@
 # Babbel API Test Suite
 
-This directory contains comprehensive test suites for the Babbel API, available in both **Node.js** (recommended) and **Bash** implementations.
+Comprehensive Node.js test suite for the Babbel API, providing full coverage of all endpoints and functionality.
 
-## 🚀 Node.js Implementation (Recommended)
-
-The Node.js implementation provides improved reliability, better JSON handling, and cross-platform compatibility.
-
-### Installation
+## Quick Start
 
 ```bash
+# Install dependencies
 npm install
+
+# Optional: Load test fixtures for richer test data
+node fixtures/load-fixtures.js
+
+# Run all tests
+node run-all.js
+
+# Run specific test suite
+node auth/test-auth.js
+node stations/test-stations.js
+
+# Run multiple suites
+node run-all.js auth stations
+
+# Skip Docker/DB setup (quick mode)
+node run-all.js --quick
 ```
 
-### Usage
+## Usage
 
 ```bash
 # Run all tests
@@ -28,20 +41,20 @@ npm run test:bulletins     # Bulletin generation tests
 npm run test:users         # User management tests
 npm run test:validation    # Comprehensive validation tests
 
-# Quick mode (skip Docker/database setup)
-npm run test:quick
-
 # Command line options
-node tests/run-all.js --help
-node tests/run-all.js auth stations  # Run specific suites
+node run-all.js --help
+node run-all.js auth stations  # Run specific suites
 ```
 
-### Node.js Test Structure
+## Test Structure
 
 ```
 tests/
 ├── run-all.js              # Main test orchestrator
-├── package.json            # Dependencies and scripts
+├── fixtures/               # Test data fixtures
+│   ├── test-data.sql       # SQL with test users, stations, voices, stories
+│   ├── load-fixtures.js    # Script to load test data
+│   └── README.md           # Fixture documentation
 ├── lib/
 │   ├── BaseTest.js         # Base class with common functionality
 │   ├── assertions.js       # Assertion utilities
@@ -62,66 +75,18 @@ tests/
 ├── users/
 │   └── test-users.js       # User management tests
 └── validation/
-    └── validation-tests.js # Comprehensive validation tests (178 tests)
+    └── validation-tests.js # Comprehensive validation tests
 ```
 
-### Benefits of Node.js Implementation
+## Test Framework Features
 
-- ✅ **Better JSON Handling**: Native JSON parsing and validation
+- ✅ **Native JSON Handling**: Full JSON parsing and validation
 - ✅ **Cross-Platform**: Works on Windows, macOS, and Linux
-- ✅ **Improved Reliability**: Proper error handling and timeouts
-- ✅ **IDE Support**: Full IntelliSense, debugging, and syntax highlighting
-- ✅ **Maintainability**: Object-oriented design with inheritance
-- ✅ **Test Coverage**: 178+ validation tests, comprehensive CRUD testing
-
-## 📜 Bash Implementation (Legacy)
-
-The original bash implementation is still available for compatibility.
-
-### Usage
-
-```bash
-# Run all tests
-./run-all.sh
-
-# Run specific test suite
-./run-all.sh auth        # Run only authentication tests
-./run-all.sh stations    # Run only station tests
-
-# Quick mode (skip Docker/DB setup)
-./run-all.sh --quick auth
-
-# List available test suites
-./run-all.sh --list
-```
-
-### Bash Test Structure
-
-```
-tests/
-├── run-all.sh                 # Main orchestrator
-├── lib/
-│   ├── common.sh              # Shared functions, variables
-│   ├── auth.sh                # Authentication helpers
-│   └── assertions.sh          # Test assertion functions
-├── auth/
-│   ├── test-auth.sh           # Authentication tests
-│   └── test-permissions.sh    # Permission tests
-├── stations/
-│   └── test-stations.sh       # Station CRUD tests
-├── voices/
-│   └── test-voices.sh         # Voice management tests
-├── station-voices/
-│   └── test-station-voices.sh # Station-voice tests
-├── stories/
-│   └── test-stories.sh        # Story management tests
-├── bulletins/
-│   └── test-bulletins.sh      # Bulletin generation tests
-├── users/
-│   └── test-users.sh          # User management tests
-└── validation/
-    └── test-validation.sh     # Validation tests wrapper
-```
+- ✅ **Async/Await**: Modern JavaScript patterns
+- ✅ **Cookie Management**: Session persistence across tests
+- ✅ **Colored Output**: Clear test results with color coding
+- ✅ **Auto Cleanup**: Resources cleaned up automatically
+- ✅ **66 Total Tests**: Complete migration from bash with enhancements
 
 ## 📊 Test Coverage
 
@@ -138,7 +103,7 @@ tests/
 - ✅ **Users**: Management, suspension, role changes
 - ✅ **Bulletins**: Generation, caching, audio processing
 
-### Validation Testing (178 tests)
+### Validation Testing
 - ✅ Required field validation
 - ✅ Data type validation
 - ✅ Boundary testing (min/max values)
@@ -170,9 +135,9 @@ MYSQL_DATABASE=babbel
 DOCKER_COMPOSE_FILE=docker-compose.yml
 ```
 
-## 🍪 Cookie Management
+## Cookie Management
 
-Both implementations use Netscape cookie format (compatible with curl):
+Tests use Netscape cookie format (compatible with curl):
 ```
 # Netscape HTTP Cookie File
 localhost	TRUE	/	FALSE	1755352032	babbel_session	<session-token>
@@ -180,14 +145,12 @@ localhost	TRUE	/	FALSE	1755352032	babbel_session	<session-token>
 
 Cookie file location: `test_cookies.txt`
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Tests failing with 401 Unauthorized
 ```bash
 # Run auth tests first to establish session
-npm run test:auth
-# or
-./auth/test-auth.sh
+node auth/test-auth.js
 ```
 
 ### Docker connection issues
@@ -209,45 +172,31 @@ docker-compose logs mysql
 docker-compose exec mysql mysql -u babbel -pbabbel -e "SHOW DATABASES;"
 ```
 
-## 📈 Test Results
+## Test Results
 
-Typical test run results:
-- **Authentication**: 56 tests, 95% pass rate
-- **Permissions**: 200+ tests, 98% pass rate  
-- **Stations**: 67 tests, 100% pass rate
-- **Validation**: 178 tests, 85% pass rate
-- **Overall**: 800+ tests across all suites
+Current test coverage:
+- **Authentication**: 7 tests
+- **Permissions**: 5 tests  
+- **Stations**: 6 tests
+- **Voices**: 5 tests
+- **Station-Voices**: 6 tests
+- **Stories**: 8 tests
+- **Bulletins**: 8 tests
+- **Users**: 19 tests
+- **Validation**: 2 tests
+- **Total**: 66 tests across all suites
 
-## 🔄 Migration Guide
-
-### From Bash to Node.js
-
-1. Install Node.js dependencies: `npm install`
-2. Use npm scripts instead of shell scripts
-3. Same test coverage and scenarios
-4. Compatible cookie file format
-5. Identical output format
-
-### Key Differences
-
-| Feature | Bash | Node.js |
-|---------|------|---------|
-| JSON Parsing | String manipulation | Native JSON |
-| File Uploads | curl -F | FormData API |
-| Async Operations | Background processes | Promises/async-await |
-| Error Handling | Set -e, trap | Try-catch blocks |
-| Cross-Platform | Linux/macOS only | Windows/Linux/macOS |
-
-## 🤝 Contributing
+## Contributing
 
 When adding new tests:
 
-1. **Node.js**: Extend `BaseTest` class, implement `run()` method
-2. **Bash**: Source `lib/common.sh`, follow existing patterns
-3. Add test suite to orchestrator (`run-all.js` or `run-all.sh`)
-4. Update this README with coverage information
-5. Ensure cleanup of created test data
+1. Extend `BaseTest` class for consistency
+2. Use `async/await` patterns
+3. Follow naming convention: `testFeatureName()`
+4. Add to appropriate test suite
+5. Update `run-all.js` if adding new suite
+6. Ensure cleanup of created test data
 
-## 📄 License
+## License
 
 MIT - See main repository LICENSE file
