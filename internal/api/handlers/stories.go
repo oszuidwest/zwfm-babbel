@@ -214,15 +214,17 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if err != nil {
 		logger.Error("Database error creating story: %v", err)
 		// Provide more specific error messages for common database errors
-		if strings.Contains(err.Error(), "Data too long") {
+		errStr := err.Error()
+		switch {
+		case strings.Contains(errStr, "Data too long"):
 			utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
 				{Field: "data", Message: "One or more fields exceed maximum length"},
 			})
-		} else if strings.Contains(err.Error(), "Duplicate entry") {
+		case strings.Contains(errStr, "Duplicate entry"):
 			utils.ProblemDuplicate(c, "Story")
-		} else if strings.Contains(err.Error(), "foreign key constraint") {
+		case strings.Contains(errStr, "foreign key constraint"):
 			utils.ProblemBadRequest(c, "Invalid reference to related resource")
-		} else {
+		default:
 			utils.ProblemInternalServer(c, "Failed to create story due to database error")
 		}
 		return
@@ -281,30 +283,9 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// For updates, we need to check if both dates are provided for cross-validation
-	if req.StartDate != nil && req.EndDate != nil {
-		startDate, err := time.Parse("2006-01-02", *req.StartDate)
-		if err != nil {
-			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
-				{Field: "start_date", Message: "Invalid start date format"},
-			})
-			return
-		}
-		
-		endDate, err := time.Parse("2006-01-02", *req.EndDate)
-		if err != nil {
-			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
-				{Field: "end_date", Message: "Invalid end date format"},
-			})
-			return
-		}
-		
-		if endDate.Before(startDate) {
-			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
-				{Field: "end_date", Message: "End date cannot be before start date"},
-			})
-			return
-		}
+	// Validate date range if both dates provided
+	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
+		return
 	}
 
 	// Build dynamic update query
@@ -347,75 +328,10 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		args = append(args, endDate)
 	}
 
-	// Handle weekdays - check JSON format first, then individual fields
-	hasWeekdayUpdate := false
-	var weekdayValues []interface{}
-	
-	if len(req.Weekdays) > 0 {
-		// Use weekdays map from JSON
-		hasWeekdayUpdate = true
-		weekdayValues = []interface{}{
-			req.Weekdays["monday"],
-			req.Weekdays["tuesday"], 
-			req.Weekdays["wednesday"],
-			req.Weekdays["thursday"],
-			req.Weekdays["friday"],
-			req.Weekdays["saturday"],
-			req.Weekdays["sunday"],
-		}
-	} else if req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil || 
-	          req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil {
-		// Use individual form fields (only if at least one is provided)
-		hasWeekdayUpdate = true
-		
-		// Get current values for fields not provided
-		var currentStory struct {
-			Monday    bool `db:"monday"`
-			Tuesday   bool `db:"tuesday"`
-			Wednesday bool `db:"wednesday"`
-			Thursday  bool `db:"thursday"`
-			Friday    bool `db:"friday"`
-			Saturday  bool `db:"saturday"`
-			Sunday    bool `db:"sunday"`
-		}
-		
-		query := "SELECT monday, tuesday, wednesday, thursday, friday, saturday, sunday FROM stories WHERE id = ?"
-		if err := h.db.Get(&currentStory, query, id); err != nil {
-			utils.ProblemInternalServer(c, "Failed to fetch current story weekdays")
-			return
-		}
-		
-		// Use new values if provided, otherwise keep current values
-		monday := currentStory.Monday
-		if req.Monday != nil {
-			monday = *req.Monday
-		}
-		tuesday := currentStory.Tuesday
-		if req.Tuesday != nil {
-			tuesday = *req.Tuesday
-		}
-		wednesday := currentStory.Wednesday
-		if req.Wednesday != nil {
-			wednesday = *req.Wednesday
-		}
-		thursday := currentStory.Thursday
-		if req.Thursday != nil {
-			thursday = *req.Thursday
-		}
-		friday := currentStory.Friday
-		if req.Friday != nil {
-			friday = *req.Friday
-		}
-		saturday := currentStory.Saturday
-		if req.Saturday != nil {
-			saturday = *req.Saturday
-		}
-		sunday := currentStory.Sunday
-		if req.Sunday != nil {
-			sunday = *req.Sunday
-		}
-		
-		weekdayValues = []interface{}{monday, tuesday, wednesday, thursday, friday, saturday, sunday}
+	// Handle weekdays updates
+	hasWeekdayUpdate, weekdayValues, err := h.prepareWeekdayUpdate(c, &req, id)
+	if err != nil {
+		return // Error already handled in prepareWeekdayUpdate
 	}
 
 	if hasWeekdayUpdate {
@@ -448,15 +364,17 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
 		logger.Error("Database error updating story: %v", err)
 		// Provide more specific error messages for common database errors
-		if strings.Contains(err.Error(), "Data too long") {
+		errStr := err.Error()
+		switch {
+		case strings.Contains(errStr, "Data too long"):
 			utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
 				{Field: "data", Message: "One or more fields exceed maximum length"},
 			})
-		} else if strings.Contains(err.Error(), "Duplicate entry") {
+		case strings.Contains(errStr, "Duplicate entry"):
 			utils.ProblemDuplicate(c, "Story")
-		} else if strings.Contains(err.Error(), "foreign key constraint") {
+		case strings.Contains(errStr, "foreign key constraint"):
 			utils.ProblemBadRequest(c, "Invalid reference to related resource")
-		} else {
+		default:
 			utils.ProblemInternalServer(c, "Failed to update story due to database error")
 		}
 		return
@@ -563,4 +481,141 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		}
 		utils.SuccessWithMessage(c, "Story status updated")
 	}
+}
+
+// validateDateRange validates start and end dates if both are provided
+func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *string) bool {
+	if startDateStr == nil || endDateStr == nil {
+		return true // Skip validation if either date is missing
+	}
+	
+	startDate, err := time.Parse("2006-01-02", *startDateStr)
+	if err != nil {
+		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+			{Field: "start_date", Message: "Invalid start date format"},
+		})
+		return false
+	}
+	
+	endDate, err := time.Parse("2006-01-02", *endDateStr)
+	if err != nil {
+		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+			{Field: "end_date", Message: "Invalid end date format"},
+		})
+		return false
+	}
+	
+	if endDate.Before(startDate) {
+		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+			{Field: "end_date", Message: "End date cannot be before start date"},
+		})
+		return false
+	}
+	
+	return true
+}
+
+// prepareWeekdayUpdate handles weekday field updates for stories
+func (h *Handlers) prepareWeekdayUpdate(c *gin.Context, req *utils.StoryUpdateRequest, storyID int) (bool, []interface{}, error) {
+	// Check JSON format first
+	if len(req.Weekdays) > 0 {
+		return true, []interface{}{
+			req.Weekdays["monday"],
+			req.Weekdays["tuesday"],
+			req.Weekdays["wednesday"],
+			req.Weekdays["thursday"],
+			req.Weekdays["friday"],
+			req.Weekdays["saturday"],
+			req.Weekdays["sunday"],
+		}, nil
+	}
+	
+	// Check if any individual field is set
+	if !h.hasWeekdayUpdates(req) {
+		return false, nil, nil
+	}
+	
+	// Get current values
+	current, err := h.getCurrentWeekdays(storyID)
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to fetch current story weekdays")
+		return false, nil, err
+	}
+	
+	// Merge with new values
+	values := h.mergeWeekdayValues(req, current)
+	return true, values, nil
+}
+
+// hasWeekdayUpdates checks if any weekday field is being updated
+func (h *Handlers) hasWeekdayUpdates(req *utils.StoryUpdateRequest) bool {
+	return req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
+		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
+}
+
+// getCurrentWeekdays fetches current weekday values for a story
+func (h *Handlers) getCurrentWeekdays(storyID int) (*struct {
+	Monday    bool `db:"monday"`
+	Tuesday   bool `db:"tuesday"`
+	Wednesday bool `db:"wednesday"`
+	Thursday  bool `db:"thursday"`
+	Friday    bool `db:"friday"`
+	Saturday  bool `db:"saturday"`
+	Sunday    bool `db:"sunday"`
+}, error) {
+	var current struct {
+		Monday    bool `db:"monday"`
+		Tuesday   bool `db:"tuesday"`
+		Wednesday bool `db:"wednesday"`
+		Thursday  bool `db:"thursday"`
+		Friday    bool `db:"friday"`
+		Saturday  bool `db:"saturday"`
+		Sunday    bool `db:"sunday"`
+	}
+	
+	query := "SELECT monday, tuesday, wednesday, thursday, friday, saturday, sunday FROM stories WHERE id = ?"
+	err := h.db.Get(&current, query, storyID)
+	return &current, err
+}
+
+// mergeWeekdayValues merges new weekday values with current ones
+func (h *Handlers) mergeWeekdayValues(req *utils.StoryUpdateRequest, current *struct {
+	Monday    bool `db:"monday"`
+	Tuesday   bool `db:"tuesday"`
+	Wednesday bool `db:"wednesday"`
+	Thursday  bool `db:"thursday"`
+	Friday    bool `db:"friday"`
+	Saturday  bool `db:"saturday"`
+	Sunday    bool `db:"sunday"`
+}) []interface{} {
+	monday := current.Monday
+	if req.Monday != nil {
+		monday = *req.Monday
+	}
+	tuesday := current.Tuesday
+	if req.Tuesday != nil {
+		tuesday = *req.Tuesday
+	}
+	wednesday := current.Wednesday
+	if req.Wednesday != nil {
+		wednesday = *req.Wednesday
+	}
+	thursday := current.Thursday
+	if req.Thursday != nil {
+		thursday = *req.Thursday
+	}
+	friday := current.Friday
+	if req.Friday != nil {
+		friday = *req.Friday
+	}
+	saturday := current.Saturday
+	if req.Saturday != nil {
+		saturday = *req.Saturday
+	}
+	sunday := current.Sunday
+	if req.Sunday != nil {
+		sunday = *req.Sunday
+	}
+	
+	return []interface{}{monday, tuesday, wednesday, thursday, friday, saturday, sunday}
 }

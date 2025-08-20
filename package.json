@@ -41,6 +41,6 @@
     "url": "https://github.com/oszuidwest/zwfm-babbel.git"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=24.0.0"
   }
 }

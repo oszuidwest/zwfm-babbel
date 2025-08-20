@@ -72,9 +72,10 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	var currentEmpty, compareEmpty bool
 	
 	// Parse current field
-	if field.Type() == reflect.TypeOf(time.Time{}) {
+	switch {
+	case field.Type() == reflect.TypeOf(time.Time{}):
 		currentTime = field.Interface().(time.Time)
-	} else if field.Kind() == reflect.String {
+	case field.Kind() == reflect.String:
 		dateStr := field.String()
 		if dateStr == "" {
 			currentEmpty = true
@@ -84,7 +85,7 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 				return false // Invalid date format
 			}
 		}
-	} else if field.Kind() == reflect.Ptr && !field.IsNil() {
+	case field.Kind() == reflect.Ptr && !field.IsNil():
 		// Handle pointer to string (for optional fields)
 		if field.Elem().Kind() == reflect.String {
 			dateStr := field.Elem().String()
@@ -97,16 +98,17 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 				}
 			}
 		}
-	} else if field.Kind() == reflect.Ptr && field.IsNil() {
+	case field.Kind() == reflect.Ptr && field.IsNil():
 		currentEmpty = true
-	} else {
+	default:
 		return true // Unknown type, skip validation
 	}
 	
 	// Parse comparison field
-	if compareField.Type() == reflect.TypeOf(time.Time{}) {
+	switch {
+	case compareField.Type() == reflect.TypeOf(time.Time{}):
 		compareTime = compareField.Interface().(time.Time)
-	} else if compareField.Kind() == reflect.String {
+	case compareField.Kind() == reflect.String:
 		dateStr := compareField.String()
 		if dateStr == "" {
 			compareEmpty = true
@@ -116,7 +118,7 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 				return true // Invalid comparison date format, skip validation
 			}
 		}
-	} else if compareField.Kind() == reflect.Ptr && !compareField.IsNil() {
+	case compareField.Kind() == reflect.Ptr && !compareField.IsNil():
 		// Handle pointer to string (for optional fields)
 		if compareField.Elem().Kind() == reflect.String {
 			dateStr := compareField.Elem().String()
@@ -129,9 +131,9 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 				}
 			}
 		}
-	} else if compareField.Kind() == reflect.Ptr && compareField.IsNil() {
+	case compareField.Kind() == reflect.Ptr && compareField.IsNil():
 		compareEmpty = true
-	} else {
+	default:
 		return true // Unknown type, skip validation
 	}
 	

@@ -141,14 +141,15 @@ func parseSorting(c *gin.Context) []SortField {
 
 		var field, direction string
 
-		// Check for prefix notation (-field or +field)
-		if strings.HasPrefix(part, "-") {
+		// Check for prefix notation (-field or +field) or colon notation
+		switch {
+		case strings.HasPrefix(part, "-"):
 			field = strings.TrimPrefix(part, "-")
 			direction = "desc"
-		} else if strings.HasPrefix(part, "+") {
+		case strings.HasPrefix(part, "+"):
 			field = strings.TrimPrefix(part, "+")
 			direction = "asc"
-		} else if strings.Contains(part, ":") {
+		case strings.Contains(part, ":"):
 			// Check for colon notation (field:direction)
 			colonParts := strings.Split(part, ":")
 			if len(colonParts) == 2 {
@@ -158,7 +159,7 @@ func parseSorting(c *gin.Context) []SortField {
 					direction = "asc" // Default to asc for invalid direction
 				}
 			}
-		} else {
+		default:
 			// No direction specified, default to asc
 			field = part
 			direction = "asc"
@@ -350,79 +351,21 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 		args = append(args, config.AllowedArgs...)
 	}
 
-	// Handle status filtering (replaces include_deleted)
-	if params.Status != "" {
-		switch params.Status {
-		case "all":
-			// Include all records, no filter
-		case "active":
-			conditions = append(conditions, "deleted_at IS NULL AND status = 'active'")
-		case "deleted":
-			conditions = append(conditions, "deleted_at IS NOT NULL")
-		case "suspended":
-			conditions = append(conditions, "suspended_at IS NOT NULL")
-		default:
-			// Treat as status filter
-			conditions = append(conditions, "status = ?")
-			args = append(args, params.Status)
-		}
-	} else {
-		// Default: exclude deleted records
-		conditions = append(conditions, "deleted_at IS NULL")
+	// Handle status filtering
+	statusCondition := buildStatusCondition(params.Status, &args)
+	if statusCondition != "" {
+		conditions = append(conditions, statusCondition)
 	}
 
 	// Handle search functionality
-	if params.Search != "" && config.SearchFields != nil {
-		searchConditions := make([]string, 0, len(config.SearchFields))
-		for _, field := range config.SearchFields {
-			searchConditions = append(searchConditions, field+" LIKE ?")
-			args = append(args, "%"+params.Search+"%")
-		}
-		if len(searchConditions) > 0 {
-			conditions = append(conditions, "("+strings.Join(searchConditions, " OR ")+")")
-		}
+	searchCondition := buildSearchCondition(params.Search, config.SearchFields, &args)
+	if searchCondition != "" {
+		conditions = append(conditions, searchCondition)
 	}
 
 	// Handle boolean filters
-	for key, value := range params.BooleanFilters {
-		if value != nil {
-			switch key {
-			case "has_voice":
-				if *value {
-					conditions = append(conditions, "voice_id IS NOT NULL")
-				} else {
-					conditions = append(conditions, "voice_id IS NULL")
-				}
-			case "has_audio":
-				if *value {
-					conditions = append(conditions, "audio_file IS NOT NULL AND audio_file != ''")
-				} else {
-					conditions = append(conditions, "(audio_file IS NULL OR audio_file = '')")
-				}
-			case "is_active":
-				if *value {
-					conditions = append(conditions, "status = 'active'")
-				} else {
-					conditions = append(conditions, "status != 'active'")
-				}
-			case "is_expired":
-				now := time.Now()
-				if *value {
-					conditions = append(conditions, "end_date < ?")
-					args = append(args, now)
-				} else {
-					conditions = append(conditions, "(end_date >= ? OR end_date IS NULL)")
-					args = append(args, now)
-				}
-			case "is_scheduled":
-				if *value {
-					conditions = append(conditions, "start_date IS NOT NULL")
-				} else {
-					conditions = append(conditions, "start_date IS NULL")
-				}
-			}
-		}
-	}
+	boolConditions := buildBooleanConditions(params.BooleanFilters, &args)
+	conditions = append(conditions, boolConditions...)
 
 	// Handle advanced filters
 	for field, filter := range params.Filters {
@@ -711,11 +654,12 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 			orderByPos := strings.Index(query[whereStart:], "ORDER BY")
 			limitPos := strings.Index(query[whereStart:], "LIMIT")
 
-			if orderByPos >= 0 {
+			switch {
+			case orderByPos >= 0:
 				whereClause = query[whereStart : whereStart+orderByPos]
-			} else if limitPos >= 0 {
+			case limitPos >= 0:
 				whereClause = query[whereStart : whereStart+limitPos]
-			} else {
+			default:
 				whereClause = query[whereStart:]
 			}
 
@@ -765,4 +709,101 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 	}
 
 	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
+}
+
+// buildStatusCondition builds the SQL condition for status filtering
+func buildStatusCondition(status string, args *[]interface{}) string {
+	switch status {
+	case "all":
+		return "" // Include all records, no filter
+	case "active":
+		return "deleted_at IS NULL AND status = 'active'"
+	case "deleted":
+		return "deleted_at IS NOT NULL"
+	case "suspended":
+		return "suspended_at IS NOT NULL"
+	case "":
+		return "deleted_at IS NULL" // Default: exclude deleted records
+	default:
+		// Treat as status filter
+		*args = append(*args, status)
+		return "status = ?"
+	}
+}
+
+// buildSearchCondition builds the SQL condition for search functionality
+func buildSearchCondition(search string, searchFields []string, args *[]interface{}) string {
+	if search == "" || searchFields == nil {
+		return ""
+	}
+	
+	searchConditions := make([]string, 0, len(searchFields))
+	for _, field := range searchFields {
+		searchConditions = append(searchConditions, field+" LIKE ?")
+		*args = append(*args, "%"+search+"%")
+	}
+	
+	if len(searchConditions) > 0 {
+		return "(" + strings.Join(searchConditions, " OR ") + ")"
+	}
+	return ""
+}
+
+// buildBooleanConditions builds SQL conditions for boolean filters
+func buildBooleanConditions(filters map[string]*bool, args *[]interface{}) []string {
+	var conditions []string
+	
+	for key, value := range filters {
+		if value == nil {
+			continue
+		}
+		
+		condition := buildSingleBooleanCondition(key, *value, args)
+		if condition != "" {
+			conditions = append(conditions, condition)
+		}
+	}
+	
+	return conditions
+}
+
+// buildSingleBooleanCondition builds a single boolean filter condition
+func buildSingleBooleanCondition(key string, value bool, args *[]interface{}) string {
+	switch key {
+	case "has_voice":
+		if value {
+			return "voice_id IS NOT NULL"
+		}
+		return "voice_id IS NULL"
+		
+	case "has_audio":
+		if value {
+			return "audio_file IS NOT NULL AND audio_file != ''"
+		}
+		return "(audio_file IS NULL OR audio_file = '')"
+		
+	case "is_active":
+		if value {
+			return "status = 'active'"
+		}
+		return "status != 'active'"
+		
+	case "is_expired":
+		now := time.Now()
+		if value {
+			*args = append(*args, now)
+			return "end_date < ?"
+		}
+		*args = append(*args, now)
+		return "(end_date >= ? OR end_date IS NULL)"
+		
+	case "is_scheduled":
+		if value {
+			return "start_date IS NOT NULL"
+		}
+		return "start_date IS NULL"
+		
+	default:
+		return ""
+	}
 }

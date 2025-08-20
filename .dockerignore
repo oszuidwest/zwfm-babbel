@@ -23,7 +23,9 @@ Makefile
 # Test files
 *_test.go
 test_cookies.txt
-scripts/test-everything.sh
+tests/
+node_modules/
+package-lock.json
 
 # Build artifacts
 babbel

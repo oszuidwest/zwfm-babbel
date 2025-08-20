@@ -44,15 +44,25 @@ jobs:
         docker --version
         docker-compose --version
     
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24.x'
+        cache: 'npm'
+    
+    - name: Install Node.js dependencies
+      run: npm ci
+    
     - name: Run complete tests
       run: |
         mkdir -p audio/{processed,output,temp,voices,stories}
-        # Add debugging to see what files are created
-        ./scripts/test-everything.sh || {
+        # Run Node.js test suite
+        npm test || {
           echo "Test failed, showing debug info:"
           echo "Audio directory contents:"
           find audio -type f -ls || true
           echo "Docker logs:"
           docker-compose logs babbel || true
+          docker-compose logs mysql || true
           exit 1
         }
