@@ -198,7 +198,7 @@ paths:
                   oauth_url:
                     type: string
                     description: URL to start OAuth flow (only present when OAuth is enabled)
-                    example: "/api/v1/auth/oauth/start"
+                    example: "/api/v1/auth/oauth"
 
   /sessions:
     post:
@@ -241,7 +241,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /auth/oauth/start:
+  /auth/oauth:
     get:
       summary: Start OAuth/OIDC authentication flow
       tags:
@@ -692,14 +692,13 @@ paths:
                         status: "active"
                         start_date: "2024-01-20"
                         end_date: "2024-01-27"
-                        weekdays:
-                          monday: true
-                          tuesday: true
-                          wednesday: true
-                          thursday: true
-                          friday: true
-                          saturday: false
-                          sunday: false
+                        monday: true
+                        tuesday: true
+                        wednesday: true
+                        thursday: true
+                        friday: true
+                        saturday: false
+                        sunday: false
                         created_at: "2024-01-20T10:00:00Z"
                         updated_at: "2024-01-20T10:00:00Z"
                         deleted_at: null
@@ -759,14 +758,13 @@ paths:
                     status: "active"
                     start_date: "2024-01-20"
                     end_date: "2024-01-27"
-                    weekdays:
-                      monday: true
-                      tuesday: true
-                      wednesday: true
-                      thursday: true
-                      friday: true
-                      saturday: false
-                      sunday: false
+                    monday: true
+                    tuesday: true
+                    wednesday: true
+                    thursday: true
+                    friday: true
+                    saturday: false
+                    sunday: false
                     metadata: {}
                     created_at: "2024-01-20T10:00:00Z"
                     updated_at: "2024-01-20T10:00:00Z"
@@ -1019,6 +1017,9 @@ paths:
           $ref: '#/components/responses/NotFound'
     put:
       summary: Update user
+      description: |
+        Update user information. All fields are optional - only provided fields will be updated.
+        Can also suspend/restore users by setting the suspended field to true/false.
       tags:
         - Users
       parameters:
@@ -1060,8 +1061,11 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
-      summary: Update user state
-      description: Update user state (suspend/restore) without requiring full user data. This endpoint handles suspension and restoration of user accounts.
+      summary: Update user state  
+      description: |
+        Update user state (suspend/restore) without requiring full user data. 
+        This is an alternative to using PUT /users/{id} with the suspended field.
+        Use this endpoint when you only want to change suspension status without providing other user fields.
       tags:
         - Users
       parameters:
@@ -1133,6 +1137,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+
   /bulletins:
     get:
       summary: List bulletins
@@ -1192,7 +1197,57 @@ paths:
           $ref: '#/components/responses/Forbidden'
 
 
-  /stations/{id}/bulletins/generate:
+  /stations/{id}/bulletins:
+    get:
+      summary: List bulletins for a station
+      description: Returns a paginated list of bulletins generated for a specific station, ordered by most recent first.
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
+        - name: include_stories
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include detailed story information in bulletin response
+        - name: latest
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Return only the latest bulletin for this station (equivalent to limit=1)
+      responses:
+        '200':
+          description: List of station bulletins
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BulletinResponse'
+                  total:
+                    type: integer
+                    description: Total number of bulletins
+                  limit:
+                    type: integer
+                    description: Number of items per page
+                  offset:
+                    type: integer
+                    description: Number of items skipped
+        '404':
+          description: Station not found
     post:
       summary: Generate news bulletin for a station
       description: |
@@ -1365,35 +1420,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  station_id:
-                    type: integer
-                    description: Station ID
-                  station_name:
-                    type: string
-                    description: Station name
-                  audio_url:
-                    type: string
-                    description: URL to download the audio file
-                  filename:
-                    type: string
-                    description: Bulletin filename
-                  created_at:
-                    type: string
-                    format: date-time
-                    description: When the bulletin was created
-                  duration:
-                    type: number
-                    format: float
-                    description: Duration in seconds
-                  file_size:
-                    type: integer
-                    format: int64
-                    description: File size in bytes
-                  story_count:
-                    type: integer
-                    description: Number of stories in the bulletin
+                $ref: '#/components/schemas/BulletinResponse'
         '404':
           description: Station not found or no bulletin available
 
@@ -1998,27 +2025,27 @@ components:
           format: date
           pattern: '^\d{4}-\d{2}-\d{2}$'
           description: End date in YYYY-MM-DD format
-        weekdays:
-          type: object
-          properties:
-            monday:
-              type: boolean
-            tuesday:
-              type: boolean
-            wednesday:
-              type: boolean
-            thursday:
-              type: boolean
-            friday:
-              type: boolean
-            saturday:
-              type: boolean
-            sunday:
-              type: boolean
-          description: |
-            Weekday selection for scheduling. 
-            Each day can be independently enabled or disabled.
-            Stored as separate boolean columns for efficient querying.
+        monday:
+          type: boolean
+          description: Schedule for Monday
+        tuesday:
+          type: boolean
+          description: Schedule for Tuesday
+        wednesday:
+          type: boolean
+          description: Schedule for Wednesday
+        thursday:
+          type: boolean
+          description: Schedule for Thursday
+        friday:
+          type: boolean
+          description: Schedule for Friday
+        saturday:
+          type: boolean
+          description: Schedule for Saturday
+        sunday:
+          type: boolean
+          description: Schedule for Sunday
         metadata:
           type: object
           additionalProperties: true
@@ -2082,12 +2109,27 @@ components:
           format: date
           pattern: '^\d{4}-\d{2}-\d{2}$'
           description: End date in YYYY-MM-DD format
-        weekdays:
-          type: string
-          description: |
-            JSON string representing weekday selection. 
-            Example: '{"monday":true,"tuesday":false,"wednesday":true,"thursday":false,"friday":true,"saturday":false,"sunday":false}'
-            When submitted via multipart/form-data, this must be a JSON-encoded string.
+        monday:
+          type: boolean
+          description: Schedule for Monday
+        tuesday:
+          type: boolean
+          description: Schedule for Tuesday  
+        wednesday:
+          type: boolean
+          description: Schedule for Wednesday
+        thursday:
+          type: boolean
+          description: Schedule for Thursday
+        friday:
+          type: boolean
+          description: Schedule for Friday
+        saturday:
+          type: boolean
+          description: Schedule for Saturday
+        sunday:
+          type: boolean
+          description: Schedule for Sunday
         metadata:
           type: string
           description: |
@@ -2188,6 +2230,12 @@ components:
             - admin: Full access to all resources including user management
             - editor: Can manage content (stations, voices, stories, bulletins)
             - viewer: Read-only access to content
+        metadata:
+          type: string
+          description: JSON metadata for user-specific settings (optional)
+        suspended:
+          type: boolean
+          description: Set to true to suspend user, false to restore (optional, only for PUT /users/{id})
 
     BulletinResponse:
       type: object

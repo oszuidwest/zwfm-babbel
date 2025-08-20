@@ -413,7 +413,7 @@ class StationVoicesTests extends BaseTest {
         // Clean up in reverse order: station-voices, then voices, then stations
         for (const svId of this.createdStationVoiceIds) {
             try {
-                await this.apiCall('DELETE', `/station_voices/${svId}`);
+                await this.apiCall('DELETE', `/station-voices/${svId}`);
                 this.printInfo(`Cleaned up station-voice: ${svId}`);
             } catch (error) {
                 // Ignore cleanup errors
