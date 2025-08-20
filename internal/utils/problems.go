@@ -110,17 +110,6 @@ func NewAuthenticationProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// NewAuthorizationProblem creates a new ProblemDetail for authorization errors.
-func NewAuthorizationProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeInsufficientPermissions,
-		"Insufficient Permissions",
-		403,
-		detail,
-		instance,
-	)
-}
-
 // NewInternalServerProblem creates a new ProblemDetail for internal server errors.
 func NewInternalServerProblem(detail, instance string) *ProblemDetail {
 	return NewProblemDetail(

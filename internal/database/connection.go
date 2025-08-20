@@ -7,9 +7,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/mysql"
-	_ "github.com/golang-migrate/migrate/v4/source/file" // File source for migrations
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
@@ -38,27 +35,4 @@ func Connect(cfg config.DatabaseConfig) (*sqlx.DB, error) {
 	}
 
 	return db, nil
-}
-
-// Migrate runs database migrations from the specified path.
-func Migrate(db *sqlx.DB, migrationsPath string) error {
-	driver, err := mysql.WithInstance(db.DB, &mysql.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to create migration driver: %w", err)
-	}
-
-	m, err := migrate.NewWithDatabaseInstance(
-		fmt.Sprintf("file://%s", migrationsPath),
-		"mysql",
-		driver,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create migrate instance: %w", err)
-	}
-
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		return fmt.Errorf("failed to run migrations: %w", err)
-	}
-
-	return nil
 }

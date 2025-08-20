@@ -1,3 +1,0 @@
-# Netscape HTTP Cookie File
-# This file contains session cookies for Babbel API tests
-localhost	TRUE	/	FALSE	1755796653	babbel_session	MTc1NTcxMDI1M3xOd3dBTkVGSlNVdFFVRkZITmtkT1JWcE5SMDVWV2pKT1VFOU9TVmxDV1ZaWFRFRkhWa0V5UjBGVFZEYzBUMWhGU1VsWFZVc3lWMUU9fFIxw6QCWhlBzxGJw12PRaFPgr-_VCyOhG-kk425rk3h

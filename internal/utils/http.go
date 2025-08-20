@@ -16,8 +16,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 // GetIDParam extracts and validates the ID parameter from the request URL.
@@ -75,44 +73,6 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-// ParseFormDate parses date from form with consistent error handling and returns zero time if empty.
-func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
-	dateStr := c.PostForm(fieldName)
-	if dateStr == "" {
-		return time.Time{}, true // empty is ok for updates
-	}
-
-	date, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		ProblemValidationError(c, "Date validation failed", []ValidationError{
-			{Field: fieldName, Message: fmt.Sprintf("Invalid %s format, use YYYY-MM-DD", strings.ToLower(fieldLabel))},
-		})
-		return time.Time{}, false
-	}
-
-	return date, true
-}
-
-// ParseRequiredFormDate parses required date from form with consistent error handling and returns error if empty.
-func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
-	dateStr := c.PostForm(fieldName)
-	if dateStr == "" {
-		ProblemValidationError(c, "Date validation failed", []ValidationError{
-			{Field: fieldName, Message: fmt.Sprintf("%s is required", fieldLabel)},
-		})
-		return time.Time{}, false
-	}
-
-	date, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		ProblemValidationError(c, "Date validation failed", []ValidationError{
-			{Field: fieldName, Message: fmt.Sprintf("Invalid %s format, use YYYY-MM-DD", strings.ToLower(fieldLabel))},
-		})
-		return time.Time{}, false
-	}
-
-	return date, true
-}
 
 // ValidateAndSaveAudioFile validates audio file and saves to temporary location with cleanup function.
 func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
@@ -468,17 +428,6 @@ func convertValidationErrors(err error) []ValidationError {
 	return errors
 }
 
-// formatValidationErrors converts validation errors to developer-friendly messages
-// Deprecated: Use convertValidationErrors instead for consistent error format
-func formatValidationErrors(err error) []string {
-	validationErrors := convertValidationErrors(err)
-	messages := make([]string, len(validationErrors))
-	for i, ve := range validationErrors {
-		messages[i] = ve.Message
-	}
-	return messages
-}
-
 // GenericGetByID handles get-by-ID requests for any table with proper error handling.
 func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
 	id, ok := GetIDParam(c)
@@ -497,66 +446,4 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 	}
 
 	Success(c, result)
-}
-
-// ParseRequiredIntForm parses required integer from form with consistent error handling and validation.
-func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		ProblemBadRequest(c, fmt.Sprintf("%s is required", cases.Title(language.English).String(strings.ReplaceAll(field, "_", " "))))
-		return 0, false
-	}
-
-	value, err := strconv.Atoi(valueStr)
-	if err != nil || value <= 0 {
-		ProblemBadRequest(c, fmt.Sprintf("Valid %s is required", strings.ToLower(strings.ReplaceAll(field, "_", " "))))
-		return 0, false
-	}
-
-	return value, true
-}
-
-// ParseOptionalIntForm parses optional integer from form with consistent error handling, returning nil if empty.
-func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		return nil, nil // empty is ok for optional fields
-	}
-
-	value, err := strconv.Atoi(valueStr)
-	if err != nil || value <= 0 {
-		return nil, fmt.Errorf("invalid %s", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
-	}
-
-	return &value, nil
-}
-
-// ParseBoolForm parses boolean from form field with a default value.
-func ParseBoolForm(c *gin.Context, field string, defaultValue bool) bool {
-	valueStr := strings.ToLower(c.PostForm(field))
-	if valueStr == "" {
-		return defaultValue
-	}
-
-	// Accept various boolean representations
-	return valueStr == "true" || valueStr == "1" || valueStr == "yes" || valueStr == "on"
-}
-
-// ParseFloatFormWithRange parses optional float from form with range validation between minVal and maxVal values.
-func ParseFloatFormWithRange(c *gin.Context, field string, minVal, maxVal float64) (*float64, error) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		return nil, nil // empty is ok for optional fields
-	}
-
-	value, err := strconv.ParseFloat(valueStr, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
-	}
-
-	if value < minVal || value > maxVal {
-		return nil, fmt.Errorf("%s must be between %.1f and %.1f", strings.ToLower(strings.ReplaceAll(field, "_", " ")), minVal, maxVal)
-	}
-
-	return &value, nil
 }

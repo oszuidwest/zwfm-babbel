@@ -14,11 +14,6 @@ func Success(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, data)
 }
 
-// Created responds with a 201 Created status and the provided data payload.
-func Created(c *gin.Context, data interface{}) {
-	c.JSON(http.StatusCreated, data)
-}
-
 // NoContent responds with a 204 No Content status for successful operations with no response body.
 func NoContent(c *gin.Context) {
 	c.Status(http.StatusNoContent)

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"time"
@@ -12,16 +13,24 @@ import (
 func InitializeValidators() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
 		// Register notblank validator - ensures string is not empty or whitespace-only
-		v.RegisterValidation("notblank", notBlankValidator)
+		if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
+			panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
+		}
 		
 		// Register story status validator
-		v.RegisterValidation("story_status", storyStatusValidator)
+		if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
+			panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
+		}
 		
 		// Register date after validator for comparing dates
-		v.RegisterValidation("dateafter", dateAfterValidator)
+		if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
+			panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
+		}
 		
 		// Register date format validator
-		v.RegisterValidation("dateformat", dateFormatValidator)
+		if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
+			panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
+		}
 	}
 }
 

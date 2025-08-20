@@ -86,14 +86,6 @@ func TestProblemDetailHelpers(t *testing.T) {
 			expectedStatus: 401,
 		},
 		{
-			name: "Authorization",
-			constructor: func() *ProblemDetail {
-				return NewAuthorizationProblem("Insufficient permissions", "/api/v1/admin")
-			},
-			expectedType:   ProblemTypeInsufficientPermissions,
-			expectedStatus: 403,
-		},
-		{
 			name: "InternalServer",
 			constructor: func() *ProblemDetail {
 				return NewInternalServerProblem("Database connection failed", "/api/v1/test")

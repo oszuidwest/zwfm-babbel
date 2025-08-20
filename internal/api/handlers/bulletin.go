@@ -571,20 +571,16 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	// Handle sorting
 	sort := c.Query("sort")
-	if sort != "" {
-		if sort == "-created_at" || sort == "created_at:desc" {
-			baseQuery += " ORDER BY b.created_at DESC"
-		} else if sort == "created_at" || sort == "created_at:asc" {
-			baseQuery += " ORDER BY b.created_at ASC"
-		} else if sort == "-filename" || sort == "filename:desc" {
-			baseQuery += " ORDER BY b.filename DESC"
-		} else if sort == "filename" || sort == "filename:asc" {
-			baseQuery += " ORDER BY b.filename ASC"
-		} else {
-			// Default fallback
-			baseQuery += " ORDER BY b.created_at DESC"
-		}
-	} else {
+	switch sort {
+	case "-created_at", "created_at:desc":
+		baseQuery += " ORDER BY b.created_at DESC"
+	case "created_at", "created_at:asc":
+		baseQuery += " ORDER BY b.created_at ASC"
+	case "-filename", "filename:desc":
+		baseQuery += " ORDER BY b.filename DESC"
+	case "filename", "filename:asc":
+		baseQuery += " ORDER BY b.filename ASC"
+	default:
 		baseQuery += " ORDER BY b.created_at DESC"
 	}
 
@@ -618,10 +614,8 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	}
 
 	// Handle field selection if requested
-	if fields := c.Query("fields"); fields != "" {
-		// For now, return all fields but note that field selection was requested
-		// This prevents test failures while maintaining compatibility
-	}
+	// Currently field selection is not implemented but the parameter is accepted for future compatibility
+	_ = c.Query("fields")
 
 	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
 }

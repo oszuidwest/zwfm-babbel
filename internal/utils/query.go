@@ -759,7 +759,7 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 	}
 
 	// Filter response fields if requested - note: this creates a new object
-	var responseData interface{} = result
+	responseData := result
 	if len(params.Fields) > 0 {
 		responseData = FilterResponseFields(result, params.Fields)
 	}
