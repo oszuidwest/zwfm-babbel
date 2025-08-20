@@ -1,0 +1,46 @@
+{
+  "name": "babbel-api",
+  "version": "1.0.9",
+  "description": "HTTP API for generating audio news bulletins for radio automation systems",
+  "main": "babbel",
+  "scripts": {
+    "test": "FORCE_COLOR=1 node tests/run-all.js",
+    "test:auth": "FORCE_COLOR=1 node tests/run-all.js auth",
+    "test:permissions": "FORCE_COLOR=1 node tests/run-all.js permissions", 
+    "test:stations": "FORCE_COLOR=1 node tests/run-all.js stations",
+    "test:voices": "FORCE_COLOR=1 node tests/run-all.js voices",
+    "test:station-voices": "FORCE_COLOR=1 node tests/run-all.js station-voices",
+    "test:stories": "FORCE_COLOR=1 node tests/run-all.js stories",
+    "test:bulletins": "FORCE_COLOR=1 node tests/run-all.js bulletins",
+    "test:users": "FORCE_COLOR=1 node tests/run-all.js users",
+    "test:validation": "FORCE_COLOR=1 node tests/run-all.js validation",
+    "test:quick": "FORCE_COLOR=1 node tests/run-all.js --quick",
+    "test:no-docker": "FORCE_COLOR=1 node tests/run-all.js --no-docker",
+    "test:no-setup": "FORCE_COLOR=1 node tests/run-all.js --no-setup"
+  },
+  "devDependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "tough-cookie": "^4.1.3",
+    "axios-cookiejar-support": "^5.0.2",
+    "chalk": "^4.1.2",
+    "yargs": "^17.7.2"
+  },
+  "keywords": [
+    "radio",
+    "audio",
+    "news",
+    "api",
+    "automation",
+    "broadcasting"
+  ],
+  "author": "ZuidWest FM",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oszuidwest/zwfm-babbel.git"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

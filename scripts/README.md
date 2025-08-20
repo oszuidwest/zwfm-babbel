@@ -1,33 +1,35 @@
-# Test Scripts
+# Scripts
 
-## test-everything.sh
+This directory contains utility scripts for the Babbel project.
 
-Comprehensive integration test that validates the entire Babbel API workflow.
+## Testing
 
-### Usage
+All testing is now handled through the Node.js test suite. See the main README for testing instructions.
+
+### Running Tests
 
 ```bash
-./scripts/test-everything.sh
+# Run all tests
+make test-all
+# or
+npm test
+
+# Run specific test suite
+npm test:auth
+npm test:stations
+npm test:voices
+# etc.
 ```
-
-### What it does
-
-1. **Setup**: Starts Docker containers and resets database
-2. **Audio**: Generates test jingle and story files
-3. **API**: Tests all endpoints including authentication and RBAC
-4. **Bulletins**: Creates and validates audio bulletins for all stations
-5. **Cleanup**: Verifies all expected files are generated
 
 ### Requirements
 
+- Node.js >= 16.0.0
 - Docker and Docker Compose
 - FFmpeg
-- curl
-- Python 3
 
-### Exit codes
-
-- `0`: All tests passed
-- `1`: Test failure or setup error
-
-No flags or options required - runs complete test suite automatically.
+The Node.js test suite automatically handles:
+- Docker container management
+- Database setup and migrations
+- Test data generation
+- Comprehensive API testing
+- Cleanup after tests

@@ -33,8 +33,67 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 1.0.7
+  version: 2.0.0
   x-changelog:
+    2.0.0:
+      - "BREAKING: REST API modernization - updated all URL paths"
+      - "BREAKING: Changed /session endpoints to /sessions (login, current user)"
+      - "BREAKING: Moved OAuth endpoints from /session/oauth to /auth/oauth"
+      - "BREAKING: Changed station_voices endpoints to kebab-case /station-voices"
+      - "Added RFC 9457 Problem Details error format with application/problem+json"
+      - "Updated all POST operations to return 201 Created (instead of 200)"
+      - "Updated all DELETE operations to return 204 No Content"
+      - "Added 422 Unprocessable Entity for validation errors"
+      - "Added 409 Conflict for duplicate resource errors"
+      - "Added modern query parameters: filter[], sort, fields, search, status"
+      - "Added comprehensive request/response examples throughout"
+      - "Deprecated include_deleted parameter in favor of status=all|active|deleted"
+      - "Enhanced filtering with advanced operators: eq, ne, gt, gte, lt, lte, like, in, null"
+      - "Added field selection with dot notation for nested fields"
+      - "Added full-text search capability across relevant fields"
+      - "Improved sort functionality with multiple fields and direction control"
+    1.1.6:
+      - "Added date format pattern validation (YYYY-MM-DD) for date fields"
+      - "Added ID format specifications (int32) for all ID fields"
+      - "Documented unique constraints with x-unique extension"
+      - "Documented foreign key relationships with x-foreign-key extension"
+      - "Added email pattern validation and unique-when-not-null constraint"
+      - "Added username pattern validation (alphanumeric, underscore, hyphen)"
+    1.1.5:
+      - "Fixed StationVoice PUT response to include audio_url field"
+      - "Added maxLength:255 to Station name to match database constraint"
+      - "Added maxLength:255 to Voice name to match database constraint"
+      - "Added maxLength:255 to User email to match database constraint"
+      - "Documented form validation differences in StoryInput schema"
+    1.1.4:
+      - "Removed incorrect voice object from Story schema - only voice_name is returned"
+      - "Fixed username maxLength from 50 to 100 to match database constraint"
+      - "Added maxLength:500 to Story title to match database constraint"
+    1.1.3:
+      - "Fixed Station pause_seconds maximum constraint (60 seconds instead of 10)"
+      - "Added missing 500 Internal Server Error status codes to 11 endpoints"
+      - "Added minLength:1 constraints to required string fields (title, text, name)"
+      - "Fixed Station max_stories_per_block minimum constraint (1 instead of 0)"
+    1.1.2:
+      - "Fixed password_changed_at field nullability in User schema to match Go implementation"
+    1.1.1:
+      - "Improved story filtering API - replaced voice_id=null with cleaner has_voice parameter"
+      - "voice_id now only filters by specific voice ID for better clarity"
+      - "Added has_voice=true/false parameter for filtering stories with/without voice"
+    1.1.0:
+      - "CRITICAL: Fixed database query bug in GetUser - added missing failed_login_attempts, locked_until, and metadata fields"
+      - "CRITICAL: Changed bulletin_url to audio_url for API consistency"
+      - "Fixed User schema - made full_name nullable to match implementation"
+      - "Implemented date and weekday query parameters for GET /stories"
+    1.0.9:
+      - "Major OpenAPI documentation fixes and improvements"
+      - "Added missing fields to PUT /station_voices/{id} endpoint (station_id, voice_id)"
+      - "Added missing user response fields (failed_login_attempts, locked_until)"
+      - "Added voice_name field to Story response schema"
+      - "Documented proper response codes for PATCH /stories/{id} (200 and 204)"
+      - "Fixed multipart/form-data field documentation for stories (weekdays as JSON string)"
+    1.0.8:
+      - "Added documentation for deleted_at field in PATCH /stories/{id} endpoint for story restoration"
     1.0.7:
       - "Added support for voice_id=null filter to find stories without assigned voice"
     1.0.6:
@@ -56,6 +115,9 @@ info:
       - "Pagination and filtering on all list endpoints"
       - "RESTful design for radio automation"
       - "Removed redundant /broadcasts endpoint"
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
   contact:
     name: Streekomroep ZuidWest
 servers:
@@ -136,9 +198,9 @@ paths:
                   oauth_url:
                     type: string
                     description: URL to start OAuth flow (only present when OAuth is enabled)
-                    example: "/api/v1/session/oauth/start"
+                    example: "/api/v1/auth/oauth/start"
 
-  /session/login:
+  /sessions:
     post:
       summary: Login with username and password (local authentication)
       tags:
@@ -161,8 +223,8 @@ paths:
                   type: string
                   example: password
       responses:
-        '200':
-          description: Successful login
+        '201':
+          description: Session created successfully
           content:
             application/json:
               schema:
@@ -170,7 +232,7 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: Login successful
+                    example: Session created successfully
           headers:
             Set-Cookie:
               schema:
@@ -179,7 +241,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /session/oauth/start:
+  /auth/oauth/start:
     get:
       summary: Start OAuth/OIDC authentication flow
       tags:
@@ -214,7 +276,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /session/oauth/callback:
+  /auth/oauth/callback:
     get:
       summary: OAuth callback endpoint
       tags:
@@ -265,7 +327,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /session:
+  /sessions/current:
     get:
       summary: Get current user information
       tags:
@@ -285,16 +347,8 @@ paths:
       tags:
         - Authentication
       responses:
-        '200':
-          description: Logout successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Logout successful
+        '204':
+          description: Session terminated successfully
 
   /stations:
     get:
@@ -304,6 +358,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
       responses:
         '200':
           description: List of stations
@@ -322,6 +380,26 @@ paths:
                     type: integer
                   offset:
                     type: integer
+              examples:
+                basic_list:
+                  summary: Basic station list
+                  value:
+                    data:
+                      - id: 1
+                        name: "Radio Station 1"
+                        max_stories_per_block: 5
+                        pause_seconds: 2.0
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-15T10:30:00Z"
+                      - id: 2
+                        name: "News FM"
+                        max_stories_per_block: 8
+                        pause_seconds: 1.5
+                        created_at: "2024-01-16T14:20:00Z"
+                        updated_at: "2024-01-16T14:20:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
     post:
       summary: Create a new station
       tags:
@@ -339,8 +417,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Station'
+              examples:
+                created_station:
+                  summary: Newly created station
+                  value:
+                    id: 3
+                    name: "Community Radio"
+                    max_stories_per_block: 6
+                    pause_seconds: 2.5
+                    created_at: "2024-01-20T09:15:00Z"
+                    updated_at: "2024-01-20T09:15:00Z"
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stations/{id}:
     get:
@@ -358,6 +452,8 @@ paths:
                 $ref: '#/components/schemas/Station'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       summary: Update station
       tags:
@@ -381,6 +477,12 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       summary: Delete station
       tags:
@@ -392,6 +494,8 @@ paths:
           description: Station deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /voices:
     get:
@@ -401,6 +505,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
       responses:
         '200':
           description: List of voices
@@ -434,6 +542,8 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
+                  maxLength: 255
       responses:
         '201':
           description: Voice created
@@ -443,6 +553,8 @@ paths:
                 $ref: '#/components/schemas/Voice'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /voices/{id}:
     get:
@@ -460,6 +572,8 @@ paths:
                 $ref: '#/components/schemas/Voice'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       summary: Update voice
       tags:
@@ -475,6 +589,8 @@ paths:
               properties:
                 name:
                   type: string
+                  minLength: 1
+                  maxLength: 255
       responses:
         '200':
           description: Voice updated
@@ -484,6 +600,8 @@ paths:
                 $ref: '#/components/schemas/Voice'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       summary: Delete voice
       tags:
@@ -495,47 +613,54 @@ paths:
           description: Voice deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stories:
     get:
       summary: List all stories
+      description: |
+        List stories with modern query parameter support.
+        
+        ## Date Filtering
+        Use date range filters to find stories active on specific dates:
+        - `filter[start_date][lte]=2024-06-15` - Start date before or on date
+        - `filter[end_date][gte]=2024-06-15` - End date after or on date
+        
+        ## Weekday Filtering
+        Filter by specific weekdays:
+        - `filter[monday]=1` - Stories scheduled for Monday
+        - `filter[friday]=1` - Stories scheduled for Friday
+        
+        ## Voice Filtering
+        - `filter[voice_id]=5` - Stories with specific voice
+        - `has_voice=true` - Stories with any voice assigned
+        - `has_voice=false` - Stories without voice
+        
+        ## Examples
+        - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
+        - Monday stories with voice: `?filter[monday]=1&has_voice=true`
+        - Search with sorting: `?search=breaking&sort=-created_at`
       tags:
         - Stories
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-        - name: include_deleted
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/filter'
+        - name: has_voice
           in: query
           schema:
             type: boolean
-            default: false
-          description: Include soft-deleted stories in the results
-        - name: status
+          description: Filter stories by voice assignment status (true = has voice, false = no voice assigned)
+        - name: has_audio
           in: query
           schema:
-            type: string
-            enum: [draft, active, expired]
-          description: Filter by status
-        - name: voice_id
-          in: query
-          schema:
-            oneOf:
-              - type: integer
-              - type: string
-                enum: ["null"]
-          description: Filter by voice ID. Use 'null' to filter for stories without a voice assigned
-        - name: date
-          in: query
-          schema:
-            type: string
-            format: date
-          description: Filter stories active on this date
-        - name: weekday
-          in: query
-          schema:
-            type: string
-            enum: [monday, tuesday, wednesday, thursday, friday, saturday, sunday]
-          description: Filter by weekday
+            type: boolean
+          description: Filter stories by audio file status (true = has audio, false = no audio)
       responses:
         '200':
           description: List of stories
@@ -554,6 +679,55 @@ paths:
                     type: integer
                   offset:
                     type: integer
+              examples:
+                basic_list:
+                  summary: Basic story list
+                  value:
+                    data:
+                      - id: 101
+                        title: "Breaking News Update"
+                        text: "This is an important news update."
+                        voice_id: 1
+                        voice_name: "Sarah Johnson"
+                        status: "active"
+                        start_date: "2024-01-20"
+                        end_date: "2024-01-27"
+                        weekdays:
+                          monday: true
+                          tuesday: true
+                          wednesday: true
+                          thursday: true
+                          friday: true
+                          saturday: false
+                          sunday: false
+                        created_at: "2024-01-20T10:00:00Z"
+                        updated_at: "2024-01-20T10:00:00Z"
+                        deleted_at: null
+                    total: 1
+                    limit: 20
+                    offset: 0
+                filtered_by_voice:
+                  summary: Stories filtered by voice (has_voice=true)
+                  value:
+                    data:
+                      - id: 101
+                        title: "Breaking News Update"
+                        voice_id: 1
+                        voice_name: "Sarah Johnson"
+                        status: "active"
+                    total: 1
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Stories with field selection (fields=id,title,voice_name)
+                  value:
+                    data:
+                      - id: 101
+                        title: "Breaking News Update"
+                        voice_name: "Sarah Johnson"
+                    total: 1
+                    limit: 20
+                    offset: 0
     post:
       summary: Create a new story
       tags:
@@ -571,8 +745,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Story'
+              examples:
+                created_story:
+                  summary: Newly created story
+                  value:
+                    id: 101
+                    title: "Breaking News Update"
+                    text: "This is an important news update for our listeners."
+                    voice_id: 1
+                    voice_name: "Sarah Johnson"
+                    audio_url: "/stories/101/audio"
+                    duration_seconds: 45.2
+                    status: "active"
+                    start_date: "2024-01-20"
+                    end_date: "2024-01-27"
+                    weekdays:
+                      monday: true
+                      tuesday: true
+                      wednesday: true
+                      thursday: true
+                      friday: true
+                      saturday: false
+                      sunday: false
+                    metadata: {}
+                    created_at: "2024-01-20T10:00:00Z"
+                    updated_at: "2024-01-20T10:00:00Z"
+                    deleted_at: null
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stories/{id}/audio:
     get:
@@ -608,6 +810,8 @@ paths:
                 $ref: '#/components/schemas/Story'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       summary: Update story
       tags:
@@ -629,6 +833,8 @@ paths:
                 $ref: '#/components/schemas/Story'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       summary: Delete story (soft delete)
       description: |
@@ -646,7 +852,11 @@ paths:
           $ref: '#/components/responses/NotFound'
     patch:
       summary: Update story state
-      description: Update story status (draft, active, expired) or other state fields without requiring full story data.
+      description: |
+        Update story status or restore soft-deleted stories. 
+        This endpoint can be used to:
+        - Change story status (draft, active, expired)
+        - Restore a soft-deleted story by setting deleted_at to empty string
       tags:
         - Stories
       parameters:
@@ -662,11 +872,21 @@ paths:
                   type: string
                   enum: [draft, active, expired]
                   description: Story status
+                deleted_at:
+                  type: string
+                  description: Set to empty string ("") to restore a soft-deleted story, or any other value to soft-delete
               example:
-                status: "active"
+                updateStatus:
+                  summary: Update story status
+                  value:
+                    status: "active"
+                restoreStory:
+                  summary: Restore a soft-deleted story
+                  value:
+                    deleted_at: ""
       responses:
         '200':
-          description: Story state updated successfully
+          description: Story state updated successfully (status change or restore)
           content:
             application/json:
               schema:
@@ -675,6 +895,8 @@ paths:
                   message:
                     type: string
                     example: "Story status updated successfully"
+        '204':
+          description: Story soft-deleted successfully (when deleted_at is set to a non-empty value)
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -736,18 +958,11 @@ paths:
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-        - name: include_suspended
-          in: query
-          schema:
-            type: boolean
-            default: false
-          description: Include suspended users in the results
-        - name: role
-          in: query
-          schema:
-            type: string
-            enum: [admin, editor, viewer]
-          description: Filter by user role
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/filter'
       responses:
         '200':
           description: List of users
@@ -933,6 +1148,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
         - name: station_id
           in: query
           required: false
@@ -1073,6 +1292,55 @@ paths:
                     items:
                       $ref: '#/components/schemas/Story'
                     description: Stories included (only if include_story_list=true)
+              examples:
+                fresh_bulletin:
+                  summary: Newly generated bulletin
+                  value:
+                    id: 150
+                    station_id: 1
+                    station_name: "Radio Station 1"
+                    audio_url: "/bulletins/150/audio"
+                    filename: "bulletin_150_20240120_140500.wav"
+                    created_at: "2024-01-20T14:05:00Z"
+                    duration: 185.4
+                    file_size: 2965440
+                    story_count: 4
+                    cached: false
+                cached_bulletin:
+                  summary: Cached bulletin (from max_age parameter)
+                  value:
+                    id: 149
+                    station_id: 1
+                    station_name: "Radio Station 1"
+                    audio_url: "/bulletins/149/audio"
+                    filename: "bulletin_149_20240120_140200.wav"
+                    created_at: "2024-01-20T14:02:00Z"
+                    duration: 178.2
+                    file_size: 2845568
+                    story_count: 3
+                    cached: true
+                bulletin_with_stories:
+                  summary: Bulletin with story details (include_story_list=true)
+                  value:
+                    id: 150
+                    station_id: 1
+                    station_name: "Radio Station 1"
+                    audio_url: "/bulletins/150/audio"
+                    filename: "bulletin_150_20240120_140500.wav"
+                    created_at: "2024-01-20T14:05:00Z"
+                    duration: 185.4
+                    file_size: 2965440
+                    story_count: 2
+                    cached: false
+                    stories:
+                      - id: 101
+                        title: "Breaking News Update"
+                        voice_name: "Sarah Johnson"
+                        status: "active"
+                      - id: 102
+                        title: "Weather Report"
+                        voice_name: "Mike Davis"
+                        status: "active"
             audio/wav:
               schema:
                 type: string
@@ -1195,6 +1463,10 @@ paths:
         - $ref: '#/components/parameters/id'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
       responses:
         '200':
           description: List of stories in the bulletin
@@ -1249,7 +1521,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /station_voices:
+  /station-voices:
     get:
       summary: List station-voice relationships
       tags:
@@ -1257,6 +1529,10 @@ paths:
       parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
         - name: station_id
           in: query
           schema:
@@ -1322,7 +1598,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /station_voices/{id}/audio:
+  /station-voices/{id}/audio:
     get:
       summary: Download station-voice jingle file
       tags:
@@ -1340,7 +1616,7 @@ paths:
         '404':
           description: Station-voice not found or no jingle file
 
-  /station_voices/{id}:
+  /station-voices/{id}:
     get:
       summary: Get station-voice relationship by ID
       tags:
@@ -1358,6 +1634,9 @@ paths:
           $ref: '#/components/responses/NotFound'
     put:
       summary: Update station-voice relationship
+      description: |
+        Update station-voice relationship properties. All fields are optional - only provided fields will be updated.
+        When updating station_id or voice_id, the system checks for duplicate combinations.
       tags:
         - Station-Voices
       parameters:
@@ -1369,10 +1648,18 @@ paths:
             schema:
               type: object
               properties:
+                station_id:
+                  type: integer
+                  description: New station ID (optional)
+                voice_id:
+                  type: integer
+                  description: New voice ID (optional)
                 mix_point:
                   type: number
                   format: float
                   minimum: 0
+                  maximum: 300
+                  description: Mix point in seconds (0-300)
                 jingle:
                   type: string
                   format: binary
@@ -1430,6 +1717,128 @@ components:
         type: integer
         default: 0
       description: Number of items to skip
+    sort:
+      name: sort
+      in: query
+      schema:
+        type: string
+      description: |
+        Sort order. Use field:direction format or prefix notation:
+        - `name:asc` or `+name` - ascending
+        - `name:desc` or `-name` - descending
+        - `created_at:desc,name:asc` - multiple fields
+      examples:
+        single_field:
+          value: "name:asc"
+          summary: "Sort by name ascending"
+        multiple_fields:
+          value: "created_at:desc,name:asc"
+          summary: "Sort by created date desc, then name asc"
+        prefix_notation:
+          value: "-created_at,+name"
+          summary: "Sort by created date desc, then name asc (prefix notation)"
+    fields:
+      name: fields
+      in: query
+      schema:
+        type: string
+      description: |
+        Comma-separated list of fields to include in response.
+        Use dot notation for nested fields.
+      examples:
+        basic:
+          value: "id,name,created_at"
+          summary: "Return only ID, name, and created date"
+        nested:
+          value: "id,station.name,voice.name"
+          summary: "Include nested relationship fields"
+    search:
+      name: search
+      in: query
+      schema:
+        type: string
+      description: |
+        Search term for full-text search across relevant fields.
+        Searches in names, titles, text content depending on resource.
+      example: "news update"
+    status:
+      name: status
+      in: query
+      schema:
+        type: string
+        enum: [all, active, deleted]
+        default: active
+      description: |
+        Filter by resource status:
+        - `active` - only active/non-deleted resources (default)
+        - `deleted` - only soft-deleted resources
+        - `all` - include both active and deleted resources
+    filter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      schema:
+        type: object
+        additionalProperties:
+          oneOf:
+            - type: string
+            - type: object
+              properties:
+                eq:
+                  type: string
+                  description: Equals
+                ne:
+                  type: string
+                  description: Not equals
+                gt:
+                  type: string
+                  description: Greater than
+                gte:
+                  type: string
+                  description: Greater than or equal
+                lt:
+                  type: string
+                  description: Less than
+                lte:
+                  type: string
+                  description: Less than or equal
+                like:
+                  type: string
+                  description: Pattern match (SQL LIKE)
+                in:
+                  type: string
+                  description: Comma-separated list of values
+                null:
+                  type: boolean
+                  description: Is null (true) or not null (false)
+      description: |
+        Advanced filtering using field-based operators.
+        
+        Basic usage: `filter[field]=value`
+        
+        Advanced operators: `filter[field][op]=value`
+        
+        Supported operators:
+        - `eq` - equals (default)
+        - `ne` - not equals
+        - `gt`, `gte`, `lt`, `lte` - comparisons
+        - `like` - pattern matching
+        - `in` - comma-separated values
+        - `null` - is/isn't null
+      examples:
+        basic:
+          value: { "name": "Radio Station" }
+          summary: "Filter by exact name match"
+        comparison:
+          value: { "created_at": { "gte": "2024-01-01" } }
+          summary: "Filter by date range"
+        pattern:
+          value: { "name": { "like": "%radio%" } }
+          summary: "Filter by name pattern"
+        multiple:
+          value: { "status": "active", "voice_id": { "null": false } }
+          summary: "Multiple filter conditions"
 
   schemas:
     Station:
@@ -1437,16 +1846,22 @@ components:
       properties:
         id:
           type: integer
+          format: int32
+          description: Station ID
         name:
           type: string
-          description: Unique station name
+          minLength: 1
+          maxLength: 255
+          description: Unique station name (must be unique across all stations)
+          x-unique: true
         max_stories_per_block:
           type: integer
+          minimum: 1
         pause_seconds:
           type: number
           format: float
           minimum: 0
-          maximum: 10
+          maximum: 60
           default: 2.0
           description: Pause time in seconds between messages in bulletin
         created_at:
@@ -1464,7 +1879,10 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 255
           description: Unique station name (must be unique across all stations)
+          x-unique: true
         max_stories_per_block:
           type: integer
           minimum: 1
@@ -1473,7 +1891,7 @@ components:
           type: number
           format: float
           minimum: 0
-          maximum: 10
+          maximum: 60
           default: 2.0
           description: Pause time in seconds between messages in bulletin
 
@@ -1482,8 +1900,12 @@ components:
       properties:
         id:
           type: integer
+          format: int32
+          description: Voice ID
         name:
           type: string
+          minLength: 1
+          maxLength: 255
         created_at:
           type: string
           format: date-time
@@ -1493,13 +1915,23 @@ components:
 
     StationVoice:
       type: object
+      description: Represents the relationship between a station and voice with station-specific jingle configuration
+      x-unique-constraint: [station_id, voice_id]
       properties:
         id:
           type: integer
+          format: int32
+          description: StationVoice relationship ID
         station_id:
           type: integer
+          format: int32
+          description: Station ID
+          x-foreign-key: stations.id
         voice_id:
           type: integer
+          format: int32
+          description: Voice ID
+          x-foreign-key: voices.id
         audio_url:
           type: string
           nullable: true
@@ -1527,20 +1959,24 @@ components:
       properties:
         id:
           type: integer
+          format: int32
+          description: Story ID
         title:
           type: string
+          minLength: 1
+          maxLength: 500
         text:
           type: string
+          minLength: 1
         voice_id:
           type: integer
+          format: int32
           nullable: true
           description: Voice ID if assigned, null if no voice is assigned
-        voice:
-          type: object
-          nullable: true
-          allOf:
-            - $ref: '#/components/schemas/Voice'
-          description: Voice details if assigned, null if no voice is assigned
+          x-foreign-key: voices.id
+        voice_name:
+          type: string
+          description: Name of the assigned voice (from JOIN query)
         audio_url:
           type: string
           nullable: true
@@ -1555,9 +1991,13 @@ components:
         start_date:
           type: string
           format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: Start date in YYYY-MM-DD format
         end_date:
           type: string
           format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: End date in YYYY-MM-DD format
         weekdays:
           type: object
           properties:
@@ -1577,8 +2017,8 @@ components:
               type: boolean
           description: |
             Weekday selection for scheduling. 
-            API returns JSON object format for convenience.
-            Internally stored as bitmask for efficiency.
+            Each day can be independently enabled or disabled.
+            Stored as separate boolean columns for efficient querying.
         metadata:
           type: object
           additionalProperties: true
@@ -1601,11 +2041,25 @@ components:
         - text
         - start_date
         - end_date
+      description: |
+        Story input for multipart/form-data submissions.
+        
+        **Important Form Validation Notes**:
+        - Required fields are validated manually (not through binding tags)
+        - Empty strings are treated as missing for required fields
+        - title and text must be non-empty strings
+        - voice_id is optional - stories without voice won't be in bulletins
+        - weekdays must be a valid JSON string when provided
+        - metadata can be empty string (stored as NULL) or valid JSON
+        - Validation differs from JSON endpoints which use struct binding
       properties:
         title:
           type: string
+          minLength: 1
+          maxLength: 500
         text:
           type: string
+          minLength: 1
         voice_id:
           type: integer
           nullable: true
@@ -1621,53 +2075,41 @@ components:
         start_date:
           type: string
           format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: Start date in YYYY-MM-DD format
         end_date:
           type: string
           format: date
+          pattern: '^\d{4}-\d{2}-\d{2}$'
+          description: End date in YYYY-MM-DD format
         weekdays:
-          type: object
-          properties:
-            monday:
-              type: boolean
-              default: false
-            tuesday:
-              type: boolean
-              default: false
-            wednesday:
-              type: boolean
-              default: false
-            thursday:
-              type: boolean
-              default: false
-            friday:
-              type: boolean
-              default: false
-            saturday:
-              type: boolean
-              default: false
-            sunday:
-              type: boolean
-              default: false
+          type: string
           description: |
-            Weekday selection for scheduling. Pass as JSON object in multipart form.
-            Example: {"monday":true,"tuesday":true,"wednesday":true,"thursday":true,"friday":true,"saturday":false,"sunday":false}
-            Internally stored as bitmask but API accepts/returns JSON object format.
+            JSON string representing weekday selection. 
+            Example: '{"monday":true,"tuesday":false,"wednesday":true,"thursday":false,"friday":true,"saturday":false,"sunday":false}'
+            When submitted via multipart/form-data, this must be a JSON-encoded string.
         metadata:
-          type: object
-          additionalProperties: true
-          default: {}
+          type: string
+          description: |
+            Optional JSON metadata. Pass empty string to set to NULL.
+            When submitted via multipart/form-data, this must be a JSON-encoded string or empty string.
 
     User:
       type: object
       properties:
         id:
           type: integer
+          format: int32
+          description: User ID
         username:
           type: string
         full_name:
           type: string
+          nullable: true
         email:
           type: string
+          format: email
+          maxLength: 255
           nullable: true
         role:
           type: string
@@ -1688,9 +2130,18 @@ components:
           nullable: true
         login_count:
           type: integer
+        failed_login_attempts:
+          type: integer
+          description: Number of consecutive failed login attempts
+        locked_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp until when the account is locked due to failed login attempts
         password_changed_at:
           type: string
           format: date-time
+          nullable: true
         metadata:
           type: string
           description: JSON metadata for user-specific settings
@@ -1710,7 +2161,10 @@ components:
         username:
           type: string
           minLength: 3
-          maxLength: 50
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9_-]+$'
+          description: Unique username (alphanumeric, underscore, hyphen only)
+          x-unique: true
         full_name:
           type: string
           minLength: 1
@@ -1723,6 +2177,7 @@ components:
         email:
           type: string
           format: email
+          maxLength: 255
           nullable: true
         role:
           type: string
@@ -1740,8 +2195,13 @@ components:
       properties:
         id:
           type: integer
+          format: int32
+          description: Bulletin ID
         station_id:
           type: integer
+          format: int32
+          description: Station ID
+          x-foreign-key: stations.id
         station_name:
           type: string
           description: Name of the station
@@ -1777,28 +2237,183 @@ components:
           type: object
           additionalProperties: true
 
+    ProblemDetails:
+      type: object
+      description: RFC 9457 Problem Details for HTTP APIs
+      required:
+        - type
+        - title
+        - status
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI that identifies the problem type
+          example: "https://api.example.com/problems/validation-error"
+        title:
+          type: string
+          description: Short, human-readable summary of the problem
+          example: "Validation Error"
+        status:
+          type: integer
+          description: HTTP status code
+          example: 422
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence
+          example: "The request body contains invalid data"
+        instance:
+          type: string
+          format: uri
+          description: URI that identifies the specific occurrence of the problem
+          example: "/api/v1/stories/123"
+        errors:
+          type: array
+          description: Array of validation errors (for 422 responses)
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                description: Field name that failed validation
+                example: "title"
+              code:
+                type: string
+                description: Error code
+                example: "required"
+              message:
+                type: string
+                description: Human-readable error message
+                example: "Title is required"
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              example: "https://api.example.com/problems/validation-error"
+            title:
+              example: "Validation Error"
+            status:
+              example: 422
+
+    ConflictError:
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          properties:
+            type:
+              example: "https://api.example.com/problems/resource-conflict"
+            title:
+              example: "Resource Conflict"
+            status:
+              example: 409
+
   responses:
     BadRequest:
       description: Bad request
       content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Unauthorized:
       description: Unauthorized
       content:
-        application/json:
+        application/problem+json:
           schema:
-            $ref: '#/components/schemas/Error'
-    NotFound:
-      description: Resource not found
-      content:
+            $ref: '#/components/schemas/ProblemDetails'
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Forbidden:
       description: Insufficient permissions
       content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource conflict (duplicate, constraint violation)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ConflictError'
+          examples:
+            duplicate_name:
+              summary: Duplicate station name
+              value:
+                type: "https://api.example.com/problems/resource-conflict"
+                title: "Resource Conflict"
+                status: 409
+                detail: "A station with this name already exists"
+                instance: "/api/v1/stations"
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            legacy_conflict_error:
+              summary: Legacy conflict error format
+              value:
+                error: "duplicate_resource"
+                message: "Station name already exists"
+                details:
+                  field: "name"
+                  value: "Radio Station 1"
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+          examples:
+            validation_errors:
+              summary: Field validation errors
+              value:
+                type: "https://api.example.com/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "The request contains validation errors"
+                instance: "/api/v1/stations"
+                errors:
+                  - field: "name"
+                    code: "required"
+                    message: "Name is required"
+                  - field: "max_stories_per_block"
+                    code: "range"
+                    message: "Must be between 1 and 50"
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            legacy_validation_error:
+              summary: Legacy validation error format
+              value:
+                error: "validation_error"
+                message: "Validation failed"
+                details:
+                  name: "Name is required"
+                  max_stories_per_block: "Must be between 1 and 50"
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
         application/json:
           schema:
             $ref: '#/components/schemas/Error'

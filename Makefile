@@ -147,4 +147,16 @@ db-reset:
 	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < migrations/001_complete_schema.sql
 
 test-all:
-	./scripts/test-everything.sh
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "Node.js not installed"; \
+		exit 1; \
+	fi
+	@if [ ! -f package.json ]; then \
+		echo "package.json not found"; \
+		exit 1; \
+	fi
+	@if [ ! -d node_modules ]; then \
+		echo "Installing Node.js dependencies..."; \
+		npm install; \
+	fi
+	npm test

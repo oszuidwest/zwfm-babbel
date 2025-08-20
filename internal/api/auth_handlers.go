@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -35,16 +36,16 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		utils.ProblemBadRequest(c, "Invalid login request format")
 		return
 	}
 
 	if err := h.authService.LocalLogin(c, req.Username, req.Password); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		utils.ProblemAuthentication(c, "Invalid username or password")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Login successful"})
+	c.JSON(http.StatusCreated, gin.H{"message": "Login successful"})
 }
 
 // StartOAuthFlow initiates the OAuth authentication flow
@@ -83,7 +84,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 // Logout destroys the session
 func (h *AuthHandlers) Logout(c *gin.Context) {
 	h.authService.Logout(c)
-	c.JSON(http.StatusOK, gin.H{"message": "Logout successful"})
+	c.Status(http.StatusNoContent)
 }
 
 // GetCurrentUser handles GET /session requests to retrieve the authenticated user's information.

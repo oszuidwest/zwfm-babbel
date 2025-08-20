@@ -33,7 +33,7 @@ Cross-Origin Resource Sharing (CORS) is configurable:
 - Credentials (cookies) are supported when origin is allowed
 
 
-**Version:** 1.0.7  
+**Version:** 1.1.6  
 **Base URL:** http://localhost:8080/api/v1
 
 ## Authentication
@@ -70,7 +70,7 @@ All endpoints require session-based authentication (except health and login).
 | POST | /stations/{id}/bulletins/generate | Generate news bulletin for a station | , download, include_story_list, max_age, force | JSON |
 | GET | /stations/{id}/bulletins/latest | Get latest bulletin for a station |  | - |
 | GET | /stations/{id}/bulletins/latest/audio | Download latest bulletin audio for a station |  | - |
-| GET | /stories | List all stories | , , include_deleted, status, voice_id, date, weekday | - |
+| GET | /stories | List all stories | , , include_deleted, status, voice_id, has_voice, date, weekday | - |
 | POST | /stories | Create a new story | - | Form |
 | DELETE | /stories/{id} | Delete story (soft delete) |  | - |
 | GET | /stories/{id} | Get story by ID |  | - |

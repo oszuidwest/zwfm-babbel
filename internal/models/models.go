@@ -26,7 +26,13 @@ type Story struct {
 	Status          string     `db:"status" json:"status"` // draft, active, expired
 	StartDate       time.Time  `db:"start_date" json:"start_date"`
 	EndDate         time.Time  `db:"end_date" json:"end_date"`
-	Weekdays        uint8      `db:"weekdays" json:"weekdays"` // bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun
+	Monday          bool       `db:"monday" json:"monday"`
+	Tuesday         bool       `db:"tuesday" json:"tuesday"`
+	Wednesday       bool       `db:"wednesday" json:"wednesday"`
+	Thursday        bool       `db:"thursday" json:"thursday"`
+	Friday          bool       `db:"friday" json:"friday"`
+	Saturday        bool       `db:"saturday" json:"saturday"`
+	Sunday          bool       `db:"sunday" json:"sunday"`
 	Metadata        *string    `db:"metadata" json:"metadata"` // JSON metadata
 	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
@@ -37,6 +43,41 @@ type Story struct {
 	// These fields are populated from station_voices table via JOIN during bulletin generation
 	VoiceJingle   string  `db:"voice_jingle" json:"-"`    // Station-specific jingle path
 	VoiceMixPoint float64 `db:"voice_mix_point" json:"-"` // Mix point in seconds
+}
+
+// IsActiveOnWeekday checks if the story is scheduled for a specific weekday
+func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
+	switch weekday {
+	case time.Monday:
+		return s.Monday
+	case time.Tuesday:
+		return s.Tuesday
+	case time.Wednesday:
+		return s.Wednesday
+	case time.Thursday:
+		return s.Thursday
+	case time.Friday:
+		return s.Friday
+	case time.Saturday:
+		return s.Saturday
+	case time.Sunday:
+		return s.Sunday
+	default:
+		return false
+	}
+}
+
+// GetWeekdaysMap returns a map representation of weekday booleans for API responses
+func (s *Story) GetWeekdaysMap() map[string]bool {
+	return map[string]bool{
+		"monday":    s.Monday,
+		"tuesday":   s.Tuesday,
+		"wednesday": s.Wednesday,
+		"thursday":  s.Thursday,
+		"friday":    s.Friday,
+		"saturday":  s.Saturday,
+		"sunday":    s.Sunday,
+	}
 }
 
 // Voice represents a news reader
@@ -109,22 +150,6 @@ const (
 	RoleEditor = "editor"
 	RoleViewer = "viewer"
 )
-
-// Weekday constants use bitmask pattern for efficient storage and querying.
-const (
-	Monday    = 1 << 0 // 1
-	Tuesday   = 1 << 1 // 2
-	Wednesday = 1 << 2 // 4
-	Thursday  = 1 << 3 // 8
-	Friday    = 1 << 4 // 16
-	Saturday  = 1 << 5 // 32
-	Sunday    = 1 << 6 // 64
-)
-
-// HasWeekday checks if a weekday is set in the bitmask
-func (s *Story) HasWeekday(day uint8) bool {
-	return s.Weekdays&day != 0
-}
 
 // Bulletin represents a generated news bulletin
 type Bulletin struct {

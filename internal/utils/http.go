@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,17 +15,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 )
 
 // GetIDParam extracts and validates the ID parameter from the request URL.
 func GetIDParam(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID parameter"})
+		ProblemBadRequest(c, "Invalid ID parameter")
 		return 0, false
 	}
 	return id, true
@@ -37,7 +33,7 @@ func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
 	if err := db.Get(&exists, query, id); err != nil || !exists {
-		NotFound(c, resourceName)
+		ProblemNotFound(c, resourceName)
 		return false
 	}
 	return true
@@ -77,52 +73,6 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-// ParseFormDate parses date from form with consistent error handling and returns zero time if empty.
-func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
-	dateStr := c.PostForm(fieldName)
-	if dateStr == "" {
-		return time.Time{}, true // empty is ok for updates
-	}
-
-	date, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel))})
-		return time.Time{}, false
-	}
-
-	return date, true
-}
-
-// ParseRequiredFormDate parses required date from form with consistent error handling and returns error if empty.
-func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
-	dateStr := c.PostForm(fieldName)
-	if dateStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", fieldLabel)})
-		return time.Time{}, false
-	}
-
-	date, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel))})
-		return time.Time{}, false
-	}
-
-	return date, true
-}
-
-// WeekdayStringToBitmask converts weekday string to bitmask using the models constants.
-func WeekdayStringToBitmask(weekday string) uint8 {
-	weekdayMap := map[string]uint8{
-		"monday":    models.Monday,
-		"tuesday":   models.Tuesday,
-		"wednesday": models.Wednesday,
-		"thursday":  models.Thursday,
-		"friday":    models.Friday,
-		"saturday":  models.Saturday,
-		"sunday":    models.Sunday,
-	}
-	return weekdayMap[strings.ToLower(weekday)]
-}
 
 // ValidateAndSaveAudioFile validates audio file and saves to temporary location with cleanup function.
 func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
@@ -254,20 +204,34 @@ func saveFileToPath(file multipart.File, dst string) error {
 
 // StationRequest represents the request structure for creating/updating stations
 type StationRequest struct {
-	Name               string  `json:"name" binding:"required,min=1,max=255"`
+	Name               string  `json:"name" binding:"required,notblank,max=255"`
 	MaxStoriesPerBlock int     `json:"max_stories_per_block" binding:"gte=1,lte=50"`
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
 // VoiceRequest represents the request structure for creating/updating voices
 type VoiceRequest struct {
-	Name string `json:"name" binding:"required,min=1,max=255"`
+	Name string `json:"name" binding:"required,notblank,max=255"`
+}
+
+// StationVoiceRequest represents the request structure for creating station-voice relationships
+type StationVoiceRequest struct {
+	StationID int     `json:"station_id" form:"station_id" binding:"required,min=1"`
+	VoiceID   int     `json:"voice_id" form:"voice_id" binding:"required,min=1"`
+	MixPoint  float64 `json:"mix_point" form:"mix_point" binding:"gte=0,lte=300"`
+}
+
+// StationVoiceUpdateRequest represents the request structure for updating station-voice relationships
+type StationVoiceUpdateRequest struct {
+	StationID *int     `json:"station_id,omitempty" form:"station_id" binding:"omitempty,min=1"`
+	VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id" binding:"omitempty,min=1"`
+	MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point" binding:"omitempty,gte=0,lte=300"`
 }
 
 // UserCreateRequest represents the request structure for creating users
 type UserCreateRequest struct {
 	Username string  `json:"username" binding:"required,min=3,max=100,alphanum"`
-	FullName string  `json:"full_name" binding:"required,min=1,max=255"`
+	FullName string  `json:"full_name" binding:"required,notblank,max=255"`
 	Password string  `json:"password" binding:"required,min=8,max=128"`
 	Email    *string `json:"email" binding:"omitempty,email,max=255"`
 	Role     string  `json:"role" binding:"required,oneof=admin editor viewer"`
@@ -276,96 +240,192 @@ type UserCreateRequest struct {
 
 // UserUpdateRequest represents the request structure for updating users
 type UserUpdateRequest struct {
-	Username string  `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
-	FullName string  `json:"full_name" binding:"omitempty,min=1,max=255"`
-	Email    *string `json:"email" binding:"omitempty,email,max=255"`
-	Role     string  `json:"role" binding:"omitempty,oneof=admin editor viewer"`
-	Metadata string  `json:"metadata" binding:"omitempty,json"`
+	Username  string  `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
+	FullName  string  `json:"full_name" binding:"omitempty,notblank,max=255"`
+	Email     *string `json:"email" binding:"omitempty,email,max=255"`
+	Password  string  `json:"password" binding:"omitempty,min=8,max=255"`
+	Role      string  `json:"role" binding:"omitempty,oneof=admin editor viewer"`
+	Metadata  string  `json:"metadata" binding:"omitempty,json"`
+	Suspended *bool   `json:"suspended" binding:"omitempty"`
 }
 
-// StationVoiceRequest represents the request structure for creating/updating station-voice relationships
-type StationVoiceRequest struct {
-	StationID int     `json:"station_id" binding:"required,min=1"`
-	VoiceID   int     `json:"voice_id" binding:"required,min=1"`
-	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
+// StoryCreateRequest represents the request structure for creating stories
+type StoryCreateRequest struct {
+	Title     string         `json:"title" form:"title" binding:"required,notblank,max=500"`
+	Text      string         `json:"text" form:"text" binding:"required,notblank"`
+	VoiceID   *int           `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    string         `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate string         `json:"start_date" form:"start_date" binding:"required,dateformat"`
+	EndDate   string         `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	Monday    bool           `json:"monday" form:"monday"`
+	Tuesday   bool           `json:"tuesday" form:"tuesday"`
+	Wednesday bool           `json:"wednesday" form:"wednesday"`
+	Thursday  bool           `json:"thursday" form:"thursday"`
+	Friday    bool           `json:"friday" form:"friday"`
+	Saturday  bool           `json:"saturday" form:"saturday"`
+	Sunday    bool           `json:"sunday" form:"sunday"`
+	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
+	Metadata  *string        `json:"metadata" form:"metadata"`
+}
+
+// StoryUpdateRequest represents the request structure for updating stories  
+type StoryUpdateRequest struct {
+	Title     *string         `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
+	Text      *string         `json:"text" form:"text" binding:"omitempty,notblank"`
+	VoiceID   *int           `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    *string        `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate *string        `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
+	EndDate   *string        `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
+	Monday    *bool          `json:"monday" form:"monday"`
+	Tuesday   *bool          `json:"tuesday" form:"tuesday"`
+	Wednesday *bool          `json:"wednesday" form:"wednesday"`
+	Thursday  *bool          `json:"thursday" form:"thursday"`
+	Friday    *bool          `json:"friday" form:"friday"`
+	Saturday  *bool          `json:"saturday" form:"saturday"`
+	Sunday    *bool          `json:"sunday" form:"sunday"`
+	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
+	Metadata  *string        `json:"metadata" form:"metadata"`
+}
+
+// ValidateDateRange validates that EndDate is after or equal to StartDate for story requests
+func (req *StoryCreateRequest) ValidateDateRange() error {
+	if req.StartDate == "" || req.EndDate == "" {
+		return nil // Individual date validation will catch required field errors
+	}
+	
+	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		return nil // Date format validation will catch this
+	}
+	
+	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		return nil // Date format validation will catch this
+	}
+	
+	if endDate.Before(startDate) {
+		return fmt.Errorf("end date cannot be before start date")
+	}
+	
+	return nil
+}
+
+// ValidateDateRange validates that EndDate is after or equal to StartDate for story update requests
+func (req *StoryUpdateRequest) ValidateDateRange() error {
+	// Only validate if both dates are provided
+	if req.StartDate == nil || req.EndDate == nil {
+		return nil
+	}
+	
+	startDate, err := time.Parse("2006-01-02", *req.StartDate)
+	if err != nil {
+		return nil // Date format validation will catch this
+	}
+	
+	endDate, err := time.Parse("2006-01-02", *req.EndDate)
+	if err != nil {
+		return nil // Date format validation will catch this
+	}
+	
+	if endDate.Before(startDate) {
+		return fmt.Errorf("end date cannot be before start date")
+	}
+	
+	return nil
 }
 
 // BindAndValidate handles JSON binding with developer-friendly error messages and validation.
+// Always returns 422 status code for validation errors.
 func BindAndValidate(c *gin.Context, req interface{}) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
-		errorDetails := formatValidationErrors(err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Validation failed",
-			"details": errorDetails,
-		})
+		validationErrors := convertValidationErrors(err)
+		ProblemValidationError(c, "The request contains invalid data", validationErrors)
 		return false
 	}
 	return true
 }
 
-// formatValidationErrors converts validation errors to developer-friendly messages
-func formatValidationErrors(err error) []string {
-	var errors []string
+// BindFormAndValidate handles both JSON and form data binding with unified validation.
+// Automatically detects content type and uses appropriate binding method.
+// Always returns 422 status code for validation errors.
+func BindFormAndValidate(c *gin.Context, req interface{}) bool {
+	contentType := c.GetHeader("Content-Type")
+	var err error
+	
+	if strings.Contains(contentType, "application/json") {
+		err = c.ShouldBindJSON(req)
+	} else {
+		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
+		err = c.ShouldBind(req)
+	}
+	
+	if err != nil {
+		validationErrors := convertValidationErrors(err)
+		ProblemValidationError(c, "The request contains invalid data", validationErrors)
+		return false
+	}
+	return true
+}
+
+// convertValidationErrors converts validation errors to ValidationError struct format
+func convertValidationErrors(err error) []ValidationError {
+	var errors []ValidationError
 
 	if validationErrors, ok := err.(validator.ValidationErrors); ok {
 		for _, e := range validationErrors {
 			field := e.Field()
 			tag := e.Tag()
 			param := e.Param()
+			var message string
 
 			switch tag {
 			case "required":
-				errors = append(errors, fmt.Sprintf("%s is required", field))
+				message = fmt.Sprintf("%s is required", field)
 			case "min":
 				if param == "1" {
-					errors = append(errors, fmt.Sprintf("%s cannot be empty", field))
+					message = fmt.Sprintf("%s cannot be empty", field)
 				} else {
-					errors = append(errors, fmt.Sprintf("%s must be at least %s characters", field, param))
+					message = fmt.Sprintf("%s must be at least %s characters", field, param)
 				}
 			case "max":
-				errors = append(errors, fmt.Sprintf("%s cannot exceed %s characters", field, param))
+				message = fmt.Sprintf("%s cannot exceed %s characters", field, param)
 			case "email":
-				errors = append(errors, fmt.Sprintf("%s must be a valid email address", field))
+				message = fmt.Sprintf("%s must be a valid email address", field)
 			case "gte":
-				errors = append(errors, fmt.Sprintf("%s must be at least %s", field, param))
+				message = fmt.Sprintf("%s must be at least %s", field, param)
 			case "lte":
-				errors = append(errors, fmt.Sprintf("%s must be at most %s", field, param))
+				message = fmt.Sprintf("%s must be at most %s", field, param)
 			case "oneof":
-				errors = append(errors, fmt.Sprintf("%s must be one of: %s", field, param))
+				message = fmt.Sprintf("%s must be one of: %s", field, param)
 			case "alphanum":
-				errors = append(errors, fmt.Sprintf("%s can only contain letters and numbers", field))
+				message = fmt.Sprintf("%s can only contain letters and numbers", field)
 			case "json":
-				errors = append(errors, fmt.Sprintf("%s must be valid JSON", field))
+				message = fmt.Sprintf("%s must be valid JSON", field)
+			case "notblank":
+				message = fmt.Sprintf("%s cannot be empty or whitespace only", field)
+			case "story_status":
+				message = fmt.Sprintf("%s must be one of: draft, active, expired", field)
+			case "dateformat":
+				message = fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
+			case "dateafter":
+				message = fmt.Sprintf("%s must be after or equal to %s", field, param)
 			default:
-				errors = append(errors, fmt.Sprintf("%s failed validation (%s)", field, tag))
+				message = fmt.Sprintf("%s failed validation (%s)", field, tag)
 			}
+			
+			errors = append(errors, ValidationError{
+				Field:   field,
+				Message: message,
+			})
 		}
 	} else {
-		errors = append(errors, "Invalid JSON format")
+		errors = append(errors, ValidationError{
+			Field:   "request",
+			Message: "Invalid request format",
+		})
 	}
 
 	return errors
-}
-
-// GenericList handles paginated list requests for any table with automatic counting and ordering.
-func GenericList(c *gin.Context, db *sqlx.DB, tableName string, selectFields string, result interface{}) {
-	limit, offset := GetPagination(c)
-
-	// Get total count
-	total, err := CountRecords(db, tableName, "")
-	if err != nil {
-		InternalServerError(c, fmt.Sprintf("Failed to count %s", tableName))
-		return
-	}
-
-	// Get paginated data
-	query := fmt.Sprintf("SELECT %s FROM %s ORDER BY name ASC LIMIT ? OFFSET ?", selectFields, tableName)
-	if err := db.Select(result, query, limit, offset); err != nil {
-		InternalServerError(c, fmt.Sprintf("Failed to fetch %s", tableName))
-		return
-	}
-
-	PaginatedResponse(c, result, total, limit, offset)
 }
 
 // GenericGetByID handles get-by-ID requests for any table with proper error handling.
@@ -378,63 +438,12 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id = ?", tableName)
 	if err := db.Get(result, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			NotFound(c, resourceName)
+			ProblemNotFound(c, resourceName)
 		} else {
-			InternalServerError(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))
+			ProblemInternalServer(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))
 		}
 		return
 	}
 
 	Success(c, result)
-}
-
-// ParseRequiredIntForm parses required integer from form with consistent error handling and validation.
-func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", cases.Title(language.English).String(strings.ReplaceAll(field, "_", " ")))})
-		return 0, false
-	}
-
-	value, err := strconv.Atoi(valueStr)
-	if err != nil || value <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Valid %s is required", strings.ToLower(strings.ReplaceAll(field, "_", " ")))})
-		return 0, false
-	}
-
-	return value, true
-}
-
-// ParseOptionalIntForm parses optional integer from form with consistent error handling, returning nil if empty.
-func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		return nil, nil // empty is ok for optional fields
-	}
-
-	value, err := strconv.Atoi(valueStr)
-	if err != nil || value <= 0 {
-		return nil, fmt.Errorf("invalid %s", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
-	}
-
-	return &value, nil
-}
-
-// ParseFloatFormWithRange parses optional float from form with range validation between minVal and maxVal values.
-func ParseFloatFormWithRange(c *gin.Context, field string, minVal, maxVal float64) (*float64, error) {
-	valueStr := c.PostForm(field)
-	if valueStr == "" {
-		return nil, nil // empty is ok for optional fields
-	}
-
-	value, err := strconv.ParseFloat(valueStr, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid %s format", strings.ToLower(strings.ReplaceAll(field, "_", " ")))
-	}
-
-	if value < minVal || value > maxVal {
-		return nil, fmt.Errorf("%s must be between %.1f and %.1f", strings.ToLower(strings.ReplaceAll(field, "_", " ")), minVal, maxVal)
-	}
-
-	return &value, nil
 }

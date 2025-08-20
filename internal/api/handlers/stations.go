@@ -9,10 +9,33 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// ListStations returns a paginated list of all radio stations with their configuration.
+// ListStations returns a paginated list of radio stations with modern query parameter support
 func (h *Handlers) ListStations(c *gin.Context) {
+	// Simplified version for debugging
 	var stations []models.Station
-	utils.GenericList(c, h.db, "stations", "*", &stations)
+
+	// Get total count
+	var total int64
+	err := h.db.Get(&total, "SELECT COUNT(*) FROM stations")
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to count stations")
+		return
+	}
+
+	// Get stations
+	err = h.db.Select(&stations, "SELECT * FROM stations ORDER BY name ASC")
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to fetch stations")
+		return
+	}
+
+	// Return simple response
+	c.JSON(200, gin.H{
+		"data":   stations,
+		"total":  total,
+		"limit":  50,
+		"offset": 0,
+	})
 }
 
 // GetStation returns a single radio station by ID with all its configuration details.
@@ -30,7 +53,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 
 	// Check name uniqueness
 	if err := utils.CheckUnique(h.db, "stations", "name", req.Name, nil); err != nil {
-		utils.BadRequest(c, "Station name already exists")
+		utils.ProblemDuplicate(c, "Station name")
 		return
 	}
 
@@ -40,7 +63,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 		req.Name, req.MaxStoriesPerBlock, req.PauseSeconds,
 	)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to create station")
+		utils.ProblemInternalServer(c, "Failed to create station due to database error")
 		return
 	}
 
@@ -67,7 +90,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 
 	// Check name uniqueness (excluding current record)
 	if err := utils.CheckUnique(h.db, "stations", "name", req.Name, &id); err != nil {
-		utils.BadRequest(c, "Station name already exists")
+		utils.ProblemDuplicate(c, "Station name")
 		return
 	}
 
@@ -77,7 +100,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 		req.Name, req.MaxStoriesPerBlock, req.PauseSeconds, id,
 	)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to update station")
+		utils.ProblemInternalServer(c, "Failed to update station")
 		return
 	}
 
@@ -94,11 +117,11 @@ func (h *Handlers) DeleteStation(c *gin.Context) {
 	// Check for dependencies first
 	count, err := utils.CountDependencies(h.db, "station_voices", "station_id", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to check dependencies")
+		utils.ProblemInternalServer(c, "Failed to check dependencies")
 		return
 	}
 	if count > 0 {
-		utils.BadRequest(c, "Cannot delete station: it has associated voices")
+		utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, "Cannot delete station: it has associated voices")
 		return
 	}
 
@@ -107,16 +130,16 @@ func (h *Handlers) DeleteStation(c *gin.Context) {
 	if err != nil {
 		logger.Error("Database error deleting station: %v", err)
 		if strings.Contains(err.Error(), "foreign key constraint") {
-			utils.BadRequest(c, "Cannot delete station: it is referenced by other resources")
+			utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, "Cannot delete station: it is referenced by other resources")
 		} else {
-			utils.InternalServerError(c, "Failed to delete station due to database error")
+			utils.ProblemInternalServer(c, "Failed to delete station due to database error")
 		}
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		utils.NotFound(c, "Station")
+		utils.ProblemNotFound(c, "Station")
 		return
 	}
 

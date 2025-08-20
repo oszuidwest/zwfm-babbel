@@ -1,0 +1,44 @@
+# Test artifacts
+test_cookies.txt
+cookies.txt
+downloaded_audio.wav
+*.log
+*.tmp
+
+# Audio test files
+audio/output/*
+audio/processed/*
+audio/stories/*
+!audio/output/.gitkeep
+!audio/processed/.gitkeep
+!audio/stories/.gitkeep
+
+# Coverage reports
+coverage/
+.nyc_output/
+
+# Node modules (if tests have separate dependencies)
+node_modules/
+
+# macOS
+.DS_Store
+
+# Test database
+*.db
+*.sqlite
+
+# Temporary files
+/tmp/
+temp/
+*.bak
+*.swp
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Test results
+test-results/
+junit.xml
+test-report.html
