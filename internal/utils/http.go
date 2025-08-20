@@ -256,9 +256,16 @@ type VoiceRequest struct {
 
 // StationVoiceRequest represents the request structure for creating station-voice relationships
 type StationVoiceRequest struct {
-	StationID int     `json:"station_id" binding:"required,min=1"`
-	VoiceID   int     `json:"voice_id" binding:"required,min=1"`
-	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
+	StationID int     `json:"station_id" form:"station_id" binding:"required,min=1"`
+	VoiceID   int     `json:"voice_id" form:"voice_id" binding:"required,min=1"`
+	MixPoint  float64 `json:"mix_point" form:"mix_point" binding:"gte=0,lte=300"`
+}
+
+// StationVoiceUpdateRequest represents the request structure for updating station-voice relationships
+type StationVoiceUpdateRequest struct {
+	StationID *int     `json:"station_id,omitempty" form:"station_id" binding:"omitempty,min=1"`
+	VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id" binding:"omitempty,min=1"`
+	MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point" binding:"omitempty,gte=0,lte=300"`
 }
 
 // UserCreateRequest represents the request structure for creating users

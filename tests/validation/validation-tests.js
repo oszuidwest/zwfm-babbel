@@ -482,8 +482,8 @@ class ValidationTester extends BaseTest {
             new TestCase("empty_sv_data", {}, 422, "Empty station-voice data", "/station-voices"),
             new TestCase("missing_station_id", { voice_id: 1, mix_point: 3.0 }, 422, "Missing station_id", "/station-voices"),
             new TestCase("missing_voice_id", { station_id: 1, mix_point: 3.0 }, 422, "Missing voice_id", "/station-voices"),
-            new TestCase("invalid_station_id", { station_id: 99999, voice_id: 1, mix_point: 3.0 }, 422, "Invalid station_id", "/station-voices"),
-            new TestCase("invalid_voice_id", { station_id: 1, voice_id: 99999, mix_point: 3.0 }, 422, "Invalid voice_id", "/station-voices"),
+            new TestCase("invalid_station_id", { station_id: 99999, voice_id: 1, mix_point: 3.0 }, 404, "Invalid station_id (not found)", "/station-voices"),
+            new TestCase("invalid_voice_id", { station_id: 1, voice_id: 99999, mix_point: 3.0 }, 404, "Invalid voice_id (not found)", "/station-voices"),
             new TestCase("negative_mix_point", { station_id: 1, voice_id: 1, mix_point: -1.0 }, 422, "Negative mix_point", "/station-voices"),
         ];
         

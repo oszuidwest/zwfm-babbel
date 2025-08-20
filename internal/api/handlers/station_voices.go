@@ -115,84 +115,22 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 // CreateStationVoice creates a new station-voice relationship with optional jingle upload
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
-	// Check content type to determine parsing strategy
-	contentType := c.GetHeader("Content-Type")
-
-	if strings.Contains(contentType, "application/json") {
-		// Handle JSON requests
-		var req utils.StationVoiceRequest
-		if !utils.BindAndValidate(c, &req) {
-			return
-		}
-
-		if !utils.ValidateResourceExists(c, h.db, "stations", "Station", req.StationID) {
-			return
-		}
-		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", req.VoiceID) {
-			return
-		}
-
-		// Check if combination already exists
-		count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ?", req.StationID, req.VoiceID)
-		if err != nil {
-			utils.ProblemInternalServer(c, "Failed to check uniqueness")
-			return
-		}
-		if count > 0 {
-			utils.ProblemDuplicate(c, "Station-voice combination")
-			return
-		}
-
-		// Create station-voice relationship
-		result, err := h.db.ExecContext(c.Request.Context(),
-			"INSERT INTO station_voices (station_id, voice_id, mix_point) VALUES (?, ?, ?)",
-			req.StationID, req.VoiceID, req.MixPoint)
-		if err != nil {
-			utils.ProblemInternalServer(c, "Failed to create station-voice")
-			return
-		}
-
-		id, _ := result.LastInsertId()
-		utils.CreatedWithID(c, id, "Station-voice relationship created successfully")
+	// Use unified validation that handles both JSON and form data
+	var req utils.StationVoiceRequest
+	if !utils.BindFormAndValidate(c, &req) {
 		return
-	}
-
-	// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
-	var mixPoint float64
-
-	stationID, ok := utils.ParseRequiredIntForm(c, "station_id")
-	if !ok {
-		return
-	}
-
-	voiceID, ok := utils.ParseRequiredIntForm(c, "voice_id")
-	if !ok {
-		return
-	}
-
-	mixPointPtr, err := utils.ParseFloatFormWithRange(c, "mix_point", 0, 300)
-	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "mix_point",
-			Message: err.Error(),
-		}})
-		return
-	}
-	mixPoint = 0.0
-	if mixPointPtr != nil {
-		mixPoint = *mixPointPtr
 	}
 
 	// Check if station and voice exist
-	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
+	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", req.StationID) {
 		return
 	}
-	if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
+	if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", req.VoiceID) {
 		return
 	}
 
 	// Check if combination already exists
-	count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ?", stationID, voiceID)
+	count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ?", req.StationID, req.VoiceID)
 	if err != nil {
 		utils.ProblemInternalServer(c, "Failed to check uniqueness")
 		return
@@ -205,7 +143,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	// Create station-voice relationship
 	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO station_voices (station_id, voice_id, mix_point) VALUES (?, ?, ?)",
-		stationID, voiceID, mixPoint)
+		req.StationID, req.VoiceID, req.MixPoint)
 	if err != nil {
 		utils.ProblemInternalServer(c, "Failed to create station-voice")
 		return
@@ -216,7 +154,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	// Handle optional jingle file upload
 	_, _, err = c.Request.FormFile("jingle")
 	if err == nil {
-		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationID, voiceID))
+		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", req.StationID, req.VoiceID))
 		if err != nil {
 			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 				Field:   "jingle",
@@ -227,7 +165,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		defer cleanup()
 
 		// Generate final path and move from temp
-		finalPath := utils.GetJinglePath(h.config, stationID, voiceID)
+		finalPath := utils.GetJinglePath(h.config, req.StationID, req.VoiceID)
 
 		// Move from temp to final location (handles cross-device moves)
 		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
@@ -237,7 +175,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		}
 
 		// Update database with relative jingle path
-		relativePath := utils.GetJingleRelativePath(h.config, stationID, voiceID)
+		relativePath := utils.GetJingleRelativePath(h.config, req.StationID, req.VoiceID)
 		_, err = h.db.ExecContext(c.Request.Context(),
 			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
 		if err != nil {
