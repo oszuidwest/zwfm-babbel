@@ -47,8 +47,8 @@ All endpoints require session-based authentication (except health and login).
 | Method | Endpoint | Description | Parameters | Request Body |
 |--------|----------|-------------|------------|--------------|
 | GET | /auth/config | Get authentication configuration | - | - |
+| GET | /auth/oauth | Start OAuth/OIDC authentication flow | frontend_url | - |
 | GET | /auth/oauth/callback | OAuth callback endpoint | code*, state*, error | - |
-| GET | /auth/oauth/start | Start OAuth/OIDC authentication flow | frontend_url | - |
 | GET | /bulletins | List bulletins | , , , , , , station_id, include_stories | - |
 | GET | /bulletins/{id}/audio | Download bulletin audio file |  | - |
 | GET | /bulletins/{id}/stories | List stories included in a bulletin | , , , , , ,  | - |
@@ -67,7 +67,8 @@ All endpoints require session-based authentication (except health and login).
 | DELETE | /stations/{id} | Delete station |  | - |
 | GET | /stations/{id} | Get station by ID |  | - |
 | PUT | /stations/{id} | Update station |  | JSON |
-| POST | /stations/{id}/bulletins/generate | Generate news bulletin for a station | , download, include_story_list, max_age, force | JSON |
+| GET | /stations/{id}/bulletins | List bulletins for a station | , , , , , , , include_stories, latest | - |
+| POST | /stations/{id}/bulletins | Generate news bulletin for a station | , download, include_story_list, max_age, force | JSON |
 | GET | /stations/{id}/bulletins/latest | Get latest bulletin for a station |  | - |
 | GET | /stations/{id}/bulletins/latest/audio | Download latest bulletin audio for a station |  | - |
 | GET | /stories | List all stories | , , , , , , , has_voice, has_audio | - |
