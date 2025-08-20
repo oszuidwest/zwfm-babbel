@@ -1,7 +1,4 @@
 // Package logger provides structured logging utilities.
-//
-// This package sets up different loggers for different message types
-// and provides simple logging functions with consistent formatting.
 package logger
 
 import (
@@ -11,15 +8,12 @@ import (
 )
 
 var (
-	// InfoLogger handles informational messages.
-	InfoLogger *log.Logger
-	// ErrorLogger handles error messages.
+	InfoLogger  *log.Logger
 	ErrorLogger *log.Logger
-	// DebugLogger handles debug messages.
 	DebugLogger *log.Logger
 )
 
-// Initialize sets up simple loggers.
+// Initialize sets up the logging system with the specified level and mode.
 func Initialize(level string, development bool) error {
 	// Configure based on level and development mode
 	flags := log.Ldate | log.Ltime
@@ -41,21 +35,21 @@ func Initialize(level string, development bool) error {
 	return nil
 }
 
-// Info logs informational messages.
+// Info logs informational messages to stdout.
 func Info(message string, args ...interface{}) {
 	if InfoLogger != nil {
 		InfoLogger.Printf(message, args...)
 	}
 }
 
-// Error logs error messages.
+// Error logs error messages to stderr.
 func Error(message string, args ...interface{}) {
 	if ErrorLogger != nil {
 		ErrorLogger.Printf(message, args...)
 	}
 }
 
-// Fatal logs fatal messages and terminates the program.
+// Fatal logs fatal error messages to stderr and terminates the program.
 func Fatal(message string, args ...interface{}) {
 	if ErrorLogger != nil {
 		ErrorLogger.Printf(message, args...)
@@ -63,7 +57,7 @@ func Fatal(message string, args ...interface{}) {
 	os.Exit(1)
 }
 
-// Sync flushes any buffered log entries (no-op for standard logger).
+// Sync flushes any buffered log entries.
 func Sync() {
 	// No-op for standard log package
 }

@@ -12,14 +12,18 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// AuthHandlers contains handlers for authentication-related endpoints.
+// AuthHandlers provides HTTP handlers for authentication endpoints including
+// local login, OAuth flows, session management, and configuration discovery.
+// Handles both username/password and OAuth/OIDC authentication methods.
 type AuthHandlers struct {
 	authService *auth.Service
 	frontendURL string
 	handlers    *handlers.Handlers
 }
 
-// NewAuthHandlers creates a new AuthHandlers instance.
+// NewAuthHandlers creates a new authentication handler with the provided services.
+// The frontendURL is used for OAuth redirects after successful authentication.
+// Returns a configured handler ready for route registration.
 func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.Handlers) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
@@ -28,7 +32,10 @@ func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.
 	}
 }
 
-// Login handles local authentication
+// Login handles local username/password authentication via JSON POST.
+// Validates credentials against the database and creates a secure session.
+// Returns 201 Created on success or appropriate error responses for failures.
+// Only available when local authentication is enabled in configuration.
 func (h *AuthHandlers) Login(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
@@ -48,12 +55,17 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "Login successful"})
 }
 
-// StartOAuthFlow initiates the OAuth authentication flow
+// StartOAuthFlow initiates OAuth/OIDC authentication by redirecting to the provider.
+// Generates CSRF protection state and stores frontend redirect URL in session.
+// Only available when OAuth authentication is enabled in configuration.
 func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 	h.authService.StartOAuthFlow(c)
 }
 
-// HandleOAuthCallback processes the OAuth provider callback
+// HandleOAuthCallback processes the OAuth provider callback after user authentication.
+// Validates CSRF state, exchanges authorization code for tokens, verifies ID token,
+// and creates or updates user accounts. Redirects to frontend with success/error status.
+// Cleans up temporary session data after processing.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	// Get frontend URL from session or use configured fallback
 	session := h.authService.GetSession(c)
@@ -81,13 +93,16 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?login=success")
 }
 
-// Logout destroys the session
+// Logout securely destroys the current user session and clears all session data.
+// Returns 204 No Content on successful logout. Safe to call multiple times.
 func (h *AuthHandlers) Logout(c *gin.Context) {
 	h.authService.Logout(c)
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser handles GET /session requests to retrieve the authenticated user's information.
+// GetCurrentUser returns the authenticated user's profile information.
+// Retrieves user data based on the session and delegates to the standard GetUser handler.
+// Requires valid authentication session.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
@@ -96,7 +111,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	h.handlers.GetUser(c)
 }
 
-// GetAuthConfig returns the authentication configuration
+// GetAuthConfig returns the available authentication methods and OAuth URLs.
+// Used by frontend applications to discover supported authentication options.
+// Returns array of enabled methods ("local", "oauth") and OAuth initiation URL.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := gin.H{
 		"methods": []string{},

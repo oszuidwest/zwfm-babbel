@@ -1,3 +1,4 @@
+// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -11,7 +12,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// StoryResponse represents the response format for stories
+// StoryResponse represents the response format for news stories with computed weekday information.
+// Includes all story metadata, scheduling configuration, and optional voice/audio associations.
+// The Weekdays field is computed from individual weekday boolean fields for client convenience.
 type StoryResponse struct {
 	ID              int             `json:"id" db:"id"`
 	Title           string          `json:"title" db:"title"`

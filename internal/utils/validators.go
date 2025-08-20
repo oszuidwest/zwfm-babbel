@@ -1,3 +1,4 @@
+// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -9,7 +10,9 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
-// InitializeValidators registers custom validators with Gin's binding engine
+// InitializeValidators registers custom validation rules with Gin's binding engine.
+// Must be called during application startup to enable custom validation tags.
+// Panics if validator registration fails, as this is a critical configuration error.
 func InitializeValidators() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
 		// Register notblank validator - ensures string is not empty or whitespace-only
@@ -34,13 +37,15 @@ func InitializeValidators() {
 	}
 }
 
-// notBlankValidator validates that a string is not empty after trimming whitespace
+// notBlankValidator validates that a string field is not empty or whitespace-only.
+// More strict than the standard required validator which allows whitespace.
 func notBlankValidator(fl validator.FieldLevel) bool {
 	value := fl.Field().String()
 	return strings.TrimSpace(value) != ""
 }
 
-// storyStatusValidator validates story status values
+// storyStatusValidator validates that a story status is one of the allowed values.
+// Ensures story status integrity by restricting to: draft, active, expired.
 func storyStatusValidator(fl validator.FieldLevel) bool {
 	status := fl.Field().String()
 	validStatuses := []string{"draft", "active", "expired"}

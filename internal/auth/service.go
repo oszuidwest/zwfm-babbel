@@ -21,26 +21,26 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// Service handles authentication and authorization
+// Service handles authentication and authorization.
 type Service struct {
 	config   *Config
 	db       *sqlx.DB
 	enforcer *casbin.Enforcer
 	sessions SessionStore
-	ginStore interface{} // Store the gin-contrib/sessions store
+	ginStore interface{}
 }
 
-// IsLocalEnabled returns true if local authentication is enabled
+// IsLocalEnabled returns true if local authentication is enabled.
 func (s *Service) IsLocalEnabled() bool {
 	return s.config.Method == "local" || s.config.Method == "both"
 }
 
-// IsOAuthEnabled returns true if OAuth/OIDC authentication is enabled
+// IsOAuthEnabled returns true if OAuth/OIDC authentication is enabled.
 func (s *Service) IsOAuthEnabled() bool {
 	return s.config.Method == "oidc" || s.config.Method == "both"
 }
 
-// NewService creates a new authentication service with the provided configuration and database connection.
+// NewService creates a new authentication service.
 func NewService(cfg *Config, db *sqlx.DB) (*Service, error) {
 	s := &Service{
 		config: cfg,
@@ -72,7 +72,7 @@ func NewService(cfg *Config, db *sqlx.DB) (*Service, error) {
 	return s, nil
 }
 
-// initializeOIDC initializes the OIDC provider
+// initializeOIDC configures the OIDC provider for OAuth authentication.
 func (s *Service) initializeOIDC() error {
 	ctx := context.Background()
 
@@ -105,10 +105,9 @@ func (s *Service) initializeOIDC() error {
 	return nil
 }
 
-// initializeRBAC initializes the role-based access control system
+// initializeRBAC sets up role-based access control using Casbin.
 func (s *Service) initializeRBAC() (*casbin.Enforcer, error) {
-	// Define RBAC model inline for simplicity and maintenance
-	// This approach is intentional to avoid external configuration files
+	// Define RBAC model inline
 	modelText := `
 [request_definition]
 r = sub, obj, act
@@ -175,7 +174,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 	for _, p := range policies {
 		if _, err := enforcer.AddPolicy(p); err != nil {
-			// Log the error but continue - some policies might already exist
+				// Some policies might already exist
 			fmt.Printf("Failed to add policy %v: %v\n", p, err)
 		}
 	}
@@ -183,7 +182,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	return enforcer, nil
 }
 
-// SessionMiddleware returns the session middleware
+// SessionMiddleware returns the Gin middleware for session management.
 func (s *Service) SessionMiddleware() gin.HandlerFunc {
 	if _, ok := s.sessions.(*GinSessionStore); ok {
 		// Use gin-contrib/sessions middleware
@@ -197,7 +196,7 @@ func (s *Service) SessionMiddleware() gin.HandlerFunc {
 	}
 }
 
-// Middleware returns the authentication middleware
+// Middleware returns the Gin middleware for authentication enforcement.
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := s.sessions.Get(c)
@@ -238,7 +237,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	}
 }
 
-// RequirePermission returns middleware that checks for specific permissions
+// RequirePermission returns middleware that enforces role-based access control.
 func (s *Service) RequirePermission(obj, act string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := c.GetString("user_role")
@@ -260,7 +259,7 @@ func (s *Service) RequirePermission(obj, act string) gin.HandlerFunc {
 	}
 }
 
-// LocalLogin handles local username/password authentication
+// LocalLogin authenticates a user using username and password.
 func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	if s.config.Method == "oidc" {
 		return fmt.Errorf("local authentication is disabled")
@@ -312,7 +311,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	return session.Save(c)
 }
 
-// StartOAuthFlow initiates the OAuth authentication flow
+// StartOAuthFlow initiates the OAuth/OIDC authentication process.
 func (s *Service) StartOAuthFlow(c *gin.Context) {
 	if s.config.Method == "local" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "OAuth authentication is disabled"})
@@ -340,7 +339,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// FinishOAuthFlow completes the OAuth authentication flow
+// FinishOAuthFlow completes the OAuth authentication process.
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session := s.sessions.Get(c)
 
@@ -456,12 +455,12 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	return session.Save(c)
 }
 
-// GetSession returns the session for the given context.
+// GetSession retrieves the current session for the request context.
 func (s *Service) GetSession(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 
-// Logout destroys the user session
+// Logout destroys the user session.
 func (s *Service) Logout(c *gin.Context) {
 	session := s.sessions.Get(c)
 	session.Clear()
@@ -470,7 +469,7 @@ func (s *Service) Logout(c *gin.Context) {
 	}
 }
 
-// generateState generates a random state string for OAuth2
+// generateState generates a cryptographically secure random state parameter for OAuth2 CSRF protection.
 func generateState() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

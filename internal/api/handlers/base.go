@@ -7,14 +7,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// Handlers contains all the dependencies needed by the API handlers
+// Handlers contains all the dependencies needed by the API handlers.
 type Handlers struct {
 	db       *sqlx.DB
 	audioSvc *audio.Service
 	config   *config.Config
 }
 
-// NewHandlers creates a new Handlers instance with the given dependencies
+// NewHandlers creates a new Handlers instance with all required dependencies.
 func NewHandlers(db *sqlx.DB, audioSvc *audio.Service, cfg *config.Config) *Handlers {
 	return &Handlers{
 		db:       db,

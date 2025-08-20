@@ -1,7 +1,4 @@
-// Package config provides application configuration loading and management.
-//
-// This package handles loading configuration from environment variables
-// with sensible defaults, and creates necessary directories.
+// Package config handles application configuration management.
 package config
 
 import (
@@ -9,23 +6,25 @@ import (
 	"os"
 )
 
-// Config holds all application configuration.
+// Config holds all application configuration loaded from environment variables.
 type Config struct {
-	Server      ServerConfig
-	Database    DatabaseConfig
-	Auth        AuthConfig
-	Audio       AudioConfig
+	Server   ServerConfig
+	Database DatabaseConfig
+	Auth     AuthConfig
+	Audio    AudioConfig
+	// LogLevel controls logging verbosity (4=info, 5=debug)
 	LogLevel    int
 	Environment string
 }
 
-// ServerConfig holds server-related configuration.
+// ServerConfig holds HTTP server and CORS configuration.
 type ServerConfig struct {
-	Address        string
-	AllowedOrigins string // Comma-separated list of allowed origins for CORS
+	Address string
+	// AllowedOrigins is a comma-separated list of allowed origins for CORS
+	AllowedOrigins string
 }
 
-// DatabaseConfig holds database connection configuration.
+// DatabaseConfig holds MySQL database connection parameters.
 type DatabaseConfig struct {
 	Host           string
 	Port           int
@@ -35,26 +34,26 @@ type DatabaseConfig struct {
 	MigrationsPath string
 }
 
-// AuthConfig holds authentication-related configuration.
+// AuthConfig holds authentication and session configuration.
 type AuthConfig struct {
-	// Authentication method: "local", "oidc", or "both"
+	// Method specifies authentication type: "local", "oidc", or "both"
 	Method string
 
-	// Session secret key
+	// SessionSecret must be changed from default in production
 	SessionSecret string
 
-	// Cookie configuration for cross-subdomain support
+	// Cookie configuration
 	CookieDomain   string
 	CookieSameSite string
 
-	// OIDC configuration (for Azure AD, Google, etc.)
+	// OIDC configuration
 	OIDCProviderURL  string
 	OIDCClientID     string
 	OIDCClientSecret string
 	OIDCRedirectURL  string
 }
 
-// AudioConfig holds audio processing configuration.
+// AudioConfig holds audio processing and file storage configuration.
 type AudioConfig struct {
 	FFmpegPath    string
 	ProcessedPath string
@@ -63,7 +62,7 @@ type AudioConfig struct {
 	AppRoot       string
 }
 
-// Load loads application configuration from environment variables with defaults.
+// Load reads configuration from environment variables and creates required directories.
 func Load() (*Config, error) {
 	cfg := &Config{
 		Server: ServerConfig{
@@ -117,7 +116,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// getEnv returns the environment variable value or defaultValue if not set.
+// getEnv returns the value of the environment variable key, or defaultValue if unset.
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

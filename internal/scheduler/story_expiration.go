@@ -8,14 +8,20 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// StoryExpirationService handles automatic expiration of stories past their end date
+// StoryExpirationService handles automatic expiration of stories past their end date.
+// Runs as a background service that periodically checks for stories that should be expired
+// and updates their status from 'active' to 'expired'. This ensures bulletins only include current content.
 type StoryExpirationService struct {
-	db     *sqlx.DB
+	// db provides database access for story status updates
+	db *sqlx.DB
+	// ticker controls the hourly execution schedule
 	ticker *time.Ticker
-	done   chan bool
+	// done channel enables graceful shutdown signaling
+	done chan bool
 }
 
-// NewStoryExpirationService creates a new story expiration service
+// NewStoryExpirationService creates a new background service for story expiration management.
+// The service must be started with [StoryExpirationService.Start] to begin operations.
 func NewStoryExpirationService(db *sqlx.DB) *StoryExpirationService {
 	return &StoryExpirationService{
 		db:   db,
@@ -23,7 +29,9 @@ func NewStoryExpirationService(db *sqlx.DB) *StoryExpirationService {
 	}
 }
 
-// Start begins the hourly expiration check
+// Start begins the background expiration service with immediate execution and hourly intervals.
+// The service runs in a separate goroutine and can be stopped with [StoryExpirationService.Stop].
+// Logs all operations for monitoring and debugging.
 func (s *StoryExpirationService) Start() {
 	logger.Info("Starting story expiration service (runs hourly)")
 
@@ -45,7 +53,9 @@ func (s *StoryExpirationService) Start() {
 	}()
 }
 
-// Stop halts the expiration service
+// Stop gracefully shuts down the expiration service.
+// Stops the ticker and signals the background goroutine to exit.
+// This method is safe to call multiple times.
 func (s *StoryExpirationService) Stop() {
 	logger.Info("Stopping story expiration service")
 	if s.ticker != nil {
@@ -54,7 +64,10 @@ func (s *StoryExpirationService) Stop() {
 	s.done <- true
 }
 
-// expireStories updates the status of stories that are past their end date
+// expireStories performs the actual expiration logic by updating story statuses.
+// Only affects stories that are currently 'active' and past their end_date.
+// Does not automatically activate draft stories - that requires manual editorial decision.
+// Logs the number of stories affected for monitoring purposes.
 func (s *StoryExpirationService) expireStories() {
 	logger.Info("Running story expiration check...")
 
