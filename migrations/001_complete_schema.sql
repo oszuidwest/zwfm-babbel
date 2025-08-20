@@ -42,7 +42,13 @@ CREATE TABLE stories (
     status VARCHAR(50) DEFAULT 'draft',
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    weekdays TINYINT UNSIGNED DEFAULT 0, -- bitmask: 1=Mon, 2=Tue, 4=Wed, 8=Thu, 16=Fri, 32=Sat, 64=Sun
+    monday BOOLEAN DEFAULT TRUE,
+    tuesday BOOLEAN DEFAULT TRUE,
+    wednesday BOOLEAN DEFAULT TRUE,
+    thursday BOOLEAN DEFAULT TRUE,
+    friday BOOLEAN DEFAULT TRUE,
+    saturday BOOLEAN DEFAULT TRUE,
+    sunday BOOLEAN DEFAULT TRUE,
     metadata JSON,
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -119,6 +125,14 @@ CREATE INDEX idx_users_suspended_at ON users(suspended_at);
 CREATE INDEX idx_stories_voice_id ON stories(voice_id);
 CREATE INDEX idx_stories_status ON stories(status);
 CREATE INDEX idx_stories_dates ON stories(start_date, end_date);
+CREATE INDEX idx_stories_monday ON stories(monday);
+CREATE INDEX idx_stories_tuesday ON stories(tuesday);
+CREATE INDEX idx_stories_wednesday ON stories(wednesday);
+CREATE INDEX idx_stories_thursday ON stories(thursday);
+CREATE INDEX idx_stories_friday ON stories(friday);
+CREATE INDEX idx_stories_saturday ON stories(saturday);
+CREATE INDEX idx_stories_sunday ON stories(sunday);
+CREATE INDEX idx_stories_weekdays ON stories(monday, tuesday, wednesday, thursday, friday, saturday, sunday);
 
 -- Insert default admin user (password: admin)
 -- Password hash is for 'admin' with bcrypt default cost

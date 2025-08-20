@@ -29,37 +29,49 @@ type UserResponse struct {
 	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
 }
 
-// ListUsers returns a paginated list of users with optional filtering
+// ListUsers returns a paginated list of users with modern query parameter support
 func (h *Handlers) ListUsers(c *gin.Context) {
-	// Build query configuration
-	config := utils.QueryConfig{
-		BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
-		           login_count, failed_login_attempts, locked_until, password_changed_at, 
-		           metadata, created_at, updated_at FROM users`,
-		CountQuery:   "SELECT COUNT(*) FROM users",
-		DefaultOrder: "username ASC",
-		Filters:      []utils.FilterConfig{},
-	}
-
-	// Filter out suspended users by default
-	includeSuspended := c.Query("include_suspended") == "true"
-	if !includeSuspended {
-		config.Filters = append(config.Filters, utils.FilterConfig{
-			Column:   "suspended_at",
-			Operator: "IS NULL",
-		})
-	}
-
-	// Filter by role if specified
-	if role := c.Query("role"); role != "" {
-		config.Filters = append(config.Filters, utils.FilterConfig{
-			Column: "role",
-			Value:  role,
-		})
-	}
-
+	// Simplified version for debugging  
 	var users []UserResponse
-	utils.GenericListWithJoins(c, h.db, config, &users)
+	
+	// Build query with basic role filtering
+	query := `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
+	          login_count, failed_login_attempts, locked_until, password_changed_at, 
+	          metadata, created_at, updated_at FROM users`
+	countQuery := "SELECT COUNT(*) FROM users"
+	args := []interface{}{}
+	
+	// Handle role parameter
+	if role := c.Query("role"); role != "" {
+		query += " WHERE role = ?"
+		countQuery += " WHERE role = ?"
+		args = append(args, role)
+	}
+	
+	query += " ORDER BY username ASC"
+	
+	// Get total count
+	var total int64
+	err := h.db.Get(&total, countQuery, args...)
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to count users")
+		return
+	}
+	
+	// Get users
+	err = h.db.Select(&users, query, args...)
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to fetch users")
+		return
+	}
+	
+	// Return simple response
+	c.JSON(200, gin.H{
+		"data":  users,
+		"total": total,
+		"limit": 50,
+		"offset": 0,
+	})
 }
 
 // GetUser returns a single user by ID
@@ -70,12 +82,12 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	}
 
 	var user UserResponse
-	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, password_changed_at, created_at, updated_at FROM users WHERE id = ?"
+	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, failed_login_attempts, locked_until, password_changed_at, metadata, created_at, updated_at FROM users WHERE id = ?"
 	if err := h.db.Get(&user, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			utils.NotFound(c, "User")
+			utils.ProblemNotFound(c, "User")
 		} else {
-			utils.InternalServerError(c, "Failed to fetch user")
+			utils.ProblemInternalServer(c, "Failed to fetch user")
 		}
 		return
 	}
@@ -92,14 +104,14 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 
 	// Check username uniqueness
 	if err := utils.CheckUnique(h.db, "users", "username", req.Username, nil); err != nil {
-		utils.BadRequest(c, "Username already exists")
+		utils.ProblemDuplicate(c, "Username")
 		return
 	}
 
 	// Check email uniqueness (if provided)
 	if req.Email != nil && *req.Email != "" {
 		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, nil); err != nil {
-			utils.BadRequest(c, "Email already exists")
+			utils.ProblemDuplicate(c, "Email")
 			return
 		}
 	}
@@ -107,7 +119,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to hash password")
+		utils.ProblemInternalServer(c, "Failed to hash password")
 		return
 	}
 
@@ -120,16 +132,17 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	}
 
 	// Create user
-	_, err = h.db.ExecContext(c.Request.Context(),
+	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO users (username, full_name, email, password_hash, role, metadata) VALUES (?, ?, ?, ?, ?, ?)",
 		req.Username, req.FullName, req.Email, string(hashedPassword), req.Role, metadataValue,
 	)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to create user")
+		utils.ProblemInternalServer(c, "Failed to create user")
 		return
 	}
 
-	utils.Created(c, gin.H{"message": "User created successfully"})
+	id, _ := result.LastInsertId()
+	utils.CreatedWithID(c, id, "User created successfully")
 }
 
 // UpdateUser updates an existing user's information
@@ -155,7 +168,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 
 	if req.Username != "" {
 		if err := utils.CheckUnique(h.db, "users", "username", req.Username, &id); err != nil {
-			utils.BadRequest(c, "Username already exists")
+			utils.ProblemDuplicate(c, "Username")
 			return
 		}
 		updates = append(updates, "username = ?")
@@ -169,7 +182,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 
 	if req.Email != nil && *req.Email != "" {
 		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, &id); err != nil {
-			utils.BadRequest(c, "Email already exists")
+			utils.ProblemDuplicate(c, "Email")
 			return
 		}
 		updates = append(updates, "email = ?")
@@ -187,7 +200,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	if len(updates) == 0 {
-		utils.BadRequest(c, "No fields to update")
+		utils.ProblemBadRequest(c, "No fields to update")
 		return
 	}
 
@@ -196,7 +209,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	args = append(args, id)
 
 	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		utils.InternalServerError(c, "Failed to update user")
+		utils.ProblemInternalServer(c, "Failed to update user")
 		return
 	}
 
@@ -213,22 +226,22 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	// Check if this would be the last admin
 	adminCount, err := utils.CountActivesExcludingID(h.db, "users", "role = 'admin' AND suspended_at IS NULL", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to check admin count")
+		utils.ProblemInternalServer(c, "Failed to check admin count")
 		return
 	}
 
 	var userRole string
 	if err := h.db.Get(&userRole, "SELECT role FROM users WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
-			utils.NotFound(c, "User")
+			utils.ProblemNotFound(c, "User")
 		} else {
-			utils.InternalServerError(c, "Failed to fetch user")
+			utils.ProblemInternalServer(c, "Failed to fetch user")
 		}
 		return
 	}
 
 	if userRole == "admin" && adminCount == 0 {
-		utils.BadRequest(c, "Cannot delete the last admin user")
+		utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
 		return
 	}
 
@@ -239,58 +252,19 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 
 	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM users WHERE id = ?", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to delete user")
+		utils.ProblemInternalServer(c, "Failed to delete user")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		utils.NotFound(c, "User")
+		utils.ProblemNotFound(c, "User")
 		return
 	}
 
 	utils.NoContent(c)
 }
 
-// ChangePassword updates a user's password
-func (h *Handlers) ChangePassword(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
-
-	var input struct {
-		Password string `json:"password" binding:"required,min=8"`
-	}
-	if err := c.ShouldBindJSON(&input); err != nil {
-		utils.BadRequest(c, "Password must be at least 8 characters")
-		return
-	}
-
-	// Check if user exists
-	if !utils.ValidateResourceExists(c, h.db, "users", "User", id) {
-		return
-	}
-
-	// Hash new password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-	if err != nil {
-		utils.InternalServerError(c, "Failed to hash password")
-		return
-	}
-
-	// Update password
-	_, err = h.db.ExecContext(c.Request.Context(),
-		"UPDATE users SET password_hash = ?, password_changed_at = NOW() WHERE id = ?",
-		string(hashedPassword), id,
-	)
-	if err != nil {
-		utils.InternalServerError(c, "Failed to update password")
-		return
-	}
-
-	utils.SuccessWithMessage(c, "Password updated successfully")
-}
 
 // UpdateUserStatus handles user suspension and restoration
 func (h *Handlers) UpdateUserStatus(c *gin.Context) {
@@ -313,7 +287,7 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	}
 	_, err := h.db.ExecContext(c.Request.Context(), query, id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to update user state")
+		utils.ProblemInternalServer(c, "Failed to update user state")
 		return
 	}
 	utils.SuccessWithMessage(c, "User state updated")

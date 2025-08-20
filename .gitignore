@@ -5,3 +5,4 @@ test_cookies.txt
 babbel
 .env
 test_cookies.txt
+/node_modules

@@ -7,21 +7,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// CountRecords returns the total number of records in the specified table with optional WHERE clause.
-func CountRecords(db *sqlx.DB, tableName string, whereClause string, args ...interface{}) (int64, error) {
-	var count int64
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableName)
-
-	if whereClause != "" {
-		query += " WHERE " + whereClause
-	}
-
-	if err := db.Get(&count, query, args...); err != nil {
-		return 0, err
-	}
-
-	return count, nil
-}
 
 // CountWithJoins returns the count of records using complex query with joins and custom conditions.
 func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, error) {

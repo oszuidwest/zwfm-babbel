@@ -1,0 +1,46 @@
+{
+  "name": "babbel-api",
+  "version": "1.0.9",
+  "description": "HTTP API for generating audio news bulletins for radio automation systems",
+  "main": "babbel",
+  "scripts": {
+    "test": "node tests/run-all.js",
+    "test:auth": "node tests/run-all.js auth",
+    "test:permissions": "node tests/run-all.js permissions", 
+    "test:stations": "node tests/run-all.js stations",
+    "test:voices": "node tests/run-all.js voices",
+    "test:station-voices": "node tests/run-all.js station-voices",
+    "test:stories": "node tests/run-all.js stories",
+    "test:bulletins": "node tests/run-all.js bulletins",
+    "test:users": "node tests/run-all.js users",
+    "test:validation": "node tests/run-all.js validation",
+    "test:quick": "node tests/run-all.js --quick",
+    "test:no-docker": "node tests/run-all.js --no-docker",
+    "test:no-setup": "node tests/run-all.js --no-setup"
+  },
+  "devDependencies": {
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "tough-cookie": "^4.1.3",
+    "axios-cookiejar-support": "^5.0.2",
+    "chalk": "^4.1.2",
+    "yargs": "^17.7.2"
+  },
+  "keywords": [
+    "radio",
+    "audio",
+    "news",
+    "api",
+    "automation",
+    "broadcasting"
+  ],
+  "author": "ZuidWest FM",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oszuidwest/zwfm-babbel.git"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

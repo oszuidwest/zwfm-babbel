@@ -3,28 +3,29 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StationVoiceResponse represents the response for station-voice relationships
 type StationVoiceResponse struct {
-	ID          int     `json:"id" db:"id"`
-	StationID   int     `json:"station_id" db:"station_id"`
-	VoiceID     int     `json:"voice_id" db:"voice_id"`
-	JingleFile  string  `json:"-" db:"jingle_file"`
-	MixPoint    float64 `json:"mix_point" db:"mix_point"`
-	StationName string  `json:"station_name" db:"station_name"`
-	VoiceName   string  `json:"voice_name" db:"voice_name"`
-	AudioURL    *string `json:"audio_url,omitempty"`
+	ID          int       `json:"id" db:"id"`
+	StationID   int       `json:"station_id" db:"station_id"`
+	VoiceID     int       `json:"voice_id" db:"voice_id"`
+	JingleFile  string    `json:"-" db:"jingle_file"`
+	MixPoint    float64   `json:"mix_point" db:"mix_point"`
+	StationName string    `json:"station_name" db:"station_name"`
+	VoiceName   string    `json:"voice_name" db:"voice_name"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	AudioURL    *string   `json:"audio_url,omitempty"`
 }
 
 // GetStationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
@@ -98,9 +99,9 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 	if err := h.db.Get(&stationVoice, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			utils.NotFound(c, "Station-voice relationship")
+			utils.ProblemNotFound(c, "Station-voice relationship")
 		} else {
-			utils.InternalServerError(c, "Failed to fetch station-voice")
+			utils.ProblemInternalServer(c, "Failed to fetch station-voice")
 		}
 		return
 	}
@@ -114,7 +115,51 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 // CreateStationVoice creates a new station-voice relationship with optional jingle upload
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
-	// Parse form data using the new utilities
+	// Check content type to determine parsing strategy
+	contentType := c.GetHeader("Content-Type")
+	
+	if strings.Contains(contentType, "application/json") {
+		// Handle JSON requests
+		var req utils.StationVoiceRequest
+		if !utils.BindAndValidate(c, &req) {
+			return
+		}
+
+		if !utils.ValidateResourceExists(c, h.db, "stations", "Station", req.StationID) {
+			return
+		}
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", req.VoiceID) {
+			return
+		}
+
+		// Check if combination already exists
+		count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ?", req.StationID, req.VoiceID)
+		if err != nil {
+			utils.ProblemInternalServer(c, "Failed to check uniqueness")
+			return
+		}
+		if count > 0 {
+			utils.ProblemDuplicate(c, "Station-voice combination")
+			return
+		}
+
+		// Create station-voice relationship
+		result, err := h.db.ExecContext(c.Request.Context(),
+			"INSERT INTO station_voices (station_id, voice_id, mix_point) VALUES (?, ?, ?)",
+			req.StationID, req.VoiceID, req.MixPoint)
+		if err != nil {
+			utils.ProblemInternalServer(c, "Failed to create station-voice")
+			return
+		}
+
+		id, _ := result.LastInsertId()
+		utils.CreatedWithID(c, id, "Station-voice relationship created successfully")
+		return
+	}
+
+	// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
+	var mixPoint float64
+
 	stationID, ok := utils.ParseRequiredIntForm(c, "station_id")
 	if !ok {
 		return
@@ -127,10 +172,10 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 
 	mixPointPtr, err := utils.ParseFloatFormWithRange(c, "mix_point", 0, 300)
 	if err != nil {
-		utils.BadRequest(c, err.Error())
+		utils.ProblemBadRequest(c, err.Error())
 		return
 	}
-	mixPoint := 0.0
+	mixPoint = 0.0
 	if mixPointPtr != nil {
 		mixPoint = *mixPointPtr
 	}
@@ -146,11 +191,11 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	// Check if combination already exists
 	count, err := utils.CountByCondition(h.db, "station_voices", "station_id = ? AND voice_id = ?", stationID, voiceID)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to check uniqueness")
+		utils.ProblemInternalServer(c, "Failed to check uniqueness")
 		return
 	}
 	if count > 0 {
-		utils.BadRequest(c, "Station-voice combination already exists")
+		utils.ProblemDuplicate(c, "Station-voice combination")
 		return
 	}
 
@@ -159,7 +204,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		"INSERT INTO station_voices (station_id, voice_id, mix_point) VALUES (?, ?, ?)",
 		stationID, voiceID, mixPoint)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to create station-voice")
+		utils.ProblemInternalServer(c, "Failed to create station-voice")
 		return
 	}
 
@@ -170,7 +215,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	if err == nil {
 		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationID, voiceID))
 		if err != nil {
-			utils.BadRequest(c, err.Error())
+			utils.ProblemBadRequest(c, err.Error())
 			return
 		}
 		defer cleanup()
@@ -181,7 +226,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		// Move from temp to final location (handles cross-device moves)
 		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
 			logger.Error("Failed to move jingle file: %v", err)
-			utils.InternalServerError(c, "Failed to save jingle file")
+			utils.ProblemInternalServer(c, "Failed to save jingle file")
 			return
 		}
 
@@ -194,7 +239,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			if err := os.Remove(finalPath); err != nil {
 				logger.Error("Failed to remove temporary file: %v", err)
 			}
-			utils.InternalServerError(c, "Failed to update jingle reference")
+			utils.ProblemInternalServer(c, "Failed to update jingle reference")
 			return
 		}
 	}
@@ -218,47 +263,99 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	updates := []string{}
 	args := []interface{}{}
 
-	// Handle station_id update
-	if stationIDStr := c.PostForm("station_id"); stationIDStr != "" {
-		stationID, err := strconv.Atoi(stationIDStr)
-		if err != nil || stationID <= 0 {
-			utils.BadRequest(c, "Valid station_id is required")
-			return
-		}
-		if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
-			return
-		}
-		updates = append(updates, "station_id = ?")
-		args = append(args, stationID)
-	}
+	// Check if this is JSON input or form data
+	contentType := c.GetHeader("Content-Type")
+	isJSON := strings.Contains(contentType, "application/json")
 
-	// Handle voice_id update
-	if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-		voiceID, err := strconv.Atoi(voiceIDStr)
-		if err != nil || voiceID <= 0 {
-			utils.BadRequest(c, "Valid voice_id is required")
-			return
+	if isJSON {
+		// Handle JSON input for PUT requests
+		var req struct {
+			StationID *int     `json:"station_id,omitempty"`
+			VoiceID   *int     `json:"voice_id,omitempty"`
+			MixPoint  *float64 `json:"mix_point,omitempty"`
 		}
-		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
-			return
-		}
-		updates = append(updates, "voice_id = ?")
-		args = append(args, voiceID)
-	}
 
-	// Handle mix_point update
-	if mixPointStr := c.PostForm("mix_point"); mixPointStr != "" {
-		mixPoint, err := strconv.ParseFloat(mixPointStr, 64)
-		if err != nil || mixPoint < 0 || mixPoint > 300 {
-			utils.BadRequest(c, "Mix point must be between 0 and 300 seconds")
+		if !utils.BindAndValidate(c, &req) {
 			return
 		}
-		updates = append(updates, "mix_point = ?")
-		args = append(args, mixPoint)
+
+		// Process JSON fields
+		if req.StationID != nil {
+			if *req.StationID <= 0 {
+				utils.ProblemBadRequest(c, "Valid station_id is required")
+				return
+			}
+			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", *req.StationID) {
+				return
+			}
+			updates = append(updates, "station_id = ?")
+			args = append(args, *req.StationID)
+		}
+
+		if req.VoiceID != nil {
+			if *req.VoiceID <= 0 {
+				utils.ProblemBadRequest(c, "Valid voice_id is required")
+				return
+			}
+			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
+				return
+			}
+			updates = append(updates, "voice_id = ?")
+			args = append(args, *req.VoiceID)
+		}
+
+		if req.MixPoint != nil {
+			if *req.MixPoint < 0 || *req.MixPoint > 300 {
+				utils.ProblemBadRequest(c, "Mix point must be between 0 and 300 seconds")
+				return
+			}
+			updates = append(updates, "mix_point = ?")
+			args = append(args, *req.MixPoint)
+		}
+	} else {
+		// Handle form data (existing logic)
+		// Handle station_id update
+		if stationIDStr := c.PostForm("station_id"); stationIDStr != "" {
+			stationID, err := strconv.Atoi(stationIDStr)
+			if err != nil || stationID <= 0 {
+				utils.ProblemBadRequest(c, "Valid station_id is required")
+				return
+			}
+			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
+				return
+			}
+			updates = append(updates, "station_id = ?")
+			args = append(args, stationID)
+		}
+
+		// Handle voice_id update
+		if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
+			voiceID, err := strconv.Atoi(voiceIDStr)
+			if err != nil || voiceID <= 0 {
+				utils.ProblemBadRequest(c, "Valid voice_id is required")
+				return
+			}
+			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
+				return
+			}
+			updates = append(updates, "voice_id = ?")
+			args = append(args, voiceID)
+		}
+
+		// Handle mix_point update
+		if mixPointStr := c.PostForm("mix_point"); mixPointStr != "" {
+			mixPoint, err := strconv.ParseFloat(mixPointStr, 64)
+			if err != nil || mixPoint < 0 || mixPoint > 300 {
+				utils.ProblemBadRequest(c, "Mix point must be between 0 and 300 seconds")
+				return
+			}
+			updates = append(updates, "mix_point = ?")
+			args = append(args, mixPoint)
+		}
 	}
 
 	if len(updates) == 0 {
-		utils.BadRequest(c, "No fields to update")
+		utils.ProblemBadRequest(c, "No fields to update")
 		return
 	}
 
@@ -272,7 +369,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 		err := h.db.Get(&current, "SELECT station_id, voice_id FROM station_voices WHERE id = ?", id)
 		if err != nil {
-			utils.InternalServerError(c, "Failed to fetch current values")
+			utils.ProblemInternalServer(c, "Failed to fetch current values")
 			return
 		}
 
@@ -293,12 +390,12 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 			finalStationID, finalVoiceID, id)
 
 		if err != nil {
-			utils.InternalServerError(c, "Failed to check uniqueness")
+			utils.ProblemInternalServer(c, "Failed to check uniqueness")
 			return
 		}
 
 		if count > 0 {
-			utils.BadRequest(c, "Station-voice combination already exists")
+			utils.ProblemDuplicate(c, "Station-voice combination")
 			return
 		}
 	}
@@ -309,23 +406,27 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 	_, err := h.db.ExecContext(c.Request.Context(), query, args...)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to update station-voice")
+		utils.ProblemInternalServer(c, "Failed to update station-voice")
 		return
 	}
 
 	// Get updated record for response
-	var updatedRecord models.StationVoice
+	var updatedRecord StationVoiceResponse
 	err = h.db.Get(&updatedRecord, `
-		SELECT sv.id, sv.station_id, sv.voice_id, sv.mix_point, sv.created_at, sv.updated_at,
-			   s.name as station_name, v.name as voice_name
+		SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, 
+		       sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name
 		FROM station_voices sv
 		JOIN stations s ON sv.station_id = s.id  
 		JOIN voices v ON sv.voice_id = v.id
 		WHERE sv.id = ?`, id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to fetch updated record")
+		utils.ProblemInternalServer(c, "Failed to fetch updated record")
 		return
 	}
+
+	// Add audio URL
+	hasJingle := updatedRecord.JingleFile != ""
+	updatedRecord.AudioURL = GetStationVoiceAudioURL(updatedRecord.ID, hasJingle)
 
 	utils.Success(c, updatedRecord)
 }
@@ -341,9 +442,9 @@ func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 	var jingleFile sql.NullString
 	if err := h.db.Get(&jingleFile, "SELECT jingle_file FROM station_voices WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
-			utils.NotFound(c, "Station-voice relationship")
+			utils.ProblemNotFound(c, "Station-voice relationship")
 		} else {
-			utils.InternalServerError(c, "Failed to fetch station-voice")
+			utils.ProblemInternalServer(c, "Failed to fetch station-voice")
 		}
 		return
 	}
@@ -351,13 +452,13 @@ func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 	// Delete from database
 	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM station_voices WHERE id = ?", id)
 	if err != nil {
-		utils.InternalServerError(c, "Failed to delete station-voice")
+		utils.ProblemInternalServer(c, "Failed to delete station-voice")
 		return
 	}
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		utils.NotFound(c, "Station-voice relationship")
+		utils.ProblemNotFound(c, "Station-voice relationship")
 		return
 	}
 
@@ -369,5 +470,5 @@ func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 		}
 	}
 
-	c.Status(http.StatusNoContent)
+	utils.NoContent(c)
 }

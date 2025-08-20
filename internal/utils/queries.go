@@ -69,7 +69,8 @@ func BuildWhereClause(filters []FilterConfig) (whereClause string, args []interf
 
 	for _, filter := range filters {
 		column := filter.Column
-		if filter.Table != "" {
+		// Only add table prefix if column doesn't already contain parentheses (expression)
+		if filter.Table != "" && !strings.Contains(filter.Column, "(") {
 			column = filter.Table + "." + filter.Column
 		}
 
@@ -88,6 +89,22 @@ func BuildWhereClause(filters []FilterConfig) (whereClause string, args []interf
 				conditions = append(conditions, column+" IN ("+strings.Join(placeholders, ", ")+")")
 				args = append(args, slice...)
 			}
+		case "BETWEEN":
+			// Expecting Value to be a slice with 2 elements
+			if slice, ok := filter.Value.([]interface{}); ok && len(slice) == 2 {
+				conditions = append(conditions, column+" BETWEEN ? AND ?")
+				args = append(args, slice[0], slice[1])
+			}
+		case "LIKE":
+			conditions = append(conditions, column+" LIKE ?")
+			args = append(args, filter.Value)
+		case "ILIKE":
+			// Case-insensitive LIKE for databases that support it
+			conditions = append(conditions, column+" ILIKE ?")
+			args = append(args, filter.Value)
+		case ">=", "<=", ">", "<", "!=", "<>":
+			conditions = append(conditions, column+" "+filter.Operator+" ?")
+			args = append(args, filter.Value)
 		default:
 			// Default to equality or custom operator
 			operator := filter.Operator
@@ -127,7 +144,7 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 	// Get total count
 	total, err := CountWithJoins(db, countQuery, allArgs...)
 	if err != nil {
-		InternalServerError(c, "Failed to count records")
+		ProblemInternalServer(c, "Failed to count records")
 		return
 	}
 
@@ -148,7 +165,7 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 
 	// Execute query
 	if err := db.Select(result, mainQuery, allArgs...); err != nil {
-		InternalServerError(c, "Failed to fetch records")
+		ProblemInternalServer(c, "Failed to fetch records")
 		return
 	}
 
@@ -159,3 +176,6 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 
 	PaginatedResponse(c, result, total, limit, offset)
 }
+
+
+

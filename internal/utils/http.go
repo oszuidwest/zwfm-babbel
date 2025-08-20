@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -26,7 +24,7 @@ import (
 func GetIDParam(c *gin.Context) (int, bool) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid ID parameter"})
+		ProblemBadRequest(c, "Invalid ID parameter")
 		return 0, false
 	}
 	return id, true
@@ -37,7 +35,7 @@ func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
 	if err := db.Get(&exists, query, id); err != nil || !exists {
-		NotFound(c, resourceName)
+		ProblemNotFound(c, resourceName)
 		return false
 	}
 	return true
@@ -86,7 +84,7 @@ func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, boo
 
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel))})
+		ProblemBadRequest(c, fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel)))
 		return time.Time{}, false
 	}
 
@@ -97,31 +95,17 @@ func ParseFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, boo
 func ParseRequiredFormDate(c *gin.Context, fieldName, fieldLabel string) (time.Time, bool) {
 	dateStr := c.PostForm(fieldName)
 	if dateStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", fieldLabel)})
+		ProblemBadRequest(c, fmt.Sprintf("%s is required", fieldLabel))
 		return time.Time{}, false
 	}
 
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel))})
+		ProblemBadRequest(c, fmt.Sprintf("Invalid %s format", strings.ToLower(fieldLabel)))
 		return time.Time{}, false
 	}
 
 	return date, true
-}
-
-// WeekdayStringToBitmask converts weekday string to bitmask using the models constants.
-func WeekdayStringToBitmask(weekday string) uint8 {
-	weekdayMap := map[string]uint8{
-		"monday":    models.Monday,
-		"tuesday":   models.Tuesday,
-		"wednesday": models.Wednesday,
-		"thursday":  models.Thursday,
-		"friday":    models.Friday,
-		"saturday":  models.Saturday,
-		"sunday":    models.Sunday,
-	}
-	return weekdayMap[strings.ToLower(weekday)]
 }
 
 // ValidateAndSaveAudioFile validates audio file and saves to temporary location with cleanup function.
@@ -264,6 +248,13 @@ type VoiceRequest struct {
 	Name string `json:"name" binding:"required,min=1,max=255"`
 }
 
+// StationVoiceRequest represents the request structure for creating station-voice relationships
+type StationVoiceRequest struct {
+	StationID int     `json:"station_id" binding:"required,min=1"`
+	VoiceID   int     `json:"voice_id" binding:"required,min=1"`
+	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
+}
+
 // UserCreateRequest represents the request structure for creating users
 type UserCreateRequest struct {
 	Username string  `json:"username" binding:"required,min=3,max=100,alphanum"`
@@ -283,21 +274,18 @@ type UserUpdateRequest struct {
 	Metadata string  `json:"metadata" binding:"omitempty,json"`
 }
 
-// StationVoiceRequest represents the request structure for creating/updating station-voice relationships
-type StationVoiceRequest struct {
-	StationID int     `json:"station_id" binding:"required,min=1"`
-	VoiceID   int     `json:"voice_id" binding:"required,min=1"`
-	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
-}
-
 // BindAndValidate handles JSON binding with developer-friendly error messages and validation.
 func BindAndValidate(c *gin.Context, req interface{}) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		errorDetails := formatValidationErrors(err)
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Validation failed",
-			"details": errorDetails,
-		})
+		validationErrors := make([]ValidationError, len(errorDetails))
+		for i, detail := range errorDetails {
+			validationErrors[i] = ValidationError{
+				Field:   "request",
+				Message: detail,
+			}
+		}
+		ProblemValidationError(c, "Validation failed", validationErrors)
 		return false
 	}
 	return true
@@ -347,26 +335,6 @@ func formatValidationErrors(err error) []string {
 	return errors
 }
 
-// GenericList handles paginated list requests for any table with automatic counting and ordering.
-func GenericList(c *gin.Context, db *sqlx.DB, tableName string, selectFields string, result interface{}) {
-	limit, offset := GetPagination(c)
-
-	// Get total count
-	total, err := CountRecords(db, tableName, "")
-	if err != nil {
-		InternalServerError(c, fmt.Sprintf("Failed to count %s", tableName))
-		return
-	}
-
-	// Get paginated data
-	query := fmt.Sprintf("SELECT %s FROM %s ORDER BY name ASC LIMIT ? OFFSET ?", selectFields, tableName)
-	if err := db.Select(result, query, limit, offset); err != nil {
-		InternalServerError(c, fmt.Sprintf("Failed to fetch %s", tableName))
-		return
-	}
-
-	PaginatedResponse(c, result, total, limit, offset)
-}
 
 // GenericGetByID handles get-by-ID requests for any table with proper error handling.
 func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
@@ -378,9 +346,9 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id = ?", tableName)
 	if err := db.Get(result, query, id); err != nil {
 		if err == sql.ErrNoRows {
-			NotFound(c, resourceName)
+			ProblemNotFound(c, resourceName)
 		} else {
-			InternalServerError(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))
+			ProblemInternalServer(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))
 		}
 		return
 	}
@@ -392,13 +360,13 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 func ParseRequiredIntForm(c *gin.Context, field string) (int, bool) {
 	valueStr := c.PostForm(field)
 	if valueStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%s is required", cases.Title(language.English).String(strings.ReplaceAll(field, "_", " ")))})
+		ProblemBadRequest(c, fmt.Sprintf("%s is required", cases.Title(language.English).String(strings.ReplaceAll(field, "_", " "))))
 		return 0, false
 	}
 
 	value, err := strconv.Atoi(valueStr)
 	if err != nil || value <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Valid %s is required", strings.ToLower(strings.ReplaceAll(field, "_", " ")))})
+		ProblemBadRequest(c, fmt.Sprintf("Valid %s is required", strings.ToLower(strings.ReplaceAll(field, "_", " "))))
 		return 0, false
 	}
 
@@ -418,6 +386,17 @@ func ParseOptionalIntForm(c *gin.Context, field string) (*int, error) {
 	}
 
 	return &value, nil
+}
+
+// ParseBoolForm parses boolean from form field with a default value.
+func ParseBoolForm(c *gin.Context, field string, defaultValue bool) bool {
+	valueStr := strings.ToLower(c.PostForm(field))
+	if valueStr == "" {
+		return defaultValue
+	}
+	
+	// Accept various boolean representations
+	return valueStr == "true" || valueStr == "1" || valueStr == "yes" || valueStr == "on"
 }
 
 // ParseFloatFormWithRange parses optional float from form with range validation between minVal and maxVal values.

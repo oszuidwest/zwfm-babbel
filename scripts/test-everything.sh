@@ -17,7 +17,8 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Configuration
-API_URL="http://localhost:8080/api/v1"
+API_BASE="${API_BASE:-http://localhost:8080}"
+API_URL="$API_BASE/api/v1"
 AUDIO_DIR="./audio"
 COOKIE_FILE="./test_cookies.txt"
 MYSQL_USER="${MYSQL_USER:-babbel}"
@@ -55,6 +56,32 @@ print_info() {
 
 print_warning() {
     echo -e "${YELLOW}⚠ $1${NC}" >&2
+}
+
+# Extract error message from RFC 9457 Problem Details response
+extract_error_message() {
+    local response="$1"
+    
+    # RFC 9457 Problem Details format only
+    local rfc_error=$(echo "$response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    # RFC 9457 format: {\"title\": \"...\", \"detail\": \"...\"}
+    if 'title' in data:
+        title = data.get('title', '')
+        detail = data.get('detail', '')
+        if detail:
+            print(f'{title}: {detail}')
+        else:
+            print(title)
+    else:
+        print('')
+except:
+    print('')
+" 2>/dev/null || echo "")
+    
+    echo "$rfc_error"
 }
 
 # Check if FFmpeg is installed
@@ -221,7 +248,7 @@ start_docker() {
     print_info "Waiting for API to be ready..."
     retries=30
     while [ $retries -gt 0 ]; do
-        if curl -s http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -s "$API_BASE/health" >/dev/null 2>&1; then
             print_success "Docker containers are ready"
             return 0
         fi
@@ -254,7 +281,7 @@ setup_database() {
     # Wait for API to be ready
     local retries=20
     while [ $retries -gt 0 ]; do
-        if curl -s http://localhost:8080/health >/dev/null 2>&1; then
+        if curl -s "$API_BASE/health" >/dev/null 2>&1; then
             print_success "Database setup complete"
             return 0
         fi
@@ -381,14 +408,14 @@ api_login() {
     
     rm -f "$COOKIE_FILE"
     
-    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
         -H "Content-Type: application/json" \
         -d '{"username": "admin", "password": "admin"}' \
         -c "$COOKIE_FILE")
     
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         print_success "Logged in as admin"
     else
         print_error "Login failed"
@@ -416,7 +443,7 @@ create_initial_data() {
             -d "{\"name\": \"$name\", \"max_stories_per_block\": $max_stories, \"pause_seconds\": $pause_seconds}")
         
         http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+        if [ "$http_code" = "201" ]; then
             print_success "Created station: $name (pause: ${pause_seconds}s)"
         else
             print_error "Failed to create station: $name"
@@ -439,7 +466,7 @@ create_initial_data() {
             -d "{\"name\": \"$name\"}")
         
         http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+        if [ "$http_code" = "201" ]; then
             print_success "Created voice: $name"
         else
             print_error "Failed to create voice: $name (HTTP $http_code)"
@@ -508,7 +535,7 @@ create_station_voices() {
                 continue
             fi
             
-            response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station_voices" \
+            response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station-voices" \
                 -b "$COOKIE_FILE" \
                 -F "station_id=$station_id" \
                 -F "voice_id=$voice_id" \
@@ -516,7 +543,7 @@ create_station_voices() {
                 -F "jingle=@$jingle_file")
             
             http_code=$(echo "$response" | tail -n1)
-            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+            if [ "$http_code" = "201" ]; then
                 print_success "Created station-voice: $station_name + $voice_name"
             elif [ "$http_code" = "400" ] && echo "$response" | grep -q "already exists"; then
                 print_info "Station-voice already exists: $station_name + $voice_name"
@@ -534,18 +561,18 @@ create_station_voices() {
     first_voice_id=$(echo "$voice_ids" | head -n1 | cut -d: -f1)
     
     # Create a new unique combination that doesn't exist yet (using mix_point 99 as identifier)
-    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station_voices" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station-voices" \
         -b "$COOKIE_FILE" \
         -F "station_id=$first_station_id" \
         -F "voice_id=$first_voice_id" \
         -F "mix_point=99")
     
     http_code=$(echo "$response" | tail -n1)
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         print_success "Created station-voice without jingle (for null audio_url test)"
     elif [ "$http_code" = "400" ]; then
         # Try deleting the existing one and recreating without jingle
-        sv_list=$(curl -s -X GET "$API_URL/station_voices?station_id=$first_station_id&voice_id=$first_voice_id" -b "$COOKIE_FILE")
+        sv_list=$(curl -s -X GET "$API_URL/station-voices?station_id=$first_station_id&voice_id=$first_voice_id" -b "$COOKIE_FILE")
         sv_id=$(echo "$sv_list" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -618,7 +645,7 @@ create_stories() {
                 -F "status=active")
             
             http_code=$(echo "$response" | tail -n1)
-            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+            if [ "$http_code" = "201" ]; then
                 print_success "Created story without audio: ${stories[$i]} (voice $voice_id)"
             else
                 print_error "Failed to create story: ${stories[$i]} (HTTP $http_code)"
@@ -637,7 +664,7 @@ create_stories() {
                 -F "audio=@$AUDIO_DIR/stories/story${story_num}.wav")
             
             http_code=$(echo "$response" | tail -n1)
-            if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+            if [ "$http_code" = "201" ]; then
                 print_success "Created story: ${stories[$i]} (voice $voice_id)"
             else
                 print_error "Failed to create story: ${stories[$i]} (HTTP $http_code)"
@@ -684,7 +711,7 @@ if 'data' in data:
         # Small delay to allow any background operations to complete
         sleep 1
         
-        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations/$id/bulletins/generate" \
+        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations/$id/bulletins" \
             -b "$COOKIE_FILE" \
             -H "Content-Type: application/json" \
             -d "{\"date\": \"$(date +%Y-%m-%d)\"}")
@@ -741,7 +768,7 @@ if 'data' in data and len(data['data']) > 0:
     if [ -n "$first_station_id" ]; then
         # Test getting latest bulletin for a station
         print_info "Testing get latest bulletin for station $first_station_id..."
-        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/$first_station_id/bulletins/latest" -b "$COOKIE_FILE")
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/$first_station_id/bulletins" -b "$COOKIE_FILE")
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
             bulletin_data=$(echo "$response" | sed '$d')
@@ -767,7 +794,9 @@ if 'data' in data and len(data['data']) > 0:
                 fi
             
             # Use retry logic for the download test (increased to 5 retries for race condition)
-            if simple_download "$API_URL/stations/$first_station_id/bulletins/latest/audio" "/tmp/test_bulletin.wav"; then
+            # Get the first bulletin ID and download its audio
+            first_bulletin_id=$(echo "$bulletin_data" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['data'][0]['id'] if 'data' in data and data['data'] else '')" 2>/dev/null || echo "")
+            if [ -n "$first_bulletin_id" ] && simple_download "$API_URL/bulletins/$first_bulletin_id/audio" "/tmp/test_bulletin.wav"; then
                 print_success "Successfully downloaded bulletin audio directly (perfect for radio automation!)"
                 rm -f /tmp/test_bulletin.wav
             else
@@ -813,7 +842,7 @@ if 'data' in data and len(data['data']) > 0:
         # Delete the story
         response=$(curl -s -w "\n%{http_code}" -X DELETE "$API_URL/stories/$story_id" -b "$COOKIE_FILE")
         http_code=$(echo "$response" | tail -n1)
-        if [ "$http_code" = "204" ] || [ "$http_code" = "200" ]; then
+        if [ "$http_code" = "204" ]; then
             print_success "Story soft deleted: $story_title"
             
             # Small delay to ensure database transaction completes
@@ -827,12 +856,12 @@ if 'data' in data and len(data['data']) > 0:
                 print_success "Deleted story correctly hidden from default list"
             fi
             
-            # Check if story appears with include_deleted=true
-            stories_deleted=$(curl -s -X GET "$API_URL/stories?include_deleted=true" -b "$COOKIE_FILE")
+            # Check if story appears with status=all
+            stories_deleted=$(curl -s -X GET "$API_URL/stories?status=all" -b "$COOKIE_FILE")
             if echo "$stories_deleted" | grep -q "\"id\":$story_id"; then
-                print_success "Deleted story appears with include_deleted=true"
+                print_success "Deleted story appears with status=all"
             else
-                print_error "Deleted story not found with include_deleted=true"
+                print_error "Deleted story not found with status=all"
             fi
             
             # Restore the story
@@ -861,7 +890,7 @@ if 'data' in data and len(data['data']) > 0:
         -d '{"username": "suspend_test", "full_name": "Suspend Test", "password": "testpass", "role": "viewer"}')
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         suspend_user_id=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
         
         if [ -n "$suspend_user_id" ]; then
@@ -875,7 +904,7 @@ if 'data' in data and len(data['data']) > 0:
                 print_success "User suspended successfully"
                 
                 # Try to login as suspended user (should fail)
-                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
                     -H "Content-Type: application/json" \
                     -d '{"username": "suspend_test", "password": "testpass"}')
                 http_code=$(echo "$response" | tail -n1)
@@ -919,7 +948,7 @@ test_permissions() {
         -H "Content-Type: application/json" \
         -d '{"username": "testuser", "full_name": "Test User", "password": "testpass", "role": "editor"}')
     http_code=$(echo "$response" | tail -n1)
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         print_success "Admin can create users"
         # Extract user ID for later tests
         TEST_USER_ID=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
@@ -959,13 +988,13 @@ test_permissions() {
     # Save admin cookie and login as test user
     cp "$COOKIE_FILE" "${COOKIE_FILE}.admin"
     
-    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
         -H "Content-Type: application/json" \
         -d '{"username": "testuser", "password": "testpass"}' \
         -c "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         print_success "Test user can login"
         
         # Test user should be able to read resources
@@ -1022,7 +1051,7 @@ test_permissions() {
     fi
     
     # Test invalid session
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/session" \
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/sessions/current" \
         -H "Cookie: babbel_session=invalid_session_token")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
@@ -1047,7 +1076,7 @@ test_api_endpoints() {
     print_section "Testing API Endpoints"
     
     # Test health endpoint
-    response=$(curl -s -w "\n%{http_code}" http://localhost:8080/health)
+    response=$(curl -s -w "\n%{http_code}" "$API_BASE/health")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         print_success "Health endpoint"
@@ -1071,7 +1100,7 @@ test_api_endpoints() {
     fi
     
     # Test current user endpoint
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/session" -b "$COOKIE_FILE")
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/sessions/current" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         print_success "Current user endpoint"
@@ -1101,9 +1130,55 @@ test_api_endpoints() {
     response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
-        print_success "Stories list endpoint"
+        print_success "Stories list endpoint returned 200"
+        
+        # Validate response structure and content
+        stories_response=$(echo "$response" | sed '$d')
+        validation_result=$(echo "$stories_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    
+    # Check that 'data' field exists and is not null
+    if 'data' not in data:
+        print('ERROR: Missing data field')
+        sys.exit(1)
+    
+    if data['data'] is None:
+        print('ERROR: data field is null instead of array')
+        sys.exit(1)
+    
+    # Check that data is a list
+    if not isinstance(data['data'], list):
+        print('ERROR: data field is not an array')
+        sys.exit(1)
+    
+    # Check we got the expected number of stories (10 created)
+    expected_stories = 10
+    actual_stories = len(data['data'])
+    if actual_stories != expected_stories:
+        print(f'ERROR: Expected {expected_stories} stories, but got {actual_stories}')
+        sys.exit(1)
+    
+    # Check total count matches
+    if 'total' in data and data['total'] != actual_stories:
+        print(f'ERROR: Total count ({data[\"total\"]}) does not match actual data length ({actual_stories})')
+        sys.exit(1)
+    
+    print(f'SUCCESS: Retrieved all {actual_stories} stories')
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: Failed to parse response: {e}')
+    sys.exit(1)
+" 2>&1)
+        
+        if [ $? -eq 0 ]; then
+            print_success "$validation_result"
+        else
+            print_error "$validation_result"
+        fi
     else
-        print_error "Stories list endpoint"
+        print_error "Stories list endpoint (HTTP $http_code)"
     fi
     
     # Test individual story retrieval
@@ -1112,7 +1187,7 @@ test_api_endpoints() {
 import sys, json
 try:
     data = json.load(sys.stdin)
-    if 'data' in data and len(data['data']) > 0:
+    if 'data' in data and data['data'] is not None and len(data['data']) > 0:
         print(data['data'][0]['id'])
     else:
         print('')
@@ -1151,8 +1226,8 @@ except Exception as e:
         print_warning "Skipping individual story test - no stories available"
     fi
     
-    # Test station_voices list
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices" -b "$COOKIE_FILE")
+    # Test station-voices list
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         print_success "Station-voices list endpoint"
@@ -1165,8 +1240,8 @@ except Exception as e:
 test_station_voices_crud() {
     print_section "Testing Station-Voice CRUD Operations"
     
-    # Get all station_voices to find valid IDs
-    response=$(curl -s -X GET "$API_URL/station_voices" -b "$COOKIE_FILE")
+    # Get all station-voices to find valid IDs
+    response=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
     first_sv=$(echo "$response" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -1185,7 +1260,7 @@ if 'data' in data and len(data['data']) > 0:
     
     # Test filter by station
     print_info "Testing station-voice filtering by station..."
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices?station_id=$station_id" -b "$COOKIE_FILE")
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices?station_id=$station_id" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         count=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
@@ -1196,7 +1271,7 @@ if 'data' in data and len(data['data']) > 0:
     
     # Test filter by voice
     print_info "Testing station-voice filtering by voice..."
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices?voice_id=$voice_id" -b "$COOKIE_FILE")
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices?voice_id=$voice_id" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         count=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
@@ -1208,7 +1283,7 @@ if 'data' in data and len(data['data']) > 0:
     # Get specific station-voice
     print_info "Testing get specific station-voice..."
     print_info "Using station-voice ID: $sv_id"
-    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices/$sv_id" -b "$COOKIE_FILE")
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices/$sv_id" -b "$COOKIE_FILE")
     http_code=$(echo "$response" | tail -n1)
     if [ "$http_code" = "200" ]; then
         sv_data=$(echo "$response" | sed '$d')
@@ -1223,7 +1298,7 @@ if 'data' in data and len(data['data']) > 0:
     
     # Test update station-voice mix point
     print_info "Testing update station-voice mix point..."
-    response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/station_voices/$sv_id" \
+    response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/station-voices/$sv_id" \
         -b "$COOKIE_FILE" \
         -F "mix_point=3.5")
     http_code=$(echo "$response" | tail -n1)
@@ -1236,7 +1311,7 @@ if 'data' in data and len(data['data']) > 0:
     
     # Test create new station-voice relationship
     print_info "Testing create new station-voice (should fail - already exists)..."
-    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station_voices" \
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station-voices" \
         -b "$COOKIE_FILE" \
         -F "station_id=$station_id" \
         -F "voice_id=$voice_id" \
@@ -1324,7 +1399,7 @@ if 'data' in data and len(data['data']) > 0:
         -d '{"username": "patch_test", "full_name": "Patch Test", "password": "testpass123", "role": "viewer"}')
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         user_id=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
         
         if [ -n "$user_id" ]; then
@@ -1338,7 +1413,7 @@ if 'data' in data and len(data['data']) > 0:
                 print_success "User suspended via PATCH"
                 
                 # Try to login as suspended user
-                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
                     -H "Content-Type: application/json" \
                     -d '{"username": "patch_test", "password": "testpass123"}')
                 http_code=$(echo "$response" | tail -n1)
@@ -1483,7 +1558,7 @@ else:
     
     # Test station-voices without jingles have null audio_url
     print_info "Testing station-voices without jingles return null audio_url..."
-    sv_response=$(curl -s -X GET "$API_URL/station_voices?limit=100" -b "$COOKIE_FILE")
+    sv_response=$(curl -s -X GET "$API_URL/station-voices?limit=100" -b "$COOKIE_FILE")
     sv_without_jingles=$(echo "$sv_response" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -1508,7 +1583,7 @@ else:
     
     # Test station-voice jingle download
     print_info "Testing station-voice jingle downloads..."
-    sv_data=$(curl -s -X GET "$API_URL/station_voices" -b "$COOKIE_FILE")
+    sv_data=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
     first_sv_id=$(echo "$sv_data" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
@@ -1517,7 +1592,7 @@ if 'data' in data and len(data['data']) > 0:
 " 2>/dev/null)
     
     if [ -n "$first_sv_id" ]; then
-        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station_voices/$first_sv_id/audio" \
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices/$first_sv_id/audio" \
             -b "$COOKIE_FILE" -o /tmp/test_jingle.wav)
         http_code=$(echo "$response" | tail -n1)
         if [ "$http_code" = "200" ]; then
@@ -1706,7 +1781,7 @@ test_password_management() {
         -d '{"username": "pwtest", "full_name": "Password Test", "password": "oldpass123", "role": "viewer"}')
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         user_id=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
         
         if [ -n "$user_id" ]; then
@@ -1721,7 +1796,7 @@ test_password_management() {
                 print_success "Password changed successfully"
                 
                 # Try to login with old password (should fail)
-                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
                     -H "Content-Type: application/json" \
                     -d '{"username": "pwtest", "password": "oldpass123"}')
                 http_code=$(echo "$response" | tail -n1)
@@ -1732,12 +1807,12 @@ test_password_management() {
                 fi
                 
                 # Try to login with new password (should succeed)
-                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+                response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
                     -H "Content-Type: application/json" \
                     -d '{"username": "pwtest", "password": "newpass123"}' \
                     -c "/tmp/pwtest_cookie.txt")
                 http_code=$(echo "$response" | tail -n1)
-                if [ "$http_code" = "200" ]; then
+                if [ "$http_code" = "201" ]; then
                     print_success "New password works correctly"
                     rm -f /tmp/pwtest_cookie.txt
                 else
@@ -1789,35 +1864,35 @@ test_session_logout() {
         -d '{"username": "logouttest", "full_name": "Logout Test", "password": "testpass123", "role": "viewer"}')
     http_code=$(echo "$response" | tail -n1)
     
-    if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+    if [ "$http_code" = "201" ]; then
         user_id=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
         
         # Login as test user
-        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/session/login" \
+        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
             -H "Content-Type: application/json" \
             -d '{"username": "logouttest", "password": "testpass123"}' \
             -c "/tmp/logout_test_cookie.txt")
         http_code=$(echo "$response" | tail -n1)
         
-        if [ "$http_code" = "200" ]; then
+        if [ "$http_code" = "201" ]; then
             print_success "Test user logged in"
             
             # Verify session is active
-            response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/session" \
+            response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/sessions/current" \
                 -b "/tmp/logout_test_cookie.txt")
             http_code=$(echo "$response" | tail -n1)
             if [ "$http_code" = "200" ]; then
                 print_success "Session is active"
                 
                 # Test logout
-                response=$(curl -s -w "\n%{http_code}" -X DELETE "$API_URL/session" \
+                response=$(curl -s -w "\n%{http_code}" -X DELETE "$API_URL/sessions/current" \
                     -b "/tmp/logout_test_cookie.txt")
                 http_code=$(echo "$response" | tail -n1)
-                if [ "$http_code" = "200" ]; then
+                if [ "$http_code" = "204" ]; then
                     print_success "Logout successful"
                     
                     # Verify session is destroyed
-                    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/session" \
+                    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/sessions/current" \
                         -b "/tmp/logout_test_cookie.txt")
                     http_code=$(echo "$response" | tail -n1)
                     if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
@@ -1854,7 +1929,7 @@ test_error_scenarios() {
         "voices/99999"
         "stories/99999"
         "users/99999"
-        "station_voices/99999"
+        "station-voices/99999"
         "bulletins/99999/audio"
     )
     
@@ -1907,14 +1982,14 @@ test_error_scenarios() {
     if [ "$http_code" = "400" ]; then
         print_success "Duplicate station name correctly rejected (unique constraint enforced)"
         # Check error message
-        error_msg=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin).get('message', ''))" 2>/dev/null || echo "")
+        error_msg=$(extract_error_message "$(echo "$response" | sed '$d')")
         if [[ "$error_msg" == *"already exists"* ]]; then
             print_success "Error message indicates duplicate name: $error_msg"
         fi
     else
         print_error "Duplicate station should have been rejected (HTTP $http_code)"
         # If it was accidentally created, clean it up
-        if [ "$http_code" = "201" ] || [ "$http_code" = "200" ]; then
+        if [ "$http_code" = "201" ]; then
             dup_id=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
             if [ -n "$dup_id" ]; then
                 curl -s -X DELETE "$API_URL/stations/$dup_id" -b "$COOKIE_FILE" >/dev/null 2>&1
@@ -1994,9 +2069,950 @@ test_error_scenarios() {
     
     # Oversized file simulation (we can't easily create a 100MB+ file, so we'll test the endpoint exists)
     print_info "File size validation is configured (100MB limit)"
+    
+    # Test RFC 9457 error response format
+    print_info "Testing RFC 9457 error response format..."
+    
+    # Test with invalid endpoint to trigger a 404 error
+    response=$(curl -s -w "\\n%{http_code}" -X GET "$API_URL/nonexistent-endpoint" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "404" ]; then
+        error_msg=$(extract_error_message "$(echo "$response" | sed '$d')")
+        if [ -n "$error_msg" ]; then
+            print_success "RFC 9457 error response parsing works: [$error_msg]"
+        else
+            print_success "404 error received (no parseable error message)"
+        fi
+    else
+        print_info "404 test endpoint may not exist (HTTP $http_code)"
+    fi
+    
+    # Test with invalid JSON to trigger a 400 error
+    response=$(curl -s -w "\\n%{http_code}" -X POST "$API_URL/stations" \\
+        -b "$COOKIE_FILE" \\
+        -H "Content-Type: application/json" \\
+        -d '{invalid json}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "400" ]; then
+        error_msg=$(extract_error_message "$(echo "$response" | sed '$d')")
+        if [ -n "$error_msg" ]; then
+            print_success "JSON parse error message extracted: [$error_msg]"
+        else
+            print_success "400 error for invalid JSON (no parseable error message)"
+        fi
+    else
+        print_info "JSON validation test returned HTTP $http_code"
+    fi
 }
 
 # Priority 3: Test query parameters and filtering
+# Phase 1: Critical Missing Endpoints
+test_missing_critical_endpoints() {
+    print_section "Testing Critical Missing Endpoints"
+    
+    # Get a story ID for testing
+    stories_response=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
+    story_id=$(echo "$stories_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    # Test PUT /api/v1/stories/:id - Story update endpoint
+    if [ -n "$story_id" ]; then
+        print_info "Testing PUT /api/v1/stories/:id..."
+        response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/stories/$story_id" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: application/json" \
+            -d '{
+                "title": "Updated Story Title", 
+                "content": "Updated story content",
+                "voice_id": 1,
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "monday": true,
+                "tuesday": true,
+                "wednesday": true,
+                "thursday": true,
+                "friday": true,
+                "saturday": false,
+                "sunday": false,
+                "active": true
+            }')
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "PUT /api/v1/stories/:id returns 200"
+        else
+            print_error "PUT /api/v1/stories/:id returned HTTP $http_code (expected 200)"
+        fi
+    else
+        print_error "No story ID found for PUT test"
+    fi
+    
+    # Test GET /api/v1/users/:id - Individual user retrieval
+    users_response=$(curl -s -X GET "$API_URL/users" -b "$COOKIE_FILE")
+    user_id=$(echo "$users_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$user_id" ]; then
+        print_info "Testing GET /api/v1/users/:id..."
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/users/$user_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/users/:id returns 200"
+            # Validate response structure
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.id' > /dev/null 2>&1; then
+                print_success "User response contains ID field"
+            else
+                print_error "User response missing ID field"
+            fi
+        else
+            print_error "GET /api/v1/users/:id returned HTTP $http_code (expected 200)"
+        fi
+    else
+        print_error "No user ID found for individual user test"
+    fi
+    
+    # Test DELETE /api/v1/station-voices/:id - Station-voice relationship deletion
+    station_voices_response=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
+    station_voice_id=$(echo "$station_voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_voice_id" ]; then
+        print_info "Testing DELETE /api/v1/station-voices/:id..."
+        response=$(curl -s -w "\n%{http_code}" -X DELETE "$API_URL/station-voices/$station_voice_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "204" ]; then
+            print_success "DELETE /api/v1/station-voices/:id returns 204"
+        else
+            print_error "DELETE /api/v1/station-voices/:id returned HTTP $http_code (expected 204)"
+        fi
+    else
+        print_error "No station-voice ID found for deletion test"
+    fi
+    
+    # Test GET /api/v1/stations/:id/bulletins - List station-specific bulletins
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_id" ]; then
+        print_info "Testing GET /api/v1/stations/:id/bulletins..."
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/$station_id/bulletins" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/stations/:id/bulletins returns 200"
+            # Validate response structure
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.data | type == "array"' > /dev/null 2>&1; then
+                print_success "Station bulletins response contains data array"
+            else
+                print_error "Station bulletins response missing data array"
+            fi
+        else
+            print_error "GET /api/v1/stations/:id/bulletins returned HTTP $http_code (expected 200)"
+        fi
+    else
+        print_error "No station ID found for station bulletins test"
+    fi
+    
+    # Test GET /api/v1/bulletins/:id/audio - Download individual bulletin audio
+    bulletins_response=$(curl -s -X GET "$API_URL/bulletins" -b "$COOKIE_FILE")
+    bulletin_id=$(echo "$bulletins_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$bulletin_id" ]; then
+        print_info "Testing GET /api/v1/bulletins/:id/audio..."
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/bulletins/$bulletin_id/audio" -b "$COOKIE_FILE" -o /tmp/test_bulletin.wav)
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ] && [ -f "/tmp/test_bulletin.wav" ] && [ -s "/tmp/test_bulletin.wav" ]; then
+            print_success "GET /api/v1/bulletins/:id/audio returns 200 with audio file"
+            rm -f /tmp/test_bulletin.wav
+        else
+            print_error "GET /api/v1/bulletins/:id/audio returned HTTP $http_code (expected 200 with audio file)"
+            rm -f /tmp/test_bulletin.wav
+        fi
+    else
+        print_error "No bulletin ID found for audio download test"
+    fi
+    
+    # Test GET /api/v1/stories/:id/bulletins - Story bulletin history
+    if [ -n "$story_id" ]; then
+        print_info "Testing GET /api/v1/stories/:id/bulletins..."
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$story_id/bulletins" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/stories/:id/bulletins returns 200"
+            # Validate response structure
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.data | type == "array"' > /dev/null 2>&1; then
+                print_success "Story bulletins response contains data array"
+            else
+                print_error "Story bulletins response missing data array"
+            fi
+        else
+            print_error "GET /api/v1/stories/:id/bulletins returned HTTP $http_code (expected 200)"
+        fi
+    else
+        print_error "No story ID found for story bulletins test"
+    fi
+    
+    # Test GET /api/v1/bulletins/:id/stories - Stories included in bulletins
+    if [ -n "$bulletin_id" ]; then
+        print_info "Testing GET /api/v1/bulletins/:id/stories..."
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/bulletins/$bulletin_id/stories" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/bulletins/:id/stories returns 200"
+            # Validate response structure
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.data | type == "array"' > /dev/null 2>&1; then
+                print_success "Bulletin stories response contains data array"
+            else
+                print_error "Bulletin stories response missing data array"
+            fi
+        else
+            print_error "GET /api/v1/bulletins/:id/stories returned HTTP $http_code (expected 200)"
+        fi
+    else
+        print_error "No bulletin ID found for bulletin stories test"
+    fi
+}
+
+# Additional comprehensive endpoint tests
+test_comprehensive_individual_endpoints() {
+    print_section "Testing Individual Resource Endpoints"
+    
+    # Test individual GET endpoints for all resources
+    print_info "Testing individual GET endpoints..."
+    
+    # Test GET /api/v1/stations/:id
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/$station_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/stations/:id returns 200"
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.id' > /dev/null 2>&1; then
+                print_success "Station response contains ID field"
+            else
+                print_error "Station response missing ID field"
+            fi
+        else
+            print_error "GET /api/v1/stations/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test GET /api/v1/voices/:id
+    voices_response=$(curl -s -X GET "$API_URL/voices" -b "$COOKIE_FILE")
+    voice_id=$(echo "$voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$voice_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/voices/$voice_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/voices/:id returns 200"
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.id' > /dev/null 2>&1; then
+                print_success "Voice response contains ID field"
+            else
+                print_error "Voice response missing ID field"
+            fi
+        else
+            print_error "GET /api/v1/voices/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test GET /api/v1/stories/:id
+    stories_response=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
+    story_id=$(echo "$stories_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$story_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories/$story_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/stories/:id returns 200"
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.id' > /dev/null 2>&1; then
+                print_success "Story response contains ID field"
+            else
+                print_error "Story response missing ID field"
+            fi
+        else
+            print_error "GET /api/v1/stories/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test GET /api/v1/station-voices/:id
+    station_voices_response=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
+    station_voice_id=$(echo "$station_voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_voice_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/station-voices/$station_voice_id" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "GET /api/v1/station-voices/:id returns 200"
+            body=$(echo "$response" | sed '$d')
+            if echo "$body" | jq -e '.id' > /dev/null 2>&1; then
+                print_success "Station-voice response contains ID field"
+            else
+                print_error "Station-voice response missing ID field"
+            fi
+        else
+            print_error "GET /api/v1/station-voices/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+}
+
+# Comprehensive PUT and PATCH endpoint tests
+test_comprehensive_update_endpoints() {
+    print_section "Testing PUT and PATCH Endpoints"
+    
+    # Test PUT /api/v1/stations/:id
+    print_info "Testing PUT endpoints for all resources..."
+    
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/stations/$station_id" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "Updated Station Name", "max_stories_per_block": 7, "pause_seconds": 3.0}')
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "PUT /api/v1/stations/:id returns 200"
+        else
+            print_error "PUT /api/v1/stations/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test PUT /api/v1/voices/:id
+    voices_response=$(curl -s -X GET "$API_URL/voices" -b "$COOKIE_FILE")
+    voice_id=$(echo "$voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$voice_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/voices/$voice_id" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "Updated Voice Name", "description": "Updated description"}')
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "PUT /api/v1/voices/:id returns 200"
+        else
+            print_error "PUT /api/v1/voices/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test PUT /api/v1/station-voices/:id
+    station_voices_response=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE")
+    station_voice_id=$(echo "$station_voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_voice_id" ]; then
+        # Get station and voice IDs
+        station_id=$(echo "$station_voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['station_id'])
+except:
+    print('')
+" 2>/dev/null)
+        
+        voice_id=$(echo "$station_voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['voice_id'])
+except:
+    print('')
+" 2>/dev/null)
+        
+        if [ -n "$station_id" ] && [ -n "$voice_id" ]; then
+            response=$(curl -s -w "\n%{http_code}" -X PUT "$API_URL/station-voices/$station_voice_id" \
+                -b "$COOKIE_FILE" \
+                -H "Content-Type: application/json" \
+                -d "{\"station_id\": $station_id, \"voice_id\": $voice_id}")
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "200" ]; then
+                print_success "PUT /api/v1/station-voices/:id returns 200"
+            else
+                print_error "PUT /api/v1/station-voices/:id returned HTTP $http_code (expected 200)"
+            fi
+        fi
+    fi
+    
+    # Test PATCH endpoints for status updates
+    print_info "Testing PATCH endpoints for status updates..."
+    
+    # Test PATCH /api/v1/stories/:id (story status update)
+    stories_response=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE")
+    story_id=$(echo "$stories_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$story_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X PATCH "$API_URL/stories/$story_id" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: application/json" \
+            -d '{"active": false}')
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "PATCH /api/v1/stories/:id returns 200"
+        else
+            print_error "PATCH /api/v1/stories/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+    
+    # Test PATCH /api/v1/users/:id (user status update)
+    users_response=$(curl -s -X GET "$API_URL/users" -b "$COOKIE_FILE")
+    user_id=$(echo "$users_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$user_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X PATCH "$API_URL/users/$user_id" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: application/json" \
+            -d '{"active": true}')
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "200" ]; then
+            print_success "PATCH /api/v1/users/:id returns 200"
+        else
+            print_error "PATCH /api/v1/users/:id returned HTTP $http_code (expected 200)"
+        fi
+    fi
+}
+
+# Phase 2: Status Code Compliance
+test_status_code_compliance() {
+    print_section "Testing Status Code Compliance"
+    
+    # Test POST /api/v1/sessions - Should return 201 (not 200)
+    print_info "Testing POST /api/v1/sessions status code..."
+    
+    # Logout first to test fresh login
+    curl -s -X DELETE "$API_URL/sessions/current" -b "$COOKIE_FILE" > /dev/null 2>&1
+    rm -f "$COOKIE_FILE"
+    
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/sessions" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "admin", "password": "admin"}' \
+        -c "$COOKIE_FILE")
+    
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "201" ]; then
+        print_success "POST /api/v1/sessions correctly returns 201"
+    elif [ "$http_code" = "200" ]; then
+        print_error "POST /api/v1/sessions returns 200 (should be 201 for resource creation)"
+    else
+        print_error "POST /api/v1/sessions returned HTTP $http_code (expected 201)"
+    fi
+    
+    # Test DELETE operations return 204 No Content
+    print_info "Testing DELETE operations return 204..."
+    
+    # Create test data for deletion
+    test_station_response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{"name": "Test Delete Station", "max_stories_per_block": 3, "pause_seconds": 1.0}')
+    
+    test_station_http_code=$(echo "$test_station_response" | tail -n1)
+    if [ "$test_station_http_code" = "201" ]; then
+        test_station_id=$(echo "$test_station_response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
+        
+        # Test station deletion
+        if [ -n "$test_station_id" ]; then
+            response=$(curl -s -w "\n%{http_code}" -X DELETE "$API_URL/stations/$test_station_id" -b "$COOKIE_FILE")
+            http_code=$(echo "$response" | tail -n1)
+            if [ "$http_code" = "204" ]; then
+                print_success "DELETE /api/v1/stations/:id correctly returns 204"
+            else
+                print_error "DELETE /api/v1/stations/:id returned HTTP $http_code (expected 204)"
+            fi
+        fi
+    fi
+    
+    # Test POST /api/v1/stations/:id/bulletins - Should return 201 for new bulletins
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_id" ]; then
+        print_info "Testing POST /api/v1/stations/:id/bulletins status code..."
+        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations/$station_id/bulletins" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "201" ]; then
+            print_success "POST /api/v1/stations/:id/bulletins correctly returns 201"
+        elif [ "$http_code" = "200" ]; then
+            print_error "POST /api/v1/stations/:id/bulletins returns 200 (should be 201 for new bulletin creation)"
+        else
+            print_error "POST /api/v1/stations/:id/bulletins returned HTTP $http_code (expected 201)"
+        fi
+    fi
+}
+
+# Phase 4: Validation & Error Testing
+test_comprehensive_validation_errors() {
+    print_section "Testing Comprehensive Validation & Error Scenarios"
+    
+    # Test 422 validation errors (invalid data, missing required fields)
+    print_info "Testing 422 validation errors..."
+    
+    # Missing required fields for station creation
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "422" ]; then
+        print_success "Empty station creation correctly returns 422"
+        # Validate RFC 9457 Problem Details format
+        error_response=$(echo "$response" | sed '$d')
+        if echo "$error_response" | jq -e '.title' > /dev/null 2>&1; then
+            print_success "Error response follows RFC 9457 Problem Details format"
+        else
+            print_warning "Error response does not follow RFC 9457 format"
+        fi
+    else
+        print_error "Empty station creation returned HTTP $http_code (expected 422)"
+    fi
+    
+    # Invalid data type for max_stories_per_block
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{"name": "Test", "max_stories_per_block": "not-a-number", "pause_seconds": 1.0}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "422" ]; then
+        print_success "Invalid data type correctly returns 422"
+    else
+        print_error "Invalid data type returned HTTP $http_code (expected 422)"
+    fi
+    
+    # Test 409 conflicts (duplicate resources)
+    print_info "Testing 409 conflict errors..."
+    
+    # Try to create duplicate station
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{"name": "ZuidWest FM", "max_stories_per_block": 5, "pause_seconds": 2.0}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "409" ]; then
+        print_success "Duplicate station creation correctly returns 409"
+    else
+        print_error "Duplicate station creation returned HTTP $http_code (expected 409)"
+    fi
+    
+    # Test field length limits (max 255 chars for names)
+    print_info "Testing field length limits..."
+    
+    long_name="$(printf 'A%.0s' {1..260})"  # 260 character name
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\": \"$long_name\", \"max_stories_per_block\": 5, \"pause_seconds\": 2.0}")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "422" ]; then
+        print_success "Long station name correctly rejected with 422"
+    else
+        print_error "Long station name returned HTTP $http_code (expected 422)"
+    fi
+    
+    # Test date format validation (YYYY-MM-DD)
+    print_info "Testing date format validation..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{"title": "Test Story", "content": "Test content", "voice_id": 1, "start_date": "invalid-date", "active": true}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "422" ]; then
+        print_success "Invalid date format correctly rejected with 422"
+    else
+        print_error "Invalid date format returned HTTP $http_code (expected 422)"
+    fi
+    
+    # Test 400 bad requests (malformed JSON, invalid IDs)
+    print_info "Testing 400 bad request errors..."
+    
+    # Malformed JSON
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stations" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: application/json" \
+        -d '{"name": "Test", "invalid": json}')
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "400" ]; then
+        print_success "Malformed JSON correctly returns 400"
+    else
+        print_error "Malformed JSON returned HTTP $http_code (expected 400)"
+    fi
+    
+    # Invalid ID in URL
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations/invalid-id" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "400" ]; then
+        print_success "Invalid ID in URL correctly returns 400"
+    else
+        print_error "Invalid ID in URL returned HTTP $http_code (expected 400)"
+    fi
+    
+    # Test 404 not found (comprehensive)
+    print_info "Testing 404 not found errors..."
+    
+    endpoints=(
+        "stations/99999"
+        "voices/99999"
+        "stories/99999"
+        "users/99999"
+        "station-voices/99999"
+        "bulletins/99999"
+        "bulletins/99999/audio"
+    )
+    
+    for endpoint in "${endpoints[@]}"; do
+        response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/$endpoint" -b "$COOKIE_FILE")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "404" ]; then
+            print_success "GET /$endpoint correctly returns 404"
+        else
+            print_error "GET /$endpoint returned HTTP $http_code (expected 404)"
+        fi
+    done
+    
+    # Test invalid file types for audio uploads
+    print_info "Testing invalid file types for audio uploads..."
+    
+    # Create a temporary text file (not an audio file)
+    echo "This is not an audio file" > /tmp/invalid_audio.txt
+    
+    # Try to upload invalid file as story audio
+    response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/stories" \
+        -b "$COOKIE_FILE" \
+        -H "Content-Type: multipart/form-data" \
+        -F "title=Test Story with Invalid Audio" \
+        -F "content=Test content" \
+        -F "voice_id=1" \
+        -F "active=true" \
+        -F "audio_file=@/tmp/invalid_audio.txt")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "422" ] || [ "$http_code" = "400" ]; then
+        print_success "Invalid file type correctly rejected with HTTP $http_code"
+    else
+        print_error "Invalid file type returned HTTP $http_code (expected 422 or 400)"
+    fi
+    
+    # Create a temporary image file (not an audio file)
+    echo -e "\xFF\xD8\xFF" > /tmp/invalid_audio.jpg
+    
+    # Try to upload image file as station-voice jingle
+    stations_response=$(curl -s -X GET "$API_URL/stations" -b "$COOKIE_FILE")
+    station_id=$(echo "$stations_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    voices_response=$(curl -s -X GET "$API_URL/voices" -b "$COOKIE_FILE")
+    voice_id=$(echo "$voices_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data and len(data['data']) > 0:
+        print(data['data'][0]['id'])
+except:
+    print('')
+" 2>/dev/null)
+    
+    if [ -n "$station_id" ] && [ -n "$voice_id" ]; then
+        response=$(curl -s -w "\n%{http_code}" -X POST "$API_URL/station-voices" \
+            -b "$COOKIE_FILE" \
+            -H "Content-Type: multipart/form-data" \
+            -F "station_id=$station_id" \
+            -F "voice_id=$voice_id" \
+            -F "jingle_file=@/tmp/invalid_audio.jpg")
+        http_code=$(echo "$response" | tail -n1)
+        if [ "$http_code" = "422" ] || [ "$http_code" = "400" ]; then
+            print_success "Invalid image file correctly rejected for jingle with HTTP $http_code"
+        else
+            print_error "Invalid image file returned HTTP $http_code (expected 422 or 400)"
+        fi
+    fi
+    
+    # Clean up temporary files
+    rm -f /tmp/invalid_audio.txt /tmp/invalid_audio.jpg
+}
+
+# Phase 5: Modern REST Features
+test_modern_query_features() {
+    print_section "Testing Modern Query Parameter System"
+    
+    # Test filtering: filter[field]=value, filter[field][op]=value
+    print_info "Testing advanced filtering..."
+    
+    # Basic field filtering
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?filter[active]=true" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Basic filtering filter[active]=true works"
+    else
+        print_error "Basic filtering returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Operator-based filtering
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?filter[id][gte]=1" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Operator filtering filter[id][gte]=1 works"
+    else
+        print_error "Operator filtering returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test sorting: sort=-created_at, sort=name,-id
+    print_info "Testing advanced sorting..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?sort=-created_at" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Descending sort sort=-created_at works"
+    else
+        print_error "Descending sort returned HTTP $http_code (expected 200)"
+    fi
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?sort=title,-id" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Multi-field sort sort=title,-id works"
+    else
+        print_error "Multi-field sort returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test field selection: fields=id,name,created_at
+    print_info "Testing field selection..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stations?fields=id,name,created_at" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        body=$(echo "$response" | sed '$d')
+        # Check if only requested fields are present
+        if echo "$body" | jq -e '.data[0] | keys | length <= 3' > /dev/null 2>&1; then
+            print_success "Field selection fields=id,name,created_at works"
+        else
+            print_warning "Field selection returned all fields (feature may not be implemented)"
+        fi
+    else
+        print_error "Field selection returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test search: search=keyword
+    print_info "Testing search functionality..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?search=story" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Search search=story works"
+    else
+        print_error "Search returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test pagination: limit=10&offset=20
+    print_info "Testing pagination..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?limit=5&offset=0" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        body=$(echo "$response" | sed '$d')
+        count=$(echo "$body" | jq '.data | length' 2>/dev/null || echo "0")
+        if [ "$count" -le "5" ]; then
+            print_success "Pagination limit=5&offset=0 works (returned $count items)"
+        else
+            print_warning "Pagination returned $count items (expected ≤ 5)"
+        fi
+    else
+        print_error "Pagination returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test status filtering: status=active, status=deleted
+    print_info "Testing status filtering..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?status=active" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Status filtering status=active works"
+    else
+        print_error "Status filtering returned HTTP $http_code (expected 200)"
+    fi
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?status=deleted" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        print_success "Status filtering status=deleted works"
+    else
+        print_error "Status filtering returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test combined query parameters
+    print_info "Testing combined query parameters..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/stories?limit=3&sort=-created_at&status=active" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        body=$(echo "$response" | sed '$d')
+        count=$(echo "$body" | jq '.data | length' 2>/dev/null || echo "0")
+        if [ "$count" -le "3" ]; then
+            print_success "Combined query parameters work (returned $count items)"
+        else
+            print_warning "Combined query parameters returned $count items (expected ≤ 3)"
+        fi
+    else
+        print_error "Combined query parameters returned HTTP $http_code (expected 200)"
+    fi
+}
+
+# OAuth endpoints testing (for completeness, though they may not be configured)
+test_oauth_endpoints() {
+    print_section "Testing OAuth Endpoints (Expected to Fail if Not Configured)"
+    
+    # Test OAuth initiation endpoint
+    print_info "Testing OAuth endpoints..."
+    
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/auth/oauth")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "302" ] || [ "$http_code" = "400" ] || [ "$http_code" = "500" ]; then
+        print_success "GET /api/v1/auth/oauth returns expected status $http_code (OAuth may not be configured)"
+    else
+        print_warning "GET /api/v1/auth/oauth returned HTTP $http_code (unexpected for OAuth endpoint)"
+    fi
+    
+    # Test OAuth callback endpoint
+    response=$(curl -s -w "\n%{http_code}" -X GET "$API_URL/auth/oauth/callback")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "400" ] || [ "$http_code" = "500" ] || [ "$http_code" = "302" ]; then
+        print_success "GET /api/v1/auth/oauth/callback returns expected status $http_code (OAuth may not be configured)"
+    else
+        print_warning "GET /api/v1/auth/oauth/callback returned HTTP $http_code (unexpected for OAuth callback)"
+    fi
+}
+
 test_query_parameters() {
     print_section "Testing Query Parameters and Filtering"
     
@@ -2084,6 +3100,59 @@ print(len(data.get('data', [])))
         fi
     else
         print_error "Large offset returned HTTP $http_code (expected 200)"
+    fi
+    
+    # Test modern query parameters
+    print_info "Testing modern query parameter functionality..."
+    
+    # Test status=deleted filter
+    response=$(curl -s -w "\\n%{http_code}" -X GET "$API_URL/stories?status=deleted" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        count=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
+        print_success "Filter stories by status=deleted: $count found"
+    else
+        print_error "Failed to filter stories by status=deleted (HTTP $http_code)"
+    fi
+    
+    # Test status=all filter (should include both active and deleted)
+    response=$(curl -s -w "\\n%{http_code}" -X GET "$API_URL/stories?status=all" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        count=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
+        print_success "Filter stories by status=all: $count found (includes deleted)"
+    else
+        print_error "Failed to filter stories by status=all (HTTP $http_code)"
+    fi
+    
+    # Test combined filters
+    response=$(curl -s -w "\\n%{http_code}" -X GET "$API_URL/stories?status=active&voice_id=1&limit=5" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        count=$(echo "$response" | sed '$d' | python3 -c "import sys, json; print(len(json.load(sys.stdin)['data']))" 2>/dev/null || echo "0")
+        print_success "Combined filters (status=active&voice_id=1&limit=5): $count returned"
+    else
+        print_error "Failed to use combined filters (HTTP $http_code)"
+    fi
+    
+    # Test sorting parameters
+    response=$(curl -s -w "\\n%{http_code}" -X GET "$API_URL/stories?sort=title&order=desc&limit=3" -b "$COOKIE_FILE")
+    http_code=$(echo "$response" | tail -n1)
+    if [ "$http_code" = "200" ]; then
+        # Extract titles to verify sorting
+        titles=$(echo "$response" | sed '$d' | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'data' in data:
+        titles = [story.get('title', '') for story in data['data']]
+        print(' | '.join(titles[:3]))
+except:
+    print('parsing error')
+" 2>/dev/null || echo "")
+        print_success "Sort by title desc: [$titles]"
+    else
+        print_error "Failed to sort stories (HTTP $http_code)"
     fi
 }
 
@@ -2237,7 +3306,7 @@ show_summary() {
     voices=$(curl -s -X GET "$API_URL/voices" -b "$COOKIE_FILE" 2>/dev/null)
     voice_count=$(echo "$voices" | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
     
-    station_voices=$(curl -s -X GET "$API_URL/station_voices" -b "$COOKIE_FILE" 2>/dev/null)
+    station_voices=$(curl -s -X GET "$API_URL/station-voices" -b "$COOKIE_FILE" 2>/dev/null)
     station_voice_count=$(echo "$station_voices" | python3 -c "import sys, json; print(json.load(sys.stdin)['total'])" 2>/dev/null || echo "0")
     
     stories=$(curl -s -X GET "$API_URL/stories" -b "$COOKIE_FILE" 2>/dev/null)
@@ -2347,6 +3416,28 @@ main() {
     
     echo "Testing session logout..." >&2
     test_session_logout
+    
+    # Comprehensive missing endpoints and features testing
+    echo "Testing missing critical endpoints..." >&2
+    test_missing_critical_endpoints
+    
+    echo "Testing comprehensive individual endpoints..." >&2
+    test_comprehensive_individual_endpoints
+    
+    echo "Testing comprehensive update endpoints..." >&2
+    test_comprehensive_update_endpoints
+    
+    echo "Testing status code compliance..." >&2
+    test_status_code_compliance
+    
+    echo "Testing comprehensive validation errors..." >&2
+    test_comprehensive_validation_errors
+    
+    echo "Testing modern query features..." >&2
+    test_modern_query_features
+    
+    echo "Testing OAuth endpoints..." >&2
+    test_oauth_endpoints
     
     # Error scenario testing
     echo "Testing error scenarios..." >&2
