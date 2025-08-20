@@ -213,10 +213,16 @@ class VoicesTests extends BaseTest {
         
         // Test updating with duplicate name
         this.printInfo('Testing update with duplicate name...');
-        await this.createVoice('Duplicate Test Voice');
+        const duplicateVoiceData = await this.createVoice('Duplicate Test Voice');
         
+        if (!duplicateVoiceData) {
+            this.printError('Failed to create duplicate test voice');
+            return false;
+        }
+        
+        // Try to update first voice to have the same name as the second voice
         const duplicateResponse = await this.apiCall('PUT', `/voices/${voiceData.id}`, { 
-            name: 'Duplicate Test Voice' 
+            name: duplicateVoiceData.name  // Use the actual created name with timestamp
         });
         
         if (duplicateResponse.status === 409) {
