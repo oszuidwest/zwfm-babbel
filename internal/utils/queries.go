@@ -176,6 +176,3 @@ func GenericListWithJoins(c *gin.Context, db *sqlx.DB, config QueryConfig, resul
 
 	PaginatedResponse(c, result, total, limit, offset)
 }
-
-
-

@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,7 +43,7 @@ func GetStoryAudioURL(storyID int, hasAudio bool) *string {
 	if !hasAudio {
 		return nil
 	}
-	url := fmt.Sprintf("/api/v1/stories/%d/audio", storyID)
+	url := fmt.Sprintf("/stories/%d/audio", storyID)
 	return &url
 }
 
@@ -87,28 +85,28 @@ func (h *Handlers) ListStories(c *gin.Context) {
 		TableAlias:    "s",
 		DefaultFields: "s.*, COALESCE(v.name, '') as voice_name",
 		FieldMapping: map[string]string{
-			"id":            "s.id",
-			"title":         "s.title",
-			"text":          "s.text",
-			"voice_id":      "s.voice_id",
-			"voice_name":    "COALESCE(v.name, '')",
-			"status":        "s.status",
-			"start_date":    "s.start_date",
-			"end_date":      "s.end_date",
-			"created_at":    "s.created_at",
-			"updated_at":    "s.updated_at",
-			"deleted_at":    "s.deleted_at",
-			"audio_file":    "s.audio_file",
-			"monday":        "s.monday",
-			"tuesday":       "s.tuesday",
-			"wednesday":     "s.wednesday",
-			"thursday":      "s.thursday",
-			"friday":        "s.friday",
-			"saturday":      "s.saturday",
-			"sunday":        "s.sunday",
+			"id":         "s.id",
+			"title":      "s.title",
+			"text":       "s.text",
+			"voice_id":   "s.voice_id",
+			"voice_name": "COALESCE(v.name, '')",
+			"status":     "s.status",
+			"start_date": "s.start_date",
+			"end_date":   "s.end_date",
+			"created_at": "s.created_at",
+			"updated_at": "s.updated_at",
+			"deleted_at": "s.deleted_at",
+			"audio_file": "s.audio_file",
+			"monday":     "s.monday",
+			"tuesday":    "s.tuesday",
+			"wednesday":  "s.wednesday",
+			"thursday":   "s.thursday",
+			"friday":     "s.friday",
+			"saturday":   "s.saturday",
+			"sunday":     "s.sunday",
 		},
 	}
-	
+
 	var stories []StoryResponse
 	utils.ModernListWithQuery(c, h.db, config, &stories)
 }
@@ -141,99 +139,85 @@ func (h *Handlers) GetStory(c *gin.Context) {
 
 // CreateStory creates a new story with optional audio upload
 func (h *Handlers) CreateStory(c *gin.Context) {
-	// Parse form data and collect validation errors
-	var validationErrors []utils.ValidationError
-
-	title := c.PostForm("title")
-	if title == "" {
-		validationErrors = append(validationErrors, utils.ValidationError{
-			Field:   "title",
-			Message: "Title is required",
-		})
-	}
-
-	text := c.PostForm("text")
-	if text == "" {
-		validationErrors = append(validationErrors, utils.ValidationError{
-			Field:   "text",
-			Message: "Text is required",
-		})
-	}
-
-	status := c.PostForm("status")
-	if status == "" {
-		status = "draft"
-	}
-	if status != "draft" && status != "active" && status != "expired" {
-		validationErrors = append(validationErrors, utils.ValidationError{
-			Field:   "status",
-			Message: "Status must be one of: draft, active, expired",
-		})
-	}
-
-	// Return validation errors if any
-	if len(validationErrors) > 0 {
-		utils.ProblemValidationError(c, "The request contains invalid data", validationErrors)
+	var req utils.StoryCreateRequest
+	
+	// Bind and validate the request using our unified validation
+	if !utils.BindFormAndValidate(c, &req) {
 		return
 	}
 
-	// Parse voice ID (optional)
-	voiceID, err := utils.ParseOptionalIntForm(c, "voice_id")
-	if err != nil {
-		utils.ProblemValidationError(c, "Invalid voice_id parameter", []utils.ValidationError{
-			{Field: "voice_id", Message: err.Error()},
-		})
-		return
+	// Apply default status if not provided
+	if req.Status == "" {
+		req.Status = "draft"
 	}
-	if voiceID != nil {
-		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *voiceID) {
+
+	// Validate voice exists if provided
+	if req.VoiceID != nil {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
 			return
 		}
 	}
 
-	// Parse dates (required for story creation)
-	startDate, ok := utils.ParseRequiredFormDate(c, "start_date", "Start date")
-	if !ok {
+	// Handle weekdays from JSON if provided, otherwise use individual form fields
+	var monday, tuesday, wednesday, thursday, friday, saturday, sunday bool
+	if len(req.Weekdays) > 0 {
+		// Use weekdays map from JSON
+		monday = req.Weekdays["monday"]
+		tuesday = req.Weekdays["tuesday"]
+		wednesday = req.Weekdays["wednesday"]
+		thursday = req.Weekdays["thursday"]
+		friday = req.Weekdays["friday"]
+		saturday = req.Weekdays["saturday"]
+		sunday = req.Weekdays["sunday"]
+	} else {
+		// Use individual form fields
+		monday = req.Monday
+		tuesday = req.Tuesday
+		wednesday = req.Wednesday
+		thursday = req.Thursday
+		friday = req.Friday
+		saturday = req.Saturday
+		sunday = req.Sunday
+	}
+
+	// Parse dates for database storage
+	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	if err != nil {
+		// This should not happen due to validation, but handle gracefully
+		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+			{Field: "start_date", Message: "Invalid start date format"},
+		})
 		return
 	}
-	endDate, ok := utils.ParseRequiredFormDate(c, "end_date", "End date")
-	if !ok {
+	
+	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	if err != nil {
+		// This should not happen due to validation, but handle gracefully
+		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+			{Field: "end_date", Message: "Invalid end date format"},
+		})
 		return
 	}
 
-	// Parse weekdays from individual form fields
-	monday := utils.ParseBoolForm(c, "monday", false)
-	tuesday := utils.ParseBoolForm(c, "tuesday", false)
-	wednesday := utils.ParseBoolForm(c, "wednesday", false)
-	thursday := utils.ParseBoolForm(c, "thursday", false)
-	friday := utils.ParseBoolForm(c, "friday", false)
-	saturday := utils.ParseBoolForm(c, "saturday", false)
-	sunday := utils.ParseBoolForm(c, "sunday", false)
-
-	metadata := c.PostForm("metadata")
-	// Handle empty metadata - MySQL JSON column requires NULL not empty string
+	// Handle metadata - MySQL JSON column requires NULL not empty string
 	var metadataValue interface{}
-	if metadata == "" {
+	if req.Metadata == nil || *req.Metadata == "" {
 		metadataValue = nil
 	} else {
-		metadataValue = metadata
-	}
-
-	// Validate title length (MySQL column is VARCHAR(500))
-	if len(title) > 500 {
-		utils.ProblemBadRequest(c, "Title is too long (maximum 500 characters)")
-		return
+		metadataValue = *req.Metadata
 	}
 
 	// Create story
 	result, err := h.db.ExecContext(c.Request.Context(),
 		"INSERT INTO stories (title, text, voice_id, status, start_date, end_date, monday, tuesday, wednesday, thursday, friday, saturday, sunday, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		title, text, voiceID, status, startDate, endDate, monday, tuesday, wednesday, thursday, friday, saturday, sunday, metadataValue)
+		req.Title, req.Text, req.VoiceID, req.Status, startDate, endDate, monday, tuesday, wednesday, thursday, friday, saturday, sunday, metadataValue)
 	if err != nil {
 		logger.Error("Database error creating story: %v", err)
 		// Provide more specific error messages for common database errors
 		if strings.Contains(err.Error(), "Data too long") {
-			utils.ProblemBadRequest(c, "One or more fields exceed maximum length")
+			utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
+				{Field: "data", Message: "One or more fields exceed maximum length"},
+			})
 		} else if strings.Contains(err.Error(), "Duplicate entry") {
 			utils.ProblemDuplicate(c, "Story")
 		} else if strings.Contains(err.Error(), "foreign key constraint") {
@@ -251,7 +235,10 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if err == nil {
 		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", storyID))
 		if err != nil {
-			utils.ProblemBadRequest(c, err.Error())
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "audio",
+				Message: err.Error(),
+			}})
 			return
 		}
 		defer cleanup()
@@ -287,204 +274,170 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
+	var req utils.StoryUpdateRequest
+	
+	// Bind and validate the request using our unified validation
+	if !utils.BindFormAndValidate(c, &req) {
+		return
+	}
+
+	// For updates, we need to check if both dates are provided for cross-validation
+	if req.StartDate != nil && req.EndDate != nil {
+		startDate, err := time.Parse("2006-01-02", *req.StartDate)
+		if err != nil {
+			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+				{Field: "start_date", Message: "Invalid start date format"},
+			})
+			return
+		}
+		
+		endDate, err := time.Parse("2006-01-02", *req.EndDate)
+		if err != nil {
+			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+				{Field: "end_date", Message: "Invalid end date format"},
+			})
+			return
+		}
+		
+		if endDate.Before(startDate) {
+			utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+				{Field: "end_date", Message: "End date cannot be before start date"},
+			})
+			return
+		}
+	}
+
 	// Build dynamic update query
 	updates := []string{}
 	args := []interface{}{}
 
-	// Check if this is JSON input or form data
-	contentType := c.GetHeader("Content-Type")
-	isJSON := strings.Contains(contentType, "application/json")
+	// Handle each field that may be updated
+	if req.Title != nil {
+		updates = append(updates, "title = ?")
+		args = append(args, *req.Title)
+	}
 
-	if isJSON {
-		// Handle JSON input for PUT requests
-		var req struct {
-			Title     *string                `json:"title,omitempty"`
-			Text      *string                `json:"text,omitempty"`
-			Status    *string                `json:"status,omitempty"`
-			VoiceID   *int                   `json:"voice_id,omitempty"`
-			StartDate *string                `json:"start_date,omitempty"`
-			EndDate   *string                `json:"end_date,omitempty"`
-			Weekdays  map[string]bool        `json:"weekdays,omitempty"`
-			Metadata  *string                `json:"metadata,omitempty"`
-		}
+	if req.Text != nil {
+		updates = append(updates, "text = ?")
+		args = append(args, *req.Text)
+	}
 
-		if !utils.BindAndValidate(c, &req) {
+	if req.Status != nil {
+		updates = append(updates, "status = ?")
+		args = append(args, *req.Status)
+	}
+
+	if req.VoiceID != nil {
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
 			return
 		}
+		updates = append(updates, "voice_id = ?")
+		args = append(args, *req.VoiceID)
+	}
 
-		// Process JSON fields
-		if req.Title != nil {
-			if len(*req.Title) > 500 {
-				utils.ProblemBadRequest(c, "Title is too long (maximum 500 characters)")
-				return
-			}
-			updates = append(updates, "title = ?")
-			args = append(args, *req.Title)
-		}
+	if req.StartDate != nil {
+		startDate, _ := time.Parse("2006-01-02", *req.StartDate) // Already validated above
+		updates = append(updates, "start_date = ?")
+		args = append(args, startDate)
+	}
 
-		if req.Text != nil {
-			updates = append(updates, "text = ?")
-			args = append(args, *req.Text)
-		}
+	if req.EndDate != nil {
+		endDate, _ := time.Parse("2006-01-02", *req.EndDate) // Already validated above
+		updates = append(updates, "end_date = ?")
+		args = append(args, endDate)
+	}
 
-		if req.Status != nil {
-			if *req.Status != "draft" && *req.Status != "active" && *req.Status != "expired" {
-				utils.ProblemBadRequest(c, "Status must be one of: draft, active, expired")
-				return
-			}
-			updates = append(updates, "status = ?")
-			args = append(args, *req.Status)
+	// Handle weekdays - check JSON format first, then individual fields
+	hasWeekdayUpdate := false
+	var weekdayValues []interface{}
+	
+	if len(req.Weekdays) > 0 {
+		// Use weekdays map from JSON
+		hasWeekdayUpdate = true
+		weekdayValues = []interface{}{
+			req.Weekdays["monday"],
+			req.Weekdays["tuesday"], 
+			req.Weekdays["wednesday"],
+			req.Weekdays["thursday"],
+			req.Weekdays["friday"],
+			req.Weekdays["saturday"],
+			req.Weekdays["sunday"],
 		}
-
-		if req.VoiceID != nil {
-			if *req.VoiceID <= 0 {
-				utils.ProblemBadRequest(c, "Valid voice_id is required")
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
-				return
-			}
-			updates = append(updates, "voice_id = ?")
-			args = append(args, *req.VoiceID)
-		}
-
-		if req.StartDate != nil {
-			if startDate, err := time.Parse("2006-01-02", *req.StartDate); err != nil {
-				utils.ProblemBadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
-				return
-			} else {
-				updates = append(updates, "start_date = ?")
-				args = append(args, startDate)
-			}
-		}
-
-		if req.EndDate != nil {
-			if endDate, err := time.Parse("2006-01-02", *req.EndDate); err != nil {
-				utils.ProblemBadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
-				return
-			} else {
-				updates = append(updates, "end_date = ?")
-				args = append(args, endDate)
-			}
-		}
-
-		if req.Weekdays != nil {
-			updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-			args = append(args,
-				req.Weekdays["monday"],
-				req.Weekdays["tuesday"],
-				req.Weekdays["wednesday"],
-				req.Weekdays["thursday"],
-				req.Weekdays["friday"],
-				req.Weekdays["saturday"],
-				req.Weekdays["sunday"],
-			)
-		}
-
-		if req.Metadata != nil {
-			updates = append(updates, "metadata = ?")
-			if *req.Metadata == "" {
-				args = append(args, nil)
-			} else {
-				args = append(args, *req.Metadata)
-			}
-		}
-	} else {
-		// Handle form data (existing logic for file uploads)
-		if title := c.PostForm("title"); title != "" {
-			// Validate title length (MySQL column is VARCHAR(500))
-			if len(title) > 500 {
-				utils.ProblemBadRequest(c, "Title is too long (maximum 500 characters)")
-				return
-			}
-			updates = append(updates, "title = ?")
-			args = append(args, title)
-		}
-
-		if text := c.PostForm("text"); text != "" {
-			updates = append(updates, "text = ?")
-			args = append(args, text)
-		}
-
-		if status := c.PostForm("status"); status != "" {
-			if status != "draft" && status != "active" && status != "expired" {
-				utils.ProblemBadRequest(c, "Status must be one of: draft, active, expired")
-				return
-			}
-			updates = append(updates, "status = ?")
-			args = append(args, status)
-		}
-
-		if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-			voiceID, err := strconv.Atoi(voiceIDStr)
-			if err != nil || voiceID <= 0 {
-				utils.ProblemBadRequest(c, "Valid voice_id is required")
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
-				return
-			}
-			updates = append(updates, "voice_id = ?")
-			args = append(args, voiceID)
-		}
-
-		if startDate, ok := utils.ParseFormDate(c, "start_date", "start date"); ok && !startDate.IsZero() {
-			updates = append(updates, "start_date = ?")
-			args = append(args, startDate)
-		}
-
-		if endDate, ok := utils.ParseFormDate(c, "end_date", "end date"); ok && !endDate.IsZero() {
-			updates = append(updates, "end_date = ?")
-			args = append(args, endDate)
-		}
-
-		// Handle weekdays - check for individual fields or JSON object
-		weekdayFields := []string{"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
-		hasWeekdayUpdate := false
-		weekdayValues := make([]interface{}, 7)
+	} else if req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil || 
+	          req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil {
+		// Use individual form fields (only if at least one is provided)
+		hasWeekdayUpdate = true
 		
-		// Check for individual weekday fields
-		for i, day := range weekdayFields {
-			if _, exists := c.Request.PostForm[day]; exists {
-				hasWeekdayUpdate = true
-				value := c.PostForm(day)
-				weekdayValues[i] = value == "true" || value == "1"
-			}
+		// Get current values for fields not provided
+		var currentStory struct {
+			Monday    bool `db:"monday"`
+			Tuesday   bool `db:"tuesday"`
+			Wednesday bool `db:"wednesday"`
+			Thursday  bool `db:"thursday"`
+			Friday    bool `db:"friday"`
+			Saturday  bool `db:"saturday"`
+			Sunday    bool `db:"sunday"`
 		}
 		
-		// Check for weekdays JSON object (overrides individual fields if present)
-		if weekdaysStr := c.PostForm("weekdays"); weekdaysStr != "" {
-			var weekdaysMap map[string]bool
-			if err := json.Unmarshal([]byte(weekdaysStr), &weekdaysMap); err != nil {
-				utils.ProblemBadRequest(c, "Invalid weekdays format - must be valid JSON")
-				return
-			}
-			hasWeekdayUpdate = true
-			for i, day := range weekdayFields {
-				weekdayValues[i] = weekdaysMap[day]
-			}
+		query := "SELECT monday, tuesday, wednesday, thursday, friday, saturday, sunday FROM stories WHERE id = ?"
+		if err := h.db.Get(&currentStory, query, id); err != nil {
+			utils.ProblemInternalServer(c, "Failed to fetch current story weekdays")
+			return
 		}
 		
-		if hasWeekdayUpdate {
-			updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-			args = append(args, weekdayValues...)
+		// Use new values if provided, otherwise keep current values
+		monday := currentStory.Monday
+		if req.Monday != nil {
+			monday = *req.Monday
 		}
+		tuesday := currentStory.Tuesday
+		if req.Tuesday != nil {
+			tuesday = *req.Tuesday
+		}
+		wednesday := currentStory.Wednesday
+		if req.Wednesday != nil {
+			wednesday = *req.Wednesday
+		}
+		thursday := currentStory.Thursday
+		if req.Thursday != nil {
+			thursday = *req.Thursday
+		}
+		friday := currentStory.Friday
+		if req.Friday != nil {
+			friday = *req.Friday
+		}
+		saturday := currentStory.Saturday
+		if req.Saturday != nil {
+			saturday = *req.Saturday
+		}
+		sunday := currentStory.Sunday
+		if req.Sunday != nil {
+			sunday = *req.Sunday
+		}
+		
+		weekdayValues = []interface{}{monday, tuesday, wednesday, thursday, friday, saturday, sunday}
+	}
 
-		// Check if metadata field was provided (could be empty string to set NULL)
-		if _, exists := c.Request.PostForm["metadata"]; exists {
-			metadata := c.PostForm("metadata")
-			updates = append(updates, "metadata = ?")
-			// Handle JSON column - empty string should be NULL
-			if metadata == "" {
-				args = append(args, nil)
-			} else {
-				args = append(args, metadata)
-			}
+	if hasWeekdayUpdate {
+		updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
+		args = append(args, weekdayValues...)
+	}
+
+	if req.Metadata != nil {
+		updates = append(updates, "metadata = ?")
+		// Handle JSON column - empty string should be NULL
+		if *req.Metadata == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *req.Metadata)
 		}
 	}
 
 	if len(updates) == 0 {
-		utils.ProblemBadRequest(c, "No fields to update")
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
 		return
 	}
 
@@ -496,7 +449,9 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		logger.Error("Database error updating story: %v", err)
 		// Provide more specific error messages for common database errors
 		if strings.Contains(err.Error(), "Data too long") {
-			utils.ProblemBadRequest(c, "One or more fields exceed maximum length")
+			utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
+				{Field: "data", Message: "One or more fields exceed maximum length"},
+			})
 		} else if strings.Contains(err.Error(), "Duplicate entry") {
 			utils.ProblemDuplicate(c, "Story")
 		} else if strings.Contains(err.Error(), "foreign key constraint") {
@@ -549,7 +504,10 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	// Validate that at least one field is provided
 	if req.Status == nil && req.DeletedAt == nil {
-		utils.ProblemBadRequest(c, "At least one field (status or deleted_at) is required")
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "request",
+			Message: "At least one field (status or deleted_at) is required",
+		}})
 		return
 	}
 
@@ -564,7 +522,10 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			}
 		}
 		if !isValid {
-			utils.ProblemBadRequest(c, "Status must be one of: draft, active, expired")
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "status",
+				Message: "Status must be one of: draft, active, expired",
+			}})
 			return
 		}
 	}

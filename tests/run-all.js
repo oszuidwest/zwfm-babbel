@@ -10,6 +10,15 @@ const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
 
+// Force color support if terminal supports it but chalk doesn't detect it
+if (!chalk.supportsColor && (process.env.TERM && process.env.TERM.includes('color'))) {
+    process.env.FORCE_COLOR = '1';
+    // Re-require chalk to pick up the new environment variable
+    delete require.cache[require.resolve('chalk')];
+    const chalkModule = require('chalk');
+    Object.assign(chalk, chalkModule);
+}
+
 class TestOrchestrator {
     constructor() {
         // Test suites configuration
@@ -61,27 +70,27 @@ class TestOrchestrator {
     }
     
     printHeader(text) {
-        console.log(chalk.magenta.bold('═'.repeat(60)));
-        console.log(chalk.magenta.bold(`  ${text}`));
-        console.log(chalk.magenta.bold('═'.repeat(60)));
-        console.log();
+        console.error(chalk.magenta.bold('═'.repeat(60)));
+        console.error(chalk.magenta.bold(`  ${text}`));
+        console.error(chalk.magenta.bold('═'.repeat(60)));
+        console.error();
     }
     
     printSection(text) {
-        console.log();
-        console.log(chalk.cyan(`━━━ ${text} ━━━`));
+        console.error();
+        console.error(chalk.cyan(`━━━ ${text} ━━━`));
     }
     
     printSuccess(text) {
-        console.log(chalk.green(`✓ ${text}`));
+        console.error(chalk.green(`✓ ${text}`));
     }
     
     printError(text) {
-        console.log(chalk.red(`✗ ${text}`));
+        console.error(chalk.red(`✗ ${text}`));
     }
     
     printInfo(text) {
-        console.log(chalk.yellow(`ℹ ${text}`));
+        console.error(chalk.yellow(`ℹ ${text}`));
     }
     
     showHelp() {
@@ -166,6 +175,10 @@ ${chalk.bold('Examples:')}
             if (setupOnly) {
                 env.SETUP_ONLY = 'true';
             }
+            // Ensure color support is passed to child processes
+            if (process.env.FORCE_COLOR) {
+                env.FORCE_COLOR = process.env.FORCE_COLOR;
+            }
             
             const proc = spawn('node', [fullPath], {
                 cwd: __dirname,
@@ -189,17 +202,18 @@ ${chalk.bold('Examples:')}
             });
             
             proc.on('close', (code) => {
-                // Parse test results from output
-                const passedMatch = output.match(/✓ Passed:\s*(\d+)/);
-                const failedMatch = output.match(/✗ Failed:\s*(\d+)/);
+                // Parse test results from output - look for the last occurrence
+                const matches = [...output.matchAll(/✓ Passed:\s*(\d+)[\s\S]*?✗ Failed:\s*(\d+)/g)];
                 
-                if (passedMatch) {
-                    this.passedTests += parseInt(passedMatch[1]);
-                    this.totalTests += parseInt(passedMatch[1]);
-                }
-                if (failedMatch) {
-                    this.failedTests += parseInt(failedMatch[1]);
-                    this.totalTests += parseInt(failedMatch[1]);
+                if (matches.length > 0) {
+                    // Use the last match (the summary)
+                    const lastMatch = matches[matches.length - 1];
+                    const passed = parseInt(lastMatch[1]);
+                    const failed = parseInt(lastMatch[2]);
+                    
+                    this.passedTests += passed;
+                    this.failedTests += failed;
+                    this.totalTests += (passed + failed);
                 }
                 
                 if (code === 0) {
@@ -275,23 +289,23 @@ ${chalk.bold('Examples:')}
         
         // Print final summary
         this.printHeader('TEST SUMMARY');
-        console.log(chalk.bold('Test Suites:'));
-        console.log(chalk.green(`  ✓ Passed: ${this.suitesPassed}`));
-        console.log(chalk.red(`  ✗ Failed: ${this.suitesFailed}`));
-        console.log(chalk.cyan(`  Total: ${this.suitesRun}`));
-        console.log();
-        console.log(chalk.bold('Individual Tests:'));
-        console.log(chalk.green(`  ✓ Passed: ${this.passedTests}`));
-        console.log(chalk.red(`  ✗ Failed: ${this.failedTests}`));
-        console.log(chalk.cyan(`  Total: ${this.totalTests}`));
+        console.error(chalk.bold('Test Suites:'));
+        console.error(chalk.green(`  ✓ Passed: ${this.suitesPassed}`));
+        console.error(chalk.red(`  ✗ Failed: ${this.suitesFailed}`));
+        console.error(chalk.cyan(`  Total: ${this.suitesRun}`));
+        console.error();
+        console.error(chalk.bold('Individual Tests:'));
+        console.error(chalk.green(`  ✓ Passed: ${this.passedTests}`));
+        console.error(chalk.red(`  ✗ Failed: ${this.failedTests}`));
+        console.error(chalk.cyan(`  Total: ${this.totalTests}`));
         
         if (this.suitesFailed === 0 && this.failedTests === 0) {
-            console.log();
-            console.log(chalk.green.bold('All tests passed! 🎉'));
+            console.error();
+            console.error(chalk.green.bold('All tests passed!'));
             process.exit(0);
         } else {
-            console.log();
-            console.log(chalk.red.bold('Some tests failed.'));
+            console.error();
+            console.error(chalk.red.bold('Some tests failed.'));
             process.exit(1);
         }
     }

@@ -7,7 +7,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-
 // CountWithJoins returns the count of records using complex query with joins and custom conditions.
 func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, error) {
 	var count int64

@@ -31,47 +31,38 @@ type UserResponse struct {
 
 // ListUsers returns a paginated list of users with modern query parameter support
 func (h *Handlers) ListUsers(c *gin.Context) {
-	// Simplified version for debugging  
+	// Configure modern query with field mappings and search fields
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
+			            login_count, failed_login_attempts, locked_until, password_changed_at, 
+			            metadata, created_at, updated_at FROM users`,
+			CountQuery:   "SELECT COUNT(*) FROM users",
+			DefaultOrder: "username ASC",
+		},
+		SearchFields:  []string{"username", "full_name", "email"},
+		TableAlias:    "",
+		DefaultFields: "*",
+		FieldMapping: map[string]string{
+			"id":                     "id",
+			"username":               "username",
+			"full_name":              "full_name",
+			"email":                  "email",
+			"role":                   "role",
+			"suspended_at":           "suspended_at",
+			"last_login_at":          "last_login_at",
+			"login_count":            "login_count",
+			"failed_login_attempts":  "failed_login_attempts",
+			"locked_until":           "locked_until",
+			"password_changed_at":    "password_changed_at",
+			"metadata":               "metadata",
+			"created_at":             "created_at",
+			"updated_at":             "updated_at",
+		},
+	}
+
 	var users []UserResponse
-	
-	// Build query with basic role filtering
-	query := `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
-	          login_count, failed_login_attempts, locked_until, password_changed_at, 
-	          metadata, created_at, updated_at FROM users`
-	countQuery := "SELECT COUNT(*) FROM users"
-	args := []interface{}{}
-	
-	// Handle role parameter
-	if role := c.Query("role"); role != "" {
-		query += " WHERE role = ?"
-		countQuery += " WHERE role = ?"
-		args = append(args, role)
-	}
-	
-	query += " ORDER BY username ASC"
-	
-	// Get total count
-	var total int64
-	err := h.db.Get(&total, countQuery, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to count users")
-		return
-	}
-	
-	// Get users
-	err = h.db.Select(&users, query, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch users")
-		return
-	}
-	
-	// Return simple response
-	c.JSON(200, gin.H{
-		"data":  users,
-		"total": total,
-		"limit": 50,
-		"offset": 0,
-	})
+	utils.ModernListWithQuery(c, h.db, config, &users)
 }
 
 // GetUser returns a single user by ID
@@ -189,6 +180,17 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		args = append(args, *req.Email)
 	}
 
+	if req.Password != "" {
+		// Hash the new password
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			utils.ProblemInternalServer(c, "Failed to hash password")
+			return
+		}
+		updates = append(updates, "password_hash = ?, password_changed_at = NOW()")
+		args = append(args, string(hashedPassword))
+	}
+
 	if req.Role != "" {
 		updates = append(updates, "role = ?")
 		args = append(args, req.Role)
@@ -199,8 +201,19 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		args = append(args, req.Metadata)
 	}
 
+	if req.Suspended != nil {
+		if *req.Suspended {
+			updates = append(updates, "suspended_at = NOW()")
+		} else {
+			updates = append(updates, "suspended_at = NULL")
+		}
+	}
+
 	if len(updates) == 0 {
-		utils.ProblemBadRequest(c, "No fields to update")
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
 		return
 	}
 
@@ -264,7 +277,6 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 
 	utils.NoContent(c)
 }
-
 
 // UpdateUserStatus handles user suspension and restoration
 func (h *Handlers) UpdateUserStatus(c *gin.Context) {

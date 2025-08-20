@@ -33,7 +33,7 @@ func GetStationVoiceAudioURL(stationVoiceID int, hasJingle bool) *string {
 	if !hasJingle {
 		return nil
 	}
-	url := fmt.Sprintf("/api/v1/station_voices/%d/audio", stationVoiceID)
+	url := fmt.Sprintf("/station-voices/%d/audio", stationVoiceID)
 	return &url
 }
 
@@ -117,7 +117,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	// Check content type to determine parsing strategy
 	contentType := c.GetHeader("Content-Type")
-	
+
 	if strings.Contains(contentType, "application/json") {
 		// Handle JSON requests
 		var req utils.StationVoiceRequest
@@ -172,7 +172,10 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 
 	mixPointPtr, err := utils.ParseFloatFormWithRange(c, "mix_point", 0, 300)
 	if err != nil {
-		utils.ProblemBadRequest(c, err.Error())
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "mix_point",
+			Message: err.Error(),
+		}})
 		return
 	}
 	mixPoint = 0.0
@@ -215,7 +218,10 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	if err == nil {
 		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationID, voiceID))
 		if err != nil {
-			utils.ProblemBadRequest(c, err.Error())
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "jingle",
+				Message: err.Error(),
+			}})
 			return
 		}
 		defer cleanup()
@@ -282,7 +288,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		// Process JSON fields
 		if req.StationID != nil {
 			if *req.StationID <= 0 {
-				utils.ProblemBadRequest(c, "Valid station_id is required")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "station_id",
+					Message: "Valid station_id is required",
+				}})
 				return
 			}
 			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", *req.StationID) {
@@ -294,7 +303,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 		if req.VoiceID != nil {
 			if *req.VoiceID <= 0 {
-				utils.ProblemBadRequest(c, "Valid voice_id is required")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "voice_id",
+					Message: "Valid voice_id is required",
+				}})
 				return
 			}
 			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
@@ -306,7 +318,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 		if req.MixPoint != nil {
 			if *req.MixPoint < 0 || *req.MixPoint > 300 {
-				utils.ProblemBadRequest(c, "Mix point must be between 0 and 300 seconds")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "mix_point",
+					Message: "Mix point must be between 0 and 300 seconds",
+				}})
 				return
 			}
 			updates = append(updates, "mix_point = ?")
@@ -318,7 +333,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		if stationIDStr := c.PostForm("station_id"); stationIDStr != "" {
 			stationID, err := strconv.Atoi(stationIDStr)
 			if err != nil || stationID <= 0 {
-				utils.ProblemBadRequest(c, "Valid station_id is required")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "station_id",
+					Message: "Valid station_id is required",
+				}})
 				return
 			}
 			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
@@ -332,7 +350,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
 			voiceID, err := strconv.Atoi(voiceIDStr)
 			if err != nil || voiceID <= 0 {
-				utils.ProblemBadRequest(c, "Valid voice_id is required")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "voice_id",
+					Message: "Valid voice_id is required",
+				}})
 				return
 			}
 			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
@@ -346,7 +367,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		if mixPointStr := c.PostForm("mix_point"); mixPointStr != "" {
 			mixPoint, err := strconv.ParseFloat(mixPointStr, 64)
 			if err != nil || mixPoint < 0 || mixPoint > 300 {
-				utils.ProblemBadRequest(c, "Mix point must be between 0 and 300 seconds")
+				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+					Field:   "mix_point",
+					Message: "Mix point must be between 0 and 300 seconds",
+				}})
 				return
 			}
 			updates = append(updates, "mix_point = ?")
@@ -355,7 +379,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	}
 
 	if len(updates) == 0 {
-		utils.ProblemBadRequest(c, "No fields to update")
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
 		return
 	}
 

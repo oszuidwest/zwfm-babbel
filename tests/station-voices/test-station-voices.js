@@ -21,8 +21,10 @@ class StationVoicesTests extends BaseTest {
      * Helper function to create a station
      */
     async createStation(name) {
+        // Add timestamp to ensure uniqueness
+        const uniqueName = `${name}_${Date.now()}_${process.pid}`;
         const response = await this.apiCall('POST', '/stations', {
-            name: name,
+            name: uniqueName,
             max_stories_per_block: 5,
             pause_seconds: 2.0
         });
@@ -41,8 +43,10 @@ class StationVoicesTests extends BaseTest {
      * Helper function to create a voice
      */
     async createVoice(name) {
+        // Add timestamp to ensure uniqueness
+        const uniqueName = `${name}_${Date.now()}_${process.pid}`;
         const response = await this.apiCall('POST', '/voices', {
-            name: name
+            name: uniqueName
         });
         
         if (response.status === 201) {

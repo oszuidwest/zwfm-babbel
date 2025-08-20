@@ -754,7 +754,7 @@ paths:
                     text: "This is an important news update for our listeners."
                     voice_id: 1
                     voice_name: "Sarah Johnson"
-                    audio_url: "/api/v1/stories/101/audio"
+                    audio_url: "/stories/101/audio"
                     duration_seconds: 45.2
                     status: "active"
                     start_date: "2024-01-20"
@@ -1299,7 +1299,7 @@ paths:
                     id: 150
                     station_id: 1
                     station_name: "Radio Station 1"
-                    audio_url: "/api/v1/bulletins/150/audio"
+                    audio_url: "/bulletins/150/audio"
                     filename: "bulletin_150_20240120_140500.wav"
                     created_at: "2024-01-20T14:05:00Z"
                     duration: 185.4
@@ -1312,7 +1312,7 @@ paths:
                     id: 149
                     station_id: 1
                     station_name: "Radio Station 1"
-                    audio_url: "/api/v1/bulletins/149/audio"
+                    audio_url: "/bulletins/149/audio"
                     filename: "bulletin_149_20240120_140200.wav"
                     created_at: "2024-01-20T14:02:00Z"
                     duration: 178.2
@@ -1325,7 +1325,7 @@ paths:
                     id: 150
                     station_id: 1
                     station_name: "Radio Station 1"
-                    audio_url: "/api/v1/bulletins/150/audio"
+                    audio_url: "/bulletins/150/audio"
                     filename: "bulletin_150_20240120_140500.wav"
                     created_at: "2024-01-20T14:05:00Z"
                     duration: 185.4

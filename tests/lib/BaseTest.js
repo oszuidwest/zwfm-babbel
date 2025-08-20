@@ -7,6 +7,15 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 
+// Force color support if terminal supports it but chalk doesn't detect it
+if (!chalk.supportsColor && (process.env.TERM && process.env.TERM.includes('color'))) {
+    process.env.FORCE_COLOR = '1';
+    // Re-require chalk to pick up the new environment variable
+    delete require.cache[require.resolve('chalk')];
+    const chalkModule = require('chalk');
+    Object.assign(chalk, chalkModule);
+}
+
 /**
  * Base Test Class for Babbel API Tests
  * Provides common functionality for HTTP requests, authentication, 
@@ -16,7 +25,8 @@ class BaseTest {
     constructor() {
         this.apiBase = process.env.API_BASE || 'http://localhost:8080';
         this.apiUrl = `${this.apiBase}/api/v1`;
-        this.audioDir = './audio';
+        // Audio directory is at project root, not in tests directory
+        this.audioDir = path.join(__dirname, '../../audio');
         this.cookieFile = './test_cookies.txt';
         
         // Initialize cookie jar and axios instance
@@ -27,12 +37,12 @@ class BaseTest {
             timeout: 30000 // 30 second timeout
         }));
         
-        // Test counters
+        // Test counters - start fresh for each test run
         this.testsPassed = 0;
         this.testsFailed = 0;
         
-        // Load existing counters if available
-        this.loadTestCounters();
+        // Don't load existing counters - each test file should have its own count
+        // this.loadTestCounters();
         
         // Default admin credentials
         this.defaultAdminUsername = 'admin';
@@ -141,12 +151,8 @@ class BaseTest {
      * Save test counters to temp file
      */
     saveTestCounters() {
-        try {
-            const data = `TESTS_PASSED=${this.testsPassed}\nTESTS_FAILED=${this.testsFailed}\n`;
-            fsSync.writeFileSync('/tmp/babbel_test_counters', data);
-        } catch (error) {
-            // Ignore saving errors
-        }
+        // Disabled - each test file maintains its own counters
+        // The orchestrator will count suite results
     }
     
     /**
@@ -179,14 +185,10 @@ class BaseTest {
     
     printSuccess(text) {
         console.error(`${chalk.green(`✓ ${text}`)}`);
-        this.testsPassed++;
-        this.saveTestCounters();
     }
     
     printError(text) {
         console.error(`${chalk.red(`✗ ${text}`)}`);
-        this.testsFailed++;
-        this.saveTestCounters();
     }
     
     printInfo(text) {
@@ -535,13 +537,19 @@ class BaseTest {
             const result = await testFunction.call(this);
             if (result !== false) {
                 this.printSuccess(`${testName} completed`);
+                this.testsPassed++;
+                this.saveTestCounters();
                 return true;
             } else {
                 this.printError(`${testName} failed`);
+                this.testsFailed++;
+                this.saveTestCounters();
                 return false;
             }
         } catch (error) {
             this.printError(`${testName} failed: ${error.message}`);
+            this.testsFailed++;
+            this.saveTestCounters();
             return false;
         }
     }

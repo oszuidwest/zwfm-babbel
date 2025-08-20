@@ -13,7 +13,7 @@ import (
 func (h *Handlers) ListStations(c *gin.Context) {
 	// Simplified version for debugging
 	var stations []models.Station
-	
+
 	// Get total count
 	var total int64
 	err := h.db.Get(&total, "SELECT COUNT(*) FROM stations")
@@ -21,19 +21,19 @@ func (h *Handlers) ListStations(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to count stations")
 		return
 	}
-	
+
 	// Get stations
 	err = h.db.Select(&stations, "SELECT * FROM stations ORDER BY name ASC")
 	if err != nil {
 		utils.ProblemInternalServer(c, "Failed to fetch stations")
 		return
 	}
-	
+
 	// Return simple response
 	c.JSON(200, gin.H{
-		"data":  stations,
-		"total": total,
-		"limit": 50,
+		"data":   stations,
+		"total":  total,
+		"limit":  50,
 		"offset": 0,
 	})
 }

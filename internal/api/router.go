@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // SetupRouter configures and returns the main API router with all routes and middleware.
@@ -71,6 +72,9 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	} else {
 		gin.SetMode(gin.DebugMode)
 	}
+
+	// Initialize custom validators
+	utils.InitializeValidators()
 
 	// Create router
 	r := gin.Default()

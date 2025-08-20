@@ -94,6 +94,7 @@ CREATE TABLE users (
     email VARCHAR(255),
     role VARCHAR(50) DEFAULT 'editor',
     suspended_at TIMESTAMP NULL,
+    deleted_at TIMESTAMP NULL,
     last_login_at TIMESTAMP NULL,
     login_count INT DEFAULT 0,
     failed_login_attempts INT DEFAULT 0,

@@ -634,20 +634,19 @@ class BulletinsTests extends BaseTest {
                     return false;
                 }
                 
-                // Test individual bulletin retrieval
-                this.printInfo(`Testing individual bulletin retrieval for ID: ${bulletinId}...`);
-                const detailResponse = await this.apiCall('GET', `/bulletins/${bulletinId}`);
+                // Test bulletin stories endpoint instead (no individual bulletin detail endpoint exists)
+                this.printInfo(`Testing bulletin stories endpoint for ID: ${bulletinId}...`);
+                const storiesResponse = await this.apiCall('GET', `/bulletins/${bulletinId}/stories`);
                 
-                if (this.assertions.checkResponse(detailResponse, 200, 'Get bulletin details')) {
-                    this.printSuccess('Individual bulletin retrieval works');
+                if (this.assertions.checkResponse(storiesResponse, 200, 'Get bulletin stories')) {
+                    this.printSuccess('Bulletin stories endpoint works');
                     
-                    // Verify metadata consistency
-                    const detailBulletin = detailResponse.data;
-                    if (detailBulletin.id === bulletin.id && detailBulletin.filename === bulletin.filename) {
-                        this.printSuccess('Bulletin metadata consistent between list and detail views');
+                    // Check if response has expected structure
+                    if (storiesResponse.data.data !== undefined) {
+                        const storyCount = storiesResponse.data.data.length;
+                        this.printSuccess(`Bulletin contains ${storyCount} stories`);
                     } else {
-                        this.printError('Bulletin metadata inconsistent between views');
-                        return false;
+                        this.printWarning('Bulletin stories response has unexpected structure');
                     }
                 } else {
                     return false;

@@ -10,17 +10,17 @@ import (
 func (h *Handlers) ListVoices(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseListParams(c)
-	
+
 	// Build base query
 	baseQuery := "FROM voices"
 	var args []interface{}
-	
+
 	// Add search if provided
 	if params.Search != "" {
 		baseQuery += " WHERE name LIKE ?"
 		args = append(args, "%"+params.Search+"%")
 	}
-	
+
 	// Get total count
 	var total int64
 	countQuery := "SELECT COUNT(*) " + baseQuery
@@ -29,10 +29,10 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to count voices")
 		return
 	}
-	
+
 	// Build full query with sorting and pagination
 	query := "SELECT * " + baseQuery
-	
+
 	// Add sorting
 	if params.Sort != "" {
 		order := "ASC"
@@ -50,11 +50,11 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 	} else {
 		query += " ORDER BY name ASC"
 	}
-	
+
 	// Add pagination
 	query += " LIMIT ? OFFSET ?"
 	args = append(args, params.Limit, params.Offset)
-	
+
 	// Get voices
 	var voices []models.Voice
 	err = h.db.Select(&voices, query, args...)
@@ -62,7 +62,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to fetch voices")
 		return
 	}
-	
+
 	// Return response
 	c.JSON(200, gin.H{
 		"data":   voices,

@@ -22,9 +22,9 @@ class UsersTests extends BaseTest {
      * Helper function to create a user
      */
     async createUser(username, fullName, password, email = '', role = 'viewer', notes = '') {
-        // Make username unique
+        // Make username unique (only letters and numbers allowed)
         const timestamp = Date.now();
-        const uniqueUsername = `${username}_${timestamp}_${process.pid}`;
+        const uniqueUsername = `${username}${timestamp}${process.pid}`;
         
         const userData = {
             username: uniqueUsername,
@@ -52,6 +52,9 @@ class UsersTests extends BaseTest {
                 this.lastCreatedUsername = uniqueUsername;
                 return userId;
             }
+        } else {
+            // Log the error for debugging
+            this.printError(`User creation failed with status ${response.status}: ${JSON.stringify(response.data)}`);
         }
         
         return null;
@@ -542,9 +545,9 @@ class UsersTests extends BaseTest {
         const success = await this.updateUserStatus(userId, true);
         
         if (success) {
-            // Verify the user is suspended
+            // Verify the user is suspended (check suspended_at field)
             const user = await this.getUser(userId);
-            if (user && user.suspended === true) {
+            if (user && user.suspended_at !== null && user.suspended_at !== undefined) {
                 this.printSuccess('User suspended successfully');
             } else {
                 this.printError('User suspension not reflected in user data');
@@ -585,9 +588,9 @@ class UsersTests extends BaseTest {
         const restoreSuccess = await this.updateUserStatus(userId, false);
         
         if (restoreSuccess) {
-            // Verify the user is restored
+            // Verify the user is restored (suspended_at should be null)
             const user = await this.getUser(userId);
-            if (user && (user.suspended === false || user.suspended === null || user.suspended === undefined)) {
+            if (user && (user.suspended_at === null || user.suspended_at === undefined)) {
                 this.printSuccess('User restored successfully');
             } else {
                 this.printError('User restoration not reflected in user data');

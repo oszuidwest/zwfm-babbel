@@ -14,7 +14,7 @@ import (
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
 func GetBulletinAudioURL(bulletinID int) string {
-	return fmt.Sprintf("/api/v1/bulletins/%d/audio", bulletinID)
+	return fmt.Sprintf("/bulletins/%d/audio", bulletinID)
 }
 
 // BulletinRequest represents the request parameters for bulletin generation.
@@ -191,7 +191,10 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		Date string `json:"date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ProblemBadRequest(c, "Invalid request body")
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "request_body",
+			Message: "Invalid request body",
+		}})
 		return
 	}
 
@@ -252,7 +255,10 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		case strings.Contains(err.Error(), "no stories available"):
 			utils.ProblemNotFound(c, "No stories available for the specified date")
 		case strings.Contains(err.Error(), "invalid date format"):
-			utils.ProblemBadRequest(c, "Invalid date format")
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "date",
+				Message: "Invalid date format",
+			}})
 		default:
 			fmt.Printf("ERROR: Failed to generate bulletin: %v\n", err)
 			utils.ProblemInternalServer(c, "Failed to generate bulletin")
@@ -522,31 +528,31 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 // ListBulletins returns a paginated list of bulletins with simplified query support
 func (h *Handlers) ListBulletins(c *gin.Context) {
 	includeStories := c.Query("include_stories") == "true"
-	
+
 	// Build base query
 	baseQuery := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
 	              b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
 	              FROM bulletins b 
 	              JOIN stations s ON b.station_id = s.id`
 	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
-	
+
 	// Build WHERE conditions
 	var conditions []string
 	var args []interface{}
-	
+
 	// Handle station_id filtering
 	if stationID := c.Query("station_id"); stationID != "" {
 		conditions = append(conditions, "b.station_id = ?")
 		args = append(args, stationID)
 	}
-	
+
 	// Handle search
 	if search := c.Query("search"); search != "" {
 		conditions = append(conditions, "(b.filename LIKE ? OR s.name LIKE ?)")
 		searchTerm := "%" + search + "%"
 		args = append(args, searchTerm, searchTerm)
 	}
-	
+
 	// Build WHERE clause
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -554,7 +560,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		baseQuery += whereClause
 		countQuery += whereClause
 	}
-	
+
 	// Get total count
 	var total int64
 	err := h.db.Get(&total, countQuery, args...)
@@ -562,7 +568,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to count bulletins")
 		return
 	}
-	
+
 	// Handle sorting
 	sort := c.Query("sort")
 	if sort != "" {
@@ -581,12 +587,12 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	} else {
 		baseQuery += " ORDER BY b.created_at DESC"
 	}
-	
+
 	// Handle pagination
 	limit, offset := utils.GetPagination(c)
 	baseQuery += " LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
-	
+
 	// Execute query
 	var bulletins []models.Bulletin
 	err = h.db.Select(&bulletins, baseQuery, args...)
@@ -594,12 +600,12 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to fetch bulletins")
 		return
 	}
-	
+
 	// Convert to response format
 	bulletinResponses := make([]map[string]interface{}, len(bulletins))
 	for i, bulletin := range bulletins {
 		response := h.bulletinToResponse(&bulletin)
-		
+
 		// Add stories if requested
 		if includeStories {
 			stories, err := h.getStoriesForBulletin(&bulletin)
@@ -607,16 +613,16 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 				response["stories"] = stories
 			}
 		}
-		
+
 		bulletinResponses[i] = response
 	}
-	
+
 	// Handle field selection if requested
 	if fields := c.Query("fields"); fields != "" {
 		// For now, return all fields but note that field selection was requested
 		// This prevents test failures while maintaining compatibility
 	}
-	
+
 	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
 }
 
@@ -752,7 +758,6 @@ func (h *Handlers) getLatestBulletin(stationID int, maxAge *time.Duration) (*mod
 
 	return &bulletin, nil
 }
-
 
 // GetBulletinAudio serves the audio file for a specific bulletin.
 func (h *Handlers) GetBulletinAudio(c *gin.Context) {

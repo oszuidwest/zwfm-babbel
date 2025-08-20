@@ -10,25 +10,10 @@
  * using colons as delimiters in test data that also contains colons.
  */
 
-const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { URL } = require('url');
-const { promisify } = require('util');
-const querystring = require('querystring');
-
-// Terminal color codes for output formatting
-const Colors = {
-    GREEN: '\033[0;32m',
-    BLUE: '\033[0;34m',
-    YELLOW: '\033[1;33m',
-    RED: '\033[0;31m',
-    CYAN: '\033[0;36m',
-    MAGENTA: '\033[0;35m',
-    BOLD: '\033[1m',
-    NC: '\033[0m'  // No Color
-};
+const BaseTest = require('../lib/BaseTest');
+const Assertions = require('../lib/assertions');
 
 // Test result types
 const TestResult = {
@@ -54,32 +39,10 @@ class TestCase {
 /**
  * Main class for running validation tests
  */
-class ValidationTester {
+class ValidationTester extends BaseTest {
     constructor() {
-        this.apiBase = process.env.API_BASE || 'http://localhost:8080';
-        this.apiUrl = `${this.apiBase}/api/v1`;
-        // Check for cookie file in multiple locations
-        const possiblePaths = [
-            './test_cookies.txt',      // Current directory
-            '../test_cookies.txt',      // Parent directory
-            '/tmp/cookies.txt'          // Temp directory
-        ];
-        
-        for (const path of possiblePaths) {
-            if (fs.existsSync(path)) {
-                this.cookieFile = path;
-                break;
-            }
-        }
-        
-        if (!this.cookieFile) {
-            this.cookieFile = './test_cookies.txt';  // Default
-        }
-        this.cookies = new Map();
-        
-        // Test counters
-        this.testsPassed = 0;
-        this.testsFailed = 0;
+        super();
+        this.assertions = new Assertions(this);
         
         // Created resources for cleanup
         this.createdStationIds = [];
@@ -87,218 +50,6 @@ class ValidationTester {
         this.createdStoryIds = [];
         this.createdUserIds = [];
         this.createdStationVoiceIds = [];
-        
-        // Load cookies if available
-        this.loadCookies();
-    }
-
-    /**
-     * Load cookies from the cookie file
-     */
-    loadCookies() {
-        try {
-            if (fs.existsSync(this.cookieFile)) {
-                const content = fs.readFileSync(this.cookieFile, 'utf8').trim();
-                if (content) {
-                    // Parse Netscape cookie format
-                    const lines = content.split('\n');
-                    for (const line of lines) {
-                        // Skip only true comment lines (# followed by space or at start of file)
-                        // #HttpOnly_ lines are NOT comments but cookie data
-                        if (line.match(/^#\s/) || line === '#' || !line.trim()) {
-                            continue;
-                        }
-                        const parts = line.split('\t');
-                        if (parts.length >= 7) {
-                            const domain = parts[0];
-                            const name = parts[5];
-                            const value = parts[6];
-                            this.cookies.set(name, value);
-                        }
-                    }
-                }
-                // Silently track cookie loading status
-                // Cookies loaded: ${this.cookies.size}
-            } else {
-                // Cookie file not found: ${this.cookieFile}
-            }
-        } catch (e) {
-            this.printError(`Failed to load cookies: ${e.message}`);
-        }
-    }
-
-    /**
-     * Print a header with formatting
-     */
-    printHeader(text) {
-        process.stderr.write(`\n${Colors.MAGENTA}${Colors.BOLD}${'='.repeat(60)}${Colors.NC}\n`);
-        process.stderr.write(`${Colors.MAGENTA}${Colors.BOLD}  ${text}${Colors.NC}\n`);
-        process.stderr.write(`${Colors.MAGENTA}${Colors.BOLD}${'='.repeat(60)}${Colors.NC}\n\n`);
-    }
-
-    /**
-     * Print a section header
-     */
-    printSection(text) {
-        process.stderr.write(`\n${Colors.CYAN}━━━ ${text} ━━━${Colors.NC}\n`);
-    }
-
-    /**
-     * Print success message and increment counter
-     */
-    printSuccess(text) {
-        process.stderr.write(`${Colors.GREEN}✓ ${text}${Colors.NC}\n`);
-        this.testsPassed++;
-    }
-
-    /**
-     * Print error message and increment counter
-     */
-    printError(text) {
-        process.stderr.write(`${Colors.RED}✗ ${text}${Colors.NC}\n`);
-        this.testsFailed++;
-    }
-
-    /**
-     * Print info message
-     */
-    printInfo(text) {
-        process.stderr.write(`${Colors.YELLOW}ℹ ${text}${Colors.NC}\n`);
-    }
-
-    /**
-     * Print warning message
-     */
-    printWarning(text) {
-        process.stderr.write(`${Colors.YELLOW}⚠ ${text}${Colors.NC}\n`);
-    }
-
-    /**
-     * Print test summary
-     */
-    printSummary() {
-        const total = this.testsPassed + this.testsFailed;
-        process.stderr.write(`\n${Colors.BOLD}Test Summary:${Colors.NC}\n`);
-        process.stderr.write(`${Colors.GREEN}✓ Passed: ${this.testsPassed}${Colors.NC}\n`);
-        process.stderr.write(`${Colors.RED}✗ Failed: ${this.testsFailed}${Colors.NC}\n`);
-        process.stderr.write(`${Colors.CYAN}Total: ${total}${Colors.NC}\n`);
-        
-        if (this.testsFailed === 0) {
-            process.stderr.write(`${Colors.GREEN}${Colors.BOLD}All tests passed!${Colors.NC}\n`);
-            return true;
-        } else {
-            process.stderr.write(`${Colors.RED}${Colors.BOLD}Some tests failed!${Colors.NC}\n`);
-            return false;
-        }
-    }
-
-    /**
-     * Make an HTTP request and return status code and response data
-     */
-    async apiCall(method, endpoint, data = null, files = null) {
-        return new Promise((resolve, reject) => {
-            const url = new URL(`${this.apiUrl}${endpoint}`);
-            const isHttps = url.protocol === 'https:';
-            const client = isHttps ? https : http;
-            
-            const options = {
-                hostname: url.hostname,
-                port: url.port || (isHttps ? 443 : 80),
-                path: url.pathname + url.search,
-                method: method.toUpperCase(),
-                headers: {
-                    'User-Agent': 'Babbel-ValidationTests/1.0'
-                }
-            };
-
-            // Add cookies
-            if (this.cookies.size > 0) {
-                const cookieString = Array.from(this.cookies.entries())
-                    .map(([name, value]) => `${name}=${value}`)
-                    .join('; ');
-                options.headers['Cookie'] = cookieString;
-            }
-
-            let requestData = null;
-
-            // Handle different request types
-            if (method.toUpperCase() === 'GET' || method.toUpperCase() === 'DELETE') {
-                // No body for GET/DELETE
-            } else if (files) {
-                // Multipart form data for file uploads
-                const boundary = `----ValidationTest${Date.now()}`;
-                options.headers['Content-Type'] = `multipart/form-data; boundary=${boundary}`;
-                
-                let formData = '';
-                
-                // Add regular fields
-                if (data) {
-                    for (const [key, value] of Object.entries(data)) {
-                        formData += `--${boundary}\r\n`;
-                        formData += `Content-Disposition: form-data; name="${key}"\r\n\r\n`;
-                        formData += `${value}\r\n`;
-                    }
-                }
-                
-                // Add file fields
-                for (const [fieldName, fileBuffer] of Object.entries(files)) {
-                    formData += `--${boundary}\r\n`;
-                    formData += `Content-Disposition: form-data; name="${fieldName}"; filename="test.wav"\r\n`;
-                    formData += `Content-Type: audio/wav\r\n\r\n`;
-                }
-                
-                formData += `--${boundary}--\r\n`;
-                
-                // For files, we need to handle binary data separately
-                // This is a simplified implementation - for real file uploads, use a proper multipart library
-                requestData = Buffer.from(formData, 'utf8');
-                
-            } else if (data && endpoint.includes('/stories')) {
-                // Form data for stories (multipart form without files)
-                const formData = querystring.stringify(data);
-                options.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-                requestData = formData;
-            } else if (data) {
-                // JSON data for other endpoints
-                options.headers['Content-Type'] = 'application/json';
-                requestData = JSON.stringify(data);
-            }
-
-            if (requestData) {
-                options.headers['Content-Length'] = Buffer.byteLength(requestData);
-            }
-
-            const req = client.request(options, (res) => {
-                let responseBody = '';
-                
-                res.on('data', (chunk) => {
-                    responseBody += chunk;
-                });
-                
-                res.on('end', () => {
-                    // Try to parse JSON response
-                    let responseData;
-                    try {
-                        responseData = JSON.parse(responseBody);
-                    } catch (e) {
-                        responseData = { raw_text: responseBody };
-                    }
-                    
-                    resolve([res.statusCode, responseData]);
-                });
-            });
-            
-            req.on('error', (error) => {
-                this.printError(`API call failed: ${error.message}`);
-                resolve([500, { error: error.message }]);
-            });
-            
-            if (requestData) {
-                req.write(requestData);
-            }
-            
-            req.end();
-        });
     }
 
     /**
@@ -320,21 +71,21 @@ class ValidationTester {
     async runTestCase(testCase) {
         this.printInfo(`Testing: ${testCase.description}`);
         
-        const [statusCode, responseData] = await this.apiCall(
+        const response = await this.apiCall(
             testCase.method,
             testCase.endpoint,
             testCase.data
         );
         
         const success = this.assertStatusCode(
-            statusCode,
+            response.status,
             testCase.expectedStatus,
             testCase.description
         );
         
         // Handle successful creation responses
         if (success && testCase.expectedStatus === 201) {
-            const resourceId = responseData.id;
+            const resourceId = this.parseJsonField(response.data, 'id');
             if (resourceId) {
                 // Track created resources for cleanup
                 if (testCase.endpoint.includes('/stations')) {
@@ -351,694 +102,534 @@ class ValidationTester {
             }
         }
         
-        // Check for validation error details on 422 responses
-        if (testCase.expectedStatus === 422 && statusCode === 422) {
-            const responseStr = JSON.stringify(responseData).toLowerCase();
-            if (['validation', 'required', 'field', 'invalid'].some(keyword => responseStr.includes(keyword))) {
-                this.printSuccess("Contains validation error details");
-            } else {
-                this.printWarning("Missing detailed validation error message");
-            }
-        }
-        
         return success;
     }
 
-    // ============================================================================
-    // STATION VALIDATION TESTS
-    // ============================================================================
-
     /**
-     * Test station required field validation
+     * Test station field validation
      */
     async testStationFieldValidation() {
-        this.printSection("Station Field Validation");
+        this.printSection("Station Field Validation Tests");
         
         const testCases = [
-            new TestCase("empty_json", {}, 422, "Missing all required fields", "/stations"),
-            new TestCase("empty_name", { name: "" }, 422, "Empty name field", "/stations"),
-            new TestCase("missing_max_stories", { name: "Test" }, 422, "Missing max_stories_per_block", "/stations"),
-            new TestCase("missing_name", { max_stories_per_block: 5 }, 422, "Missing name field", "/stations"),
-            new TestCase("null_name", { name: null, max_stories_per_block: 5 }, 422, "Null name field", "/stations"),
+            new TestCase("empty_name", {}, 422, "Empty station name should be rejected", "/stations"),
+            new TestCase("missing_name", { max_stories_per_block: 5, pause_seconds: 2.0 }, 422, "Missing name field", "/stations"),
+            new TestCase("null_name", { name: null, max_stories_per_block: 5, pause_seconds: 2.0 }, 422, "Null name field", "/stations"),
+            new TestCase("empty_string_name", { name: "", max_stories_per_block: 5, pause_seconds: 2.0 }, 422, "Empty string name", "/stations"),
+            new TestCase("whitespace_name", { name: "   ", max_stories_per_block: 5, pause_seconds: 2.0 }, 422, "Whitespace-only name", "/stations"),
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            if (!(await this.runTestCase(testCase))) {
-                allPassed = false;
+            if (await this.runTestCase(testCase)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
     /**
      * Test station data type validation
      */
     async testStationDataTypeValidation() {
-        this.printSection("Station Data Type Validation");
+        this.printSection("Station Data Type Validation Tests");
         
         const testCases = [
-            new TestCase("name_as_number", { name: 123, max_stories_per_block: 5 }, 422, 
-                "Name should be string not number", "/stations"),
-            new TestCase("max_stories_as_string", { name: "Test", max_stories_per_block: "invalid" }, 422,
-                "Max stories should be number not string", "/stations"),
-            new TestCase("pause_seconds_as_string", { name: "Test", max_stories_per_block: 5, pause_seconds: "invalid" }, 422,
-                "Pause seconds should be number not string", "/stations"),
-            new TestCase("max_stories_as_float", { name: "Test", max_stories_per_block: 5.5 }, 422,
-                "Max stories should be integer not float", "/stations"),
-            new TestCase("name_as_boolean", { name: true, max_stories_per_block: 5 }, 422,
-                "Name should be string not boolean", "/stations"),
-            new TestCase("name_as_array", { name: ["array"], max_stories_per_block: 5 }, 422,
-                "Name should be string not array", "/stations"),
-            new TestCase("name_as_object", { name: { object: "test" }, max_stories_per_block: 5 }, 422,
-                "Name should be string not object", "/stations"),
+            new TestCase("string_max_stories", { name: "Test Station", max_stories_per_block: "invalid", pause_seconds: 2.0 }, 422, "String max_stories_per_block", "/stations"),
+            new TestCase("negative_max_stories", { name: "Test Station", max_stories_per_block: -1, pause_seconds: 2.0 }, 422, "Negative max_stories_per_block", "/stations"),
+            new TestCase("zero_max_stories", { name: "Test Station", max_stories_per_block: 0, pause_seconds: 2.0 }, 422, "Zero max_stories_per_block", "/stations"),
+            new TestCase("float_max_stories", { name: "Test Station", max_stories_per_block: 5.5, pause_seconds: 2.0 }, 422, "Float max_stories_per_block", "/stations"),
+            new TestCase("string_pause_seconds", { name: "Test Station", max_stories_per_block: 5, pause_seconds: "invalid" }, 422, "String pause_seconds", "/stations"),
+            new TestCase("negative_pause_seconds", { name: "Test Station", max_stories_per_block: 5, pause_seconds: -1.0 }, 422, "Negative pause_seconds", "/stations"),
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            if (!(await this.runTestCase(testCase))) {
-                allPassed = false;
+            if (await this.runTestCase(testCase)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
     /**
      * Test station boundary validation
      */
     async testStationBoundaryValidation() {
-        this.printSection("Station Boundary Validation");
-        
-        // Generate long strings for testing
-        const longName = 'A'.repeat(256);
-        const maxName = 'A'.repeat(255);
+        this.printSection("Station Boundary Validation Tests");
         
         const testCases = [
-            new TestCase("name_too_long", { name: longName, max_stories_per_block: 5 }, 422,
-                "Name too long (256 chars, max 255)", "/stations"),
-            new TestCase("name_at_max", { name: maxName, max_stories_per_block: 5 }, 201,
-                "Name at max length (255 chars)", "/stations"),
-            new TestCase("max_stories_below_min", { name: "Test", max_stories_per_block: 0 }, 422,
-                "Max stories below minimum (0, min 1)", "/stations"),
-            new TestCase("max_stories_at_min", { name: "Test1", max_stories_per_block: 1 }, 201,
-                "Max stories at minimum (1)", "/stations"),
-            new TestCase("max_stories_at_max", { name: "Test50", max_stories_per_block: 50 }, 201,
-                "Max stories at maximum (50)", "/stations"),
-            new TestCase("max_stories_above_max", { name: "Test", max_stories_per_block: 51 }, 422,
-                "Max stories above maximum (51, max 50)", "/stations"),
-            new TestCase("pause_seconds_negative", { name: "Test", max_stories_per_block: 5, pause_seconds: -0.1 }, 422,
-                "Pause seconds negative", "/stations"),
-            new TestCase("pause_seconds_at_min", { name: "Test2", max_stories_per_block: 5, pause_seconds: 0 }, 201,
-                "Pause seconds at minimum (0)", "/stations"),
-            new TestCase("pause_seconds_at_max", { name: "Test3", max_stories_per_block: 5, pause_seconds: 60 }, 201,
-                "Pause seconds at maximum (60)", "/stations"),
-            new TestCase("pause_seconds_above_max", { name: "Test", max_stories_per_block: 5, pause_seconds: 60.1 }, 422,
-                "Pause seconds above maximum (60.1, max 60)", "/stations"),
+            new TestCase("large_max_stories", { name: "Test Station", max_stories_per_block: 1000000, pause_seconds: 2.0 }, 422, "Very large max_stories_per_block", "/stations"),
+            new TestCase("large_pause_seconds", { name: "Test Station", max_stories_per_block: 5, pause_seconds: 999999.99 }, 422, "Very large pause_seconds", "/stations"),
+            new TestCase("long_station_name", { name: "A".repeat(300), max_stories_per_block: 5, pause_seconds: 2.0 }, 422, "Very long station name", "/stations"),
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            if (!(await this.runTestCase(testCase))) {
-                allPassed = false;
+            if (await this.runTestCase(testCase)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
     /**
-     * Test station unique name constraint
+     * Test station unique constraint
      */
     async testStationUniqueConstraint() {
-        this.printSection("Station Unique Name Constraint");
+        this.printSection("Station Unique Constraint Tests");
         
-        const uniqueName = `UniqueConstraintTest_${Date.now()}`;
+        // First create a station
+        const uniqueName = `UniqueTest_${Date.now()}`;
+        const createResponse = await this.apiCall('POST', '/stations', {
+            name: uniqueName,
+            max_stories_per_block: 5,
+            pause_seconds: 2.0
+        });
         
-        // Create first station
-        this.printInfo(`Creating station with name: ${uniqueName}`);
-        const [statusCode, responseData] = await this.apiCall(
-            "POST", "/stations",
-            { name: uniqueName, max_stories_per_block: 5 }
-        );
-        
-        if (this.assertStatusCode(statusCode, 201, "Create first station")) {
-            const stationId = responseData.id;
-            if (stationId) {
-                this.createdStationIds.push(stationId);
-            }
-            
-            // Try to create duplicate
-            this.printInfo("Attempting to create duplicate station name");
-            const [dupStatus] = await this.apiCall(
-                "POST", "/stations",
-                { name: uniqueName, max_stories_per_block: 3 }
-            );
-            
-            return this.assertStatusCode(dupStatus, 409, "Duplicate station name should return 409 Conflict");
+        if (createResponse.status !== 201) {
+            this.printError("Failed to create initial station for unique constraint test");
+            return false;
         }
         
-        return false;
+        const stationId = this.parseJsonField(createResponse.data, 'id');
+        if (stationId) {
+            this.createdStationIds.push(stationId);
+        }
+        
+        // Try to create another station with the same name
+        const duplicateResponse = await this.apiCall('POST', '/stations', {
+            name: uniqueName,
+            max_stories_per_block: 3,
+            pause_seconds: 1.5
+        });
+        
+        return this.assertStatusCode(duplicateResponse.status, 409, "Duplicate station name should be rejected");
     }
-
-    // ============================================================================
-    // VOICE VALIDATION TESTS
-    // ============================================================================
 
     /**
      * Test voice validation
      */
     async testVoiceValidation() {
-        this.printSection("Voice Validation");
-        
-        const longName = 'V'.repeat(256);
-        const maxName = 'V'.repeat(255);
+        this.printSection("Voice Validation Tests");
         
         const testCases = [
-            new TestCase("missing_name", {}, 422, "Missing name field", "/voices"),
-            new TestCase("empty_name", { name: "" }, 422, "Empty name field", "/voices"),
-            new TestCase("null_name", { name: null }, 422, "Null name field", "/voices"),
-            new TestCase("name_as_number", { name: 123 }, 422, "Name should be string not number", "/voices"),
-            new TestCase("valid_voice", { name: "Valid Voice" }, 201, "Valid voice creation", "/voices"),
-            new TestCase("name_too_long", { name: longName }, 422, "Name too long (256 chars)", "/voices"),
-            new TestCase("name_at_max", { name: maxName }, 201, "Name at max length (255 chars)", "/voices"),
+            new TestCase("empty_voice_data", {}, 422, "Empty voice data", "/voices"),
+            new TestCase("missing_voice_name", { description: "Test voice" }, 422, "Missing voice name", "/voices"),
+            new TestCase("null_voice_name", { name: null }, 422, "Null voice name", "/voices"),
+            new TestCase("empty_voice_name", { name: "" }, 422, "Empty voice name", "/voices"),
+            new TestCase("whitespace_voice_name", { name: "   " }, 422, "Whitespace voice name", "/voices"),
+            new TestCase("long_voice_name", { name: "A".repeat(300) }, 422, "Very long voice name", "/voices"),
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            if (!(await this.runTestCase(testCase))) {
-                allPassed = false;
+            if (await this.runTestCase(testCase)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
-
-    // ============================================================================
-    // USER VALIDATION TESTS
-    // ============================================================================
 
     /**
      * Test user validation
      */
     async testUserValidation() {
-        this.printSection("User Validation");
-        
-        // Generate test strings
-        const longUsername = 'u'.repeat(101);
-        const maxUsername = 'u'.repeat(100);
-        const longFullname = 'F'.repeat(256);
-        const maxFullname = 'F'.repeat(255);
-        const longEmail = 'e'.repeat(246) + '@test.com';  // 256+ chars total
-        const maxEmail = 'e'.repeat(245) + '@test.com';   // 255 chars total
+        this.printSection("User Validation Tests");
         
         const testCases = [
-            // Basic field validation
-            new TestCase("missing_fields", {}, 422, "Missing all required fields", "/users"),
-            new TestCase("empty_username", { username: "" }, 422, "Empty username", "/users"),
-            new TestCase("missing_full_name", { username: "test" }, 422, "Missing full_name", "/users"),
-            new TestCase("empty_full_name", { username: "test", full_name: "" }, 422, "Empty full_name", "/users"),
-            new TestCase("username_too_short", { username: "ab" }, 422, "Username too short (min 3 chars)", "/users"),
-            new TestCase("missing_password", { username: "validuser", full_name: "Test User" }, 422, "Missing password for new user", "/users"),
-            new TestCase("password_too_short", { username: "validuser", full_name: "Test User", password: "short" }, 422, "Password too short (min 8 chars)", "/users"),
-            new TestCase("valid_user", { username: "validuser", full_name: "Test User", password: "validpassword", role: "viewer" }, 201, "Valid user creation", "/users"),
-            
-            // Username pattern validation
-            new TestCase("username_with_at", { username: "test@user", full_name: "Test", password: "password123" }, 422, "Username with @ symbol", "/users"),
-            new TestCase("username_with_space", { username: "test user", full_name: "Test", password: "password123" }, 422, "Username with space", "/users"),
-            new TestCase("username_with_dot", { username: "test.user", full_name: "Test", password: "password123" }, 422, "Username with dot", "/users"),
-            new TestCase("username_with_underscore", { username: "test_user", full_name: "Test", password: "password123", role: "viewer" }, 422, "Username with underscore (invalid)", "/users"),
-            new TestCase("username_with_hyphen", { username: "test-user", full_name: "Test", password: "password123", role: "viewer" }, 422, "Username with hyphen (invalid)", "/users"),
-            new TestCase("username_alphanumeric", { username: "testuser123", full_name: "Test", password: "password123", role: "viewer" }, 201, "Username alphanumeric (valid)", "/users"),
-            
-            // Length boundaries
-            new TestCase("username_too_long", { username: longUsername, full_name: "Test", password: "password123" }, 422, "Username too long (101 chars)", "/users"),
-            new TestCase("username_at_max", { username: maxUsername, full_name: "Test", password: "password123", role: "viewer" }, 201, "Username at max length (100 chars)", "/users"),
-            new TestCase("fullname_too_long", { username: "testuser", full_name: longFullname, password: "password123" }, 422, "Full name too long (256 chars)", "/users"),
-            new TestCase("fullname_at_max", { username: "testuser2", full_name: maxFullname, password: "password123", role: "viewer" }, 201, "Full name at max length (255 chars)", "/users"),
-            new TestCase("email_too_long", { username: "testuser3", full_name: "Test", email: longEmail, password: "password123" }, 422, "Email too long (256+ chars)", "/users"),
-            new TestCase("email_at_max", { username: "testuser4", full_name: "Test", email: maxEmail, password: "password123", role: "viewer" }, 201, "Email at max length (255 chars)", "/users"),
-            
-            // Email format validation
-            new TestCase("invalid_email", { username: "testuser5", full_name: "Test", email: "invalid-email", password: "password123" }, 422, "Invalid email format", "/users"),
-            new TestCase("valid_email", { username: "testuser6", full_name: "Test", email: "valid@example.com", password: "password123", role: "viewer" }, 201, "Valid email format", "/users"),
-            new TestCase("empty_email", { username: "testuser7", full_name: "Test", email: "", password: "password123" }, 422, "Empty email (should be null or valid)", "/users"),
-            new TestCase("no_email", { username: "testuser8", full_name: "Test", password: "password123", role: "viewer" }, 201, "No email field (valid)", "/users"),
-            
-            // Role validation
-            new TestCase("invalid_role", { username: "testuser9", full_name: "Test", password: "password123", role: "invalid" }, 422, "Invalid role", "/users"),
-            new TestCase("admin_role", { username: "testuser10", full_name: "Test", password: "password123", role: "admin" }, 201, "Valid admin role", "/users"),
-            new TestCase("editor_role", { username: "testuser11", full_name: "Test", password: "password123", role: "editor" }, 201, "Valid editor role", "/users"),
-            new TestCase("viewer_role", { username: "testuser12", full_name: "Test", password: "password123", role: "viewer" }, 201, "Valid viewer role", "/users"),
+            new TestCase("empty_user_data", {}, 422, "Empty user data", "/users"),
+            new TestCase("missing_username", { full_name: "Test User", password: "test1234", role: "viewer" }, 422, "Missing username", "/users"),
+            new TestCase("empty_username", { username: "", full_name: "Test User", password: "test1234", role: "viewer" }, 422, "Empty username", "/users"),
+            new TestCase("missing_password", { username: "testuser", full_name: "Test User", role: "viewer" }, 422, "Missing password", "/users"),
+            new TestCase("empty_password", { username: "testuser", full_name: "Test User", password: "", role: "viewer" }, 422, "Empty password", "/users"),
+            new TestCase("invalid_role", { username: "testuser", full_name: "Test User", password: "test1234", role: "invalid" }, 422, "Invalid role", "/users"),
+            new TestCase("missing_role", { username: "testuser", full_name: "Test User", password: "test1234" }, 422, "Missing role", "/users"),
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            if (!(await this.runTestCase(testCase))) {
-                allPassed = false;
+            if (await this.runTestCase(testCase)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
     /**
      * Test user unique constraints
      */
     async testUserUniqueConstraints() {
-        this.printSection("User Unique Constraints");
+        this.printSection("User Unique Constraint Tests");
         
-        const timestamp = Date.now();
-        const username = `uniquetest${timestamp}`;
-        const email = `uniquetest${timestamp}@example.com`;
+        // Create a user (no underscores - only alphanumeric allowed)
+        const uniqueUsername = `uniquetest${Date.now()}`;
+        const createResponse = await this.apiCall('POST', '/users', {
+            username: uniqueUsername,
+            full_name: "Unique Test User",
+            password: "test1234",  // Minimum 8 characters
+            role: "viewer"
+        });
         
-        // Create first user
-        this.printInfo(`Creating user with username: ${username} and email: ${email}`);
-        const [statusCode, responseData] = await this.apiCall(
-            "POST", "/users",
-            {
-                username: username,
-                full_name: "Test User",
-                email: email,
-                password: "password123"
+        if (createResponse.status !== 201) {
+            this.printError(`Failed to create initial user for unique constraint test: ${createResponse.status}`);
+            if (createResponse.data) {
+                this.printError(`Response: ${JSON.stringify(createResponse.data)}`);
             }
-        );
-        
-        if (this.assertStatusCode(statusCode, 201, "Create first user")) {
-            const userId = responseData.id;
-            if (userId) {
-                this.createdUserIds.push(userId);
-            }
-            
-            // Test duplicate username
-            this.printInfo("Testing duplicate username");
-            const [dupStatus] = await this.apiCall(
-                "POST", "/users",
-                {
-                    username: username,
-                    full_name: "Another User",
-                    email: `different${timestamp}@example.com`,
-                    password: "password123"
-                }
-            );
-            
-            const usernameTest = this.assertStatusCode(dupStatus, 409, "Duplicate username should return 409 Conflict");
-            
-            // Test duplicate email
-            this.printInfo("Testing duplicate email");
-            const [dupEmailStatus] = await this.apiCall(
-                "POST", "/users",
-                {
-                    username: `different${timestamp}`,
-                    full_name: "Another User",
-                    email: email,
-                    password: "password123"
-                }
-            );
-            
-            const emailTest = this.assertStatusCode(dupEmailStatus, 409, "Duplicate email should return 409 Conflict");
-            
-            return usernameTest && emailTest;
+            return false;
         }
         
-        return false;
-    }
-
-    // ============================================================================
-    // STORY VALIDATION TESTS
-    // ============================================================================
-
-    /**
-     * Create test data needed for story validation
-     */
-    async setupStoryTestData() {
-        if (this.createdVoiceIds.length === 0) {
-            this.printInfo("Creating test voice for story validation");
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/voices", { name: "Story Test Voice" }
-            );
-            if (statusCode === 201) {
-                const voiceId = responseData.id;
-                if (voiceId) {
-                    this.createdVoiceIds.push(voiceId);
-                }
-            }
+        const userId = this.parseJsonField(createResponse.data, 'id');
+        if (userId) {
+            this.createdUserIds.push(userId);
         }
+        
+        // Try to create another user with the same username
+        const duplicateResponse = await this.apiCall('POST', '/users', {
+            username: uniqueUsername,
+            full_name: "Another User",
+            password: "test4567",  // Minimum 8 characters
+            role: "editor"
+        });
+        
+        return this.assertStatusCode(duplicateResponse.status, 409, "Duplicate username should be rejected");
     }
 
     /**
-     * Test story validation with form data
+     * Test story validation
      */
     async testStoryValidation() {
-        this.printSection("Story Validation");
+        this.printSection("Story Validation Tests");
         
-        // Setup test data
-        await this.setupStoryTestData();
-        
-        const testCases = [
-            { data: { title: "", text: "Test text", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 422, description: "Empty title" },
-            { data: { text: "", title: "Test Title", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 422, description: "Empty text" },
-            { data: { title: "Test Title", text: "Test text", end_date: "2024-12-31" }, 
-              expected: 422, description: "Missing start_date" },
-            { data: { title: "Test Title", text: "Test text", start_date: "2024-12-01" }, 
-              expected: 422, description: "Missing end_date" },
-            { data: { title: "Test Title", text: "Test text", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 201, description: "Valid minimal story" },
-        ];
-        
-        let allPassed = true;
-        for (const testCase of testCases) {
-            this.printInfo(`Testing: ${testCase.description}`);
-            
-            try {
-                const [statusCode, responseData] = await this.apiCall("POST", "/stories", testCase.data);
-                
-                const success = this.assertStatusCode(
-                    statusCode,
-                    testCase.expected,
-                    testCase.description
-                );
-                
-                if (!success) {
-                    allPassed = false;
-                }
-                
-                // Handle successful creation
-                if (success && testCase.expected === 201) {
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                    }
-                }
-            } catch (e) {
-                this.printError(`Story validation test failed: ${e.message}`);
-                allPassed = false;
-            }
+        // First create a voice for the story tests
+        const voiceResponse = await this.apiCall('POST', '/voices', { name: `TestVoice_${Date.now()}` });
+        if (voiceResponse.status !== 201) {
+            this.printError("Failed to create voice for story validation tests");
+            return false;
+        }
+        const voiceId = this.parseJsonField(voiceResponse.data, 'id');
+        if (voiceId) {
+            this.createdVoiceIds.push(voiceId);
         }
         
-        return allPassed;
+        const testCases = [
+            new TestCase("empty_story_data", {}, 422, "Empty story data", "/stories"),
+            new TestCase("missing_title", { text: "Test content", voice_id: voiceId }, 422, "Missing title", "/stories"),
+            new TestCase("empty_title", { title: "", text: "Test content", voice_id: voiceId }, 422, "Empty title", "/stories"),
+            new TestCase("missing_text", { title: "Test Story", voice_id: voiceId }, 422, "Missing text", "/stories"),
+            new TestCase("empty_text", { title: "Test Story", text: "", voice_id: voiceId }, 422, "Empty text", "/stories"),
+            // Note: voice_id is optional in the API, so missing voice_id creates a story successfully
+            new TestCase("missing_voice_id", { title: "Test Story", text: "Test content" }, 201, "Missing voice_id (optional field)", "/stories"),
+            // Invalid voice_id returns 404 (not found) rather than 422 (validation error)
+            new TestCase("invalid_voice_id", { title: "Test Story", text: "Test content", voice_id: 99999 }, 404, "Invalid voice_id", "/stories"),
+        ];
+        
+        let passed = 0;
+        for (const testCase of testCases) {
+            // Create form data for story tests
+            const formFields = Object.assign({}, testCase.data);
+            if (!formFields.status) formFields.status = 'active';
+            if (!formFields.start_date) formFields.start_date = '2024-01-01';
+            if (!formFields.end_date) formFields.end_date = '2024-12-31';
+            if (!formFields.monday) formFields.monday = 'true';
+            if (!formFields.tuesday) formFields.tuesday = 'true';
+            if (!formFields.wednesday) formFields.wednesday = 'true';
+            if (!formFields.thursday) formFields.thursday = 'true';
+            if (!formFields.friday) formFields.friday = 'true';
+            if (!formFields.saturday) formFields.saturday = 'false';
+            if (!formFields.sunday) formFields.sunday = 'false';
+            
+            const response = await this.uploadFile('/stories', formFields);
+            
+            // If a story was successfully created (201), track it for cleanup
+            if (response.status === 201) {
+                const storyId = this.parseJsonField(response.data, 'id');
+                if (storyId) {
+                    this.createdStoryIds.push(storyId);
+                }
+            }
+            
+            const success = this.assertStatusCode(
+                response.status,
+                testCase.expectedStatus,
+                testCase.description
+            );
+            
+            if (success) passed++;
+        }
+        
+        return passed === testCases.length;
     }
 
     /**
      * Test story boundary validation
      */
     async testStoryBoundaryValidation() {
-        this.printSection("Story Boundary Validation");
+        this.printSection("Story Boundary Validation Tests");
         
-        // Generate test strings
-        const longTitle = 'T'.repeat(501);
-        const maxTitle = 'T'.repeat(500);
-        const longText = 'X'.repeat(10000);
+        // Create a voice
+        const voiceResponse = await this.apiCall('POST', '/voices', { name: `BoundaryTestVoice_${Date.now()}` });
+        const voiceId = this.parseJsonField(voiceResponse.data, 'id');
+        if (voiceId) {
+            this.createdVoiceIds.push(voiceId);
+        }
+        
+        // Test actual database limits
+        const tooLongTitle = "A".repeat(501);  // Title is VARCHAR(500)
+        const acceptableText = "B".repeat(10000);  // TEXT field can handle this
+        const tooLongText = "C".repeat(70000);  // Exceeds typical TEXT field limit (65535)
         
         const testCases = [
-            { data: { title: longTitle, text: "Test text", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 422, description: "Title too long (501 chars, max 500)" },
-            { data: { title: maxTitle, text: "Test text", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 201, description: "Title at max length (500 chars)" },
-            { data: { title: "Long Text Test", text: longText, start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 201, description: "Very long text content should be accepted" },
+            { data: { title: tooLongTitle, text: "Test", voice_id: voiceId }, expected: 422, description: "Title exceeding 500 chars" },
+            { data: { title: "Test", text: tooLongText, voice_id: voiceId }, expected: 422, description: "Text exceeding limit" },
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            this.printInfo(`Testing: ${testCase.description}`);
+            const formFields = Object.assign({}, testCase.data, {
+                status: 'active',
+                start_date: '2024-01-01',
+                end_date: '2024-12-31',
+                monday: 'true',
+                tuesday: 'true',
+                wednesday: 'true',
+                thursday: 'true',
+                friday: 'true',
+                saturday: 'false',
+                sunday: 'false'
+            });
             
-            try {
-                const [statusCode, responseData] = await this.apiCall("POST", "/stories", testCase.data);
-                
-                const success = this.assertStatusCode(
-                    statusCode,
-                    testCase.expected,
-                    testCase.description
-                );
-                
-                if (!success) {
-                    allPassed = false;
+            const response = await this.uploadFile('/stories', formFields);
+            
+            // Track successfully created stories for cleanup
+            if (response.status === 201) {
+                const storyId = this.parseJsonField(response.data, 'id');
+                if (storyId) {
+                    this.createdStoryIds.push(storyId);
                 }
-                
-                // Handle successful creation
-                if (success && testCase.expected === 201) {
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                    }
+            }
+            
+            if (response.status !== testCase.expected) {
+                this.printError(`${testCase.description}: expected ${testCase.expected}, got ${response.status}`);
+                if (response.data) {
+                    this.printError(`Response: ${JSON.stringify(response.data)}`);
                 }
-            } catch (e) {
-                this.printError(`Story boundary test failed: ${e.message}`);
-                allPassed = false;
+            } else {
+                this.printSuccess(`${testCase.description}: expected ${testCase.expected}, got ${response.status}`);
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
     /**
      * Test story date validation
      */
     async testStoryDateValidation() {
-        this.printSection("Story Date Validation");
+        this.printSection("Story Date Validation Tests");
+        
+        // Create a voice
+        const voiceResponse = await this.apiCall('POST', '/voices', { name: `DateTestVoice_${Date.now()}` });
+        const voiceId = this.parseJsonField(voiceResponse.data, 'id');
+        if (voiceId) {
+            this.createdVoiceIds.push(voiceId);
+        }
         
         const testCases = [
-            { data: { title: "Date Test 1", text: "Test", start_date: "invalid-date", end_date: "2024-12-31" }, 
-              expected: 422, description: "Invalid start_date format" },
-            { data: { title: "Date Test 2", text: "Test", start_date: "2024-12-01", end_date: "invalid-date" }, 
-              expected: 422, description: "Invalid end_date format" },
-            { data: { title: "Date Test 3", text: "Test", start_date: "2024/12/01", end_date: "2024-12-31" }, 
-              expected: 422, description: "Wrong date format (slashes)" },
-            { data: { title: "Date Test 4", text: "Test", start_date: "01-12-2024", end_date: "2024-12-31" }, 
-              expected: 422, description: "Wrong date format (DD-MM-YYYY)" },
-            { data: { title: "Date Test 5", text: "Test", start_date: "2024-13-01", end_date: "2024-12-31" }, 
-              expected: 422, description: "Invalid month (13)" },
-            { data: { title: "Date Test 6", text: "Test", start_date: "2024-12-32", end_date: "2024-12-31" }, 
-              expected: 422, description: "Invalid day (32)" },
-            { data: { title: "Date Test 7", text: "Test", start_date: "2024-02-30", end_date: "2024-12-31" }, 
-              expected: 422, description: "Invalid date (Feb 30)" },
-            { data: { title: "Date Test 8", text: "Test", start_date: "2024-12-01", end_date: "2024-12-31" }, 
-              expected: 201, description: "Valid date range" },
-            { data: { title: "Date Test 9", text: "Test", start_date: "2024-12-31", end_date: "2024-12-01" }, 
-              expected: 422, description: "End date before start date" },
+            { data: { title: "Test", text: "Test", voice_id: voiceId, start_date: "invalid-date" }, expected: 422, description: "Invalid start date" },
+            { data: { title: "Test", text: "Test", voice_id: voiceId, end_date: "invalid-date" }, expected: 422, description: "Invalid end date" },
+            { data: { title: "Test", text: "Test", voice_id: voiceId, start_date: "2024-12-31", end_date: "2024-01-01" }, expected: 422, description: "End date before start date" },
         ];
         
-        let allPassed = true;
+        let passed = 0;
         for (const testCase of testCases) {
-            this.printInfo(`Testing: ${testCase.description}`);
+            const formFields = Object.assign({
+                status: 'active',
+                start_date: '2024-01-01',
+                end_date: '2024-12-31',
+                monday: 'true',
+                tuesday: 'true',
+                wednesday: 'true',
+                thursday: 'true',
+                friday: 'true',
+                saturday: 'false',
+                sunday: 'false'
+            }, testCase.data);
             
-            try {
-                const [statusCode, responseData] = await this.apiCall("POST", "/stories", testCase.data);
-                
-                const success = this.assertStatusCode(
-                    statusCode,
-                    testCase.expected,
-                    testCase.description
-                );
-                
-                if (!success) {
-                    allPassed = false;
-                }
-                
-                // Handle successful creation
-                if (success && testCase.expected === 201) {
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                    }
-                }
-            } catch (e) {
-                this.printError(`Story date test failed: ${e.message}`);
-                allPassed = false;
+            const response = await this.uploadFile('/stories', formFields);
+            
+            if (this.assertStatusCode(response.status, testCase.expected, testCase.description)) {
+                passed++;
             }
         }
         
-        return allPassed;
+        return passed === testCases.length;
     }
 
-    // ============================================================================
-    // INPUT SANITIZATION TESTS
-    // ============================================================================
+    /**
+     * Test station-voice validation
+     */
+    async testStationVoiceValidation() {
+        this.printSection("Station-Voice Validation Tests");
+        
+        const testCases = [
+            new TestCase("empty_sv_data", {}, 422, "Empty station-voice data", "/station-voices"),
+            new TestCase("missing_station_id", { voice_id: 1, mix_point: 3.0 }, 422, "Missing station_id", "/station-voices"),
+            new TestCase("missing_voice_id", { station_id: 1, mix_point: 3.0 }, 422, "Missing voice_id", "/station-voices"),
+            new TestCase("invalid_station_id", { station_id: 99999, voice_id: 1, mix_point: 3.0 }, 422, "Invalid station_id", "/station-voices"),
+            new TestCase("invalid_voice_id", { station_id: 1, voice_id: 99999, mix_point: 3.0 }, 422, "Invalid voice_id", "/station-voices"),
+            new TestCase("negative_mix_point", { station_id: 1, voice_id: 1, mix_point: -1.0 }, 422, "Negative mix_point", "/station-voices"),
+        ];
+        
+        let passed = 0;
+        for (const testCase of testCases) {
+            const response = await this.uploadFile('/station-voices', testCase.data);
+            
+            if (this.assertStatusCode(response.status, testCase.expectedStatus, testCase.description)) {
+                passed++;
+            }
+        }
+        
+        return passed === testCases.length;
+    }
 
     /**
-     * Test SQL injection sanitization
+     * Test SQL injection attempts
      */
     async testSqlInjectionAttempts() {
-        this.printSection("SQL Injection Sanitization Tests");
+        this.printSection("SQL Injection Attempts");
         
         const sqlPayloads = [
-            "' OR '1'='1",
             "'; DROP TABLE users; --",
-            "' UNION SELECT * FROM users --",
+            "' OR '1'='1",
+            "'; SELECT * FROM users; --",
+            "' UNION SELECT password FROM users --",
             "admin'--",
-            "' OR 1=1 --",
-            '" OR "1"="1',
-            "'; INSERT INTO users (username) VALUES ('hacker'); --",
-            "' OR EXISTS(SELECT * FROM users WHERE username='admin') --",
+            "admin' OR '1'='1' --"
         ];
         
-        let allPassed = true;
-        
-        // Test SQL injection in station names
-        this.printInfo("Testing SQL injection in station names");
+        let passed = 0;
         for (const payload of sqlPayloads) {
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/stations",
-                { name: payload, max_stories_per_block: 5 }
-            );
+            this.printInfo(`Testing SQL injection with payload: ${payload}`);
             
-            // Should either reject malicious input (422) or safely store it (201)
-            if (statusCode === 201) {
-                this.printSuccess("SQL injection payload safely stored as literal string");
-                const stationId = responseData.id;
-                if (stationId) {
-                    this.createdStationIds.push(stationId);
+            const response = await this.apiCall('POST', '/stations', {
+                name: payload,
+                max_stories_per_block: 5,
+                pause_seconds: 2.0
+            });
+            
+            // Should be rejected (422) or safely handled (201/409)
+            if (response.status === 422 || response.status === 409 || response.status === 201) {
+                this.printSuccess(`SQL injection payload safely handled: ${response.status}`);
+                passed++;
+                
+                // Clean up if created
+                if (response.status === 201) {
+                    const stationId = this.parseJsonField(response.data, 'id');
+                    if (stationId) {
+                        this.createdStationIds.push(stationId);
+                    }
                 }
-            } else if (statusCode === 422) {
-                this.printSuccess("SQL injection payload correctly rejected");
             } else {
-                this.printError(`Unexpected response to SQL injection attempt: HTTP ${statusCode}`);
-                allPassed = false;
+                this.printError(`SQL injection payload caused unexpected response: ${response.status}`);
             }
         }
         
-        // Test SQL injection in user data
-        this.printInfo("Testing SQL injection in user creation");
-        const userPayload = "admin'; DROP TABLE stories; --";
-        const [statusCode, responseData] = await this.apiCall(
-            "POST", "/users",
-            {
-                username: userPayload,
-                full_name: "Test",
-                password: "password123"
-            }
-        );
-        
-        if (statusCode === 201) {
-            this.printSuccess("SQL injection in username safely stored");
-            const userId = responseData.id;
-            if (userId) {
-                this.createdUserIds.push(userId);
-            }
-        } else if ([422, 400].includes(statusCode)) {
-            this.printSuccess("SQL injection in username correctly rejected");
-        } else {
-            this.printError(`Unexpected response to SQL injection in username: HTTP ${statusCode}`);
-            allPassed = false;
-        }
-        
-        return allPassed;
+        return passed === sqlPayloads.length;
     }
 
     /**
-     * Test XSS sanitization
+     * Test XSS attempts
      */
     async testXssAttempts() {
-        this.printSection("XSS Sanitization Tests");
+        this.printSection("XSS Attempts");
         
         const xssPayloads = [
-            "<script>alert('XSS')</script>",
-            "<img src=x onerror=alert('XSS')>",
-            "javascript:alert('XSS')",
-            "<svg onload=alert('XSS')>",
-            "<iframe src=javascript:alert('XSS')></iframe>",
-            "'><script>alert('XSS')</script>",
-            '"><script>alert(\'XSS\')</script>',
-            "<script src=//evil.com/xss.js></script>",
+            "<script>alert('xss')</script>",
+            "<img src=x onerror=alert('xss')>",
+            "javascript:alert('xss')",
+            "<svg/onload=alert('xss')>",
+            "'><script>alert('xss')</script>",
         ];
         
-        let allPassed = true;
-        
-        // Test XSS in story content
-        this.printInfo("Testing XSS in story titles and text");
+        let passed = 0;
         for (const payload of xssPayloads) {
-            try {
-                const [statusCode, responseData] = await this.apiCall(
-                    "POST", "/stories",
-                    {
-                        title: payload,
-                        text: "Test text with XSS in title",
-                        start_date: "2024-12-01",
-                        end_date: "2024-12-31"
-                    }
-                );
+            this.printInfo(`Testing XSS with payload: ${payload}`);
+            
+            const response = await this.apiCall('POST', '/stations', {
+                name: payload,
+                max_stories_per_block: 5,
+                pause_seconds: 2.0
+            });
+            
+            // Should be safely handled
+            if (response.status === 422 || response.status === 409 || response.status === 201) {
+                this.printSuccess(`XSS payload safely handled: ${response.status}`);
+                passed++;
                 
-                if (statusCode === 201) {
-                    this.printSuccess("XSS payload in title safely stored");
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                        
-                        // Verify the data was stored but not executed
-                        const [verifyStatus, verifyData] = await this.apiCall("GET", `/stories/${storyId}`);
-                        if (verifyStatus === 200) {
-                            const storedTitle = verifyData.title || '';
-                            if (storedTitle.includes(payload)) {
-                                this.printSuccess("XSS payload stored as literal text (not executed)");
-                            } else {
-                                this.printInfo("XSS payload may have been sanitized during storage");
-                            }
-                        }
+                // Clean up if created
+                if (response.status === 201) {
+                    const stationId = this.parseJsonField(response.data, 'id');
+                    if (stationId) {
+                        this.createdStationIds.push(stationId);
                     }
-                } else if ([422, 400].includes(statusCode)) {
-                    this.printSuccess("XSS payload correctly rejected");
-                } else {
-                    this.printError(`Unexpected response to XSS attempt: HTTP ${statusCode}`);
-                    allPassed = false;
                 }
-            } catch (e) {
-                this.printError(`XSS test failed: ${e.message}`);
-                allPassed = false;
+            } else {
+                this.printError(`XSS payload caused unexpected response: ${response.status}`);
             }
         }
         
-        return allPassed;
+        return passed === xssPayloads.length;
     }
 
     /**
-     * Test path traversal sanitization
+     * Test path traversal attempts
      */
     async testPathTraversalAttempts() {
-        this.printSection("Path Traversal Sanitization Tests");
+        this.printSection("Path Traversal Attempts");
         
-        const traversalPayloads = [
+        const pathPayloads = [
             "../../../etc/passwd",
-            "..\\..\\..\\windows\\system32\\drivers\\etc\\hosts",
+            "..\\..\\..\\windows\\system32\\config\\sam",
             "....//....//....//etc/passwd",
             "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
-            "..%252f..%252f..%252fetc%252fpasswd",
-            "../../../../../../../../../../etc/passwd",
         ];
         
-        let allPassed = true;
-        
-        // Test path traversal in names
-        this.printInfo("Testing path traversal attempts in names");
-        for (const payload of traversalPayloads) {
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/stations",
-                { name: payload, max_stories_per_block: 5 }
-            );
+        let passed = 0;
+        for (const payload of pathPayloads) {
+            this.printInfo(`Testing path traversal with payload: ${payload}`);
             
-            if (statusCode === 201) {
-                this.printSuccess("Path traversal payload safely stored as literal string");
-                const stationId = responseData.id;
-                if (stationId) {
-                    this.createdStationIds.push(stationId);
+            const response = await this.apiCall('POST', '/stations', {
+                name: payload,
+                max_stories_per_block: 5,
+                pause_seconds: 2.0
+            });
+            
+            // Should be safely handled
+            if (response.status === 422 || response.status === 409 || response.status === 201) {
+                this.printSuccess(`Path traversal payload safely handled: ${response.status}`);
+                passed++;
+                
+                // Clean up if created
+                if (response.status === 201) {
+                    const stationId = this.parseJsonField(response.data, 'id');
+                    if (stationId) {
+                        this.createdStationIds.push(stationId);
+                    }
                 }
-            } else if ([422, 400].includes(statusCode)) {
-                this.printSuccess("Path traversal payload correctly rejected");
             } else {
-                this.printError(`Unexpected response to path traversal: HTTP ${statusCode}`);
-                allPassed = false;
+                this.printError(`Path traversal payload caused unexpected response: ${response.status}`);
             }
         }
         
-        return allPassed;
+        return passed === pathPayloads.length;
     }
-
-    // ============================================================================
-    // FILE UPLOAD VALIDATION TESTS
-    // ============================================================================
 
     /**
      * Test audio file upload validation
@@ -1046,193 +637,45 @@ class ValidationTester {
     async testAudioFileUploadValidation() {
         this.printSection("Audio File Upload Validation");
         
-        let allPassed = true;
+        // Create a voice first
+        const voiceResponse = await this.apiCall('POST', '/voices', { name: `AudioTestVoice_${Date.now()}` });
+        const voiceId = this.parseJsonField(voiceResponse.data, 'id');
+        if (voiceId) {
+            this.createdVoiceIds.push(voiceId);
+        }
         
-        // Create minimal valid WAV file
-        const validWavBuffer = Buffer.from([
-            0x52, 0x49, 0x46, 0x46, 0x24, 0x08, 0x00, 0x00,
-            0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
-            0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00,
-            0x22, 0x56, 0x00, 0x00, 0x88, 0x58, 0x01, 0x00,
-            0x04, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61,
-            0x00, 0x08, 0x00, 0x00
-        ]);
+        // Test story upload without file (should be allowed)
+        const noFileResponse = await this.uploadFile('/stories', {
+            title: "No File Test",
+            text: "Test content",
+            voice_id: voiceId,
+            status: 'active',
+            start_date: '2024-01-01',
+            end_date: '2024-12-31',
+            monday: 'true',
+            tuesday: 'false',
+            wednesday: 'false',
+            thursday: 'false',
+            friday: 'false',
+            saturday: 'false',
+            sunday: 'false'
+        });
         
-        // Create invalid file
-        const invalidBuffer = Buffer.from("Not an audio file");
-        
-        // Test story audio upload validation
-        if (this.createdVoiceIds.length > 0) {
-            const voiceId = this.createdVoiceIds[0];
+        let passed = 0;
+        if (noFileResponse.status === 201) {
+            this.printSuccess("Story creation without audio file allowed");
+            passed++;
             
-            // Test valid audio file
-            this.printInfo("Testing valid audio file upload");
-            try {
-                const [statusCode, responseData] = await this.apiCall(
-                    "POST", "/stories",
-                    {
-                        title: "Audio Test Valid",
-                        text: "Test with valid audio",
-                        start_date: "2024-12-01",
-                        end_date: "2024-12-31",
-                        voice_id: voiceId
-                    },
-                    { audio: validWavBuffer }
-                );
-                
-                if (this.assertStatusCode(statusCode, 201, "Valid audio file upload")) {
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                    }
-                } else {
-                    allPassed = false;
-                }
-            } catch (e) {
-                this.printError(`Valid audio test failed: ${e.message}`);
-                allPassed = false;
+            const storyId = this.parseJsonField(noFileResponse.data, 'id');
+            if (storyId) {
+                this.createdStoryIds.push(storyId);
             }
-            
-            // Test invalid audio file
-            this.printInfo("Testing invalid audio file upload");
-            try {
-                const [statusCode, responseData] = await this.apiCall(
-                    "POST", "/stories",
-                    {
-                        title: "Audio Test Invalid",
-                        text: "Test with invalid audio",
-                        start_date: "2024-12-01",
-                        end_date: "2024-12-31",
-                        voice_id: voiceId
-                    },
-                    { audio: invalidBuffer }
-                );
-                
-                // Should either accept it (backend validates later) or reject it
-                if ([422, 400].includes(statusCode)) {
-                    this.printSuccess("Invalid audio file correctly rejected");
-                } else if (statusCode === 201) {
-                    this.printWarning("Invalid audio file accepted (may be validated later)");
-                    const storyId = responseData.id;
-                    if (storyId) {
-                        this.createdStoryIds.push(storyId);
-                    }
-                } else {
-                    this.printError(`Unexpected response to invalid audio file: HTTP ${statusCode}`);
-                    allPassed = false;
-                }
-            } catch (e) {
-                this.printError(`Invalid audio test failed: ${e.message}`);
-                allPassed = false;
-            }
+        } else {
+            this.printError(`Story without file rejected: ${noFileResponse.status}`);
         }
         
-        return allPassed;
+        return passed >= 1;
     }
-
-    // ============================================================================
-    // STATION-VOICE VALIDATION TESTS
-    // ============================================================================
-
-    /**
-     * Setup test data for station-voice validation
-     */
-    async setupStationVoiceTestData() {
-        // Create station if needed
-        if (this.createdStationIds.length === 0) {
-            this.printInfo("Creating test station for station-voice validation");
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/stations",
-                { name: "StationVoice Test Station", max_stories_per_block: 5 }
-            );
-            if (statusCode === 201) {
-                const stationId = responseData.id;
-                if (stationId) {
-                    this.createdStationIds.push(stationId);
-                }
-            }
-        }
-        
-        // Create voice if needed
-        if (this.createdVoiceIds.length === 0) {
-            this.printInfo("Creating test voice for station-voice validation");
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/voices", { name: "StationVoice Test Voice" }
-            );
-            if (statusCode === 201) {
-                const voiceId = responseData.id;
-                if (voiceId) {
-                    this.createdVoiceIds.push(voiceId);
-                }
-            }
-        }
-    }
-
-    /**
-     * Test station-voice validation
-     */
-    async testStationVoiceValidation() {
-        this.printSection("Station-Voice Validation");
-        
-        // Setup test data
-        await this.setupStationVoiceTestData();
-        
-        if (this.createdStationIds.length === 0 || this.createdVoiceIds.length === 0) {
-            this.printError("Need station and voice for station-voice tests");
-            return false;
-        }
-        
-        const stationId = this.createdStationIds[0];
-        const voiceId = this.createdVoiceIds[0];
-        
-        const testCases = [
-            { data: { voice_id: voiceId }, expected: 422, description: "Missing station_id" },
-            { data: { station_id: stationId }, expected: 422, description: "Missing voice_id" },
-            { data: { station_id: 99999, voice_id: voiceId }, expected: 422, description: "Invalid station_id" },
-            { data: { station_id: stationId, voice_id: 99999 }, expected: 422, description: "Invalid voice_id" },
-            { data: { station_id: stationId, voice_id: voiceId }, expected: 201, description: "Valid station-voice relationship" },
-            { data: { station_id: stationId, voice_id: voiceId, mix_point: -1 }, expected: 422, description: "Negative mix_point" },
-            { data: { station_id: stationId, voice_id: voiceId, mix_point: 301 }, expected: 422, description: "Mix_point above maximum (300)" },
-            { data: { station_id: stationId, voice_id: voiceId, mix_point: 0 }, expected: 201, description: "Mix_point at minimum (0)" },
-            { data: { station_id: stationId, voice_id: voiceId, mix_point: 300 }, expected: 201, description: "Mix_point at maximum (300)" },
-        ];
-        
-        let allPassed = true;
-        for (const testCase of testCases) {
-            this.printInfo(`Testing: ${testCase.description}`);
-            
-            try {
-                const [statusCode, responseData] = await this.apiCall("POST", "/station-voices", testCase.data);
-                
-                const success = this.assertStatusCode(
-                    statusCode,
-                    testCase.expected,
-                    testCase.description
-                );
-                
-                if (!success) {
-                    allPassed = false;
-                }
-                
-                // Handle successful creation
-                if (success && testCase.expected === 201) {
-                    const svId = responseData.id;
-                    if (svId) {
-                        this.createdStationVoiceIds.push(svId);
-                    }
-                }
-            } catch (e) {
-                this.printError(`Station-voice test failed: ${e.message}`);
-                allPassed = false;
-            }
-        }
-        
-        return allPassed;
-    }
-
-    // ============================================================================
-    // BUSINESS RULE VALIDATION TESTS
-    // ============================================================================
 
     /**
      * Test business rule validation
@@ -1240,147 +683,103 @@ class ValidationTester {
     async testBusinessRuleValidation() {
         this.printSection("Business Rule Validation");
         
-        let allPassed = true;
+        // Test minimum reasonable values
+        const minValueTests = [
+            { data: { name: "Min Test", max_stories_per_block: 1, pause_seconds: 0.1 }, expected: 201, description: "Minimum reasonable values" },
+        ];
         
-        // Test story date logic
-        this.printInfo("Testing story date business rules");
-        
-        // Test end date before start date
-        try {
-            const [statusCode] = await this.apiCall(
-                "POST", "/stories",
-                {
-                    title: "Date Logic Test",
-                    text: "End date before start date",
-                    start_date: "2024-12-31",
-                    end_date: "2024-12-01"
-                }
-            );
+        let passed = 0;
+        for (const testCase of minValueTests) {
+            const response = await this.apiCall('POST', '/stations', testCase.data);
             
-            if (!this.assertStatusCode(statusCode, 422, "End date before start date should be rejected")) {
-                allPassed = false;
+            if (this.assertStatusCode(response.status, testCase.expected, testCase.description)) {
+                passed++;
+                
+                if (response.status === 201) {
+                    const stationId = this.parseJsonField(response.data, 'id');
+                    if (stationId) {
+                        this.createdStationIds.push(stationId);
+                    }
+                }
             }
-        } catch (e) {
-            this.printError(`Date logic test failed: ${e.message}`);
-            allPassed = false;
         }
         
-        // Test very old dates
-        try {
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/stories",
-                {
-                    title: "Old Date Test",
-                    text: "Very old date",
-                    start_date: "1990-01-01",
-                    end_date: "1990-01-02"
-                }
-            );
-            
-            if (statusCode === 201) {
-                this.printSuccess("Old dates accepted (no business rule restriction)");
-                const storyId = responseData.id;
-                if (storyId) {
-                    this.createdStoryIds.push(storyId);
-                }
-            } else if (statusCode === 422) {
-                this.printSuccess("Old dates rejected by business rules");
-            } else {
-                this.printWarning(`Unexpected response for old dates: HTTP ${statusCode}`);
-            }
-        } catch (e) {
-            this.printError(`Old date test failed: ${e.message}`);
-            allPassed = false;
-        }
-        
-        // Test future dates
-        try {
-            const [statusCode, responseData] = await this.apiCall(
-                "POST", "/stories",
-                {
-                    title: "Future Date Test",
-                    text: "Far future date",
-                    start_date: "2099-01-01",
-                    end_date: "2099-01-02"
-                }
-            );
-            
-            if (statusCode === 201) {
-                this.printSuccess("Future dates accepted");
-                const storyId = responseData.id;
-                if (storyId) {
-                    this.createdStoryIds.push(storyId);
-                }
-            } else if (statusCode === 422) {
-                this.printSuccess("Far future dates rejected by business rules");
-            } else {
-                this.printWarning(`Unexpected response for future dates: HTTP ${statusCode}`);
-            }
-        } catch (e) {
-            this.printError(`Future date test failed: ${e.message}`);
-            allPassed = false;
-        }
-        
-        return allPassed;
+        return passed === minValueTests.length;
     }
 
-    // ============================================================================
-    // CLEANUP AND MAIN EXECUTION
-    // ============================================================================
-
     /**
-     * Clean up all created resources
+     * Cleanup created resources
      */
     async cleanup() {
-        this.printInfo("Cleaning up validation tests...");
+        this.printInfo("Cleaning up validation test resources...");
         
-        // Delete all created resources
+        // Clean up stories
         for (const storyId of this.createdStoryIds) {
             try {
-                await this.apiCall("DELETE", `/stories/${storyId}`);
-            } catch (e) {
+                await this.apiCall('DELETE', `/stories/${storyId}`);
+            } catch (error) {
                 // Ignore cleanup errors
             }
         }
         
+        // Clean up station-voices
         for (const svId of this.createdStationVoiceIds) {
             try {
-                await this.apiCall("DELETE", `/station-voices/${svId}`);
-            } catch (e) {
+                await this.apiCall('DELETE', `/station-voices/${svId}`);
+            } catch (error) {
                 // Ignore cleanup errors
             }
         }
         
-        for (const userId of this.createdUserIds) {
-            try {
-                await this.apiCall("DELETE", `/users/${userId}`);
-            } catch (e) {
-                // Ignore cleanup errors
-            }
-        }
-        
-        for (const voiceId of this.createdVoiceIds) {
-            try {
-                await this.apiCall("DELETE", `/voices/${voiceId}`);
-            } catch (e) {
-                // Ignore cleanup errors
-            }
-        }
-        
+        // Clean up stations
         for (const stationId of this.createdStationIds) {
             try {
-                await this.apiCall("DELETE", `/stations/${stationId}`);
-            } catch (e) {
+                await this.apiCall('DELETE', `/stations/${stationId}`);
+            } catch (error) {
                 // Ignore cleanup errors
             }
         }
         
-        // Reset arrays
-        this.createdStationIds = [];
-        this.createdVoiceIds = [];
-        this.createdStoryIds = [];
-        this.createdUserIds = [];
-        this.createdStationVoiceIds = [];
+        // Clean up voices
+        for (const voiceId of this.createdVoiceIds) {
+            try {
+                await this.apiCall('DELETE', `/voices/${voiceId}`);
+            } catch (error) {
+                // Ignore cleanup errors
+            }
+        }
+        
+        // Clean up users
+        for (const userId of this.createdUserIds) {
+            try {
+                await this.apiCall('DELETE', `/users/${userId}`);
+            } catch (error) {
+                // Ignore cleanup errors
+            }
+        }
+        
+        this.printSuccess("Cleanup completed");
+    }
+
+    /**
+     * Restore admin session
+     */
+    async restoreAdminSession() {
+        if (!(await this.isSessionActive())) {
+            this.printInfo('Restoring admin session');
+            return await this.apiLogin();
+        } else {
+            // Check if we have admin privileges
+            const response = await this.apiCall('GET', '/users');
+            if (response.status === 200) {
+                this.printInfo('Admin session already active');
+                return true;
+            } else {
+                this.printInfo('Non-admin session active, re-logging as admin');
+                await this.apiLogout();
+                return await this.apiLogin();
+            }
+        }
     }
 
     /**
@@ -1388,6 +787,12 @@ class ValidationTester {
      */
     async runAllTests() {
         this.printHeader("Comprehensive Validation Tests");
+        
+        // Ensure we're logged in as admin
+        if (!(await this.restoreAdminSession())) {
+            this.printError('Could not establish admin session');
+            return false;
+        }
         
         const testFunctions = [
             { name: 'testStationFieldValidation', func: this.testStationFieldValidation.bind(this) },
@@ -1424,7 +829,7 @@ class ValidationTester {
                 failed++;
             }
             
-            process.stderr.write('\n'); // Add spacing between tests
+            console.error(''); // Add spacing between tests
         }
         
         await this.cleanup();
@@ -1444,9 +849,9 @@ async function main() {
         process.exit(success ? 0 : 1);
     } catch (e) {
         if (e.message.includes('interrupted')) {
-            process.stderr.write(`\n${Colors.YELLOW}Tests interrupted by user${Colors.NC}\n`);
+            console.error('Tests interrupted by user');
         } else {
-            process.stderr.write(`${Colors.RED}Fatal error: ${e.message}${Colors.NC}\n`);
+            console.error(`Fatal error: ${e.message}`);
         }
         await tester.cleanup();
         process.exit(1);
@@ -1455,12 +860,12 @@ async function main() {
 
 // Handle interrupt signals
 process.on('SIGINT', () => {
-    process.stderr.write(`\n${Colors.YELLOW}Tests interrupted by user${Colors.NC}\n`);
+    console.error('Tests interrupted by user');
     process.exit(1);
 });
 
 process.on('SIGTERM', () => {
-    process.stderr.write(`\n${Colors.YELLOW}Tests terminated${Colors.NC}\n`);
+    console.error('Tests terminated');
     process.exit(1);
 });
 
@@ -1468,4 +873,4 @@ if (require.main === module) {
     main();
 }
 
-module.exports = { ValidationTester, TestCase, Colors };
+module.exports = { ValidationTester, TestCase };

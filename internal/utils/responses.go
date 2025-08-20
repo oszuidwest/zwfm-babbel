@@ -86,7 +86,6 @@ func ProblemAuthentication(c *gin.Context, detail string) {
 	SendProblem(c, problem)
 }
 
-
 // ProblemInternalServer responds with a 500 Internal Server Error using RFC 9457 Problem Details format.
 func ProblemInternalServer(c *gin.Context, detail string) {
 	problem := NewInternalServerProblem(detail, c.Request.URL.Path)

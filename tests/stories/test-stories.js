@@ -148,7 +148,7 @@ class StoriesTests extends BaseTest {
             sunday: 'false'
         };
         
-        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFields);
+        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFields, null, 'file', 'PUT');
         if (this.assertions.checkResponse(updateResponse, 200, 'Update story')) {
             this.printSuccess('Story updated successfully');
         } else {
@@ -660,7 +660,7 @@ class StoriesTests extends BaseTest {
                 // Test downloading the audio
                 this.printInfo('Testing audio download from API...');
                 const downloadPath = '/tmp/downloaded_story_audio.wav';
-                const downloadResponse = await this.downloadFile(`${this.apiBase}${audioUrl}`, downloadPath);
+                const downloadResponse = await this.downloadFile(audioUrl, downloadPath);
                 
                 if (downloadResponse === 200) {
                     if (fs.existsSync(downloadPath)) {

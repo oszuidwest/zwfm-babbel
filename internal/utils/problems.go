@@ -121,7 +121,6 @@ func NewAuthorizationProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-
 // NewInternalServerProblem creates a new ProblemDetail for internal server errors.
 func NewInternalServerProblem(detail, instance string) *ProblemDetail {
 	return NewProblemDetail(

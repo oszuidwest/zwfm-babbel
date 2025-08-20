@@ -61,16 +61,16 @@ type ListParams struct {
 // ParseListParams extracts simple list parameters for basic endpoints
 func ParseListParams(c *gin.Context) ListParams {
 	params := ListParams{}
-	
+
 	// Parse pagination
 	params.Limit, params.Offset = GetPagination(c)
-	
+
 	// Parse sort (simple string format: -field or field)
 	params.Sort = c.Query("sort")
-	
+
 	// Parse search
 	params.Search = c.Query("search")
-	
+
 	return params
 }
 
@@ -124,7 +124,7 @@ func parseSorting(c *gin.Context) []SortField {
 	if c == nil {
 		return nil
 	}
-	
+
 	sortParam := c.Query("sort")
 	if sortParam == "" {
 		return nil
@@ -181,7 +181,7 @@ func parseFields(c *gin.Context) []string {
 	if c == nil {
 		return nil
 	}
-	
+
 	fieldsParam := c.Query("fields")
 	if fieldsParam == "" {
 		return nil
@@ -206,7 +206,7 @@ func parseFields(c *gin.Context) []string {
 // ?filter[id][in]=1,2,3
 func parseFilters(c *gin.Context) map[string]FilterOperation {
 	filters := make(map[string]FilterOperation)
-	
+
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return filters
 	}
@@ -290,7 +290,7 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 // parseBooleanFilters handles boolean filters like ?has_voice=true
 func parseBooleanFilters(c *gin.Context) map[string]*bool {
 	booleanFilters := make(map[string]*bool)
-	
+
 	if c == nil {
 		return booleanFilters
 	}
@@ -532,7 +532,7 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	for _, field := range params.Fields {
 		dbField := field
 		needsAlias := false
-		
+
 		if config.FieldMapping != nil {
 			if mapped, exists := config.FieldMapping[field]; exists {
 				dbField = mapped
@@ -547,7 +547,7 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 		if config.TableAlias != "" && !strings.Contains(dbField, "(") && !strings.Contains(dbField, ".") {
 			dbField = config.TableAlias + "." + dbField
 		}
-		
+
 		// Add alias for expressions that need it
 		if needsAlias {
 			dbField = dbField + " as " + field
@@ -706,19 +706,19 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 		whereStart := strings.Index(query, "WHERE")
 		if whereStart >= 0 {
 			var whereClause string
-			
+
 			// Find the end of the WHERE clause
 			orderByPos := strings.Index(query[whereStart:], "ORDER BY")
 			limitPos := strings.Index(query[whereStart:], "LIMIT")
-			
+
 			if orderByPos >= 0 {
-				whereClause = query[whereStart:whereStart+orderByPos]
+				whereClause = query[whereStart : whereStart+orderByPos]
 			} else if limitPos >= 0 {
-				whereClause = query[whereStart:whereStart+limitPos]
+				whereClause = query[whereStart : whereStart+limitPos]
 			} else {
 				whereClause = query[whereStart:]
 			}
-			
+
 			whereClause = strings.TrimSpace(whereClause)
 			if whereClause != "" {
 				countQuery += " " + whereClause
@@ -727,7 +727,7 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 				if baseArgsLen < 0 {
 					baseArgsLen = 0
 				}
-				
+
 				// At this point, args doesn't include LIMIT/OFFSET yet, so we can use all args after base args
 				if len(args) > baseArgsLen {
 					filterArgs := args[baseArgsLen:]

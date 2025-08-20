@@ -223,15 +223,28 @@ class AuthTests extends BaseTest {
         if (this.assertions.assertStatusCode(response.status, 200, 'Auth config endpoint')) {
             this.printSuccess('Auth config endpoint accessible');
             
-            // Should have expected fields
-            if (this.assertions.assertJsonField(response.data, 'local_auth_enabled', 'Local auth enabled field')) {
-                const localAuth = this.parseJsonField(response.data, 'local_auth_enabled');
-                this.printInfo(`Local auth enabled: ${localAuth}`);
-            }
-            
-            if (this.assertions.assertJsonField(response.data, 'oauth_enabled', 'OAuth enabled field')) {
-                const oauth = this.parseJsonField(response.data, 'oauth_enabled');
-                this.printInfo(`OAuth enabled: ${oauth}`);
+            // Should have methods array
+            if (this.assertions.assertJsonField(response.data, 'methods', 'Auth methods field')) {
+                const methods = response.data.methods;
+                if (Array.isArray(methods)) {
+                    this.printSuccess(`Auth methods is an array with ${methods.length} method(s)`);
+                    this.printInfo(`Available methods: ${methods.join(', ')}`);
+                    
+                    // Check if local auth is available
+                    if (methods.includes('local')) {
+                        this.printSuccess('Local authentication is available');
+                    }
+                    
+                    // Check if OAuth is available
+                    if (methods.includes('oauth') || methods.includes('oidc')) {
+                        this.printInfo('OAuth/OIDC authentication is available');
+                    }
+                } else {
+                    this.printError('Auth methods field is not an array');
+                    return false;
+                }
+            } else {
+                return false;
             }
         } else {
             return false;

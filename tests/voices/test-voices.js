@@ -19,7 +19,9 @@ class VoicesTests extends BaseTest {
      * Helper function to create a voice and track its ID
      */
     async createVoice(name) {
-        const response = await this.apiCall('POST', '/voices', { name });
+        // Add timestamp to ensure uniqueness
+        const uniqueName = `${name}_${Date.now()}_${process.pid}`;
+        const response = await this.apiCall('POST', '/voices', { name: uniqueName });
         
         if (response.status === 201) {
             // API returns {id: X, message: "..."} on creation
@@ -27,7 +29,7 @@ class VoicesTests extends BaseTest {
             
             if (voiceId) {
                 this.createdVoiceIds.push(voiceId);
-                return voiceId;
+                return { id: voiceId, name: uniqueName };
             }
         }
         
@@ -42,21 +44,22 @@ class VoicesTests extends BaseTest {
         
         // Test creating a valid voice
         this.printInfo('Creating a new voice...');
-        const voiceId = await this.createVoice('Test Voice 1');
+        const voiceData = await this.createVoice('Test Voice 1');
         
-        if (voiceId) {
-            this.printSuccess(`Voice created successfully (ID: ${voiceId})`);
+        if (voiceData) {
+            this.printSuccess(`Voice created successfully (ID: ${voiceData.id})`);
             
             // Verify the voice exists
-            const response = await this.apiCall('GET', `/voices/${voiceId}`);
+            const response = await this.apiCall('GET', `/voices/${voiceData.id}`);
             if (this.assertions.checkResponse(response, 200, 'Get created voice')) {
                 const body = response.data;
                 const name = this.parseJsonField(body, 'name');
                 
-                if (name === 'Test Voice 1') {
+                // Check against the actual unique name we created
+                if (name === voiceData.name) {
                     this.printSuccess('Voice data verified');
                 } else {
-                    this.printError(`Voice name mismatch: expected 'Test Voice 1', got '${name}'`);
+                    this.printError(`Voice name mismatch: expected '${voiceData.name}', got '${name}'`);
                     return false;
                 }
             } else {
@@ -67,9 +70,9 @@ class VoicesTests extends BaseTest {
             return false;
         }
         
-        // Test creating voice with duplicate name
+        // Test creating voice with duplicate name (use the actual unique name)
         this.printInfo('Testing duplicate voice name...');
-        const duplicateResponse = await this.apiCall('POST', '/voices', { name: 'Test Voice 1' });
+        const duplicateResponse = await this.apiCall('POST', '/voices', { name: voiceData.name });
         
         if (duplicateResponse.status === 409) {
             this.printSuccess('Duplicate voice correctly rejected (409 Conflict)');
@@ -180,22 +183,22 @@ class VoicesTests extends BaseTest {
         
         // Create a voice to update
         this.printInfo('Creating voice for update tests...');
-        const voiceId = await this.createVoice('Update Test Voice');
+        const voiceData = await this.createVoice('Update Test Voice');
         
-        if (!voiceId) {
+        if (!voiceData) {
             this.printError('Failed to create test voice');
             return false;
         }
         
         // Test updating voice name
         this.printInfo('Updating voice name...');
-        const updateResponse = await this.apiCall('PUT', `/voices/${voiceId}`, { 
+        const updateResponse = await this.apiCall('PUT', `/voices/${voiceData.id}`, { 
             name: 'Updated Voice Name' 
         });
         
         if (this.assertions.checkResponse(updateResponse, 200, 'Update voice')) {
             // Verify the update
-            const getResponse = await this.apiCall('GET', `/voices/${voiceId}`);
+            const getResponse = await this.apiCall('GET', `/voices/${voiceData.id}`);
             const name = this.parseJsonField(getResponse.data, 'name');
             
             if (name === 'Updated Voice Name') {
@@ -212,7 +215,7 @@ class VoicesTests extends BaseTest {
         this.printInfo('Testing update with duplicate name...');
         await this.createVoice('Duplicate Test Voice');
         
-        const duplicateResponse = await this.apiCall('PUT', `/voices/${voiceId}`, { 
+        const duplicateResponse = await this.apiCall('PUT', `/voices/${voiceData.id}`, { 
             name: 'Duplicate Test Voice' 
         });
         
@@ -247,22 +250,22 @@ class VoicesTests extends BaseTest {
         
         // Create a voice to delete
         this.printInfo('Creating voice for deletion test...');
-        const voiceId = await this.createVoice('Delete Test Voice');
+        const voiceData = await this.createVoice('Delete Test Voice');
         
-        if (!voiceId) {
+        if (!voiceData) {
             this.printError('Failed to create test voice');
             return false;
         }
         
         // Test deleting the voice
         this.printInfo('Deleting voice...');
-        const deleteResponse = await this.apiCall('DELETE', `/voices/${voiceId}`);
+        const deleteResponse = await this.apiCall('DELETE', `/voices/${voiceData.id}`);
         
         if (this.assertions.checkResponse(deleteResponse, 204, 'Delete voice')) {
             this.printSuccess('Voice deleted successfully');
             
             // Verify voice is deleted
-            const getResponse = await this.apiCall('GET', `/voices/${voiceId}`);
+            const getResponse = await this.apiCall('GET', `/voices/${voiceData.id}`);
             
             if (getResponse.status === 404) {
                 this.printSuccess('Deleted voice correctly returns 404');
@@ -296,9 +299,9 @@ class VoicesTests extends BaseTest {
         
         // Create a voice
         this.printInfo('Creating voice for story association test...');
-        const voiceId = await this.createVoice('Story Test Voice');
+        const voiceData = await this.createVoice('Story Test Voice');
         
-        if (!voiceId) {
+        if (!voiceData) {
             this.printError('Failed to create test voice');
             return false;
         }
@@ -308,7 +311,7 @@ class VoicesTests extends BaseTest {
         const formFields = {
             title: 'Test Story with Voice',
             text: 'This is a test story.',
-            voice_id: voiceId,
+            voice_id: voiceData.id,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -328,7 +331,7 @@ class VoicesTests extends BaseTest {
             
             // Try to delete the voice (should fail or handle gracefully)
             this.printInfo('Attempting to delete voice with associated story...');
-            const deleteResponse = await this.apiCall('DELETE', `/voices/${voiceId}`);
+            const deleteResponse = await this.apiCall('DELETE', `/voices/${voiceData.id}`);
             
             // This might return 409 (conflict) or 204 (if cascade delete is enabled)
             if (deleteResponse.status === 409) {
