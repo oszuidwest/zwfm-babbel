@@ -526,75 +526,60 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
 }
 
-// ListBulletins returns a paginated list of bulletins with simplified query support
+// BulletinListResponse represents the response format for bulletins in list view with computed fields.
+type BulletinListResponse struct {
+	models.Bulletin
+	AudioURL string         `json:"audio_url,omitempty"`
+	Stories  []models.Story `json:"stories,omitempty"`
+}
+
+// ListBulletins returns a paginated list of bulletins with modern query parameter support
 func (h *Handlers) ListBulletins(c *gin.Context) {
+	// Parse include_stories parameter
 	includeStories := c.Query("include_stories") == "true"
 
-	// Build base query
-	baseQuery := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
-	              b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
-	              FROM bulletins b 
-	              JOIN stations s ON b.station_id = s.id`
-	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
-
-	// Build WHERE conditions
-	var conditions []string
-	var args []interface{}
-
-	// Handle station_id filtering
-	if stationID := c.Query("station_id"); stationID != "" {
-		conditions = append(conditions, "b.station_id = ?")
-		args = append(args, stationID)
+	// Configure modern query with field mappings and search fields
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
+			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
+			            FROM bulletins b 
+			            JOIN stations s ON b.station_id = s.id`,
+			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
+			DefaultOrder: "b.created_at DESC",
+		},
+		SearchFields:      []string{"b.filename", "s.name"},
+		TableAlias:        "b",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
+		DisableSoftDelete: true, // Bulletins table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":               "b.id",
+			"station_id":       "b.station_id",
+			"filename":         "b.filename",
+			"file_path":        "b.file_path",
+			"duration_seconds": "b.duration_seconds",
+			"duration":         "b.duration_seconds", // Allow both field names
+			"file_size":        "b.file_size",
+			"story_count":      "b.story_count",
+			"metadata":         "b.metadata",
+			"created_at":       "b.created_at",
+			"station_name":     "s.name",
+		},
 	}
 
-	// Handle search
-	if search := c.Query("search"); search != "" {
-		conditions = append(conditions, "(b.filename LIKE ? OR s.name LIKE ?)")
-		searchTerm := "%" + search + "%"
-		args = append(args, searchTerm, searchTerm)
-	}
-
-	// Build WHERE clause
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = " WHERE " + strings.Join(conditions, " AND ")
-		baseQuery += whereClause
-		countQuery += whereClause
-	}
-
-	// Get total count
-	var total int64
-	err := h.db.Get(&total, countQuery, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to count bulletins")
+	var bulletins []models.Bulletin
+	utils.ModernListWithQuery(c, h.db, config, &bulletins)
+	
+	// Check if ModernListWithQuery already handled the response (error case)
+	if c.IsAborted() {
 		return
 	}
-
-	// Handle sorting
-	sort := c.Query("sort")
-	switch sort {
-	case "-created_at", "created_at:desc":
-		baseQuery += " ORDER BY b.created_at DESC"
-	case "created_at", "created_at:asc":
-		baseQuery += " ORDER BY b.created_at ASC"
-	case "-filename", "filename:desc":
-		baseQuery += " ORDER BY b.filename DESC"
-	case "filename", "filename:asc":
-		baseQuery += " ORDER BY b.filename ASC"
-	default:
-		baseQuery += " ORDER BY b.created_at DESC"
-	}
-
-	// Handle pagination
-	limit, offset := utils.GetPagination(c)
-	baseQuery += " LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
-
-	// Execute query
-	var bulletins []models.Bulletin
-	err = h.db.Select(&bulletins, baseQuery, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch bulletins")
+	
+	// Get the response data to extract total count
+	responseData := c.Keys["pagination_data"]
+	paginationInfo, ok := responseData.(map[string]interface{})
+	if !ok {
+		// ModernListWithQuery didn't set pagination data, which means it already sent response
 		return
 	}
 
@@ -614,11 +599,11 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		bulletinResponses[i] = response
 	}
 
-	// Handle field selection if requested
-	// Currently field selection is not implemented but the parameter is accepted for future compatibility
-	_ = c.Query("fields")
-
-	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
+	// Send the custom formatted response with pagination metadata
+	total := paginationInfo["total"].(int)
+	limit := paginationInfo["limit"].(int)
+	offset := paginationInfo["offset"].(int)
+	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
 }
 
 // getStoriesForBulletin retrieves the stories that were used in a bulletin
