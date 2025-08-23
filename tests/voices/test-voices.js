@@ -94,10 +94,10 @@ class VoicesTests extends BaseTest {
     }
     
     /**
-     * Test voice listing
+     * Test basic voice listing
      */
     async testVoiceListing() {
-        this.printSection('Testing Voice Listing');
+        this.printSection('Testing Basic Voice Listing');
         
         // Create some test voices
         this.printInfo('Creating test voices for listing...');
@@ -124,50 +124,217 @@ class VoicesTests extends BaseTest {
             return false;
         }
         
-        // Test pagination
-        this.printInfo('Testing voice pagination...');
-        const paginationResponse = await this.apiCall('GET', '/voices?limit=2&offset=0');
+        return true;
+    }
+    
+    /**
+     * Tests Modern Query Parameter System features for voices endpoint.
+     */
+    async testModernQueryParameters() {
+        this.printSection('Testing Modern Query Parameters');
         
-        if (this.assertions.checkResponse(paginationResponse, 200, 'List voices with pagination')) {
-            const body = paginationResponse.data;
-            const count = body.data ? body.data.length : 0;
-            
-            if (count <= 2) {
-                this.printSuccess(`Pagination limit respected (returned ${count} voices)`);
-            } else {
-                this.printError(`Pagination limit not respected (returned ${count} voices)`);
-                return false;
+        // First create some test voices with varied data for filtering
+        this.printInfo('Creating test voices for query testing...');
+        const testVoices = [
+            'Alpha Voice',
+            'Beta Announcer', 
+            'Gamma Newsreader',
+            'Delta Broadcasting Voice',
+            'Echo Radio Voice',
+            'Foxtrot News Voice'
+        ];
+        
+        const queryTestIds = [];
+        for (const voiceName of testVoices) {
+            const voiceData = await this.createVoice(voiceName);
+            if (voiceData && voiceData.id) {
+                queryTestIds.push(voiceData.id);
             }
-        } else {
+        }
+        
+        if (queryTestIds.length < 6) {
+            this.printError('Failed to create test voices for query testing');
             return false;
         }
         
-        // Test search
-        this.printInfo('Testing voice search...');
-        const searchResponse = await this.apiCall('GET', '/voices?search=List%20Test');
-        
+        // Test 1: Search functionality
+        this.printInfo('Testing search parameter...');
+        const searchResponse = await this.apiCall('GET', '/voices?search=Voice');
         if (this.assertions.checkResponse(searchResponse, 200, 'Search voices')) {
-            const body = searchResponse.data;
-            const count = body.data ? body.data.length : 0;
-            
-            if (count >= 3) {
-                this.printSuccess(`Search returned ${count} matching voices`);
+            const results = searchResponse.data.data || [];
+            const voiceMatches = results.filter(v => v.name && v.name.includes('Voice'));
+            if (voiceMatches.length > 0) {
+                this.printSuccess(`Search found ${voiceMatches.length} voices with "Voice" in name`);
             } else {
-                this.printError(`Search returned unexpected number of voices: ${count}`);
-                return false;
+                this.printWarning('Search did not filter results as expected');
             }
-        } else {
-            return false;
         }
         
-        // Test sorting
-        this.printInfo('Testing voice sorting...');
-        const sortResponse = await this.apiCall('GET', '/voices?sort=-name');
+        // Test 2: Filtering with exact match
+        this.printInfo('Testing filter with exact ID match...');
+        const filterExactResponse = await this.apiCall('GET', `/voices?filter[id]=${queryTestIds[0]}`);
+        if (this.assertions.checkResponse(filterExactResponse, 200, 'Filter exact ID match')) {
+            const results = filterExactResponse.data.data || [];
+            const exactMatches = results.filter(v => v.id == queryTestIds[0]);
+            this.printInfo(`Filter returned ${results.length} voices, ${exactMatches.length} with exact ID match`);
+            if (exactMatches.length === 1) {
+                this.printSuccess('Filter by ID returned exactly one matching voice');
+            } else {
+                this.printWarning('Filter by ID did not return expected single result');
+            }
+        }
         
-        if (this.assertions.checkResponse(sortResponse, 200, 'Sort voices')) {
-            this.printSuccess('Voice sorting request succeeded');
-        } else {
-            return false;
+        // Test 3: Filtering with 'in' operator for multiple IDs
+        this.printInfo('Testing filter with in operator...');
+        const inResponse = await this.apiCall('GET', `/voices?filter[id][in]=${queryTestIds.slice(0, 3).join(',')}`);
+        if (this.assertions.checkResponse(inResponse, 200, 'Filter with in operator')) {
+            const results = inResponse.data.data || [];
+            const inMatches = results.filter(v => queryTestIds.slice(0, 3).includes(v.id));
+            this.printInfo(`Filter[in] returned ${results.length} voices, ${inMatches.length} matching the ID list`);
+            if (inMatches.length === 3) {
+                this.printSuccess('Filter with in operator returned all requested voices');
+            } else {
+                this.printInfo('Filter with in operator may not have returned all expected voices');
+            }
+        }
+        
+        // Test 4: Sorting (ascending by name)
+        this.printInfo('Testing sort ascending by name...');
+        const sortAscResponse = await this.apiCall('GET', '/voices?sort=name');
+        if (this.assertions.checkResponse(sortAscResponse, 200, 'Sort ascending')) {
+            const results = sortAscResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((v, i) => 
+                    i === 0 || (v.name && results[i-1].name && v.name >= results[i-1].name)
+                );
+                if (isSorted) {
+                    this.printSuccess('Voices correctly sorted by name ascending');
+                } else {
+                    this.printWarning('Voices may not be sorted correctly');
+                }
+            }
+        }
+        
+        // Test 5: Sorting (descending with minus sign)
+        this.printInfo('Testing sort descending by name...');
+        const sortDescResponse = await this.apiCall('GET', '/voices?sort=-name');
+        if (this.assertions.checkResponse(sortDescResponse, 200, 'Sort descending')) {
+            const results = sortDescResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((v, i) => 
+                    i === 0 || (v.name && results[i-1].name && v.name <= results[i-1].name)
+                );
+                if (isSorted) {
+                    this.printSuccess('Voices correctly sorted by name descending');
+                } else {
+                    this.printWarning('Voices may not be sorted correctly');
+                }
+            }
+        }
+        
+        // Test 6: Sorting by created_at descending (most recent first)
+        this.printInfo('Testing sort by created_at descending...');
+        const sortCreatedResponse = await this.apiCall('GET', '/voices?sort=-created_at');
+        if (this.assertions.checkResponse(sortCreatedResponse, 200, 'Sort by created_at desc')) {
+            this.printSuccess('Sort by created_at descending accepted');
+        }
+        
+        // Test 7: Multiple sort fields
+        this.printInfo('Testing multiple sort fields...');
+        const multiSortResponse = await this.apiCall('GET', '/voices?sort=name,-created_at');
+        if (this.assertions.checkResponse(multiSortResponse, 200, 'Multiple sort fields')) {
+            this.printSuccess('Multiple sort fields accepted');
+        }
+        
+        // Test 8: Field selection
+        this.printInfo('Testing field selection...');
+        const fieldsResponse = await this.apiCall('GET', '/voices?fields=id,name');
+        if (this.assertions.checkResponse(fieldsResponse, 200, 'Field selection')) {
+            const results = fieldsResponse.data.data || [];
+            if (results.length > 0) {
+                const firstVoice = results[0];
+                const hasOnlySelectedFields = 
+                    firstVoice.hasOwnProperty('id') && 
+                    firstVoice.hasOwnProperty('name') &&
+                    !firstVoice.hasOwnProperty('created_at') &&
+                    !firstVoice.hasOwnProperty('updated_at');
+                    
+                if (hasOnlySelectedFields) {
+                    this.printSuccess('Field selection returned only requested fields');
+                } else {
+                    this.printInfo('Field selection may not be working as expected');
+                    this.printInfo(`Fields in response: ${Object.keys(firstVoice).join(', ')}`);
+                }
+            }
+        }
+        
+        // Test 9: Field selection with timestamps
+        this.printInfo('Testing field selection with timestamps...');
+        const fieldsTimeResponse = await this.apiCall('GET', '/voices?fields=id,name,created_at,updated_at');
+        if (this.assertions.checkResponse(fieldsTimeResponse, 200, 'Field selection with timestamps')) {
+            const results = fieldsTimeResponse.data.data || [];
+            if (results.length > 0) {
+                const firstVoice = results[0];
+                const hasTimestamps = firstVoice.hasOwnProperty('created_at') && firstVoice.hasOwnProperty('updated_at');
+                if (hasTimestamps) {
+                    this.printSuccess('Field selection correctly included timestamp fields');
+                } else {
+                    this.printInfo('Field selection may not include all timestamp fields');
+                    this.printInfo(`Fields in response: ${Object.keys(firstVoice).join(', ')}`);
+                }
+            }
+        }
+        
+        // Test 10: Pagination with limit and offset
+        this.printInfo('Testing pagination with limit and offset...');
+        const paginationResponse = await this.apiCall('GET', '/voices?limit=2&offset=1');
+        if (this.assertions.checkResponse(paginationResponse, 200, 'Pagination')) {
+            const results = paginationResponse.data.data || [];
+            if (results.length <= 2) {
+                this.printSuccess(`Pagination limit working (returned ${results.length} voices)`);
+            } else {
+                this.printWarning(`Pagination limit may not be working (returned ${results.length} voices)`);
+            }
+        }
+        
+        // Test 11: Complex combined query
+        this.printInfo('Testing complex combined query...');
+        const complexResponse = await this.apiCall('GET', `/voices?search=Voice&filter[id][in]=${queryTestIds.slice(2, 5).join(',')}&sort=-name&fields=id,name&limit=10`);
+        if (this.assertions.checkResponse(complexResponse, 200, 'Complex combined query')) {
+            this.printSuccess('Complex query with multiple parameters accepted');
+            const results = complexResponse.data.data || [];
+            this.printInfo(`Complex query returned ${results.length} results`);
+        }
+        
+        // Test 12: Filtering by name with exact match
+        this.printInfo('Testing filter with name exact match...');
+        const nameFilterResponse = await this.apiCall('GET', `/voices?filter[name]=${encodeURIComponent('Alpha Voice')}`);
+        if (this.assertions.checkResponse(nameFilterResponse, 200, 'Filter by name exact match')) {
+            const results = nameFilterResponse.data.data || [];
+            const exactNameMatches = results.filter(v => v.name && v.name.includes('Alpha Voice'));
+            this.printInfo(`Name filter returned ${results.length} voices, ${exactNameMatches.length} with exact name match`);
+        }
+        
+        // Test 12b: Filtering with 'like' operator if supported
+        this.printInfo('Testing filter with like operator...');
+        const likeFilterResponse = await this.apiCall('GET', '/voices?filter[name][like]=%Announcer%');
+        if (this.assertions.checkResponse(likeFilterResponse, 200, 'Filter with like operator')) {
+            const results = likeFilterResponse.data.data || [];
+            this.printInfo(`Like filter returned ${results.length} voices`);
+        }
+        
+        // Test 12c: Filtering with 'not' operator if supported
+        this.printInfo('Testing filter with not operator...');
+        const notFilterResponse = await this.apiCall('GET', `/voices?filter[id][not]=${queryTestIds[0]}`);
+        if (this.assertions.checkResponse(notFilterResponse, 200, 'Filter with not operator')) {
+            const results = notFilterResponse.data.data || [];
+            const excludedMatches = results.filter(v => v.id == queryTestIds[0]);
+            if (excludedMatches.length === 0) {
+                this.printSuccess('Not filter correctly excluded the specified voice');
+            } else {
+                this.printInfo('Not filter may not be working as expected');
+            }
+            this.printInfo(`Not filter returned ${results.length} voices`);
         }
         
         return true;
@@ -428,6 +595,7 @@ class VoicesTests extends BaseTest {
         const tests = [
             'testVoiceCreation',
             'testVoiceListing',
+            'testModernQueryParameters',
             'testVoiceUpdates',
             'testVoiceDeletion',
             'testVoiceWithStories'

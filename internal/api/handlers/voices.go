@@ -8,71 +8,29 @@ import (
 )
 
 // ListVoices returns a paginated list of newsreader voices with search and sorting support.
-// Supports query parameters: search, sort, limit, offset. Requires 'voices' read permission.
-// Returns voice data with metadata including total count and pagination info.
+// Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
+// Requires 'voices' read permission. Returns voice data with metadata including total count and pagination info.
 func (h *Handlers) ListVoices(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseListParams(c)
-
-	// Build base query
-	baseQuery := "FROM voices"
-	var args []interface{}
-
-	// Add search if provided
-	if params.Search != "" {
-		baseQuery += " WHERE name LIKE ?"
-		args = append(args, "%"+params.Search+"%")
+	// Configure modern query with field mappings and search fields
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery:    "SELECT v.* FROM voices v",
+			CountQuery:   "SELECT COUNT(*) FROM voices v",
+			DefaultOrder: "v.name ASC",
+		},
+		SearchFields:      []string{"v.name"},
+		TableAlias:        "v",
+		DefaultFields:     "v.*",
+		DisableSoftDelete: true, // Voices table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":         "v.id",
+			"name":       "v.name",
+			"created_at": "v.created_at",
+		},
 	}
 
-	// Get total count
-	var total int64
-	countQuery := "SELECT COUNT(*) " + baseQuery
-	err := h.db.Get(&total, countQuery, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to count voices")
-		return
-	}
-
-	// Build full query with sorting and pagination
-	query := "SELECT * " + baseQuery
-
-	// Add sorting
-	if params.Sort != "" {
-		order := "ASC"
-		field := params.Sort
-		if field[0] == '-' {
-			order = "DESC"
-			field = field[1:]
-		}
-		// Validate field name to prevent SQL injection
-		if field == "name" || field == "id" || field == "created_at" {
-			query += " ORDER BY " + field + " " + order
-		} else {
-			query += " ORDER BY name ASC"
-		}
-	} else {
-		query += " ORDER BY name ASC"
-	}
-
-	// Add pagination
-	query += " LIMIT ? OFFSET ?"
-	args = append(args, params.Limit, params.Offset)
-
-	// Get voices
 	var voices []models.Voice
-	err = h.db.Select(&voices, query, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch voices")
-		return
-	}
-
-	// Return response
-	c.JSON(200, gin.H{
-		"data":   voices,
-		"total":  total,
-		"limit":  params.Limit,
-		"offset": params.Offset,
-	})
+	utils.ModernListWithQuery(c, h.db, config, &voices)
 }
 
 // GetVoice returns a single newsreader voice by ID with all configuration details.
