@@ -174,7 +174,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 	for _, p := range policies {
 		if _, err := enforcer.AddPolicy(p); err != nil {
-				// Some policies might already exist
+			// Some policies might already exist
 			fmt.Printf("Failed to add policy %v: %v\n", p, err)
 		}
 	}

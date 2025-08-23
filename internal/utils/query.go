@@ -594,11 +594,11 @@ func structToFilteredMap(data interface{}, fields []string) map[string]interface
 // EnhancedQueryConfig extends QueryConfig with modern features
 type EnhancedQueryConfig struct {
 	QueryConfig
-	SearchFields  []string          // Fields to search in for full-text search
-	FieldMapping  map[string]string // Map API field names to database columns
-	TableAlias    string            // Table alias for prefixing columns
-	DefaultFields string            // Default SELECT fields
-	DisableSoftDelete bool          // If true, don't apply soft delete filtering
+	SearchFields      []string          // Fields to search in for full-text search
+	FieldMapping      map[string]string // Map API field names to database columns
+	TableAlias        string            // Table alias for prefixing columns
+	DefaultFields     string            // Default SELECT fields
+	DisableSoftDelete bool              // If true, don't apply soft delete filtering
 }
 
 // ModernListWithQuery handles paginated list requests with modern query parameters
@@ -751,13 +751,13 @@ func buildSearchCondition(search string, searchFields []string, args *[]interfac
 	if search == "" || searchFields == nil {
 		return ""
 	}
-	
+
 	searchConditions := make([]string, 0, len(searchFields))
 	for _, field := range searchFields {
 		searchConditions = append(searchConditions, field+" LIKE ?")
 		*args = append(*args, "%"+search+"%")
 	}
-	
+
 	if len(searchConditions) > 0 {
 		return "(" + strings.Join(searchConditions, " OR ") + ")"
 	}
@@ -767,18 +767,18 @@ func buildSearchCondition(search string, searchFields []string, args *[]interfac
 // buildBooleanConditions builds SQL conditions for boolean filters
 func buildBooleanConditions(filters map[string]*bool, args *[]interface{}) []string {
 	var conditions []string
-	
+
 	for key, value := range filters {
 		if value == nil {
 			continue
 		}
-		
+
 		condition := buildSingleBooleanCondition(key, *value, args)
 		if condition != "" {
 			conditions = append(conditions, condition)
 		}
 	}
-	
+
 	return conditions
 }
 
@@ -790,19 +790,19 @@ func buildSingleBooleanCondition(key string, value bool, args *[]interface{}) st
 			return "voice_id IS NOT NULL"
 		}
 		return "voice_id IS NULL"
-		
+
 	case "has_audio":
 		if value {
 			return "audio_file IS NOT NULL AND audio_file != ''"
 		}
 		return "(audio_file IS NULL OR audio_file = '')"
-		
+
 	case "is_active":
 		if value {
 			return "status = 'active'"
 		}
 		return "status != 'active'"
-		
+
 	case "is_expired":
 		now := time.Now()
 		if value {
@@ -811,13 +811,13 @@ func buildSingleBooleanCondition(key string, value bool, args *[]interface{}) st
 		}
 		*args = append(*args, now)
 		return "(end_date >= ? OR end_date IS NULL)"
-		
+
 	case "is_scheduled":
 		if value {
 			return "start_date IS NOT NULL"
 		}
 		return "start_date IS NULL"
-		
+
 	default:
 		return ""
 	}

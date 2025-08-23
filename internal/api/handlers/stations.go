@@ -21,17 +21,17 @@ func (h *Handlers) ListStations(c *gin.Context) {
 			CountQuery:   "SELECT COUNT(*) FROM stations s",
 			DefaultOrder: "s.name ASC",
 		},
-		SearchFields:  []string{"s.name"},
-		TableAlias:    "s",
-		DefaultFields: "s.*",
-		DisableSoftDelete: true,  // Stations table doesn't have deleted_at column
+		SearchFields:      []string{"s.name"},
+		TableAlias:        "s",
+		DefaultFields:     "s.*",
+		DisableSoftDelete: true, // Stations table doesn't have deleted_at column
 		FieldMapping: map[string]string{
-			"id":                   "s.id",
-			"name":                 "s.name",
+			"id":                    "s.id",
+			"name":                  "s.name",
 			"max_stories_per_block": "s.max_stories_per_block",
-			"pause_seconds":        "s.pause_seconds",
-			"created_at":           "s.created_at",
-			"updated_at":           "s.updated_at",
+			"pause_seconds":         "s.pause_seconds",
+			"created_at":            "s.created_at",
+			"updated_at":            "s.updated_at",
 		},
 	}
 

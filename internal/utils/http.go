@@ -81,7 +81,6 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
-
 // ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
 // Performs security checks on file type, size, and filename.
 // Returns the temporary file path, a cleanup function, and any validation errors.
@@ -281,21 +280,21 @@ type UserUpdateRequest struct {
 // Supports both JSON and multipart form data for text content and optional audio upload.
 // Includes scheduling configuration with weekday selection and date ranges.
 type StoryCreateRequest struct {
-	Title     string         `json:"title" form:"title" binding:"required,notblank,max=500"`
-	Text      string         `json:"text" form:"text" binding:"required,notblank"`
-	VoiceID   *int           `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
-	Status    string         `json:"status" form:"status" binding:"omitempty,story_status"`
-	StartDate string         `json:"start_date" form:"start_date" binding:"required,dateformat"`
-	EndDate   string         `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Monday    bool           `json:"monday" form:"monday"`
-	Tuesday   bool           `json:"tuesday" form:"tuesday"`
-	Wednesday bool           `json:"wednesday" form:"wednesday"`
-	Thursday  bool           `json:"thursday" form:"thursday"`
-	Friday    bool           `json:"friday" form:"friday"`
-	Saturday  bool           `json:"saturday" form:"saturday"`
-	Sunday    bool           `json:"sunday" form:"sunday"`
+	Title     string          `json:"title" form:"title" binding:"required,notblank,max=500"`
+	Text      string          `json:"text" form:"text" binding:"required,notblank"`
+	VoiceID   *int            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    string          `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate string          `json:"start_date" form:"start_date" binding:"required,dateformat"`
+	EndDate   string          `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	Monday    bool            `json:"monday" form:"monday"`
+	Tuesday   bool            `json:"tuesday" form:"tuesday"`
+	Wednesday bool            `json:"wednesday" form:"wednesday"`
+	Thursday  bool            `json:"thursday" form:"thursday"`
+	Friday    bool            `json:"friday" form:"friday"`
+	Saturday  bool            `json:"saturday" form:"saturday"`
+	Sunday    bool            `json:"sunday" form:"sunday"`
 	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
-	Metadata  *string        `json:"metadata" form:"metadata"`
+	Metadata  *string         `json:"metadata" form:"metadata"`
 }
 
 // StoryUpdateRequest represents the request structure for updating existing stories.
@@ -304,19 +303,19 @@ type StoryCreateRequest struct {
 type StoryUpdateRequest struct {
 	Title     *string         `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string         `json:"text" form:"text" binding:"omitempty,notblank"`
-	VoiceID   *int           `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
-	Status    *string        `json:"status" form:"status" binding:"omitempty,story_status"`
-	StartDate *string        `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
-	EndDate   *string        `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
-	Monday    *bool          `json:"monday" form:"monday"`
-	Tuesday   *bool          `json:"tuesday" form:"tuesday"`
-	Wednesday *bool          `json:"wednesday" form:"wednesday"`
-	Thursday  *bool          `json:"thursday" form:"thursday"`
-	Friday    *bool          `json:"friday" form:"friday"`
-	Saturday  *bool          `json:"saturday" form:"saturday"`
-	Sunday    *bool          `json:"sunday" form:"sunday"`
+	VoiceID   *int            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    *string         `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate *string         `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
+	EndDate   *string         `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
+	Monday    *bool           `json:"monday" form:"monday"`
+	Tuesday   *bool           `json:"tuesday" form:"tuesday"`
+	Wednesday *bool           `json:"wednesday" form:"wednesday"`
+	Thursday  *bool           `json:"thursday" form:"thursday"`
+	Friday    *bool           `json:"friday" form:"friday"`
+	Saturday  *bool           `json:"saturday" form:"saturday"`
+	Sunday    *bool           `json:"sunday" form:"sunday"`
 	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
-	Metadata  *string        `json:"metadata" form:"metadata"`
+	Metadata  *string         `json:"metadata" form:"metadata"`
 }
 
 // ValidateDateRange validates that the story's end date is not before the start date.
@@ -326,21 +325,21 @@ func (req *StoryCreateRequest) ValidateDateRange() error {
 	if req.StartDate == "" || req.EndDate == "" {
 		return nil // Individual date validation will catch required field errors
 	}
-	
+
 	startDate, err := time.Parse("2006-01-02", req.StartDate)
 	if err != nil {
 		return nil // Date format validation will catch this
 	}
-	
+
 	endDate, err := time.Parse("2006-01-02", req.EndDate)
 	if err != nil {
 		return nil // Date format validation will catch this
 	}
-	
+
 	if endDate.Before(startDate) {
 		return fmt.Errorf("end date cannot be before start date")
 	}
-	
+
 	return nil
 }
 
@@ -352,21 +351,21 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 	if req.StartDate == nil || req.EndDate == nil {
 		return nil
 	}
-	
+
 	startDate, err := time.Parse("2006-01-02", *req.StartDate)
 	if err != nil {
 		return nil // Date format validation will catch this
 	}
-	
+
 	endDate, err := time.Parse("2006-01-02", *req.EndDate)
 	if err != nil {
 		return nil // Date format validation will catch this
 	}
-	
+
 	if endDate.Before(startDate) {
 		return fmt.Errorf("end date cannot be before start date")
 	}
-	
+
 	return nil
 }
 
@@ -389,14 +388,14 @@ func BindAndValidate(c *gin.Context, req interface{}) bool {
 func BindFormAndValidate(c *gin.Context, req interface{}) bool {
 	contentType := c.GetHeader("Content-Type")
 	var err error
-	
+
 	if strings.Contains(contentType, "application/json") {
 		err = c.ShouldBindJSON(req)
 	} else {
 		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
 		err = c.ShouldBind(req)
 	}
-	
+
 	if err != nil {
 		validationErrors := convertValidationErrors(err)
 		ProblemValidationError(c, "The request contains invalid data", validationErrors)
@@ -452,7 +451,7 @@ func convertValidationErrors(err error) []ValidationError {
 			default:
 				message = fmt.Sprintf("%s failed validation (%s)", field, tag)
 			}
-			
+
 			errors = append(errors, ValidationError{
 				Field:   field,
 				Message: message,

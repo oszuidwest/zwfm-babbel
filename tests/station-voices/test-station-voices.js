@@ -201,60 +201,355 @@ class StationVoicesTests extends BaseTest {
     }
     
     /**
-     * Test listing station-voices
+     * Test basic listing functionality
      */
     async testListStationVoices() {
-        this.printSection('Testing Station-Voice Listing');
+        this.printSection('Testing Basic Station-Voice Listing');
         
         // Create some test data
-        this.printInfo('Creating test data for listing...');
-        const station1 = await this.createStation('List Test Station 1');
-        const station2 = await this.createStation('List Test Station 2');
-        const voice1 = await this.createVoice('List Test Voice 1');
-        const voice2 = await this.createVoice('List Test Voice 2');
+        this.printInfo('Creating test data for basic listing...');
+        const station1 = await this.createStation('Basic List Station 1');
+        const station2 = await this.createStation('Basic List Station 2');
+        const voice1 = await this.createVoice('Basic List Voice 1');
+        const voice2 = await this.createVoice('Basic List Voice 2');
         
         // Create relationships
-        await this.apiCall('POST', '/station-voices', {
+        const sv1Response = await this.apiCall('POST', '/station-voices', {
             station_id: parseInt(station1),
             voice_id: parseInt(voice1),
             mix_point: 1.0
         });
         
-        await this.apiCall('POST', '/station-voices', {
+        const sv2Response = await this.apiCall('POST', '/station-voices', {
             station_id: parseInt(station2),
             voice_id: parseInt(voice2),
             mix_point: 2.0
         });
+        
+        // Track created station-voice relationships
+        if (sv1Response.status === 201) {
+            const svId = this.parseJsonField(sv1Response.data, 'id');
+            if (svId) this.createdStationVoiceIds.push(svId);
+        }
+        if (sv2Response.status === 201) {
+            const svId = this.parseJsonField(sv2Response.data, 'id');
+            if (svId) this.createdStationVoiceIds.push(svId);
+        }
         
         // Test basic listing
         this.printInfo('Testing basic station-voice listing...');
         const response = await this.apiCall('GET', '/station-voices');
         
         if (this.assertions.checkResponse(response, 200, 'List station-voices')) {
-            const count = response.data.data ? response.data.data.length : 0;
+            const body = response.data;
+            this.assertions.assertJsonField(body, 'data', 'Station-voices data array');
+            
+            const count = body.data ? body.data.length : 0;
             this.printSuccess(`Station-voice listing returned ${count} relationships`);
+            
+            // Verify response structure and joined data
+            if (body.data && body.data.length > 0) {
+                const firstRelation = body.data[0];
+                this.assertions.assertJsonField(firstRelation, 'id', 'Station-voice ID');
+                this.assertions.assertJsonField(firstRelation, 'station_id', 'Station ID');
+                this.assertions.assertJsonField(firstRelation, 'voice_id', 'Voice ID');
+                this.assertions.assertJsonField(firstRelation, 'mix_point', 'Mix point');
+                
+                // Check for joined fields from related tables
+                if (firstRelation.hasOwnProperty('station_name')) {
+                    this.printSuccess('Response includes joined station_name field');
+                } else {
+                    this.printInfo('Response may not include joined station_name field');
+                }
+                
+                if (firstRelation.hasOwnProperty('voice_name')) {
+                    this.printSuccess('Response includes joined voice_name field');
+                } else {
+                    this.printInfo('Response may not include joined voice_name field');
+                }
+            }
         } else {
             return false;
         }
         
-        // Test filtering by station_id
-        this.printInfo('Testing filter by station_id...');
-        const stationFilterResponse = await this.apiCall('GET', `/station-voices?station_id=${station1}`);
+        return true;
+    }
+    
+    /**
+     * Tests Modern Query Parameter System features for station-voices endpoint.
+     */
+    async testModernQueryParameters() {
+        this.printSection('Testing Modern Query Parameters');
         
-        if (this.assertions.checkResponse(stationFilterResponse, 200, 'Filter by station')) {
-            this.printSuccess('Filtering by station_id works');
-        } else {
+        // Create test data with varied mix points and names for comprehensive testing
+        this.printInfo('Creating test data for query parameter testing...');
+        
+        const testStations = [
+            'Alpha Radio Station',
+            'Beta FM Network', 
+            'Gamma Broadcasting',
+            'Delta News Radio',
+            'Echo Station Network'
+        ];
+        
+        const testVoices = [
+            'John Announcer',
+            'Sarah Newsreader',
+            'Mike Broadcasting Voice',
+            'Lisa Radio Host',
+            'Tom News Voice'
+        ];
+        
+        const stationIds = [];
+        const voiceIds = [];
+        const createdStationVoices = [];
+        
+        // Create stations
+        for (const stationName of testStations) {
+            const stationId = await this.createStation(stationName);
+            if (stationId) {
+                stationIds.push(stationId);
+            }
+        }
+        
+        // Create voices
+        for (const voiceName of testVoices) {
+            const voiceId = await this.createVoice(voiceName);
+            if (voiceId) {
+                voiceIds.push(voiceId);
+            }
+        }
+        
+        if (stationIds.length < 5 || voiceIds.length < 5) {
+            this.printError('Failed to create sufficient test data for query testing');
             return false;
         }
         
-        // Test filtering by voice_id
-        this.printInfo('Testing filter by voice_id...');
-        const voiceFilterResponse = await this.apiCall('GET', `/station-voices?voice_id=${voice1}`);
+        // Create station-voice relationships with varying mix points
+        const mixPoints = [1.0, 2.5, 3.0, 1.5, 2.0];
+        for (let i = 0; i < 5; i++) {
+            const response = await this.apiCall('POST', '/station-voices', {
+                station_id: parseInt(stationIds[i]),
+                voice_id: parseInt(voiceIds[i]),
+                mix_point: mixPoints[i]
+            });
+            
+            if (response.status === 201) {
+                const svId = this.parseJsonField(response.data, 'id');
+                if (svId) {
+                    this.createdStationVoiceIds.push(svId);
+                    createdStationVoices.push(svId);
+                }
+            }
+        }
         
-        if (this.assertions.checkResponse(voiceFilterResponse, 200, 'Filter by voice')) {
-            this.printSuccess('Filtering by voice_id works');
-        } else {
+        if (createdStationVoices.length < 5) {
+            this.printError('Failed to create sufficient station-voice relationships');
             return false;
+        }
+        
+        // Test 1: Search functionality across station and voice names
+        this.printInfo('Testing search parameter...');
+        const searchResponse = await this.apiCall('GET', '/station-voices?search=Radio');
+        if (this.assertions.checkResponse(searchResponse, 200, 'Search station-voices')) {
+            const results = searchResponse.data.data || [];
+            this.printInfo(`Search for "Radio" returned ${results.length} relationships`);
+            // Check if search works on joined fields
+            const radioMatches = results.filter(sv => 
+                (sv.station_name && sv.station_name.includes('Radio')) ||
+                (sv.voice_name && sv.voice_name.includes('Radio'))
+            );
+            if (radioMatches.length > 0) {
+                this.printSuccess(`Search found ${radioMatches.length} relationships with "Radio" in station/voice names`);
+            }
+        }
+        
+        // Test 2: Modern filter syntax for station_id
+        this.printInfo('Testing modern filter syntax for station_id...');
+        const filterStationResponse = await this.apiCall('GET', `/station-voices?filter[station_id]=${stationIds[0]}`);
+        if (this.assertions.checkResponse(filterStationResponse, 200, 'Filter by station_id')) {
+            const results = filterStationResponse.data.data || [];
+            const stationMatches = results.filter(sv => sv.station_id == stationIds[0]);
+            this.printInfo(`Filter[station_id] returned ${results.length} relationships, ${stationMatches.length} matching station`);
+            if (stationMatches.length > 0) {
+                this.printSuccess('Modern filter syntax works for station_id');
+            }
+        }
+        
+        // Test 3: Modern filter syntax for voice_id
+        this.printInfo('Testing modern filter syntax for voice_id...');
+        const filterVoiceResponse = await this.apiCall('GET', `/station-voices?filter[voice_id]=${voiceIds[1]}`);
+        if (this.assertions.checkResponse(filterVoiceResponse, 200, 'Filter by voice_id')) {
+            const results = filterVoiceResponse.data.data || [];
+            const voiceMatches = results.filter(sv => sv.voice_id == voiceIds[1]);
+            this.printInfo(`Filter[voice_id] returned ${results.length} relationships, ${voiceMatches.length} matching voice`);
+            if (voiceMatches.length > 0) {
+                this.printSuccess('Modern filter syntax works for voice_id');
+            }
+        }
+        
+        // Test 4: Filter on joined station_name field
+        this.printInfo('Testing filter on joined station_name field...');
+        const filterStationNameResponse = await this.apiCall('GET', '/station-voices?filter[station_name]=Alpha Radio Station');
+        if (this.assertions.checkResponse(filterStationNameResponse, 200, 'Filter by station_name')) {
+            const results = filterStationNameResponse.data.data || [];
+            this.printInfo(`Filter[station_name] returned ${results.length} relationships`);
+            if (results.length > 0) {
+                this.printSuccess('Filter on joined station_name field works');
+            }
+        }
+        
+        // Test 5: Filter on joined voice_name field
+        this.printInfo('Testing filter on joined voice_name field...');
+        const filterVoiceNameResponse = await this.apiCall('GET', '/station-voices?filter[voice_name]=John Announcer');
+        if (this.assertions.checkResponse(filterVoiceNameResponse, 200, 'Filter by voice_name')) {
+            const results = filterVoiceNameResponse.data.data || [];
+            this.printInfo(`Filter[voice_name] returned ${results.length} relationships`);
+            if (results.length > 0) {
+                this.printSuccess('Filter on joined voice_name field works');
+            }
+        }
+        
+        // Test 6: Filter with 'in' operator for multiple station IDs
+        this.printInfo('Testing filter with in operator for station IDs...');
+        const inResponse = await this.apiCall('GET', `/station-voices?filter[station_id][in]=${stationIds.slice(0, 3).join(',')}`);
+        if (this.assertions.checkResponse(inResponse, 200, 'Filter with in operator')) {
+            const results = inResponse.data.data || [];
+            const inMatches = results.filter(sv => stationIds.slice(0, 3).includes(sv.station_id));
+            this.printInfo(`Filter[station_id][in] returned ${results.length} relationships, ${inMatches.length} matching station IDs`);
+            if (inMatches.length > 0) {
+                this.printSuccess('Filter with in operator works for station IDs');
+            }
+        }
+        
+        // Test 7: Filter mix_point with gte operator
+        this.printInfo('Testing filter mix_point with gte operator...');
+        const mixPointGteResponse = await this.apiCall('GET', '/station-voices?filter[mix_point][gte]=2.0');
+        if (this.assertions.checkResponse(mixPointGteResponse, 200, 'Filter mix_point gte')) {
+            const results = mixPointGteResponse.data.data || [];
+            const gteMatches = results.filter(sv => parseFloat(sv.mix_point) >= 2.0);
+            this.printInfo(`Filter[mix_point][gte] returned ${results.length} relationships, ${gteMatches.length} with mix_point >= 2.0`);
+            if (gteMatches.length > 0) {
+                this.printSuccess('Filter with gte operator works for mix_point');
+            }
+        }
+        
+        // Test 8: Filter mix_point with lte operator
+        this.printInfo('Testing filter mix_point with lte operator...');
+        const mixPointLteResponse = await this.apiCall('GET', '/station-voices?filter[mix_point][lte]=2.0');
+        if (this.assertions.checkResponse(mixPointLteResponse, 200, 'Filter mix_point lte')) {
+            const results = mixPointLteResponse.data.data || [];
+            const lteMatches = results.filter(sv => parseFloat(sv.mix_point) <= 2.0);
+            this.printInfo(`Filter[mix_point][lte] returned ${results.length} relationships, ${lteMatches.length} with mix_point <= 2.0`);
+            if (lteMatches.length > 0) {
+                this.printSuccess('Filter with lte operator works for mix_point');
+            }
+        }
+        
+        // Test 9: Filter mix_point with between operator
+        this.printInfo('Testing filter mix_point with between operator...');
+        const betweenResponse = await this.apiCall('GET', '/station-voices?filter[mix_point][between]=1.5,2.5');
+        if (this.assertions.checkResponse(betweenResponse, 200, 'Filter mix_point between')) {
+            const results = betweenResponse.data.data || [];
+            const betweenMatches = results.filter(sv => {
+                const mp = parseFloat(sv.mix_point);
+                return mp >= 1.5 && mp <= 2.5;
+            });
+            this.printInfo(`Filter[mix_point][between] returned ${results.length} relationships, ${betweenMatches.length} with mix_point 1.5-2.5`);
+            if (betweenMatches.length > 0) {
+                this.printSuccess('Filter with between operator works for mix_point');
+            }
+        }
+        
+        // Test 10: Modern sort syntax - ascending by station_name
+        this.printInfo('Testing sort by station_name ascending...');
+        const sortAscResponse = await this.apiCall('GET', '/station-voices?sort=station_name');
+        if (this.assertions.checkResponse(sortAscResponse, 200, 'Sort station_name asc')) {
+            const results = sortAscResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((sv, i) => 
+                    i === 0 || !sv.station_name || !results[i-1].station_name ||
+                    sv.station_name >= results[i-1].station_name
+                );
+                if (isSorted) {
+                    this.printSuccess('Station-voices correctly sorted by station_name ascending');
+                } else {
+                    this.printWarning('Station-voices may not be sorted correctly by station_name');
+                }
+            }
+        }
+        
+        // Test 11: Modern sort syntax - descending by mix_point
+        this.printInfo('Testing sort by mix_point descending...');
+        const sortDescResponse = await this.apiCall('GET', '/station-voices?sort=-mix_point');
+        if (this.assertions.checkResponse(sortDescResponse, 200, 'Sort mix_point desc')) {
+            const results = sortDescResponse.data.data || [];
+            if (results.length > 1) {
+                const isSorted = results.every((sv, i) => 
+                    i === 0 || parseFloat(sv.mix_point) <= parseFloat(results[i-1].mix_point)
+                );
+                if (isSorted) {
+                    this.printSuccess('Station-voices correctly sorted by mix_point descending');
+                } else {
+                    this.printWarning('Station-voices may not be sorted correctly by mix_point');
+                }
+            }
+        }
+        
+        // Test 12: Multiple sort fields
+        this.printInfo('Testing multiple sort fields...');
+        const multiSortResponse = await this.apiCall('GET', '/station-voices?sort=station_name:asc,mix_point:desc');
+        if (this.assertions.checkResponse(multiSortResponse, 200, 'Multiple sort fields')) {
+            this.printSuccess('Multiple sort fields accepted');
+        }
+        
+        // Test 13: Field selection
+        this.printInfo('Testing field selection...');
+        const fieldsResponse = await this.apiCall('GET', '/station-voices?fields=id,station_name,voice_name,mix_point');
+        if (this.assertions.checkResponse(fieldsResponse, 200, 'Field selection')) {
+            const results = fieldsResponse.data.data || [];
+            if (results.length > 0) {
+                const firstRelation = results[0];
+                const hasSelectedFields = 
+                    firstRelation.hasOwnProperty('id') && 
+                    firstRelation.hasOwnProperty('mix_point');
+                    
+                const hasJoinedFields =
+                    firstRelation.hasOwnProperty('station_name') ||
+                    firstRelation.hasOwnProperty('voice_name');
+                    
+                if (hasSelectedFields) {
+                    this.printSuccess('Field selection returned core fields');
+                }
+                
+                if (hasJoinedFields) {
+                    this.printSuccess('Field selection includes joined fields');
+                }
+                
+                this.printInfo(`Fields in response: ${Object.keys(firstRelation).join(', ')}`);
+            }
+        }
+        
+        // Test 14: Complex combined query
+        this.printInfo('Testing complex combined query...');
+        const complexResponse = await this.apiCall('GET', 
+            `/station-voices?search=Radio&filter[mix_point][gte]=1.5&sort=-mix_point&fields=id,station_name,voice_name,mix_point&limit=10`);
+        if (this.assertions.checkResponse(complexResponse, 200, 'Complex combined query')) {
+            this.printSuccess('Complex query with multiple parameters accepted');
+            const results = complexResponse.data.data || [];
+            this.printInfo(`Complex query returned ${results.length} results`);
+        }
+        
+        // Test 15: Pagination with limit and offset
+        this.printInfo('Testing pagination with limit and offset...');
+        const paginationResponse = await this.apiCall('GET', '/station-voices?limit=2&offset=1');
+        if (this.assertions.checkResponse(paginationResponse, 200, 'Pagination')) {
+            const results = paginationResponse.data.data || [];
+            if (results.length <= 2) {
+                this.printSuccess(`Pagination limit working (returned ${results.length} relationships)`);
+            } else {
+                this.printWarning(`Pagination limit may not be working (returned ${results.length} relationships)`);
+            }
         }
         
         return true;
@@ -463,6 +758,7 @@ class StationVoicesTests extends BaseTest {
             'testCreateStationVoice',
             'testCreateStationVoiceWithAudio',
             'testListStationVoices',
+            'testModernQueryParameters',
             'testUpdateStationVoice',
             'testDeleteStationVoice',
             'testJingleUpload'

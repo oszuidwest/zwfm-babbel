@@ -93,10 +93,10 @@ type Voice struct {
 
 // StationVoice represents the many-to-many relationship between stations and voices.
 type StationVoice struct {
-	ID         int     `db:"id" json:"id"`
-	StationID  int     `db:"station_id" json:"station_id"`
-	VoiceID    int     `db:"voice_id" json:"voice_id"`
-	JingleFile string  `db:"jingle_file" json:"-"`
+	ID         int    `db:"id" json:"id"`
+	StationID  int    `db:"station_id" json:"station_id"`
+	VoiceID    int    `db:"voice_id" json:"voice_id"`
+	JingleFile string `db:"jingle_file" json:"-"`
 	// MixPoint is the time offset (in seconds) where story audio is mixed into the jingle
 	MixPoint  float64   `db:"mix_point" json:"mix_point"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
@@ -120,11 +120,11 @@ type Broadcast struct {
 
 // User represents a system user with authentication credentials and role-based permissions.
 type User struct {
-	ID                  int        `db:"id" json:"id"`
-	Username            string     `db:"username" json:"username"`
-	FullName            string     `db:"full_name" json:"full_name"`
-	PasswordHash        string     `db:"password_hash" json:"-"`
-	Email               *string    `db:"email" json:"email"`
+	ID           int     `db:"id" json:"id"`
+	Username     string  `db:"username" json:"username"`
+	FullName     string  `db:"full_name" json:"full_name"`
+	PasswordHash string  `db:"password_hash" json:"-"`
+	Email        *string `db:"email" json:"email"`
 	// Role defines the user's access level: admin, editor, or viewer
 	Role                string     `db:"role" json:"role"`
 	SuspendedAt         *time.Time `db:"suspended_at" json:"suspended_at,omitempty"`

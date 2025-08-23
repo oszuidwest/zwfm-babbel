@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 // Success responds with HTTP 200 OK status and the provided data.
 func Success(c *gin.Context, data interface{}) {
 	c.JSON(http.StatusOK, data)

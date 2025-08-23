@@ -3,11 +3,11 @@ package utils
 
 import (
 	"fmt"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 	"reflect"
 	"strings"
 	"time"
-	"github.com/gin-gonic/gin/binding"
-	"github.com/go-playground/validator/v10"
 )
 
 // InitializeValidators registers custom validation rules with Gin's binding engine.
@@ -19,17 +19,17 @@ func InitializeValidators() {
 		if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
 		}
-		
+
 		// Register story status validator
 		if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
 		}
-		
+
 		// Register date after validator for comparing dates
 		if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
 		}
-		
+
 		// Register date format validator
 		if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
@@ -62,20 +62,20 @@ func storyStatusValidator(fl validator.FieldLevel) bool {
 func dateAfterValidator(fl validator.FieldLevel) bool {
 	field := fl.Field()
 	param := fl.Param()
-	
+
 	// Get the field to compare against
 	parent := fl.Parent()
 	compareField := parent.FieldByName(param)
-	
+
 	if !compareField.IsValid() {
 		return true // If comparison field doesn't exist, validation passes
 	}
-	
+
 	// Handle both time.Time and string fields, including pointers
 	var currentTime, compareTime time.Time
 	var err error
 	var currentEmpty, compareEmpty bool
-	
+
 	// Parse current field
 	switch {
 	case field.Type() == reflect.TypeOf(time.Time{}):
@@ -108,7 +108,7 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	default:
 		return true // Unknown type, skip validation
 	}
-	
+
 	// Parse comparison field
 	switch {
 	case compareField.Type() == reflect.TypeOf(time.Time{}):
@@ -141,12 +141,12 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	default:
 		return true // Unknown type, skip validation
 	}
-	
+
 	// If either date is empty, skip validation (handled by required validation if needed)
 	if currentEmpty || compareEmpty {
 		return true
 	}
-	
+
 	// Check if current date is after or equal to comparison date
 	return currentTime.After(compareTime) || currentTime.Equal(compareTime)
 }
@@ -157,7 +157,7 @@ func dateFormatValidator(fl validator.FieldLevel) bool {
 	if dateStr == "" {
 		return true // Empty strings are valid for optional fields
 	}
-	
+
 	_, err := time.Parse("2006-01-02", dateStr)
 	return err == nil
 }

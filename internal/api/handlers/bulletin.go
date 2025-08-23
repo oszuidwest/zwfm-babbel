@@ -569,12 +569,12 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	var bulletins []models.Bulletin
 	utils.ModernListWithQuery(c, h.db, config, &bulletins)
-	
+
 	// Check if ModernListWithQuery already handled the response (error case)
 	if c.IsAborted() {
 		return
 	}
-	
+
 	// Get the response data to extract total count
 	responseData := c.Keys["pagination_data"]
 	paginationInfo, ok := responseData.(map[string]interface{})
