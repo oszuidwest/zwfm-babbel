@@ -398,7 +398,7 @@ Radio station management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -427,7 +427,7 @@ Radio station management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -456,7 +456,7 @@ Radio station management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -521,12 +521,33 @@ Available sort fields:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -587,7 +608,7 @@ Voice/presenter management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -616,7 +637,7 @@ Voice/presenter management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -645,7 +666,7 @@ Voice/presenter management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -702,12 +723,33 @@ Available sort fields:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -766,7 +808,7 @@ News story management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -837,13 +879,34 @@ Available sort fields:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -875,7 +938,7 @@ Story data and audio files are preserved for potential restoration.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -903,7 +966,7 @@ Story data and audio files are preserved for potential restoration.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -936,7 +999,7 @@ This endpoint can be used to:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -967,7 +1030,7 @@ This endpoint can be used to:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1019,13 +1082,38 @@ Filter by specific weekdays:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `status` | query | string | No | Filter by resource status:
+- `active` - only active/non-deleted resources (default)
+- `deleted` - only soft-deleted resources
+- `all` - include both active and deleted resources
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -1089,7 +1177,7 @@ Cannot delete the last admin user.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1118,7 +1206,7 @@ Cannot delete the last admin user.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1149,7 +1237,7 @@ Use this endpoint when you only want to change suspension status without providi
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1182,7 +1270,7 @@ Can also suspend/restore users by setting the suspended field to true/false.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1212,13 +1300,38 @@ Can also suspend/restore users by setting the suspended field to true/false.
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `status` | query | string | No | Filter by resource status:
+- `active` - only active/non-deleted resources (default)
+- `deleted` - only soft-deleted resources
+- `all` - include both active and deleted resources
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -1272,7 +1385,7 @@ Audio bulletin generation
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1337,13 +1450,34 @@ Available sort fields:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -1414,12 +1548,33 @@ To get story information for a bulletin, use GET /bulletins/{id}/stories after f
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
@@ -1492,13 +1647,34 @@ To get story information for bulletins, use GET /bulletins/{id}/stories for each
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 | `latest` | query | boolean | No | Return only the latest bulletin for this station (equivalent to limit=1) |
 
 
@@ -1541,7 +1717,7 @@ To get story information, use the separate GET /bulletins/{id}/stories endpoint 
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 | `Accept` | header | string | No | Response format - use 'audio/wav' to download file directly |
 | `Cache-Control` | header | string | No | Cache control directives:
 - `no-cache` - Force new generation ignoring existing bulletins
@@ -1583,7 +1759,7 @@ Station-specific voice jingle management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1611,7 +1787,7 @@ Station-specific voice jingle management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1639,7 +1815,7 @@ Station-specific voice jingle management
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1669,7 +1845,7 @@ When updating station_id or voice_id, the system checks for duplicate combinatio
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
+| `id` | path | integer | Yes | Resource ID |
 
 
 
@@ -1737,12 +1913,33 @@ Available sort fields:
 
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
-| `` |  | string | No |  |
+| `limit` | query | integer | No | Maximum number of items to return |
+| `offset` | query | integer | No | Number of items to skip |
+| `sort` | query | string | No | Sort order. Use field:direction format or prefix notation:
+- `name:asc` or `+name` - ascending
+- `name:desc` or `-name` - descending
+- `created_at:desc,name:asc` - multiple fields
+ |
+| `fields` | query | string | No | Comma-separated list of fields to include in response.
+Use dot notation for nested fields.
+ |
+| `search` | query | string | No | Search term for full-text search across relevant fields.
+Searches in names, titles, text content depending on resource.
+ |
+| `filter` | query | object | No | Advanced filtering using field-based operators.
+
+Basic usage: `filter[field]=value`
+
+Advanced operators: `filter[field][op]=value`
+
+Supported operators:
+- `eq` - equals (default)
+- `ne` - not equals
+- `gt`, `gte`, `lt`, `lte` - comparisons
+- `like` - pattern matching
+- `in` - comma-separated values
+- `null` - is/isn't null
+ |
 
 
 
