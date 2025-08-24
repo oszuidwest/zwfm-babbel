@@ -1074,6 +1074,364 @@ class BulletinsTests extends BaseTest {
     }
     
     /**
+     * Test bulletin stories endpoint with modern query parameters
+     */
+    async testBulletinStoriesModernQuery() {
+        this.printSection('Testing Bulletin Stories Modern Query Parameters');
+        
+        // Setup comprehensive test data - create a dedicated station with multiple stories and generate bulletin
+        this.printInfo('Setting up comprehensive test data for bulletin stories modern query tests...');
+        
+        const testStationId = await this.createTestStation('Bulletin Stories Query Test');
+        if (!testStationId) {
+            this.printError('Failed to create test station for bulletin stories modern query tests');
+            return false;
+        }
+        
+        // Create test voice and station-voice relationship
+        const testVoiceId = await this.createTestVoice('Bulletin Stories Voice');
+        if (!testVoiceId) {
+            this.printError('Failed to create test voice for bulletin stories modern query tests');
+            return false;
+        }
+        
+        const stationVoiceId = await this.createStationVoiceWithJingle(testStationId, testVoiceId, 2.5);
+        if (!stationVoiceId) {
+            this.printError('Failed to create station-voice relationship for bulletin stories modern query tests');
+            return false;
+        }
+        
+        // Create multiple test stories with varied content for comprehensive testing
+        const storyTitles = [
+            'News Breaking Alert Test',
+            'Weather Forecast Update', 
+            'Traffic Report Bulletin',
+            'Sports Update News',
+            'Local Community News',
+            'Business Market Update',
+            'Technology News Brief'
+        ];
+        
+        const createdStoryIds = [];
+        for (let i = 0; i < storyTitles.length; i++) {
+            const storyId = await this.createTestStoryWithAudio(
+                storyTitles[i], 
+                `Test story content for ${storyTitles[i]} with detailed information`, 
+                testVoiceId,
+                'monday,tuesday,wednesday,thursday,friday,saturday,sunday'
+            );
+            if (storyId) {
+                createdStoryIds.push(storyId);
+            }
+        }
+        
+        if (createdStoryIds.length < 5) {
+            this.printError(`Failed to create enough test stories for bulletin stories query tests (created ${createdStoryIds.length})`);
+            return false;
+        }
+        this.printSuccess(`Created ${createdStoryIds.length} test stories for bulletin stories query testing`);
+        
+        // Wait for audio processing
+        this.printInfo('Waiting for audio processing...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Generate a bulletin that includes multiple stories
+        this.printInfo('Generating test bulletin with multiple stories...');
+        const bulletinResponse = await this.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
+        
+        if (!this.assertions.checkResponse(bulletinResponse, 200, 'Generate bulletin for stories testing')) {
+            return false;
+        }
+        
+        const testBulletinId = this.parseJsonField(bulletinResponse.data, 'id');
+        if (!testBulletinId) {
+            this.printError('Failed to extract bulletin ID from generation response');
+            return false;
+        }
+        
+        this.createdBulletinIds.push(testBulletinId);
+        this.printSuccess(`Generated test bulletin (ID: ${testBulletinId}) for stories query testing`);
+        
+        // Test 1: Basic bulletin stories listing
+        this.printInfo('Testing basic bulletin stories listing...');
+        const basicResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories`);
+        if (this.assertions.checkResponse(basicResponse, 200, 'Basic bulletin stories listing')) {
+            const results = basicResponse.data.data || [];
+            if (results.length > 0) {
+                this.printSuccess(`Basic listing returned ${results.length} stories for bulletin ${testBulletinId}`);
+                
+                // Verify the nested response structure
+                const firstStory = results[0];
+                const hasNestedStructure = firstStory.station && firstStory.story && firstStory.bulletin;
+                if (hasNestedStructure) {
+                    this.printSuccess('Response has correct nested structure (station, story, bulletin objects)');
+                } else {
+                    this.printWarning('Response missing expected nested structure');
+                }
+                
+                // Verify all stories belong to the correct bulletin
+                const allFromCorrectBulletin = results.every(s => s.bulletin_id === testBulletinId);
+                if (allFromCorrectBulletin) {
+                    this.printSuccess('All stories correctly filtered by bulletin_id from URL');
+                } else {
+                    this.printError('Some stories belong to wrong bulletin');
+                    return false;
+                }
+            } else {
+                this.printWarning('Basic listing returned no stories');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 2: Search functionality (searches in story_title)
+        this.printInfo('Testing search by story_title in bulletin stories...');
+        const searchResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?search=News`);
+        if (this.assertions.checkResponse(searchResponse, 200, 'Search bulletin stories')) {
+            const results = searchResponse.data.data || [];
+            if (results.length > 0) {
+                this.printSuccess(`Search returned ${results.length} stories matching "News"`);
+                // All results should still be from the same bulletin
+                const allFromCorrectBulletin = results.every(s => s.bulletin_id === testBulletinId);
+                if (allFromCorrectBulletin) {
+                    this.printSuccess('Search results correctly filtered by bulletin_id constraint');
+                }
+            } else {
+                this.printWarning('Search returned no results for "News"');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 3: Field selection
+        this.printInfo('Testing field selection for bulletin stories...');
+        const fieldsResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?fields=id,story_title,story_order&limit=3`);
+        if (this.assertions.checkResponse(fieldsResponse, 200, 'Bulletin stories field selection')) {
+            const results = fieldsResponse.data.data || [];
+            if (results.length > 0) {
+                const firstResult = results[0];
+                const hasOnlySelectedFields = 
+                    firstResult.hasOwnProperty('id') && 
+                    firstResult.hasOwnProperty('story_title') &&
+                    firstResult.hasOwnProperty('story_order') &&
+                    !firstResult.hasOwnProperty('created_at') &&
+                    !firstResult.hasOwnProperty('bulletin_id');
+                
+                if (hasOnlySelectedFields) {
+                    this.printSuccess('Bulletin stories field selection works correctly');
+                } else {
+                    this.printWarning('Field selection returned unexpected fields');
+                }
+            } else {
+                this.printWarning('No results returned for field selection test');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 4: Sorting by story_order descending (override default ASC order)
+        this.printInfo('Testing sorting by story_order descending...');
+        const sortDescResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?sort=-story_order&limit=5`);
+        if (this.assertions.checkResponse(sortDescResponse, 200, 'Bulletin stories sort descending')) {
+            const results = sortDescResponse.data.data || [];
+            if (results.length > 1) {
+                let correctOrder = true;
+                for (let i = 1; i < results.length; i++) {
+                    if (results[i-1].story_order < results[i].story_order) {
+                        correctOrder = false;
+                        break;
+                    }
+                }
+                if (correctOrder) {
+                    this.printSuccess('Bulletin stories descending sort by story_order works correctly');
+                } else {
+                    this.printWarning('Sort order may be incorrect');
+                }
+            } else {
+                this.printWarning('Not enough stories for sort order test');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 5: Sorting by story_title ascending
+        this.printInfo('Testing sorting by story_title ascending...');
+        const sortAscResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?sort=story_title:asc&limit=5`);
+        if (this.assertions.checkResponse(sortAscResponse, 200, 'Bulletin stories sort by title ascending')) {
+            const results = sortAscResponse.data.data || [];
+            if (results.length > 1) {
+                let correctOrder = true;
+                for (let i = 1; i < results.length; i++) {
+                    if (results[i-1].story_title > results[i].story_title) {
+                        correctOrder = false;
+                        break;
+                    }
+                }
+                if (correctOrder) {
+                    this.printSuccess('Bulletin stories title ascending sort works correctly');
+                } else {
+                    this.printWarning('Title sort order may be incorrect');
+                }
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 6: Filtering by story_order (gte operator)
+        this.printInfo('Testing filter by story_order gte...');
+        
+        // Get a reference story to use for filtering
+        const refResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?limit=1`);
+        if (refResponse.status === 200 && refResponse.data.data && refResponse.data.data.length > 0) {
+            const refStory = refResponse.data.data[0];
+            if (refStory.story_order) {
+                const minOrder = refStory.story_order;
+                const filterResponse = await this.apiCall('GET', 
+                    `/bulletins/${testBulletinId}/stories?filter[story_order][gte]=${minOrder}`);
+                    
+                if (this.assertions.checkResponse(filterResponse, 200, 'Filter bulletin stories by story_order')) {
+                    const results = filterResponse.data.data || [];
+                    const allMeetCriteria = results.every(s => 
+                        s.story_order >= minOrder && s.bulletin_id === testBulletinId
+                    );
+                    if (allMeetCriteria) {
+                        this.printSuccess('Bulletin stories story_order filter works correctly');
+                    } else {
+                        this.printWarning('Some results do not meet filter criteria or bulletin constraint');
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                this.printWarning('No story_order field available for filtering test');
+            }
+        } else {
+            this.printWarning('No story data available for story_order filter test');
+        }
+        
+        // Test 7: Complex query combining search, sort, and field selection
+        this.printInfo('Testing complex query with search, sort, and field selection...');
+        const complexResponse = await this.apiCall('GET', 
+            `/bulletins/${testBulletinId}/stories?search=Update&sort=-story_order&fields=id,story_title,story_order,station&limit=10`);
+        if (this.assertions.checkResponse(complexResponse, 200, 'Complex bulletin stories query')) {
+            const results = complexResponse.data.data || [];
+            this.printSuccess(`Complex query returned ${results.length} results for bulletin ${testBulletinId}`);
+            
+            // Verify bulletin constraint is maintained
+            const allFromCorrectBulletin = results.every(s => s.bulletin_id === testBulletinId);
+            if (allFromCorrectBulletin) {
+                this.printSuccess('Complex query maintains bulletin_id constraint from URL');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 8: Pagination
+        this.printInfo('Testing pagination for bulletin stories...');
+        const pageResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?limit=2&offset=1`);
+        if (this.assertions.checkResponse(pageResponse, 200, 'Bulletin stories pagination')) {
+            const results = pageResponse.data.data || [];
+            if (results.length <= 2) {
+                this.printSuccess(`Pagination limit respected (returned ${results.length} stories)`);
+            } else {
+                this.printError(`Pagination limit not respected (returned ${results.length} stories)`);
+                return false;
+            }
+            
+            // Check pagination metadata
+            if (pageResponse.data.limit === 2 && pageResponse.data.offset === 1) {
+                this.printSuccess('Pagination metadata correctly included');
+            } else {
+                this.printWarning('Pagination metadata incomplete');
+            }
+            
+            // Verify bulletin constraint in paginated results
+            const allFromCorrectBulletin = results.every(s => s.bulletin_id === testBulletinId);
+            if (allFromCorrectBulletin) {
+                this.printSuccess('Paginated results maintain bulletin_id constraint');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 9: Default sort order (story_order ASC)
+        this.printInfo('Testing default sort order (story_order ASC)...');
+        const defaultSortResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?limit=5`);
+        if (this.assertions.checkResponse(defaultSortResponse, 200, 'Default sort order')) {
+            const results = defaultSortResponse.data.data || [];
+            if (results.length > 1) {
+                let correctOrder = true;
+                for (let i = 1; i < results.length; i++) {
+                    if (results[i-1].story_order > results[i].story_order) {
+                        correctOrder = false;
+                        break;
+                    }
+                }
+                if (correctOrder) {
+                    this.printSuccess('Default sort order (story_order ASC) works correctly');
+                } else {
+                    this.printWarning('Default sort order may be incorrect');
+                }
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 10: Verify nested response structure details
+        this.printInfo('Testing nested response structure details...');
+        const structureResponse = await this.apiCall('GET', `/bulletins/${testBulletinId}/stories?limit=1`);
+        if (this.assertions.checkResponse(structureResponse, 200, 'Nested structure verification')) {
+            const results = structureResponse.data.data || [];
+            if (results.length > 0) {
+                const story = results[0];
+                
+                // Check required top-level fields
+                const hasRequiredFields = story.id && story.bulletin_id && story.story_id && 
+                    story.story_order !== undefined && story.created_at;
+                
+                // Check nested objects
+                const hasStation = story.station && story.station.id && story.station.name;
+                const hasStoryInfo = story.story && story.story.id && story.story.title;
+                const hasBulletinInfo = story.bulletin && story.bulletin.id && story.bulletin.filename;
+                
+                if (hasRequiredFields && hasStation && hasStoryInfo && hasBulletinInfo) {
+                    this.printSuccess('Complete nested response structure verified');
+                    this.printInfo(`Station: ${story.station.name}, Story: ${story.story.title}, Order: ${story.story_order}`);
+                } else {
+                    this.printWarning('Nested response structure incomplete');
+                }
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 11: Error handling - non-existent bulletin
+        this.printInfo('Testing error handling for non-existent bulletin...');
+        const nonExistentResponse = await this.apiCall('GET', '/bulletins/99999/stories');
+        if (nonExistentResponse.status === 404) {
+            this.printSuccess('Non-existent bulletin correctly returns 404');
+        } else {
+            this.printWarning(`Non-existent bulletin returned status: ${nonExistentResponse.status}`);
+        }
+        
+        // Test 12: Empty result handling
+        this.printInfo('Testing query that returns no results...');
+        const emptyResponse = await this.apiCall('GET', 
+            `/bulletins/${testBulletinId}/stories?search=nonexistentquerytermthatmatchesnothing`);
+        if (this.assertions.checkResponse(emptyResponse, 200, 'Empty search results')) {
+            if (emptyResponse.data.data && emptyResponse.data.data.length === 0) {
+                this.printSuccess('Empty search results handled correctly');
+            } else {
+                this.printWarning('Expected empty results but got data');
+            }
+        } else {
+            return false;
+        }
+        
+        return true;
+    }
+    
+    /**
      * Test Modern Query System features
      */
     async testModernQueryParameters() {
@@ -1374,6 +1732,7 @@ class BulletinsTests extends BaseTest {
             'testBulletinCaching',
             'testBulletinErrorCases',
             'testBulletinMetadata',
+            'testBulletinStoriesModernQuery',
             'testModernQueryParameters'
         ];
         

@@ -286,86 +286,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	utils.Success(c, response)
 }
 
-// BulletinStoryQueryConfig encapsulates query parameters for bulletin-story relationships.
-type BulletinStoryQueryConfig struct {
-	WhereClause string
-	OrderClause string
-	Args        []interface{}
-}
 
-func (h *Handlers) getBulletinStoryRelationships(c *gin.Context, config BulletinStoryQueryConfig, limit, offset int) ([]map[string]interface{}, int64, error) {
-	// Base query with joins
-	baseQuery := `
-		SELECT bs.id, bs.bulletin_id, bs.story_id, bs.story_order, 
-		       bs.created_at,
-		       b.station_id, s.name as station_name, 
-		       st.title as story_title, b.filename as bulletin_filename
-		FROM bulletin_stories bs
-		JOIN bulletins b ON bs.bulletin_id = b.id
-		JOIN stations s ON b.station_id = s.id
-		JOIN stories st ON bs.story_id = st.id`
-
-	// Build full query
-	query := baseQuery + " WHERE " + config.WhereClause + " " + config.OrderClause + " LIMIT ? OFFSET ?"
-	countQuery := "SELECT COUNT(*) FROM bulletin_stories bs JOIN bulletins b ON bs.bulletin_id = b.id WHERE " + config.WhereClause
-
-	// Get total count
-	var total int64
-	countArgs := make([]interface{}, len(config.Args))
-	copy(countArgs, config.Args)
-	if err := h.db.Get(&total, countQuery, countArgs...); err != nil {
-		return nil, 0, err
-	}
-
-	// Execute main query
-	queryArgs := make([]interface{}, len(config.Args)+2)
-	copy(queryArgs, config.Args)
-	queryArgs[len(config.Args)] = limit
-	queryArgs[len(config.Args)+1] = offset
-	rows, err := h.db.QueryContext(c.Request.Context(), query, queryArgs...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			fmt.Printf("WARNING: Failed to close rows: %v\n", closeErr)
-		}
-	}()
-
-	var results []map[string]interface{}
-	for rows.Next() {
-		var id, bulletinID, storyID, storyOrder, stationID int
-		var createdAt time.Time
-		var stationName, storyTitle, bulletinFilename string
-
-		if err := rows.Scan(&id, &bulletinID, &storyID, &storyOrder, &createdAt, &stationID, &stationName, &storyTitle, &bulletinFilename); err != nil {
-			return nil, 0, err
-		}
-
-		result := map[string]interface{}{
-			"id":          id,
-			"bulletin_id": bulletinID,
-			"story_id":    storyID,
-			"story_order": storyOrder,
-			"created_at":  createdAt,
-			"station": map[string]interface{}{
-				"id":   stationID,
-				"name": stationName,
-			},
-			"story": map[string]interface{}{
-				"id":    storyID,
-				"title": storyTitle,
-			},
-			"bulletin": map[string]interface{}{
-				"id":       bulletinID,
-				"filename": bulletinFilename,
-			},
-		}
-		results = append(results, result)
-	}
-
-	return results, total, nil
-}
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
@@ -379,21 +300,101 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	limit, offset := utils.GetPagination(c)
-
-	config := BulletinStoryQueryConfig{
-		WhereClause: "bs.bulletin_id = ?",
-		OrderClause: "ORDER BY bs.story_order ASC",
-		Args:        []interface{}{bulletinID},
+	// Configure modern query with field mappings, search fields, and bulletin_id filter
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT bs.id, bs.bulletin_id, bs.story_id, bs.story_order, 
+			            bs.created_at, b.station_id, s.name as station_name, 
+			            st.title as story_title, b.filename as bulletin_filename
+			            FROM bulletin_stories bs
+			            JOIN bulletins b ON bs.bulletin_id = b.id
+			            JOIN stations s ON b.station_id = s.id
+			            JOIN stories st ON bs.story_id = st.id`,
+			CountQuery:   "SELECT COUNT(*) FROM bulletin_stories bs JOIN bulletins b ON bs.bulletin_id = b.id JOIN stations s ON b.station_id = s.id JOIN stories st ON bs.story_id = st.id",
+			DefaultOrder: "bs.story_order ASC",
+			Filters: []utils.FilterConfig{
+				{
+					Column: "bulletin_id",
+					Table:  "bs",
+					Value:  bulletinID,
+				},
+			},
+			PostProcessor: func(result interface{}) {
+				bulletinStories := result.(*[]models.BulletinStory)
+				// Convert to the expected nested response format
+				processedResults := make([]map[string]interface{}, len(*bulletinStories))
+				for i, bs := range *bulletinStories {
+					processedResults[i] = map[string]interface{}{
+						"id":          bs.ID,
+						"bulletin_id": bs.BulletinID,
+						"story_id":    bs.StoryID,
+						"story_order": bs.StoryOrder,
+						"created_at":  bs.CreatedAt,
+						"station": map[string]interface{}{
+							"id":   bs.StationID,
+							"name": bs.StationName,
+						},
+						"story": map[string]interface{}{
+							"id":    bs.StoryID,
+							"title": bs.StoryTitle,
+						},
+						"bulletin": map[string]interface{}{
+							"id":       bs.BulletinID,
+							"filename": bs.BulletinFilename,
+						},
+					}
+				}
+				// Replace the slice content with the processed format
+				*bulletinStories = (*bulletinStories)[:0] // Clear the slice but keep capacity
+				// Use interface{} to store the processed results in the context
+				c.Set("processed_results", processedResults)
+			},
+		},
+		SearchFields:      []string{"st.title", "s.name"},
+		TableAlias:        "bs",
+		DefaultFields:     "bs.id, bs.bulletin_id, bs.story_id, bs.story_order, bs.created_at, b.station_id, s.name as station_name, st.title as story_title, b.filename as bulletin_filename",
+		DisableSoftDelete: true, // bulletin_stories table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":                "bs.id",
+			"bulletin_id":       "bs.bulletin_id",
+			"story_id":          "bs.story_id",
+			"story_order":       "bs.story_order",
+			"created_at":        "bs.created_at",
+			"station_id":        "b.station_id",
+			"station_name":      "s.name",
+			"story_title":       "st.title",
+			"bulletin_filename": "b.filename",
+		},
 	}
 
-	stories, total, err := h.getBulletinStoryRelationships(c, config, limit, offset)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch bulletin stories")
+	var bulletinStories []models.BulletinStory
+	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
+
+	// Check if ModernListWithQuery already handled the response (error case)
+	if c.IsAborted() {
 		return
 	}
 
-	utils.PaginatedResponse(c, stories, total, limit, offset)
+	// Check if we have processed results from PostProcessor
+	if processedResults, exists := c.Get("processed_results"); exists {
+		// Get pagination data
+		responseData := c.Keys["pagination_data"]
+		paginationInfo, ok := responseData.(map[string]interface{})
+		if !ok {
+			utils.ProblemInternalServer(c, "Failed to get pagination data")
+			return
+		}
+		
+		// Send the processed nested response
+		utils.PaginatedResponse(c, processedResults, 
+			paginationInfo["total"].(int64), 
+			paginationInfo["limit"].(int), 
+			paginationInfo["offset"].(int))
+		return
+	}
+
+	// Fallback if PostProcessor didn't run (shouldn't happen)
+	utils.ProblemInternalServer(c, "Failed to process bulletin stories")
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints

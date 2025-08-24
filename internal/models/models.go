@@ -171,3 +171,18 @@ type Bulletin struct {
 	// Relations populated by joins
 	StationName string `db:"station_name" json:"station_name,omitempty"`
 }
+
+// BulletinStory represents the relationship between bulletins and stories with join data.
+type BulletinStory struct {
+	ID         int       `db:"id" json:"id"`
+	BulletinID int       `db:"bulletin_id" json:"bulletin_id"`
+	StoryID    int       `db:"story_id" json:"story_id"`
+	StoryOrder int       `db:"story_order" json:"story_order"`
+	CreatedAt  time.Time `db:"created_at" json:"created_at"`
+
+	// Joined fields from related tables
+	StationID        int    `db:"station_id" json:"-"`
+	StationName      string `db:"station_name" json:"-"`
+	StoryTitle       string `db:"story_title" json:"-"`
+	BulletinFilename string `db:"bulletin_filename" json:"-"`
+}
