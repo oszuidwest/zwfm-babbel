@@ -1334,8 +1334,8 @@ paths:
         - `created_at` - Creation timestamp (default: descending)
         - `station_name` - Station name
         
-        ## Special Parameters
-        - `include_stories=true` - Include detailed story information in response
+        ## Notes
+        To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
         
         ## Examples
         - Search by filename: `?search=bulletin_2024`
@@ -1354,13 +1354,6 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/filter'
-        - name: include_stories
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Include detailed story information in bulletin response
       responses:
         '200':
           description: List of bulletins with pagination metadata
@@ -1466,7 +1459,9 @@ paths:
         
         ## Special Parameters
         - `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
-        - `include_stories=true` - Include detailed story information in response
+        
+        ## Notes
+        To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
         ## Examples
         - Latest bulletin: `?latest=true`
@@ -1485,13 +1480,6 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/filter'
-        - name: include_stories
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Include detailed story information in bulletin response
         - name: latest
           in: query
           required: false
@@ -1566,19 +1554,12 @@ paths:
         - `X-Cache: HIT|MISS` - Indicates if bulletin was served from cache or freshly generated
         - `Age: N` - Age of the bulletin in seconds (0 for fresh bulletins)
         
-        ## Query Parameters
-        - `include_story_list=true` - Include detailed story information in JSON response
+        ## Notes
+        To get story information, use the separate GET /bulletins/{id}/stories endpoint after bulletin generation.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-        - name: include_story_list
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Include detailed story list in response
         - name: Accept
           in: header
           required: false
@@ -1661,11 +1642,6 @@ paths:
                   story_count:
                     type: integer
                     description: Number of stories in the bulletin
-                  stories:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Story'
-                    description: Stories included (only if include_story_list=true)
               examples:
                 fresh_bulletin:
                   summary: Newly generated bulletin
@@ -1691,27 +1667,6 @@ paths:
                     duration: 178.2
                     file_size: 2845568
                     story_count: 3
-                bulletin_with_stories:
-                  summary: Bulletin with story details (include_story_list=true)
-                  value:
-                    id: 150
-                    station_id: 1
-                    station_name: "Radio Station 1"
-                    audio_url: "/bulletins/150/audio"
-                    filename: "bulletin_150_20240120_140500.wav"
-                    created_at: "2024-01-20T14:05:00Z"
-                    duration: 185.4
-                    file_size: 2965440
-                    story_count: 2
-                    stories:
-                      - id: 101
-                        title: "Breaking News Update"
-                        voice_name: "Sarah Johnson"
-                        status: "active"
-                      - id: 102
-                        title: "Weather Report"
-                        voice_name: "Mike Davis"
-                        status: "active"
             audio/wav:
               schema:
                 type: string

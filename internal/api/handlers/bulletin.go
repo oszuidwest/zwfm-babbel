@@ -28,7 +28,6 @@ type BulletinRequest struct {
 type BulletinResponse struct {
 	AudioURL string         `json:"audio_url"`
 	Duration float64        `json:"duration"`
-	Stories  []models.Story `json:"stories"`
 	Station  models.Station `json:"station"`
 }
 
@@ -97,7 +96,6 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	// Verify the paths match (should always be true with unified function)
 	if createdPath != bulletinPath {
-		fmt.Printf("WARNING: Path mismatch - expected %s, got %s\n", bulletinPath, createdPath)
 	}
 
 	// Get file info (bulletinPath is the full absolute path)
@@ -106,7 +104,6 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 	if err == nil {
 		fileSize = fileInfo.Size()
 	} else {
-		fmt.Printf("WARNING: Failed to get file size for %s: %v\n", bulletinPath, err)
 	}
 
 	// Calculate total duration including mix point and pauses
@@ -151,7 +148,6 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 		var idErr error
 		bulletinID, idErr = result.LastInsertId()
 		if idErr != nil {
-			fmt.Printf("WARNING: Failed to get bulletin ID: %v\n", idErr)
 		}
 
 		// Insert bulletin-story relationships with order
@@ -162,12 +158,10 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 					bulletinID, story.ID, i,
 				)
 				if err != nil {
-					fmt.Printf("WARNING: Failed to save bulletin-story relationship: %v\n", err)
 				}
 			}
 		}
 	} else {
-		fmt.Printf("WARNING: Failed to save bulletin record to database: %v\n", err)
 	}
 
 	return &BulletinInfo{
@@ -205,9 +199,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		Date:      req.Date,
 	}
 
-	// Parse query parameters using helper functions
-	includeStoryList := c.Query("include_story_list") == "true"
-	
 	// Check HTTP headers for modern behavior
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	download := c.GetHeader("Accept") == "audio/wav"
@@ -250,15 +241,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 				// Return existing bulletin metadata
 				response := h.bulletinToResponse(existingBulletin)
-
-				// Fetch stories if requested
-				if includeStoryList {
-					stories, err := h.getStoriesForBulletin(existingBulletin)
-					if err == nil && len(stories) > 0 {
-						response["stories"] = stories
-					}
-				}
-
 				utils.Success(c, response)
 				return
 			}
@@ -279,7 +261,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 				Message: "Invalid date format",
 			}})
 		default:
-			fmt.Printf("ERROR: Failed to generate bulletin: %v\n", err)
 			utils.ProblemInternalServer(c, "Failed to generate bulletin")
 		}
 		return
@@ -302,8 +283,8 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	// Build response based on include_story_list parameter
-	response := h.bulletinInfoToResponse(bulletinInfo, includeStoryList)
+	// Build response without story list
+	response := h.bulletinInfoToResponse(bulletinInfo)
 	utils.Success(c, response)
 }
 
@@ -321,30 +302,33 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	// Configure modern query with field mappings, search fields, and bulletin_id filter
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
 			BaseQuery: `SELECT bs.id, bs.bulletin_id, bs.story_id, bs.story_order, 
-			            bs.created_at, b.station_id, s.name as station_name, 
-			            st.title as story_title, b.filename as bulletin_filename
-			            FROM bulletin_stories bs
-			            JOIN bulletins b ON bs.bulletin_id = b.id
-			            JOIN stations s ON b.station_id = s.id
-			            JOIN stories st ON bs.story_id = st.id`,
-			CountQuery:   "SELECT COUNT(*) FROM bulletin_stories bs JOIN bulletins b ON bs.bulletin_id = b.id JOIN stations s ON b.station_id = s.id JOIN stories st ON bs.story_id = st.id",
-			DefaultOrder: "bs.story_order ASC",
+				bs.created_at, b.station_id, s.name as station_name, 
+				st.title as story_title, b.filename as bulletin_filename
+				FROM bulletin_stories bs
+				JOIN bulletins b ON bs.bulletin_id = b.id
+				JOIN stations s ON b.station_id = s.id
+				JOIN stories st ON bs.story_id = st.id`,
+			CountQuery: `SELECT COUNT(*) FROM bulletin_stories bs 
+				JOIN bulletins b ON bs.bulletin_id = b.id
+				JOIN stations s ON b.station_id = s.id
+				JOIN stories st ON bs.story_id = st.id`,
 			Filters: []utils.FilterConfig{
 				{
-					Column: "bulletin_id",
-					Table:  "bs",
-					Value:  bulletinID,
+					Column:   "bulletin_id",
+					Value:    bulletinID,
+					Operator: "=",
+					Table:    "bs",
 				},
 			},
+			DefaultOrder: "bs.story_order ASC",
 			PostProcessor: func(result interface{}) {
-				bulletinStories := result.(*[]models.BulletinStory)
 				// Convert to the expected nested response format
-				processedResults := make([]map[string]interface{}, len(*bulletinStories))
-				for i, bs := range *bulletinStories {
+				stories := result.(*[]models.BulletinStory)
+				processedResults := make([]map[string]interface{}, len(*stories))
+				for i, bs := range *stories {
 					processedResults[i] = map[string]interface{}{
 						"id":          bs.ID,
 						"bulletin_id": bs.BulletinID,
@@ -365,16 +349,13 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 						},
 					}
 				}
-				// Replace the slice content with the processed format
-				*bulletinStories = (*bulletinStories)[:0] // Clear the slice but keep capacity
-				// Use interface{} to store the processed results in the context
-				c.Set("processed_results", processedResults)
+				
+				// Store processed results in context for ModernListWithQuery to pick up
+				c.Set("processed_bulletin_stories", processedResults)
 			},
 		},
-		SearchFields:      []string{"st.title", "s.name"},
-		TableAlias:        "bs",
-		DefaultFields:     "bs.id, bs.bulletin_id, bs.story_id, bs.story_order, bs.created_at, b.station_id, s.name as station_name, st.title as story_title, b.filename as bulletin_filename",
-		DisableSoftDelete: true, // bulletin_stories table doesn't have deleted_at column
+		SearchFields: []string{"st.title", "s.name"},
+		DisableSoftDelete: true,
 		FieldMapping: map[string]string{
 			"id":                "bs.id",
 			"bulletin_id":       "bs.bulletin_id",
@@ -390,32 +371,6 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 	var bulletinStories []models.BulletinStory
 	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
-
-	// Check if ModernListWithQuery already handled the response (error case)
-	if c.IsAborted() {
-		return
-	}
-
-	// Check if we have processed results from PostProcessor
-	if processedResults, exists := c.Get("processed_results"); exists {
-		// Get pagination data
-		responseData := c.Keys["pagination_data"]
-		paginationInfo, ok := responseData.(map[string]interface{})
-		if !ok {
-			utils.ProblemInternalServer(c, "Failed to get pagination data")
-			return
-		}
-		
-		// Send the processed nested response
-		utils.PaginatedResponse(c, processedResults, 
-			paginationInfo["total"].(int64), 
-			paginationInfo["limit"].(int), 
-			paginationInfo["offset"].(int))
-		return
-	}
-
-	// Fallback if PostProcessor didn't run (shouldn't happen)
-	utils.ProblemInternalServer(c, "Failed to process bulletin stories")
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
@@ -441,7 +396,7 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]inte
 }
 
 // bulletinInfoToResponse creates response from BulletinInfo
-func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList bool) map[string]interface{} {
+func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo) map[string]interface{} {
 	bulletinURL := GetBulletinAudioURL(int(info.ID))
 
 	response := map[string]interface{}{
@@ -457,10 +412,6 @@ func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo, includeStoryList b
 
 	if info.ID > 0 {
 		response["id"] = info.ID
-	}
-
-	if includeStoryList && len(info.Stories) > 0 {
-		response["stories"] = info.Stories
 	}
 
 	return response
@@ -496,8 +447,6 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	// Parse include_stories parameter
-	includeStories := c.Query("include_stories") == "true"
 
 	// Configure modern query with field mappings, search fields, and station_id filter
 	config := utils.EnhancedQueryConfig{
@@ -544,7 +493,11 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	// Get the response data to extract total count
-	responseData := c.Keys["pagination_data"]
+	responseData, exists := c.Get("pagination_data")
+	if !exists {
+		// ModernListWithQuery didn't set pagination data, which means it already sent response
+		return
+	}
 	paginationInfo, ok := responseData.(map[string]interface{})
 	if !ok {
 		// ModernListWithQuery didn't set pagination data, which means it already sent response
@@ -556,13 +509,6 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	for i, bulletin := range bulletins {
 		response := h.bulletinToResponse(&bulletin)
 
-		// Add stories if requested
-		if includeStories {
-			stories, err := h.getStoriesForBulletin(&bulletin)
-			if err == nil && len(stories) > 0 {
-				response["stories"] = stories
-			}
-		}
 
 		bulletinResponses[i] = response
 	}
@@ -578,13 +524,10 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 type BulletinListResponse struct {
 	models.Bulletin
 	AudioURL string         `json:"audio_url,omitempty"`
-	Stories  []models.Story `json:"stories,omitempty"`
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	// Parse include_stories parameter
-	includeStories := c.Query("include_stories") == "true"
 
 	// Configure modern query with field mappings and search fields
 	config := utils.EnhancedQueryConfig{
@@ -624,7 +567,11 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	}
 
 	// Get the response data to extract total count
-	responseData := c.Keys["pagination_data"]
+	responseData, exists := c.Get("pagination_data")
+	if !exists {
+		// ModernListWithQuery didn't set pagination data, which means it already sent response
+		return
+	}
 	paginationInfo, ok := responseData.(map[string]interface{})
 	if !ok {
 		// ModernListWithQuery didn't set pagination data, which means it already sent response
@@ -636,13 +583,6 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	for i, bulletin := range bulletins {
 		response := h.bulletinToResponse(&bulletin)
 
-		// Add stories if requested
-		if includeStories {
-			stories, err := h.getStoriesForBulletin(&bulletin)
-			if err == nil && len(stories) > 0 {
-				response["stories"] = stories
-			}
-		}
 
 		bulletinResponses[i] = response
 	}
@@ -749,7 +689,11 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	// Check if we have processed results from PostProcessor
 	if processedResults, exists := c.Get("processed_results"); exists {
 		// Get pagination data
-		responseData := c.Keys["pagination_data"]
+		responseData, exists := c.Get("pagination_data")
+		if !exists {
+			utils.ProblemInternalServer(c, "Pagination data not found")
+			return
+		}
 		paginationInfo, ok := responseData.(map[string]interface{})
 		if !ok {
 			utils.ProblemInternalServer(c, "Failed to get pagination data")

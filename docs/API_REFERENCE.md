@@ -1427,8 +1427,8 @@ Available sort fields:
 - `created_at` - Creation timestamp (default: descending)
 - `station_name` - Station name
 
-## Special Parameters
-- `include_stories=true` - Include detailed story information in response
+## Notes
+To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
 
 ## Examples
 - Search by filename: `?search=bulletin_2024`
@@ -1451,7 +1451,6 @@ Available sort fields:
 | `` |  | string | No |  |
 | `` |  | string | No |  |
 | `` |  | string | No |  |
-| `include_stories` | query | boolean | No | Include detailed story information in bulletin response |
 
 
 
@@ -1570,7 +1569,9 @@ Available sort fields:
 
 ## Special Parameters
 - `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
-- `include_stories=true` - Include detailed story information in response
+
+## Notes
+To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
 
 ## Examples
 - Latest bulletin: `?latest=true`
@@ -1593,7 +1594,6 @@ Available sort fields:
 | `` |  | string | No |  |
 | `` |  | string | No |  |
 | `` |  | string | No |  |
-| `include_stories` | query | boolean | No | Include detailed story information in bulletin response |
 | `latest` | query | boolean | No | Return only the latest bulletin for this station (equivalent to limit=1) |
 
 
@@ -1623,8 +1623,12 @@ Generates a news bulletin for a specific station with smart caching and flexible
 - `Cache-Control: no-cache` - Force new generation ignoring cache
 - `Cache-Control: max-age=N` - Reuse existing bulletin if created within N seconds
 
-## Query Parameters
-- `include_story_list=true` - Include detailed story information in JSON response
+## Response Headers
+- `X-Cache: HIT|MISS` - Indicates if bulletin was served from cache or freshly generated
+- `Age: N` - Age of the bulletin in seconds (0 for fresh bulletins)
+
+## Notes
+To get story information, use the separate GET /bulletins/{id}/stories endpoint after bulletin generation.
 
 
 
@@ -1633,7 +1637,6 @@ Generates a news bulletin for a specific station with smart caching and flexible
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
 | `` |  | string | No |  |
-| `include_story_list` | query | boolean | No | Include detailed story list in response |
 | `Accept` | header | string | No | Response format - use 'audio/wav' to download file directly |
 | `Cache-Control` | header | string | No | Cache control directives:
 - `no-cache` - Force new generation ignoring existing bulletins

@@ -269,21 +269,32 @@ class BulletinsTests extends BaseTest {
             return false;
         }
         
-        // Test bulletin generation with story list inclusion
-        this.printInfo('Testing bulletin generation with story list inclusion...');
-        const storyListResponse = await this.apiCall('POST', `/stations/${stationId}/bulletins?include_story_list=true`, {});
+        // Test separate story fetching after bulletin generation
+        this.printInfo('Testing separate story fetching after bulletin generation...');
+        const separateResponse = await this.apiCall('POST', `/stations/${stationId}/bulletins`, {});
         
-        if (storyListResponse.status === 200) {
-            // Check if stories are included in response
-            const hasStories = storyListResponse.data.stories && Array.isArray(storyListResponse.data.stories) && storyListResponse.data.stories.length > 0;
+        if (separateResponse.status === 200) {
+            const bulletinId = this.parseJsonField(separateResponse.data, 'id');
             
-            if (hasStories) {
-                this.printSuccess('Bulletin generation with story list inclusion works');
+            if (bulletinId) {
+                // Now fetch stories separately
+                const storiesResponse = await this.apiCall('GET', `/bulletins/${bulletinId}/stories`);
+                
+                if (storiesResponse.status === 200 && storiesResponse.data.data && Array.isArray(storiesResponse.data.data)) {
+                    this.printSuccess(`Separate story fetching works - bulletin has ${storiesResponse.data.data.length} stories`);
+                } else {
+                    // Debug the actual response format
+                    this.printError(`Separate story fetching failed or returned unexpected format`);
+                    this.printError(`Status: ${storiesResponse.status}`);
+                    this.printError(`Response structure: ${JSON.stringify(storiesResponse.data, null, 2)}`);
+                    return false;
+                }
             } else {
-                this.printWarning('Story list not included in bulletin response');
+                this.printError('Failed to extract bulletin ID for separate story fetch test');
+                return false;
             }
         } else {
-            this.printError(`Bulletin generation with story list failed - HTTP ${storyListResponse.status}`);
+            this.printError(`Bulletin generation for story fetch test failed - HTTP ${separateResponse.status}`);
             return false;
         }
         
@@ -739,21 +750,30 @@ class BulletinsTests extends BaseTest {
             return false;
         }
         
-        // Test 8: Special parameter - include_stories=true
-        this.printInfo('Testing include_stories=true parameter...');
-        const storiesResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?include_stories=true&limit=1`);
-        if (this.assertions.checkResponse(storiesResponse, 200, 'Include stories in station bulletins')) {
-            const results = storiesResponse.data.data || [];
+        // Test 8: Separate story fetching for station bulletins
+        this.printInfo('Testing separate story fetching for station bulletins...');
+        const stationBulletinsResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?limit=1`);
+        if (this.assertions.checkResponse(stationBulletinsResponse, 200, 'Get station bulletins for story testing')) {
+            const results = stationBulletinsResponse.data.data || [];
             if (results.length > 0) {
                 const firstResult = results[0];
-                if (firstResult.stories && Array.isArray(firstResult.stories)) {
-                    this.printSuccess(`Include stories works - bulletin has ${firstResult.stories.length} stories`);
-                } else {
-                    this.printWarning('Include stories parameter did not add stories array');
-                }
+                const bulletinId = firstResult.id;
                 
-                // Station-specific endpoint ensures correct station
-                this.printSuccess('Stories included from station-specific endpoint');
+                if (bulletinId) {
+                    // Fetch stories separately using bulletin ID
+                    const storiesResponse = await this.apiCall('GET', `/bulletins/${bulletinId}/stories`);
+                    if (this.assertions.checkResponse(storiesResponse, 200, 'Fetch stories for station bulletin')) {
+                        const stories = storiesResponse.data.data || [];
+                        this.printSuccess(`Separate story fetching works - bulletin has ${stories.length} stories`);
+                        this.printSuccess('Stories fetched via separate endpoint maintain bulletin relationship');
+                    } else {
+                        return false;
+                    }
+                } else {
+                    this.printWarning('No bulletin ID found for separate story fetching test');
+                }
+            } else {
+                this.printWarning('No bulletins found for separate story fetching test');
             }
         } else {
             return false;
@@ -1205,7 +1225,8 @@ class BulletinsTests extends BaseTest {
                 }
                 
                 // Verify all stories belong to the correct bulletin
-                const allFromCorrectBulletin = results.every(s => s.bulletin_id === testBulletinId);
+                // Note: testBulletinId is a string from parseJsonField, bulletin_id is a number from API
+                const allFromCorrectBulletin = results.every(s => s.bulletin_id == testBulletinId);
                 if (allFromCorrectBulletin) {
                     this.printSuccess('All stories correctly filtered by bulletin_id from URL');
                 } else {

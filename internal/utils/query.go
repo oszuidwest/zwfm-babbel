@@ -321,6 +321,25 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 		args = append(args, config.AllowedArgs...)
 	}
 
+	// Process hardcoded filters from config first
+	if config.Filters != nil {
+		for _, filter := range config.Filters {
+			column := filter.Column
+			// Add table prefix if specified and column doesn't contain parentheses or existing table prefix
+			if filter.Table != "" && !strings.Contains(filter.Column, "(") && !strings.Contains(filter.Column, ".") {
+				column = filter.Table + "." + filter.Column
+			}
+			
+			operator := filter.Operator
+			if operator == "" {
+				operator = "="
+			}
+			
+			conditions = append(conditions, column+" "+operator+" ?")
+			args = append(args, filter.Value)
+		}
+	}
+
 	// Handle status filtering (skip if soft delete is disabled)
 	if !config.DisableSoftDelete {
 		statusCondition := buildStatusCondition(params.Status, &args)
@@ -590,6 +609,7 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 			DefaultOrder:  config.DefaultOrder,
 			AllowedArgs:   config.AllowedArgs,
 			PostProcessor: config.PostProcessor,
+			Filters:       config.Filters, // Copy the hardcoded filters
 		},
 		SearchFields:      config.SearchFields,
 		FieldMapping:      config.FieldMapping,
@@ -618,13 +638,14 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 		return
 	}
 
-	// Safely extract count arguments
+	// Build count arguments - all args except LIMIT/OFFSET (which aren't added yet)
 	var countArgs []interface{}
-	if len(config.AllowedArgs) > 0 && len(args) >= len(config.AllowedArgs) {
-		countArgs = args[:len(config.AllowedArgs)]
-	} else {
-		countArgs = config.AllowedArgs
-	}
+	
+	// For count query, we need all arguments except LIMIT/OFFSET
+	// At this point, args contains: base args + hardcoded filter args + status/search/query filter args
+	// We want all of these for the count query
+	countArgs = make([]interface{}, len(args))
+	copy(countArgs, args)
 
 	// Add filter conditions to count query - safer string manipulation
 	if strings.Contains(query, "WHERE") {
@@ -648,17 +669,6 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 			whereClause = strings.TrimSpace(whereClause)
 			if whereClause != "" {
 				countQuery += " " + whereClause
-				// Add filter arguments to count query - need to calculate this before LIMIT/OFFSET are added
-				baseArgsLen := len(config.AllowedArgs)
-				if baseArgsLen < 0 {
-					baseArgsLen = 0
-				}
-
-				// At this point, args doesn't include LIMIT/OFFSET yet, so we can use all args after base args
-				if len(args) > baseArgsLen {
-					filterArgs := args[baseArgsLen:]
-					countArgs = append(countArgs, filterArgs...)
-				}
 			}
 		}
 	}
@@ -681,7 +691,31 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 
 	// Apply post-processing if provided
 	if config.PostProcessor != nil {
+		// Store pagination data for PostProcessor handlers to use
+		c.Set("pagination_data", map[string]interface{}{
+			"total":  total,
+			"limit":  params.Limit,
+			"offset": params.Offset,
+		})
 		config.PostProcessor(result)
+		
+		// Check if the PostProcessor already sent a response (status would be set)
+		if c.Writer.Written() {
+			return // PostProcessor handled the response
+		}
+		
+		// If PostProcessor didn't send response, send it here with processed data
+		responseData := result
+		
+		// Check if PostProcessor stored custom processed data in context
+		if processedData, exists := c.Get("processed_bulletin_stories"); exists {
+			responseData = processedData
+		} else if len(params.Fields) > 0 {
+			responseData = FilterResponseFields(result, params.Fields)
+		}
+		
+		PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
+		return
 	}
 
 	// Filter response fields if requested - note: this creates a new object

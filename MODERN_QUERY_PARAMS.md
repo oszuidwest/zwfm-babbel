@@ -305,7 +305,7 @@ GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_file][ne]=&
 ### Admin Dashboard
 ```http
 # Full featured admin query with search and filters
-GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&status=all&sort=-created_at&include_stories=true
+GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&status=all&sort=-created_at
 ```
 
 ### Data Export
