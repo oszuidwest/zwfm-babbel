@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,6 +97,8 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	// Verify the paths match (should always be true with unified function)
 	if createdPath != bulletinPath {
+		// This should never happen with the unified function, but log if it does
+		log.Printf("WARNING: Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
 	}
 
 	// Get file info (bulletinPath is the full absolute path)
@@ -103,7 +106,6 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 	var fileSize int64
 	if err == nil {
 		fileSize = fileInfo.Size()
-	} else {
 	}
 
 	// Calculate total duration including mix point and pauses
@@ -148,6 +150,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 		var idErr error
 		bulletinID, idErr = result.LastInsertId()
 		if idErr != nil {
+			log.Printf("WARNING: Failed to get bulletin ID: %v", idErr)
 		}
 
 		// Insert bulletin-story relationships with order
@@ -202,7 +205,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	// Check HTTP headers for modern behavior
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	download := c.GetHeader("Accept") == "audio/wav"
-	
+
 	// Parse max-age from Cache-Control header
 	var maxAgeStr string
 	cacheControl := c.GetHeader("Cache-Control")
@@ -223,11 +226,11 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 			if err == nil {
 				// Calculate age of the cached bulletin
 				age := int(time.Since(existingBulletin.CreatedAt).Seconds())
-				
+
 				// Set standard cache headers
 				c.Header("X-Cache", "HIT")
 				c.Header("Age", fmt.Sprintf("%d", age))
-				
+
 				// Handle download if requested
 				if download {
 					c.Header("Content-Description", "File Transfer")
@@ -287,8 +290,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	response := h.bulletinInfoToResponse(bulletinInfo)
 	utils.Success(c, response)
 }
-
-
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
@@ -442,17 +443,16 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			utils.ProblemNotFound(c, "No bulletin found for this station")
 			return
 		}
-		
+
 		// Set cache headers indicating this is existing content
 		age := int(time.Since(bulletin.CreatedAt).Seconds())
-		c.Header("X-Cache", "HIT") 
+		c.Header("X-Cache", "HIT")
 		c.Header("Age", fmt.Sprintf("%d", age))
-		
+
 		response := h.bulletinToResponse(bulletin)
 		utils.Success(c, response)
 		return
 	}
-
 
 	// Configure modern query with field mappings, search fields, and station_id filter
 	config := utils.EnhancedQueryConfig{
@@ -498,12 +498,11 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 // BulletinListResponse represents the response format for bulletins in list view with computed fields.
 type BulletinListResponse struct {
 	models.Bulletin
-	AudioURL string         `json:"audio_url,omitempty"`
+	AudioURL string `json:"audio_url,omitempty"`
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support
 func (h *Handlers) ListBulletins(c *gin.Context) {
-
 	// Configure modern query with field mappings and search fields
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
@@ -538,24 +537,6 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	h.transformBulletinsAndRespond(c, bulletins)
 }
 
-// getStoriesForBulletin retrieves the stories that were used in a bulletin
-func (h *Handlers) getStoriesForBulletin(bulletin *models.Bulletin) ([]models.Story, error) {
-	var stories []models.Story
-
-	// Get stories from junction table, ordered by story_order
-	err := h.db.Select(&stories, `
-		SELECT s.*, v.name as voice_name
-		FROM bulletin_stories bs
-		JOIN stories s ON bs.story_id = s.id
-		JOIN voices v ON s.voice_id = v.id
-		WHERE bs.bulletin_id = ?
-		ORDER BY bs.story_order`,
-		bulletin.ID,
-	)
-
-	return stories, err
-}
-
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	storyID, ok := utils.GetIDParam(c)
@@ -581,7 +562,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			DefaultOrder: "bs.created_at DESC",
 			Filters: []utils.FilterConfig{
 				{
-					Column: "story_id", 
+					Column: "story_id",
 					Table:  "bs",
 					Value:  storyID,
 				},
@@ -643,11 +624,11 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			utils.ProblemInternalServer(c, "Failed to get pagination data")
 			return
 		}
-		
+
 		// Send the processed paginated response
-		utils.PaginatedResponse(c, processedResults, 
-			paginationInfo["total"].(int64), 
-			paginationInfo["limit"].(int), 
+		utils.PaginatedResponse(c, processedResults,
+			paginationInfo["total"].(int64),
+			paginationInfo["limit"].(int),
 			paginationInfo["offset"].(int))
 		return
 	}

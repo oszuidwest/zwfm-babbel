@@ -335,7 +335,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	if len(req.Weekdays) > 0 {
 		// Use weekdays map if provided
 		updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-		args = append(args, 
+		args = append(args,
 			req.Weekdays["monday"],
 			req.Weekdays["tuesday"],
 			req.Weekdays["wednesday"],
@@ -533,4 +533,3 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 
 	return true
 }
-

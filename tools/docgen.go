@@ -63,10 +63,10 @@ type Parameter struct {
 
 // EndpointInfo holds structured endpoint information for better organization
 type EndpointInfo struct {
-	Method      string
-	Path        string
-	Operation   Operation
-	SortKey     string
+	Method    string
+	Path      string
+	Operation Operation
+	SortKey   string
 }
 
 const markdownTemplate = `# {{.Info.Title}} API Reference
@@ -327,7 +327,7 @@ func main() {
 func generateMarkdown(spec OpenAPISpec) (string, error) {
 	// Group endpoints by tag
 	endpointsByTag := make(map[string][]EndpointInfo)
-	
+
 	// Collect all endpoints
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
@@ -337,7 +337,7 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 				Operation: op,
 				SortKey:   path + method,
 			}
-			
+
 			// Add to each tag
 			if len(op.Tags) == 0 {
 				op.Tags = []string{"Other"}
@@ -347,7 +347,7 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 			}
 		}
 	}
-	
+
 	// Sort endpoints within each tag
 	for tag := range endpointsByTag {
 		sort.Slice(endpointsByTag[tag], func(i, j int) bool {
@@ -371,8 +371,8 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 	}
 
 	funcMap := template.FuncMap{
-		"upper": strings.ToUpper,
-		"lower": strings.ToLower,
+		"upper":   strings.ToUpper,
+		"lower":   strings.ToLower,
 		"replace": strings.ReplaceAll,
 		"getParamType": func(param Parameter) string {
 			if param.Schema != nil {
@@ -388,13 +388,13 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 				for ct := range content {
 					contentTypes = append(contentTypes, ct)
 				}
-				
+
 				// Get description if available
 				desc := ""
 				if d, ok := rb["description"].(string); ok {
 					desc = " - " + d
 				}
-				
+
 				if len(contentTypes) > 0 {
 					return fmt.Sprintf("`%s`%s", contentTypes[0], desc)
 				}

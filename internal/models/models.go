@@ -189,7 +189,7 @@ type BulletinStory struct {
 
 // StoryBulletinHistory represents a bulletin with story-specific metadata for history queries.
 type StoryBulletinHistory struct {
-	Bulletin                     // Embed the full Bulletin struct
+	Bulletin             // Embed the full Bulletin struct
 	StoryOrder int       `db:"story_order" json:"story_order"`
 	IncludedAt time.Time `db:"included_at" json:"included_at"`
 }

@@ -30,7 +30,6 @@ type QueryParams struct {
 
 	// Search
 	Search string `json:"search"`
-
 }
 
 // SortField represents a single sort criteria
@@ -54,22 +53,6 @@ type ListParams struct {
 	Search string
 }
 
-// ParseListParams extracts simple list parameters for basic endpoints
-func ParseListParams(c *gin.Context) ListParams {
-	params := ListParams{}
-
-	// Parse pagination
-	params.Limit, params.Offset = GetPagination(c)
-
-	// Parse sort (simple string format: -field or field)
-	params.Sort = c.Query("sort")
-
-	// Parse search
-	params.Search = c.Query("search")
-
-	return params
-}
-
 // ParseQueryParams extracts and validates modern query parameters from the request
 func ParseQueryParams(c *gin.Context) *QueryParams {
 	if c == nil {
@@ -77,7 +60,7 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	}
 
 	params := &QueryParams{
-		Filters:        make(map[string]FilterOperation),
+		Filters: make(map[string]FilterOperation),
 	}
 
 	// Parse pagination
@@ -103,7 +86,6 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 
 	// Parse search
 	params.Search = c.Query("search")
-
 
 	return params
 }
@@ -279,7 +261,6 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 	return filters
 }
 
-
 // parseFilterKey extracts field name and operator from filter key
 // Examples:
 // filter[name] -> field: "name", operator: ""
@@ -329,12 +310,12 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 			if filter.Table != "" && !strings.Contains(filter.Column, "(") && !strings.Contains(filter.Column, ".") {
 				column = filter.Table + "." + filter.Column
 			}
-			
+
 			operator := filter.Operator
 			if operator == "" {
 				operator = "="
 			}
-			
+
 			conditions = append(conditions, column+" "+operator+" ?")
 			args = append(args, filter.Value)
 		}
@@ -364,7 +345,6 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 	if searchCondition != "" {
 		conditions = append(conditions, searchCondition)
 	}
-
 
 	// Handle advanced filters
 	for field, filter := range params.Filters {
@@ -639,12 +619,10 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 	}
 
 	// Build count arguments - all args except LIMIT/OFFSET (which aren't added yet)
-	var countArgs []interface{}
-	
 	// For count query, we need all arguments except LIMIT/OFFSET
 	// At this point, args contains: base args + hardcoded filter args + status/search/query filter args
 	// We want all of these for the count query
-	countArgs = make([]interface{}, len(args))
+	countArgs := make([]interface{}, len(args))
 	copy(countArgs, args)
 
 	// Add filter conditions to count query - safer string manipulation
@@ -698,22 +676,22 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 			"offset": params.Offset,
 		})
 		config.PostProcessor(result)
-		
+
 		// Check if the PostProcessor already sent a response (status would be set)
 		if c.Writer.Written() {
 			return // PostProcessor handled the response
 		}
-		
+
 		// If PostProcessor didn't send response, send it here with processed data
 		responseData := result
-		
+
 		// Check if PostProcessor stored custom processed data in context
 		if processedData, exists := c.Get("processed_bulletin_stories"); exists {
 			responseData = processedData
 		} else if len(params.Fields) > 0 {
 			responseData = FilterResponseFields(result, params.Fields)
 		}
-		
+
 		PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
 		return
 	}
@@ -764,5 +742,3 @@ func buildSearchCondition(search string, searchFields []string, args *[]interfac
 	}
 	return ""
 }
-
-
