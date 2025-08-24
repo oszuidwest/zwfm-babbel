@@ -207,9 +207,21 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 	// Parse query parameters using helper functions
 	includeStoryList := c.Query("include_story_list") == "true"
-	forceNew := c.Query("force") == "true"
-	download := c.Query("download") == "true"
-	maxAgeStr := c.Query("max_age")
+	
+	// Check HTTP headers for modern behavior
+	forceNew := c.GetHeader("Cache-Control") == "no-cache"
+	download := c.GetHeader("Accept") == "audio/wav"
+	
+	// Parse max-age from Cache-Control header
+	var maxAgeStr string
+	cacheControl := c.GetHeader("Cache-Control")
+	if strings.Contains(cacheControl, "max-age=") {
+		parts := strings.Split(cacheControl, "max-age=")
+		if len(parts) > 1 {
+			maxAgeStr = strings.Split(parts[1], ",")[0]
+			maxAgeStr = strings.TrimSpace(maxAgeStr)
+		}
+	}
 
 	// Check if we should return existing bulletin
 	if !forceNew && maxAgeStr != "" {
@@ -218,6 +230,13 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 			// Check for recent bulletin using helper function
 			existingBulletin, err := h.getLatestBulletin(bulletinReq.StationID, &maxAge)
 			if err == nil {
+				// Calculate age of the cached bulletin
+				age := int(time.Since(existingBulletin.CreatedAt).Seconds())
+				
+				// Set standard cache headers
+				c.Header("X-Cache", "HIT")
+				c.Header("Age", fmt.Sprintf("%d", age))
+				
 				// Handle download if requested
 				if download {
 					c.Header("Content-Description", "File Transfer")
@@ -231,7 +250,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 				// Return existing bulletin metadata
 				response := h.bulletinToResponse(existingBulletin)
-				response["cached"] = true
 
 				// Fetch stories if requested
 				if includeStoryList {
@@ -267,6 +285,10 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
+	// Set cache headers for fresh content
+	c.Header("X-Cache", "MISS")
+	c.Header("Age", "0")
+
 	// Handle download if requested
 	if download {
 		c.Header("Content-Description", "File Transfer")
@@ -282,7 +304,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 	// Build response based on include_story_list parameter
 	response := h.bulletinInfoToResponse(bulletinInfo, includeStoryList)
-	response["cached"] = false
 	utils.Success(c, response)
 }
 
@@ -464,6 +485,12 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			utils.ProblemNotFound(c, "No bulletin found for this station")
 			return
 		}
+		
+		// Set cache headers indicating this is existing content
+		age := int(time.Since(bulletin.CreatedAt).Seconds())
+		c.Header("X-Cache", "HIT") 
+		c.Header("Age", fmt.Sprintf("%d", age))
+		
 		response := h.bulletinToResponse(bulletin)
 		utils.Success(c, response)
 		return

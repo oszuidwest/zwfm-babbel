@@ -236,13 +236,12 @@ class BulletinsTests extends BaseTest {
             const duration = this.parseJsonField(response.data, 'duration');
             const storyCount = this.parseJsonField(response.data, 'story_count');
             const filename = this.parseJsonField(response.data, 'filename');
-            const cached = this.parseJsonField(response.data, 'cached');
             
             if (bulletinId) {
                 this.createdBulletinIds.push(bulletinId);
             }
             
-            this.printInfo(`Bulletin details: ID=${bulletinId}, Duration=${duration}s, Stories=${storyCount}, Cached=${cached}`);
+            this.printInfo(`Bulletin details: ID=${bulletinId}, Duration=${duration}s, Stories=${storyCount}`);
             this.printInfo(`Audio URL: ${audioUrl}`);
             this.printInfo(`Filename: ${filename}`);
             
@@ -252,13 +251,6 @@ class BulletinsTests extends BaseTest {
             } else {
                 this.printError('Bulletin response missing required fields');
                 return false;
-            }
-            
-            // Verify the bulletin cached flag is false for new generation
-            if (cached === 'false') {
-                this.printSuccess('New bulletin correctly marked as not cached');
-            } else {
-                this.printWarning(`New bulletin marked as cached: ${cached}`);
             }
         } else {
             this.printError(`Bulletin generation failed - HTTP ${response.status}: ${JSON.stringify(response.data)}`);
@@ -396,11 +388,11 @@ class BulletinsTests extends BaseTest {
                     return false;
                 }
                 
-                // Test audio download with direct download flag
-                this.printInfo('Testing bulletin generation with direct download...');
+                // Test audio download with direct download flag using Accept header
+                this.printInfo('Testing bulletin generation with direct download using Accept header...');
                 if (this.createdStationIds.length > 0) {
                     const stationId = this.createdStationIds[0];
-                    const directDownloadResponse = await this.downloadFile(`/stations/${stationId}/bulletins?download=true`, downloadPath, 'POST', {});
+                    const directDownloadResponse = await this.downloadFile(`/stations/${stationId}/bulletins`, downloadPath, 'POST', {}, { 'Accept': 'audio/wav' });
                     
                     if (directDownloadResponse === 200) {
                         const fs = require('fs');
@@ -946,27 +938,65 @@ class BulletinsTests extends BaseTest {
             return false;
         }
         
-        const firstCached = this.parseJsonField(firstResponse.data, 'cached');
         const firstFilename = this.parseJsonField(firstResponse.data, 'filename');
         
-        // Generate another bulletin immediately (should be cached)
-        this.printInfo('Generating second bulletin (should be cached)...');
-        const secondResponse = await this.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+        // Check cache headers for first (fresh) bulletin
+        const firstCacheHeader = firstResponse.headers['x-cache'] || firstResponse.headers['X-Cache'];
+        const firstAgeHeader = firstResponse.headers['age'] || firstResponse.headers['Age'];
+        
+        if (firstCacheHeader === 'MISS') {
+            this.printSuccess('First bulletin X-Cache header correctly indicates MISS');
+        } else {
+            this.printWarning(`First bulletin X-Cache header: ${firstCacheHeader} (expected: MISS)`);
+        }
+        
+        if (firstAgeHeader === '0') {
+            this.printSuccess('First bulletin Age header correctly shows 0');
+        } else {
+            this.printWarning(`First bulletin Age header: ${firstAgeHeader} (expected: 0)`);
+        }
+        
+        // Generate another bulletin immediately with cache control (should use cached version)
+        this.printInfo('Generating second bulletin with max-age header (should be cached)...');
+        const secondResponse = await this.apiCall('POST', `/stations/${stationId}/bulletins`, {}, { 'Cache-Control': 'max-age=300' });
         
         if (this.assertions.checkResponse(secondResponse, 200, 'Generate second bulletin')) {
-            const secondCached = this.parseJsonField(secondResponse.data, 'cached');
             const secondFilename = this.parseJsonField(secondResponse.data, 'filename');
             
-            if (secondCached === 'true') {
-                this.printSuccess('Second bulletin correctly marked as cached');
-            } else {
-                this.printWarning(`Second bulletin not marked as cached: ${secondCached}`);
-            }
+            // Check cache headers
+            const cacheHeader = secondResponse.headers['x-cache'] || secondResponse.headers['X-Cache'];
+            const ageHeader = secondResponse.headers['age'] || secondResponse.headers['Age'];
             
             if (firstFilename === secondFilename) {
-                this.printSuccess('Cached bulletin uses same filename');
+                this.printSuccess('Second bulletin reused cached version (same filename)');
+                
+                // Verify cache headers for cached response
+                if (cacheHeader === 'HIT') {
+                    this.printSuccess('X-Cache header correctly indicates HIT');
+                } else {
+                    this.printWarning(`X-Cache header: ${cacheHeader} (expected: HIT)`);
+                }
+                
+                if (ageHeader && parseInt(ageHeader) >= 0) {
+                    this.printSuccess(`Age header present: ${ageHeader} seconds`);
+                } else {
+                    this.printWarning(`Age header: ${ageHeader} (expected: >= 0)`);
+                }
             } else {
-                this.printWarning('Cached bulletin has different filename');
+                this.printInfo('Second bulletin generated new version (different filename)');
+                
+                // For fresh generation, should show MISS and Age 0
+                if (cacheHeader === 'MISS') {
+                    this.printSuccess('X-Cache header correctly indicates MISS');
+                } else {
+                    this.printWarning(`X-Cache header: ${cacheHeader} (expected: MISS)`);
+                }
+                
+                if (ageHeader === '0') {
+                    this.printSuccess('Age header correctly shows 0 for fresh bulletin');
+                } else {
+                    this.printWarning(`Age header: ${ageHeader} (expected: 0)`);
+                }
             }
         } else {
             return false;

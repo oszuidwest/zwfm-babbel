@@ -1557,22 +1557,21 @@ paths:
       description: |
         Generates a news bulletin for a specific station with smart caching and flexible response options.
         
-        Query parameters:
-        - `download=true` - Directly download the WAV file instead of JSON response
-        - `include_story_list=true` - Include detailed story information in response
-        - `max_age=300` - Return existing bulletin if created within 300 seconds
-        - `force=true` - Force new generation even if recent bulletin exists
+        ## HTTP Headers for Control
+        - `Accept: audio/wav` - Return WAV file directly instead of JSON response
+        - `Cache-Control: no-cache` - Force new generation ignoring cache
+        - `Cache-Control: max-age=N` - Reuse existing bulletin if created within N seconds
+        
+        ## Response Headers
+        - `X-Cache: HIT|MISS` - Indicates if bulletin was served from cache or freshly generated
+        - `Age: N` - Age of the bulletin in seconds (0 for fresh bulletins)
+        
+        ## Query Parameters
+        - `include_story_list=true` - Include detailed story information in JSON response
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-        - name: download
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Return WAV file for download instead of JSON
         - name: include_story_list
           in: query
           required: false
@@ -1580,19 +1579,24 @@ paths:
             type: boolean
             default: false
           description: Include detailed story list in response
-        - name: max_age
-          in: query
+        - name: Accept
+          in: header
           required: false
           schema:
-            type: integer
-          description: Max age in seconds to reuse existing bulletin
-        - name: force
-          in: query
+            type: string
+            enum: [application/json, audio/wav]
+            default: application/json
+          description: Response format - use 'audio/wav' to download file directly
+        - name: Cache-Control
+          in: header
           required: false
           schema:
-            type: boolean
-            default: false
-          description: Force new generation ignoring cache
+            type: string
+            example: "max-age=300"
+          description: |
+            Cache control directives:
+            - `no-cache` - Force new generation ignoring existing bulletins
+            - `max-age=N` - Reuse bulletin if created within N seconds
       requestBody:
         required: false
         content:
@@ -1607,6 +1611,20 @@ paths:
       responses:
         '200':
           description: Bulletin generated successfully or WAV file if download=true
+          headers:
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT, MISS]
+              description: |
+                Cache status indicator:
+                - `HIT` - Bulletin served from cache (existing bulletin reused)
+                - `MISS` - Bulletin freshly generated
+            Age:
+              schema:
+                type: integer
+                minimum: 0
+              description: Age of the bulletin in seconds (0 for freshly generated bulletins)
           content:
             application/json:
               schema:
@@ -1643,9 +1661,6 @@ paths:
                   story_count:
                     type: integer
                     description: Number of stories in the bulletin
-                  cached:
-                    type: boolean
-                    description: Whether this is a cached bulletin (when max_age is used)
                   stories:
                     type: array
                     items:
@@ -1664,9 +1679,8 @@ paths:
                     duration: 185.4
                     file_size: 2965440
                     story_count: 4
-                    cached: false
                 cached_bulletin:
-                  summary: Cached bulletin (from max_age parameter)
+                  summary: Cached bulletin (from max_age parameter - check X-Cache header)
                   value:
                     id: 149
                     station_id: 1
@@ -1677,7 +1691,6 @@ paths:
                     duration: 178.2
                     file_size: 2845568
                     story_count: 3
-                    cached: true
                 bulletin_with_stories:
                   summary: Bulletin with story details (include_story_list=true)
                   value:
@@ -1690,7 +1703,6 @@ paths:
                     duration: 185.4
                     file_size: 2965440
                     story_count: 2
-                    cached: false
                     stories:
                       - id: 101
                         title: "Breaking News Update"
@@ -1721,6 +1733,17 @@ paths:
       responses:
         '200':
           description: Latest bulletin found
+          headers:
+            X-Cache:
+              schema:
+                type: string
+                enum: [HIT]
+              description: Always 'HIT' since this endpoint returns existing bulletins
+            Age:
+              schema:
+                type: integer
+                minimum: 0
+              description: Age of the bulletin in seconds since creation
           content:
             application/json:
               schema:

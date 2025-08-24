@@ -295,21 +295,24 @@ class BaseTest {
      * @param {string} outputPath - Local path to save file.
      * @param {string} method - HTTP method (default: 'GET').
      * @param {Object} data - Request data (optional).
+     * @param {Object} headers - Custom headers (optional).
      * @returns {Promise<number>} HTTP status code.
      */
-    async downloadFile(endpoint, outputPath, method = 'GET', data = null) {
+    async downloadFile(endpoint, outputPath, method = 'GET', data = null, headers = {}) {
         await this.loadCookies();
         
         const config = {
             method: method.toLowerCase(),
             url: `${this.apiUrl}${endpoint}`,
-            responseType: 'stream'
+            responseType: 'stream',
+            headers: { ...headers }
         };
         
         if (data && method.toUpperCase() !== 'GET') {
             config.data = data;
             config.headers = {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...config.headers
             };
         }
         

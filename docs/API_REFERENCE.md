@@ -1618,11 +1618,13 @@ Available sort fields:
 
 Generates a news bulletin for a specific station with smart caching and flexible response options.
 
-Query parameters:
-- `download=true` - Directly download the WAV file instead of JSON response
-- `include_story_list=true` - Include detailed story information in response
-- `max_age=300` - Return existing bulletin if created within 300 seconds
-- `force=true` - Force new generation even if recent bulletin exists
+## HTTP Headers for Control
+- `Accept: audio/wav` - Return WAV file directly instead of JSON response
+- `Cache-Control: no-cache` - Force new generation ignoring cache
+- `Cache-Control: max-age=N` - Reuse existing bulletin if created within N seconds
+
+## Query Parameters
+- `include_story_list=true` - Include detailed story information in JSON response
 
 
 
@@ -1631,10 +1633,12 @@ Query parameters:
 | Name | In | Type | Required | Description |
 |------|-----|------|----------|-------------|
 | `` |  | string | No |  |
-| `download` | query | boolean | No | Return WAV file for download instead of JSON |
 | `include_story_list` | query | boolean | No | Include detailed story list in response |
-| `max_age` | query | integer | No | Max age in seconds to reuse existing bulletin |
-| `force` | query | boolean | No | Force new generation ignoring cache |
+| `Accept` | header | string | No | Response format - use 'audio/wav' to download file directly |
+| `Cache-Control` | header | string | No | Cache control directives:
+- `no-cache` - Force new generation ignoring existing bulletins
+- `max-age=N` - Reuse bulletin if created within N seconds
+ |
 
 
 

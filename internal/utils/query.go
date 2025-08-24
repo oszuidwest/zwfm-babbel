@@ -4,7 +4,6 @@ package utils
 import (
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -32,8 +31,6 @@ type QueryParams struct {
 	// Search
 	Search string `json:"search"`
 
-	// Boolean filters
-	BooleanFilters map[string]*bool `json:"boolean_filters"`
 }
 
 // SortField represents a single sort criteria
@@ -81,7 +78,6 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 
 	params := &QueryParams{
 		Filters:        make(map[string]FilterOperation),
-		BooleanFilters: make(map[string]*bool),
 	}
 
 	// Parse pagination
@@ -108,10 +104,6 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	// Parse search
 	params.Search = c.Query("search")
 
-	// Parse boolean filters - handle nil safely
-	if boolFilters := parseBooleanFilters(c); boolFilters != nil {
-		params.BooleanFilters = boolFilters
-	}
 
 	return params
 }
@@ -287,31 +279,6 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 	return filters
 }
 
-// parseBooleanFilters handles boolean filters
-// NOTE: All data-related boolean filters have been replaced with modern filter syntax:
-// - is_active → use filter[status]=active instead
-// - is_expired → use filter[end_date][lt]=<current_time> instead
-// - is_scheduled → use filter[start_date][ne]=null instead
-func parseBooleanFilters(c *gin.Context) map[string]*bool {
-	booleanFilters := make(map[string]*bool)
-
-	if c == nil {
-		return booleanFilters
-	}
-
-	// No more boolean filters - all use modern filter syntax
-	booleanKeys := []string{}
-
-	for _, key := range booleanKeys {
-		if value := c.Query(key); value != "" {
-			if parsedBool, err := strconv.ParseBool(value); err == nil {
-				booleanFilters[key] = &parsedBool
-			}
-		}
-	}
-
-	return booleanFilters
-}
 
 // parseFilterKey extracts field name and operator from filter key
 // Examples:
@@ -379,9 +346,6 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 		conditions = append(conditions, searchCondition)
 	}
 
-	// Handle boolean filters
-	boolConditions := buildBooleanConditions(params.BooleanFilters, &args)
-	conditions = append(conditions, boolConditions...)
 
 	// Handle advanced filters
 	for field, filter := range params.Filters {
@@ -767,30 +731,4 @@ func buildSearchCondition(search string, searchFields []string, args *[]interfac
 	return ""
 }
 
-// buildBooleanConditions builds SQL conditions for boolean filters
-func buildBooleanConditions(filters map[string]*bool, args *[]interface{}) []string {
-	var conditions []string
 
-	for key, value := range filters {
-		if value == nil {
-			continue
-		}
-
-		condition := buildSingleBooleanCondition(key, *value, args)
-		if condition != "" {
-			conditions = append(conditions, condition)
-		}
-	}
-
-	return conditions
-}
-
-// buildSingleBooleanCondition builds a single boolean filter condition
-func buildSingleBooleanCondition(key string, value bool, args *[]interface{}) string {
-	switch key {
-	// All boolean filters have been replaced with modern filter syntax
-
-	default:
-		return ""
-	}
-}
