@@ -126,7 +126,7 @@ func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 
 	if h.authService.IsOAuthEnabled() {
 		response["methods"] = append(response["methods"].([]string), "oauth")
-		response["oauth_url"] = "/api/v1/session/oauth/start"
+		response["oauth_url"] = "/api/v1/auth/oauth"
 	}
 
 	c.JSON(http.StatusOK, response)
