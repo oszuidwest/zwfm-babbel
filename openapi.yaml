@@ -353,6 +353,38 @@ paths:
   /stations:
     get:
       summary: List all stations
+      description: |
+        Returns a paginated list of radio stations with modern query parameter support.
+        
+        ## Search Fields
+        Full-text search across:
+        - `s.name` - Station name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Station ID
+        - `name` - Station name (supports like operator for pattern matching)
+        - `max_stories_per_block` - Maximum stories per bulletin block
+        - `pause_seconds` - Pause duration between stories
+        - `created_at` - Creation timestamp
+        - `updated_at` - Last update timestamp
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Station ID
+        - `name` - Station name (default: ascending)
+        - `max_stories_per_block` - Max stories per block
+        - `pause_seconds` - Pause duration
+        - `created_at` - Creation timestamp
+        - `updated_at` - Last update timestamp
+        
+        ## Examples
+        - Search by name: `?search=Radio`
+        - Filter by name pattern: `?filter[name][like]=%FM%`
+        - Sort by creation date: `?sort=-created_at`
+        - Filter by max stories: `?filter[max_stories_per_block][gte]=5`
+        - Field selection: `?fields=id,name,max_stories_per_block`
+        - Complex query: `?search=Radio&filter[max_stories_per_block][gte]=5&sort=name&fields=id,name`
       tags:
         - Stations
       parameters:
@@ -364,22 +396,11 @@ paths:
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
-          description: List of stations
+          description: List of stations with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Station'
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                $ref: '#/components/schemas/StationsListResponse'
               examples:
                 basic_list:
                   summary: Basic station list
@@ -400,6 +421,34 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
+                search_example:
+                  summary: Search results for "Radio"
+                  value:
+                    data:
+                      - id: 1
+                        name: "Radio Station 1"
+                        max_stories_per_block: 5
+                        pause_seconds: 2.0
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-15T10:30:00Z"
+                    total: 1
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,name,max_stories_per_block)
+                  value:
+                    data:
+                      - id: 1
+                        name: "Radio Station 1"
+                        max_stories_per_block: 5
+                      - id: 2
+                        name: "News FM"
+                        max_stories_per_block: 8
+                    total: 2
+                    limit: 20
+                    offset: 0
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       summary: Create a new station
       tags:
@@ -500,6 +549,33 @@ paths:
   /voices:
     get:
       summary: List all voices
+      description: |
+        Returns a paginated list of newsreader voices with modern query parameter support.
+        
+        ## Search Fields
+        Full-text search across:
+        - `name` - Voice name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Voice ID
+        - `name` - Voice name (supports like operator for pattern matching)
+        - `created_at` - Creation timestamp
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Voice ID
+        - `name` - Voice name (default: ascending)
+        - `created_at` - Creation timestamp
+        - `updated_at` - Last update timestamp
+        
+        ## Examples
+        - Search by name: `?search=John`
+        - Filter by name pattern: `?filter[name][like]=%Announcer%`
+        - Sort by name descending: `?sort=-name`
+        - Multiple filters: `?filter[id][in]=1,2,3&sort=name`
+        - Field selection: `?fields=id,name,created_at`
+        - Complex query: `?search=Voice&filter[id][in]=1,2,3&sort=-name&fields=id,name&limit=10`
       tags:
         - Voices
       parameters:
@@ -511,22 +587,51 @@ paths:
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
-          description: List of voices
+          description: List of voices with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Voice'
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                $ref: '#/components/schemas/VoicesListResponse'
+              examples:
+                basic_list:
+                  summary: Basic voice list
+                  value:
+                    data:
+                      - id: 1
+                        name: "Sarah Johnson"
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-15T10:30:00Z"
+                      - id: 2
+                        name: "Mike Davis"
+                        created_at: "2024-01-16T14:20:00Z"
+                        updated_at: "2024-01-16T14:20:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                search_example:
+                  summary: Search results for "Johnson"
+                  value:
+                    data:
+                      - id: 1
+                        name: "Sarah Johnson"
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-15T10:30:00Z"
+                    total: 1
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,name)
+                  value:
+                    data:
+                      - id: 1
+                        name: "Sarah Johnson"
+                      - id: 2
+                        name: "Mike Davis"
+                    total: 2
+                    limit: 20
+                    offset: 0
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       summary: Create a new voice
       tags:
@@ -903,50 +1008,116 @@ paths:
   /stories/{id}/bulletins:
     get:
       summary: Get bulletin history for a story
-      description: Returns all bulletins that have included this specific story, ordered by most recent first.
+      description: |
+        Returns all bulletins that have included this specific story with modern query parameter support.
+        Ordered by most recent inclusion first by default.
+        
+        ## Search Fields
+        Full-text search across:
+        - `b.filename` - Bulletin filename
+        - `s.name` - Station name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Bulletin ID
+        - `bulletin_id` - Bulletin ID (same as id)
+        - `station_id` - Station ID
+        - `filename` - Bulletin filename
+        - `file_path` - File path
+        - `duration_seconds` - Duration in seconds
+        - `file_size` - File size in bytes
+        - `story_count` - Number of stories in bulletin
+        - `created_at` - Bulletin creation timestamp
+        - `station_name` - Station name (from join)
+        - `story_order` - Order of story in bulletin
+        - `included_at` - When story was included in bulletin
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Bulletin ID
+        - `station_id` - Station ID
+        - `filename` - Bulletin filename
+        - `duration_seconds` - Duration
+        - `file_size` - File size
+        - `story_count` - Number of stories
+        - `created_at` - Bulletin creation timestamp
+        - `station_name` - Station name
+        - `story_order` - Story order in bulletin
+        - `included_at` - Inclusion timestamp (default: descending)
+        
+        ## Examples
+        - Search by bulletin filename: `?search=bulletin_2024`
+        - Filter by station: `?filter[station_id]=1`
+        - Filter by date range: `?filter[included_at][gte]=2024-01-01`
+        - Sort by story order: `?sort=story_order`
+        - Field selection: `?fields=id,filename,story_order,included_at`
+        - Complex query: `?search=bulletin&filter[story_order][lte]=2&sort=-included_at&fields=id,filename,story_order`
       tags:
         - Stories
       parameters:
         - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/search'
+        - $ref: '#/components/parameters/filter'
       responses:
         '200':
-          description: Story bulletin history
+          description: Story bulletin history with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  story_id:
-                    type: integer
-                  story_title:
-                    type: string
-                  bulletins:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: integer
-                        station_id:
-                          type: integer
-                        station_name:
-                          type: string
-                        filename:
-                          type: string
-                        created_at:
-                          type: string
-                          format: date-time
-                        duration:
-                          type: number
-                        story_order:
-                          type: integer
-                        included_at:
-                          type: string
-                          format: date-time
-                  total:
-                    type: integer
+                $ref: '#/components/schemas/StoryBulletinsListResponse'
+              examples:
+                basic_history:
+                  summary: Basic bulletin history for story
+                  value:
+                    data:
+                      - id: 150
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_150_20240120_140500.wav"
+                        audio_url: "/bulletins/150/audio"
+                        duration: 185.4
+                        file_size: 2965440
+                        story_count: 4
+                        created_at: "2024-01-20T14:05:00Z"
+                        story_order: 0
+                        included_at: "2024-01-20T14:05:00Z"
+                      - id: 149
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_149_20240120_140200.wav"
+                        audio_url: "/bulletins/149/audio"
+                        duration: 178.2
+                        file_size: 2845568
+                        story_count: 3
+                        created_at: "2024-01-20T14:02:00Z"
+                        story_order: 1
+                        included_at: "2024-01-20T14:02:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,filename,story_order,included_at)
+                  value:
+                    data:
+                      - id: 150
+                        filename: "bulletin_150_20240120_140500.wav"
+                        story_order: 0
+                        included_at: "2024-01-20T14:05:00Z"
+                      - id: 149
+                        filename: "bulletin_149_20240120_140200.wav"
+                        story_order: 1
+                        included_at: "2024-01-20T14:02:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /users:
     get:
@@ -1142,12 +1313,48 @@ paths:
     get:
       summary: List bulletins
       description: |
-        Returns a paginated list of generated bulletins with optional filtering.
+        Returns a paginated list of generated bulletins with modern query parameter support.
         
-        Query parameters:
-        - `station_id` - Filter bulletins by station ID
-        - `limit` - Maximum number of bulletins to return (default: 20)
-        - `offset` - Number of bulletins to skip for pagination (default: 0)
+        ## Search Fields
+        Full-text search across:
+        - `b.filename` - Bulletin filename
+        - `s.name` - Station name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Bulletin ID
+        - `station_id` - Station ID
+        - `filename` - Bulletin filename
+        - `file_path` - File path
+        - `duration_seconds` - Duration in seconds
+        - `file_size` - File size in bytes
+        - `story_count` - Number of stories in bulletin
+        - `metadata` - JSON metadata
+        - `created_at` - Creation timestamp
+        - `station_name` - Station name (from join)
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Bulletin ID
+        - `station_id` - Station ID
+        - `filename` - Bulletin filename
+        - `duration_seconds` - Duration
+        - `file_size` - File size
+        - `story_count` - Number of stories
+        - `created_at` - Creation timestamp (default: descending)
+        - `station_name` - Station name
+        
+        ## Special Parameters
+        - `include_stories=true` - Include detailed story information in response
+        
+        ## Examples
+        - Search by filename: `?search=bulletin_2024`
+        - Filter by station: `?filter[station_id]=1`
+        - Filter by date range: `?filter[created_at][gte]=2024-01-01`
+        - Sort by duration: `?sort=-duration_seconds`
+        - Filter by story count: `?filter[story_count][gte]=3`
+        - Field selection: `?fields=id,filename,duration_seconds,story_count,created_at`
+        - Complex query: `?search=2024&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
       tags:
         - Bulletin
       parameters:
@@ -1162,7 +1369,10 @@ paths:
           required: false
           schema:
             type: integer
-          description: Filter by station ID
+          description: |
+            **DEPRECATED**: Use `filter[station_id]=value` instead.
+            Filter by station ID (legacy parameter, use modern filter syntax)
+          deprecated: true
         - name: include_stories
           in: query
           required: false
@@ -1172,35 +1382,118 @@ paths:
           description: Include detailed story information in bulletin response
       responses:
         '200':
-          description: List of bulletins
+          description: List of bulletins with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/BulletinResponse'
-                  total:
-                    type: integer
-                    description: Total number of bulletins
-                  limit:
-                    type: integer
-                    description: Number of items per page
-                  offset:
-                    type: integer
-                    description: Number of items skipped
+                $ref: '#/components/schemas/BulletinsListResponse'
+              examples:
+                basic_list:
+                  summary: Basic bulletin list
+                  value:
+                    data:
+                      - id: 150
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_150_20240120_140500.wav"
+                        audio_url: "/bulletins/150/audio"
+                        duration: 185.4
+                        file_size: 2965440
+                        story_count: 4
+                        created_at: "2024-01-20T14:05:00Z"
+                      - id: 149
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_149_20240120_140200.wav"
+                        audio_url: "/bulletins/149/audio"
+                        duration: 178.2
+                        file_size: 2845568
+                        story_count: 3
+                        created_at: "2024-01-20T14:02:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                filtered_by_station:
+                  summary: Bulletins filtered by station ID
+                  value:
+                    data:
+                      - id: 150
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_150_20240120_140500.wav"
+                        duration: 185.4
+                        story_count: 4
+                    total: 1
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,filename,duration_seconds,story_count)
+                  value:
+                    data:
+                      - id: 150
+                        filename: "bulletin_150_20240120_140500.wav"
+                        duration_seconds: 185.4
+                        story_count: 4
+                      - id: 149
+                        filename: "bulletin_149_20240120_140200.wav"
+                        duration_seconds: 178.2
+                        story_count: 3
+                    total: 2
+                    limit: 20
+                    offset: 0
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 
   /stations/{id}/bulletins:
     get:
       summary: List bulletins for a station
-      description: Returns a paginated list of bulletins generated for a specific station, ordered by most recent first.
+      description: |
+        Returns a paginated list of bulletins generated for a specific station with modern query parameter support.
+        Ordered by most recent first by default.
+        
+        ## Search Fields
+        Full-text search across:
+        - `b.filename` - Bulletin filename
+        - `s.name` - Station name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Bulletin ID
+        - `station_id` - Station ID (automatically filtered by path parameter)
+        - `filename` - Bulletin filename
+        - `file_path` - File path
+        - `duration_seconds` - Duration in seconds
+        - `file_size` - File size in bytes
+        - `story_count` - Number of stories in bulletin
+        - `created_at` - Creation timestamp
+        - `station_name` - Station name (from join)
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Bulletin ID
+        - `filename` - Bulletin filename
+        - `duration_seconds` - Duration
+        - `file_size` - File size
+        - `story_count` - Number of stories
+        - `created_at` - Creation timestamp (default: descending)
+        - `station_name` - Station name
+        
+        ## Special Parameters
+        - `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
+        - `include_stories=true` - Include detailed story information in response
+        
+        ## Examples
+        - Latest bulletin: `?latest=true`
+        - Search by filename: `?search=bulletin_2024`
+        - Filter by date range: `?filter[created_at][gte]=2024-01-01`
+        - Sort by duration: `?sort=-duration_seconds`
+        - Field selection: `?fields=id,filename,duration_seconds,created_at`
+        - Complex query: `?search=2024&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Bulletin
       parameters:
@@ -1227,27 +1520,57 @@ paths:
           description: Return only the latest bulletin for this station (equivalent to limit=1)
       responses:
         '200':
-          description: List of station bulletins
+          description: List of station bulletins with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/BulletinResponse'
-                  total:
-                    type: integer
-                    description: Total number of bulletins
-                  limit:
-                    type: integer
-                    description: Number of items per page
-                  offset:
-                    type: integer
-                    description: Number of items skipped
+                $ref: '#/components/schemas/BulletinsListResponse'
+              examples:
+                basic_list:
+                  summary: Basic bulletin list for station
+                  value:
+                    data:
+                      - id: 150
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_150_20240120_140500.wav"
+                        audio_url: "/bulletins/150/audio"
+                        duration: 185.4
+                        file_size: 2965440
+                        story_count: 4
+                        created_at: "2024-01-20T14:05:00Z"
+                      - id: 149
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_149_20240120_140200.wav"
+                        audio_url: "/bulletins/149/audio"
+                        duration: 178.2
+                        file_size: 2845568
+                        story_count: 3
+                        created_at: "2024-01-20T14:02:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                latest_bulletin:
+                  summary: Latest bulletin (latest=true)
+                  value:
+                    data:
+                      - id: 150
+                        station_id: 1
+                        station_name: "Radio Station 1"
+                        filename: "bulletin_150_20240120_140500.wav"
+                        audio_url: "/bulletins/150/audio"
+                        duration: 185.4
+                        file_size: 2965440
+                        story_count: 4
+                        created_at: "2024-01-20T14:05:00Z"
+                    total: 1
+                    limit: 1
+                    offset: 0
         '404':
-          description: Station not found
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       summary: Generate news bulletin for a station
       description: |
@@ -1483,7 +1806,44 @@ paths:
   /bulletins/{id}/stories:
     get:
       summary: List stories included in a bulletin
-      description: Returns a paginated list of stories that were included in a specific bulletin, ordered by their appearance order.
+      description: |
+        Returns a paginated list of stories that were included in a specific bulletin with modern query parameter support.
+        Ordered by story appearance order (story_order) by default.
+        
+        ## Search Fields
+        Full-text search across:
+        - `st.title` - Story title
+        - `s.name` - Station name
+        - `b.filename` - Bulletin filename
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Bulletin-story relationship ID
+        - `bulletin_id` - Bulletin ID (automatically filtered by path parameter)
+        - `story_id` - Story ID
+        - `story_order` - Order of story in bulletin
+        - `created_at` - When story was added to bulletin
+        - `station_id` - Station ID (from bulletin join)
+        - `station_name` - Station name (from join)
+        - `story_title` - Story title (from join)
+        - `bulletin_filename` - Bulletin filename (from join)
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Relationship ID
+        - `story_id` - Story ID
+        - `story_order` - Story order in bulletin (default: ascending)
+        - `created_at` - Addition timestamp
+        - `station_name` - Station name
+        - `story_title` - Story title
+        - `bulletin_filename` - Bulletin filename
+        
+        ## Examples
+        - Search by story title: `?search=breaking`
+        - Filter by story order: `?filter[story_order][lte]=3`
+        - Sort by story title: `?sort=story_title`
+        - Field selection: `?fields=id,story_id,story_order,story_title`
+        - Complex query: `?search=news&filter[story_order][lte]=5&sort=story_order&fields=id,story_title,story_order`
       tags:
         - Bulletin
       parameters:
@@ -1496,61 +1856,107 @@ paths:
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
-          description: List of stories in the bulletin
+          description: List of stories in the bulletin with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: integer
-                        bulletin_id:
-                          type: integer
-                        story_id:
-                          type: integer
-                        story_order:
-                          type: integer
-                        created_at:
-                          type: string
-                          format: date-time
+                $ref: '#/components/schemas/BulletinStoriesListResponse'
+              examples:
+                basic_list:
+                  summary: Stories in bulletin ordered by appearance
+                  value:
+                    data:
+                      - id: 1
+                        bulletin_id: 150
+                        story_id: 101
+                        story_order: 0
+                        created_at: "2024-01-20T14:05:00Z"
                         station:
-                          type: object
-                          properties:
-                            id:
-                              type: integer
-                            name:
-                              type: string
+                          id: 1
+                          name: "Radio Station 1"
                         story:
-                          type: object
-                          properties:
-                            id:
-                              type: integer
-                            title:
-                              type: string
+                          id: 101
+                          title: "Breaking News Update"
                         bulletin:
-                          type: object
-                          properties:
-                            id:
-                              type: integer
-                            filename:
-                              type: string
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                          id: 150
+                          filename: "bulletin_150_20240120_140500.wav"
+                      - id: 2
+                        bulletin_id: 150
+                        story_id: 102
+                        story_order: 1
+                        created_at: "2024-01-20T14:05:00Z"
+                        station:
+                          id: 1
+                          name: "Radio Station 1"
+                        story:
+                          id: 102
+                          title: "Weather Report"
+                        bulletin:
+                          id: 150
+                          filename: "bulletin_150_20240120_140500.wav"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,story_order,story_title)
+                  value:
+                    data:
+                      - id: 1
+                        story_order: 0
+                        story_title: "Breaking News Update"
+                      - id: 2
+                        story_order: 1
+                        story_title: "Weather Report"
+                    total: 2
+                    limit: 20
+                    offset: 0
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /station-voices:
     get:
       summary: List station-voice relationships
+      description: |
+        Returns a paginated list of station-voice relationships with modern query parameter support.
+        Includes station and voice information via database joins.
+        
+        ## Search Fields
+        Full-text search across:
+        - `s.name` - Station name
+        - `v.name` - Voice name
+        
+        ## Filter Fields
+        Available filter fields:
+        - `id` - Station-voice relationship ID
+        - `station_id` - Station ID
+        - `voice_id` - Voice ID
+        - `jingle_file` - Jingle filename
+        - `mix_point` - Mix point in seconds
+        - `created_at` - Creation timestamp
+        - `updated_at` - Last update timestamp
+        - `station_name` - Station name (from join)
+        - `voice_name` - Voice name (from join)
+        
+        ## Sort Fields
+        Available sort fields:
+        - `id` - Relationship ID (default: descending)
+        - `station_id` - Station ID
+        - `voice_id` - Voice ID
+        - `mix_point` - Mix point value
+        - `created_at` - Creation timestamp
+        - `updated_at` - Last update timestamp
+        - `station_name` - Station name
+        - `voice_name` - Voice name
+        
+        ## Examples
+        - Search by station name: `?search=Radio`
+        - Filter by station: `?filter[station_id]=1`
+        - Filter by voice: `?filter[voice_id]=2`
+        - Sort by station name: `?sort=station_name`
+        - Field selection: `?fields=id,station_name,voice_name,mix_point`
+        - Complex query: `?search=Radio&filter[station_id]=1&sort=-created_at&fields=id,station_name,voice_name`
       tags:
         - Station-Voices
       parameters:
@@ -1564,30 +1970,77 @@ paths:
           in: query
           schema:
             type: integer
-          description: Filter by station ID
+          description: |
+            **DEPRECATED**: Use `filter[station_id]=value` instead.
+            Filter by station ID (legacy parameter, use modern filter syntax)
+          deprecated: true
         - name: voice_id
           in: query
           schema:
             type: integer
-          description: Filter by voice ID
+          description: |
+            **DEPRECATED**: Use `filter[voice_id]=value` instead.
+            Filter by voice ID (legacy parameter, use modern filter syntax)
+          deprecated: true
       responses:
         '200':
-          description: List of station-voice relationships
+          description: List of station-voice relationships with pagination metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/StationVoice'
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                $ref: '#/components/schemas/StationVoicesListResponse'
+              examples:
+                basic_list:
+                  summary: Basic station-voice relationships
+                  value:
+                    data:
+                      - id: 1
+                        station_id: 1
+                        voice_id: 1
+                        station_name: "Radio Station 1"
+                        voice_name: "Sarah Johnson"
+                        mix_point: 2.5
+                        audio_url: "/station-voices/1/audio"
+                        created_at: "2024-01-15T10:30:00Z"
+                        updated_at: "2024-01-15T10:30:00Z"
+                      - id: 2
+                        station_id: 1
+                        voice_id: 2
+                        station_name: "Radio Station 1"
+                        voice_name: "Mike Davis"
+                        mix_point: 3.0
+                        audio_url: null
+                        created_at: "2024-01-16T14:20:00Z"
+                        updated_at: "2024-01-16T14:20:00Z"
+                    total: 2
+                    limit: 20
+                    offset: 0
+                search_example:
+                  summary: Search results for "Radio"
+                  value:
+                    data:
+                      - id: 1
+                        station_id: 1
+                        voice_id: 1
+                        station_name: "Radio Station 1"
+                        voice_name: "Sarah Johnson"
+                        mix_point: 2.5
+                    total: 1
+                    limit: 20
+                    offset: 0
+                field_selection:
+                  summary: Field selection (fields=id,station_name,voice_name,mix_point)
+                  value:
+                    data:
+                      - id: 1
+                        station_name: "Radio Station 1"
+                        voice_name: "Sarah Johnson"
+                        mix_point: 2.5
+                    total: 1
+                    limit: 20
+                    offset: 0
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       summary: Create a new station-voice relationship
       tags:
@@ -2357,6 +2810,170 @@ components:
               example: "Resource Conflict"
             status:
               example: 409
+
+    # Paginated Response Schemas for Modern CRUD Endpoints
+    StationsListResponse:
+      type: object
+      description: Paginated response for stations list endpoint
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Station'
+        total:
+          type: integer
+          description: Total number of stations matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    VoicesListResponse:
+      type: object
+      description: Paginated response for voices list endpoint
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Voice'
+        total:
+          type: integer
+          description: Total number of voices matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    StationVoicesListResponse:
+      type: object
+      description: Paginated response for station-voices list endpoint
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StationVoice'
+        total:
+          type: integer
+          description: Total number of station-voice relationships matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    BulletinsListResponse:
+      type: object
+      description: Paginated response for bulletins list endpoints
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulletinResponse'
+        total:
+          type: integer
+          description: Total number of bulletins matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    BulletinStoriesListResponse:
+      type: object
+      description: Paginated response for bulletin stories list endpoint
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            description: Bulletin-story relationship with nested objects
+            properties:
+              id:
+                type: integer
+                description: Bulletin-story relationship ID
+              bulletin_id:
+                type: integer
+                description: Bulletin ID
+              story_id:
+                type: integer
+                description: Story ID
+              story_order:
+                type: integer
+                description: Order of story in bulletin
+              created_at:
+                type: string
+                format: date-time
+                description: When story was added to bulletin
+              station:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Station ID
+                  name:
+                    type: string
+                    description: Station name
+              story:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Story ID
+                  title:
+                    type: string
+                    description: Story title
+              bulletin:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    description: Bulletin ID
+                  filename:
+                    type: string
+                    description: Bulletin filename
+        total:
+          type: integer
+          description: Total number of story-bulletin relationships matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    StoryBulletinsListResponse:
+      type: object
+      description: Paginated response for story bulletins history endpoint
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/BulletinResponse'
+              - type: object
+                properties:
+                  story_order:
+                    type: integer
+                    description: Order of story in this bulletin
+                  included_at:
+                    type: string
+                    format: date-time
+                    description: When story was included in this bulletin
+        total:
+          type: integer
+          description: Total number of bulletins that included this story
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
 
   responses:
     BadRequest:
