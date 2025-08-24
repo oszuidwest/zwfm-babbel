@@ -78,7 +78,7 @@ All endpoints require session-based authentication (except health and login).
 | PATCH | /stories/{id} | Update story state |  | JSON |
 | PUT | /stories/{id} | Update story |  | Form |
 | GET | /stories/{id}/audio | Download story audio file |  | - |
-| GET | /stories/{id}/bulletins | Get bulletin history for a story |  | - |
+| GET | /stories/{id}/bulletins | Get bulletin history for a story | , , , , , ,  | - |
 | GET | /users | List all users | , , , , , ,  | - |
 | POST | /users | Create a new user | - | JSON |
 | DELETE | /users/{id} | Permanently delete user |  | - |
