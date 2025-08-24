@@ -468,51 +468,67 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	// Otherwise return paginated list of bulletins for this station
-	limit, offset := utils.GetPagination(c)
+	// Parse include_stories parameter
 	includeStories := c.Query("include_stories") == "true"
 
-	// Build query for station bulletins
-	filters := []utils.FilterConfig{
-		{
-			Column: "station_id",
-			Table:  "b",
-			Value:  stationID,
+	// Configure modern query with field mappings, search fields, and station_id filter
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
+			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
+			            FROM bulletins b 
+			            JOIN stations s ON b.station_id = s.id`,
+			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
+			DefaultOrder: "b.created_at DESC",
+			Filters: []utils.FilterConfig{
+				{
+					Column: "station_id",
+					Table:  "b",
+					Value:  stationID,
+				},
+			},
+		},
+		SearchFields:      []string{"b.filename", "s.name"},
+		TableAlias:        "b",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
+		DisableSoftDelete: true, // Bulletins table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":               "b.id",
+			"station_id":       "b.station_id",
+			"filename":         "b.filename",
+			"file_path":        "b.file_path",
+			"duration_seconds": "b.duration_seconds",
+			"duration":         "b.duration_seconds", // Allow both field names
+			"file_size":        "b.file_size",
+			"story_count":      "b.story_count",
+			"metadata":         "b.metadata",
+			"created_at":       "b.created_at",
+			"station_name":     "s.name",
 		},
 	}
 
-	whereClause, filterArgs := utils.BuildWhereClause(filters)
-
-	baseQuery := `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
-	              b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
-	              FROM bulletins b 
-	              JOIN stations s ON b.station_id = s.id`
-	countQuery := "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id"
-
-	if whereClause != "" {
-		baseQuery += " " + whereClause
-		countQuery += " " + whereClause
-	}
-
-	total, err := utils.CountWithJoins(h.db, countQuery, filterArgs...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to count bulletins")
-		return
-	}
-
-	baseQuery += " ORDER BY b.created_at DESC LIMIT ? OFFSET ?"
-	filterArgs = append(filterArgs, limit, offset)
-
 	var bulletins []models.Bulletin
-	if err := h.db.Select(&bulletins, baseQuery, filterArgs...); err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch bulletins")
+	utils.ModernListWithQuery(c, h.db, config, &bulletins)
+
+	// Check if ModernListWithQuery already handled the response (error case)
+	if c.IsAborted() {
 		return
 	}
 
+	// Get the response data to extract total count
+	responseData := c.Keys["pagination_data"]
+	paginationInfo, ok := responseData.(map[string]interface{})
+	if !ok {
+		// ModernListWithQuery didn't set pagination data, which means it already sent response
+		return
+	}
+
+	// Convert to response format
 	bulletinResponses := make([]map[string]interface{}, len(bulletins))
 	for i, bulletin := range bulletins {
 		response := h.bulletinToResponse(&bulletin)
 
+		// Add stories if requested
 		if includeStories {
 			stories, err := h.getStoriesForBulletin(&bulletin)
 			if err == nil && len(stories) > 0 {
@@ -523,7 +539,11 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		bulletinResponses[i] = response
 	}
 
-	utils.PaginatedResponse(c, bulletinResponses, total, limit, offset)
+	// Send the custom formatted response with pagination metadata
+	total := paginationInfo["total"].(int)
+	limit := paginationInfo["limit"].(int)
+	offset := paginationInfo["offset"].(int)
+	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
 }
 
 // BulletinListResponse represents the response format for bulletins in list view with computed fields.

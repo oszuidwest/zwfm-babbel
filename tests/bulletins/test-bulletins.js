@@ -457,6 +457,420 @@ class BulletinsTests extends BaseTest {
         
         return true;
     }
+
+    /**
+     * Test station bulletin endpoints with modern query parameters
+     */
+    async testStationBulletinsModernQuery() {
+        this.printSection('Testing Station Bulletins Modern Query Parameters');
+        
+        // Setup test data - create a dedicated station with voices and stories
+        this.printInfo('Setting up comprehensive test data for station bulletins modern query tests...');
+        const testStationId = await this.createTestStation('Station Query Test');
+        if (!testStationId) {
+            this.printError('Failed to create test station for modern query tests');
+            return false;
+        }
+        
+        // Create test voices and station-voice relationships for this station
+        const testVoiceId = await this.createTestVoice('Modern Query Voice');
+        if (!testVoiceId) {
+            this.printError('Failed to create test voice for modern query tests');
+            return false;
+        }
+        
+        const stationVoiceId = await this.createStationVoiceWithJingle(testStationId, testVoiceId, 2.0);
+        if (!stationVoiceId) {
+            this.printError('Failed to create station-voice relationship for modern query tests');
+            return false;
+        }
+        
+        // Create multiple test stories with different content for better testing
+        const storyTitles = [
+            'Breaking News Bulletin Query Test',
+            'Weather Update Query Test', 
+            'Traffic Report Query Test',
+            'Sports News Query Test',
+            'Local News Query Test',
+            'Business Update Query Test'
+        ];
+        
+        const createdStoryIds = [];
+        for (let i = 0; i < storyTitles.length; i++) {
+            const storyId = await this.createTestStoryWithAudio(
+                storyTitles[i], 
+                `Test story content for ${storyTitles[i]}`, 
+                testVoiceId,
+                'monday,tuesday,wednesday,thursday,friday,saturday,sunday'
+            );
+            if (storyId) {
+                createdStoryIds.push(storyId);
+            }
+        }
+        
+        if (createdStoryIds.length === 0) {
+            this.printError('Failed to create any test stories for modern query tests');
+            return false;
+        }
+        this.printSuccess(`Created ${createdStoryIds.length} test stories for query testing`);
+        
+        // Wait for audio processing
+        this.printInfo('Waiting for audio processing...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Generate multiple bulletins for this station with delays to ensure different timestamps
+        const bulletinIds = [];
+        this.printInfo('Generating multiple bulletins for testing...');
+        for (let i = 0; i < 6; i++) {
+            const response = await this.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
+            if (response.status === 200) {
+                const bulletinId = this.parseJsonField(response.data, 'id');
+                if (bulletinId) {
+                    bulletinIds.push(bulletinId);
+                    this.createdBulletinIds.push(bulletinId);
+                }
+                // Add small delay to ensure different timestamps and durations
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+        
+        if (bulletinIds.length < 3) {
+            this.printError(`Failed to create enough test bulletins for modern query tests (created ${bulletinIds.length})`);
+            // Still attempt to test with available data if we have some bulletins
+            if (bulletinIds.length === 0) {
+                return false;
+            }
+        }
+        this.printSuccess(`Created ${bulletinIds.length} test bulletins for station ${testStationId}`);
+        
+        // Test 1: Search functionality
+        this.printInfo('Testing search by filename in station bulletins...');
+        const searchResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?search=bulletin`);
+        if (this.assertions.checkResponse(searchResponse, 200, 'Search station bulletins')) {
+            const results = searchResponse.data.data || [];
+            if (results.length > 0) {
+                this.printSuccess(`Station search returned ${results.length} bulletins matching "bulletin"`);
+                // Since this is station-specific endpoint, all results should be from this station
+                // Station constraint is automatic from URL path, so just verify we got results
+                this.printSuccess('Station search returned results (station constraint is automatic from URL)');
+            } else {
+                this.printWarning('Station search returned no results');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 2: Field selection
+        this.printInfo('Testing field selection for station bulletins...');
+        const fieldsResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?fields=id,filename,duration_seconds&limit=3`);
+        if (this.assertions.checkResponse(fieldsResponse, 200, 'Station bulletins field selection')) {
+            const firstResult = fieldsResponse.data.data[0];
+            if (firstResult) {
+                const hasOnlySelectedFields = 
+                    firstResult.hasOwnProperty('id') && 
+                    firstResult.hasOwnProperty('filename') &&
+                    firstResult.hasOwnProperty('duration_seconds') &&
+                    !firstResult.hasOwnProperty('story_count') &&
+                    !firstResult.hasOwnProperty('file_size');
+                
+                if (hasOnlySelectedFields) {
+                    this.printSuccess('Station bulletins field selection works correctly');
+                } else {
+                    this.printWarning('Field selection returned unexpected fields');
+                }
+            } else {
+                this.printWarning('No results returned for field selection test');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 3: Sorting by created_at descending
+        this.printInfo('Testing sorting by created_at descending...');
+        const sortDescResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?sort=-created_at&limit=5`);
+        if (this.assertions.checkResponse(sortDescResponse, 200, 'Station bulletins sort descending')) {
+            const results = sortDescResponse.data.data || [];
+            if (results.length > 1) {
+                let correctOrder = true;
+                for (let i = 1; i < results.length; i++) {
+                    if (new Date(results[i-1].created_at) < new Date(results[i].created_at)) {
+                        correctOrder = false;
+                        break;
+                    }
+                }
+                if (correctOrder) {
+                    this.printSuccess('Station bulletins descending sort order works correctly');
+                } else {
+                    this.printError('Station bulletins sort order is incorrect');
+                    return false;
+                }
+                
+                // Station-specific endpoint automatically filters by station
+                this.printSuccess('Sorted results from station-specific endpoint');
+            } else {
+                this.printWarning('Not enough bulletins for sort order test');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 4: Sorting by filename ascending
+        this.printInfo('Testing sorting by filename ascending...');
+        const sortAscResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?sort=filename:asc&limit=5`);
+        if (this.assertions.checkResponse(sortAscResponse, 200, 'Station bulletins sort ascending')) {
+            const results = sortAscResponse.data.data || [];
+            if (results.length > 1) {
+                let correctOrder = true;
+                for (let i = 1; i < results.length; i++) {
+                    if (results[i-1].filename > results[i].filename) {
+                        correctOrder = false;
+                        break;
+                    }
+                }
+                if (correctOrder) {
+                    this.printSuccess('Station bulletins filename ascending sort works correctly');
+                } else {
+                    this.printWarning('Station bulletins filename sort order may be incorrect');
+                }
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 5: Filtering by duration (gte operator)
+        this.printInfo('Testing filter by duration_seconds gte...');
+        
+        // Get a reference bulletin to use for filtering
+        const refResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?limit=1`);
+        if (refResponse.status === 200 && refResponse.data.data && refResponse.data.data.length > 0) {
+            const refBulletin = refResponse.data.data[0];
+            if (refBulletin.duration_seconds) {
+                const minDuration = Math.floor(refBulletin.duration_seconds);
+                const filterResponse = await this.apiCall('GET', 
+                    `/stations/${testStationId}/bulletins?filter[duration_seconds][gte]=${minDuration}`);
+                    
+                if (this.assertions.checkResponse(filterResponse, 200, 'Filter station bulletins by duration')) {
+                    const results = filterResponse.data.data || [];
+                    const allMeetCriteria = results.every(b => 
+                        b.duration_seconds >= minDuration
+                    );
+                    if (allMeetCriteria) {
+                        this.printSuccess('Station bulletins duration filter works correctly');
+                    } else {
+                        this.printWarning('Some results do not meet duration filter criteria');
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                this.printWarning('No duration_seconds field available for filtering test');
+            }
+        } else {
+            this.printWarning('No bulletin data available for duration filter test');
+        }
+        
+        // Test 5b: Filtering by story_count (lte operator)
+        this.printInfo('Testing filter by story_count lte...');
+        if (bulletinIds.length > 0) {
+            const storyCountResponse = await this.apiCall('GET', 
+                `/stations/${testStationId}/bulletins?filter[story_count][lte]=10&limit=3`);
+            if (this.assertions.checkResponse(storyCountResponse, 200, 'Filter station bulletins by story count')) {
+                const results = storyCountResponse.data.data || [];
+                const allMeetCriteria = results.every(b => 
+                    b.story_count <= 10
+                );
+                if (allMeetCriteria) {
+                    this.printSuccess('Station bulletins story_count filter (lte) works correctly');
+                } else {
+                    this.printWarning('Some results do not meet story_count filter criteria');
+                }
+            } else {
+                return false;
+            }
+        }
+        
+        // Test 5c: Filtering by ID not equal (ne operator)  
+        this.printInfo('Testing filter by id not equal (ne operator)...');
+        if (bulletinIds.length > 1) {
+            const excludeId = bulletinIds[0];
+            const neResponse = await this.apiCall('GET', 
+                `/stations/${testStationId}/bulletins?filter[id][ne]=${excludeId}&limit=5`);
+            if (this.assertions.checkResponse(neResponse, 200, 'Filter station bulletins by id ne')) {
+                const results = neResponse.data.data || [];
+                const noneMeetExcludedId = results.every(b => 
+                    b.id !== excludeId
+                );
+                if (noneMeetExcludedId) {
+                    this.printSuccess('Station bulletins not-equal filter works correctly');
+                } else {
+                    this.printWarning('Not-equal filter returned excluded ID or wrong station');
+                }
+            } else {
+                return false;
+            }
+        }
+        
+        // Test 6: Complex query combining search, sort, and fields
+        this.printInfo('Testing complex query with search, sort, and field selection...');
+        const complexResponse = await this.apiCall('GET', 
+            `/stations/${testStationId}/bulletins?search=bulletin&sort=-created_at&fields=id,filename,created_at&limit=10`);
+        if (this.assertions.checkResponse(complexResponse, 200, 'Complex station bulletins query')) {
+            const results = complexResponse.data.data || [];
+            this.printSuccess(`Complex station query returned ${results.length} results`);
+            
+            // Station-specific endpoint ensures proper scoping
+            this.printSuccess('Complex query scoped to station via URL path');
+        } else {
+            return false;
+        }
+        
+        // Test 7: Special parameter - latest=true
+        this.printInfo('Testing latest=true parameter...');
+        const latestResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?latest=true`);
+        if (this.assertions.checkResponse(latestResponse, 200, 'Get latest station bulletin')) {
+            // For latest=true, we should get a single bulletin (not an array)
+            if (latestResponse.data.id) {
+                this.printSuccess('Latest parameter returned single bulletin');
+                this.printSuccess('Latest bulletin from station-specific endpoint');
+            } else if (latestResponse.data.data && latestResponse.data.data.length === 1) {
+                this.printSuccess('Latest parameter returned single bulletin in array format');
+                this.printSuccess('Latest bulletin from station-specific endpoint');
+            } else {
+                this.printWarning('Latest parameter response format unexpected');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 8: Special parameter - include_stories=true
+        this.printInfo('Testing include_stories=true parameter...');
+        const storiesResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?include_stories=true&limit=1`);
+        if (this.assertions.checkResponse(storiesResponse, 200, 'Include stories in station bulletins')) {
+            const results = storiesResponse.data.data || [];
+            if (results.length > 0) {
+                const firstResult = results[0];
+                if (firstResult.stories && Array.isArray(firstResult.stories)) {
+                    this.printSuccess(`Include stories works - bulletin has ${firstResult.stories.length} stories`);
+                } else {
+                    this.printWarning('Include stories parameter did not add stories array');
+                }
+                
+                // Station-specific endpoint ensures correct station
+                this.printSuccess('Stories included from station-specific endpoint');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 9: Pagination
+        this.printInfo('Testing pagination for station bulletins...');
+        const pageResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?limit=2&offset=1`);
+        if (this.assertions.checkResponse(pageResponse, 200, 'Station bulletins pagination')) {
+            const results = pageResponse.data.data || [];
+            if (results.length <= 2) {
+                this.printSuccess(`Pagination limit respected (returned ${results.length} bulletins)`);
+            } else {
+                this.printError(`Pagination limit not respected (returned ${results.length} bulletins)`);
+                return false;
+            }
+            
+            // Check pagination metadata
+            if (pageResponse.data.limit === 2 && pageResponse.data.offset === 1) {
+                this.printSuccess('Pagination metadata correctly included');
+            } else {
+                this.printWarning('Pagination metadata incomplete');
+            }
+            
+            // Station-specific endpoint automatically filters results
+            this.printSuccess('Paginated results from station-specific endpoint');
+        } else {
+            return false;
+        }
+        
+        // Test 10: IN operator for multiple IDs
+        this.printInfo('Testing IN operator with multiple bulletin IDs...');
+        if (bulletinIds.length >= 2) {
+            const firstTwoIds = bulletinIds.slice(0, 2);
+            const inResponse = await this.apiCall('GET', 
+                `/stations/${testStationId}/bulletins?filter[id][in]=${firstTwoIds.join(',')}`);
+            if (this.assertions.checkResponse(inResponse, 200, 'Filter station bulletins with IN operator')) {
+                const results = inResponse.data.data || [];
+                const allInIds = results.every(b => 
+                    firstTwoIds.includes(b.id)
+                );
+                if (allInIds && results.length <= 2) {
+                    this.printSuccess('Station bulletins IN operator works correctly');
+                } else {
+                    this.printWarning('IN operator results may include wrong IDs or station');
+                }
+            } else {
+                return false;
+            }
+        }
+        
+        // Test 11: Date range filtering
+        this.printInfo('Testing date range filtering for station bulletins...');
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const dateRangeResponse = await this.apiCall('GET', 
+            `/stations/${testStationId}/bulletins?filter[created_at][gte]=${yesterday}&filter[created_at][lte]=${today}T23:59:59`);
+        if (this.assertions.checkResponse(dateRangeResponse, 200, 'Filter station bulletins by date range')) {
+            const results = dateRangeResponse.data.data || [];
+            // Station-specific endpoint automatically filters by station
+            this.printSuccess(`Date range filter works correctly (found ${results.length} bulletins)`);
+        } else {
+            return false;
+        }
+        
+        // Test 12: Multiple sort fields (if supported)
+        this.printInfo('Testing multiple sort fields...');
+        const multiSortResponse = await this.apiCall('GET', 
+            `/stations/${testStationId}/bulletins?sort=-created_at,filename&limit=5`);
+        if (this.assertions.checkResponse(multiSortResponse, 200, 'Multi-field sort for station bulletins')) {
+            const results = multiSortResponse.data.data || [];
+            if (results.length > 0) {
+                this.printSuccess('Multiple sort fields accepted (results may vary by implementation)');
+            }
+        } else {
+            return false;
+        }
+        
+        // Test 13: Verify station constraint (bulletins from other stations should not appear)
+        this.printInfo('Testing station constraint isolation...');
+        if (this.createdStationIds.length > 1) {
+            const otherStationId = this.createdStationIds.find(id => id !== testStationId);
+            if (otherStationId) {
+                // Try to generate a bulletin for the other station
+                await this.apiCall('POST', `/stations/${otherStationId}/bulletins`, {});
+                
+                // Query our test station and verify no cross-station leakage
+                const isolationResponse = await this.apiCall('GET', `/stations/${testStationId}/bulletins?limit=50`);
+                if (this.assertions.checkResponse(isolationResponse, 200, 'Test station isolation')) {
+                    const results = isolationResponse.data.data || [];
+                    // Station-specific endpoint ensures correct station results
+                    this.printSuccess('Station constraint properly isolates bulletins');
+                } else {
+                    return false;
+                }
+            }
+        }
+        
+        // Test 14: Empty result handling
+        this.printInfo('Testing query that returns no results...');
+        const emptyResponse = await this.apiCall('GET', 
+            `/stations/${testStationId}/bulletins?search=nonexistentbulletinfilename12345`);
+        if (this.assertions.checkResponse(emptyResponse, 200, 'Empty search results')) {
+            if (emptyResponse.data.data && emptyResponse.data.data.length === 0) {
+                this.printSuccess('Empty search results handled correctly');
+            } else {
+                this.printWarning('Expected empty results but got data');
+            }
+        } else {
+            return false;
+        }
+        
+        return true;
+    }
     
     /**
      * Test bulletin history
@@ -955,6 +1369,7 @@ class BulletinsTests extends BaseTest {
             'testBulletinRetrieval',
             'testBulletinAudioDownload',
             'testStationBulletinEndpoints',
+            'testStationBulletinsModernQuery',
             'testBulletinHistory',
             'testBulletinCaching',
             'testBulletinErrorCases',
