@@ -77,9 +77,9 @@ info:
     1.1.2:
       - "Fixed password_changed_at field nullability in User schema to match Go implementation"
     1.1.1:
-      - "Improved story filtering API - replaced voice_id=null with cleaner has_voice parameter"
+      - "Improved story filtering API - replaced voice_id=null with cleaner has_voice parameter (now deprecated)"
       - "voice_id now only filters by specific voice ID for better clarity"
-      - "Added has_voice=true/false parameter for filtering stories with/without voice"
+      - "Added has_voice=true/false parameter for filtering stories with/without voice (now deprecated)"
     1.1.0:
       - "CRITICAL: Fixed database query bug in GetUser - added missing failed_login_attempts, locked_until, and metadata fields"
       - "CRITICAL: Changed bulletin_url to audio_url for API consistency"
@@ -739,12 +739,12 @@ paths:
         
         ## Voice Filtering
         - `filter[voice_id]=5` - Stories with specific voice
-        - `has_voice=true` - Stories with any voice assigned
-        - `has_voice=false` - Stories without voice
+        - `filter[voice_id][ne]=null` - Stories with any voice assigned
+        - `filter[voice_id][null]=true` - Stories without voice
         
         ## Examples
         - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
-        - Monday stories with voice: `?filter[monday]=1&has_voice=true`
+        - Monday stories with voice: `?filter[monday]=1&filter[voice_id][ne]=null`
         - Search with sorting: `?search=breaking&sort=-created_at`
       tags:
         - Stories
@@ -756,16 +756,6 @@ paths:
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/status'
         - $ref: '#/components/parameters/filter'
-        - name: has_voice
-          in: query
-          schema:
-            type: boolean
-          description: Filter stories by voice assignment status (true = has voice, false = no voice assigned)
-        - name: has_audio
-          in: query
-          schema:
-            type: boolean
-          description: Filter stories by audio file status (true = has audio, false = no audio)
       responses:
         '200':
           description: List of stories
@@ -811,7 +801,7 @@ paths:
                     limit: 20
                     offset: 0
                 filtered_by_voice:
-                  summary: Stories filtered by voice (has_voice=true)
+                  summary: Stories filtered by voice (filter[voice_id][ne]=null)
                   value:
                     data:
                       - id: 101

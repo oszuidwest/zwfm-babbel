@@ -1005,12 +1005,12 @@ Filter by specific weekdays:
 
 ## Voice Filtering
 - `filter[voice_id]=5` - Stories with specific voice
-- `has_voice=true` - Stories with any voice assigned
-- `has_voice=false` - Stories without voice
+- `filter[voice_id][ne]=null` - Stories with any voice assigned
+- `filter[voice_id][null]=true` - Stories without voice
 
 ## Examples
 - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
-- Monday stories with voice: `?filter[monday]=1&has_voice=true`
+- Monday stories with voice: `?filter[monday]=1&filter[voice_id][ne]=null`
 - Search with sorting: `?search=breaking&sort=-created_at`
 
 
@@ -1026,8 +1026,6 @@ Filter by specific weekdays:
 | `` |  | string | No |  |
 | `` |  | string | No |  |
 | `` |  | string | No |  |
-| `has_voice` | query | boolean | No | Filter stories by voice assignment status (true = has voice, false = no voice assigned) |
-| `has_audio` | query | boolean | No | Filter stories by audio file status (true = has audio, false = no audio) |
 
 
 
@@ -1453,9 +1451,6 @@ Available sort fields:
 | `` |  | string | No |  |
 | `` |  | string | No |  |
 | `` |  | string | No |  |
-| `station_id` | query | integer | No | **DEPRECATED**: Use `filter[station_id]=value` instead.
-Filter by station ID (legacy parameter, use modern filter syntax)
- |
 | `include_stories` | query | boolean | No | Include detailed story information in bulletin response |
 
 
@@ -1836,12 +1831,6 @@ Available sort fields:
 | `` |  | string | No |  |
 | `` |  | string | No |  |
 | `` |  | string | No |  |
-| `station_id` | query | integer | No | **DEPRECATED**: Use `filter[station_id]=value` instead.
-Filter by station ID (legacy parameter, use modern filter syntax)
- |
-| `voice_id` | query | integer | No | **DEPRECATED**: Use `filter[voice_id]=value` instead.
-Filter by voice ID (legacy parameter, use modern filter syntax)
- |
 
 
 

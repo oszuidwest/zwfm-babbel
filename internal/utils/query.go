@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -288,7 +287,11 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 	return filters
 }
 
-// parseBooleanFilters handles boolean filters like ?has_voice=true
+// parseBooleanFilters handles boolean filters
+// NOTE: All data-related boolean filters have been replaced with modern filter syntax:
+// - is_active → use filter[status]=active instead
+// - is_expired → use filter[end_date][lt]=<current_time> instead
+// - is_scheduled → use filter[start_date][ne]=null instead
 func parseBooleanFilters(c *gin.Context) map[string]*bool {
 	booleanFilters := make(map[string]*bool)
 
@@ -296,8 +299,8 @@ func parseBooleanFilters(c *gin.Context) map[string]*bool {
 		return booleanFilters
 	}
 
-	// Common boolean filter patterns
-	booleanKeys := []string{"has_voice", "has_audio", "is_active", "is_expired", "is_scheduled"}
+	// No more boolean filters - all use modern filter syntax
+	booleanKeys := []string{}
 
 	for _, key := range booleanKeys {
 		if value := c.Query(key); value != "" {
@@ -785,38 +788,7 @@ func buildBooleanConditions(filters map[string]*bool, args *[]interface{}) []str
 // buildSingleBooleanCondition builds a single boolean filter condition
 func buildSingleBooleanCondition(key string, value bool, args *[]interface{}) string {
 	switch key {
-	case "has_voice":
-		if value {
-			return "voice_id IS NOT NULL"
-		}
-		return "voice_id IS NULL"
-
-	case "has_audio":
-		if value {
-			return "audio_file IS NOT NULL AND audio_file != ''"
-		}
-		return "(audio_file IS NULL OR audio_file = '')"
-
-	case "is_active":
-		if value {
-			return "status = 'active'"
-		}
-		return "status != 'active'"
-
-	case "is_expired":
-		now := time.Now()
-		if value {
-			*args = append(*args, now)
-			return "end_date < ?"
-		}
-		*args = append(*args, now)
-		return "(end_date >= ? OR end_date IS NULL)"
-
-	case "is_scheduled":
-		if value {
-			return "start_date IS NOT NULL"
-		}
-		return "start_date IS NULL"
+	// All boolean filters have been replaced with modern filter syntax
 
 	default:
 		return ""

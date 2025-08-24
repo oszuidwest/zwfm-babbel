@@ -10,7 +10,7 @@ The query parameter system provides:
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
 - **Status filtering**: `?status=all|active|deleted|suspended`
-- **Boolean filters**: `?has_voice=true|false`
+- **Status filters**: `?filter[status]=active|inactive|draft`
 
 ## Modern Query Parameter Formats
 
@@ -114,11 +114,11 @@ GET /api/v1/users?status=suspended      # Only suspended users
 
 ```http
 # Boolean filters
-GET /api/v1/stories?has_voice=true      # Stories with voice assigned
-GET /api/v1/stories?has_voice=false     # Stories without voice
-GET /api/v1/stories?has_audio=true      # Stories with audio files
-GET /api/v1/stories?is_active=true      # Active stories
-GET /api/v1/stories?is_expired=false    # Non-expired stories
+GET /api/v1/stories?filter[voice_id][ne]=null     # Stories with voice assigned
+GET /api/v1/stories?filter[voice_id][null]=true   # Stories without voice
+GET /api/v1/stories?filter[audio_file][ne]=       # Stories with audio files
+GET /api/v1/stories?filter[status]=active         # Active stories
+GET /api/v1/stories?filter[end_date][gte]=2024-06-15  # Non-expired stories
 ```
 
 ### 7. Pagination
@@ -134,13 +134,13 @@ GET /api/v1/stories?limit=20&offset=40
 
 ```http
 # Complex filtering
-GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2&filter[created_at][gte]=2024-01-01&has_audio=true&search=breaking&sort=-created_at&fields=id,title,voice_name,created_at
+GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2&filter[created_at][gte]=2024-01-01&filter[audio_file][ne]=&search=breaking&sort=-created_at&fields=id,title,voice_name,created_at
 
 # Date-based filtering
 GET /api/v1/stories?filter[start_date][lte]=2024-06-01&filter[end_date][gte]=2024-06-01
 
 # Boolean combinations
-GET /api/v1/stories?has_voice=true&is_active=true&has_audio=false
+GET /api/v1/stories?filter[voice_id][ne]=null&filter[status]=active&filter[audio_file]=
 ```
 
 ### Users API
@@ -256,7 +256,7 @@ The system provides detailed error responses for invalid parameters:
   "details": [
     "Invalid date format for created_at. Use YYYY-MM-DD",
     "Invalid sort field: invalid_field",
-    "Boolean filter has_voice must be true or false"
+    "Invalid filter operator 'foo' for field 'status'"
   ]
 }
 ```
@@ -299,7 +299,7 @@ Potential additions for future versions:
 ### Mobile App Optimization
 ```http
 # Minimal fields for mobile list view
-GET /api/v1/stories?fields=id,title,voice_name&limit=10&has_audio=true&sort=-created_at
+GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_file][ne]=&sort=-created_at
 ```
 
 ### Admin Dashboard
@@ -317,7 +317,7 @@ GET /api/v1/bulletins?filter[created_at][between]=2024-01-01,2024-12-31&limit=10
 ### Integration Testing
 ```http
 # Comprehensive query for testing
-GET /api/v1/stories?filter[voice_id][in]=1,2&has_audio=true&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
+GET /api/v1/stories?filter[voice_id][in]=1,2&filter[audio_file][ne]=&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
 ```
 
 This modern query parameter system provides a robust, scalable foundation for API querying while maintaining backward compatibility and following 2024 REST API best practices.
