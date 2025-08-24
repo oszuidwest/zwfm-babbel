@@ -142,13 +142,18 @@ class BulletinsTests extends BaseTest {
             }
         });
         
+        // Use date range that includes today
+        const today = new Date();
+        const startDate = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0]; // Jan 1 of current year
+        const endDate = new Date(today.getFullYear(), 11, 31).toISOString().split('T')[0]; // Dec 31 of current year
+        
         const formFields = {
             title,
             text,
             voice_id: voiceId.toString(),
             status: 'active',
-            start_date: '2025-01-01',
-            end_date: '2025-12-31',
+            start_date: startDate,
+            end_date: endDate,
             ...weekdayFlags
         };
         
@@ -203,10 +208,10 @@ class BulletinsTests extends BaseTest {
         }
         this.printSuccess('Created station-voice relationships with jingles');
         
-        // Create test stories with audio
-        const story1Id = await this.createTestStoryWithAudio('Breaking News Bulletin Test', 'This is a test breaking news story for bulletin generation.', voice1Id, 'monday,tuesday,wednesday,thursday,friday');
-        const story2Id = await this.createTestStoryWithAudio('Weather Update Bulletin Test', 'Test weather forecast for bulletin generation.', voice2Id, 'monday,tuesday,wednesday,thursday,friday');
-        const story3Id = await this.createTestStoryWithAudio('Traffic Report Bulletin Test', 'Traffic update for bulletin generation testing.', voice1Id, 'monday,wednesday,friday');
+        // Create test stories with audio - include all days to ensure stories are available
+        const story1Id = await this.createTestStoryWithAudio('Breaking News Bulletin Test', 'This is a test breaking news story for bulletin generation.', voice1Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
+        const story2Id = await this.createTestStoryWithAudio('Weather Update Bulletin Test', 'Test weather forecast for bulletin generation.', voice2Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
+        const story3Id = await this.createTestStoryWithAudio('Traffic Report Bulletin Test', 'Traffic update for bulletin generation testing.', voice1Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
         
         if (!story1Id || !story2Id || !story3Id) {
             this.printError('Failed to create test stories');
