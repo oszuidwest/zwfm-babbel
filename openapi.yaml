@@ -1262,41 +1262,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /users/{id}/password:
-    put:
-      summary: Change user password
-      tags:
-        - Users
-      parameters:
-        - $ref: '#/components/parameters/id'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - password
-              properties:
-                password:
-                  type: string
-                  minLength: 8
-                  description: New password (minimum 8 characters)
-      responses:
-        '200':
-          description: Password updated successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: Password updated successfully
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
 
 
   /bulletins:
@@ -1676,73 +1641,6 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           description: Station not found or no stories available
-
-  /stations/{id}/bulletins/latest:
-    get:
-      summary: Get latest bulletin for a station
-      description: Returns the most recently generated bulletin for a specific station. This endpoint is ideal for radio automation systems that need to fetch the latest news bulletin.
-      tags:
-        - Bulletin
-      parameters:
-        - $ref: '#/components/parameters/id'
-      responses:
-        '200':
-          description: Latest bulletin found
-          headers:
-            X-Cache:
-              schema:
-                type: string
-                enum: [HIT]
-              description: Always 'HIT' since this endpoint returns existing bulletins
-            Age:
-              schema:
-                type: integer
-                minimum: 0
-              description: Age of the bulletin in seconds since creation
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BulletinResponse'
-        '404':
-          description: Station not found or no bulletin available
-
-  /stations/{id}/bulletins/latest/audio:
-    get:
-      summary: Download latest bulletin audio for a station
-      description: |
-        Downloads the audio file of the most recently generated bulletin for a specific station.
-        This endpoint is specifically designed for radio automation systems that need to directly
-        fetch and play the latest news bulletin without additional API calls.
-        
-        Perfect for radio automation workflows where you need:
-        - One URL call that always returns audio
-        - Latest bulletin audio for immediate playback
-        - No metadata parsing required
-      tags:
-        - Bulletin
-      parameters:
-        - $ref: '#/components/parameters/id'
-      responses:
-        '200':
-          description: Latest bulletin audio file
-          content:
-            audio/wav:
-              schema:
-                type: string
-                format: binary
-                description: WAV audio file of the latest bulletin
-          headers:
-            Content-Disposition:
-              schema:
-                type: string
-                description: Attachment with filename
-                example: 'attachment; filename="bulletin_1_20240315_143022.wav"'
-            Content-Length:
-              schema:
-                type: integer
-                description: File size in bytes
-        '404':
-          description: Station not found or no bulletin available for this station
 
   /bulletins/{id}/audio:
     get:

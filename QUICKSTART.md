@@ -136,10 +136,10 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stations/1/bulletins \
   -d '{}'
 
 # Get latest bulletin info
-curl -b cookies.txt http://localhost:8080/api/v1/stations/1/bulletins/latest
+curl -b cookies.txt "http://localhost:8080/api/v1/stations/1/bulletins?latest=true"
 
-# Download bulletin audio directly
-curl -b cookies.txt http://localhost:8080/api/v1/stations/1/bulletins/latest/audio \
+# Download bulletin audio directly (get ID from previous response)
+curl -b cookies.txt http://localhost:8080/api/v1/bulletins/{id}/audio \
   -o bulletin.wav
   
 # Play the bulletin (if you have a player installed)

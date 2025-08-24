@@ -48,7 +48,7 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 Automation systems can fetch the latest bulletin directly:
 ```
-GET /api/v1/stations/{station_id}/bulletins/latest/audio
+GET /api/v1/stations/{station_id}/bulletins?latest=true
 ```
 
 Returns a WAV file ready for broadcast. Most automation systems can schedule HTTP audio downloads.
@@ -97,7 +97,7 @@ GET    /api/v1/stories/{id}/audio    # Download story audio
 
 # Bulletin Generation
 POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
-GET    /api/v1/stations/{id}/bulletins/latest  # Get latest bulletin
+GET    /api/v1/stations/{id}/bulletins?latest=true # Get latest bulletin
 GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 ```
 
