@@ -204,117 +204,64 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
+	// Bind request data (handles both JSON and form data automatically)
+	var req struct {
+		StationID *int     `json:"station_id,omitempty" form:"station_id,omitempty"`
+		VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id,omitempty"`
+		MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point,omitempty"`
+	}
+
+	if !utils.BindFormAndValidate(c, &req) {
+		return
+	}
+
 	// Build dynamic update query
 	updates := []string{}
 	args := []interface{}{}
 
-	// Check if this is JSON input or form data
-	contentType := c.GetHeader("Content-Type")
-	isJSON := strings.Contains(contentType, "application/json")
-
-	if isJSON {
-		// Handle JSON input for PUT requests
-		var req struct {
-			StationID *int     `json:"station_id,omitempty"`
-			VoiceID   *int     `json:"voice_id,omitempty"`
-			MixPoint  *float64 `json:"mix_point,omitempty"`
-		}
-
-		if !utils.BindAndValidate(c, &req) {
+	// Process station_id if provided
+	if req.StationID != nil {
+		if *req.StationID <= 0 {
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "station_id",
+				Message: "Valid station_id is required",
+			}})
 			return
 		}
+		if !utils.ValidateResourceExists(c, h.db, "stations", "Station", *req.StationID) {
+			return
+		}
+		updates = append(updates, "station_id = ?")
+		args = append(args, *req.StationID)
+	}
 
-		// Process JSON fields
-		if req.StationID != nil {
-			if *req.StationID <= 0 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "station_id",
-					Message: "Valid station_id is required",
-				}})
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", *req.StationID) {
-				return
-			}
-			updates = append(updates, "station_id = ?")
-			args = append(args, *req.StationID)
+	// Process voice_id if provided
+	if req.VoiceID != nil {
+		if *req.VoiceID <= 0 {
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "voice_id",
+				Message: "Valid voice_id is required",
+			}})
+			return
 		}
+		if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
+			return
+		}
+		updates = append(updates, "voice_id = ?")
+		args = append(args, *req.VoiceID)
+	}
 
-		if req.VoiceID != nil {
-			if *req.VoiceID <= 0 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "voice_id",
-					Message: "Valid voice_id is required",
-				}})
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", *req.VoiceID) {
-				return
-			}
-			updates = append(updates, "voice_id = ?")
-			args = append(args, *req.VoiceID)
+	// Process mix_point if provided
+	if req.MixPoint != nil {
+		if *req.MixPoint < 0 || *req.MixPoint > 300 {
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "mix_point",
+				Message: "Mix point must be between 0 and 300 seconds",
+			}})
+			return
 		}
-
-		if req.MixPoint != nil {
-			if *req.MixPoint < 0 || *req.MixPoint > 300 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "mix_point",
-					Message: "Mix point must be between 0 and 300 seconds",
-				}})
-				return
-			}
-			updates = append(updates, "mix_point = ?")
-			args = append(args, *req.MixPoint)
-		}
-	} else {
-		// Handle form data (existing logic)
-		// Handle station_id update
-		if stationIDStr := c.PostForm("station_id"); stationIDStr != "" {
-			stationID, err := strconv.Atoi(stationIDStr)
-			if err != nil || stationID <= 0 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "station_id",
-					Message: "Valid station_id is required",
-				}})
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
-				return
-			}
-			updates = append(updates, "station_id = ?")
-			args = append(args, stationID)
-		}
-
-		// Handle voice_id update
-		if voiceIDStr := c.PostForm("voice_id"); voiceIDStr != "" {
-			voiceID, err := strconv.Atoi(voiceIDStr)
-			if err != nil || voiceID <= 0 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "voice_id",
-					Message: "Valid voice_id is required",
-				}})
-				return
-			}
-			if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", voiceID) {
-				return
-			}
-			updates = append(updates, "voice_id = ?")
-			args = append(args, voiceID)
-		}
-
-		// Handle mix_point update
-		if mixPointStr := c.PostForm("mix_point"); mixPointStr != "" {
-			mixPoint, err := strconv.ParseFloat(mixPointStr, 64)
-			if err != nil || mixPoint < 0 || mixPoint > 300 {
-				utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-					Field:   "mix_point",
-					Message: "Mix point must be between 0 and 300 seconds",
-				}})
-				return
-			}
-			updates = append(updates, "mix_point = ?")
-			args = append(args, mixPoint)
-		}
+		updates = append(updates, "mix_point = ?")
+		args = append(args, *req.MixPoint)
 	}
 
 	if len(updates) == 0 {

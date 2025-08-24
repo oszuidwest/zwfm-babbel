@@ -19,10 +19,12 @@ class StationsTests extends BaseTest {
     async testCreateStations() {
         this.printSection('Testing Station Creation');
         
+        // Use timestamp to ensure unique names for each test run
+        const timestamp = Date.now();
         const testStations = [
-            { name: 'CRUD Test FM', max_stories_per_block: 5, pause_seconds: 2.0 },
-            { name: 'Another Test Station', max_stories_per_block: 3, pause_seconds: 1.5 },
-            { name: 'Validation Station', max_stories_per_block: 10, pause_seconds: 3.0 }
+            { name: `CRUD Test FM ${timestamp}`, max_stories_per_block: 5, pause_seconds: 2.0 },
+            { name: `Another Test Station ${timestamp}`, max_stories_per_block: 3, pause_seconds: 1.5 },
+            { name: `Validation Station ${timestamp}`, max_stories_per_block: 10, pause_seconds: 3.0 }
         ];
         
         for (const stationData of testStations) {
@@ -116,12 +118,13 @@ class StationsTests extends BaseTest {
         
         // First create some test stations with varied data for filtering
         this.printInfo('Creating test stations for query testing...');
+        const queryTimestamp = Date.now();
         const testStations = [
-            { name: 'Alpha Radio', max_stories_per_block: 3, pause_seconds: 1.0 },
-            { name: 'Beta FM', max_stories_per_block: 5, pause_seconds: 2.0 },
-            { name: 'Gamma Station', max_stories_per_block: 7, pause_seconds: 3.0 },
-            { name: 'Delta Broadcasting', max_stories_per_block: 10, pause_seconds: 2.5 },
-            { name: 'Echo Radio Network', max_stories_per_block: 5, pause_seconds: 1.5 }
+            { name: `Alpha Radio ${queryTimestamp}`, max_stories_per_block: 3, pause_seconds: 1.0 },
+            { name: `Beta FM ${queryTimestamp}`, max_stories_per_block: 5, pause_seconds: 2.0 },
+            { name: `Gamma Station ${queryTimestamp}`, max_stories_per_block: 7, pause_seconds: 3.0 },
+            { name: `Delta Broadcasting ${queryTimestamp}`, max_stories_per_block: 10, pause_seconds: 2.5 },
+            { name: `Echo Radio Network ${queryTimestamp}`, max_stories_per_block: 5, pause_seconds: 1.5 }
         ];
         
         const queryTestIds = [];
@@ -443,7 +446,7 @@ class StationsTests extends BaseTest {
     async testDuplicateNames() {
         this.printSection('Testing Duplicate Station Names');
         
-        const stationName = 'Unique Test Station';
+        const stationName = `Unique Test Station ${Date.now()}`;
         
         // Create first station
         this.printInfo(`Creating first station with name: ${stationName}`);

@@ -297,80 +297,86 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	// Check if bulletin exists first
 	if !utils.ValidateResourceExists(c, h.db, "bulletins", "Bulletin", bulletinID) {
 		return
 	}
 
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT bs.id, bs.bulletin_id, bs.story_id, bs.story_order, 
-				bs.created_at, b.station_id, s.name as station_name, 
-				st.title as story_title, b.filename as bulletin_filename
+			BaseQuery: `SELECT bs.*, s.title as story_title, st.name as station_name, 
+				b.filename as bulletin_filename, b.station_id
 				FROM bulletin_stories bs
-				JOIN bulletins b ON bs.bulletin_id = b.id
-				JOIN stations s ON b.station_id = s.id
-				JOIN stories st ON bs.story_id = st.id`,
+				JOIN stories s ON bs.story_id = s.id
+				JOIN bulletins b ON bs.bulletin_id = b.id  
+				JOIN stations st ON b.station_id = st.id`,
 			CountQuery: `SELECT COUNT(*) FROM bulletin_stories bs 
-				JOIN bulletins b ON bs.bulletin_id = b.id
-				JOIN stations s ON b.station_id = s.id
-				JOIN stories st ON bs.story_id = st.id`,
-			Filters: []utils.FilterConfig{
-				{
-					Column:   "bulletin_id",
-					Value:    bulletinID,
-					Operator: "=",
-					Table:    "bs",
-				},
-			},
+				JOIN stories s ON bs.story_id = s.id 
+				JOIN bulletins b ON bs.bulletin_id = b.id`,
 			DefaultOrder: "bs.story_order ASC",
+			Filters: []utils.FilterConfig{{
+				Column: "bulletin_id", Table: "bs", Value: bulletinID,
+			}},
 			PostProcessor: func(result interface{}) {
-				// Convert to the expected nested response format
-				stories := result.(*[]models.BulletinStory)
-				processedResults := make([]map[string]interface{}, len(*stories))
-				for i, bs := range *stories {
-					processedResults[i] = map[string]interface{}{
-						"id":          bs.ID,
-						"bulletin_id": bs.BulletinID,
-						"story_id":    bs.StoryID,
-						"story_order": bs.StoryOrder,
-						"created_at":  bs.CreatedAt,
-						"station": map[string]interface{}{
-							"id":   bs.StationID,
-							"name": bs.StationName,
-						},
-						"story": map[string]interface{}{
-							"id":    bs.StoryID,
-							"title": bs.StoryTitle,
-						},
-						"bulletin": map[string]interface{}{
-							"id":       bs.BulletinID,
-							"filename": bs.BulletinFilename,
-						},
+				if stories, ok := result.(*[]models.BulletinStory); ok {
+					processed := make([]map[string]interface{}, len(*stories))
+					for i, bs := range *stories {
+						processed[i] = map[string]interface{}{
+							"id": bs.ID, "bulletin_id": bs.BulletinID,
+							"story_id": bs.StoryID, "story_order": bs.StoryOrder,
+							"created_at": bs.CreatedAt,
+							"station": map[string]interface{}{
+								"id": bs.StationID, "name": bs.StationName,
+							},
+							"story": map[string]interface{}{
+								"id": bs.StoryID, "title": bs.StoryTitle,
+							},
+							"bulletin": map[string]interface{}{
+								"id": bs.BulletinID, "filename": bs.BulletinFilename,
+							},
+						}
 					}
+					c.Set("processed_bulletin_stories", processed)
 				}
-				
-				// Store processed results in context for ModernListWithQuery to pick up
-				c.Set("processed_bulletin_stories", processedResults)
 			},
 		},
-		SearchFields: []string{"st.title", "s.name"},
-		DisableSoftDelete: true,
+		SearchFields: []string{"s.title"},
 		FieldMapping: map[string]string{
-			"id":                "bs.id",
-			"bulletin_id":       "bs.bulletin_id",
-			"story_id":          "bs.story_id",
-			"story_order":       "bs.story_order",
-			"created_at":        "bs.created_at",
-			"station_id":        "b.station_id",
-			"station_name":      "s.name",
-			"story_title":       "st.title",
-			"bulletin_filename": "b.filename",
+			"story_order": "bs.story_order", "story_title": "s.title",
 		},
 	}
 
 	var bulletinStories []models.BulletinStory
 	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
+}
+
+// transformBulletinsAndRespond handles the common pattern of transforming bulletins and sending paginated response
+func (h *Handlers) transformBulletinsAndRespond(c *gin.Context, bulletins []models.Bulletin) {
+	// Check if ModernListWithQuery already handled the response (error case)
+	if c.IsAborted() {
+		return
+	}
+
+	// Get pagination data set by ModernListWithQuery
+	responseData, exists := c.Get("pagination_data")
+	if !exists {
+		return // Already handled by ModernListWithQuery
+	}
+	paginationInfo, ok := responseData.(map[string]interface{})
+	if !ok {
+		return // Already handled by ModernListWithQuery
+	}
+
+	// Convert to response format
+	bulletinResponses := make([]map[string]interface{}, len(bulletins))
+	for i, bulletin := range bulletins {
+		bulletinResponses[i] = h.bulletinToResponse(&bulletin)
+	}
+
+	// Send the custom formatted response with pagination metadata
+	total := paginationInfo["total"].(int)
+	limit := paginationInfo["limit"].(int)
+	offset := paginationInfo["offset"].(int)
+	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
@@ -486,38 +492,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 
 	var bulletins []models.Bulletin
 	utils.ModernListWithQuery(c, h.db, config, &bulletins)
-
-	// Check if ModernListWithQuery already handled the response (error case)
-	if c.IsAborted() {
-		return
-	}
-
-	// Get the response data to extract total count
-	responseData, exists := c.Get("pagination_data")
-	if !exists {
-		// ModernListWithQuery didn't set pagination data, which means it already sent response
-		return
-	}
-	paginationInfo, ok := responseData.(map[string]interface{})
-	if !ok {
-		// ModernListWithQuery didn't set pagination data, which means it already sent response
-		return
-	}
-
-	// Convert to response format
-	bulletinResponses := make([]map[string]interface{}, len(bulletins))
-	for i, bulletin := range bulletins {
-		response := h.bulletinToResponse(&bulletin)
-
-
-		bulletinResponses[i] = response
-	}
-
-	// Send the custom formatted response with pagination metadata
-	total := paginationInfo["total"].(int)
-	limit := paginationInfo["limit"].(int)
-	offset := paginationInfo["offset"].(int)
-	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
+	h.transformBulletinsAndRespond(c, bulletins)
 }
 
 // BulletinListResponse represents the response format for bulletins in list view with computed fields.
@@ -560,38 +535,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	var bulletins []models.Bulletin
 	utils.ModernListWithQuery(c, h.db, config, &bulletins)
-
-	// Check if ModernListWithQuery already handled the response (error case)
-	if c.IsAborted() {
-		return
-	}
-
-	// Get the response data to extract total count
-	responseData, exists := c.Get("pagination_data")
-	if !exists {
-		// ModernListWithQuery didn't set pagination data, which means it already sent response
-		return
-	}
-	paginationInfo, ok := responseData.(map[string]interface{})
-	if !ok {
-		// ModernListWithQuery didn't set pagination data, which means it already sent response
-		return
-	}
-
-	// Convert to response format
-	bulletinResponses := make([]map[string]interface{}, len(bulletins))
-	for i, bulletin := range bulletins {
-		response := h.bulletinToResponse(&bulletin)
-
-
-		bulletinResponses[i] = response
-	}
-
-	// Send the custom formatted response with pagination metadata
-	total := paginationInfo["total"].(int)
-	limit := paginationInfo["limit"].(int)
-	offset := paginationInfo["offset"].(int)
-	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
+	h.transformBulletinsAndRespond(c, bulletins)
 }
 
 // getStoriesForBulletin retrieves the stories that were used in a bulletin

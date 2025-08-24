@@ -331,15 +331,31 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		args = append(args, endDate)
 	}
 
-	// Handle weekdays updates
-	hasWeekdayUpdate, weekdayValues, err := h.prepareWeekdayUpdate(c, &req, id)
-	if err != nil {
-		return // Error already handled in prepareWeekdayUpdate
-	}
-
-	if hasWeekdayUpdate {
+	// Handle weekdays updates - either from weekdays map or individual fields
+	if len(req.Weekdays) > 0 {
+		// Use weekdays map if provided
 		updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-		args = append(args, weekdayValues...)
+		args = append(args, 
+			req.Weekdays["monday"],
+			req.Weekdays["tuesday"],
+			req.Weekdays["wednesday"],
+			req.Weekdays["thursday"],
+			req.Weekdays["friday"],
+			req.Weekdays["saturday"],
+			req.Weekdays["sunday"],
+		)
+	} else {
+		// Update individual weekday fields if provided
+		weekdayFields := map[string]*bool{
+			"monday": req.Monday, "tuesday": req.Tuesday, "wednesday": req.Wednesday,
+			"thursday": req.Thursday, "friday": req.Friday, "saturday": req.Saturday, "sunday": req.Sunday,
+		}
+		for field, value := range weekdayFields {
+			if value != nil {
+				updates = append(updates, field+" = ?")
+				args = append(args, *value)
+			}
+		}
 	}
 
 	if req.Metadata != nil {
@@ -518,107 +534,3 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 	return true
 }
 
-// prepareWeekdayUpdate handles weekday field updates for stories
-func (h *Handlers) prepareWeekdayUpdate(c *gin.Context, req *utils.StoryUpdateRequest, storyID int) (bool, []interface{}, error) {
-	// Check JSON format first
-	if len(req.Weekdays) > 0 {
-		return true, []interface{}{
-			req.Weekdays["monday"],
-			req.Weekdays["tuesday"],
-			req.Weekdays["wednesday"],
-			req.Weekdays["thursday"],
-			req.Weekdays["friday"],
-			req.Weekdays["saturday"],
-			req.Weekdays["sunday"],
-		}, nil
-	}
-
-	// Check if any individual field is set
-	if !h.hasWeekdayUpdates(req) {
-		return false, nil, nil
-	}
-
-	// Get current values
-	current, err := h.getCurrentWeekdays(storyID)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch current story weekdays")
-		return false, nil, err
-	}
-
-	// Merge with new values
-	values := h.mergeWeekdayValues(req, current)
-	return true, values, nil
-}
-
-// hasWeekdayUpdates checks if any weekday field is being updated
-func (h *Handlers) hasWeekdayUpdates(req *utils.StoryUpdateRequest) bool {
-	return req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
-		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
-}
-
-// getCurrentWeekdays fetches current weekday values for a story
-func (h *Handlers) getCurrentWeekdays(storyID int) (*struct {
-	Monday    bool `db:"monday"`
-	Tuesday   bool `db:"tuesday"`
-	Wednesday bool `db:"wednesday"`
-	Thursday  bool `db:"thursday"`
-	Friday    bool `db:"friday"`
-	Saturday  bool `db:"saturday"`
-	Sunday    bool `db:"sunday"`
-}, error) {
-	var current struct {
-		Monday    bool `db:"monday"`
-		Tuesday   bool `db:"tuesday"`
-		Wednesday bool `db:"wednesday"`
-		Thursday  bool `db:"thursday"`
-		Friday    bool `db:"friday"`
-		Saturday  bool `db:"saturday"`
-		Sunday    bool `db:"sunday"`
-	}
-
-	query := "SELECT monday, tuesday, wednesday, thursday, friday, saturday, sunday FROM stories WHERE id = ?"
-	err := h.db.Get(&current, query, storyID)
-	return &current, err
-}
-
-// mergeWeekdayValues merges new weekday values with current ones
-func (h *Handlers) mergeWeekdayValues(req *utils.StoryUpdateRequest, current *struct {
-	Monday    bool `db:"monday"`
-	Tuesday   bool `db:"tuesday"`
-	Wednesday bool `db:"wednesday"`
-	Thursday  bool `db:"thursday"`
-	Friday    bool `db:"friday"`
-	Saturday  bool `db:"saturday"`
-	Sunday    bool `db:"sunday"`
-}) []interface{} {
-	monday := current.Monday
-	if req.Monday != nil {
-		monday = *req.Monday
-	}
-	tuesday := current.Tuesday
-	if req.Tuesday != nil {
-		tuesday = *req.Tuesday
-	}
-	wednesday := current.Wednesday
-	if req.Wednesday != nil {
-		wednesday = *req.Wednesday
-	}
-	thursday := current.Thursday
-	if req.Thursday != nil {
-		thursday = *req.Thursday
-	}
-	friday := current.Friday
-	if req.Friday != nil {
-		friday = *req.Friday
-	}
-	saturday := current.Saturday
-	if req.Saturday != nil {
-		saturday = *req.Saturday
-	}
-	sunday := current.Sunday
-	if req.Sunday != nil {
-		sunday = *req.Sunday
-	}
-
-	return []interface{}{monday, tuesday, wednesday, thursday, friday, saturday, sunday}
-}
