@@ -331,6 +331,25 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 	// Collect all endpoints
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
+			// Resolve parameter references
+			resolvedParams := make([]Parameter, 0)
+			for _, param := range op.Parameters {
+				if param.Ref != "" {
+					// Extract parameter name from $ref
+					// Format: #/components/parameters/paramName
+					parts := strings.Split(param.Ref, "/")
+					if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
+						paramName := parts[3]
+						if resolvedParam, ok := spec.Components.Parameters[paramName]; ok {
+							resolvedParams = append(resolvedParams, resolvedParam)
+						}
+					}
+				} else {
+					resolvedParams = append(resolvedParams, param)
+				}
+			}
+			op.Parameters = resolvedParams
+
 			endpoint := EndpointInfo{
 				Method:    strings.ToUpper(method),
 				Path:      path,
