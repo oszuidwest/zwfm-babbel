@@ -347,7 +347,7 @@ class BulletinsTests extends BaseTest {
         if (this.createdStationIds.length > 0) {
             this.printInfo('Testing bulletin filtering by station...');
             const stationId = this.createdStationIds[0];
-            const filterResponse = await this.apiCall('GET', `/bulletins?station_id=${stationId}`);
+            const filterResponse = await this.apiCall('GET', `/bulletins?filter[station_id]=${stationId}`);
             
             if (this.assertions.checkResponse(filterResponse, 200, 'Filter bulletins by station')) {
                 this.printSuccess('Filtering bulletins by station works');

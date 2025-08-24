@@ -47,7 +47,7 @@ info:
       - "Added 409 Conflict for duplicate resource errors"
       - "Added modern query parameters: filter[], sort, fields, search, status"
       - "Added comprehensive request/response examples throughout"
-      - "Deprecated include_deleted parameter in favor of status=all|active|deleted"
+      - "Replaced include_deleted parameter with status=all|active|deleted"
       - "Enhanced filtering with advanced operators: eq, ne, gt, gte, lt, lte, like, in, null"
       - "Added field selection with dot notation for nested fields"
       - "Added full-text search capability across relevant fields"
@@ -1364,15 +1364,6 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/filter'
-        - name: station_id
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: |
-            **DEPRECATED**: Use `filter[station_id]=value` instead.
-            Filter by station ID (legacy parameter, use modern filter syntax)
-          deprecated: true
         - name: include_stories
           in: query
           required: false
@@ -1966,22 +1957,6 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/filter'
-        - name: station_id
-          in: query
-          schema:
-            type: integer
-          description: |
-            **DEPRECATED**: Use `filter[station_id]=value` instead.
-            Filter by station ID (legacy parameter, use modern filter syntax)
-          deprecated: true
-        - name: voice_id
-          in: query
-          schema:
-            type: integer
-          description: |
-            **DEPRECATED**: Use `filter[voice_id]=value` instead.
-            Filter by voice ID (legacy parameter, use modern filter syntax)
-          deprecated: true
       responses:
         '200':
           description: List of station-voice relationships with pagination metadata

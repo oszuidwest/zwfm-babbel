@@ -250,7 +250,7 @@ Images are automatically built for:
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?status=active"
 
 # Filter stories by voice
-curl -b cookies.txt "http://localhost:8080/api/v1/stories?voice_id=1"
+curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[voice_id]=1"
 
 # Get stories for specific weekday
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[monday]=true"
