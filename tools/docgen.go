@@ -84,7 +84,7 @@ const markdownTemplate = `# {{.Info.Title}} API Reference
 4. [Response Formats](#response-formats)
 5. [Error Handling](#error-handling)
 6. [API Endpoints](#api-endpoints)
-{{range .Tags}}   - [{{.Name}}](#{{lower .Name | replace " " "-"}})
+{{range .Tags}}   - [{{.Name}}](#{{kebab .Name}})
 {{end}}
 
 ---
@@ -393,6 +393,10 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 		"upper":   strings.ToUpper,
 		"lower":   strings.ToLower,
 		"replace": strings.ReplaceAll,
+		"kebab": func(s string) string {
+			// Convert to lowercase and replace spaces with hyphens
+			return strings.ReplaceAll(strings.ToLower(s), " ", "-")
+		},
 		"getParamType": func(param Parameter) string {
 			if param.Schema != nil {
 				if t, ok := param.Schema["type"].(string); ok {
