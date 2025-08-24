@@ -186,3 +186,10 @@ type BulletinStory struct {
 	StoryTitle       string `db:"story_title" json:"-"`
 	BulletinFilename string `db:"bulletin_filename" json:"-"`
 }
+
+// StoryBulletinHistory represents a bulletin with story-specific metadata for history queries.
+type StoryBulletinHistory struct {
+	Bulletin                     // Embed the full Bulletin struct
+	StoryOrder int       `db:"story_order" json:"story_order"`
+	IncludedAt time.Time `db:"included_at" json:"included_at"`
+}

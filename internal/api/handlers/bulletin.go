@@ -645,58 +645,100 @@ func (h *Handlers) getStoriesForBulletin(bulletin *models.Bulletin) ([]models.St
 	return stories, err
 }
 
-// GetStoryBulletinHistory returns all bulletins that included a specific story.
+// GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	storyID, ok := utils.GetIDParam(c)
 	if !ok {
 		return
 	}
 
-	// Verify story exists
-	var story models.Story
-	err := h.db.Get(&story, "SELECT * FROM stories WHERE id = ?", storyID)
-	if err != nil {
-		utils.ProblemNotFound(c, "Story")
+	// Check if story exists first
+	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", storyID) {
 		return
 	}
 
-	// Get bulletin history for this story
-	var results []struct {
-		models.Bulletin
-		StoryOrder int       `db:"story_order"`
-		IncludedAt time.Time `db:"included_at"`
+	// Configure modern query with field mappings, search fields, and story_id filter
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds,
+			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name,
+			            bs.story_order, bs.created_at as included_at
+			            FROM bulletin_stories bs
+			            JOIN bulletins b ON bs.bulletin_id = b.id
+			            JOIN stations s ON b.station_id = s.id`,
+			CountQuery:   "SELECT COUNT(*) FROM bulletin_stories bs JOIN bulletins b ON bs.bulletin_id = b.id JOIN stations s ON b.station_id = s.id",
+			DefaultOrder: "bs.created_at DESC",
+			Filters: []utils.FilterConfig{
+				{
+					Column: "story_id", 
+					Table:  "bs",
+					Value:  storyID,
+				},
+			},
+			PostProcessor: func(result interface{}) {
+				bulletinHistory := result.(*[]models.StoryBulletinHistory)
+				// Convert to the expected response format
+				processedResults := make([]map[string]interface{}, len(*bulletinHistory))
+				for i, item := range *bulletinHistory {
+					response := h.bulletinToResponse(&item.Bulletin)
+					response["story_order"] = item.StoryOrder
+					response["included_at"] = item.IncludedAt
+					processedResults[i] = response
+				}
+				// Store processed results in context for later retrieval
+				c.Set("processed_results", processedResults)
+			},
+		},
+		SearchFields:      []string{"b.filename", "s.name"},
+		TableAlias:        "bs",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name, bs.story_order, bs.created_at as included_at",
+		DisableSoftDelete: true, // bulletin_stories table doesn't have deleted_at column
+		FieldMapping: map[string]string{
+			"id":               "b.id",
+			"bulletin_id":      "b.id",
+			"station_id":       "b.station_id",
+			"filename":         "b.filename",
+			"file_path":        "b.file_path",
+			"duration_seconds": "b.duration_seconds",
+			"duration":         "b.duration_seconds", // Allow both field names
+			"file_size":        "b.file_size",
+			"story_count":      "b.story_count",
+			"metadata":         "b.metadata",
+			"created_at":       "b.created_at",
+			"station_name":     "s.name",
+			"story_order":      "bs.story_order",
+			"included_at":      "bs.created_at",
+		},
 	}
 
-	err = h.db.Select(&results, `
-		SELECT b.*, s.name as station_name, bs.story_order, bs.created_at as included_at
-		FROM bulletin_stories bs
-		JOIN bulletins b ON bs.bulletin_id = b.id
-		JOIN stations s ON b.station_id = s.id
-		WHERE bs.story_id = ?
-		ORDER BY bs.created_at DESC`,
-		storyID,
-	)
+	var bulletinHistory []models.StoryBulletinHistory
+	utils.ModernListWithQuery(c, h.db, config, &bulletinHistory)
 
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to fetch bulletin history")
+	// Check if ModernListWithQuery already handled the response (error case)
+	if c.IsAborted() {
 		return
 	}
 
-	// Convert to response format
-	bulletinHistory := make([]map[string]interface{}, len(results))
-	for i, result := range results {
-		response := h.bulletinToResponse(&result.Bulletin)
-		response["story_order"] = result.StoryOrder
-		response["included_at"] = result.IncludedAt
-		bulletinHistory[i] = response
+	// Check if we have processed results from PostProcessor
+	if processedResults, exists := c.Get("processed_results"); exists {
+		// Get pagination data
+		responseData := c.Keys["pagination_data"]
+		paginationInfo, ok := responseData.(map[string]interface{})
+		if !ok {
+			utils.ProblemInternalServer(c, "Failed to get pagination data")
+			return
+		}
+		
+		// Send the processed paginated response
+		utils.PaginatedResponse(c, processedResults, 
+			paginationInfo["total"].(int64), 
+			paginationInfo["limit"].(int), 
+			paginationInfo["offset"].(int))
+		return
 	}
 
-	utils.Success(c, map[string]interface{}{
-		"story_id":    story.ID,
-		"story_title": story.Title,
-		"bulletins":   bulletinHistory,
-		"total":       len(bulletinHistory),
-	})
+	// Fallback if PostProcessor didn't run (shouldn't happen)
+	utils.ProblemInternalServer(c, "Failed to process story bulletin history")
 }
 
 // parseTargetDate parses date string or returns current date
