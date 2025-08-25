@@ -16,6 +16,20 @@ class StationVoicesTests extends BaseTest {
     }
     
     /**
+     * Helper to create FormData for station-voice requests
+     */
+    createStationVoiceFormData(data) {
+        const FormData = require('form-data');
+        const form = new FormData();
+        
+        if (data.station_id !== undefined) form.append('station_id', data.station_id.toString());
+        if (data.voice_id !== undefined) form.append('voice_id', data.voice_id.toString());
+        if (data.mix_point !== undefined) form.append('mix_point', data.mix_point.toString());
+        
+        return form;
+    }
+    
+    /**
      * Helper function to create a station
      */
     async createStation(name) {
@@ -80,13 +94,15 @@ class StationVoicesTests extends BaseTest {
         }
         this.printSuccess(`Created voice (ID: ${voiceId})`);
         
-        // Test creating station-voice relationship with JSON
-        this.printInfo('Creating station-voice relationship with JSON...');
-        const response = await this.apiCall('POST', '/station-voices', {
+        // Test creating station-voice relationship with FormData
+        this.printInfo('Creating station-voice relationship with FormData...');
+        const form = this.createStationVoiceFormData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 2.5
         });
+        
+        const response = await this.apiCallFormData('POST', '/station-voices', form);
         
         if (response.status === 201) {
             const svId = this.parseJsonField(response.data, 'id');
@@ -104,11 +120,13 @@ class StationVoicesTests extends BaseTest {
         
         // Test creating duplicate relationship (should fail)
         this.printInfo('Testing duplicate station-voice relationship...');
-        const duplicateResponse = await this.apiCall('POST', '/station-voices', {
+        const duplicateForm = this.createStationVoiceFormData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 3.0
         });
+        
+        const duplicateResponse = await this.apiCallFormData('POST', '/station-voices', duplicateForm);
         
         if (duplicateResponse.status === 409) {
             this.printSuccess('Duplicate relationship correctly rejected (409 Conflict)');
@@ -214,17 +232,19 @@ class StationVoicesTests extends BaseTest {
         const voice2 = await this.createVoice('Basic List Voice 2');
         
         // Create relationships
-        const sv1Response = await this.apiCall('POST', '/station-voices', {
+        const sv1Form = this.createStationVoiceFormData({
             station_id: parseInt(station1),
             voice_id: parseInt(voice1),
             mix_point: 1.0
         });
+        const sv1Response = await this.apiCallFormData('POST', '/station-voices', sv1Form);
         
-        const sv2Response = await this.apiCall('POST', '/station-voices', {
+        const sv2Form = this.createStationVoiceFormData({
             station_id: parseInt(station2),
             voice_id: parseInt(voice2),
             mix_point: 2.0
         });
+        const sv2Response = await this.apiCallFormData('POST', '/station-voices', sv2Form);
         
         // Track created station-voice relationships
         if (sv1Response.status === 201) {
@@ -328,11 +348,11 @@ class StationVoicesTests extends BaseTest {
         // Create station-voice relationships with varying mix points
         const mixPoints = [1.0, 2.5, 3.0, 1.5, 2.0];
         for (let i = 0; i < 5; i++) {
-            const response = await this.apiCall('POST', '/station-voices', {
+            const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
                 station_id: parseInt(stationIds[i]),
                 voice_id: parseInt(voiceIds[i]),
                 mix_point: mixPoints[i]
-            });
+            }));
             
             if (response.status === 201) {
                 const svId = this.parseJsonField(response.data, 'id');
@@ -567,11 +587,11 @@ class StationVoicesTests extends BaseTest {
         const voiceId = await this.createVoice('Update Test Voice');
         
         // Create a station-voice relationship
-        const response = await this.apiCall('POST', '/station-voices', {
+        const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 1.0
-        });
+        }));
         
         const svId = this.parseJsonField(response.data, 'id');
         if (!svId) {
@@ -581,9 +601,8 @@ class StationVoicesTests extends BaseTest {
         
         // Test updating mix_point
         this.printInfo('Updating station-voice mix_point...');
-        const updateResponse = await this.apiCall('PUT', `/station-voices/${svId}`, {
-            mix_point: 3.5
-        });
+        const updateForm = this.createStationVoiceFormData({ mix_point: 3.5 });
+        const updateResponse = await this.apiCallFormData('PUT', `/station-voices/${svId}`, updateForm);
         
         if (this.assertions.checkResponse(updateResponse, 200, 'Update station-voice')) {
             this.printSuccess('Station-voice updated successfully');
@@ -604,9 +623,8 @@ class StationVoicesTests extends BaseTest {
         
         // Test updating non-existent station-voice
         this.printInfo('Testing update of non-existent station-voice...');
-        const nonExistentResponse = await this.apiCall('PUT', '/station-voices/99999', {
-            mix_point: 5.0
-        });
+        const nonExistentForm = this.createStationVoiceFormData({ mix_point: 5.0 });
+        const nonExistentResponse = await this.apiCallFormData('PUT', '/station-voices/99999', nonExistentForm);
         
         if (nonExistentResponse.status === 404) {
             this.printSuccess('Non-existent station-voice update correctly rejected');
@@ -630,11 +648,11 @@ class StationVoicesTests extends BaseTest {
         const voiceId = await this.createVoice('Delete Test Voice');
         
         // Create a station-voice relationship
-        const response = await this.apiCall('POST', '/station-voices', {
+        const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 2.0
-        });
+        }));
         
         const svId = this.parseJsonField(response.data, 'id');
         if (!svId) {

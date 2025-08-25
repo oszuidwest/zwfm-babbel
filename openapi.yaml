@@ -270,11 +270,7 @@ paths:
                 type: string
                 description: OAuth provider authorization URL
         '400':
-          description: OAuth authentication is disabled
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
 
   /auth/oauth/callback:
     get:
@@ -321,11 +317,7 @@ paths:
                 error:
                   value: "https://your-frontend.com/dashboard?error=invalid_credentials"
         '500':
-          description: No frontend URL configured
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/InternalServerError'
 
   /sessions/current:
     get:
@@ -794,6 +786,14 @@ paths:
                         friday: true
                         saturday: false
                         sunday: false
+                        weekdays:
+                          monday: true
+                          tuesday: true
+                          wednesday: true
+                          thursday: true
+                          friday: true
+                          saturday: false
+                          sunday: false
                         created_at: "2024-01-20T10:00:00Z"
                         updated_at: "2024-01-20T10:00:00Z"
                         deleted_at: null
@@ -832,6 +832,21 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/StoryInput'
+            example:
+              title: "Breaking News Update"
+              text: "This is important news content for our listeners."
+              voice_id: "1"
+              status: "active"
+              start_date: "2024-01-20T00:00:00Z"
+              end_date: "2024-01-27T23:59:59Z"
+              monday: "true"
+              tuesday: "true"
+              wednesday: "true"
+              thursday: "true"
+              friday: "true"
+              saturday: "false"
+              sunday: "false"
+              metadata: "{\"priority\": \"high\", \"category\": \"breaking\"}"
       responses:
         '201':
           description: Story created
@@ -860,6 +875,14 @@ paths:
                     friday: true
                     saturday: false
                     sunday: false
+                    weekdays:
+                      monday: true
+                      tuesday: true
+                      wednesday: true
+                      thursday: true
+                      friday: true
+                      saturday: false
+                      sunday: false
                     metadata: {}
                     created_at: "2024-01-20T10:00:00Z"
                     updated_at: "2024-01-20T10:00:00Z"
@@ -917,6 +940,14 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/StoryInput'
+            example:
+              title: "Updated Breaking News"
+              text: "This is the updated news content."
+              voice_id: "2"
+              status: "active"
+              monday: "false"
+              tuesday: "true"
+              metadata: "{\"priority\": \"medium\"}"
       responses:
         '200':
           description: Story updated
@@ -1214,11 +1245,7 @@ paths:
         '204':
           description: User permanently deleted
         '400':
-          description: Cannot delete the last admin user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
     patch:
@@ -1553,7 +1580,7 @@ paths:
                 date:
                   type: string
                   format: date
-                  description: Date for bulletin (defaults to today)
+                  description: Date for bulletin in YYYY-MM-DD format (defaults to today)
       responses:
         '200':
           description: Bulletin generated successfully or WAV file if download=true
@@ -1898,17 +1925,32 @@ paths:
               properties:
                 station_id:
                   type: integer
+                  description: Station ID
                 voice_id:
                   type: integer
+                  description: Voice ID  
                 mix_point:
                   type: number
                   format: float
                   minimum: 0
                   default: 0.0
+                  description: Mix point in seconds (0-300)
                 jingle:
                   type: string
                   format: binary
-                  description: Station-specific jingle audio file
+                  description: Station-specific jingle audio file (optional)
+              description: |
+                Create station-voice relationship with optional jingle file
+                
+                **Form Field Examples**:
+                ```
+                station_id: "1"
+                voice_id: "2"
+                mix_point: "2.5"
+                jingle: <binary audio file>
+                ```
+                
+                **Important**: Numeric values must be sent as strings in form data.
       responses:
         '201':
           description: Station-voice relationship created
@@ -1985,6 +2027,18 @@ paths:
                   type: string
                   format: binary
                   description: New station-specific jingle audio file (optional)
+              description: |
+                Update station-voice relationship with optional new jingle file
+                
+                **Form Field Examples** (all optional):
+                ```
+                station_id: "1"
+                voice_id: "3"
+                mix_point: "3.0"
+                jingle: <binary audio file>
+                ```
+                
+                **Important**: Only provide fields you want to update. Numeric values must be sent as strings in form data.
       responses:
         '200':
           description: Station-voice relationship updated
@@ -2152,7 +2206,7 @@ components:
           value: { "name": "Radio Station" }
           summary: "Filter by exact name match"
         comparison:
-          value: { "created_at": { "gte": "2024-01-01" } }
+          value: { "created_at": { "gte": "2024-01-01T00:00:00Z" } }
           summary: "Filter by date range"
         pattern:
           value: { "name": { "like": "%radio%" } }
@@ -2338,6 +2392,33 @@ components:
         sunday:
           type: boolean
           description: Schedule for Sunday
+        weekdays:
+          type: object
+          description: |
+            Computed weekdays object containing boolean values for each day.
+            This is a computed field that combines the individual weekday boolean fields above.
+          properties:
+            monday:
+              type: boolean
+              description: Schedule for Monday
+            tuesday:
+              type: boolean
+              description: Schedule for Tuesday
+            wednesday:
+              type: boolean
+              description: Schedule for Wednesday
+            thursday:
+              type: boolean
+              description: Schedule for Thursday
+            friday:
+              type: boolean
+              description: Schedule for Friday
+            saturday:
+              type: boolean
+              description: Schedule for Saturday
+            sunday:
+              type: boolean
+              description: Schedule for Sunday
         metadata:
           type: object
           additionalProperties: true
@@ -2371,6 +2452,23 @@ components:
         - weekdays must be a valid JSON string when provided
         - metadata can be empty string (stored as NULL) or valid JSON
         - Validation differs from JSON endpoints which use struct binding
+        
+        **Form Field Examples**:
+        ```
+        title: "Breaking News Update"
+        text: "This is the news content for the story."
+        voice_id: "1"
+        status: "active"
+        start_date: "2024-01-20T00:00:00Z"
+        end_date: "2024-01-27T23:59:59Z"
+        monday: "true"
+        tuesday: "true"
+        wednesday: "false"
+        metadata: "{\"priority\": \"high\", \"category\": \"news\"}"
+        audio: <binary file>
+        ```
+        
+        **Important**: Boolean values must be sent as strings ("true"/"false") in form data.
       properties:
         title:
           type: string

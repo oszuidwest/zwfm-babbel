@@ -116,9 +116,13 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 
 // CreateStationVoice creates a new station-voice relationship with optional jingle upload
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
-	// Use unified validation that handles both JSON and form data
+	// Only accept multipart/form-data for consistency with other file upload endpoints
 	var req utils.StationVoiceRequest
-	if !utils.BindFormAndValidate(c, &req) {
+	if err := c.ShouldBind(&req); err != nil {
+		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
+			Field:   "request_body", 
+			Message: "Invalid form data format",
+		}})
 		return
 	}
 
@@ -204,14 +208,18 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Bind request data (handles both JSON and form data automatically)
+	// Only accept multipart/form-data for consistency with other file upload endpoints
 	var req struct {
-		StationID *int     `json:"station_id,omitempty" form:"station_id,omitempty"`
-		VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id,omitempty"`
-		MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point,omitempty"`
+		StationID *int     `form:"station_id,omitempty"`
+		VoiceID   *int     `form:"voice_id,omitempty"`
+		MixPoint  *float64 `form:"mix_point,omitempty"`
 	}
 
-	if !utils.BindFormAndValidate(c, &req) {
+	if err := c.ShouldBind(&req); err != nil {
+		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
+			Field:   "request_body", 
+			Message: "Invalid form data format",
+		}})
 		return
 	}
 

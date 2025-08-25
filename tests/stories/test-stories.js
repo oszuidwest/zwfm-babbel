@@ -604,11 +604,12 @@ class StoriesTests extends BaseTest {
         if (!stationVoiceId) {
             this.printWarning('Failed to create station-voice relationship - may not have FFmpeg available');
             // Try to create a simple station-voice relationship without jingle
-            const basicResponse = await this.apiCall('POST', '/station-voices', {
-                station_id: stationId,
-                voice_id: voiceId,
-                mix_point: 3.0
-            });
+            const FormData = require('form-data');
+            const basicForm = new FormData();
+            basicForm.append('station_id', stationId.toString());
+            basicForm.append('voice_id', voiceId.toString());
+            basicForm.append('mix_point', '3.0');
+            const basicResponse = await this.apiCallFormData('POST', '/station-voices', basicForm);
             if (basicResponse.status !== 201) {
                 this.printError('Failed to create even basic station-voice relationship for bulletin history tests');
                 return false;
