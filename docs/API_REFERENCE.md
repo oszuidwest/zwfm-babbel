@@ -281,7 +281,7 @@ This endpoint is called by the OAuth provider after user authentication.
 **Error Responses:**
 
 - `302`: Redirect to frontend application
-- `500`: No frontend URL configured
+- `500`: Error
 
 
 ---
@@ -312,7 +312,7 @@ If not provided, uses BABBEL_FRONTEND_URL environment variable.
 **Error Responses:**
 
 - `302`: Redirect to OAuth provider
-- `400`: OAuth authentication is disabled
+- `400`: Error
 
 
 ---
@@ -1189,7 +1189,7 @@ Cannot delete the last admin user.
 
 **Error Responses:**
 
-- `400`: Cannot delete the last admin user
+- `400`: Error
 - `404`: Error
 
 
