@@ -38,7 +38,7 @@ type StoryResponse struct {
 	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
 	VoiceName       string          `json:"voice_name" db:"voice_name"`
 	AudioURL        *string         `json:"audio_url,omitempty"`
-	WeekdaysMap     map[string]bool `json:"weekdays"`
+	Weekdays        map[string]bool `json:"weekdays,omitempty"`
 }
 
 // GetStoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
@@ -79,7 +79,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 					for i := range *stories {
 						hasAudio := (*stories)[i].AudioFile != ""
 						(*stories)[i].AudioURL = GetStoryAudioURL((*stories)[i].ID, hasAudio)
-						(*stories)[i].WeekdaysMap = weekdaysFromStoryResponse(&(*stories)[i])
+						(*stories)[i].Weekdays = weekdaysFromStoryResponse(&(*stories)[i])
 					}
 				}
 			},
@@ -135,7 +135,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	// Add audio URL and weekdays map
 	hasAudio := story.AudioFile != ""
 	story.AudioURL = GetStoryAudioURL(story.ID, hasAudio)
-	story.WeekdaysMap = weekdaysFromStoryResponse(&story)
+	story.Weekdays = weekdaysFromStoryResponse(&story)
 
 	utils.Success(c, story)
 }
