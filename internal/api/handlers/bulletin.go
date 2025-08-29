@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
@@ -161,10 +162,10 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 					bulletinID, story.ID, i,
 				)
 				if err != nil {
+					logger.Error("Failed to insert bulletin story: %v", err)
 				}
 			}
 		}
-	} else {
 	}
 
 	return &BulletinInfo{

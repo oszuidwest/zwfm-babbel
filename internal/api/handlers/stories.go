@@ -368,7 +368,14 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		}
 	}
 
-	if len(updates) == 0 {
+	// Check if there's an audio file to process
+	hasAudioUpdate := false
+	_, _, err := c.Request.FormFile("audio")
+	if err == nil {
+		hasAudioUpdate = true
+	}
+
+	if len(updates) == 0 && !hasAudioUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
@@ -376,27 +383,59 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Execute update
-	query := "UPDATE stories SET " + strings.Join(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
+	// Execute database update if there are field updates
+	if len(updates) > 0 {
+		query := "UPDATE stories SET " + strings.Join(updates, ", ") + " WHERE id = ?"
+		args = append(args, id)
 
-	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		logger.Error("Database error updating story: %v", err)
-		// Provide more specific error messages for common database errors
-		errStr := err.Error()
-		switch {
-		case strings.Contains(errStr, "Data too long"):
-			utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
-				{Field: "data", Message: "One or more fields exceed maximum length"},
-			})
-		case strings.Contains(errStr, "Duplicate entry"):
-			utils.ProblemDuplicate(c, "Story")
-		case strings.Contains(errStr, "foreign key constraint"):
-			utils.ProblemBadRequest(c, "Invalid reference to related resource")
-		default:
-			utils.ProblemInternalServer(c, "Failed to update story due to database error")
+		if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
+			logger.Error("Database error updating story: %v", err)
+			// Provide more specific error messages for common database errors
+			errStr := err.Error()
+			switch {
+			case strings.Contains(errStr, "Data too long"):
+				utils.ProblemValidationError(c, "Data validation failed", []utils.ValidationError{
+					{Field: "data", Message: "One or more fields exceed maximum length"},
+				})
+			case strings.Contains(errStr, "Duplicate entry"):
+				utils.ProblemDuplicate(c, "Story")
+			case strings.Contains(errStr, "foreign key constraint"):
+				utils.ProblemBadRequest(c, "Invalid reference to related resource")
+			default:
+				utils.ProblemInternalServer(c, "Failed to update story due to database error")
+			}
+			return
 		}
-		return
+	}
+
+	// Handle audio file replacement if provided
+	if hasAudioUpdate {
+		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
+		if err != nil {
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "audio",
+				Message: err.Error(),
+			}})
+			return
+		}
+		defer cleanup()
+
+		// Process audio with audio service
+		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), id, tempPath); err != nil {
+			logger.Error("Failed to process story audio: %v", err)
+			utils.ProblemInternalServer(c, "Failed to process audio")
+			return
+		}
+
+		// Update database with relative audio path
+		relativePath := utils.GetStoryRelativePath(h.config, id)
+		_, err = h.db.ExecContext(c.Request.Context(),
+			"UPDATE stories SET audio_file = ? WHERE id = ?", relativePath, id)
+		if err != nil {
+			logger.Error("Failed to update audio reference: %v", err)
+			utils.ProblemInternalServer(c, "Failed to update audio reference")
+			return
+		}
 	}
 
 	utils.SuccessWithMessage(c, "Story updated successfully")

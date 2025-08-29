@@ -120,7 +120,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	var req utils.StationVoiceRequest
 	if err := c.ShouldBind(&req); err != nil {
 		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
-			Field:   "request_body", 
+			Field:   "request_body",
 			Message: "Invalid form data format",
 		}})
 		return
@@ -217,7 +217,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 	if err := c.ShouldBind(&req); err != nil {
 		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
-			Field:   "request_body", 
+			Field:   "request_body",
 			Message: "Invalid form data format",
 		}})
 		return
@@ -272,7 +272,14 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		args = append(args, *req.MixPoint)
 	}
 
-	if len(updates) == 0 {
+	// Check if there's a jingle file to process
+	hasJingleUpdate := false
+	_, _, err := c.Request.FormFile("jingle")
+	if err == nil {
+		hasJingleUpdate = true
+	}
+
+	if len(updates) == 0 && !hasJingleUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
@@ -321,14 +328,63 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		}
 	}
 
-	// Execute update
-	query := "UPDATE station_voices SET " + strings.Join(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
+	// Execute database update if there are field updates
+	if len(updates) > 0 {
+		query := "UPDATE station_voices SET " + strings.Join(updates, ", ") + " WHERE id = ?"
+		args = append(args, id)
 
-	_, err := h.db.ExecContext(c.Request.Context(), query, args...)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to update station-voice")
-		return
+		_, err := h.db.ExecContext(c.Request.Context(), query, args...)
+		if err != nil {
+			utils.ProblemInternalServer(c, "Failed to update station-voice")
+			return
+		}
+	}
+
+	// Handle jingle file replacement if provided
+	if hasJingleUpdate {
+		// Get current station_id and voice_id for file naming
+		var current struct {
+			StationID int `db:"station_id"`
+			VoiceID   int `db:"voice_id"`
+		}
+		err := h.db.Get(&current, "SELECT station_id, voice_id FROM station_voices WHERE id = ?", id)
+		if err != nil {
+			utils.ProblemInternalServer(c, "Failed to fetch current values for jingle processing")
+			return
+		}
+
+		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", current.StationID, current.VoiceID))
+		if err != nil {
+			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+				Field:   "jingle",
+				Message: err.Error(),
+			}})
+			return
+		}
+		defer cleanup()
+
+		// Generate final path and move from temp
+		finalPath := utils.GetJinglePath(h.config, current.StationID, current.VoiceID)
+
+		// Move from temp to final location (handles cross-device moves)
+		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
+			logger.Error("Failed to move jingle file: %v", err)
+			utils.ProblemInternalServer(c, "Failed to save jingle file")
+			return
+		}
+
+		// Update database with relative jingle path
+		relativePath := utils.GetJingleRelativePath(h.config, current.StationID, current.VoiceID)
+		_, err = h.db.ExecContext(c.Request.Context(),
+			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
+		if err != nil {
+			// Clean up file on database error
+			if err := os.Remove(finalPath); err != nil {
+				logger.Error("Failed to remove temporary file: %v", err)
+			}
+			utils.ProblemInternalServer(c, "Failed to update jingle reference")
+			return
+		}
 	}
 
 	// Get updated record for response
