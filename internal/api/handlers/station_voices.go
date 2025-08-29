@@ -169,13 +169,10 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		}
 		defer cleanup()
 
-		// Generate final path and move from temp
-		finalPath := utils.GetJinglePath(h.config, req.StationID, req.VoiceID)
-
-		// Move from temp to final location (handles cross-device moves)
-		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
-			logger.Error("Failed to move jingle file: %v", err)
-			utils.ProblemInternalServer(c, "Failed to save jingle file")
+		// Process jingle with audio service (convert to WAV 48kHz stereo)
+		if _, _, err := h.audioSvc.ConvertJingleToWAV(c.Request.Context(), req.StationID, req.VoiceID, tempPath); err != nil {
+			logger.Error("Failed to process jingle audio: %v", err)
+			utils.ProblemInternalServer(c, "Failed to process jingle")
 			return
 		}
 
@@ -185,8 +182,9 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
 		if err != nil {
 			// Clean up file on database error
-			if err := os.Remove(finalPath); err != nil {
-				logger.Error("Failed to remove temporary file: %v", err)
+			finalPath := utils.GetJinglePath(h.config, req.StationID, req.VoiceID)
+			if rmErr := os.Remove(finalPath); rmErr != nil {
+				logger.Error("Failed to remove jingle file after database error: %v", rmErr)
 			}
 			utils.ProblemInternalServer(c, "Failed to update jingle reference")
 			return
@@ -363,13 +361,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		}
 		defer cleanup()
 
-		// Generate final path and move from temp
-		finalPath := utils.GetJinglePath(h.config, current.StationID, current.VoiceID)
-
-		// Move from temp to final location (handles cross-device moves)
-		if err := utils.SafeMoveFile(tempPath, finalPath); err != nil {
-			logger.Error("Failed to move jingle file: %v", err)
-			utils.ProblemInternalServer(c, "Failed to save jingle file")
+		// Process jingle with audio service (convert to WAV 48kHz stereo)
+		if _, _, err := h.audioSvc.ConvertJingleToWAV(c.Request.Context(), current.StationID, current.VoiceID, tempPath); err != nil {
+			logger.Error("Failed to process jingle audio: %v", err)
+			utils.ProblemInternalServer(c, "Failed to process jingle")
 			return
 		}
 
@@ -379,8 +374,9 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
 		if err != nil {
 			// Clean up file on database error
-			if err := os.Remove(finalPath); err != nil {
-				logger.Error("Failed to remove temporary file: %v", err)
+			finalPath := utils.GetJinglePath(h.config, current.StationID, current.VoiceID)
+			if rmErr := os.Remove(finalPath); rmErr != nil {
+				logger.Error("Failed to remove jingle file after database error: %v", rmErr)
 			}
 			utils.ProblemInternalServer(c, "Failed to update jingle reference")
 			return

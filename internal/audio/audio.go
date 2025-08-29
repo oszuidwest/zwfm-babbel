@@ -51,6 +51,32 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath 
 	return outputPath, duration, nil
 }
 
+// ConvertJingleToWAV converts uploaded jingle files to standardized WAV format for consistent bulletin generation.
+func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int, inputPath string) (string, float64, error) {
+	outputPath := utils.GetJinglePath(s.config, stationID, voiceID)
+
+	// Convert to WAV 48kHz stereo for jingles (stories are mono, jingles are stereo)
+	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
+		"-i", inputPath,
+		"-ar", "48000",
+		"-ac", "2", // Stereo for jingles
+		"-acodec", "pcm_s16le",
+		"-y", outputPath,
+	)
+
+	if err := cmd.Run(); err != nil {
+		return "", 0, fmt.Errorf("ffmpeg failed to convert jingle: %w", err)
+	}
+
+	duration, err := s.GetDuration(ctx, outputPath)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return outputPath, duration, nil
+}
+
 // GetDuration retrieves the duration of an audio file in seconds using ffprobe.
 func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {
 	// #nosec G204 - ffprobe binary is trusted, filePath is internally validated

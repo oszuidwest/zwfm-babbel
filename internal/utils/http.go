@@ -145,62 +145,6 @@ func SanitizeFilename(filename string) string {
 	return filename
 }
 
-// SafeMoveFile safely moves a file from source to destination with cross-filesystem support.
-// First attempts an efficient rename operation, falling back to copy+delete for cross-device moves.
-// Ensures data integrity with sync operations and proper error handling.
-func SafeMoveFile(src, dst string) error {
-	// First, try a simple rename (works if on same filesystem)
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-
-	// If rename failed, fall back to copy + delete
-	// This handles cross-device moves (e.g., /tmp to Docker volume)
-
-	// Open source file
-	// #nosec G304 - src path is internally generated and validated
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer func() {
-		_ = srcFile.Close() // Ignore error on cleanup
-	}()
-
-	// Create destination file
-	// #nosec G304 - dst path is internally generated and validated
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer func() {
-		_ = dstFile.Close() // Ignore error on cleanup
-	}()
-
-	// Copy file contents
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		// If copy failed, clean up destination file
-		_ = os.Remove(dst)
-		return fmt.Errorf("failed to copy file contents: %w", err)
-	}
-
-	// Ensure data is written to disk
-	if err := dstFile.Sync(); err != nil {
-		// If sync failed, clean up destination file
-		_ = os.Remove(dst)
-		return fmt.Errorf("failed to sync destination file: %w", err)
-	}
-
-	// Copy succeeded, now remove source file
-	if err := os.Remove(src); err != nil {
-		// Log warning but don't fail - the copy succeeded
-		// We use fmt.Printf since logger might not be available in utils
-		fmt.Printf("Warning: failed to remove source file %s after successful copy: %v\n", src, err)
-	}
-
-	return nil
-}
-
 // saveFileToPath saves an uploaded multipart file to the specified filesystem path.
 // Used internally by ValidateAndSaveAudioFile for secure file operations.
 func saveFileToPath(file multipart.File, dst string) error {
