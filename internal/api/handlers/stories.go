@@ -248,8 +248,9 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		}
 		defer cleanup()
 
-		// Process audio with audio service
-		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), int(storyID), tempPath); err != nil {
+		// Process audio with audio service (convert to mono WAV)
+		outputPath := utils.GetStoryPath(h.config, int(storyID))
+		if _, _, err := h.audioSvc.ConvertToWAV(c.Request.Context(), tempPath, outputPath, 1); err != nil {
 			logger.Error("Failed to process story audio: %v", err)
 			utils.ProblemInternalServer(c, "Failed to process audio")
 			return
@@ -420,8 +421,9 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		}
 		defer cleanup()
 
-		// Process audio with audio service
-		if _, _, err := h.audioSvc.ConvertStoryToWAV(c.Request.Context(), id, tempPath); err != nil {
+		// Process audio with audio service (convert to mono WAV)
+		outputPath := utils.GetStoryPath(h.config, id)
+		if _, _, err := h.audioSvc.ConvertToWAV(c.Request.Context(), tempPath, outputPath, 1); err != nil {
 			logger.Error("Failed to process story audio: %v", err)
 			utils.ProblemInternalServer(c, "Failed to process audio")
 			return

@@ -25,22 +25,21 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertStoryToWAV converts uploaded audio files to standardized WAV format.
-func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath string) (string, float64, error) {
-	outputPath := utils.GetStoryPath(s.config, storyID)
-
-	// Convert to WAV 48kHz mono
+// ConvertToWAV converts uploaded audio files to standardized WAV format.
+// channelCount: 1 for mono (stories), 2 for stereo (jingles)
+func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
+	// Convert to WAV 48kHz with specified channel count
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
 		"-i", inputPath,
 		"-ar", "48000",
-		"-ac", "1",
+		"-ac", fmt.Sprintf("%d", channelCount),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
 	)
 
 	if err := cmd.Run(); err != nil {
-		return "", 0, fmt.Errorf("ffmpeg failed: %w", err)
+		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", err)
 	}
 
 	duration, err := s.GetDuration(ctx, outputPath)
@@ -51,31 +50,6 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, storyID int, inputPath 
 	return outputPath, duration, nil
 }
 
-// ConvertJingleToWAV converts uploaded jingle files to standardized WAV format for consistent bulletin generation.
-func (s *Service) ConvertJingleToWAV(ctx context.Context, stationID, voiceID int, inputPath string) (string, float64, error) {
-	outputPath := utils.GetJinglePath(s.config, stationID, voiceID)
-
-	// Convert to WAV 48kHz stereo for jingles (stories are mono, jingles are stereo)
-	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
-		"-i", inputPath,
-		"-ar", "48000",
-		"-ac", "2", // Stereo for jingles
-		"-acodec", "pcm_s16le",
-		"-y", outputPath,
-	)
-
-	if err := cmd.Run(); err != nil {
-		return "", 0, fmt.Errorf("ffmpeg failed to convert jingle: %w", err)
-	}
-
-	duration, err := s.GetDuration(ctx, outputPath)
-	if err != nil {
-		return "", 0, err
-	}
-
-	return outputPath, duration, nil
-}
 
 // GetDuration retrieves the duration of an audio file in seconds using ffprobe.
 func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {

@@ -170,7 +170,8 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		defer cleanup()
 
 		// Process jingle with audio service (convert to WAV 48kHz stereo)
-		if _, _, err := h.audioSvc.ConvertJingleToWAV(c.Request.Context(), req.StationID, req.VoiceID, tempPath); err != nil {
+		outputPath := utils.GetJinglePath(h.config, req.StationID, req.VoiceID)
+		if _, _, err := h.audioSvc.ConvertToWAV(c.Request.Context(), tempPath, outputPath, 2); err != nil {
 			logger.Error("Failed to process jingle audio: %v", err)
 			utils.ProblemInternalServer(c, "Failed to process jingle")
 			return
@@ -362,7 +363,8 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		defer cleanup()
 
 		// Process jingle with audio service (convert to WAV 48kHz stereo)
-		if _, _, err := h.audioSvc.ConvertJingleToWAV(c.Request.Context(), current.StationID, current.VoiceID, tempPath); err != nil {
+		outputPath := utils.GetJinglePath(h.config, current.StationID, current.VoiceID)
+		if _, _, err := h.audioSvc.ConvertToWAV(c.Request.Context(), tempPath, outputPath, 2); err != nil {
 			logger.Error("Failed to process jingle audio: %v", err)
 			utils.ProblemInternalServer(c, "Failed to process jingle")
 			return
