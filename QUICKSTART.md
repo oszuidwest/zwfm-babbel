@@ -47,9 +47,9 @@ MYSQL_ROOT_PASSWORD=your_generated_64_char_password_here
 MYSQL_PASSWORD=your_generated_64_char_password_here
 
 # API
-SESSION_SECRET=your_generated_32_char_secret_here
-AUTH_METHOD=local
-API_PORT=8080
+BABBEL_SESSION_SECRET=your_generated_32_char_secret_here
+BABBEL_AUTH_METHOD=local
+BABBEL_SERVER_PORT=8080
 
 # Timezone (adjust to your location)
 TZ=Europe/Amsterdam
@@ -165,11 +165,6 @@ curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
   -d '{"username":"admin","password":"admin"}'
 
 # Change password (minimum 8 characters)
-curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/1/password \
-  -H "Content-Type: application/json" \
-  -d '{"password":"YourNewSecurePassword123!"}'
-  
-# Alternatively, update the entire user with new password
 curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/1 \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","full_name":"Administrator","password":"YourNewSecurePassword123!"}'
@@ -284,6 +279,52 @@ curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/2 \
   -d '{"suspended":true}'
 ```
 
+## Advanced Features
+
+### Modern Query Parameters
+
+All list endpoints support advanced filtering and searching:
+
+```bash
+# Search across fields
+curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking"
+
+# Filter with operators
+curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[created_at][gte]=2024-01-01"
+
+# Select specific fields
+curl -b cookies.txt "http://localhost:8080/api/v1/stories?fields=id,title,created_at"
+
+# Advanced sorting
+curl -b cookies.txt "http://localhost:8080/api/v1/stories?sort=-created_at,title"
+```
+
+Available filter operators: `gte`, `lte`, `gt`, `lt`, `ne`, `in`, `between`, `like`
+
+### OAuth/OIDC Authentication
+
+To enable SSO with Microsoft, Google, or other OIDC providers:
+
+1. Set environment variables:
+```bash
+BABBEL_AUTH_METHOD=oidc  # or "both" for local + OIDC
+OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_REDIRECT_URL=https://your-api.com/api/v1/auth/oauth/callback
+```
+
+2. Check available auth methods:
+```bash
+curl http://localhost:8080/api/v1/auth/config
+# Returns: {"methods":["oidc"],"oauth_url":"/api/v1/auth/oauth"}
+```
+
+3. Start OAuth flow by redirecting users to:
+```
+http://localhost:8080/api/v1/auth/oauth?frontend_url=https://your-frontend.com
+```
+
 ## Development Setup
 
 For local development without Docker:
@@ -313,7 +354,7 @@ make test-all
 ## API Documentation
 
 - **OpenAPI Spec**: Available in `openapi.yaml`
-- **Interactive Docs**: Visit `http://localhost:8080/docs` when running
+- **Full Reference**: See [API_REFERENCE.md](docs/API_REFERENCE.md)
 - **Postman Collection**: Import the OpenAPI spec into Postman
 - **Authentication**: All endpoints except `/health` and `/auth/config` require authentication
 
