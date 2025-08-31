@@ -71,8 +71,7 @@ func (s *StoryExpirationService) Stop() {
 func (s *StoryExpirationService) expireStories() {
 	logger.Info("Running story expiration check...")
 
-	// Only expire stories that are past their end date
-	// We don't automatically activate stories - that's an editorial decision
+	// Update active stories with past end dates to expired status
 	result, err := s.db.Exec(`
 		UPDATE stories 
 		SET status = 'expired', 

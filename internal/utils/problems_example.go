@@ -1,6 +1,4 @@
-// This file contains example JSON responses for RFC 9457 Problem Details
-// These are included for documentation purposes and demonstrate the format
-
+// Package utils provides example JSON responses conforming to RFC 9457 Problem Details specification.
 package utils
 
 // Example RFC 9457 Problem Details responses:

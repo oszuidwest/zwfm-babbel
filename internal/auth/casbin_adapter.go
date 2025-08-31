@@ -18,31 +18,31 @@ func NewCasbinAdapter(db *sqlx.DB) *CasbinAdapter {
 
 // LoadPolicy loads all policy rules from the storage
 func (a *CasbinAdapter) LoadPolicy(_ model.Model) error {
-	// Uses hardcoded policies for this implementation
+	// No-op: policies are loaded elsewhere
 	return nil
 }
 
 // SavePolicy saves all policy rules to the storage
 func (a *CasbinAdapter) SavePolicy(_ model.Model) error {
-	// Policies are not persisted in this implementation
+	// No-op: returns nil
 	return nil
 }
 
 // AddPolicy adds a policy rule to the storage
 func (a *CasbinAdapter) AddPolicy(_ string, _ string, _ []string) error {
-	// Not implemented for this simple example
+	// No-op: returns nil
 	return nil
 }
 
 // RemovePolicy removes a policy rule from the storage
 func (a *CasbinAdapter) RemovePolicy(_ string, _ string, _ []string) error {
-	// Not implemented for this simple example
+	// No-op: returns nil
 	return nil
 }
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage
 func (a *CasbinAdapter) RemoveFilteredPolicy(_ string, _ string, _ int, _ ...string) error {
-	// Not implemented for this simple example
+	// No-op: returns nil
 	return nil
 }
 

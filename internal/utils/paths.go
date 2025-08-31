@@ -42,11 +42,9 @@ func GetJingleRelativePath(config *config.Config, stationID, voiceID int) string
 	return filepath.Join(rel, GetJingleFilename(stationID, voiceID))
 }
 
-// GenerateBulletinPaths returns both absolute and relative paths for a bulletin using a single timestamp.
-// This ensures consistency between file creation and database storage.
-// Returns (absolutePath, relativePath) where:
-// - absolutePath is used for file creation
-// - relativePath is used for database storage
+// GenerateBulletinPaths returns both absolute and relative paths for a bulletin.
+// Returns (absolutePath, relativePath) where absolutePath includes the full system path
+// and relativePath is relative to the upload directory.
 func GenerateBulletinPaths(config *config.Config, stationID int, timestamp time.Time) (string, string) {
 	filename := GetBulletinFilename(stationID, timestamp)
 

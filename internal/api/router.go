@@ -238,7 +238,6 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 }
 
 // isAllowedOrigin checks if the origin is in the comma-separated list of allowed origins.
-// Used by CORS middleware to validate cross-origin requests for security.
 func isAllowedOrigin(origin string, allowedOrigins string) bool {
 	if origin == "" {
 		return false

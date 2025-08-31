@@ -164,11 +164,10 @@ func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	c.JSON(problem.Status, problem)
 }
 
-// getTraceID extracts the trace ID from the Gin context for distributed tracing.
+// getTraceID extracts the trace ID from the Gin context.
 // Returns an empty string if no trace ID is found or if it's not a string type.
-// Can be customized based on the specific tracing implementation used.
 func getTraceID(c *gin.Context) string {
-	// This can be customized based on your tracing implementation
+	// Check for trace_id in context
 	if traceID, exists := c.Get("trace_id"); exists {
 		if id, ok := traceID.(string); ok {
 			return id

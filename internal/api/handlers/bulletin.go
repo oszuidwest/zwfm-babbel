@@ -222,7 +222,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	if !forceNew && maxAgeStr != "" {
 		maxAge, err := time.ParseDuration(maxAgeStr + "s")
 		if err == nil && maxAge > 0 {
-			// Check for recent bulletin using helper function
+			// Check for existing bulletin within cache time limit
 			existingBulletin, err := h.getLatestBulletin(bulletinReq.StationID, &maxAge)
 			if err == nil {
 				// Calculate age of the cached bulletin
@@ -351,7 +351,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
 }
 
-// transformBulletinsAndRespond handles the common pattern of transforming bulletins and sending paginated response
+// transformBulletinsAndRespond converts bulletin records to API response format with pagination.
 func (h *Handlers) transformBulletinsAndRespond(c *gin.Context, bulletins []models.Bulletin) {
 	// Check if ModernListWithQuery already handled the response (error case)
 	if c.IsAborted() {
@@ -668,9 +668,8 @@ func getWeekdayColumn(weekday time.Weekday) string {
 	}
 }
 
-// getLatestBulletin is a helper function to fetch the latest bulletin for a station
-// This centralizes the query logic that's used in multiple places
-// If maxAge is provided, only returns bulletins newer than that duration
+// getLatestBulletin fetches the most recent bulletin for a station.
+// If maxAge is provided, only returns bulletins newer than that duration.
 func (h *Handlers) getLatestBulletin(stationID int, maxAge *time.Duration) (*models.Bulletin, error) {
 	var bulletin models.Bulletin
 

@@ -13,8 +13,7 @@ import (
 )
 
 // AudioConfig defines configuration parameters for serving audio files from database records.
-// Used to configure which table, columns, and content type to use for audio serving.
-// Enables reusable audio serving logic across different resource types (stories, jingles, bulletins).
+// It specifies the table, columns, and content type for different audio resource types.
 type AudioConfig struct {
 	TableName   string
 	IDColumn    string

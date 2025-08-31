@@ -216,6 +216,7 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 }
 
 // ensureUniqueUsername checks if a username exists and adds a numeric suffix if needed.
+// It returns a unique username, appending _1, _2, etc. until an available username is found.
 func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	username := baseUsername
 	counter := 1
@@ -363,31 +364,16 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		// Update failed login attempts
-		if _, dbErr := s.db.Exec("UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ?", user.ID); dbErr != nil {
-			logger.Error("Failed to update failed login attempts: %v", dbErr)
-		}
+		// Increment failed login attempt counter
+		s.updateLoginFailure(user.ID)
 		return fmt.Errorf("invalid credentials")
 	}
 
-	// Update login stats
-	if _, err := s.db.Exec(`
-		UPDATE users 
-		SET last_login_at = NOW(), 
-		    login_count = login_count + 1,
-		    failed_login_attempts = 0
-		WHERE id = ?`, user.ID); err != nil {
-		logger.Error("Failed to update login stats: %v", err)
-	}
+	// Reset failed attempts and update login statistics
+	s.updateLoginSuccess(user.ID)
 
-	// Create session
-	session := s.sessions.Get(c)
-	session.Set("user_id", user.ID)
-	session.Set("username", user.Username)
-	session.Set("role", user.Role)
-	session.Set("auth_method", "local")
-
-	return session.Save(c)
+	// Create session for authenticated user
+	return s.CreateSession(c, user.ID, user.Username, user.Role, "local")
 }
 
 // StartOAuthFlow initiates the OAuth/OIDC authentication process.
@@ -484,11 +470,8 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		}
 		// Use existing user
 		user := existingUser
-		// Update last login
-		_, err = s.db.Exec("UPDATE users SET last_login_at = NOW(), login_count = login_count + 1 WHERE id = ?", user.ID)
-		if err != nil {
-			logger.Error("Failed to update login stats: %v", err)
-		}
+		// Reset failed attempts and update login statistics
+		s.updateLoginSuccess(user.ID)
 		
 		// Get the user's actual role from database
 		var role string
@@ -498,7 +481,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		}
 		
 		// Create session with existing username and role
-		if err := s.CreateSession(c, user.ID, existingUser.Username, role); err != nil {
+		if err := s.CreateSession(c, user.ID, existingUser.Username, role, "oidc"); err != nil {
 			return fmt.Errorf("failed to create session: %w", err)
 		}
 		return nil
@@ -533,7 +516,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	
 	// Create session for new user
-	if err := s.CreateSession(c, int(id), username, "viewer"); err != nil {
+	if err := s.CreateSession(c, int(id), username, "viewer", "oidc"); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 	
@@ -555,13 +538,44 @@ func (s *Service) Logout(c *gin.Context) {
 }
 
 // CreateSession creates a new session for the authenticated user.
-func (s *Service) CreateSession(c *gin.Context, userID int, username string, role string) error {
+// It stores the user ID, username, role, and authentication method in the session.
+// Returns an error if the session cannot be saved.
+func (s *Service) CreateSession(c *gin.Context, userID int, username string, role string, authMethod string) error {
 	session := s.sessions.Get(c)
 	session.Set("user_id", userID)
 	session.Set("username", username)
 	session.Set("role", role)
-	session.Set("auth_method", "oidc")
+	session.Set("auth_method", authMethod)
 	return session.Save(c)
+}
+
+// updateLoginSuccess updates user statistics after successful login.
+// It resets failed login attempts and increments the login count.
+// Returns an error if the database update fails.
+func (s *Service) updateLoginSuccess(userID int) error {
+	_, err := s.db.Exec(`
+		UPDATE users 
+		SET last_login_at = NOW(), 
+		    login_count = login_count + 1,
+		    failed_login_attempts = 0
+		WHERE id = ?`, userID)
+	if err != nil {
+		logger.Error("Failed to update login stats: %v", err)
+	}
+	return err
+}
+
+// updateLoginFailure increments failed login attempts for a user.
+// Returns an error if the database update fails.
+func (s *Service) updateLoginFailure(userID int) error {
+	_, err := s.db.Exec(`
+		UPDATE users 
+		SET failed_login_attempts = failed_login_attempts + 1 
+		WHERE id = ?`, userID)
+	if err != nil {
+		logger.Error("Failed to update failed login attempts: %v", err)
+	}
+	return err
 }
 
 // generateState generates a cryptographically secure random state parameter for OAuth2 CSRF protection.

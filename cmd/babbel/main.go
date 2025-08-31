@@ -63,8 +63,6 @@ func main() {
 		}
 	}()
 
-	// Migrations are run manually via make db-reset
-
 	// Setup API router
 	router := api.SetupRouter(db, cfg)
 

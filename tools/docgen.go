@@ -325,7 +325,7 @@ func main() {
 }
 
 func generateMarkdown(spec OpenAPISpec) (string, error) {
-	// Group endpoints by tag
+	// Create endpoint-to-tag mapping for documentation generation
 	endpointsByTag := make(map[string][]EndpointInfo)
 
 	// Collect all endpoints
