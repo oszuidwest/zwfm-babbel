@@ -23,7 +23,7 @@ npm test:voices
 
 ### Requirements
 
-- Node.js >= 16.0.0
+- Node.js >= 24.0.0
 - Docker and Docker Compose
 - FFmpeg
 

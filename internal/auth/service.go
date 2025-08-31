@@ -190,11 +190,11 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Take the part before @ (local part of email)
 	base := strings.Split(email, "@")[0]
-	
+
 	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
 	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 	username := re.ReplaceAllString(base, "_")
-	
+
 	// Ensure the username is not empty and meets minimum length requirement
 	if len(username) < 3 {
 		// If too short, append part of the domain
@@ -205,12 +205,12 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 			username = username + "_" + domainPart
 		}
 	}
-	
+
 	// Truncate if too long (max 100 characters)
 	if len(username) > 100 {
 		username = username[:100]
 	}
-	
+
 	// Ensure uniqueness
 	return s.ensureUniqueUsername(username)
 }
@@ -220,7 +220,7 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	username := baseUsername
 	counter := 1
-	
+
 	for {
 		var exists bool
 		err := s.db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
@@ -235,15 +235,15 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 			}
 			continue
 		}
-		
+
 		if !exists {
 			break
 		}
-		
+
 		// Username exists, try with numeric suffix
 		username = fmt.Sprintf("%s_%d", baseUsername, counter)
 		counter++
-		
+
 		// Ensure we don't exceed the max length (100 characters)
 		if len(username) > 100 {
 			// Truncate base and add suffix
@@ -258,7 +258,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 			username = fmt.Sprintf("%s_%d", truncatedBase, counter)
 		}
 	}
-	
+
 	return username
 }
 
@@ -365,12 +365,16 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		// Increment failed login attempt counter
-		s.updateLoginFailure(user.ID)
+		if updateErr := s.updateLoginFailure(user.ID); updateErr != nil {
+			logger.Error("Failed to update login failure stats: %v", updateErr)
+		}
 		return fmt.Errorf("invalid credentials")
 	}
 
 	// Reset failed attempts and update login statistics
-	s.updateLoginSuccess(user.ID)
+	if err := s.updateLoginSuccess(user.ID); err != nil {
+		logger.Error("Failed to update login success stats: %v", err)
+	}
 
 	// Create session for authenticated user
 	return s.CreateSession(c, user.ID, user.Username, user.Role, "local")
@@ -460,7 +464,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		Username    string     `db:"username"`
 		SuspendedAt *time.Time `db:"suspended_at"`
 	}
-	
+
 	// Try to find user by email first
 	err = s.db.Get(&existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", claims.Email)
 	if err == nil {
@@ -471,34 +475,34 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		// Use existing user
 		user := existingUser
 		// Reset failed attempts and update login statistics
-		s.updateLoginSuccess(user.ID)
-		
+		if err := s.updateLoginSuccess(user.ID); err != nil {
+			logger.Error("Failed to update login success stats: %v", err)
+		}
+
 		// Get the user's actual role from database
 		var role string
 		if err := s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
 			logger.Error("Failed to get user role, defaulting to viewer: %v", err)
 			role = "viewer"
 		}
-		
+
 		// Create session with existing username and role
 		if err := s.CreateSession(c, user.ID, existingUser.Username, role, "oidc"); err != nil {
 			return fmt.Errorf("failed to create session: %w", err)
 		}
 		return nil
 	}
-	
+
 	// No existing user with this email, create new user
 	// Determine username: prefer PreferredUsername if available, otherwise sanitize email
 	username := claims.PreferredUsername
 	if username == "" {
 		// Use email and sanitize it to create valid username
 		username = s.sanitizeEmailToUsername(claims.Email)
-	} else {
+	} else if strings.Contains(username, "@") || strings.Contains(username, ".") {
 		// Even if PreferredUsername exists, ensure it's valid
 		// Check if it contains invalid characters
-		if strings.Contains(username, "@") || strings.Contains(username, ".") {
-			username = s.sanitizeEmailToUsername(username)
-		}
+		username = s.sanitizeEmailToUsername(username)
 	}
 
 	// Create new user with sanitized username
@@ -509,17 +513,17 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
-	
+
 	id, err := result.LastInsertId()
 	if err != nil {
 		return fmt.Errorf("failed to get created user ID: %w", err)
 	}
-	
+
 	// Create session for new user
 	if err := s.CreateSession(c, int(id), username, "viewer", "oidc"); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-	
+
 	return nil
 }
 

@@ -50,7 +50,6 @@ func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string
 	return outputPath, duration, nil
 }
 
-
 // GetDuration retrieves the duration of an audio file in seconds using ffprobe.
 func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {
 	// #nosec G204 - ffprobe binary is trusted, filePath is internally validated

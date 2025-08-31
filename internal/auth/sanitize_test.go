@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"testing"
 	"regexp"
+	"testing"
 )
 
 func TestSanitizeEmailToUsername(t *testing.T) {
@@ -51,16 +51,16 @@ func TestSanitizeEmailToUsername(t *testing.T) {
 			if idx := regexp.MustCompile(`@`).FindStringIndex(tt.email); idx != nil {
 				base = tt.email[:idx[0]]
 			}
-			
+
 			re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 			result := re.ReplaceAllString(base, "_")
-			
+
 			// Verify the result matches the pattern
 			validPattern := regexp.MustCompile(tt.pattern)
 			if !validPattern.MatchString(result) {
 				t.Errorf("sanitizeEmailToUsername(%q) = %q, doesn't match pattern %q", tt.email, result, tt.pattern)
 			}
-			
+
 			// Check minimum length
 			if len(result) < 3 && len(base) < 3 {
 				t.Logf("Note: %q would need domain appending for minimum length", tt.email)
@@ -72,7 +72,7 @@ func TestSanitizeEmailToUsername(t *testing.T) {
 func TestUsernamePattern(t *testing.T) {
 	// Test that our target pattern works with sanitized usernames
 	pattern := regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
-	
+
 	validUsernames := []string{
 		"raymon",
 		"john_doe",
@@ -82,13 +82,13 @@ func TestUsernamePattern(t *testing.T) {
 		"raymon_1",
 		"raymon_zuidwestfm",
 	}
-	
+
 	for _, username := range validUsernames {
 		if !pattern.MatchString(username) {
 			t.Errorf("Username %q should be valid but doesn't match pattern", username)
 		}
 	}
-	
+
 	invalidUsernames := []string{
 		"raymon@zuidwestfm.nl",
 		"john.doe",
@@ -96,7 +96,7 @@ func TestUsernamePattern(t *testing.T) {
 		"test+user",
 		"admin@company.com",
 	}
-	
+
 	for _, username := range invalidUsernames {
 		if pattern.MatchString(username) {
 			t.Errorf("Username %q should be invalid but matches pattern", username)

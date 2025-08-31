@@ -112,6 +112,20 @@ After configuration, verify that:
 - Add frontend URL to `BABBEL_ALLOWED_ORIGINS`
 - Ensure the URL matches exactly (including protocol and port)
 
+## OAuth Username Handling
+
+When users authenticate via OAuth/OIDC, their email address is automatically sanitized to create a valid username:
+
+- Email prefix (before @) is extracted
+- Invalid characters are replaced with underscores
+- Maximum 50 characters are kept
+- Numeric suffixes (_1, _2) are added if username already exists
+
+Examples:
+- `john.doe@example.com` → `john_doe`
+- `user+tag@example.com` → `user_tag`
+- `admin@example.com` (if exists) → `admin_1`
+
 ## Security Considerations
 
 - **HttpOnly**: Always enabled to prevent XSS attacks
