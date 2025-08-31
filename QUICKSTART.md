@@ -209,7 +209,7 @@ docker compose up -d
 - Verify you're using the correct endpoint: `/api/v1/sessions` (not `/session/login`)
 - Check if cookies are being saved: `cat cookies.txt`
 - Verify timezone in .env matches your location
-- For OAuth issues, check `BABBEL_AUTH_METHOD` and OAuth configuration
+- For OIDC/OAuth issues, check `BABBEL_AUTH_METHOD` and OIDC configuration
 
 **Audio generation fails?**
 - Check disk space: `df -h`

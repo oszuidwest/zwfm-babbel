@@ -111,9 +111,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	h.handlers.GetUser(c)
 }
 
-// GetAuthConfig returns the available authentication methods and OAuth URLs.
+// GetAuthConfig returns the available authentication methods and OIDC URLs.
 // Used by frontend applications to discover supported authentication options.
-// Returns array of enabled methods ("local", "oauth") and OAuth initiation URL.
+// Returns array of enabled methods ("local", "oidc") and OIDC initiation URL.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := gin.H{
 		"methods": []string{},
@@ -125,7 +125,7 @@ func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	}
 
 	if h.authService.IsOAuthEnabled() {
-		response["methods"] = append(response["methods"].([]string), "oauth")
+		response["methods"] = append(response["methods"].([]string), "oidc")
 		response["oauth_url"] = "/api/v1/auth/oauth"
 	}
 

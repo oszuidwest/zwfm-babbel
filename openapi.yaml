@@ -193,8 +193,8 @@ paths:
                     description: Available authentication methods
                     items:
                       type: string
-                      enum: [local, oauth]
-                    example: ["local", "oauth"]
+                      enum: [local, oidc]
+                    example: ["local", "oidc"]
                   oauth_url:
                     type: string
                     description: URL to start OAuth flow (only present when OAuth is enabled)
