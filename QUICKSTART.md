@@ -230,7 +230,7 @@ docker compose up -d
 
 The official Docker images are available at GitHub Container Registry:
 - Latest: `ghcr.io/oszuidwest/zwfm-babbel:latest`
-- Specific version: `ghcr.io/oszuidwest/zwfm-babbel:v1.0.0`
+- Specific version: `ghcr.io/oszuidwest/zwfm-babbel:v0.0.1`
 
 Images are automatically built for:
 - New releases (tags)

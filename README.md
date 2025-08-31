@@ -162,17 +162,7 @@ CLAUDE.md              # AI assistant instructions
 - **Deployment**: Docker and Docker Compose
 - **Documentation**: OpenAPI 3.0.3 specification
 
-## Recent Improvements
-
-### Version 2.0.0 (2025)
-- Complete OpenAPI 3.0.3 specification with 100% endpoint coverage
-- RFC 9457 Problem Details error format implementation
-- Improved Go documentation following official Go guidelines
-- Enhanced test coverage with 66 integration tests
-- CLAUDE.md file for AI-assisted development
-- Fixed API consistency issues (hyphenated paths, response formats)
-
-### Testing
+## Testing
 
 The project includes a comprehensive test suite:
 - **Unit tests**: Go tests for individual components
