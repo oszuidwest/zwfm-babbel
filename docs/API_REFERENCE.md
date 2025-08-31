@@ -33,7 +33,7 @@ Cross-Origin Resource Sharing (CORS) is configurable:
 - Credentials (cookies) are supported when origin is allowed
 
 
-**Version:** 2.0.0  
+**Version:** 0.0.1 - "Station-specific voice jingles with mix points" - "Local and OAuth/OIDC authentication" - "Role-based access control (admin, editor, viewer)" - "Soft delete for stories and users" - "FFmpeg audio processing" - "Pagination and filtering on all list endpoints" - "RESTful design for radio automation" - "Removed redundant /broadcasts endpoint"  
 **Base URL:** http://localhost:8080/api/v1
 
 ## Table of Contents
