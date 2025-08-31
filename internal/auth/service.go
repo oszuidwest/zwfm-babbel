@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/casbin/casbin/v2"
@@ -180,6 +182,83 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	}
 
 	return enforcer, nil
+}
+
+// sanitizeEmailToUsername converts an email address to a valid username.
+// It takes the local part (before @) and replaces invalid characters with underscores.
+// Example: raymon@zuidwestfm.nl → raymon
+func (s *Service) sanitizeEmailToUsername(email string) string {
+	// Take the part before @ (local part of email)
+	base := strings.Split(email, "@")[0]
+	
+	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
+	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+	username := re.ReplaceAllString(base, "_")
+	
+	// Ensure the username is not empty and meets minimum length requirement
+	if len(username) < 3 {
+		// If too short, append part of the domain
+		domain := strings.Split(email, "@")
+		if len(domain) > 1 {
+			domainPart := strings.Split(domain[1], ".")[0]
+			domainPart = re.ReplaceAllString(domainPart, "_")
+			username = username + "_" + domainPart
+		}
+	}
+	
+	// Truncate if too long (max 100 characters)
+	if len(username) > 100 {
+		username = username[:100]
+	}
+	
+	// Ensure uniqueness
+	return s.ensureUniqueUsername(username)
+}
+
+// ensureUniqueUsername checks if a username exists and adds a numeric suffix if needed.
+func (s *Service) ensureUniqueUsername(baseUsername string) string {
+	username := baseUsername
+	counter := 1
+	
+	for {
+		var exists bool
+		err := s.db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
+		if err != nil {
+			// On error, assume it might exist and try with suffix
+			username = fmt.Sprintf("%s_%d", baseUsername, counter)
+			counter++
+			if counter > 100 {
+				// Fallback to timestamp-based username to avoid infinite loop
+				username = fmt.Sprintf("%s_%d", baseUsername, time.Now().Unix())
+				break
+			}
+			continue
+		}
+		
+		if !exists {
+			break
+		}
+		
+		// Username exists, try with numeric suffix
+		username = fmt.Sprintf("%s_%d", baseUsername, counter)
+		counter++
+		
+		// Ensure we don't exceed the max length (100 characters)
+		if len(username) > 100 {
+			// Truncate base and add suffix
+			maxBaseLen := 100 - len(fmt.Sprintf("_%d", counter))
+			if maxBaseLen < 1 {
+				maxBaseLen = 90
+			}
+			truncatedBase := baseUsername
+			if len(truncatedBase) > maxBaseLen {
+				truncatedBase = truncatedBase[:maxBaseLen]
+			}
+			username = fmt.Sprintf("%s_%d", truncatedBase, counter)
+		}
+	}
+	
+	return username
 }
 
 // SessionMiddleware returns the Gin middleware for session management.
@@ -389,70 +468,76 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 
 	// Find or create user
-	username := claims.PreferredUsername
-	if username == "" {
-		username = claims.Email
-	}
-
-	var user struct {
+	// First, try to find existing user by email to handle username changes
+	var existingUser struct {
 		ID          int        `db:"id"`
+		Username    string     `db:"username"`
 		SuspendedAt *time.Time `db:"suspended_at"`
 	}
-	err = s.db.Get(&user, "SELECT id, suspended_at FROM users WHERE username = ?", username)
-	if err != nil {
-		// Create new user
-		result, err := s.db.Exec(`
-			INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
-			VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
-			username, claims.Name, claims.Email)
-		if err != nil {
-			return fmt.Errorf("failed to create user: %w", err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("failed to get created user ID: %w", err)
-		}
-		user.ID = int(id)
-	} else {
-		if user.SuspendedAt != nil {
+	
+	// Try to find user by email first
+	err = s.db.Get(&existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", claims.Email)
+	if err == nil {
+		// User exists with this email
+		if existingUser.SuspendedAt != nil {
 			return fmt.Errorf("account is suspended")
 		}
-
-		// Update existing user's last login and increment login count
-		if _, err := s.db.Exec(`
-			UPDATE users 
-			SET last_login_at = NOW(), 
-			    login_count = login_count + 1,
-			    failed_login_attempts = 0
-			WHERE id = ?`, user.ID); err != nil {
-			logger.Error("Failed to update OAuth login stats: %v", err)
+		// Use existing user
+		user := existingUser
+		// Update last login
+		_, err = s.db.Exec("UPDATE users SET last_login_at = NOW(), login_count = login_count + 1 WHERE id = ?", user.ID)
+		if err != nil {
+			logger.Error("Failed to update login stats: %v", err)
 		}
-
-		// Update name and email if they've changed
-		if _, err := s.db.Exec(`
-			UPDATE users 
-			SET full_name = ?, email = ?
-			WHERE id = ? AND (full_name != ? OR email != ? OR email IS NULL)`,
-			claims.Name, claims.Email, user.ID, claims.Name, claims.Email); err != nil {
-			logger.Error("Failed to update OAuth user info: %v", err)
+		
+		// Get the user's actual role from database
+		var role string
+		if err := s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
+			logger.Error("Failed to get user role, defaulting to viewer: %v", err)
+			role = "viewer"
+		}
+		
+		// Create session with existing username and role
+		if err := s.CreateSession(c, user.ID, existingUser.Username, role); err != nil {
+			return fmt.Errorf("failed to create session: %w", err)
+		}
+		return nil
+	}
+	
+	// No existing user with this email, create new user
+	// Determine username: prefer PreferredUsername if available, otherwise sanitize email
+	username := claims.PreferredUsername
+	if username == "" {
+		// Use email and sanitize it to create valid username
+		username = s.sanitizeEmailToUsername(claims.Email)
+	} else {
+		// Even if PreferredUsername exists, ensure it's valid
+		// Check if it contains invalid characters
+		if strings.Contains(username, "@") || strings.Contains(username, ".") {
+			username = s.sanitizeEmailToUsername(username)
 		}
 	}
 
-	// Create session
-	session.Set("user_id", user.ID)
-	session.Set("username", username)
-	session.Set("auth_method", "oidc")
-
-	// Get user role
-	var role string
-	if err := s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-		logger.Error("Failed to get user role: %v", err)
-		// Default to viewer role if query fails
-		role = "viewer"
+	// Create new user with sanitized username
+	result, err := s.db.Exec(`
+		INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
+		VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
+		username, claims.Name, claims.Email)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
 	}
-	session.Set("role", role)
-
-	return session.Save(c)
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get created user ID: %w", err)
+	}
+	
+	// Create session for new user
+	if err := s.CreateSession(c, int(id), username, "viewer"); err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	
+	return nil
 }
 
 // GetSession retrieves the current session for the request context.
@@ -467,6 +552,16 @@ func (s *Service) Logout(c *gin.Context) {
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save session during logout: %v", err)
 	}
+}
+
+// CreateSession creates a new session for the authenticated user.
+func (s *Service) CreateSession(c *gin.Context, userID int, username string, role string) error {
+	session := s.sessions.Get(c)
+	session.Set("user_id", userID)
+	session.Set("username", username)
+	session.Set("role", role)
+	session.Set("auth_method", "oidc")
+	return session.Save(c)
 }
 
 // generateState generates a cryptographically secure random state parameter for OAuth2 CSRF protection.
