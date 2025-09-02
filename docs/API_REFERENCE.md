@@ -547,6 +547,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -749,6 +751,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -906,6 +910,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -1113,6 +1119,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -1331,6 +1339,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -1477,6 +1487,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -1574,6 +1586,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
@@ -1674,6 +1688,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 | `latest` | query | boolean | No | Return only the latest bulletin for this station (equivalent to limit=1) |
 
@@ -1939,6 +1955,8 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+
+**URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
 
 
