@@ -2128,6 +2128,8 @@ components:
         - `like` - pattern matching
         - `in` - comma-separated values
         - `null` - is/isn't null
+        
+        **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
       examples:
         basic:
           value: { "name": "Radio Station" }
