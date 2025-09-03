@@ -762,17 +762,17 @@ paths:
             example:
               title: "Breaking News Update"
               text: "This is important news content for our listeners."
-              voice_id: "1"
+              voice_id: 1
               status: "active"
               start_date: "2024-01-20T00:00:00Z"
               end_date: "2024-01-27T23:59:59Z"
-              monday: "true"
-              tuesday: "true"
-              wednesday: "true"
-              thursday: "true"
-              friday: "true"
-              saturday: "false"
-              sunday: "false"
+              monday: true
+              tuesday: true
+              wednesday: true
+              thursday: true
+              friday: true
+              saturday: false
+              sunday: false
               metadata: "{\"priority\": \"high\", \"category\": \"breaking\"}"
       responses:
         '201':
@@ -866,14 +866,14 @@ paths:
         content:
           multipart/form-data:
             schema:
-              $ref: '#/components/schemas/StoryInput'
+              $ref: '#/components/schemas/StoryUpdateInput'
             example:
               title: "Updated Breaking News"
               text: "This is the updated news content."
-              voice_id: "2"
+              voice_id: 2
               status: "active"
-              monday: "false"
-              tuesday: "true"
+              monday: false
+              tuesday: true
               metadata: "{\"priority\": \"medium\"}"
       responses:
         '200':
@@ -2422,6 +2422,92 @@ components:
           type: string
           enum: [draft, active, expired]
           default: draft
+        start_date:
+          type: string
+          format: date-time
+          description: Start date and time in RFC3339 format
+        end_date:
+          type: string
+          format: date-time
+          description: End date and time in RFC3339 format
+        monday:
+          type: boolean
+          description: Schedule for Monday
+        tuesday:
+          type: boolean
+          description: Schedule for Tuesday  
+        wednesday:
+          type: boolean
+          description: Schedule for Wednesday
+        thursday:
+          type: boolean
+          description: Schedule for Thursday
+        friday:
+          type: boolean
+          description: Schedule for Friday
+        saturday:
+          type: boolean
+          description: Schedule for Saturday
+        sunday:
+          type: boolean
+          description: Schedule for Sunday
+        metadata:
+          type: string
+          description: |
+            Optional JSON metadata. Pass empty string to set to NULL.
+            When submitted via multipart/form-data, this must be a JSON-encoded string or empty string.
+
+    StoryUpdateInput:
+      type: object
+      description: |
+        Story input for partial updates via multipart/form-data submissions.
+        All fields are optional for update operations - only provided fields will be updated.
+        
+        **Important Form Validation Notes**:
+        - All fields are optional for updates (partial update support)
+        - Empty strings are treated as missing for optional fields
+        - title and text, when provided, must be non-empty strings
+        - voice_id is optional - stories without voice won't be in bulletins
+        - weekdays must be a valid JSON string when provided
+        - metadata can be empty string (stored as NULL) or valid JSON
+        - Validation differs from JSON endpoints which use struct binding
+        
+        **Form Field Examples** (all optional):
+        ```
+        title: "Updated Breaking News"
+        text: "This is the updated news content."
+        voice_id: "2"
+        status: "active"
+        start_date: "2024-01-20T00:00:00Z"
+        end_date: "2024-01-27T23:59:59Z"
+        monday: "false"
+        tuesday: "true"
+        wednesday: "false"
+        metadata: "{\"priority\": \"medium\", \"category\": \"news\"}"
+        audio: <binary file>
+        ```
+        
+        **Important**: Boolean values must be sent as strings ("true"/"false") in form data.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        text:
+          type: string
+          minLength: 1
+        voice_id:
+          type: integer
+          nullable: true
+          description: Optional voice ID. Stories without a voice will not be included in bulletin generation
+        audio:
+          type: string
+          format: binary
+          description: Audio file (optional)
+        status:
+          type: string
+          enum: [draft, active, expired]
+          description: Story status
         start_date:
           type: string
           format: date-time
