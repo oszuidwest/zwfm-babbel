@@ -847,7 +847,7 @@ Available filter fields:
 - `bulletin_id` - Bulletin ID (same as id)
 - `station_id` - Station ID
 - `filename` - Bulletin filename
-- `file_path` - File path
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
@@ -861,6 +861,7 @@ Available sort fields:
 - `id` - Bulletin ID
 - `station_id` - Station ID
 - `filename` - Bulletin filename
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
@@ -1523,7 +1524,7 @@ Available filter fields:
 - `id` - Bulletin ID
 - `station_id` - Station ID
 - `filename` - Bulletin filename
-- `file_path` - File path
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
@@ -1536,6 +1537,7 @@ Available sort fields:
 - `id` - Bulletin ID
 - `station_id` - Station ID
 - `filename` - Bulletin filename
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
@@ -1624,7 +1626,7 @@ Available filter fields:
 - `id` - Bulletin ID
 - `station_id` - Station ID (automatically filtered by path parameter)
 - `filename` - Bulletin filename
-- `file_path` - File path
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
@@ -1635,6 +1637,7 @@ Available filter fields:
 Available sort fields:
 - `id` - Bulletin ID
 - `filename` - Bulletin filename
+- `audio_file` - Audio filename
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
@@ -1897,7 +1900,7 @@ Available filter fields:
 - `id` - Station-voice relationship ID
 - `station_id` - Station ID
 - `voice_id` - Voice ID
-- `jingle_file` - Jingle filename
+- `audio_file` - Audio filename
 - `mix_point` - Mix point in seconds
 - `created_at` - Creation timestamp
 - `updated_at` - Last update timestamp
@@ -1909,6 +1912,7 @@ Available sort fields:
 - `id` - Relationship ID (default: descending)
 - `station_id` - Station ID
 - `voice_id` - Voice ID
+- `audio_file` - Audio filename
 - `mix_point` - Mix point value
 - `created_at` - Creation timestamp
 - `updated_at` - Last update timestamp
