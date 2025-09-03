@@ -233,7 +233,7 @@ class BulletinsTests extends BaseTest {
             // Extract bulletin details
             const bulletinId = this.parseJsonField(response.data, 'id');
             const audioUrl = this.parseJsonField(response.data, 'audio_url');
-            const duration = this.parseJsonField(response.data, 'duration');
+            const duration = this.parseJsonField(response.data, 'duration_seconds');
             const storyCount = this.parseJsonField(response.data, 'story_count');
             const filename = this.parseJsonField(response.data, 'filename');
             

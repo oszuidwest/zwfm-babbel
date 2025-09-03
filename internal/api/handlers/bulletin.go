@@ -28,9 +28,9 @@ type BulletinRequest struct {
 
 // BulletinResponse represents the API response for bulletin generation.
 type BulletinResponse struct {
-	AudioURL string         `json:"audio_url"`
-	Duration float64        `json:"duration"`
-	Station  models.Station `json:"station"`
+	AudioURL        string         `json:"audio_url"`
+	DurationSeconds float64        `json:"duration_seconds"`
+	Station         models.Station `json:"station"`
 }
 
 // BulletinInfo contains metadata about a generated bulletin.
@@ -408,14 +408,14 @@ func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo) map[string]interfa
 	bulletinURL := GetBulletinAudioURL(int(info.ID))
 
 	response := map[string]interface{}{
-		"station_id":   info.Station.ID,
-		"station_name": info.Station.Name,
-		"audio_url":    bulletinURL,
-		"filename":     filepath.Base(info.BulletinPath),
-		"created_at":   info.CreatedAt,
-		"duration":     info.Duration,
-		"file_size":    info.FileSize,
-		"story_count":  len(info.Stories),
+		"station_id":       info.Station.ID,
+		"station_name":     info.Station.Name,
+		"audio_url":        bulletinURL,
+		"filename":         filepath.Base(info.BulletinPath),
+		"created_at":       info.CreatedAt,
+		"duration_seconds": info.Duration,
+		"file_size":        info.FileSize,
+		"story_count":      len(info.Stories),
 	}
 
 	if info.ID > 0 {

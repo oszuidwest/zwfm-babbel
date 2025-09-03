@@ -1027,7 +1027,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_150_20240120_140500.wav"
                         audio_url: "/bulletins/150/audio"
-                        duration: 185.4
+                        duration_seconds: 185.4
                         file_size: 2965440
                         story_count: 4
                         created_at: "2024-01-20T14:05:00Z"
@@ -1038,7 +1038,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_149_20240120_140200.wav"
                         audio_url: "/bulletins/149/audio"
-                        duration: 178.2
+                        duration_seconds: 178.2
                         file_size: 2845568
                         story_count: 3
                         created_at: "2024-01-20T14:02:00Z"
@@ -1290,7 +1290,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_150_20240120_140500.wav"
                         audio_url: "/bulletins/150/audio"
-                        duration: 185.4
+                        duration_seconds: 185.4
                         file_size: 2965440
                         story_count: 4
                         created_at: "2024-01-20T14:05:00Z"
@@ -1299,7 +1299,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_149_20240120_140200.wav"
                         audio_url: "/bulletins/149/audio"
-                        duration: 178.2
+                        duration_seconds: 178.2
                         file_size: 2845568
                         story_count: 3
                         created_at: "2024-01-20T14:02:00Z"
@@ -1314,7 +1314,7 @@ paths:
                         station_id: 1
                         station_name: "Radio Station 1"
                         filename: "bulletin_150_20240120_140500.wav"
-                        duration: 185.4
+                        duration_seconds: 185.4
                         story_count: 4
                     total: 1
                     limit: 20
@@ -1423,7 +1423,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_150_20240120_140500.wav"
                         audio_url: "/bulletins/150/audio"
-                        duration: 185.4
+                        duration_seconds: 185.4
                         file_size: 2965440
                         story_count: 4
                         created_at: "2024-01-20T14:05:00Z"
@@ -1432,7 +1432,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_149_20240120_140200.wav"
                         audio_url: "/bulletins/149/audio"
-                        duration: 178.2
+                        duration_seconds: 178.2
                         file_size: 2845568
                         story_count: 3
                         created_at: "2024-01-20T14:02:00Z"
@@ -1448,7 +1448,7 @@ paths:
                         station_name: "Radio Station 1"
                         filename: "bulletin_150_20240120_140500.wav"
                         audio_url: "/bulletins/150/audio"
-                        duration: 185.4
+                        duration_seconds: 185.4
                         file_size: 2965440
                         story_count: 4
                         created_at: "2024-01-20T14:05:00Z"
@@ -1550,7 +1550,7 @@ paths:
                     type: string
                     format: date-time
                     description: When the bulletin was created
-                  duration:
+                  duration_seconds:
                     type: number
                     format: float
                     description: Duration in seconds
@@ -1571,7 +1571,7 @@ paths:
                     audio_url: "/bulletins/150/audio"
                     filename: "bulletin_150_20240120_140500.wav"
                     created_at: "2024-01-20T14:05:00Z"
-                    duration: 185.4
+                    duration_seconds: 185.4
                     file_size: 2965440
                     story_count: 4
                 cached_bulletin:
@@ -1583,7 +1583,7 @@ paths:
                     audio_url: "/bulletins/149/audio"
                     filename: "bulletin_149_20240120_140200.wav"
                     created_at: "2024-01-20T14:02:00Z"
-                    duration: 178.2
+                    duration_seconds: 178.2
                     file_size: 2845568
                     story_count: 3
             audio/wav:
@@ -2579,7 +2579,7 @@ components:
         created_at:
           type: string
           format: date-time
-        duration:
+        duration_seconds:
           type: number
           format: float
           description: Duration of the bulletin in seconds
