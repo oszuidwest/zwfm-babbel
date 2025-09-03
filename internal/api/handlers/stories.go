@@ -256,10 +256,10 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 			return
 		}
 
-		// Update database with relative audio path
-		relativePath := utils.GetStoryRelativePath(h.config, int(storyID))
+		// Update database with filename only
+		filename := utils.GetStoryFilename(int(storyID))
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE stories SET audio_file = ? WHERE id = ?", relativePath, storyID)
+			"UPDATE stories SET audio_file = ? WHERE id = ?", filename, storyID)
 		if err != nil {
 			utils.ProblemInternalServer(c, "Failed to update audio reference")
 			return
@@ -429,10 +429,10 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 			return
 		}
 
-		// Update database with relative audio path
-		relativePath := utils.GetStoryRelativePath(h.config, id)
+		// Update database with filename only
+		filename := utils.GetStoryFilename(id)
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE stories SET audio_file = ? WHERE id = ?", relativePath, id)
+			"UPDATE stories SET audio_file = ? WHERE id = ?", filename, id)
 		if err != nil {
 			logger.Error("Failed to update audio reference: %v", err)
 			utils.ProblemInternalServer(c, "Failed to update audio reference")

@@ -20,6 +20,7 @@ type AudioConfig struct {
 	FileColumn  string
 	FilePrefix  string
 	ContentType string
+	Directory   string // Directory within audio root (e.g. "processed", "output")
 }
 
 // ServeAudio serves an audio file from the filesystem with proper HTTP headers and security.
@@ -54,13 +55,14 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	// Check if file path exists
+	// Check if filename exists
 	if !filePath.Valid || filePath.String == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "No audio file for this record"})
 		return
 	}
 
-	audioPath := filepath.Join(h.config.Audio.AppRoot, filePath.String)
+	// Construct full path using directory and filename
+	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath.String)
 
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})

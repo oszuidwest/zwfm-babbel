@@ -20,7 +20,7 @@ type StationVoiceResponse struct {
 	ID          int       `json:"id" db:"id"`
 	StationID   int       `json:"station_id" db:"station_id"`
 	VoiceID     int       `json:"voice_id" db:"voice_id"`
-	JingleFile  string    `json:"-" db:"jingle_file"`
+	AudioFile   string    `json:"-" db:"audio_file"`
 	MixPoint    float64   `json:"mix_point" db:"mix_point"`
 	StationName string    `json:"station_name" db:"station_name"`
 	VoiceName   string    `json:"voice_name" db:"voice_name"`
@@ -45,7 +45,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	// Configure modern query with field mappings and search fields
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, 
+			BaseQuery: `SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, 
 			            sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name 
 			            FROM station_voices sv 
 			            JOIN stations s ON sv.station_id = s.id 
@@ -56,7 +56,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 				// Add audio URLs to response
 				if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
 					for i := range *stationVoices {
-						hasJingle := (*stationVoices)[i].JingleFile != ""
+						hasJingle := (*stationVoices)[i].AudioFile != ""
 						(*stationVoices)[i].AudioURL = GetStationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
 					}
 				}
@@ -64,13 +64,13 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 		},
 		SearchFields:      []string{"s.name", "v.name"},
 		TableAlias:        "sv",
-		DefaultFields:     "sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name",
+		DefaultFields:     "sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name",
 		DisableSoftDelete: true, // Station-voices table doesn't have deleted_at column
 		FieldMapping: map[string]string{
 			"id":           "sv.id",
 			"station_id":   "sv.station_id",
 			"voice_id":     "sv.voice_id",
-			"jingle_file":  "sv.jingle_file",
+			"audio_file":  "sv.audio_file",
 			"mix_point":    "sv.mix_point",
 			"created_at":   "sv.created_at",
 			"updated_at":   "sv.updated_at",
@@ -91,7 +91,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 	}
 
 	var stationVoice StationVoiceResponse
-	query := `SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point,
+	query := `SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point,
 	                 s.name as station_name, v.name as voice_name
 	          FROM station_voices sv
 	          JOIN stations s ON sv.station_id = s.id
@@ -108,7 +108,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 	}
 
 	// Add audio URL
-	hasJingle := stationVoice.JingleFile != ""
+	hasJingle := stationVoice.AudioFile != ""
 	stationVoice.AudioURL = GetStationVoiceAudioURL(stationVoice.ID, hasJingle)
 
 	utils.Success(c, stationVoice)
@@ -177,10 +177,10 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			return
 		}
 
-		// Update database with relative jingle path
-		relativePath := utils.GetJingleRelativePath(h.config, req.StationID, req.VoiceID)
+		// Update database with jingle filename only
+		filename := utils.GetJingleFilename(req.StationID, req.VoiceID)
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
+			"UPDATE station_voices SET audio_file = ? WHERE id = ?", filename, id)
 		if err != nil {
 			// Clean up file on database error
 			finalPath := utils.GetJinglePath(h.config, req.StationID, req.VoiceID)
@@ -370,10 +370,10 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 			return
 		}
 
-		// Update database with relative jingle path
-		relativePath := utils.GetJingleRelativePath(h.config, current.StationID, current.VoiceID)
+		// Update database with jingle filename only
+		filename := utils.GetJingleFilename(current.StationID, current.VoiceID)
 		_, err = h.db.ExecContext(c.Request.Context(),
-			"UPDATE station_voices SET jingle_file = ? WHERE id = ?", relativePath, id)
+			"UPDATE station_voices SET audio_file = ? WHERE id = ?", filename, id)
 		if err != nil {
 			// Clean up file on database error
 			finalPath := utils.GetJinglePath(h.config, current.StationID, current.VoiceID)
@@ -388,7 +388,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	// Get updated record for response
 	var updatedRecord StationVoiceResponse
 	err = h.db.Get(&updatedRecord, `
-		SELECT sv.id, sv.station_id, sv.voice_id, sv.jingle_file, sv.mix_point, 
+		SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, 
 		       sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name
 		FROM station_voices sv
 		JOIN stations s ON sv.station_id = s.id  
@@ -400,7 +400,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	}
 
 	// Add audio URL
-	hasJingle := updatedRecord.JingleFile != ""
+	hasJingle := updatedRecord.AudioFile != ""
 	updatedRecord.AudioURL = GetStationVoiceAudioURL(updatedRecord.ID, hasJingle)
 
 	utils.Success(c, updatedRecord)
@@ -415,7 +415,7 @@ func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 
 	// Get jingle file before deletion
 	var jingleFile sql.NullString
-	if err := h.db.Get(&jingleFile, "SELECT jingle_file FROM station_voices WHERE id = ?", id); err != nil {
+	if err := h.db.Get(&jingleFile, "SELECT audio_file FROM station_voices WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
 			utils.ProblemNotFound(c, "Station-voice relationship")
 		} else {

@@ -138,6 +138,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 					FileColumn:  "audio_file",
 					FilePrefix:  "story",
 					ContentType: "audio/wav",
+					Directory:   "processed",
 				})
 			})
 			protected.POST("/stories", authService.RequirePermission("stories", "write"), h.CreateStory)
@@ -162,9 +163,10 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 				h.ServeAudio(c, handlers.AudioConfig{
 					TableName:   "station_voices",
 					IDColumn:    "id",
-					FileColumn:  "jingle_file",
+					FileColumn:  "audio_file",
 					FilePrefix:  "jingle",
 					ContentType: "audio/wav",
+					Directory:   "processed",
 				})
 			})
 			protected.POST("/station-voices", authService.RequirePermission("voices", "write"), h.CreateStationVoice)

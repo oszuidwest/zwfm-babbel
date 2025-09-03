@@ -64,7 +64,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	var stories []models.Story
 	query := fmt.Sprintf(`
-		SELECT s.*, v.name as voice_name, sv.jingle_file as voice_jingle, sv.mix_point as voice_mix_point
+		SELECT s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point
 		FROM stories s 
 		JOIN voices v ON s.voice_id = v.id 
 		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
@@ -88,7 +88,7 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 
 	// Generate consistent paths using single timestamp
 	timestamp := time.Now()
-	bulletinPath, relativePath := utils.GenerateBulletinPaths(h.config, req.StationID, timestamp)
+	bulletinPath, _ := utils.GenerateBulletinPaths(h.config, req.StationID, timestamp)
 
 	// Create bulletin using the generated absolute path
 	createdPath, err := h.audioSvc.CreateBulletin(c.Request.Context(), &station, stories, bulletinPath)
@@ -136,11 +136,11 @@ func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*Bulleti
 	// Save bulletin record to database using the consistent relative path
 
 	result, err := h.db.ExecContext(c.Request.Context(), `
-		INSERT INTO bulletins (station_id, filename, file_path, duration_seconds, file_size, story_count)
+		INSERT INTO bulletins (station_id, filename, audio_file, duration_seconds, file_size, story_count)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		req.StationID,
 		filepath.Base(bulletinPath),
-		relativePath,
+		filepath.Base(bulletinPath),
 		totalDuration,
 		fileSize,
 		len(stories),
@@ -239,7 +239,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 					c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", existingBulletin.Filename))
 					c.Header("Content-Type", "audio/wav")
 					c.Header("X-Bulletin-Cached", "true")
-					c.File(existingBulletin.FilePath)
+					c.File(filepath.Join("audio/output", existingBulletin.AudioFile))
 					return
 				}
 
@@ -458,12 +458,20 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	// Configure modern query with field mappings, search fields, and station_id filter
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds, 
 			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
 			            FROM bulletins b 
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
+			PostProcessor: func(result interface{}) {
+				// Post-process bulletins to add audio URLs
+				if bulletins, ok := result.(*[]BulletinListResponse); ok {
+					for i := range *bulletins {
+						(*bulletins)[i].AudioURL = GetBulletinAudioURL((*bulletins)[i].ID)
+					}
+				}
+			},
 			Filters: []utils.FilterConfig{
 				{
 					Column: "station_id",
@@ -474,13 +482,13 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		},
 		SearchFields:      []string{"b.filename", "s.name"},
 		TableAlias:        "b",
-		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
 		DisableSoftDelete: true, // Bulletins table doesn't have deleted_at column
 		FieldMapping: map[string]string{
 			"id":               "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"file_path":        "b.file_path",
+			"audio_file":        "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",
@@ -491,9 +499,8 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		},
 	}
 
-	var bulletins []models.Bulletin
+	var bulletins []BulletinListResponse
 	utils.ModernListWithQuery(c, h.db, config, &bulletins)
-	h.transformBulletinsAndRespond(c, bulletins)
 }
 
 // BulletinListResponse represents the response format for bulletins in list view with computed fields.
@@ -507,22 +514,30 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	// Configure modern query with field mappings and search fields
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, 
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds, 
 			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name
 			            FROM bulletins b 
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
+			PostProcessor: func(result interface{}) {
+				// Post-process bulletins to add audio URLs
+				if bulletins, ok := result.(*[]BulletinListResponse); ok {
+					for i := range *bulletins {
+						(*bulletins)[i].AudioURL = GetBulletinAudioURL((*bulletins)[i].ID)
+					}
+				}
+			},
 		},
 		SearchFields:      []string{"b.filename", "s.name"},
 		TableAlias:        "b",
-		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name",
 		DisableSoftDelete: true, // Bulletins table doesn't have deleted_at column
 		FieldMapping: map[string]string{
 			"id":               "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"file_path":        "b.file_path",
+			"audio_file":        "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",
@@ -533,9 +548,8 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		},
 	}
 
-	var bulletins []models.Bulletin
+	var bulletins []BulletinListResponse
 	utils.ModernListWithQuery(c, h.db, config, &bulletins)
-	h.transformBulletinsAndRespond(c, bulletins)
 }
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
@@ -553,7 +567,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	// Configure modern query with field mappings, search fields, and story_id filter
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.file_path, b.duration_seconds,
+			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds,
 			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name,
 			            bs.story_order, bs.created_at as included_at
 			            FROM bulletin_stories bs
@@ -584,14 +598,14 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		},
 		SearchFields:      []string{"b.filename", "s.name"},
 		TableAlias:        "bs",
-		DefaultFields:     "b.id, b.station_id, b.filename, b.file_path, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name, bs.story_order, bs.created_at as included_at",
+		DefaultFields:     "b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds, b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name, bs.story_order, bs.created_at as included_at",
 		DisableSoftDelete: true, // bulletin_stories table doesn't have deleted_at column
 		FieldMapping: map[string]string{
 			"id":               "b.id",
 			"bulletin_id":      "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"file_path":        "b.file_path",
+			"audio_file":        "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",
@@ -703,8 +717,9 @@ func (h *Handlers) GetBulletinAudio(c *gin.Context) {
 	h.ServeAudio(c, AudioConfig{
 		TableName:   "bulletins",
 		IDColumn:    "id",
-		FileColumn:  "file_path",
+		FileColumn:  "audio_file",
 		FilePrefix:  "bulletin",
 		ContentType: "audio/wav",
+		Directory:   "output",
 	})
 }

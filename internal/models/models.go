@@ -93,10 +93,10 @@ type Voice struct {
 
 // StationVoice represents the many-to-many relationship between stations and voices.
 type StationVoice struct {
-	ID         int    `db:"id" json:"id"`
-	StationID  int    `db:"station_id" json:"station_id"`
-	VoiceID    int    `db:"voice_id" json:"voice_id"`
-	JingleFile string `db:"jingle_file" json:"-"`
+	ID        int    `db:"id" json:"id"`
+	StationID int    `db:"station_id" json:"station_id"`
+	VoiceID   int    `db:"voice_id" json:"voice_id"`
+	AudioFile string `db:"audio_file" json:"-"`
 	// MixPoint is the time offset (in seconds) where story audio is mixed into the jingle
 	MixPoint  float64   `db:"mix_point" json:"mix_point"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
@@ -161,7 +161,7 @@ type Bulletin struct {
 	ID              int       `db:"id" json:"id"`
 	StationID       int       `db:"station_id" json:"station_id"`
 	Filename        string    `db:"filename" json:"filename"`
-	FilePath        string    `db:"file_path" json:"file_path"`
+	AudioFile       string    `db:"audio_file" json:"-"`
 	DurationSeconds float64   `db:"duration_seconds" json:"duration_seconds"`
 	FileSize        int64     `db:"file_size" json:"file_size"`
 	StoryCount      int       `db:"story_count" json:"story_count"`
