@@ -70,7 +70,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 			"id":           "sv.id",
 			"station_id":   "sv.station_id",
 			"voice_id":     "sv.voice_id",
-			"audio_file":  "sv.audio_file",
+			"audio_file":   "sv.audio_file",
 			"mix_point":    "sv.mix_point",
 			"created_at":   "sv.created_at",
 			"updated_at":   "sv.updated_at",

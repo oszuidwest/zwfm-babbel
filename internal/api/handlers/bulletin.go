@@ -351,36 +351,6 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
 }
 
-// transformBulletinsAndRespond converts bulletin records to API response format with pagination.
-func (h *Handlers) transformBulletinsAndRespond(c *gin.Context, bulletins []models.Bulletin) {
-	// Check if ModernListWithQuery already handled the response (error case)
-	if c.IsAborted() {
-		return
-	}
-
-	// Get pagination data set by ModernListWithQuery
-	responseData, exists := c.Get("pagination_data")
-	if !exists {
-		return // Already handled by ModernListWithQuery
-	}
-	paginationInfo, ok := responseData.(map[string]interface{})
-	if !ok {
-		return // Already handled by ModernListWithQuery
-	}
-
-	// Convert to response format
-	bulletinResponses := make([]map[string]interface{}, len(bulletins))
-	for i, bulletin := range bulletins {
-		bulletinResponses[i] = h.bulletinToResponse(&bulletin)
-	}
-
-	// Send the custom formatted response with pagination metadata
-	total := paginationInfo["total"].(int)
-	limit := paginationInfo["limit"].(int)
-	offset := paginationInfo["offset"].(int)
-	utils.PaginatedResponse(c, bulletinResponses, int64(total), limit, offset)
-}
-
 // bulletinToResponse creates a consistent response format for bulletin endpoints
 func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]interface{} {
 	bulletinURL := GetBulletinAudioURL(bulletin.ID)
@@ -488,7 +458,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			"id":               "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"audio_file":        "b.audio_file",
+			"audio_file":       "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",
@@ -537,7 +507,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 			"id":               "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"audio_file":        "b.audio_file",
+			"audio_file":       "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",
@@ -605,7 +575,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			"bulletin_id":      "b.id",
 			"station_id":       "b.station_id",
 			"filename":         "b.filename",
-			"audio_file":        "b.audio_file",
+			"audio_file":       "b.audio_file",
 			"duration_seconds": "b.duration_seconds",
 			"duration":         "b.duration_seconds", // Allow both field names
 			"file_size":        "b.file_size",

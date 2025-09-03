@@ -24,24 +24,6 @@ func GetBulletinFilename(stationID int, timestamp time.Time) string {
 	return fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405"))
 }
 
-// GetStoryRelativePath returns the relative path from app root for storing a story.
-func GetStoryRelativePath(config *config.Config, storyID int) string {
-	rel, err := filepath.Rel(config.Audio.AppRoot, config.Audio.ProcessedPath)
-	if err != nil {
-		rel = "audio/processed"
-	}
-	return filepath.Join(rel, GetStoryFilename(storyID))
-}
-
-// GetJingleRelativePath returns the relative path from app root for storing a jingle.
-func GetJingleRelativePath(config *config.Config, stationID, voiceID int) string {
-	rel, err := filepath.Rel(config.Audio.AppRoot, config.Audio.ProcessedPath)
-	if err != nil {
-		rel = "audio/processed"
-	}
-	return filepath.Join(rel, GetJingleFilename(stationID, voiceID))
-}
-
 // GenerateBulletinPaths returns both absolute and relative paths for a bulletin.
 // Returns (absolutePath, relativePath) where absolutePath includes the full system path
 // and relativePath is relative to the upload directory.
