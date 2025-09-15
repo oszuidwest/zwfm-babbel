@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/casbin/casbin/v2 v2.122.0
+	github.com/casbin/casbin/v2 v2.123.0
 	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/gin-contrib/sessions v1.0.4
 	github.com/gin-gonic/gin v1.10.1
