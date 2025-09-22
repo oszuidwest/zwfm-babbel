@@ -5,7 +5,7 @@ This guide will help you set up Babbel - a headless REST API for generating audi
 ## Prerequisites
 
 - Linux server (Ubuntu/Debian recommended) or macOS/Windows with Docker Desktop
-- Docker and Docker Compose installed (v2.0+ recommended)
+- Docker and Docker Compose installed
 - 2GB RAM minimum
 - 20GB free disk space
 - FFmpeg (included in Docker image)
@@ -116,11 +116,18 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/voices \
 ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ac 1 -ar 48000 test.wav
 
 # Upload story with weekday scheduling
+# Note: Each weekday must be a separate form field with string value "true" or "false"
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories \
   -F "title=Test Story" \
   -F "text=This is my first news story" \
   -F "voice_id=1" \
-  -F 'weekdays={"monday":true,"tuesday":true,"wednesday":true,"thursday":true,"friday":true,"saturday":false,"sunday":false}' \
+  -F "monday=true" \
+  -F "tuesday=true" \
+  -F "wednesday=true" \
+  -F "thursday=true" \
+  -F "friday=true" \
+  -F "saturday=false" \
+  -F "sunday=false" \
   -F "start_date=2025-01-01" \
   -F "end_date=2025-12-31" \
   -F "status=active" \
@@ -138,8 +145,8 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stations/1/bulletins \
 # Get latest bulletin info
 curl -b cookies.txt "http://localhost:8080/api/v1/stations/1/bulletins?latest=true"
 
-# Download bulletin audio directly (get ID from previous response)
-curl -b cookies.txt http://localhost:8080/api/v1/bulletins/{id}/audio \
+# Download bulletin audio directly (replace 1 with actual ID from previous response)
+curl -b cookies.txt http://localhost:8080/api/v1/bulletins/1/audio \
   -o bulletin.wav
   
 # Play the bulletin (if you have a player installed)
@@ -257,7 +264,7 @@ curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking%20news
 ### Station-Voice Relationships
 
 ```bash
-# Assign voice to station with jingle
+# Assign voice to station with jingle (multipart/form-data for file upload)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices \
   -F "station_id=1" \
   -F "voice_id=1" \
@@ -273,10 +280,15 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{"username":"editor1","full_name":"News Editor","password":"SecurePass123","role":"editor"}'
 
-# Suspend user
-curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/2 \
+# Suspend user (using PATCH method)
+curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/users/2 \
   -H "Content-Type: application/json" \
-  -d '{"suspended":true}'
+  -d '{"action":"suspend"}'
+
+# Or restore suspended user
+curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/users/2 \
+  -H "Content-Type: application/json" \
+  -d '{"action":"restore"}'
 ```
 
 ## Advanced Features

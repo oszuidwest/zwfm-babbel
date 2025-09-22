@@ -4,7 +4,7 @@ Headless REST API for generating audio news bulletins. Combines news stories wit
 
 ## Overview
 
-Babbel is a headless API-only system designed for integration with newsroom workflows and radio automation systems. It provides a comprehensive REST API for managing stations, voices, stories, and automated bulletin generation with station-specific audio branding.
+Babbel is a headless API-only system designed for integration with newsroom workflows and radio automation systems. It provides a comprehensive REST API for managing news bulletin generation for radio stations. It supports station-specific audio branding.
 
 **Key Design Principles:**
 - API-first architecture - no built-in UI
@@ -60,7 +60,7 @@ Returns a WAV file ready for broadcast. Most automation systems can schedule HTT
 - PlayoutONE (Network audio)
 - StationPlaylist (Remote files)
 - RTV AudioDownload Tool
-- Any system that supports HTTP audio
+- Any system that supports HTTP audio fetching
 
 ## Requirements
 
@@ -72,7 +72,6 @@ Returns a WAV file ready for broadcast. Most automation systems can schedule HTT
 ## API Documentation
 
 - **OpenAPI Specification**: Complete OpenAPI 3.0.3 spec in `openapi.yaml`
-- **Interactive Docs**: Available at `/docs` when running locally
 - **Base URL**: `/api/v1/`
 - **Authentication**: Session cookies or OAuth2
 - **Content Types**: `application/json` for most endpoints, `multipart/form-data` for file uploads
