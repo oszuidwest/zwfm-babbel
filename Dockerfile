@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o babbel cmd/babbel/main.go
 
 # Final stage
-FROM alpine:3.22
+FROM alpine:3.23
 
 # Install FFmpeg and timezone data
 RUN apk add --no-cache ffmpeg tzdata
