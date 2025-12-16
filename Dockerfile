@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-alpine3.22 AS builder
 
 # Build arguments
 ARG VERSION=dev
@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o babbel cmd/babbel/main.go
 
 # Final stage
-FROM alpine:3.23
+FROM alpine:3.22
 
 # Install FFmpeg and timezone data
 RUN apk add --no-cache ffmpeg tzdata
