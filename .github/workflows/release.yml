@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload edge artifacts
         if: steps.version.outputs.is_release == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: edge-${{ github.sha }}
           path: dist/*
