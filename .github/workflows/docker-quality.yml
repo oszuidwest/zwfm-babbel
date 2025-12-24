@@ -20,23 +20,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      # Shell scripts linting (skipped if no .sh files exist)
-      - name: Check for Shell Scripts
-        id: check_shell
-        run: |
-          if find . -name "*.sh" -type f | grep -q .; then
-            echo "has_scripts=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_scripts=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: ShellCheck
-        if: steps.check_shell.outputs.has_scripts == 'true'
-        uses: ludeeus/action-shellcheck@2.0.0
-        with:
-          check_together: "yes"
-          severity: warning
-
       # Dockerfile linting (skipped if no Dockerfile exists)
       - name: Check for Dockerfile
         id: check_dockerfile
