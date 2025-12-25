@@ -7,77 +7,87 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/caarlos0/env/v11"
+	"github.com/kelseyhightower/envconfig"
 )
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	Server      ServerConfig
-	Database    DatabaseConfig `envPrefix:"DB_"`
-	Auth        AuthConfig
-	Audio       AudioConfig
-	LogLevel    int         `env:"LOG_LEVEL" envDefault:"4"`
-	Environment Environment `env:"ENV" envDefault:"development"`
+	Server   ServerConfig
+	Database DatabaseConfig
+	Auth     AuthConfig
+	Audio    AudioConfig
+	// LogLevel controls logging verbosity (4=info, 5=debug)
+	LogLevel    int         `envconfig:"LOG_LEVEL" default:"4"`
+	Environment Environment `envconfig:"ENV" default:"development"`
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
 type ServerConfig struct {
-	Address        string `env:"SERVER_ADDRESS" envDefault:":8080"`
-	AllowedOrigins string `env:"ALLOWED_ORIGINS"`
+	Address string `envconfig:"SERVER_ADDRESS" default:":8080"`
+	// AllowedOrigins is a comma-separated list of allowed origins for CORS
+	AllowedOrigins string `envconfig:"ALLOWED_ORIGINS" default:""`
 }
 
 // DatabaseConfig holds MySQL database connection parameters.
 type DatabaseConfig struct {
-	Host           string `env:"HOST" envDefault:"localhost"`
-	Port           int    `env:"PORT" envDefault:"3306"`
-	User           string `env:"USER" envDefault:"babbel"`
-	Password       string `env:"PASSWORD" envDefault:"babbel"`
-	Database       string `env:"NAME" envDefault:"babbel"`
-	MigrationsPath string `env:"-"`
+	Host           string `envconfig:"DB_HOST" default:"localhost"`
+	Port           int    `envconfig:"DB_PORT" default:"3306"`
+	User           string `envconfig:"DB_USER" default:"babbel"`
+	Password       string `envconfig:"DB_PASSWORD" default:"babbel"`
+	Database       string `envconfig:"DB_NAME" default:"babbel"`
+	MigrationsPath string `ignored:"true"`
 }
 
 // AuthConfig holds authentication and session configuration.
 type AuthConfig struct {
-	Method           AuthMethod     `env:"AUTH_METHOD" envDefault:"local"`
-	SessionSecret    string         `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
-	CookieDomain     string         `env:"COOKIE_DOMAIN"`
-	CookieSameSite   CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
-	OIDCProviderURL  string         `env:"OIDC_PROVIDER_URL"`
-	OIDCClientID     string         `env:"OIDC_CLIENT_ID"`
-	OIDCClientSecret string         `env:"OIDC_CLIENT_SECRET"`
-	OIDCRedirectURL  string         `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
+	// Method specifies authentication type: "local", "oidc", or "both"
+	Method AuthMethod `envconfig:"AUTH_METHOD" default:"local"`
+
+	// SessionSecret must be changed from default in production
+	SessionSecret string `envconfig:"SESSION_SECRET" default:"your-secret-key-change-in-production"`
+
+	// Cookie configuration
+	CookieDomain   string         `envconfig:"COOKIE_DOMAIN" default:""`
+	CookieSameSite CookieSameSite `envconfig:"COOKIE_SAMESITE" default:"lax"`
+
+	// OIDC configuration
+	OIDCProviderURL  string `envconfig:"OIDC_PROVIDER_URL" default:""`
+	OIDCClientID     string `envconfig:"OIDC_CLIENT_ID" default:""`
+	OIDCClientSecret string `envconfig:"OIDC_CLIENT_SECRET" default:""`
+	OIDCRedirectURL  string `envconfig:"OIDC_REDIRECT_URL" default:"http://localhost:8080/api/v1/auth/callback"`
 }
 
 // AudioConfig holds audio processing and file storage configuration.
 type AudioConfig struct {
-	FFmpegPath    string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
-	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
-	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	AppRoot       string `env:"APP_ROOT" envDefault:"/app"`
+	FFmpegPath    string `envconfig:"FFMPEG_PATH" default:"ffmpeg"`
+	ProcessedPath string `envconfig:"PROCESSED_PATH" default:"./audio/processed"`
+	OutputPath    string `envconfig:"OUTPUT_PATH" default:"./audio/output"`
+	TempPath      string `envconfig:"TEMP_PATH" default:"./audio/temp"`
+	AppRoot       string `envconfig:"APP_ROOT" default:"/app"`
 }
 
 // Load reads configuration from environment variables and creates required directories.
 func Load() (*Config, error) {
-	cfg, err := env.ParseAsWithOptions[Config](env.Options{
-		Prefix: "BABBEL_",
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+	var cfg Config
+
+	// Load configuration from environment with BABBEL_ prefix
+	if err := envconfig.Process("BABBEL", &cfg); err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	// Set non-env fields
+	// Set MigrationsPath manually (not from env)
 	cfg.Database.MigrationsPath = "migrations"
 
-	// Create required directories
+	// Create directories if they don't exist
 	dirs := []string{
 		cfg.Audio.ProcessedPath,
 		cfg.Audio.OutputPath,
 		cfg.Audio.TempPath,
 		"./uploads",
 	}
+
 	for _, dir := range dirs {
-		// #nosec G301 - 0755 is appropriate for audio directories
+		// #nosec G301 - 0755 is appropriate for audio directories that need to be readable by web server
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
@@ -87,7 +97,9 @@ func Load() (*Config, error) {
 }
 
 // Validate checks the configuration for required values and valid settings.
+// Returns an error if any required configuration is missing or invalid.
 func (c *Config) Validate() error {
+	// Enum validations
 	if !c.Auth.Method.IsValid() {
 		return fmt.Errorf("invalid auth method: %s (must be local, oidc, or both)", c.Auth.Method)
 	}
@@ -100,14 +112,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid database port: %d (must be 1-65535)", c.Database.Port)
 	}
 
+	// Session secret validation (32 chars required for security)
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
 
+	// Check for default/insecure session secret in production
 	if c.Environment == EnvProduction && c.Auth.SessionSecret == "your-secret-key-change-in-production" {
 		return errors.New("BABBEL_SESSION_SECRET must be changed from default value in production")
 	}
 
+	// OIDC validation when OAuth is enabled
 	if c.Auth.Method.SupportsOIDC() {
 		if c.Auth.OIDCProviderURL == "" {
 			return errors.New("BABBEL_OIDC_PROVIDER_URL required when auth method is 'oidc' or 'both'")
@@ -120,6 +135,7 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// FFmpeg binary validation
 	if _, err := exec.LookPath(c.Audio.FFmpegPath); err != nil {
 		return fmt.Errorf("FFmpeg binary not found at '%s': ensure FFmpeg is installed and in PATH", c.Audio.FFmpegPath)
 	}

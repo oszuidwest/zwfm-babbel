@@ -57,4 +57,3 @@ coverage/
 # Documentation files that shouldn't be tracked
 CLAUDE.md
 main
-docgen
