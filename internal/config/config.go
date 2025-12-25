@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
+
+	"github.com/kelseyhightower/envconfig"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -16,90 +17,66 @@ type Config struct {
 	Auth     AuthConfig
 	Audio    AudioConfig
 	// LogLevel controls logging verbosity (4=info, 5=debug)
-	LogLevel    int
-	Environment Environment
+	LogLevel    int         `envconfig:"LOG_LEVEL" default:"4"`
+	Environment Environment `envconfig:"ENV" default:"development"`
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
 type ServerConfig struct {
-	Address string
+	Address string `envconfig:"SERVER_ADDRESS" default:":8080"`
 	// AllowedOrigins is a comma-separated list of allowed origins for CORS
-	AllowedOrigins string
+	AllowedOrigins string `envconfig:"ALLOWED_ORIGINS" default:""`
 }
 
 // DatabaseConfig holds MySQL database connection parameters.
 type DatabaseConfig struct {
-	Host           string
-	Port           int
-	User           string
-	Password       string
-	Database       string
-	MigrationsPath string
+	Host           string `envconfig:"DB_HOST" default:"localhost"`
+	Port           int    `envconfig:"DB_PORT" default:"3306"`
+	User           string `envconfig:"DB_USER" default:"babbel"`
+	Password       string `envconfig:"DB_PASSWORD" default:"babbel"`
+	Database       string `envconfig:"DB_NAME" default:"babbel"`
+	MigrationsPath string `ignored:"true"`
 }
 
 // AuthConfig holds authentication and session configuration.
 type AuthConfig struct {
 	// Method specifies authentication type: "local", "oidc", or "both"
-	Method AuthMethod
+	Method AuthMethod `envconfig:"AUTH_METHOD" default:"local"`
 
 	// SessionSecret must be changed from default in production
-	SessionSecret string
+	SessionSecret string `envconfig:"SESSION_SECRET" default:"your-secret-key-change-in-production"`
 
 	// Cookie configuration
-	CookieDomain   string
-	CookieSameSite CookieSameSite
+	CookieDomain   string         `envconfig:"COOKIE_DOMAIN" default:""`
+	CookieSameSite CookieSameSite `envconfig:"COOKIE_SAMESITE" default:"lax"`
 
 	// OIDC configuration
-	OIDCProviderURL  string
-	OIDCClientID     string
-	OIDCClientSecret string
-	OIDCRedirectURL  string
+	OIDCProviderURL  string `envconfig:"OIDC_PROVIDER_URL" default:""`
+	OIDCClientID     string `envconfig:"OIDC_CLIENT_ID" default:""`
+	OIDCClientSecret string `envconfig:"OIDC_CLIENT_SECRET" default:""`
+	OIDCRedirectURL  string `envconfig:"OIDC_REDIRECT_URL" default:"http://localhost:8080/api/v1/auth/callback"`
 }
 
 // AudioConfig holds audio processing and file storage configuration.
 type AudioConfig struct {
-	FFmpegPath    string
-	ProcessedPath string
-	OutputPath    string
-	TempPath      string
-	AppRoot       string
+	FFmpegPath    string `envconfig:"FFMPEG_PATH" default:"ffmpeg"`
+	ProcessedPath string `envconfig:"PROCESSED_PATH" default:"./audio/processed"`
+	OutputPath    string `envconfig:"OUTPUT_PATH" default:"./audio/output"`
+	TempPath      string `envconfig:"TEMP_PATH" default:"./audio/temp"`
+	AppRoot       string `envconfig:"APP_ROOT" default:"/app"`
 }
 
 // Load reads configuration from environment variables and creates required directories.
 func Load() (*Config, error) {
-	cfg := &Config{
-		Server: ServerConfig{
-			Address:        getEnv("BABBEL_SERVER_ADDRESS", ":8080"),
-			AllowedOrigins: getEnv("BABBEL_ALLOWED_ORIGINS", ""),
-		},
-		Database: DatabaseConfig{
-			Host:           getEnv("BABBEL_DB_HOST", "localhost"),
-			Port:           getEnvInt("BABBEL_DB_PORT", 3306),
-			User:           getEnv("BABBEL_DB_USER", "babbel"),
-			Password:       getEnv("BABBEL_DB_PASSWORD", "babbel"),
-			Database:       getEnv("BABBEL_DB_NAME", "babbel"),
-			MigrationsPath: "migrations",
-		},
-		Auth: AuthConfig{
-			Method:           AuthMethod(getEnv("BABBEL_AUTH_METHOD", "local")),
-			SessionSecret:    getEnv("BABBEL_SESSION_SECRET", "your-secret-key-change-in-production"),
-			CookieDomain:     getEnv("BABBEL_COOKIE_DOMAIN", ""),
-			CookieSameSite:   CookieSameSite(getEnv("BABBEL_COOKIE_SAMESITE", "lax")),
-			OIDCProviderURL:  getEnv("BABBEL_OIDC_PROVIDER_URL", ""),
-			OIDCClientID:     getEnv("BABBEL_OIDC_CLIENT_ID", ""),
-			OIDCClientSecret: getEnv("BABBEL_OIDC_CLIENT_SECRET", ""),
-			OIDCRedirectURL:  getEnv("BABBEL_OIDC_REDIRECT_URL", "http://localhost:8080/api/v1/auth/callback"),
-		},
-		Audio: AudioConfig{
-			FFmpegPath:    getEnv("BABBEL_FFMPEG_PATH", "ffmpeg"),
-			ProcessedPath: getEnv("BABBEL_PROCESSED_PATH", "./audio/processed"),
-			OutputPath:    getEnv("BABBEL_OUTPUT_PATH", "./audio/output"),
-			TempPath:      getEnv("BABBEL_TEMP_PATH", "./audio/temp"),
-			AppRoot:       getEnv("BABBEL_APP_ROOT", "/app"),
-		},
-		LogLevel:    4, // info level
-		Environment: Environment(getEnv("BABBEL_ENV", "development")),
+	var cfg Config
+
+	// Load configuration from environment with BABBEL_ prefix
+	if err := envconfig.Process("BABBEL", &cfg); err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	// Set MigrationsPath manually (not from env)
+	cfg.Database.MigrationsPath = "migrations"
 
 	// Create directories if they don't exist
 	dirs := []string{
@@ -116,25 +93,7 @@ func Load() (*Config, error) {
 		}
 	}
 
-	return cfg, nil
-}
-
-// getEnv returns the value of the environment variable key, or defaultValue if unset.
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getEnvInt returns the value of the environment variable key as an integer, or defaultValue if unset or invalid.
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
-	}
-	return defaultValue
+	return &cfg, nil
 }
 
 // Validate checks the configuration for required values and valid settings.

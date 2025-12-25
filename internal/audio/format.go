@@ -1,7 +1,5 @@
 package audio
 
-import "fmt"
-
 // SampleRate represents audio sample rate in Hz
 type SampleRate int
 
@@ -10,10 +8,6 @@ const (
 	SampleRate48000 SampleRate = 48000
 )
 
-func (s SampleRate) String() string {
-	return fmt.Sprintf("%d", s)
-}
-
 // ChannelCount represents number of audio channels
 type ChannelCount int
 
@@ -21,10 +15,6 @@ const (
 	Mono   ChannelCount = 1
 	Stereo ChannelCount = 2
 )
-
-func (c ChannelCount) String() string {
-	return fmt.Sprintf("%d", c)
-}
 
 // AudioCodec represents the audio encoding format
 type AudioCodec string

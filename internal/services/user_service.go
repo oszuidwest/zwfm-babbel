@@ -234,13 +234,6 @@ func (s *UserService) SoftDelete(ctx context.Context, id int) error {
 	return nil
 }
 
-// Restore is not applicable for users as they don't support soft deletes
-// This method exists for interface compatibility but returns an error
-func (s *UserService) Restore(_ context.Context, _ int) error {
-	const op = "UserService.Restore"
-	return fmt.Errorf("%s: %w: users do not support soft delete/restore", op, ErrInvalidInput)
-}
-
 // Suspend suspends a user account by setting suspended_at to current time
 func (s *UserService) Suspend(ctx context.Context, id int) error {
 	const op = "UserService.Suspend"
@@ -277,47 +270,6 @@ func (s *UserService) Unsuspend(ctx context.Context, id int) error {
 
 	// Unsuspend user
 	result, err := s.db.ExecContext(ctx, "UPDATE users SET suspended_at = NULL WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
-	}
-
-	return nil
-}
-
-// ChangeRole updates a user's role
-func (s *UserService) ChangeRole(ctx context.Context, id int, newRole string) error {
-	const op = "UserService.ChangeRole"
-
-	// Validate role
-	if !isValidRole(newRole) {
-		return fmt.Errorf("%s: %w: invalid role '%s'", op, ErrInvalidInput, newRole)
-	}
-
-	// Get the user to check current role
-	user, err := s.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// If changing from admin to another role, check that this is not the last admin
-	if user.Role == models.RoleAdmin && newRole != string(models.RoleAdmin) {
-		adminCount, err := s.countActiveAdminsExcluding(ctx, id)
-		if err != nil {
-			return fmt.Errorf("%s: %w", op, err)
-		}
-
-		if adminCount == 0 {
-			return fmt.Errorf("%s: %w", op, ErrInvalidInput)
-		}
-	}
-
-	// Update role
-	result, err := s.db.ExecContext(ctx, "UPDATE users SET role = ? WHERE id = ?", newRole, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}

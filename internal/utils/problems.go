@@ -143,18 +143,6 @@ func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// NewDependencyConstraintProblem creates a standardized 409 Conflict response for dependency constraints.
-// Used when a resource cannot be deleted because other resources depend on it.
-func NewDependencyConstraintProblem(resource, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeDependencyConstraint,
-		"Dependency Constraint",
-		409,
-		fmt.Sprintf("Cannot delete %s because other resources depend on it", resource),
-		instance,
-	)
-}
-
 // NewForbiddenProblem creates a standardized 403 Forbidden response for authorization failures.
 // Used when the user is authenticated but lacks permission to access the resource.
 func NewForbiddenProblem(detail, instance string) *ProblemDetail {

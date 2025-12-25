@@ -82,11 +82,3 @@ const (
 	StoreTypeMemory SessionStoreType = "memory"
 	StoreTypeCookie SessionStoreType = "cookie"
 )
-
-func (s SessionStoreType) IsValid() bool {
-	switch s {
-	case StoreTypeMemory, StoreTypeCookie:
-		return true
-	}
-	return false
-}

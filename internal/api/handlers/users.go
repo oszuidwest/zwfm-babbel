@@ -34,8 +34,8 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	// Configure modern query with field mappings and search fields
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at, 
-			            login_count, failed_login_attempts, locked_until, password_changed_at, 
+			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
+			            login_count, failed_login_attempts, locked_until, password_changed_at,
 			            metadata, created_at, updated_at FROM users`,
 			CountQuery:   "SELECT COUNT(*) FROM users",
 			DefaultOrder: "username ASC",
@@ -191,52 +191,4 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	}
 
 	utils.SuccessWithMessage(c, "User status updated successfully")
-}
-
-// RestoreUser attempts to restore a soft-deleted user (not supported for users)
-func (h *Handlers) RestoreUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
-
-	err := h.userSvc.Restore(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
-		return
-	}
-
-	utils.SuccessWithMessage(c, "User restored successfully")
-}
-
-// SuspendUser suspends a user account
-func (h *Handlers) SuspendUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
-
-	err := h.userSvc.Suspend(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
-		return
-	}
-
-	utils.SuccessWithMessage(c, "User suspended successfully")
-}
-
-// UnsuspendUser restores a suspended user account
-func (h *Handlers) UnsuspendUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
-
-	err := h.userSvc.Unsuspend(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
-		return
-	}
-
-	utils.SuccessWithMessage(c, "User unsuspended successfully")
 }

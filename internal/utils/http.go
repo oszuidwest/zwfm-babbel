@@ -66,36 +66,6 @@ func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int) bool {
 	return true
 }
 
-// ValidateVoiceExists checks if a voice exists by ID.
-func ValidateVoiceExists(c *gin.Context, db *sqlx.DB, id int) bool {
-	exists, err := Voices.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "Voice")
-		return false
-	}
-	return true
-}
-
-// ValidateUserExists checks if a user exists by ID.
-func ValidateUserExists(c *gin.Context, db *sqlx.DB, id int) bool {
-	exists, err := Users.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "User")
-		return false
-	}
-	return true
-}
-
-// ValidateStationVoiceExists checks if a station-voice relationship exists by ID.
-func ValidateStationVoiceExists(c *gin.Context, db *sqlx.DB, id int) bool {
-	exists, err := StationVoices.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "Station Voice")
-		return false
-	}
-	return true
-}
-
 // GetPagination extracts pagination parameters from query string with validation.
 // Returns limit (default 20, max 100) and offset (default 0, min 0).
 // Invalid values are ignored and defaults are used instead.

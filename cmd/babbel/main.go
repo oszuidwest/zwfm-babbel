@@ -50,8 +50,9 @@ func main() {
 	if cfg.LogLevel >= 5 {
 		logLevel = "debug"
 	}
+	isDev := cfg.Environment == config.EnvDevelopment
 
-	if err := logger.Initialize(logLevel, true); err != nil {
+	if err := logger.Initialize(logLevel, isDev); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
