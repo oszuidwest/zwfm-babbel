@@ -71,7 +71,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 		VoiceID:         story.VoiceID,
 		AudioFile:       story.AudioFile,
 		DurationSeconds: story.DurationSeconds,
-		Status:          story.Status,
+		Status:          story.Status.String(),
 		StartDate:       story.StartDate,
 		EndDate:         story.EndDate,
 		Monday:          story.Monday,
@@ -175,7 +175,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 
 	// Apply default status if not provided
 	if req.Status == "" {
-		req.Status = "draft"
+		req.Status = string(models.StoryStatusDraft)
 	}
 
 	// Handle weekdays from JSON if provided, otherwise use individual form fields

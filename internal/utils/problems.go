@@ -155,6 +155,18 @@ func NewDependencyConstraintProblem(resource, instance string) *ProblemDetail {
 	)
 }
 
+// NewForbiddenProblem creates a standardized 403 Forbidden response for authorization failures.
+// Used when the user is authenticated but lacks permission to access the resource.
+func NewForbiddenProblem(detail, instance string) *ProblemDetail {
+	return NewProblemDetail(
+		ProblemTypeInsufficientPermissions,
+		"Forbidden",
+		403,
+		detail,
+		instance,
+	)
+}
+
 // WithTraceID adds a trace ID to the problem detail for distributed tracing support.
 // Returns the same problem detail instance for method chaining.
 func (p *ProblemDetail) WithTraceID(traceID string) *ProblemDetail {

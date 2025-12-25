@@ -305,7 +305,7 @@ func (s *UserService) ChangeRole(ctx context.Context, id int, newRole string) er
 	}
 
 	// If changing from admin to another role, check that this is not the last admin
-	if user.Role == models.RoleAdmin && newRole != models.RoleAdmin {
+	if user.Role == models.RoleAdmin && newRole != string(models.RoleAdmin) {
 		adminCount, err := s.countActiveAdminsExcluding(ctx, id)
 		if err != nil {
 			return fmt.Errorf("%s: %w", op, err)
@@ -398,7 +398,7 @@ func (s *UserService) countActiveAdminsExcluding(ctx context.Context, excludeID 
 
 // isValidRole checks if a role is valid
 func isValidRole(role string) bool {
-	validRoles := []string{models.RoleAdmin, models.RoleEditor, models.RoleViewer}
+	validRoles := []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}
 	for _, validRole := range validRoles {
 		if role == validRole {
 			return true

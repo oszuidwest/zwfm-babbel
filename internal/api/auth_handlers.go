@@ -71,7 +71,12 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	session := h.authService.GetSession(c)
 	var frontendURL string
 	if sessionURL := session.Get("frontend_url"); sessionURL != nil {
-		frontendURL = sessionURL.(string)
+		var ok bool
+		frontendURL, ok = sessionURL.(string)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid frontend URL in session")
+			return
+		}
 	} else if h.frontendURL != "" {
 		frontendURL = h.frontendURL
 	} else {
@@ -104,7 +109,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 // Retrieves user data based on the session and delegates to the standard GetUser handler.
 // Requires valid authentication session.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
-	userID := c.GetInt("user_id")
+	userID := c.GetInt(string(auth.CtxKeyUserID))
 
 	// Delegate to GetUser handler
 	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: fmt.Sprintf("%d", userID)})

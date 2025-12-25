@@ -25,13 +25,6 @@ type BulletinRequest struct {
 	Date      string `json:"date"`
 }
 
-// BulletinResponse represents the API response for bulletin generation.
-type BulletinResponse struct {
-	AudioURL        string         `json:"audio_url"`
-	DurationSeconds float64        `json:"duration_seconds"`
-	Station         models.Station `json:"station"`
-}
-
 // GenerateBulletin generates a news bulletin for a station.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	stationID, ok := utils.GetIDParam(c)
@@ -153,7 +146,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	if !utils.ValidateResourceExists(c, h.db, "bulletins", "Bulletin", bulletinID) {
+	if !utils.ValidateBulletinExists(c, h.db, bulletinID) {
 		return
 	}
 
@@ -174,20 +167,25 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 			}},
 			PostProcessor: func(result interface{}) {
 				if stories, ok := result.(*[]models.BulletinStory); ok {
-					processed := make([]map[string]interface{}, len(*stories))
+					processed := make([]BulletinStoryResponse, len(*stories))
 					for i, bs := range *stories {
-						processed[i] = map[string]interface{}{
-							"id": bs.ID, "bulletin_id": bs.BulletinID,
-							"story_id": bs.StoryID, "story_order": bs.StoryOrder,
-							"created_at": bs.CreatedAt,
-							"station": map[string]interface{}{
-								"id": bs.StationID, "name": bs.StationName,
+						processed[i] = BulletinStoryResponse{
+							ID:         bs.ID,
+							BulletinID: bs.BulletinID,
+							StoryID:    bs.StoryID,
+							StoryOrder: bs.StoryOrder,
+							CreatedAt:  bs.CreatedAt,
+							Station: StationRef{
+								ID:   bs.StationID,
+								Name: bs.StationName,
 							},
-							"story": map[string]interface{}{
-								"id": bs.StoryID, "title": bs.StoryTitle,
+							Story: StoryRef{
+								ID:    bs.StoryID,
+								Title: bs.StoryTitle,
 							},
-							"bulletin": map[string]interface{}{
-								"id": bs.BulletinID, "filename": bs.BulletinFilename,
+							Bulletin: BulletinRef{
+								ID:       bs.BulletinID,
+								Filename: bs.BulletinFilename,
 							},
 						}
 					}
@@ -206,47 +204,37 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
-func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]interface{} {
+func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinResponse {
 	bulletinURL := GetBulletinAudioURL(bulletin.ID)
 
-	response := map[string]interface{}{
-		"station_id":   bulletin.StationID,
-		"station_name": bulletin.StationName,
-		"audio_url":    bulletinURL,
-		"filename":     bulletin.Filename,
-		"created_at":   bulletin.CreatedAt,
-		"duration":     bulletin.DurationSeconds,
-		"file_size":    bulletin.FileSize,
-		"story_count":  bulletin.StoryCount,
+	return BulletinResponse{
+		ID:          bulletin.ID,
+		StationID:   bulletin.StationID,
+		StationName: bulletin.StationName,
+		AudioURL:    bulletinURL,
+		Filename:    bulletin.Filename,
+		CreatedAt:   bulletin.CreatedAt,
+		Duration:    bulletin.DurationSeconds,
+		FileSize:    bulletin.FileSize,
+		StoryCount:  bulletin.StoryCount,
 	}
-
-	if bulletin.ID > 0 {
-		response["id"] = bulletin.ID
-	}
-
-	return response
 }
 
 // bulletinInfoToResponse creates response from BulletinInfo
-func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) map[string]interface{} {
+func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
 	bulletinURL := GetBulletinAudioURL(int(info.ID))
 
-	response := map[string]interface{}{
-		"station_id":       info.Station.ID,
-		"station_name":     info.Station.Name,
-		"audio_url":        bulletinURL,
-		"filename":         filepath.Base(info.BulletinPath),
-		"created_at":       info.CreatedAt,
-		"duration_seconds": info.Duration,
-		"file_size":        info.FileSize,
-		"story_count":      len(info.Stories),
+	return BulletinResponse{
+		ID:          int(info.ID),
+		StationID:   info.Station.ID,
+		StationName: info.Station.Name,
+		AudioURL:    bulletinURL,
+		Filename:    filepath.Base(info.BulletinPath),
+		CreatedAt:   info.CreatedAt,
+		Duration:    info.Duration,
+		FileSize:    info.FileSize,
+		StoryCount:  len(info.Stories),
 	}
-
-	if info.ID > 0 {
-		response["id"] = info.ID
-	}
-
-	return response
 }
 
 // GetStationBulletins returns bulletins for a specific station with pagination and filtering
@@ -257,7 +245,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	// Check if station exists first
-	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
+	if !utils.ValidateStationExists(c, h.db, stationID) {
 		return
 	}
 
@@ -384,7 +372,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 
 	// Check if story exists first
-	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", storyID) {
+	if !utils.ValidateStoryExists(c, h.db, storyID) {
 		return
 	}
 
@@ -409,12 +397,14 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			PostProcessor: func(result interface{}) {
 				bulletinHistory := result.(*[]models.StoryBulletinHistory)
 				// Convert to the expected response format
-				processedResults := make([]map[string]interface{}, len(*bulletinHistory))
+				processedResults := make([]StoryBulletinHistoryResponse, len(*bulletinHistory))
 				for i, item := range *bulletinHistory {
-					response := h.bulletinToResponse(&item.Bulletin)
-					response["story_order"] = item.StoryOrder
-					response["included_at"] = item.IncludedAt
-					processedResults[i] = response
+					baseResponse := h.bulletinToResponse(&item.Bulletin)
+					processedResults[i] = StoryBulletinHistoryResponse{
+						BulletinResponse: baseResponse,
+						StoryOrder:       item.StoryOrder,
+						IncludedAt:       item.IncludedAt,
+					}
 				}
 				// Store processed results in context for later retrieval
 				c.Set("processed_results", processedResults)
@@ -464,11 +454,25 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			return
 		}
 
+		// Extract pagination values with type assertions
+		total, ok := paginationInfo["total"].(int64)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination total")
+			return
+		}
+		limit, ok := paginationInfo["limit"].(int)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination limit")
+			return
+		}
+		offset, ok := paginationInfo["offset"].(int)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination offset")
+			return
+		}
+
 		// Send the processed paginated response
-		utils.PaginatedResponse(c, processedResults,
-			paginationInfo["total"].(int64),
-			paginationInfo["limit"].(int),
-			paginationInfo["offset"].(int))
+		utils.PaginatedResponse(c, processedResults, total, limit, offset)
 		return
 	}
 

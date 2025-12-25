@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"reflect"
 	"strings"
 	"time"
@@ -47,14 +48,8 @@ func notBlankValidator(fl validator.FieldLevel) bool {
 // storyStatusValidator validates that a story status is one of the allowed values.
 // Ensures story status integrity by restricting to: draft, active, expired.
 func storyStatusValidator(fl validator.FieldLevel) bool {
-	status := fl.Field().String()
-	validStatuses := []string{"draft", "active", "expired"}
-	for _, validStatus := range validStatuses {
-		if status == validStatus {
-			return true
-		}
-	}
-	return false
+	status := models.StoryStatus(fl.Field().String())
+	return status.IsValid()
 }
 
 // dateAfterValidator validates that a date field is after another date field in the same struct
@@ -79,7 +74,11 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	// Parse current field
 	switch {
 	case field.Type() == reflect.TypeOf(time.Time{}):
-		currentTime = field.Interface().(time.Time)
+		timeVal, ok := field.Interface().(time.Time)
+		if !ok {
+			return false // Failed to convert to time.Time
+		}
+		currentTime = timeVal
 	case field.Kind() == reflect.String:
 		dateStr := field.String()
 		if dateStr == "" {
@@ -112,7 +111,11 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	// Parse comparison field
 	switch {
 	case compareField.Type() == reflect.TypeOf(time.Time{}):
-		compareTime = compareField.Interface().(time.Time)
+		timeVal, ok := compareField.Interface().(time.Time)
+		if !ok {
+			return true // Failed to convert, skip validation
+		}
+		compareTime = timeVal
 	case compareField.Kind() == reflect.String:
 		dateStr := compareField.String()
 		if dateStr == "" {

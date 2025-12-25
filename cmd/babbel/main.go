@@ -90,7 +90,6 @@ func main() {
 	// Start story expiration scheduler
 	expirationService := scheduler.NewStoryExpirationService(db)
 	expirationService.Start()
-	defer expirationService.Stop()
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)

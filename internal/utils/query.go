@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
 // QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection
@@ -331,7 +332,8 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 		// If soft delete is disabled but status is explicitly provided, handle it
 		switch params.Status {
 		case "active":
-			conditions = append(conditions, "status = 'active'")
+			args = append(args, models.StoryStatusActive)
+			conditions = append(conditions, "status = ?")
 		case "suspended":
 			conditions = append(conditions, "suspended_at IS NOT NULL")
 		default:
@@ -711,7 +713,8 @@ func buildStatusCondition(status string, args *[]interface{}) string {
 	case "all":
 		return "" // Include all records, no filter
 	case "active":
-		return "deleted_at IS NULL AND status = 'active'"
+		*args = append(*args, models.StoryStatusActive)
+		return "deleted_at IS NULL AND status = ?"
 	case "deleted":
 		return "deleted_at IS NOT NULL"
 	case "suspended":

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -16,7 +17,7 @@ type Config struct {
 	Audio    AudioConfig
 	// LogLevel controls logging verbosity (4=info, 5=debug)
 	LogLevel    int
-	Environment string
+	Environment Environment
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
@@ -39,14 +40,14 @@ type DatabaseConfig struct {
 // AuthConfig holds authentication and session configuration.
 type AuthConfig struct {
 	// Method specifies authentication type: "local", "oidc", or "both"
-	Method string
+	Method AuthMethod
 
 	// SessionSecret must be changed from default in production
 	SessionSecret string
 
 	// Cookie configuration
 	CookieDomain   string
-	CookieSameSite string
+	CookieSameSite CookieSameSite
 
 	// OIDC configuration
 	OIDCProviderURL  string
@@ -73,17 +74,17 @@ func Load() (*Config, error) {
 		},
 		Database: DatabaseConfig{
 			Host:           getEnv("BABBEL_DB_HOST", "localhost"),
-			Port:           3306,
+			Port:           getEnvInt("BABBEL_DB_PORT", 3306),
 			User:           getEnv("BABBEL_DB_USER", "babbel"),
 			Password:       getEnv("BABBEL_DB_PASSWORD", "babbel"),
 			Database:       getEnv("BABBEL_DB_NAME", "babbel"),
 			MigrationsPath: "migrations",
 		},
 		Auth: AuthConfig{
-			Method:           getEnv("BABBEL_AUTH_METHOD", "local"),
+			Method:           AuthMethod(getEnv("BABBEL_AUTH_METHOD", "local")),
 			SessionSecret:    getEnv("BABBEL_SESSION_SECRET", "your-secret-key-change-in-production"),
 			CookieDomain:     getEnv("BABBEL_COOKIE_DOMAIN", ""),
-			CookieSameSite:   getEnv("BABBEL_COOKIE_SAMESITE", "lax"),
+			CookieSameSite:   CookieSameSite(getEnv("BABBEL_COOKIE_SAMESITE", "lax")),
 			OIDCProviderURL:  getEnv("BABBEL_OIDC_PROVIDER_URL", ""),
 			OIDCClientID:     getEnv("BABBEL_OIDC_CLIENT_ID", ""),
 			OIDCClientSecret: getEnv("BABBEL_OIDC_CLIENT_SECRET", ""),
@@ -97,7 +98,7 @@ func Load() (*Config, error) {
 			AppRoot:       getEnv("BABBEL_APP_ROOT", "/app"),
 		},
 		LogLevel:    4, // info level
-		Environment: getEnv("BABBEL_ENV", "development"),
+		Environment: Environment(getEnv("BABBEL_ENV", "development")),
 	}
 
 	// Create directories if they don't exist
@@ -126,21 +127,44 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
+// getEnvInt returns the value of the environment variable key as an integer, or defaultValue if unset or invalid.
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
 // Validate checks the configuration for required values and valid settings.
 // Returns an error if any required configuration is missing or invalid.
 func (c *Config) Validate() error {
+	// Enum validations
+	if !c.Auth.Method.IsValid() {
+		return fmt.Errorf("invalid auth method: %s (must be local, oidc, or both)", c.Auth.Method)
+	}
+
+	if !c.Environment.IsValid() {
+		return fmt.Errorf("invalid environment: %s (must be development or production)", c.Environment)
+	}
+
+	if c.Database.Port < 1 || c.Database.Port > 65535 {
+		return fmt.Errorf("invalid database port: %d (must be 1-65535)", c.Database.Port)
+	}
+
 	// Session secret validation (32 chars required for security)
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
 
 	// Check for default/insecure session secret in production
-	if c.Environment == "production" && c.Auth.SessionSecret == "your-secret-key-change-in-production" {
+	if c.Environment == EnvProduction && c.Auth.SessionSecret == "your-secret-key-change-in-production" {
 		return errors.New("BABBEL_SESSION_SECRET must be changed from default value in production")
 	}
 
 	// OIDC validation when OAuth is enabled
-	if c.Auth.Method == "oidc" || c.Auth.Method == "both" {
+	if c.Auth.Method.SupportsOIDC() {
 		if c.Auth.OIDCProviderURL == "" {
 			return errors.New("BABBEL_OIDC_PROVIDER_URL required when auth method is 'oidc' or 'both'")
 		}

@@ -17,26 +17,26 @@ type Station struct {
 
 // Story represents a news story with scheduling and audio.
 type Story struct {
-	ID              int        `db:"id" json:"id"`
-	Title           string     `db:"title" json:"title"`
-	Text            string     `db:"text" json:"text"`
-	VoiceID         *int       `db:"voice_id" json:"voice_id"`
-	AudioFile       string     `db:"audio_file" json:"audio_file"`
-	DurationSeconds *float64   `db:"duration_seconds" json:"duration_seconds"`
-	Status          string     `db:"status" json:"status"` // draft, active, expired
-	StartDate       time.Time  `db:"start_date" json:"start_date"`
-	EndDate         time.Time  `db:"end_date" json:"end_date"`
-	Monday          bool       `db:"monday" json:"monday"`
-	Tuesday         bool       `db:"tuesday" json:"tuesday"`
-	Wednesday       bool       `db:"wednesday" json:"wednesday"`
-	Thursday        bool       `db:"thursday" json:"thursday"`
-	Friday          bool       `db:"friday" json:"friday"`
-	Saturday        bool       `db:"saturday" json:"saturday"`
-	Sunday          bool       `db:"sunday" json:"sunday"`
-	Metadata        *string    `db:"metadata" json:"metadata"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt       time.Time  `db:"updated_at" json:"updated_at"`
-	DeletedAt       *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
+	ID              int         `db:"id" json:"id"`
+	Title           string      `db:"title" json:"title"`
+	Text            string      `db:"text" json:"text"`
+	VoiceID         *int        `db:"voice_id" json:"voice_id"`
+	AudioFile       string      `db:"audio_file" json:"audio_file"`
+	DurationSeconds *float64    `db:"duration_seconds" json:"duration_seconds"`
+	Status          StoryStatus `db:"status" json:"status"` // draft, active, expired
+	StartDate       time.Time   `db:"start_date" json:"start_date"`
+	EndDate         time.Time   `db:"end_date" json:"end_date"`
+	Monday          bool        `db:"monday" json:"monday"`
+	Tuesday         bool        `db:"tuesday" json:"tuesday"`
+	Wednesday       bool        `db:"wednesday" json:"wednesday"`
+	Thursday        bool        `db:"thursday" json:"thursday"`
+	Friday          bool        `db:"friday" json:"friday"`
+	Saturday        bool        `db:"saturday" json:"saturday"`
+	Sunday          bool        `db:"sunday" json:"sunday"`
+	Metadata        *string     `db:"metadata" json:"metadata"`
+	CreatedAt       time.Time   `db:"created_at" json:"created_at"`
+	UpdatedAt       time.Time   `db:"updated_at" json:"updated_at"`
+	DeletedAt       *time.Time  `db:"deleted_at" json:"deleted_at,omitempty"`
 
 	// Relations populated by joins
 	VoiceName     string  `db:"voice_name" json:"voice_name"`
@@ -126,7 +126,7 @@ type User struct {
 	PasswordHash string  `db:"password_hash" json:"-"`
 	Email        *string `db:"email" json:"email"`
 	// Role defines the user's access level: admin, editor, or viewer
-	Role                string     `db:"role" json:"role"`
+	Role                UserRole   `db:"role" json:"role"`
 	SuspendedAt         *time.Time `db:"suspended_at" json:"suspended_at,omitempty"`
 	DeletedAt           *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
 	LastLoginAt         *time.Time `db:"last_login_at" json:"last_login_at"`
@@ -150,12 +150,29 @@ type UserSession struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
+// UserRole represents a user's permission level
+type UserRole string
+
 // Role permission levels for the RBAC system.
 const (
-	RoleAdmin  = "admin"
-	RoleEditor = "editor"
-	RoleViewer = "viewer"
+	RoleAdmin  UserRole = "admin"
+	RoleEditor UserRole = "editor"
+	RoleViewer UserRole = "viewer"
 )
+
+// IsValid checks if the role is valid
+func (r UserRole) IsValid() bool {
+	switch r {
+	case RoleAdmin, RoleEditor, RoleViewer:
+		return true
+	}
+	return false
+}
+
+// String returns the string representation
+func (r UserRole) String() string {
+	return string(r)
+}
 
 // Bulletin represents a completed audio bulletin generated from multiple stories.
 type Bulletin struct {

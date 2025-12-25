@@ -341,15 +341,8 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int, status string) 
 	}
 
 	// Validate status
-	validStatuses := []string{"draft", "active", "expired"}
-	isValid := false
-	for _, validStatus := range validStatuses {
-		if status == validStatus {
-			isValid = true
-			break
-		}
-	}
-	if !isValid {
+	storyStatus := models.StoryStatus(status)
+	if !storyStatus.IsValid() {
 		return fmt.Errorf("%w: status must be one of: draft, active, expired", ErrInvalidInput)
 	}
 

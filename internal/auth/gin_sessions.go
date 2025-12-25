@@ -3,12 +3,12 @@ package auth
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-contrib/sessions/memstore"
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
 // GinSessionStore implements SessionStore using gin-contrib/sessions
@@ -20,14 +20,15 @@ type GinSessionStore struct {
 func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error) {
 	var store sessions.Store
 
-	switch cfg.StoreType {
-	case "cookie":
+	storeType := config.SessionStoreType(cfg.StoreType)
+	switch storeType {
+	case config.StoreTypeCookie:
 		// Cookie-based sessions (encrypted)
 		if cfg.SecretKey == "" {
 			return nil, nil, fmt.Errorf("secret key is required for cookie store")
 		}
 		store = cookie.NewStore([]byte(cfg.SecretKey))
-	case "memory":
+	case config.StoreTypeMemory:
 		// Memory-based sessions (server-side)
 		store = memstore.NewStore([]byte(cfg.SecretKey))
 	default:
@@ -36,29 +37,17 @@ func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error)
 	}
 
 	// Configure store options
+	sameSite := config.CookieSameSite(cfg.CookieSameSite)
 	store.Options(sessions.Options{
 		Path:     cfg.CookiePath,
 		Domain:   cfg.CookieDomain,
 		MaxAge:   cfg.MaxAge,
 		Secure:   cfg.CookieSecure,
 		HttpOnly: cfg.CookieHTTPOnly,
-		SameSite: parseSameSite(cfg.CookieSameSite),
+		SameSite: sameSite.ToHTTP(),
 	})
 
 	return &GinSessionStore{name: cfg.CookieName}, store, nil
-}
-
-func parseSameSite(sameSite string) http.SameSite {
-	switch sameSite {
-	case "strict":
-		return http.SameSiteStrictMode
-	case "none":
-		return http.SameSiteNoneMode
-	case "lax":
-		return http.SameSiteLaxMode
-	default:
-		return http.SameSiteDefaultMode
-	}
 }
 
 // Get returns a session for the given context

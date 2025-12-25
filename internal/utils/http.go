@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -30,41 +31,69 @@ func GetIDParam(c *gin.Context) (int, bool) {
 	return id, true
 }
 
-// ValidateResourceExists checks if a database record exists by ID.
-// Automatically responds with 404 Not Found if the record doesn't exist.
-// Returns true if the record exists, false if not found or database error occurs.
-func ValidateResourceExists(c *gin.Context, db *sqlx.DB, tableName, resourceName string, id int) bool {
-	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM " + tableName + " WHERE id = ?)"
-	if err := db.Get(&exists, query, id); err != nil || !exists {
-		ProblemNotFound(c, resourceName)
+// =============================================================================
+// Type-safe resource existence checks
+// These use explicit table names to prevent SQL injection.
+// =============================================================================
+
+// ValidateStationExists checks if a station exists by ID.
+func ValidateStationExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := Stations.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "Station")
 		return false
 	}
 	return true
 }
 
-// CheckUnique validates that a field value is unique within a database table.
-// Supports excluding a specific record ID (useful for updates).
-// Returns an error if the value already exists, nil if unique or database errors occur.
-func CheckUnique(db *sqlx.DB, table, field string, value interface{}, excludeID *int) error {
-	var count int
-	var err error
+// ValidateStoryExists checks if a story exists by ID.
+func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := Stories.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "Story")
+		return false
+	}
+	return true
+}
 
-	if excludeID != nil {
-		condition := fmt.Sprintf("%s = ? AND id != ?", field)
-		count, err = CountByCondition(db, table, condition, value, *excludeID)
-	} else {
-		condition := fmt.Sprintf("%s = ?", field)
-		count, err = CountByCondition(db, table, condition, value)
+// ValidateBulletinExists checks if a bulletin exists by ID.
+func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := Bulletins.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "Bulletin")
+		return false
 	}
+	return true
+}
 
-	if err != nil {
-		return err
+// ValidateVoiceExists checks if a voice exists by ID.
+func ValidateVoiceExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := Voices.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "Voice")
+		return false
 	}
-	if count > 0 {
-		return fmt.Errorf("%s already exists", field)
+	return true
+}
+
+// ValidateUserExists checks if a user exists by ID.
+func ValidateUserExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := Users.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "User")
+		return false
 	}
-	return nil
+	return true
+}
+
+// ValidateStationVoiceExists checks if a station-voice relationship exists by ID.
+func ValidateStationVoiceExists(c *gin.Context, db *sqlx.DB, id int) bool {
+	exists, err := StationVoices.Exists(c.Request.Context(), db, id)
+	if err != nil || !exists {
+		ProblemNotFound(c, "Station Voice")
+		return false
+	}
+	return true
 }
 
 // GetPagination extracts pagination parameters from query string with validation.
@@ -387,7 +416,7 @@ func convertValidationErrors(err error) []ValidationError {
 			case "notblank":
 				message = fmt.Sprintf("%s cannot be empty or whitespace only", field)
 			case "story_status":
-				message = fmt.Sprintf("%s must be one of: draft, active, expired", field)
+				message = fmt.Sprintf("%s must be one of: %s, %s, %s", field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
 			case "dateformat":
 				message = fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
 			case "dateafter":
@@ -411,13 +440,31 @@ func convertValidationErrors(err error) []ValidationError {
 	return errors
 }
 
+// validTables defines the allowlist of valid table names for GenericGetByID.
+// This prevents SQL injection attacks by restricting table name interpolation.
+var validTables = map[string]bool{
+	"stations":       true,
+	"stories":        true,
+	"voices":         true,
+	"users":          true,
+	"bulletins":      true,
+	"station_voices": true,
+}
+
 // GenericGetByID provides a generic handler for retrieving database records by ID.
 // Handles parameter extraction, database queries, and error responses automatically.
 // Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
 // The result parameter must be a pointer to the appropriate struct type.
+// Table name is validated against an allowlist to prevent SQL injection.
 func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
 	id, ok := GetIDParam(c)
 	if !ok {
+		return
+	}
+
+	// Validate table name against allowlist to prevent SQL injection
+	if !validTables[tableName] {
+		ProblemBadRequest(c, "Invalid resource type")
 		return
 	}
 

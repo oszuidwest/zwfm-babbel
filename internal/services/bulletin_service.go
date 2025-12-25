@@ -15,7 +15,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // BulletinService handles bulletin generation and retrieval operations.
@@ -48,9 +47,9 @@ type BulletinInfo struct {
 // Create generates a new bulletin for the specified station and date.
 // It selects appropriate stories, generates the audio file, and saves the bulletin record.
 func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate time.Time) (*BulletinInfo, error) {
-	// Get station
+	// Get station with context
 	var station models.Station
-	err := s.db.Get(&station, "SELECT * FROM stations WHERE id = ?", stationID)
+	err := s.db.GetContext(ctx, &station, "SELECT * FROM stations WHERE id = ?", stationID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("%w: station not found", ErrNotFound)
@@ -115,8 +114,15 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 	// The bulletin ends when all stories finish playing (jingle plays underneath)
 	totalDuration = storiesDuration + mixPointDelay
 
+	// Start transaction for database operations
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to begin transaction: %v", ErrDatabaseError, err)
+	}
+	defer tx.Rollback()
+
 	// Save bulletin record to database using the consistent relative path
-	result, err := s.db.ExecContext(ctx, `
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO bulletins (station_id, filename, audio_file, duration_seconds, file_size, story_count)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		stationID,
@@ -126,29 +132,29 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 		fileSize,
 		len(stories),
 	)
-
-	var bulletinID int64
-	if err == nil {
-		var idErr error
-		bulletinID, idErr = result.LastInsertId()
-		if idErr != nil {
-			log.Printf("WARNING: Failed to get bulletin ID: %v", idErr)
-		}
-
-		// Insert bulletin-story relationships with order
-		if bulletinID > 0 {
-			for i, story := range stories {
-				_, err = s.db.ExecContext(ctx,
-					"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
-					bulletinID, story.ID, i,
-				)
-				if err != nil {
-					logger.Error("Failed to insert bulletin story: %v", err)
-				}
-			}
-		}
-	} else {
+	if err != nil {
 		return nil, fmt.Errorf("%w: failed to save bulletin: %v", ErrDatabaseError, err)
+	}
+
+	bulletinID, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get bulletin ID: %v", ErrDatabaseError, err)
+	}
+
+	// Insert bulletin-story relationships with order
+	for i, story := range stories {
+		_, err = tx.ExecContext(ctx,
+			"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
+			bulletinID, story.ID, i,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to link story %d to bulletin: %v", ErrDatabaseError, story.ID, err)
+		}
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%w: failed to commit transaction: %v", ErrDatabaseError, err)
 	}
 
 	return &BulletinInfo{
