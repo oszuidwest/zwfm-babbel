@@ -96,6 +96,15 @@ func ProblemBadRequest(c *gin.Context, detail string) {
 	SendProblem(c, problem)
 }
 
+// ProblemDependencyConstraint responds with HTTP 409 Conflict for dependency constraint violations.
+func ProblemDependencyConstraint(c *gin.Context, resource string) {
+	problem := NewDependencyConstraintProblem(resource, c.Request.URL.Path)
+	if traceID := getTraceID(c); traceID != "" {
+		problem.WithTraceID(traceID)
+	}
+	SendProblem(c, problem)
+}
+
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
 	problem := NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path)

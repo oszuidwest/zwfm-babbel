@@ -36,6 +36,10 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
 	// Log configuration (without sensitive data)
 	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)

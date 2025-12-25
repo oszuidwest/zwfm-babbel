@@ -3,13 +3,12 @@ package handlers
 
 import (
 	"database/sql"
-	"strings"
+	"errors"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // UserResponse represents the user data returned by the API
@@ -94,47 +93,20 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		return
 	}
 
-	// Check username uniqueness
-	if err := utils.CheckUnique(h.db, "users", "username", req.Username, nil); err != nil {
-		utils.ProblemDuplicate(c, "Username")
-		return
+	// Prepare email value (convert pointer to string)
+	email := ""
+	if req.Email != nil {
+		email = *req.Email
 	}
 
-	// Check email uniqueness (if provided)
-	if req.Email != nil && *req.Email != "" {
-		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, nil); err != nil {
-			utils.ProblemDuplicate(c, "Email")
-			return
-		}
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	// Create user via service
+	user, err := h.userSvc.Create(c.Request.Context(), req.Username, req.FullName, email, req.Password, req.Role)
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to hash password")
+		handleServiceError(c, err, "User")
 		return
 	}
 
-	// Handle metadata - empty string should be NULL for JSON column
-	var metadataValue interface{}
-	if req.Metadata == "" {
-		metadataValue = nil
-	} else {
-		metadataValue = req.Metadata
-	}
-
-	// Create user
-	result, err := h.db.ExecContext(c.Request.Context(),
-		"INSERT INTO users (username, full_name, email, password_hash, role, metadata) VALUES (?, ?, ?, ?, ?, ?)",
-		req.Username, req.FullName, req.Email, string(hashedPassword), req.Role, metadataValue,
-	)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to create user")
-		return
-	}
-
-	id, _ := result.LastInsertId()
-	utils.CreatedWithID(c, id, "User created successfully")
+	utils.CreatedWithID(c, int64(user.ID), "User created successfully")
 }
 
 // UpdateUser updates an existing user's information
@@ -149,81 +121,20 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// Check if user exists
-	if !utils.ValidateResourceExists(c, h.db, "users", "User", id) {
-		return
+	// Convert to service request
+	serviceReq := &services.UpdateUserRequest{
+		Username:  req.Username,
+		FullName:  req.FullName,
+		Email:     req.Email,
+		Password:  req.Password,
+		Role:      req.Role,
+		Metadata:  req.Metadata,
+		Suspended: req.Suspended,
 	}
 
-	// Build dynamic update query
-	updates := []string{}
-	args := []interface{}{}
-
-	if req.Username != "" {
-		if err := utils.CheckUnique(h.db, "users", "username", req.Username, &id); err != nil {
-			utils.ProblemDuplicate(c, "Username")
-			return
-		}
-		updates = append(updates, "username = ?")
-		args = append(args, req.Username)
-	}
-
-	if req.FullName != "" {
-		updates = append(updates, "full_name = ?")
-		args = append(args, req.FullName)
-	}
-
-	if req.Email != nil && *req.Email != "" {
-		if err := utils.CheckUnique(h.db, "users", "email", *req.Email, &id); err != nil {
-			utils.ProblemDuplicate(c, "Email")
-			return
-		}
-		updates = append(updates, "email = ?")
-		args = append(args, *req.Email)
-	}
-
-	if req.Password != "" {
-		// Hash the new password
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			utils.ProblemInternalServer(c, "Failed to hash password")
-			return
-		}
-		updates = append(updates, "password_hash = ?, password_changed_at = NOW()")
-		args = append(args, string(hashedPassword))
-	}
-
-	if req.Role != "" {
-		updates = append(updates, "role = ?")
-		args = append(args, req.Role)
-	}
-
-	if req.Metadata != "" {
-		updates = append(updates, "metadata = ?")
-		args = append(args, req.Metadata)
-	}
-
-	if req.Suspended != nil {
-		if *req.Suspended {
-			updates = append(updates, "suspended_at = NOW()")
-		} else {
-			updates = append(updates, "suspended_at = NULL")
-		}
-	}
-
-	if len(updates) == 0 {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
-		return
-	}
-
-	// Execute update
-	query := "UPDATE users SET " + strings.Join(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
-
-	if _, err := h.db.ExecContext(c.Request.Context(), query, args...); err != nil {
-		utils.ProblemInternalServer(c, "Failed to update user")
+	// Update user via service
+	if err := h.userSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
+		handleServiceError(c, err, "User")
 		return
 	}
 
@@ -237,42 +148,16 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	// Check if this would be the last admin
-	adminCount, err := utils.CountActivesExcludingID(h.db, "users", "role = 'admin' AND suspended_at IS NULL", id)
+	// Delete user via service
+	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to check admin count")
-		return
-	}
-
-	var userRole string
-	if err := h.db.Get(&userRole, "SELECT role FROM users WHERE id = ?", id); err != nil {
-		if err == sql.ErrNoRows {
-			utils.ProblemNotFound(c, "User")
-		} else {
-			utils.ProblemInternalServer(c, "Failed to fetch user")
+		// Special handling for last admin constraint
+		if errors.Is(err, services.ErrInvalidInput) {
+			// Check if this is the last admin error
+			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
+			return
 		}
-		return
-	}
-
-	if userRole == "admin" && adminCount == 0 {
-		utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
-		return
-	}
-
-	// Delete user and all sessions
-	if _, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM user_sessions WHERE user_id = ?", id); err != nil {
-		logger.Error("Failed to delete user sessions: %v", err)
-	}
-
-	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM users WHERE id = ?", id)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to delete user")
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		utils.ProblemNotFound(c, "User")
+		handleServiceError(c, err, "User")
 		return
 	}
 
@@ -285,23 +170,73 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if !utils.ValidateResourceExists(c, h.db, "users", "User", id) {
-		return
-	}
+
 	var req struct {
 		Action string `json:"action" binding:"required,oneof=suspend restore"`
 	}
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
-	query := "UPDATE users SET suspended_at = NOW() WHERE id = ?"
-	if req.Action == "restore" {
-		query = "UPDATE users SET suspended_at = NULL WHERE id = ?"
+
+	var err error
+	if req.Action == "suspend" {
+		err = h.userSvc.Suspend(c.Request.Context(), id)
+	} else {
+		err = h.userSvc.Unsuspend(c.Request.Context(), id)
 	}
-	_, err := h.db.ExecContext(c.Request.Context(), query, id)
+
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to update user state")
+		handleServiceError(c, err, "User")
 		return
 	}
-	utils.SuccessWithMessage(c, "User state updated")
+
+	utils.SuccessWithMessage(c, "User status updated successfully")
+}
+
+// RestoreUser attempts to restore a soft-deleted user (not supported for users)
+func (h *Handlers) RestoreUser(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+
+	err := h.userSvc.Restore(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "User restored successfully")
+}
+
+// SuspendUser suspends a user account
+func (h *Handlers) SuspendUser(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+
+	err := h.userSvc.Suspend(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "User suspended successfully")
+}
+
+// UnsuspendUser restores a suspended user account
+func (h *Handlers) UnsuspendUser(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+
+	err := h.userSvc.Unsuspend(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "User unsuspended successfully")
 }

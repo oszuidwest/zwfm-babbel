@@ -128,11 +128,12 @@ type User struct {
 	// Role defines the user's access level: admin, editor, or viewer
 	Role                string     `db:"role" json:"role"`
 	SuspendedAt         *time.Time `db:"suspended_at" json:"suspended_at,omitempty"`
+	DeletedAt           *time.Time `db:"deleted_at" json:"deleted_at,omitempty"`
 	LastLoginAt         *time.Time `db:"last_login_at" json:"last_login_at"`
 	LoginCount          int        `db:"login_count" json:"login_count"`
 	FailedLoginAttempts int        `db:"failed_login_attempts" json:"-"`
 	LockedUntil         *time.Time `db:"locked_until" json:"locked_until,omitempty"`
-	PasswordChangedAt   time.Time  `db:"password_changed_at" json:"password_changed_at"`
+	PasswordChangedAt   *time.Time `db:"password_changed_at" json:"password_changed_at,omitempty"`
 	Metadata            *string    `db:"metadata" json:"metadata"`
 	CreatedAt           time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time  `db:"updated_at" json:"updated_at"`

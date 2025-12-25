@@ -75,7 +75,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	} else if h.frontendURL != "" {
 		frontendURL = h.frontendURL
 	} else {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "No frontend URL configured"})
+		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
 	}
 

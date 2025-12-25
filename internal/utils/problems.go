@@ -51,6 +51,7 @@ const (
 	ProblemTypeInsufficientPermissions = "https://babbel.api/problems/insufficient-permissions"
 	ProblemTypeInternalServerError     = "https://babbel.api/problems/internal-server-error"
 	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
+	ProblemTypeDependencyConstraint    = "https://babbel.api/problems/dependency-constraint"
 )
 
 // NewProblemDetail creates a new RFC 9457 compliant problem detail response.
@@ -138,6 +139,18 @@ func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 		"Bad Request",
 		400,
 		detail,
+		instance,
+	)
+}
+
+// NewDependencyConstraintProblem creates a standardized 409 Conflict response for dependency constraints.
+// Used when a resource cannot be deleted because other resources depend on it.
+func NewDependencyConstraintProblem(resource, instance string) *ProblemDetail {
+	return NewProblemDetail(
+		ProblemTypeDependencyConstraint,
+		"Dependency Constraint",
+		409,
+		fmt.Sprintf("Cannot delete %s because other resources depend on it", resource),
 		instance,
 	)
 }

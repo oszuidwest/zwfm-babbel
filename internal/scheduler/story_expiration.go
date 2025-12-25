@@ -54,14 +54,17 @@ func (s *StoryExpirationService) Start() {
 }
 
 // Stop gracefully shuts down the expiration service.
-// Stops the ticker and signals the background goroutine to exit.
-// This method is safe to call multiple times.
+// Uses a timeout to prevent deadlock if the goroutine has already exited.
 func (s *StoryExpirationService) Stop() {
 	logger.Info("Stopping story expiration service")
 	if s.ticker != nil {
 		s.ticker.Stop()
 	}
-	s.done <- true
+	select {
+	case s.done <- true:
+	case <-time.After(5 * time.Second):
+		logger.Info("Story expiration service shutdown timeout - goroutine may have already exited")
+	}
 }
 
 // expireStories performs the actual expiration logic by updating story statuses.

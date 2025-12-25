@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -284,7 +285,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		// Check if user is authenticated
 		userID := session.Get("user_id")
 		if userID == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
 			return
 		}
@@ -303,7 +304,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			if err := session.Save(c); err != nil {
 				logger.Error("Failed to save session during cleanup: %v", err)
 			}
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
+			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
 			return
 		}
@@ -324,13 +325,13 @@ func (s *Service) RequirePermission(obj, act string) gin.HandlerFunc {
 
 		ok, err := s.enforcer.Enforce(role, obj, act)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Permission check failed"})
+			utils.ProblemInternalServer(c, "Permission check failed")
 			c.Abort()
 			return
 		}
 
 		if !ok {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "Insufficient permissions")
 			c.Abort()
 			return
 		}
@@ -383,7 +384,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 // StartOAuthFlow initiates the OAuth/OIDC authentication process.
 func (s *Service) StartOAuthFlow(c *gin.Context) {
 	if s.config.Method == "local" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "OAuth authentication is disabled"})
+		utils.ProblemBadRequest(c, "OAuth authentication is disabled")
 		return
 	}
 
@@ -399,7 +400,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	}
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save OAuth session: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session error"})
+		utils.ProblemInternalServer(c, "Session error")
 		return
 	}
 

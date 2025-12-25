@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -26,9 +27,19 @@ import (
 //
 // Returns a configured Gin engine ready for HTTP serving.
 func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
-	// Create services
+	// Create audio service
 	audioSvc := audio.NewService(cfg)
-	h := handlers.NewHandlers(db, audioSvc, cfg)
+
+	// Create domain services
+	bulletinSvc := services.NewBulletinService(db, audioSvc, cfg)
+	storySvc := services.NewStoryService(db, audioSvc, cfg)
+	stationSvc := services.NewStationService(db)
+	voiceSvc := services.NewVoiceService(db)
+	userSvc := services.NewUserService(db)
+	stationVoiceSvc := services.NewStationVoiceService(db, audioSvc, cfg)
+
+	// Create handlers with all services
+	h := handlers.NewHandlers(db, audioSvc, cfg, bulletinSvc, storySvc, stationSvc, voiceSvc, userSvc, stationVoiceSvc)
 
 	// Create auth configuration
 	authConfig := &auth.Config{

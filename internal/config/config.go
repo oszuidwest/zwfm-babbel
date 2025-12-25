@@ -2,8 +2,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -122,4 +124,38 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// Validate checks the configuration for required values and valid settings.
+// Returns an error if any required configuration is missing or invalid.
+func (c *Config) Validate() error {
+	// Session secret validation (32 chars required for security)
+	if len(c.Auth.SessionSecret) < 32 {
+		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
+	}
+
+	// Check for default/insecure session secret in production
+	if c.Environment == "production" && c.Auth.SessionSecret == "your-secret-key-change-in-production" {
+		return errors.New("BABBEL_SESSION_SECRET must be changed from default value in production")
+	}
+
+	// OIDC validation when OAuth is enabled
+	if c.Auth.Method == "oidc" || c.Auth.Method == "both" {
+		if c.Auth.OIDCProviderURL == "" {
+			return errors.New("BABBEL_OIDC_PROVIDER_URL required when auth method is 'oidc' or 'both'")
+		}
+		if c.Auth.OIDCClientID == "" {
+			return errors.New("BABBEL_OIDC_CLIENT_ID required when auth method is 'oidc' or 'both'")
+		}
+		if c.Auth.OIDCClientSecret == "" {
+			return errors.New("BABBEL_OIDC_CLIENT_SECRET required when auth method is 'oidc' or 'both'")
+		}
+	}
+
+	// FFmpeg binary validation
+	if _, err := exec.LookPath(c.Audio.FFmpegPath); err != nil {
+		return fmt.Errorf("FFmpeg binary not found at '%s': ensure FFmpeg is installed and in PATH", c.Audio.FFmpegPath)
+	}
+
+	return nil
 }
