@@ -1,4 +1,4 @@
-// Package api provides HTTP routing and middleware setup for the Babbel API server.
+// Package api provides HTTP routing and middleware for the Babbel API server.
 package api
 
 import (

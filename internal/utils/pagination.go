@@ -1,3 +1,4 @@
+// Package utils provides pagination utilities.
 package utils
 
 // PaginationData holds typed pagination information

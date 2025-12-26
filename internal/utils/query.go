@@ -289,6 +289,117 @@ func parseFilterKey(key string) (field, operator string) {
 	return content, ""
 }
 
+// applyTablePrefix adds table alias to column if needed
+func applyTablePrefix(column, tableAlias string) string {
+	// Add table prefix if specified and column doesn't contain parentheses or existing table prefix
+	if tableAlias != "" && !strings.Contains(column, "(") && !strings.Contains(column, ".") {
+		return tableAlias + "." + column
+	}
+	return column
+}
+
+// processHardcodedFilters processes config.Filters and adds conditions
+func processHardcodedFilters(config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+	if config.Filters == nil {
+		return
+	}
+
+	for _, filter := range config.Filters {
+		column := filter.Column
+		// Add table prefix if specified and column doesn't contain parentheses or existing table prefix
+		if filter.Table != "" && !strings.Contains(filter.Column, "(") && !strings.Contains(filter.Column, ".") {
+			column = filter.Table + "." + filter.Column
+		}
+
+		operator := filter.Operator
+		if operator == "" {
+			operator = "="
+		}
+
+		*conditions = append(*conditions, column+" "+operator+" ?")
+		*args = append(*args, filter.Value)
+	}
+}
+
+// processStatusFiltering handles status and soft delete filtering
+func processStatusFiltering(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+	// Handle status filtering (skip if soft delete is disabled)
+	if !config.DisableSoftDelete {
+		statusCondition := buildStatusCondition(params.Status, args)
+		if statusCondition != "" {
+			*conditions = append(*conditions, statusCondition)
+		}
+		return
+	}
+
+	// If soft delete is disabled but status is explicitly provided, handle it
+	if params.Status != "" && params.Status != "all" {
+		switch params.Status {
+		case "active":
+			*args = append(*args, models.StoryStatusActive)
+			*conditions = append(*conditions, "status = ?")
+		case "suspended":
+			*conditions = append(*conditions, "suspended_at IS NOT NULL")
+		default:
+			*args = append(*args, params.Status)
+			*conditions = append(*conditions, "status = ?")
+		}
+	}
+}
+
+// buildFilterCondition builds a single filter condition with arguments
+func buildFilterCondition(field string, filter FilterOperation, config EnhancedQueryConfig) (string, []interface{}) {
+	// Map field names to database columns if needed
+	dbField := field
+	if config.FieldMapping != nil {
+		if mapped, exists := config.FieldMapping[field]; exists {
+			dbField = mapped
+		}
+	}
+
+	// Add table prefix
+	dbField = applyTablePrefix(dbField, config.TableAlias)
+
+	var condition string
+	var args []interface{}
+
+	switch filter.Operator {
+	case "IN":
+		if len(filter.Values) > 0 {
+			placeholders := make([]string, len(filter.Values))
+			for i, value := range filter.Values {
+				placeholders[i] = "?"
+				args = append(args, value)
+			}
+			condition = dbField + " IN (" + strings.Join(placeholders, ", ") + ")"
+		}
+	case "BETWEEN":
+		if len(filter.Values) == 2 {
+			condition = dbField + " BETWEEN ? AND ?"
+			args = append(args, filter.Values[0], filter.Values[1])
+		}
+	case "LIKE":
+		condition = dbField + " LIKE ?"
+		args = append(args, filter.Value)
+	default:
+		condition = dbField + " " + filter.Operator + " ?"
+		args = append(args, filter.Value)
+	}
+
+	return condition, args
+}
+
+// processAdvancedFilters processes query param filters
+func processAdvancedFilters(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+	for field, filter := range params.Filters {
+		condition, filterArgs := buildFilterCondition(field, filter, config)
+		if condition != "" {
+			*conditions = append(*conditions, condition)
+			*args = append(*args, filterArgs...)
+		}
+	}
+}
+
 // BuildModernQuery constructs SQL query with WHERE clause from modern query parameters
 func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, []interface{}, error) {
 	if params == nil {
@@ -304,43 +415,10 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 	}
 
 	// Process hardcoded filters from config first
-	if config.Filters != nil {
-		for _, filter := range config.Filters {
-			column := filter.Column
-			// Add table prefix if specified and column doesn't contain parentheses or existing table prefix
-			if filter.Table != "" && !strings.Contains(filter.Column, "(") && !strings.Contains(filter.Column, ".") {
-				column = filter.Table + "." + filter.Column
-			}
+	processHardcodedFilters(config, &conditions, &args)
 
-			operator := filter.Operator
-			if operator == "" {
-				operator = "="
-			}
-
-			conditions = append(conditions, column+" "+operator+" ?")
-			args = append(args, filter.Value)
-		}
-	}
-
-	// Handle status filtering (skip if soft delete is disabled)
-	if !config.DisableSoftDelete {
-		statusCondition := buildStatusCondition(params.Status, &args)
-		if statusCondition != "" {
-			conditions = append(conditions, statusCondition)
-		}
-	} else if params.Status != "" && params.Status != "all" {
-		// If soft delete is disabled but status is explicitly provided, handle it
-		switch params.Status {
-		case "active":
-			args = append(args, models.StoryStatusActive)
-			conditions = append(conditions, "status = ?")
-		case "suspended":
-			conditions = append(conditions, "suspended_at IS NOT NULL")
-		default:
-			args = append(args, params.Status)
-			conditions = append(conditions, "status = ?")
-		}
-	}
+	// Handle status filtering
+	processStatusFiltering(params, config, &conditions, &args)
 
 	// Handle search functionality
 	searchCondition := buildSearchCondition(params.Search, config.SearchFields, &args)
@@ -349,43 +427,7 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 	}
 
 	// Handle advanced filters
-	for field, filter := range params.Filters {
-		// Map field names to database columns if needed
-		dbField := field
-		if config.FieldMapping != nil {
-			if mapped, exists := config.FieldMapping[field]; exists {
-				dbField = mapped
-			}
-		}
-
-		// Add table prefix if specified and field doesn't contain parentheses or existing table prefix
-		if config.TableAlias != "" && !strings.Contains(dbField, "(") && !strings.Contains(dbField, ".") {
-			dbField = config.TableAlias + "." + dbField
-		}
-
-		switch filter.Operator {
-		case "IN":
-			if len(filter.Values) > 0 {
-				placeholders := make([]string, len(filter.Values))
-				for i, value := range filter.Values {
-					placeholders[i] = "?"
-					args = append(args, value)
-				}
-				conditions = append(conditions, dbField+" IN ("+strings.Join(placeholders, ", ")+")")
-			}
-		case "BETWEEN":
-			if len(filter.Values) == 2 {
-				conditions = append(conditions, dbField+" BETWEEN ? AND ?")
-				args = append(args, filter.Values[0], filter.Values[1])
-			}
-		case "LIKE":
-			conditions = append(conditions, dbField+" LIKE ?")
-			args = append(args, filter.Value)
-		default:
-			conditions = append(conditions, dbField+" "+filter.Operator+" ?")
-			args = append(args, filter.Value)
-		}
-	}
+	processAdvancedFilters(params, config, &conditions, &args)
 
 	// Build WHERE clause
 	whereClause := ""

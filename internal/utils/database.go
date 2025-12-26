@@ -15,9 +15,10 @@ import (
 // StationQueries provides type-safe database operations for stations.
 type StationQueries struct{}
 
-// Stations is the global instance for station queries.
+// Stations provides query methods for station resources.
 var Stations = StationQueries{}
 
+// Exists checks if a station with the given ID exists.
 func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stations WHERE id = ?)", id)
@@ -27,8 +28,10 @@ func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, er
 // StoryQueries provides type-safe database operations for stories.
 type StoryQueries struct{}
 
+// Stories provides query methods for story resources.
 var Stories = StoryQueries{}
 
+// Exists checks if a story with the given ID exists.
 func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stories WHERE id = ?)", id)
@@ -38,8 +41,10 @@ func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, erro
 // BulletinQueries provides type-safe database operations for bulletins.
 type BulletinQueries struct{}
 
+// Bulletins provides query methods for bulletin resources.
 var Bulletins = BulletinQueries{}
 
+// Exists checks if a bulletin with the given ID exists.
 func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM bulletins WHERE id = ?)", id)

@@ -235,121 +235,162 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	utils.CreatedWithID(c, int64(story.ID), "Story created successfully")
 }
 
-// UpdateStory updates an existing story
-func (h *Handlers) UpdateStory(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
-
-	var req utils.StoryUpdateRequest
-
-	// Bind and validate the request using our unified validation
-	if !utils.BindFormAndValidate(c, &req) {
-		return
-	}
-
-	// Validate date range if both dates provided
-	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
-		return
-	}
-
+// processWeekdaysUpdate handles weekday merging logic for story updates
+func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int, req *utils.StoryUpdateRequest) (map[string]bool, error) {
 	// Handle weekdays - either from weekdays map or individual fields
-	var weekdays map[string]bool
 	if len(req.Weekdays) > 0 {
-		weekdays = req.Weekdays
-	} else {
-		// Build from individual fields if any are provided
-		hasIndividualWeekday := req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
-			req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
-		if hasIndividualWeekday {
-			// Need to fetch current story to preserve unspecified weekdays
-			current, err := h.storySvc.GetByID(c.Request.Context(), id)
-			if err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			weekdays = current.GetWeekdaysMap()
-			// Update only the provided fields
-			if req.Monday != nil {
-				weekdays["monday"] = *req.Monday
-			}
-			if req.Tuesday != nil {
-				weekdays["tuesday"] = *req.Tuesday
-			}
-			if req.Wednesday != nil {
-				weekdays["wednesday"] = *req.Wednesday
-			}
-			if req.Thursday != nil {
-				weekdays["thursday"] = *req.Thursday
-			}
-			if req.Friday != nil {
-				weekdays["friday"] = *req.Friday
-			}
-			if req.Saturday != nil {
-				weekdays["saturday"] = *req.Saturday
-			}
-			if req.Sunday != nil {
-				weekdays["sunday"] = *req.Sunday
-			}
-		}
+		return req.Weekdays, nil
 	}
 
-	// Check if there's an audio file to process
-	hasAudioUpdate := false
-	_, _, err := c.Request.FormFile("audio")
-	if err == nil {
-		hasAudioUpdate = true
+	// Build from individual fields if any are provided
+	hasIndividualWeekday := req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
+		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
+	if !hasIndividualWeekday {
+		return nil, nil
 	}
 
-	// Validate at least one field to update
+	// Need to fetch current story to preserve unspecified weekdays
+	current, err := h.storySvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+
+	weekdays := current.GetWeekdaysMap()
+	// Update only the provided fields
+	if req.Monday != nil {
+		weekdays["monday"] = *req.Monday
+	}
+	if req.Tuesday != nil {
+		weekdays["tuesday"] = *req.Tuesday
+	}
+	if req.Wednesday != nil {
+		weekdays["wednesday"] = *req.Wednesday
+	}
+	if req.Thursday != nil {
+		weekdays["thursday"] = *req.Thursday
+	}
+	if req.Friday != nil {
+		weekdays["friday"] = *req.Friday
+	}
+	if req.Saturday != nil {
+		weekdays["saturday"] = *req.Saturday
+	}
+	if req.Sunday != nil {
+		weekdays["sunday"] = *req.Sunday
+	}
+
+	return weekdays, nil
+}
+
+// validateStoryUpdate validates at least one field to update
+func (h *Handlers) validateStoryUpdate(c *gin.Context, req *utils.StoryUpdateRequest, hasWeekdays, hasAudioUpdate bool) bool {
 	hasFieldUpdate := req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		len(weekdays) > 0 || req.Metadata != nil
+		hasWeekdays || req.Metadata != nil
 
 	if !hasFieldUpdate && !hasAudioUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
 		}})
+		return false
+	}
+
+	return true
+}
+
+// applyStoryFieldUpdates applies field updates via service
+func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int, req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
+	svcReq := &services.UpdateStoryRequest{
+		Title:     req.Title,
+		Text:      req.Text,
+		VoiceID:   req.VoiceID,
+		Status:    req.Status,
+		StartDate: req.StartDate,
+		EndDate:   req.EndDate,
+		Weekdays:  weekdays,
+		Metadata:  nil, // Metadata not yet supported in service
+	}
+
+	_, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return false
+	}
+
+	return true
+}
+
+// processStoryAudioUpdate handles audio file processing
+func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int) bool {
+	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
+	if err != nil {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "audio",
+			Message: err.Error(),
+		}})
+		return false
+	}
+	defer cleanup()
+
+	// Process audio via service
+	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
+		handleServiceError(c, err, "Story")
+		return false
+	}
+
+	return true
+}
+
+// UpdateStory updates an existing story
+func (h *Handlers) UpdateStory(c *gin.Context) {
+	// Get ID param
+	id, ok := utils.GetIDParam(c)
+	if !ok {
 		return
 	}
 
-	// Update story via service if there are field updates
-	if hasFieldUpdate {
-		svcReq := &services.UpdateStoryRequest{
-			Title:     req.Title,
-			Text:      req.Text,
-			VoiceID:   req.VoiceID,
-			Status:    req.Status,
-			StartDate: req.StartDate,
-			EndDate:   req.EndDate,
-			Weekdays:  weekdays,
-			Metadata:  nil, // Metadata not yet supported in service
-		}
+	// Bind request
+	var req utils.StoryUpdateRequest
+	if !utils.BindFormAndValidate(c, &req) {
+		return
+	}
 
-		_, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
-		if err != nil {
-			handleServiceError(c, err, "Story")
+	// Validate date range
+	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
+		return
+	}
+
+	// Process weekdays
+	weekdays, err := h.processWeekdaysUpdate(c, id, &req)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	// Check for audio update
+	_, _, err = c.Request.FormFile("audio")
+	hasAudioUpdate := err == nil
+
+	// Validate update request
+	if !h.validateStoryUpdate(c, &req, len(weekdays) > 0, hasAudioUpdate) {
+		return
+	}
+
+	// Apply field updates if needed
+	hasFieldUpdate := req.Title != nil || req.Text != nil || req.Status != nil ||
+		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
+		len(weekdays) > 0 || req.Metadata != nil
+
+	if hasFieldUpdate {
+		if !h.applyStoryFieldUpdates(c, id, &req, weekdays) {
 			return
 		}
 	}
 
-	// Handle audio file replacement if provided
+	// Process audio if needed
 	if hasAudioUpdate {
-		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
-		if err != nil {
-			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-				Field:   "audio",
-				Message: err.Error(),
-			}})
-			return
-		}
-		defer cleanup()
-
-		// Process audio via service
-		if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
-			handleServiceError(c, err, "Story")
+		if !h.processStoryAudioUpdate(c, id) {
 			return
 		}
 	}

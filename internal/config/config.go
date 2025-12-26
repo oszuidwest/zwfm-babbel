@@ -6,19 +6,20 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 
 	"github.com/kelseyhightower/envconfig"
 )
 
 // Config holds all application configuration loaded from environment variables.
+// Each nested config section is loaded separately to use flat BABBEL_* env var names.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Auth     AuthConfig
-	Audio    AudioConfig
-	// LogLevel controls logging verbosity (4=info, 5=debug)
-	LogLevel    int         `envconfig:"LOG_LEVEL" default:"4"`
-	Environment Environment `envconfig:"ENV" default:"development"`
+	Server      ServerConfig
+	Database    DatabaseConfig
+	Auth        AuthConfig
+	Audio       AudioConfig
+	LogLevel    int         // Logging verbosity (4=info, 5=debug)
+	Environment Environment // Runtime environment (development/production)
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
@@ -70,10 +71,29 @@ type AudioConfig struct {
 func Load() (*Config, error) {
 	var cfg Config
 
-	// Load configuration from environment with BABBEL_ prefix
-	if err := envconfig.Process("BABBEL", &cfg); err != nil {
-		return nil, fmt.Errorf("failed to load configuration: %w", err)
+	// Load each config section separately with BABBEL_ prefix
+	// This avoids envconfig's default nested struct prefix behavior
+	if err := envconfig.Process("BABBEL", &cfg.Server); err != nil {
+		return nil, fmt.Errorf("failed to load server config: %w", err)
 	}
+	if err := envconfig.Process("BABBEL", &cfg.Database); err != nil {
+		return nil, fmt.Errorf("failed to load database config: %w", err)
+	}
+	if err := envconfig.Process("BABBEL", &cfg.Auth); err != nil {
+		return nil, fmt.Errorf("failed to load auth config: %w", err)
+	}
+	if err := envconfig.Process("BABBEL", &cfg.Audio); err != nil {
+		return nil, fmt.Errorf("failed to load audio config: %w", err)
+	}
+
+	// Load top-level fields
+	cfg.LogLevel = 4 // default info level
+	if logLevel := os.Getenv("BABBEL_LOG_LEVEL"); logLevel != "" {
+		if level, err := strconv.Atoi(logLevel); err == nil {
+			cfg.LogLevel = level
+		}
+	}
+	cfg.Environment = Environment(getEnv("BABBEL_ENV", "development"))
 
 	// Set MigrationsPath manually (not from env)
 	cfg.Database.MigrationsPath = "migrations"
@@ -141,4 +161,12 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// getEnv retrieves an environment variable with a fallback default value.
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }

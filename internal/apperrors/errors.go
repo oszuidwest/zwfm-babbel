@@ -7,17 +7,29 @@ import "fmt"
 // Code categorizes errors for consistent handling across the application.
 type Code int
 
+// Error codes for categorizing application errors.
 const (
+	// CodeUnknown indicates an unspecified error type
 	CodeUnknown Code = iota
+	// CodeNotFound indicates a requested resource does not exist
 	CodeNotFound
+	// CodeDuplicate indicates a unique constraint violation
 	CodeDuplicate
+	// CodeInvalidInput indicates malformed or invalid input
 	CodeInvalidInput
+	// CodeValidation indicates input failed validation rules
 	CodeValidation
+	// CodeDependencyExists indicates the resource has dependent records
 	CodeDependencyExists
+	// CodeNoStoriesAvailable indicates no stories match bulletin criteria
 	CodeNoStoriesAvailable
+	// CodeAudioProcessing indicates FFmpeg or audio pipeline failure
 	CodeAudioProcessing
+	// CodeDatabase indicates a database operation failure
 	CodeDatabase
+	// CodeUnauthorized indicates authentication is required
 	CodeUnauthorized
+	// CodeForbidden indicates insufficient permissions
 	CodeForbidden
 )
 

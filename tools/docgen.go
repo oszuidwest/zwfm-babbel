@@ -324,31 +324,40 @@ func main() {
 	fmt.Printf("✓ Documentation generated at %s\n", *output)
 }
 
-func generateMarkdown(spec OpenAPISpec) (string, error) {
-	// Create endpoint-to-tag mapping for documentation generation
+// resolveParameters resolves $ref parameters from the components section.
+func resolveParameters(params []Parameter, components struct {
+	Schemas         map[string]interface{} `yaml:"schemas"`
+	SecuritySchemes map[string]interface{} `yaml:"securitySchemes"`
+	Parameters      map[string]Parameter   `yaml:"parameters"`
+}) []Parameter {
+	resolvedParams := make([]Parameter, 0, len(params))
+	for _, param := range params {
+		if param.Ref != "" {
+			// Extract parameter name from $ref
+			// Format: #/components/parameters/paramName
+			parts := strings.Split(param.Ref, "/")
+			if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
+				paramName := parts[3]
+				if resolvedParam, ok := components.Parameters[paramName]; ok {
+					resolvedParams = append(resolvedParams, resolvedParam)
+				}
+			}
+		} else {
+			resolvedParams = append(resolvedParams, param)
+		}
+	}
+	return resolvedParams
+}
+
+// collectEndpointsByTag collects and organizes endpoints grouped by tag.
+func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	endpointsByTag := make(map[string][]EndpointInfo)
 
 	// Collect all endpoints
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
 			// Resolve parameter references
-			resolvedParams := make([]Parameter, 0)
-			for _, param := range op.Parameters {
-				if param.Ref != "" {
-					// Extract parameter name from $ref
-					// Format: #/components/parameters/paramName
-					parts := strings.Split(param.Ref, "/")
-					if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
-						paramName := parts[3]
-						if resolvedParam, ok := spec.Components.Parameters[paramName]; ok {
-							resolvedParams = append(resolvedParams, resolvedParam)
-						}
-					}
-				} else {
-					resolvedParams = append(resolvedParams, param)
-				}
-			}
-			op.Parameters = resolvedParams
+			op.Parameters = resolveParameters(op.Parameters, spec.Components)
 
 			endpoint := EndpointInfo{
 				Method:    strings.ToUpper(method),
@@ -374,22 +383,12 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 		})
 	}
 
-	// Ensure all tags are present
-	if len(spec.Tags) == 0 {
-		// Create tags from collected endpoints
-		for tag := range endpointsByTag {
-			spec.Tags = append(spec.Tags, struct {
-				Name        string `yaml:"name"`
-				Description string `yaml:"description"`
-			}{Name: tag})
-		}
-		// Sort tags alphabetically
-		sort.Slice(spec.Tags, func(i, j int) bool {
-			return spec.Tags[i].Name < spec.Tags[j].Name
-		})
-	}
+	return endpointsByTag
+}
 
-	funcMap := template.FuncMap{
+// createTemplateFuncMap creates the template function map for markdown generation.
+func createTemplateFuncMap() template.FuncMap {
+	return template.FuncMap{
 		"upper":   strings.ToUpper,
 		"lower":   strings.ToLower,
 		"replace": strings.ReplaceAll,
@@ -466,8 +465,28 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 			return "Error"
 		},
 	}
+}
 
-	// Prepare template data
+func generateMarkdown(spec OpenAPISpec) (string, error) {
+	// Collect endpoints by tag
+	endpointsByTag := collectEndpointsByTag(spec)
+
+	// Ensure all tags are present
+	if len(spec.Tags) == 0 {
+		// Create tags from collected endpoints
+		for tag := range endpointsByTag {
+			spec.Tags = append(spec.Tags, struct {
+				Name        string `yaml:"name"`
+				Description string `yaml:"description"`
+			}{Name: tag})
+		}
+		// Sort tags alphabetically
+		sort.Slice(spec.Tags, func(i, j int) bool {
+			return spec.Tags[i].Name < spec.Tags[j].Name
+		})
+	}
+
+	// Create template data
 	templateData := struct {
 		OpenAPISpec
 		EndpointsByTag map[string][]EndpointInfo
@@ -476,6 +495,8 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 		EndpointsByTag: endpointsByTag,
 	}
 
+	// Parse and execute template
+	funcMap := createTemplateFuncMap()
 	tmpl, err := template.New("markdown").Funcs(funcMap).Parse(markdownTemplate)
 	if err != nil {
 		return "", err

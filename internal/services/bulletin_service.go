@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // BulletinService handles bulletin generation and retrieval operations.
@@ -119,7 +120,11 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to begin transaction: %v", ErrDatabaseError, err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			logger.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	// Save bulletin record to database using the consistent relative path
 	result, err := tx.ExecContext(ctx, `
