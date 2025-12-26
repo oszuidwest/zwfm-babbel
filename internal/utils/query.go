@@ -175,6 +175,51 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
+// filterOperatorHandler defines a function that creates a FilterOperation from a value
+type filterOperatorHandler func(value string) FilterOperation
+
+// filterOperatorHandlers maps operator names to their handler functions
+var filterOperatorHandlers = map[string]filterOperatorHandler{
+	"in": func(value string) FilterOperation {
+		filterValues := strings.Split(value, ",")
+		for i, v := range filterValues {
+			filterValues[i] = strings.TrimSpace(v)
+		}
+		return FilterOperation{Operator: "IN", Values: filterValues}
+	},
+	"between": func(value string) FilterOperation {
+		betweenValues := strings.Split(value, ",")
+		if len(betweenValues) == 2 {
+			return FilterOperation{
+				Operator: "BETWEEN",
+				Values:   []string{strings.TrimSpace(betweenValues[0]), strings.TrimSpace(betweenValues[1])},
+			}
+		}
+		return FilterOperation{} // Invalid between, return empty
+	},
+	"like": func(value string) FilterOperation {
+		return FilterOperation{Operator: "LIKE", Value: "%" + value + "%"}
+	},
+	"gte": func(value string) FilterOperation {
+		return FilterOperation{Operator: ">=", Value: value}
+	},
+	"gt": func(value string) FilterOperation {
+		return FilterOperation{Operator: ">", Value: value}
+	},
+	"lte": func(value string) FilterOperation {
+		return FilterOperation{Operator: "<=", Value: value}
+	},
+	"lt": func(value string) FilterOperation {
+		return FilterOperation{Operator: "<", Value: value}
+	},
+	"ne": func(value string) FilterOperation {
+		return FilterOperation{Operator: "!=", Value: value}
+	},
+	"": func(value string) FilterOperation {
+		return FilterOperation{Operator: "=", Value: value}
+	},
+}
+
 // parseFilters handles modern filtering with nested parameters
 // ?filter[field]=value
 // ?filter[created_at][gte]=2024-01-01
@@ -186,76 +231,24 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 		return filters
 	}
 
-	// Parse all query parameters to find filter patterns
 	for key, values := range c.Request.URL.Query() {
-		if !strings.HasPrefix(key, "filter[") {
+		if !strings.HasPrefix(key, "filter[") || len(values) == 0 {
 			continue
 		}
 
-		// Extract field name and operator
 		field, operator := parseFilterKey(key)
-		if field == "" || len(values) == 0 {
+		if field == "" {
 			continue
 		}
 
-		value := values[0] // Take first value
+		handler, exists := filterOperatorHandlers[operator]
+		if !exists {
+			handler = filterOperatorHandlers[""] // Default to equality
+		}
 
-		switch operator {
-		case "in":
-			// Handle comma-separated values for IN operation
-			filterValues := strings.Split(value, ",")
-			for i, v := range filterValues {
-				filterValues[i] = strings.TrimSpace(v)
-			}
-			filters[field] = FilterOperation{
-				Operator: "IN",
-				Values:   filterValues,
-			}
-		case "between":
-			// Handle comma-separated values for BETWEEN operation
-			betweenValues := strings.Split(value, ",")
-			if len(betweenValues) == 2 {
-				filters[field] = FilterOperation{
-					Operator: "BETWEEN",
-					Values:   []string{strings.TrimSpace(betweenValues[0]), strings.TrimSpace(betweenValues[1])},
-				}
-			}
-		case "like":
-			filters[field] = FilterOperation{
-				Operator: "LIKE",
-				Value:    "%" + value + "%",
-			}
-		case "gte":
-			filters[field] = FilterOperation{
-				Operator: ">=",
-				Value:    value,
-			}
-		case "gt":
-			filters[field] = FilterOperation{
-				Operator: ">",
-				Value:    value,
-			}
-		case "lte":
-			filters[field] = FilterOperation{
-				Operator: "<=",
-				Value:    value,
-			}
-		case "lt":
-			filters[field] = FilterOperation{
-				Operator: "<",
-				Value:    value,
-			}
-		case "ne":
-			filters[field] = FilterOperation{
-				Operator: "!=",
-				Value:    value,
-			}
-		default:
-			// Default to equality
-			filters[field] = FilterOperation{
-				Operator: "=",
-				Value:    value,
-			}
+		filter := handler(values[0])
+		if filter.Operator != "" { // Only add if valid
+			filters[field] = filter
 		}
 	}
 
@@ -347,14 +340,18 @@ func processStatusFiltering(params *QueryParams, config EnhancedQueryConfig, con
 	}
 }
 
-// buildFilterCondition builds a single filter condition with arguments
+// buildFilterCondition builds a single filter condition with arguments.
+// SECURITY: Requires FieldMapping to prevent SQL injection. Rejects unmapped fields.
 func buildFilterCondition(field string, filter FilterOperation, config EnhancedQueryConfig) (string, []interface{}) {
-	// Map field names to database columns if needed
-	dbField := field
-	if config.FieldMapping != nil {
-		if mapped, exists := config.FieldMapping[field]; exists {
-			dbField = mapped
-		}
+	// SECURITY: Require FieldMapping for all filter operations
+	if config.FieldMapping == nil {
+		return "", nil // No mapping = no filtering allowed
+	}
+
+	// SECURITY: Only allow fields explicitly in the allowlist
+	dbField, exists := config.FieldMapping[field]
+	if !exists {
+		return "", nil // Unknown field = reject silently
 	}
 
 	// Add table prefix
@@ -454,20 +451,24 @@ func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, 
 	return query, args, nil
 }
 
-// buildOrderByClause constructs ORDER BY clause from sort fields
+// buildOrderByClause constructs ORDER BY clause from sort fields.
+// SECURITY: Requires FieldMapping to prevent SQL injection. Skips unmapped fields.
 func buildOrderByClause(sortFields []SortField, config EnhancedQueryConfig) string {
 	if len(sortFields) == 0 {
 		return ""
 	}
 
+	// SECURITY: Require FieldMapping for sort operations
+	if config.FieldMapping == nil {
+		return ""
+	}
+
 	var orderParts []string
 	for _, sortField := range sortFields {
-		// Map field names to database columns if needed
-		dbField := sortField.Field
-		if config.FieldMapping != nil {
-			if mapped, exists := config.FieldMapping[sortField.Field]; exists {
-				dbField = mapped
-			}
+		// SECURITY: Only allow fields explicitly in the allowlist
+		dbField, exists := config.FieldMapping[sortField.Field]
+		if !exists {
+			continue // Skip unknown fields
 		}
 
 		// Add table prefix if specified and field doesn't contain parentheses or existing table prefix
@@ -487,26 +488,31 @@ func buildOrderByClause(sortFields []SortField, config EnhancedQueryConfig) stri
 	return strings.Join(orderParts, ", ")
 }
 
-// SelectFields builds field selection for sparse fieldsets
+// SelectFields builds field selection for sparse fieldsets.
+// SECURITY: Requires FieldMapping to prevent SQL injection. Skips unmapped fields.
 func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	if len(params.Fields) == 0 {
+		return config.DefaultFields
+	}
+
+	// SECURITY: Require FieldMapping for field selection
+	if config.FieldMapping == nil {
 		return config.DefaultFields
 	}
 
 	// Map requested fields to database columns
 	var dbFields []string
 	for _, field := range params.Fields {
-		dbField := field
-		needsAlias := false
+		// SECURITY: Only allow fields explicitly in the allowlist
+		dbField, exists := config.FieldMapping[field]
+		if !exists {
+			continue // Skip unknown fields
+		}
 
-		if config.FieldMapping != nil {
-			if mapped, exists := config.FieldMapping[field]; exists {
-				dbField = mapped
-				// Check if this is an expression that needs an alias
-				if strings.Contains(dbField, "(") && !strings.Contains(dbField, " as ") {
-					needsAlias = true
-				}
-			}
+		needsAlias := false
+		// Check if this is an expression that needs an alias
+		if strings.Contains(dbField, "(") && !strings.Contains(dbField, " as ") {
+			needsAlias = true
 		}
 
 		// Add table prefix if specified and field doesn't contain parentheses or existing table prefix
@@ -522,6 +528,9 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 		dbFields = append(dbFields, dbField)
 	}
 
+	if len(dbFields) == 0 {
+		return config.DefaultFields
+	}
 	return strings.Join(dbFields, ", ")
 }
 
@@ -611,9 +620,84 @@ type EnhancedQueryConfig struct {
 	DisableSoftDelete bool              // If true, don't apply soft delete filtering
 }
 
+// extractWhereClause extracts the WHERE clause from a query string
+func extractWhereClause(query string) string {
+	whereStart := strings.Index(query, "WHERE")
+	if whereStart < 0 {
+		return ""
+	}
+
+	// Find the end of the WHERE clause
+	remaining := query[whereStart:]
+	orderByPos := strings.Index(remaining, "ORDER BY")
+	limitPos := strings.Index(remaining, "LIMIT")
+
+	var endPos int
+	switch {
+	case orderByPos >= 0:
+		endPos = orderByPos
+	case limitPos >= 0:
+		endPos = limitPos
+	default:
+		endPos = len(remaining)
+	}
+
+	return strings.TrimSpace(remaining[:endPos])
+}
+
+// buildEnhancedConfig creates an EnhancedQueryConfig from the provided config
+func buildEnhancedConfig(config EnhancedQueryConfig) EnhancedQueryConfig {
+	return EnhancedQueryConfig{
+		QueryConfig: QueryConfig{
+			BaseQuery:     config.BaseQuery,
+			CountQuery:    config.CountQuery,
+			DefaultOrder:  config.DefaultOrder,
+			AllowedArgs:   config.AllowedArgs,
+			PostProcessor: config.PostProcessor,
+			Filters:       config.Filters,
+		},
+		SearchFields:      config.SearchFields,
+		FieldMapping:      config.FieldMapping,
+		TableAlias:        config.TableAlias,
+		DefaultFields:     config.DefaultFields,
+		DisableSoftDelete: config.DisableSoftDelete,
+	}
+}
+
+// sendPaginatedListResponse handles sending the final paginated response
+func sendPaginatedListResponse(c *gin.Context, result interface{}, total int64, params *QueryParams, config EnhancedQueryConfig) {
+	if config.PostProcessor != nil {
+		c.Set("pagination_data", map[string]interface{}{
+			"total":  total,
+			"limit":  params.Limit,
+			"offset": params.Offset,
+		})
+		config.PostProcessor(result)
+
+		if c.Writer.Written() {
+			return
+		}
+
+		responseData := result
+		if processedData, exists := c.Get("processed_bulletin_stories"); exists {
+			responseData = processedData
+		} else if len(params.Fields) > 0 {
+			responseData = FilterResponseFields(result, params.Fields)
+		}
+
+		PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
+		return
+	}
+
+	responseData := result
+	if len(params.Fields) > 0 {
+		responseData = FilterResponseFields(result, params.Fields)
+	}
+	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
+}
+
 // ModernListWithQuery handles paginated list requests with modern query parameters
 func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig, result interface{}) {
-	// Validate inputs
 	if c == nil || db == nil || result == nil {
 		ProblemInternalServer(c, "Invalid parameters for query")
 		return
@@ -625,74 +709,30 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 		return
 	}
 
-	// Build enhanced query config
-	enhancedConfig := EnhancedQueryConfig{
-		QueryConfig: QueryConfig{
-			BaseQuery:     config.BaseQuery,
-			CountQuery:    config.CountQuery,
-			DefaultOrder:  config.DefaultOrder,
-			AllowedArgs:   config.AllowedArgs,
-			PostProcessor: config.PostProcessor,
-			Filters:       config.Filters, // Copy the hardcoded filters
-		},
-		SearchFields:      config.SearchFields,
-		FieldMapping:      config.FieldMapping,
-		TableAlias:        config.TableAlias,
-		DefaultFields:     config.DefaultFields,
-		DisableSoftDelete: config.DisableSoftDelete,
-	}
+	enhancedConfig := buildEnhancedConfig(config)
 
-	// Use custom field selection if requested
 	if len(params.Fields) > 0 && config.DefaultFields != "" {
 		selectFields := SelectFields(params, config)
 		enhancedConfig.BaseQuery = strings.Replace(enhancedConfig.BaseQuery, config.DefaultFields, selectFields, 1)
 	}
 
-	// Build query with modern parameters
 	query, args, err := BuildModernQuery(params, enhancedConfig)
 	if err != nil {
 		ProblemInternalServer(c, "Failed to build query: "+err.Error())
 		return
 	}
 
-	// Get total count with same filters
-	countQuery := config.CountQuery
-	if countQuery == "" {
+	if config.CountQuery == "" {
 		ProblemInternalServer(c, "Count query not provided")
 		return
 	}
 
-	// Build count arguments - all args except LIMIT/OFFSET (which aren't added yet)
-	// For count query, we need all arguments except LIMIT/OFFSET
-	// At this point, args contains: base args + hardcoded filter args + status/search/query filter args
-	// We want all of these for the count query
 	countArgs := make([]interface{}, len(args))
 	copy(countArgs, args)
 
-	// Add filter conditions to count query - safer string manipulation
-	if strings.Contains(query, "WHERE") {
-		whereStart := strings.Index(query, "WHERE")
-		if whereStart >= 0 {
-			var whereClause string
-
-			// Find the end of the WHERE clause
-			orderByPos := strings.Index(query[whereStart:], "ORDER BY")
-			limitPos := strings.Index(query[whereStart:], "LIMIT")
-
-			switch {
-			case orderByPos >= 0:
-				whereClause = query[whereStart : whereStart+orderByPos]
-			case limitPos >= 0:
-				whereClause = query[whereStart : whereStart+limitPos]
-			default:
-				whereClause = query[whereStart:]
-			}
-
-			whereClause = strings.TrimSpace(whereClause)
-			if whereClause != "" {
-				countQuery += " " + whereClause
-			}
-		}
+	countQuery := config.CountQuery
+	if whereClause := extractWhereClause(query); whereClause != "" {
+		countQuery += " " + whereClause
 	}
 
 	total, err := CountWithJoins(db, countQuery, countArgs...)
@@ -701,52 +741,15 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 		return
 	}
 
-	// Add pagination
 	query += " LIMIT ? OFFSET ?"
 	args = append(args, params.Limit, params.Offset)
 
-	// Execute query
 	if err := db.Select(result, query, args...); err != nil {
 		ProblemInternalServer(c, "Failed to fetch records: "+err.Error())
 		return
 	}
 
-	// Apply post-processing if provided
-	if config.PostProcessor != nil {
-		// Store pagination data for PostProcessor handlers to use
-		c.Set("pagination_data", map[string]interface{}{
-			"total":  total,
-			"limit":  params.Limit,
-			"offset": params.Offset,
-		})
-		config.PostProcessor(result)
-
-		// Check if the PostProcessor already sent a response (status would be set)
-		if c.Writer.Written() {
-			return // PostProcessor handled the response
-		}
-
-		// If PostProcessor didn't send response, send it here with processed data
-		responseData := result
-
-		// Check if PostProcessor stored custom processed data in context
-		if processedData, exists := c.Get("processed_bulletin_stories"); exists {
-			responseData = processedData
-		} else if len(params.Fields) > 0 {
-			responseData = FilterResponseFields(result, params.Fields)
-		}
-
-		PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
-		return
-	}
-
-	// Filter response fields if requested - note: this creates a new object
-	responseData := result
-	if len(params.Fields) > 0 {
-		responseData = FilterResponseFields(result, params.Fields)
-	}
-
-	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
+	sendPaginatedListResponse(c, result, total, params, config)
 }
 
 // buildStatusCondition builds the SQL condition for status filtering

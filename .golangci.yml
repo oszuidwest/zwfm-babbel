@@ -24,7 +24,7 @@ linters:
     - whitespace
   settings:
     gocyclo:
-      min-complexity: 30
+      min-complexity: 15
     revive:
       enable-all-rules: false
       rules:
