@@ -386,84 +386,107 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	return endpointsByTag
 }
 
+// toKebabCase converts a string to kebab-case by converting to lowercase and replacing spaces with hyphens.
+func toKebabCase(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), " ", "-")
+}
+
+// getParameterType extracts the type from a parameter's schema, defaulting to "string" if not found.
+func getParameterType(param Parameter) string {
+	if param.Schema != nil {
+		if t, ok := param.Schema["type"].(string); ok {
+			return t
+		}
+	}
+	return "string"
+}
+
+// formatRequestBodyInfo extracts and formats request body information including content type and description.
+func formatRequestBodyInfo(rb map[string]interface{}) string {
+	if content, ok := rb["content"].(map[string]interface{}); ok {
+		var contentTypes []string
+		for ct := range content {
+			contentTypes = append(contentTypes, ct)
+		}
+
+		// Get description if available
+		desc := ""
+		if d, ok := rb["description"].(string); ok {
+			desc = " - " + d
+		}
+
+		if len(contentTypes) > 0 {
+			return fmt.Sprintf("`%s`%s", contentTypes[0], desc)
+		}
+	}
+	return "Required"
+}
+
+// checkHasSuccessResponse determines if the responses map contains any success status codes (200, 201, 204).
+func checkHasSuccessResponse(responses map[string]interface{}) bool {
+	for code := range responses {
+		if code == "200" || code == "201" || code == "204" {
+			return true
+		}
+	}
+	return false
+}
+
+// extractSuccessResponse finds and formats the first success response (200, 201, or 204) from the responses map.
+func extractSuccessResponse(responses map[string]interface{}) string {
+	codes := []string{"200", "201", "204"}
+	for _, code := range codes {
+		if resp, ok := responses[code]; ok {
+			if respMap, ok := resp.(map[string]interface{}); ok {
+				if desc, ok := respMap["description"].(string); ok {
+					return fmt.Sprintf("`%s` - %s", code, desc)
+				}
+			}
+			return fmt.Sprintf("`%s`", code)
+		}
+	}
+	return ""
+}
+
+// checkHasErrorResponses determines if the responses map contains any error status codes (non-2xx).
+func checkHasErrorResponses(responses map[string]interface{}) bool {
+	for code := range responses {
+		if code != "200" && code != "201" && code != "204" {
+			return true
+		}
+	}
+	return false
+}
+
+// isHTTPErrorCode determines if the given HTTP status code represents an error (not 200, 201, or 204).
+func isHTTPErrorCode(code string) bool {
+	return code != "200" && code != "201" && code != "204"
+}
+
+// extractResponseDescription retrieves the description field from a response object, defaulting to "Error".
+func extractResponseDescription(response interface{}) string {
+	if respMap, ok := response.(map[string]interface{}); ok {
+		if desc, ok := respMap["description"].(string); ok {
+			return desc
+		}
+	}
+	return "Error"
+}
+
 // createTemplateFuncMap creates the template function map for markdown generation.
 func createTemplateFuncMap() template.FuncMap {
 	return template.FuncMap{
-		"upper":   strings.ToUpper,
-		"lower":   strings.ToLower,
-		"replace": strings.ReplaceAll,
-		"kebab": func(s string) string {
-			// Convert to lowercase and replace spaces with hyphens
-			return strings.ReplaceAll(strings.ToLower(s), " ", "-")
-		},
-		"getParamType": func(param Parameter) string {
-			if param.Schema != nil {
-				if t, ok := param.Schema["type"].(string); ok {
-					return t
-				}
-			}
-			return "string"
-		},
-		"getRequestBodyInfo": func(rb map[string]interface{}) string {
-			if content, ok := rb["content"].(map[string]interface{}); ok {
-				var contentTypes []string
-				for ct := range content {
-					contentTypes = append(contentTypes, ct)
-				}
-
-				// Get description if available
-				desc := ""
-				if d, ok := rb["description"].(string); ok {
-					desc = " - " + d
-				}
-
-				if len(contentTypes) > 0 {
-					return fmt.Sprintf("`%s`%s", contentTypes[0], desc)
-				}
-			}
-			return "Required"
-		},
-		"hasSuccessResponse": func(responses map[string]interface{}) bool {
-			for code := range responses {
-				if code == "200" || code == "201" || code == "204" {
-					return true
-				}
-			}
-			return false
-		},
-		"getSuccessResponse": func(responses map[string]interface{}) string {
-			codes := []string{"200", "201", "204"}
-			for _, code := range codes {
-				if resp, ok := responses[code]; ok {
-					if respMap, ok := resp.(map[string]interface{}); ok {
-						if desc, ok := respMap["description"].(string); ok {
-							return fmt.Sprintf("`%s` - %s", code, desc)
-						}
-					}
-					return fmt.Sprintf("`%s`", code)
-				}
-			}
-			return ""
-		},
-		"hasErrorResponses": func(responses map[string]interface{}) bool {
-			for code := range responses {
-				if code != "200" && code != "201" && code != "204" {
-					return true
-				}
-			}
-			return false
-		},
-		"isErrorCode": func(code string) bool {
-			return code != "200" && code != "201" && code != "204"
-		},
-		"getResponseDescription": func(response interface{}) string {
-			if respMap, ok := response.(map[string]interface{}); ok {
-				if desc, ok := respMap["description"].(string); ok {
-					return desc
-				}
-			}
-			return "Error"
-		},
+		"upper":                  strings.ToUpper,
+		"lower":                  strings.ToLower,
+		"replace":                strings.ReplaceAll,
+		"kebab":                  toKebabCase,
+		"getParamType":           getParameterType,
+		"getRequestBodyInfo":     formatRequestBodyInfo,
+		"hasSuccessResponse":     checkHasSuccessResponse,
+		"getSuccessResponse":     extractSuccessResponse,
+		"hasErrorResponses":      checkHasErrorResponses,
+		"isErrorCode":            isHTTPErrorCode,
+		"getResponseDescription": extractResponseDescription,
 	}
 }
 

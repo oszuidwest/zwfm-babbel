@@ -106,56 +106,26 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 	updates := []string{}
 	args := []interface{}{}
 
-	if req.Username != "" {
-		if err := s.checkUsernameUnique(ctx, req.Username, &id); err != nil {
-			return fmt.Errorf("%s: %w", op, err)
-		}
-		updates = append(updates, "username = ?")
-		args = append(args, req.Username)
+	// Apply each field update
+	if err := s.applyUsernameUpdate(ctx, id, req, &updates, &args); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	if req.FullName != "" {
-		updates = append(updates, "full_name = ?")
-		args = append(args, req.FullName)
+	if err := s.applyPasswordUpdate(req, &updates, &args); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	if req.Email != nil && *req.Email != "" {
-		if err := s.checkEmailUnique(ctx, *req.Email, &id); err != nil {
-			return fmt.Errorf("%s: %w", op, err)
-		}
-		updates = append(updates, "email = ?")
-		args = append(args, *req.Email)
+	if err := s.applyEmailUpdate(ctx, id, req, &updates, &args); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	if req.Password != "" {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("%s: failed to hash password: %w", op, err)
-		}
-		updates = append(updates, "password_hash = ?, password_changed_at = NOW()")
-		args = append(args, string(hashedPassword))
+	if err := s.applyRoleUpdate(req, &updates, &args); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	if req.Role != "" {
-		if !isValidRole(req.Role) {
-			return fmt.Errorf("%s: %w: invalid role '%s'", op, ErrInvalidInput, req.Role)
-		}
-		updates = append(updates, "role = ?")
-		args = append(args, req.Role)
-	}
-
-	if req.Metadata != "" {
-		updates = append(updates, "metadata = ?")
-		args = append(args, req.Metadata)
-	}
-
-	if req.Suspended != nil {
-		if *req.Suspended {
-			updates = append(updates, "suspended_at = NOW()")
-		} else {
-			updates = append(updates, "suspended_at = NULL")
-		}
-	}
+	s.applyFullNameUpdate(req, &updates, &args)
+	s.applyMetadataUpdate(req, &updates, &args)
+	s.applySuspendedUpdate(req, &updates)
 
 	if len(updates) == 0 {
 		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
@@ -176,6 +146,100 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 	}
 
 	return nil
+}
+
+// applyUsernameUpdate applies username field update if provided
+func (s *UserService) applyUsernameUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
+	if req.Username == "" {
+		return nil
+	}
+
+	if err := s.checkUsernameUnique(ctx, req.Username, &id); err != nil {
+		return err
+	}
+
+	*updates = append(*updates, "username = ?")
+	*args = append(*args, req.Username)
+	return nil
+}
+
+// applyPasswordUpdate applies password field update if provided
+func (s *UserService) applyPasswordUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
+	if req.Password == "" {
+		return nil
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	*updates = append(*updates, "password_hash = ?, password_changed_at = NOW()")
+	*args = append(*args, string(hashedPassword))
+	return nil
+}
+
+// applyEmailUpdate applies email field update if provided
+func (s *UserService) applyEmailUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
+	if req.Email == nil || *req.Email == "" {
+		return nil
+	}
+
+	if err := s.checkEmailUnique(ctx, *req.Email, &id); err != nil {
+		return err
+	}
+
+	*updates = append(*updates, "email = ?")
+	*args = append(*args, *req.Email)
+	return nil
+}
+
+// applyRoleUpdate applies role field update if provided
+func (s *UserService) applyRoleUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
+	if req.Role == "" {
+		return nil
+	}
+
+	if !isValidRole(req.Role) {
+		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, req.Role)
+	}
+
+	*updates = append(*updates, "role = ?")
+	*args = append(*args, req.Role)
+	return nil
+}
+
+// applyFullNameUpdate applies full_name field update if provided
+func (s *UserService) applyFullNameUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) {
+	if req.FullName == "" {
+		return
+	}
+
+	*updates = append(*updates, "full_name = ?")
+	*args = append(*args, req.FullName)
+}
+
+// applyMetadataUpdate applies metadata field update if provided
+func (s *UserService) applyMetadataUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) {
+	if req.Metadata == "" {
+		return
+	}
+
+	*updates = append(*updates, "metadata = ?")
+	*args = append(*args, req.Metadata)
+}
+
+// applySuspendedUpdate applies suspended_at field update if provided
+func (s *UserService) applySuspendedUpdate(req *UpdateUserRequest, updates *[]string) {
+	if req.Suspended == nil {
+		return
+	}
+
+	if *req.Suspended {
+		*updates = append(*updates, "suspended_at = NOW()")
+	} else {
+		*updates = append(*updates, "suspended_at = NULL")
+	}
 }
 
 // GetByID retrieves a user by their ID

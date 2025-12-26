@@ -123,83 +123,16 @@ func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryReque
 		return nil, err
 	}
 
-	// Parse dates if provided and validate date range
-	var startDate, endDate *time.Time
-	if req.StartDate != nil {
-		parsed, err := time.Parse("2006-01-02", *req.StartDate)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", ErrInvalidInput)
-		}
-		startDate = &parsed
+	// Parse and validate dates
+	startDate, endDate, err := s.parseDateUpdates(req)
+	if err != nil {
+		return nil, err
 	}
 
-	if req.EndDate != nil {
-		parsed, err := time.Parse("2006-01-02", *req.EndDate)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", ErrInvalidInput)
-		}
-		endDate = &parsed
-	}
-
-	// Validate date range if both dates provided
-	if startDate != nil && endDate != nil {
-		if endDate.Before(*startDate) {
-			return nil, fmt.Errorf("%w: end date cannot be before start date", ErrInvalidInput)
-		}
-	}
-
-	// Build dynamic update query
-	updates := []string{}
-	args := []interface{}{}
-
-	// Handle each field that may be updated
-	if req.Title != nil {
-		updates = append(updates, "title = ?")
-		args = append(args, *req.Title)
-	}
-
-	if req.Text != nil {
-		updates = append(updates, "text = ?")
-		args = append(args, *req.Text)
-	}
-
-	if req.Status != nil {
-		updates = append(updates, "status = ?")
-		args = append(args, *req.Status)
-	}
-
-	if req.VoiceID != nil {
-		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
-			return nil, err
-		}
-		updates = append(updates, "voice_id = ?")
-		args = append(args, *req.VoiceID)
-	}
-
-	if startDate != nil {
-		updates = append(updates, "start_date = ?")
-		args = append(args, *startDate)
-	}
-
-	if endDate != nil {
-		updates = append(updates, "end_date = ?")
-		args = append(args, *endDate)
-	}
-
-	// Handle weekdays updates
-	if len(req.Weekdays) > 0 {
-		updates = append(updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-		args = append(args, monday, tuesday, wednesday, thursday, friday, saturday, sunday)
-	}
-
-	if req.Metadata != nil {
-		updates = append(updates, "metadata = ?")
-		if len(req.Metadata) == 0 {
-			args = append(args, nil)
-		} else {
-			args = append(args, req.Metadata)
-		}
+	// Build update query with validated data
+	updates, args, err := s.buildUpdateQuery(ctx, req, startDate, endDate)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(updates) == 0 {
@@ -217,6 +150,117 @@ func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryReque
 
 	// Fetch and return the updated story
 	return s.GetByID(ctx, id)
+}
+
+// parseDateUpdates parses and validates start and end dates from update request.
+func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
+	var startDate, endDate *time.Time
+
+	if req.StartDate != nil {
+		parsed, err := time.Parse("2006-01-02", *req.StartDate)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", ErrInvalidInput)
+		}
+		startDate = &parsed
+	}
+
+	if req.EndDate != nil {
+		parsed, err := time.Parse("2006-01-02", *req.EndDate)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", ErrInvalidInput)
+		}
+		endDate = &parsed
+	}
+
+	// Validate date range if both dates provided
+	if startDate != nil && endDate != nil {
+		if endDate.Before(*startDate) {
+			return nil, nil, fmt.Errorf("%w: end date cannot be before start date", ErrInvalidInput)
+		}
+	}
+
+	return startDate, endDate, nil
+}
+
+// buildUpdateQuery constructs the SQL update statement with validated fields.
+func (s *StoryService) buildUpdateQuery(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) ([]string, []interface{}, error) {
+	updates := []string{}
+	args := []interface{}{}
+
+	// Apply simple field updates
+	s.applySimpleFieldUpdates(req, &updates, &args)
+
+	// Apply voice update with validation
+	if req.VoiceID != nil {
+		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
+			return nil, nil, err
+		}
+		updates = append(updates, "voice_id = ?")
+		args = append(args, *req.VoiceID)
+	}
+
+	// Apply date updates
+	s.applyDateUpdates(startDate, endDate, &updates, &args)
+
+	// Apply weekdays updates
+	s.applyWeekdaysUpdates(req, &updates, &args)
+
+	// Apply metadata updates
+	s.applyMetadataUpdates(req, &updates, &args)
+
+	return updates, args, nil
+}
+
+// applySimpleFieldUpdates adds title, text, and status updates to the query.
+func (s *StoryService) applySimpleFieldUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
+	if req.Title != nil {
+		*updates = append(*updates, "title = ?")
+		*args = append(*args, *req.Title)
+	}
+
+	if req.Text != nil {
+		*updates = append(*updates, "text = ?")
+		*args = append(*args, *req.Text)
+	}
+
+	if req.Status != nil {
+		*updates = append(*updates, "status = ?")
+		*args = append(*args, *req.Status)
+	}
+}
+
+// applyDateUpdates adds date field updates to the query.
+func (s *StoryService) applyDateUpdates(startDate, endDate *time.Time, updates *[]string, args *[]interface{}) {
+	if startDate != nil {
+		*updates = append(*updates, "start_date = ?")
+		*args = append(*args, *startDate)
+	}
+
+	if endDate != nil {
+		*updates = append(*updates, "end_date = ?")
+		*args = append(*args, *endDate)
+	}
+}
+
+// applyWeekdaysUpdates adds weekday field updates to the query.
+func (s *StoryService) applyWeekdaysUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
+	if len(req.Weekdays) > 0 {
+		*updates = append(*updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
+		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
+		*args = append(*args, monday, tuesday, wednesday, thursday, friday, saturday, sunday)
+	}
+}
+
+// applyMetadataUpdates adds metadata field updates to the query.
+func (s *StoryService) applyMetadataUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
+	if req.Metadata != nil {
+		*updates = append(*updates, "metadata = ?")
+		if len(req.Metadata) == 0 {
+			*args = append(*args, nil)
+		} else {
+			*args = append(*args, req.Metadata)
+		}
+	}
 }
 
 // GetByID retrieves a story by its ID.

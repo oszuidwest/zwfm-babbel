@@ -347,6 +347,44 @@ func BindFormAndValidate(c *gin.Context, req interface{}) bool {
 	return true
 }
 
+// formatValidationMessage generates a user-friendly error message for a specific validation failure.
+// Maps validation tags to human-readable descriptions with field and parameter context.
+func formatValidationMessage(field, tag, param string) string {
+	switch tag {
+	case "required":
+		return fmt.Sprintf("%s is required", field)
+	case "min":
+		if param == "1" {
+			return fmt.Sprintf("%s cannot be empty", field)
+		}
+		return fmt.Sprintf("%s must be at least %s characters", field, param)
+	case "max":
+		return fmt.Sprintf("%s cannot exceed %s characters", field, param)
+	case "email":
+		return fmt.Sprintf("%s must be a valid email address", field)
+	case "gte":
+		return fmt.Sprintf("%s must be at least %s", field, param)
+	case "lte":
+		return fmt.Sprintf("%s must be at most %s", field, param)
+	case "oneof":
+		return fmt.Sprintf("%s must be one of: %s", field, param)
+	case "alphanum":
+		return fmt.Sprintf("%s can only contain letters and numbers", field)
+	case "json":
+		return fmt.Sprintf("%s must be valid JSON", field)
+	case "notblank":
+		return fmt.Sprintf("%s cannot be empty or whitespace only", field)
+	case "story_status":
+		return fmt.Sprintf("%s must be one of: %s, %s, %s", field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
+	case "dateformat":
+		return fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
+	case "dateafter":
+		return fmt.Sprintf("%s must be after or equal to %s", field, param)
+	default:
+		return fmt.Sprintf("%s failed validation (%s)", field, tag)
+	}
+}
+
 // convertValidationErrors converts Go validator errors into structured, user-friendly error messages.
 // Maps validation tags to human-readable descriptions with field context.
 // Used internally by binding functions to provide consistent error responses.
@@ -355,49 +393,9 @@ func convertValidationErrors(err error) []ValidationError {
 
 	if validationErrors, ok := err.(validator.ValidationErrors); ok {
 		for _, e := range validationErrors {
-			field := e.Field()
-			tag := e.Tag()
-			param := e.Param()
-			var message string
-
-			switch tag {
-			case "required":
-				message = fmt.Sprintf("%s is required", field)
-			case "min":
-				if param == "1" {
-					message = fmt.Sprintf("%s cannot be empty", field)
-				} else {
-					message = fmt.Sprintf("%s must be at least %s characters", field, param)
-				}
-			case "max":
-				message = fmt.Sprintf("%s cannot exceed %s characters", field, param)
-			case "email":
-				message = fmt.Sprintf("%s must be a valid email address", field)
-			case "gte":
-				message = fmt.Sprintf("%s must be at least %s", field, param)
-			case "lte":
-				message = fmt.Sprintf("%s must be at most %s", field, param)
-			case "oneof":
-				message = fmt.Sprintf("%s must be one of: %s", field, param)
-			case "alphanum":
-				message = fmt.Sprintf("%s can only contain letters and numbers", field)
-			case "json":
-				message = fmt.Sprintf("%s must be valid JSON", field)
-			case "notblank":
-				message = fmt.Sprintf("%s cannot be empty or whitespace only", field)
-			case "story_status":
-				message = fmt.Sprintf("%s must be one of: %s, %s, %s", field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
-			case "dateformat":
-				message = fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
-			case "dateafter":
-				message = fmt.Sprintf("%s must be after or equal to %s", field, param)
-			default:
-				message = fmt.Sprintf("%s failed validation (%s)", field, tag)
-			}
-
 			errors = append(errors, ValidationError{
-				Field:   field,
-				Message: message,
+				Field:   e.Field(),
+				Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 			})
 		}
 	} else {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -156,26 +157,27 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	utils.CreatedWithID(c, int64(stationVoice.ID), "Station-voice relationship created successfully")
 }
 
-// UpdateStationVoice updates an existing station-voice relationship
-func (h *Handlers) UpdateStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
-	if !ok {
-		return
-	}
+// stationVoiceUpdateRequest represents the update request structure
+type stationVoiceUpdateRequest struct {
+	StationID *int     `form:"station_id,omitempty"`
+	VoiceID   *int     `form:"voice_id,omitempty"`
+	MixPoint  *float64 `form:"mix_point,omitempty"`
+}
 
-	// Only accept multipart/form-data for consistency with other file upload endpoints
-	var req struct {
-		StationID *int     `form:"station_id,omitempty"`
-		VoiceID   *int     `form:"voice_id,omitempty"`
-		MixPoint  *float64 `form:"mix_point,omitempty"`
-	}
+// hasFieldUpdates checks if the request contains any field updates
+func (r *stationVoiceUpdateRequest) hasFieldUpdates() bool {
+	return r.StationID != nil || r.VoiceID != nil || r.MixPoint != nil
+}
 
+// validateStationVoiceUpdateRequest binds and validates the update request
+func validateStationVoiceUpdateRequest(c *gin.Context) (*stationVoiceUpdateRequest, bool, bool) {
+	var req stationVoiceUpdateRequest
 	if err := c.ShouldBind(&req); err != nil {
 		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
 			Field:   "request_body",
 			Message: "Invalid form data format",
 		}})
-		return
+		return nil, false, false
 	}
 
 	// Check if there's a jingle file to process
@@ -186,50 +188,98 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	}
 
 	// Validate that there's something to update
-	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil && !hasJingleUpdate {
+	if !req.hasFieldUpdates() && !hasJingleUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
 		}})
+		return nil, false, false
+	}
+
+	return &req, hasJingleUpdate, true
+}
+
+// updateStationVoiceFields updates the station-voice relationship fields via service
+func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int, req *stationVoiceUpdateRequest) bool {
+	serviceReq := &services.UpdateStationVoiceRequest{
+		StationID: req.StationID,
+		VoiceID:   req.VoiceID,
+		MixPoint:  req.MixPoint,
+	}
+
+	if _, err := h.stationVoiceSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
+		handleServiceError(c, err, "Station-voice relationship")
+		return false
+	}
+	return true
+}
+
+// processStationVoiceJingleUpdate handles jingle file upload and processing
+func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int) bool {
+	// Get current station/voice IDs for the temporary file naming
+	current, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Station-voice relationship")
+		return false
+	}
+
+	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", current.StationID, current.VoiceID))
+	if err != nil {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "jingle",
+			Message: err.Error(),
+		}})
+		return false
+	}
+	defer cleanup()
+
+	// Process jingle via service
+	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
+		handleServiceError(c, err, "Jingle processing")
+		return false
+	}
+	return true
+}
+
+// buildStationVoiceResponse converts a model to response format with audio URL
+func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
+	return StationVoiceResponse{
+		ID:          sv.ID,
+		StationID:   sv.StationID,
+		VoiceID:     sv.VoiceID,
+		AudioFile:   sv.AudioFile,
+		MixPoint:    sv.MixPoint,
+		StationName: sv.StationName,
+		VoiceName:   sv.VoiceName,
+		CreatedAt:   sv.CreatedAt,
+		UpdatedAt:   sv.UpdatedAt,
+		AudioURL:    GetStationVoiceAudioURL(sv.ID, sv.AudioFile != ""),
+	}
+}
+
+// UpdateStationVoice updates an existing station-voice relationship
+func (h *Handlers) UpdateStationVoice(c *gin.Context) {
+	id, ok := utils.GetIDParam(c)
+	if !ok {
 		return
 	}
 
-	// Update station-voice relationship via service if there are field updates
-	if req.StationID != nil || req.VoiceID != nil || req.MixPoint != nil {
-		serviceReq := &services.UpdateStationVoiceRequest{
-			StationID: req.StationID,
-			VoiceID:   req.VoiceID,
-			MixPoint:  req.MixPoint,
-		}
+	// Bind and validate request
+	req, hasJingleUpdate, valid := validateStationVoiceUpdateRequest(c)
+	if !valid {
+		return
+	}
 
-		if _, err := h.stationVoiceSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
-			handleServiceError(c, err, "Station-voice relationship")
+	// Update station-voice relationship fields if provided
+	if req.hasFieldUpdates() {
+		if !h.updateStationVoiceFields(c, id, req) {
 			return
 		}
 	}
 
 	// Handle jingle file replacement if provided
 	if hasJingleUpdate {
-		// Get current station/voice IDs for the temporary file naming
-		current, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
-		if err != nil {
-			handleServiceError(c, err, "Station-voice relationship")
-			return
-		}
-
-		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", current.StationID, current.VoiceID))
-		if err != nil {
-			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-				Field:   "jingle",
-				Message: err.Error(),
-			}})
-			return
-		}
-		defer cleanup()
-
-		// Process jingle via service
-		if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
-			handleServiceError(c, err, "Jingle processing")
+		if !h.processStationVoiceJingleUpdate(c, id) {
 			return
 		}
 	}
@@ -241,21 +291,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Convert to response format and add audio URL
-	response := StationVoiceResponse{
-		ID:          updatedRecord.ID,
-		StationID:   updatedRecord.StationID,
-		VoiceID:     updatedRecord.VoiceID,
-		AudioFile:   updatedRecord.AudioFile,
-		MixPoint:    updatedRecord.MixPoint,
-		StationName: updatedRecord.StationName,
-		VoiceName:   updatedRecord.VoiceName,
-		CreatedAt:   updatedRecord.CreatedAt,
-		UpdatedAt:   updatedRecord.UpdatedAt,
-		AudioURL:    GetStationVoiceAudioURL(updatedRecord.ID, updatedRecord.AudioFile != ""),
-	}
-
-	utils.Success(c, response)
+	utils.Success(c, buildStationVoiceResponse(updatedRecord))
 }
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file

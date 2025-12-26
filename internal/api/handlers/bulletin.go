@@ -57,86 +57,115 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	download := c.GetHeader("Accept") == "audio/wav"
 
-	// Parse max-age from Cache-Control header
-	var maxAgeStr string
-	cacheControl := c.GetHeader("Cache-Control")
-	if strings.Contains(cacheControl, "max-age=") {
-		parts := strings.Split(cacheControl, "max-age=")
-		if len(parts) > 1 {
-			maxAgeStr = strings.Split(parts[1], ",")[0]
-			maxAgeStr = strings.TrimSpace(maxAgeStr)
-		}
-	}
-
-	// Check if we should return existing bulletin
-	if !forceNew && maxAgeStr != "" {
-		maxAge, err := time.ParseDuration(maxAgeStr + "s")
-		if err == nil && maxAge > 0 {
-			// Check for existing bulletin within cache time limit
-			existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, &maxAge)
-			if err == nil {
-				// Calculate age of the cached bulletin
-				age := int(time.Since(existingBulletin.CreatedAt).Seconds())
-
-				// Set standard cache headers
-				c.Header("X-Cache", "HIT")
-				c.Header("Age", fmt.Sprintf("%d", age))
-
-				// Handle download if requested
-				if download {
-					c.Header("Content-Description", "File Transfer")
-					c.Header("Content-Transfer-Encoding", "binary")
-					c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", existingBulletin.Filename))
-					c.Header("Content-Type", "audio/wav")
-					c.Header("X-Bulletin-Cached", "true")
-					c.File(filepath.Join("audio/output", existingBulletin.AudioFile))
-					return
-				}
-
-				// Return existing bulletin metadata
-				response := h.bulletinToResponse(existingBulletin)
-				utils.Success(c, response)
-				return
-			}
+	// Try to serve cached bulletin if available
+	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
+	if !forceNew && maxAge != nil {
+		if h.tryServeCachedBulletin(c, stationID, download, maxAge) {
+			return
 		}
 	}
 
 	// Generate new bulletin using service
 	bulletinInfo, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
-		switch {
-		case errors.Is(err, services.ErrNotFound):
-			utils.ProblemNotFound(c, "Station")
-		case errors.Is(err, services.ErrNoStoriesAvailable):
-			utils.ProblemNotFound(c, "No stories available for the specified date")
-		case errors.Is(err, services.ErrAudioProcessingFailed):
-			utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
-		default:
-			utils.ProblemInternalServer(c, "Failed to generate bulletin")
-		}
+		h.handleBulletinCreationError(c, err)
 		return
 	}
 
+	// Serve newly generated bulletin
+	h.serveNewBulletin(c, bulletinInfo, download)
+}
+
+// parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
+// Returns nil if max-age is not present or invalid.
+func parseCacheControlMaxAge(cacheControl string) *time.Duration {
+	if !strings.Contains(cacheControl, "max-age=") {
+		return nil
+	}
+
+	parts := strings.Split(cacheControl, "max-age=")
+	if len(parts) <= 1 {
+		return nil
+	}
+
+	maxAgeStr := strings.Split(parts[1], ",")[0]
+	maxAgeStr = strings.TrimSpace(maxAgeStr)
+
+	maxAge, err := time.ParseDuration(maxAgeStr + "s")
+	if err != nil || maxAge <= 0 {
+		return nil
+	}
+
+	return &maxAge
+}
+
+// tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
+// Returns true if a cached bulletin was served, false otherwise.
+func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int, download bool, maxAge *time.Duration) bool {
+	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
+	if err != nil {
+		return false
+	}
+
+	// Calculate age of the cached bulletin
+	age := int(time.Since(existingBulletin.CreatedAt).Seconds())
+
+	// Set standard cache headers
+	c.Header("X-Cache", "HIT")
+	c.Header("Age", fmt.Sprintf("%d", age))
+
+	if download {
+		serveAudioFile(c, filepath.Join("audio/output", existingBulletin.AudioFile), existingBulletin.Filename, true)
+		return true
+	}
+
+	// Return existing bulletin metadata
+	response := h.bulletinToResponse(existingBulletin)
+	utils.Success(c, response)
+	return true
+}
+
+// serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
+func (h *Handlers) serveNewBulletin(c *gin.Context, bulletinInfo *services.BulletinInfo, download bool) {
 	// Set cache headers for fresh content
 	c.Header("X-Cache", "MISS")
 	c.Header("Age", "0")
 
-	// Handle download if requested
 	if download {
-		c.Header("Content-Description", "File Transfer")
-		c.Header("Content-Transfer-Encoding", "binary")
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(bulletinInfo.BulletinPath)))
-		c.Header("Content-Type", "audio/wav")
 		c.Header("X-Bulletin-Cached", "false")
 		c.Header("X-Bulletin-Duration", fmt.Sprintf("%.2f", bulletinInfo.Duration))
 		c.Header("X-Bulletin-Stories", fmt.Sprintf("%d", len(bulletinInfo.Stories)))
-		c.File(bulletinInfo.BulletinPath)
+		serveAudioFile(c, bulletinInfo.BulletinPath, filepath.Base(bulletinInfo.BulletinPath), false)
 		return
 	}
 
 	// Build response without story list
 	response := h.bulletinInfoToResponse(bulletinInfo)
 	utils.Success(c, response)
+}
+
+// serveAudioFile sets headers and serves an audio file for download.
+func serveAudioFile(c *gin.Context, filePath, filename string, cached bool) {
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Type", "audio/wav")
+	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
+	c.File(filePath)
+}
+
+// handleBulletinCreationError maps bulletin service errors to appropriate HTTP responses.
+func (h *Handlers) handleBulletinCreationError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrNotFound):
+		utils.ProblemNotFound(c, "Station")
+	case errors.Is(err, services.ErrNoStoriesAvailable):
+		utils.ProblemNotFound(c, "No stories available for the specified date")
+	case errors.Is(err, services.ErrAudioProcessingFailed):
+		utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
+	default:
+		utils.ProblemInternalServer(c, "Failed to generate bulletin")
+	}
 }
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.

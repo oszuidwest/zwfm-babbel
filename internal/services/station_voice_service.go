@@ -98,36 +98,51 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Validate station exists if being updated
+	// Validate update request
+	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Apply updates to database
+	if err := s.applyUpdates(ctx, id, req); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Fetch and return the updated station-voice relationship
+	return s.GetByID(ctx, id)
+}
+
+// validateUpdateRequest validates all fields in an update request.
+func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
+	// Validate station if being updated
 	if req.StationID != nil {
 		if *req.StationID <= 0 {
-			return nil, fmt.Errorf("%s: %w: station_id must be positive", op, ErrInvalidInput)
+			return fmt.Errorf("%w: station_id must be positive", ErrInvalidInput)
 		}
 		if err := s.validateStationExists(ctx, *req.StationID); err != nil {
-			return nil, fmt.Errorf("%s: %w", op, err)
+			return err
 		}
 	}
 
-	// Validate voice exists if being updated
+	// Validate voice if being updated
 	if req.VoiceID != nil {
 		if *req.VoiceID <= 0 {
-			return nil, fmt.Errorf("%s: %w: voice_id must be positive", op, ErrInvalidInput)
+			return fmt.Errorf("%w: voice_id must be positive", ErrInvalidInput)
 		}
 		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
-			return nil, fmt.Errorf("%s: %w", op, err)
+			return err
 		}
 	}
 
 	// Validate mix_point range if being updated
 	if req.MixPoint != nil {
 		if *req.MixPoint < 0 || *req.MixPoint > 300 {
-			return nil, fmt.Errorf("%s: %w: mix_point must be between 0 and 300 seconds", op, ErrInvalidInput)
+			return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", ErrInvalidInput)
 		}
 	}
 
 	// Check uniqueness if station_id or voice_id is being updated
 	if req.StationID != nil || req.VoiceID != nil {
-		// Determine final station and voice IDs
 		finalStationID := current.StationID
 		finalVoiceID := current.VoiceID
 
@@ -138,13 +153,16 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 			finalVoiceID = *req.VoiceID
 		}
 
-		// Check uniqueness excluding current record
 		if err := s.CheckUniqueness(ctx, finalStationID, finalVoiceID, &id); err != nil {
-			return nil, fmt.Errorf("%s: %w", op, err)
+			return err
 		}
 	}
 
-	// Build dynamic update query
+	return nil
+}
+
+// applyUpdates builds and executes the update query for station-voice fields.
+func (s *StationVoiceService) applyUpdates(ctx context.Context, id int, req *UpdateStationVoiceRequest) error {
 	updates := []string{}
 	args := []interface{}{}
 
@@ -164,7 +182,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 	}
 
 	if len(updates) == 0 {
-		return nil, fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
+		return fmt.Errorf("%w: no fields to update", ErrInvalidInput)
 	}
 
 	// Execute update
@@ -173,11 +191,10 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 
 	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
 		logger.Error("Database error updating station-voice %d: %v", id, err)
-		return nil, fmt.Errorf("%s: %w", op, s.handleDatabaseError(err))
+		return s.handleDatabaseError(err)
 	}
 
-	// Fetch and return the updated station-voice relationship
-	return s.GetByID(ctx, id)
+	return nil
 }
 
 // GetByID retrieves a station-voice relationship by its ID with joined station and voice names.

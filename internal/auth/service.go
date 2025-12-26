@@ -438,7 +438,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	// Exchange code for token
 	code := c.Query("code")
-	// Use request context with timeout for OAuth
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
@@ -447,13 +446,12 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to exchange code: %w", err)
 	}
 
-	// Extract ID token
+	// Extract and verify ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return fmt.Errorf("no id_token in response")
 	}
 
-	// Verify ID token
 	verifier := s.config.OIDC.Provider.Verifier(&oidc.Config{
 		ClientID: s.config.OIDC.ClientID,
 	})
@@ -475,8 +473,25 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	// Find or create user
-	// First, try to find existing user by email to handle username changes
+	// Find or create user based on OAuth claims
+	user, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
+	if err != nil {
+		return err
+	}
+
+	// Setup session for authenticated OAuth user
+	return s.setupOAuthSession(c, user)
+}
+
+// oauthUser represents the minimal user information needed for OAuth session setup.
+type oauthUser struct {
+	ID       int
+	Username string
+}
+
+// findOrCreateOAuthUser finds an existing user by email or creates a new one.
+// Returns the user ID and username, or an error if the account is suspended or creation fails.
+func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
 		ID          int        `db:"id"`
 		Username    string     `db:"username"`
@@ -484,62 +499,75 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 
 	// Try to find user by email first
-	dbCtx := c.Request.Context()
-	err = s.db.GetContext(dbCtx, &existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", claims.Email)
+	err := s.db.GetContext(ctx, &existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", email)
 	if err == nil {
 		// User exists with this email
 		if existingUser.SuspendedAt != nil {
-			return fmt.Errorf("account is suspended")
+			return nil, fmt.Errorf("account is suspended")
 		}
-		// Use existing user
-		user := existingUser
-		// Reset failed attempts and update login statistics
-		if err := s.updateLoginSuccess(dbCtx, user.ID); err != nil {
-			logger.Error("Failed to update login success stats: %v", err)
-		}
-
-		// Get the user's actual role from database
-		var role string
-		if err := s.db.GetContext(dbCtx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-			logger.Error("Failed to get user role, defaulting to viewer: %v", err)
-			role = "viewer"
-		}
-
-		// Create session with existing username and role
-		if err := s.CreateSession(c, user.ID, existingUser.Username, role, "oidc"); err != nil {
-			return fmt.Errorf("failed to create session: %w", err)
-		}
-		return nil
+		return &oauthUser{
+			ID:       existingUser.ID,
+			Username: existingUser.Username,
+		}, nil
 	}
 
 	// No existing user with this email, create new user
-	// Determine username: prefer PreferredUsername if available, otherwise sanitize email
-	username := claims.PreferredUsername
-	if username == "" {
-		// Use email and sanitize it to create valid username
-		username = s.sanitizeEmailToUsername(claims.Email)
-	} else if strings.Contains(username, "@") || strings.Contains(username, ".") {
-		// Even if PreferredUsername exists, ensure it's valid
-		// Check if it contains invalid characters
-		username = s.sanitizeEmailToUsername(username)
-	}
+	username := s.determineOAuthUsername(preferredUsername, email)
 
-	// Create new user with sanitized username
-	result, err := s.db.ExecContext(dbCtx, `
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
 		VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
-		username, claims.Name, claims.Email)
+		username, fullName, email)
 	if err != nil {
-		return fmt.Errorf("failed to create user: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get created user ID: %w", err)
+		return nil, fmt.Errorf("failed to get created user ID: %w", err)
 	}
 
-	// Create session for new user
-	if err := s.CreateSession(c, int(id), username, "viewer", "oidc"); err != nil {
+	return &oauthUser{
+		ID:       int(id),
+		Username: username,
+	}, nil
+}
+
+// determineOAuthUsername determines the best username from OAuth claims.
+// Prefers preferredUsername if valid, otherwise sanitizes the email.
+func (s *Service) determineOAuthUsername(preferredUsername, email string) string {
+	username := preferredUsername
+	if username == "" {
+		return s.sanitizeEmailToUsername(email)
+	}
+
+	// Sanitize if preferredUsername contains invalid characters
+	if strings.Contains(username, "@") || strings.Contains(username, ".") {
+		return s.sanitizeEmailToUsername(username)
+	}
+
+	return username
+}
+
+// setupOAuthSession creates a session for an OAuth-authenticated user.
+// Updates login statistics and retrieves the user's current role from the database.
+func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
+	ctx := c.Request.Context()
+
+	// Reset failed attempts and update login statistics
+	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
+		logger.Error("Failed to update login success stats: %v", err)
+	}
+
+	// Get the user's actual role from database
+	var role string
+	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
+		logger.Error("Failed to get user role, defaulting to viewer: %v", err)
+		role = "viewer"
+	}
+
+	// Create session with user credentials
+	if err := s.CreateSession(c, user.ID, user.Username, role, "oidc"); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 

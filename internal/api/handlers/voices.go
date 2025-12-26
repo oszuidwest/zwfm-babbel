@@ -26,6 +26,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 			"id":         "v.id",
 			"name":       "v.name",
 			"created_at": "v.created_at",
+			"updated_at": "v.updated_at",
 		},
 	}
 
