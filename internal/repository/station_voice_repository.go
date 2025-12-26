@@ -10,12 +10,21 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
+// StationVoiceUpdate contains optional fields for updating a station-voice relationship.
+// Nil pointer fields are not updated.
+type StationVoiceUpdate struct {
+	StationID *int
+	VoiceID   *int
+	AudioFile *string
+	MixPoint  *float64
+}
+
 // StationVoiceRepository defines the interface for station-voice relationship data access.
 type StationVoiceRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, stationID, voiceID int, mixPoint float64) (*models.StationVoice, error)
 	GetByID(ctx context.Context, id int) (*models.StationVoice, error)
-	Update(ctx context.Context, id int, updates map[string]interface{}) error
+	Update(ctx context.Context, id int, updates *StationVoiceUpdate) error
 	Delete(ctx context.Context, id int) error
 
 	// Query operations
@@ -85,22 +94,38 @@ func (r *stationVoiceRepository) GetByID(ctx context.Context, id int) (*models.S
 }
 
 // Update updates a station-voice relationship with dynamic fields.
-func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates map[string]interface{}) error {
-	if len(updates) == 0 {
+func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates *StationVoiceUpdate) error {
+	if updates == nil {
 		return nil
 	}
 
 	q := r.getQueryable(ctx)
 
-	setClauses := make([]string, 0, len(updates))
-	args := make([]interface{}, 0, len(updates)+1)
+	setClauses := make([]string, 0)
+	args := make([]interface{}, 0)
 
-	for field, value := range updates {
-		setClauses = append(setClauses, field+" = ?")
-		args = append(args, value)
+	if updates.StationID != nil {
+		setClauses = append(setClauses, "station_id = ?")
+		args = append(args, *updates.StationID)
 	}
-	args = append(args, id)
+	if updates.VoiceID != nil {
+		setClauses = append(setClauses, "voice_id = ?")
+		args = append(args, *updates.VoiceID)
+	}
+	if updates.AudioFile != nil {
+		setClauses = append(setClauses, "audio_file = ?")
+		args = append(args, *updates.AudioFile)
+	}
+	if updates.MixPoint != nil {
+		setClauses = append(setClauses, "mix_point = ?")
+		args = append(args, *updates.MixPoint)
+	}
 
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	args = append(args, id)
 	query := fmt.Sprintf("UPDATE station_voices SET %s WHERE id = ?", strings.Join(setClauses, ", "))
 
 	result, err := q.ExecContext(ctx, query, args...)
@@ -108,7 +133,10 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates map
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -125,7 +153,10 @@ func (r *stationVoiceRepository) Delete(ctx context.Context, id int) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -177,7 +208,10 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int, audioF
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}

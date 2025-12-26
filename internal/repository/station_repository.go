@@ -69,7 +69,10 @@ func (r *stationRepository) Update(ctx context.Context, id int, name string, max
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}

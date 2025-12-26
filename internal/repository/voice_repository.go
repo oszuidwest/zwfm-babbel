@@ -63,7 +63,10 @@ func (r *voiceRepository) Update(ctx context.Context, id int, name string) error
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}

@@ -30,7 +30,7 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if taken {
 		return nil, fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, name)
@@ -64,7 +64,7 @@ func (s *StationService) Update(ctx context.Context, id int, name string, maxSto
 	// Check name uniqueness (excluding current record)
 	taken, err := s.repo.IsNameTaken(ctx, name, &id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if taken {
 		return fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, name)
@@ -80,21 +80,6 @@ func (s *StationService) Update(ctx context.Context, id int, name string, maxSto
 	}
 
 	return nil
-}
-
-// GetByID retrieves a station by its ID
-func (s *StationService) GetByID(ctx context.Context, id int) (*models.Station, error) {
-	const op = "StationService.GetByID"
-
-	station, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return station, nil
 }
 
 // Delete deletes a station after checking for dependencies
@@ -113,7 +98,7 @@ func (s *StationService) Delete(ctx context.Context, id int) error {
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if hasDeps {
 		return fmt.Errorf("%s: %w: station has associated voices", op, ErrDependencyExists)
@@ -129,35 +114,6 @@ func (s *StationService) Delete(ctx context.Context, id int) error {
 	}
 
 	return nil
-}
-
-// CheckNameUnique checks if a station name is unique
-// excludeID can be provided to exclude a specific station from the check (for updates)
-func (s *StationService) CheckNameUnique(ctx context.Context, name string, excludeID *int) error {
-	const op = "StationService.CheckNameUnique"
-
-	taken, err := s.repo.IsNameTaken(ctx, name, excludeID)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	if taken {
-		return fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, name)
-	}
-
-	return nil
-}
-
-// HasDependencies checks if a station has any dependencies (station_voices)
-func (s *StationService) HasDependencies(ctx context.Context, id int) (bool, error) {
-	const op = "StationService.HasDependencies"
-
-	hasDeps, err := s.repo.HasDependencies(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return hasDeps, nil
 }
 
 // DB returns the underlying database for ModernListWithQuery.

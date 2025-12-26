@@ -101,28 +101,68 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
-	// Build updates map
-	updates := make(map[string]interface{})
+	// Build updates struct
+	updates := &repository.UserUpdate{}
+	hasUpdates := false
 
-	// Apply each field update
-	if err := s.applyUsernameUpdate(ctx, id, req, updates); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	// Apply username update
+	if req.Username != "" {
+		taken, err := s.repo.IsUsernameTaken(ctx, req.Username, &id)
+		if err != nil {
+			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		}
+		if taken {
+			return fmt.Errorf("%s: %w: username '%s'", op, ErrDuplicate, req.Username)
+		}
+		updates.Username = &req.Username
+		hasUpdates = true
 	}
 
-	if err := s.applyPasswordUpdate(req, updates); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	// Apply full name update
+	if req.FullName != "" {
+		updates.FullName = &req.FullName
+		hasUpdates = true
 	}
 
-	if err := s.applyEmailUpdate(ctx, id, req, updates); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	// Apply email update
+	if req.Email != nil && *req.Email != "" {
+		taken, err := s.repo.IsEmailTaken(ctx, *req.Email, &id)
+		if err != nil {
+			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		}
+		if taken {
+			return fmt.Errorf("%s: %w: email '%s'", op, ErrDuplicate, *req.Email)
+		}
+		updates.Email = &req.Email
+		hasUpdates = true
 	}
 
-	if err := s.applyRoleUpdate(req, updates); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	// Apply password update
+	if req.Password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("%s: failed to hash password: %w", op, err)
+		}
+		hashedStr := string(hashedPassword)
+		updates.PasswordHash = &hashedStr
+		hasUpdates = true
 	}
 
-	s.applyFullNameUpdate(req, updates)
-	s.applyMetadataUpdate(req, updates)
+	// Apply role update
+	if req.Role != "" {
+		if !isValidRole(req.Role) {
+			return fmt.Errorf("%s: %w: invalid role '%s'", op, ErrInvalidInput, req.Role)
+		}
+		updates.Role = &req.Role
+		hasUpdates = true
+	}
+
+	// Apply metadata update
+	if req.Metadata != "" {
+		metadataPtr := &req.Metadata
+		updates.Metadata = &metadataPtr
+		hasUpdates = true
+	}
 
 	// Handle suspended separately using SetSuspended
 	if req.Suspended != nil {
@@ -134,11 +174,11 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 		}
 	}
 
-	if len(updates) == 0 && req.Suspended == nil {
+	if !hasUpdates && req.Suspended == nil {
 		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
 	}
 
-	if len(updates) > 0 {
+	if hasUpdates {
 		err = s.repo.Update(ctx, id, updates)
 		if err != nil {
 			if errors.Is(err, repository.ErrNotFound) {
@@ -149,90 +189,6 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 	}
 
 	return nil
-}
-
-// applyUsernameUpdate applies username field update if provided
-func (s *UserService) applyUsernameUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates map[string]interface{}) error {
-	if req.Username == "" {
-		return nil
-	}
-
-	taken, err := s.repo.IsUsernameTaken(ctx, req.Username, &id)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
-	}
-	if taken {
-		return fmt.Errorf("%w: username '%s'", ErrDuplicate, req.Username)
-	}
-
-	updates["username"] = req.Username
-	return nil
-}
-
-// applyPasswordUpdate applies password field update if provided
-func (s *UserService) applyPasswordUpdate(req *UpdateUserRequest, updates map[string]interface{}) error {
-	if req.Password == "" {
-		return nil
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	updates["password_hash"] = string(hashedPassword)
-	// Note: password_changed_at will need to be handled via raw SQL or separate update
-	return nil
-}
-
-// applyEmailUpdate applies email field update if provided
-func (s *UserService) applyEmailUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates map[string]interface{}) error {
-	if req.Email == nil || *req.Email == "" {
-		return nil
-	}
-
-	taken, err := s.repo.IsEmailTaken(ctx, *req.Email, &id)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
-	}
-	if taken {
-		return fmt.Errorf("%w: email '%s'", ErrDuplicate, *req.Email)
-	}
-
-	updates["email"] = *req.Email
-	return nil
-}
-
-// applyRoleUpdate applies role field update if provided
-func (s *UserService) applyRoleUpdate(req *UpdateUserRequest, updates map[string]interface{}) error {
-	if req.Role == "" {
-		return nil
-	}
-
-	if !isValidRole(req.Role) {
-		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, req.Role)
-	}
-
-	updates["role"] = req.Role
-	return nil
-}
-
-// applyFullNameUpdate applies full_name field update if provided
-func (s *UserService) applyFullNameUpdate(req *UpdateUserRequest, updates map[string]interface{}) {
-	if req.FullName == "" {
-		return
-	}
-
-	updates["full_name"] = req.FullName
-}
-
-// applyMetadataUpdate applies metadata field update if provided
-func (s *UserService) applyMetadataUpdate(req *UpdateUserRequest, updates map[string]interface{}) {
-	if req.Metadata == "" {
-		return
-	}
-
-	updates["metadata"] = req.Metadata
 }
 
 // GetByID retrieves a user by their ID

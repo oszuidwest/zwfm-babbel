@@ -5,10 +5,31 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
+
+// UserUpdate contains optional fields for updating a user.
+// Nil pointer fields are not updated.
+// For nullable fields (double pointers), outer nil = don't update,
+// inner nil = set to NULL, inner value = set to that value.
+type UserUpdate struct {
+	Username            *string
+	FullName            *string
+	Email               **string // Nullable: outer nil = skip, inner nil = set NULL
+	PasswordHash        *string
+	Role                *string
+	SuspendedAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
+	DeletedAt           **time.Time // Nullable: outer nil = skip, inner nil = set NULL
+	LastLoginAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
+	LoginCount          *int
+	FailedLoginAttempts *int
+	LockedUntil         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
+	PasswordChangedAt   **time.Time // Nullable: outer nil = skip, inner nil = set NULL
+	Metadata            **string    // Nullable: outer nil = skip, inner nil = set NULL
+}
 
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
@@ -16,7 +37,7 @@ type UserRepository interface {
 	Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string) (*models.User, error)
 	GetByID(ctx context.Context, id int) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
-	Update(ctx context.Context, id int, updates map[string]interface{}) error
+	Update(ctx context.Context, id int, updates *UserUpdate) error
 	Delete(ctx context.Context, id int) error
 
 	// Query operations
@@ -82,21 +103,83 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 }
 
 // Update updates a user with the provided field values.
-func (r *userRepository) Update(ctx context.Context, id int, updates map[string]interface{}) error {
-	if len(updates) == 0 {
+func (r *userRepository) Update(ctx context.Context, id int, updates *UserUpdate) error {
+	if updates == nil {
 		return nil
 	}
 
 	q := r.getQueryable(ctx)
 
-	// Build dynamic query
-	setClauses := make([]string, 0, len(updates))
-	args := make([]interface{}, 0, len(updates)+1)
+	// Build dynamic query from struct fields
+	setClauses := make([]string, 0)
+	args := make([]interface{}, 0)
 
-	for field, value := range updates {
-		setClauses = append(setClauses, field+" = ?")
-		args = append(args, value)
+	// Non-nullable string fields
+	if updates.Username != nil {
+		setClauses = append(setClauses, "username = ?")
+		args = append(args, *updates.Username)
 	}
+	if updates.FullName != nil {
+		setClauses = append(setClauses, "full_name = ?")
+		args = append(args, *updates.FullName)
+	}
+	if updates.PasswordHash != nil {
+		setClauses = append(setClauses, "password_hash = ?")
+		args = append(args, *updates.PasswordHash)
+	}
+	if updates.Role != nil {
+		setClauses = append(setClauses, "role = ?")
+		args = append(args, *updates.Role)
+	}
+
+	// Non-nullable int fields
+	if updates.LoginCount != nil {
+		setClauses = append(setClauses, "login_count = ?")
+		args = append(args, *updates.LoginCount)
+	}
+	if updates.FailedLoginAttempts != nil {
+		setClauses = append(setClauses, "failed_login_attempts = ?")
+		args = append(args, *updates.FailedLoginAttempts)
+	}
+
+	// Nullable string fields (double pointer)
+	if updates.Email != nil {
+		setClauses = append(setClauses, "email = ?")
+		args = append(args, *updates.Email) // Can be nil for NULL
+	}
+	if updates.Metadata != nil {
+		setClauses = append(setClauses, "metadata = ?")
+		args = append(args, *updates.Metadata) // Can be nil for NULL
+	}
+
+	// Nullable time fields (double pointer)
+	if updates.SuspendedAt != nil {
+		setClauses = append(setClauses, "suspended_at = ?")
+		args = append(args, *updates.SuspendedAt) // Can be nil for NULL
+	}
+	if updates.DeletedAt != nil {
+		setClauses = append(setClauses, "deleted_at = ?")
+		args = append(args, *updates.DeletedAt) // Can be nil for NULL
+	}
+	if updates.LastLoginAt != nil {
+		setClauses = append(setClauses, "last_login_at = ?")
+		args = append(args, *updates.LastLoginAt) // Can be nil for NULL
+	}
+	if updates.LockedUntil != nil {
+		setClauses = append(setClauses, "locked_until = ?")
+		args = append(args, *updates.LockedUntil) // Can be nil for NULL
+	}
+	if updates.PasswordChangedAt != nil {
+		setClauses = append(setClauses, "password_changed_at = ?")
+		args = append(args, *updates.PasswordChangedAt) // Can be nil for NULL
+	}
+
+	// Nothing to update
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	// Add ID to args
 	args = append(args, id)
 
 	query := fmt.Sprintf("UPDATE users SET %s WHERE id = ?", strings.Join(setClauses, ", "))
@@ -106,7 +189,10 @@ func (r *userRepository) Update(ctx context.Context, id int, updates map[string]
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -172,7 +258,10 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int, suspended boo
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}

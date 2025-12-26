@@ -12,6 +12,27 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
+// StoryUpdate contains optional fields for updating a story.
+// Nil pointer fields are not updated.
+type StoryUpdate struct {
+	Title           *string
+	Text            *string
+	VoiceID         *int
+	Status          *string
+	StartDate       *time.Time
+	EndDate         *time.Time
+	Monday          *bool
+	Tuesday         *bool
+	Wednesday       *bool
+	Thursday        *bool
+	Friday          *bool
+	Saturday        *bool
+	Sunday          *bool
+	Metadata        *string // Already JSON string
+	AudioFile       *string
+	DurationSeconds *float64
+}
+
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
 	Title     string
@@ -36,7 +57,7 @@ type StoryRepository interface {
 	Create(ctx context.Context, data *StoryCreateData) (*models.Story, error)
 	GetByID(ctx context.Context, id int) (*models.Story, error)
 	GetByIDWithVoice(ctx context.Context, id int) (*models.Story, error)
-	Update(ctx context.Context, id int, updates map[string]interface{}) error
+	Update(ctx context.Context, id int, updates *StoryUpdate) error
 
 	// Soft delete operations
 	SoftDelete(ctx context.Context, id int) error
@@ -124,33 +145,87 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int) (*models
 	return &story, nil
 }
 
-// Update updates a story with dynamic fields.
-func (r *storyRepository) Update(ctx context.Context, id int, updates map[string]interface{}) error {
-	if len(updates) == 0 {
+// Update updates a story with type-safe fields.
+func (r *storyRepository) Update(ctx context.Context, id int, updates *StoryUpdate) error {
+	if updates == nil {
 		return nil
 	}
 
 	q := r.getQueryable(ctx)
 
-	setClauses := make([]string, 0, len(updates))
-	args := make([]interface{}, 0, len(updates)+1)
+	setClauses := make([]string, 0)
+	args := make([]interface{}, 0)
 
-	for field, value := range updates {
-		setClauses = append(setClauses, field+" = ?")
-		// Convert metadata map to JSON string
-		if field == "metadata" && value != nil {
-			if _, isMap := value.(map[string]interface{}); isMap {
-				jsonBytes, err := json.Marshal(value)
-				if err != nil {
-					return fmt.Errorf("failed to marshal metadata: %w", err)
-				}
-				value = string(jsonBytes)
-			}
-		}
-		args = append(args, value)
+	if updates.Title != nil {
+		setClauses = append(setClauses, "title = ?")
+		args = append(args, *updates.Title)
 	}
-	args = append(args, id)
+	if updates.Text != nil {
+		setClauses = append(setClauses, "text = ?")
+		args = append(args, *updates.Text)
+	}
+	if updates.VoiceID != nil {
+		setClauses = append(setClauses, "voice_id = ?")
+		args = append(args, *updates.VoiceID)
+	}
+	if updates.Status != nil {
+		setClauses = append(setClauses, "status = ?")
+		args = append(args, *updates.Status)
+	}
+	if updates.StartDate != nil {
+		setClauses = append(setClauses, "start_date = ?")
+		args = append(args, *updates.StartDate)
+	}
+	if updates.EndDate != nil {
+		setClauses = append(setClauses, "end_date = ?")
+		args = append(args, *updates.EndDate)
+	}
+	if updates.Monday != nil {
+		setClauses = append(setClauses, "monday = ?")
+		args = append(args, *updates.Monday)
+	}
+	if updates.Tuesday != nil {
+		setClauses = append(setClauses, "tuesday = ?")
+		args = append(args, *updates.Tuesday)
+	}
+	if updates.Wednesday != nil {
+		setClauses = append(setClauses, "wednesday = ?")
+		args = append(args, *updates.Wednesday)
+	}
+	if updates.Thursday != nil {
+		setClauses = append(setClauses, "thursday = ?")
+		args = append(args, *updates.Thursday)
+	}
+	if updates.Friday != nil {
+		setClauses = append(setClauses, "friday = ?")
+		args = append(args, *updates.Friday)
+	}
+	if updates.Saturday != nil {
+		setClauses = append(setClauses, "saturday = ?")
+		args = append(args, *updates.Saturday)
+	}
+	if updates.Sunday != nil {
+		setClauses = append(setClauses, "sunday = ?")
+		args = append(args, *updates.Sunday)
+	}
+	if updates.Metadata != nil {
+		setClauses = append(setClauses, "metadata = ?")
+		args = append(args, *updates.Metadata)
+	}
+	if updates.AudioFile != nil {
+		setClauses = append(setClauses, "audio_file = ?")
+		args = append(args, *updates.AudioFile)
+	}
+	if updates.DurationSeconds != nil {
+		setClauses = append(setClauses, "duration_seconds = ?")
+		args = append(args, *updates.DurationSeconds)
+	}
 
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	args = append(args, id)
 	query := fmt.Sprintf("UPDATE stories SET %s WHERE id = ?", strings.Join(setClauses, ", "))
 
 	result, err := q.ExecContext(ctx, query, args...)
@@ -158,7 +233,10 @@ func (r *storyRepository) Update(ctx context.Context, id int, updates map[string
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -175,7 +253,10 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -192,7 +273,10 @@ func (r *storyRepository) Restore(ctx context.Context, id int) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}
@@ -229,7 +313,10 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int, status strin
 		return ParseDBError(err)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
 	if rowsAffected == 0 {
 		return ErrNotFound
 	}

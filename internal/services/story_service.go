@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -137,13 +138,13 @@ func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryReque
 		return nil, err
 	}
 
-	// Build update map with validated data
-	updates, err := s.buildUpdateMap(ctx, req, startDate, endDate)
+	// Build type-safe update struct with validated data
+	updates, err := s.buildUpdateStruct(ctx, req, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(updates) == 0 {
+	if updates == nil {
 		return nil, fmt.Errorf("%w: no fields to update", ErrInvalidInput)
 	}
 
@@ -187,19 +188,23 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	return startDate, endDate, nil
 }
 
-// buildUpdateMap constructs a map of fields to update with validated data.
-func (s *StoryService) buildUpdateMap(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) (map[string]interface{}, error) {
-	updates := make(map[string]interface{})
+// buildUpdateStruct constructs a type-safe update struct with validated data.
+func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) (*repository.StoryUpdate, error) {
+	updates := &repository.StoryUpdate{}
+	hasUpdates := false
 
 	// Apply simple field updates
 	if req.Title != nil {
-		updates["title"] = *req.Title
+		updates.Title = req.Title
+		hasUpdates = true
 	}
 	if req.Text != nil {
-		updates["text"] = *req.Text
+		updates.Text = req.Text
+		hasUpdates = true
 	}
 	if req.Status != nil {
-		updates["status"] = *req.Status
+		updates.Status = req.Status
+		hasUpdates = true
 	}
 
 	// Apply voice update with validation
@@ -211,36 +216,53 @@ func (s *StoryService) buildUpdateMap(ctx context.Context, req *UpdateStoryReque
 		if !exists {
 			return nil, fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *req.VoiceID)
 		}
-		updates["voice_id"] = *req.VoiceID
+		updates.VoiceID = req.VoiceID
+		hasUpdates = true
 	}
 
 	// Apply date updates
 	if startDate != nil {
-		updates["start_date"] = *startDate
+		updates.StartDate = startDate
+		hasUpdates = true
 	}
 	if endDate != nil {
-		updates["end_date"] = *endDate
+		updates.EndDate = endDate
+		hasUpdates = true
 	}
 
 	// Apply weekdays updates
 	if len(req.Weekdays) > 0 {
 		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-		updates["monday"] = monday
-		updates["tuesday"] = tuesday
-		updates["wednesday"] = wednesday
-		updates["thursday"] = thursday
-		updates["friday"] = friday
-		updates["saturday"] = saturday
-		updates["sunday"] = sunday
+		updates.Monday = &monday
+		updates.Tuesday = &tuesday
+		updates.Wednesday = &wednesday
+		updates.Thursday = &thursday
+		updates.Friday = &friday
+		updates.Saturday = &saturday
+		updates.Sunday = &sunday
+		hasUpdates = true
 	}
 
 	// Apply metadata updates
 	if req.Metadata != nil {
+		var metadataStr string
 		if len(req.Metadata) == 0 {
-			updates["metadata"] = nil
+			// Empty map means clear the metadata (set to NULL in DB)
+			updates.Metadata = &metadataStr // Empty string will be stored as NULL
 		} else {
-			updates["metadata"] = req.Metadata
+			// Marshal to JSON string
+			jsonBytes, err := json.Marshal(req.Metadata)
+			if err != nil {
+				return nil, fmt.Errorf("%w: failed to marshal metadata", ErrInvalidInput)
+			}
+			metadataStr = string(jsonBytes)
+			updates.Metadata = &metadataStr
 		}
+		hasUpdates = true
+	}
+
+	if !hasUpdates {
+		return nil, nil
 	}
 
 	return updates, nil

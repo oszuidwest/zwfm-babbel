@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // Repository-level sentinel errors.
@@ -32,8 +34,21 @@ func ParseDBError(err error) error {
 		return nil
 	}
 
-	errStr := err.Error()
+	// First, try type assertion for MySQL-specific errors (more robust)
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		switch mysqlErr.Number {
+		case 1062: // ER_DUP_ENTRY
+			return fmt.Errorf("%w: %v", ErrDuplicateKey, err)
+		case 1452: // ER_NO_REFERENCED_ROW_2
+			return fmt.Errorf("%w: %v", ErrForeignKeyViolation, err)
+		case 1406: // ER_DATA_TOO_LONG
+			return fmt.Errorf("%w: %v", ErrDataTooLong, err)
+		}
+	}
 
+	// Fallback to string matching for non-MySQL errors or unhandled cases
+	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
 		return fmt.Errorf("%w: %v", ErrDuplicateKey, err)
@@ -41,24 +56,7 @@ func ParseDBError(err error) error {
 		return fmt.Errorf("%w: %v", ErrForeignKeyViolation, err)
 	case strings.Contains(errStr, "Data too long"):
 		return fmt.Errorf("%w: %v", ErrDataTooLong, err)
-	case strings.Contains(errStr, "a]foreign key constraint fails"):
-		return fmt.Errorf("%w: %v", ErrForeignKeyViolation, err)
 	default:
 		return err
 	}
-}
-
-// IsDuplicateKeyError checks if an error is a duplicate key violation.
-func IsDuplicateKeyError(err error) bool {
-	return errors.Is(err, ErrDuplicateKey)
-}
-
-// IsNotFoundError checks if an error is a not found error.
-func IsNotFoundError(err error) bool {
-	return errors.Is(err, ErrNotFound)
-}
-
-// IsForeignKeyError checks if an error is a foreign key violation.
-func IsForeignKeyError(err error) bool {
-	return errors.Is(err, ErrForeignKeyViolation)
 }

@@ -123,19 +123,15 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Build updates map
-	updates := make(map[string]interface{})
-	if req.StationID != nil {
-		updates["station_id"] = *req.StationID
-	}
-	if req.VoiceID != nil {
-		updates["voice_id"] = *req.VoiceID
-	}
-	if req.MixPoint != nil {
-		updates["mix_point"] = *req.MixPoint
+	// Build updates struct
+	updates := &repository.StationVoiceUpdate{
+		StationID: req.StationID,
+		VoiceID:   req.VoiceID,
+		MixPoint:  req.MixPoint,
 	}
 
-	if len(updates) == 0 {
+	// Validate at least one field is being updated
+	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
 		return nil, fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
 	}
 
@@ -305,25 +301,6 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	}
 
 	logger.Info("Processed jingle for station-voice %d: %s", stationVoiceID, filename)
-	return nil
-}
-
-// CheckUniqueness checks if a station-voice combination is unique.
-// The excludeID parameter can be provided to exclude a specific record from the check (for updates).
-// Returns ErrDuplicate if the combination already exists.
-func (s *StationVoiceService) CheckUniqueness(ctx context.Context, stationID, voiceID int, excludeID *int) error {
-	const op = "StationVoiceService.CheckUniqueness"
-
-	taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, stationID, voiceID, excludeID)
-	if err != nil {
-		logger.Error("Database error checking station-voice uniqueness: %v", err)
-		return fmt.Errorf("%s: %w: failed to check uniqueness", op, ErrDatabaseError)
-	}
-
-	if taken {
-		return fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, ErrDuplicate, stationID, voiceID)
-	}
-
 	return nil
 }
 

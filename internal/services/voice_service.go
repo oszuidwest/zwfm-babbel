@@ -30,7 +30,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if taken {
 		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
@@ -64,7 +64,7 @@ func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
 	// Check name uniqueness (excluding current record)
 	taken, err := s.repo.IsNameTaken(ctx, name, &id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if taken {
 		return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
@@ -80,21 +80,6 @@ func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
 	}
 
 	return nil
-}
-
-// GetByID retrieves a voice by its ID
-func (s *VoiceService) GetByID(ctx context.Context, id int) (*models.Voice, error) {
-	const op = "VoiceService.GetByID"
-
-	voice, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return voice, nil
 }
 
 // Delete deletes a voice after checking for dependencies
@@ -113,7 +98,7 @@ func (s *VoiceService) Delete(ctx context.Context, id int) error {
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 	if hasDeps {
 		return fmt.Errorf("%s: %w: voice is used by stories or stations", op, ErrDependencyExists)
@@ -129,35 +114,6 @@ func (s *VoiceService) Delete(ctx context.Context, id int) error {
 	}
 
 	return nil
-}
-
-// CheckNameUnique checks if a voice name is unique
-// excludeID can be provided to exclude a specific voice from the check (for updates)
-func (s *VoiceService) CheckNameUnique(ctx context.Context, name string, excludeID *int) error {
-	const op = "VoiceService.CheckNameUnique"
-
-	taken, err := s.repo.IsNameTaken(ctx, name, excludeID)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	if taken {
-		return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
-	}
-
-	return nil
-}
-
-// HasDependencies checks if a voice has any dependencies (stories or station_voices)
-func (s *VoiceService) HasDependencies(ctx context.Context, id int) (bool, error) {
-	const op = "VoiceService.HasDependencies"
-
-	hasDeps, err := s.repo.HasDependencies(ctx, id)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return hasDeps, nil
 }
 
 // DB returns the underlying database for ModernListWithQuery.
