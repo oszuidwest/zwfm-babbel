@@ -22,12 +22,11 @@ linters:
     - unconvert
     - unparam
     - whitespace
-
-linters-settings:
-  gocyclo:
-    min-complexity: 30
-  revive:
-    enable-all-rules: false
-    rules:
-      - name: var-naming
-        disabled: true
+  settings:
+    gocyclo:
+      min-complexity: 30
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: var-naming
+          disabled: true
