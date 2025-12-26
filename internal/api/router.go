@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -26,9 +27,19 @@ import (
 //
 // Returns a configured Gin engine ready for HTTP serving.
 func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
-	// Create services
+	// Create audio service
 	audioSvc := audio.NewService(cfg)
-	h := handlers.NewHandlers(db, audioSvc, cfg)
+
+	// Create domain services
+	bulletinSvc := services.NewBulletinService(db, audioSvc, cfg)
+	storySvc := services.NewStoryService(db, audioSvc, cfg)
+	stationSvc := services.NewStationService(db)
+	voiceSvc := services.NewVoiceService(db)
+	userSvc := services.NewUserService(db)
+	stationVoiceSvc := services.NewStationVoiceService(db, audioSvc, cfg)
+
+	// Create handlers with all services
+	h := handlers.NewHandlers(db, audioSvc, cfg, bulletinSvc, storySvc, stationSvc, voiceSvc, userSvc, stationVoiceSvc)
 
 	// Create auth configuration
 	authConfig := &auth.Config{
@@ -41,7 +52,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			Scopes:       []string{"openid", "profile", "email"},
 		},
 		Local: auth.LocalConfig{
-			Enabled:                cfg.Auth.Method == "local" || cfg.Auth.Method == "both",
+			Enabled:                cfg.Auth.Method.SupportsLocal(),
 			MinPasswordLength:      8,
 			RequireUppercase:       true,
 			RequireLowercase:       true,
@@ -57,7 +68,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			CookieDomain:   cfg.Auth.CookieDomain,
 			CookieSecure:   cfg.Environment == "production",
 			CookieHTTPOnly: true,
-			CookieSameSite: cfg.Auth.CookieSameSite,
+			CookieSameSite: string(cfg.Auth.CookieSameSite),
 			SecretKey:      cfg.Auth.SessionSecret,
 		},
 	}
@@ -70,7 +81,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 
 	// Get frontend URL from environment (required if using OAuth)
 	frontendURL := getEnv("BABBEL_FRONTEND_URL", "")
-	if frontendURL == "" && (cfg.Auth.Method == "oidc" || cfg.Auth.Method == "both") {
+	if frontendURL == "" && cfg.Auth.Method.SupportsOIDC() {
 		log.Fatalf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
 	}
 	authHandlers := NewAuthHandlers(authService, frontendURL, h)
@@ -115,23 +126,23 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 			protected.GET("/sessions/current", authHandlers.GetCurrentUser) // Get current session
 
 			// Station routes
-			protected.GET("/stations", authService.RequirePermission("stations", "read"), h.ListStations)
-			protected.GET("/stations/:id", authService.RequirePermission("stations", "read"), h.GetStation)
-			protected.POST("/stations", authService.RequirePermission("stations", "write"), h.CreateStation)
-			protected.PUT("/stations/:id", authService.RequirePermission("stations", "write"), h.UpdateStation)
-			protected.DELETE("/stations/:id", authService.RequirePermission("stations", "write"), h.DeleteStation)
+			protected.GET("/stations", authService.RequirePermission(auth.ResourceStations, auth.ActionRead), h.ListStations)
+			protected.GET("/stations/:id", authService.RequirePermission(auth.ResourceStations, auth.ActionRead), h.GetStation)
+			protected.POST("/stations", authService.RequirePermission(auth.ResourceStations, auth.ActionWrite), h.CreateStation)
+			protected.PUT("/stations/:id", authService.RequirePermission(auth.ResourceStations, auth.ActionWrite), h.UpdateStation)
+			protected.DELETE("/stations/:id", authService.RequirePermission(auth.ResourceStations, auth.ActionWrite), h.DeleteStation)
 
 			// Voice routes
-			protected.GET("/voices", authService.RequirePermission("voices", "read"), h.ListVoices)
-			protected.GET("/voices/:id", authService.RequirePermission("voices", "read"), h.GetVoice)
-			protected.POST("/voices", authService.RequirePermission("voices", "write"), h.CreateVoice)
-			protected.PUT("/voices/:id", authService.RequirePermission("voices", "write"), h.UpdateVoice)
-			protected.DELETE("/voices/:id", authService.RequirePermission("voices", "write"), h.DeleteVoice)
+			protected.GET("/voices", authService.RequirePermission(auth.ResourceVoices, auth.ActionRead), h.ListVoices)
+			protected.GET("/voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionRead), h.GetVoice)
+			protected.POST("/voices", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.CreateVoice)
+			protected.PUT("/voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.UpdateVoice)
+			protected.DELETE("/voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.DeleteVoice)
 
 			// Story routes
-			protected.GET("/stories", authService.RequirePermission("stories", "read"), h.ListStories)
-			protected.GET("/stories/:id", authService.RequirePermission("stories", "read"), h.GetStory)
-			protected.GET("/stories/:id/audio", authService.RequirePermission("stories", "read"), func(c *gin.Context) {
+			protected.GET("/stories", authService.RequirePermission(auth.ResourceStories, auth.ActionRead), h.ListStories)
+			protected.GET("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionRead), h.GetStory)
+			protected.GET("/stories/:id/audio", authService.RequirePermission(auth.ResourceStories, auth.ActionRead), func(c *gin.Context) {
 				h.ServeAudio(c, handlers.AudioConfig{
 					TableName:   "stories",
 					IDColumn:    "id",
@@ -141,25 +152,25 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 					Directory:   "processed",
 				})
 			})
-			protected.POST("/stories", authService.RequirePermission("stories", "write"), h.CreateStory)
-			protected.PUT("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStory)
-			protected.DELETE("/stories/:id", authService.RequirePermission("stories", "write"), h.DeleteStory)
-			protected.PATCH("/stories/:id", authService.RequirePermission("stories", "write"), h.UpdateStoryStatus)
+			protected.POST("/stories", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.CreateStory)
+			protected.PUT("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UpdateStory)
+			protected.DELETE("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.DeleteStory)
+			protected.PATCH("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UpdateStoryStatus)
 
 			// User routes (admin only)
-			protected.GET("/users", authService.RequirePermission("users", "read"), h.ListUsers)
-			protected.GET("/users/:id", authService.RequirePermission("users", "read"), h.GetUser)
-			protected.POST("/users", authService.RequirePermission("users", "write"), h.CreateUser)
-			protected.PUT("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUser)
-			protected.DELETE("/users/:id", authService.RequirePermission("users", "write"), h.DeleteUser)
-			protected.PATCH("/users/:id", authService.RequirePermission("users", "write"), h.UpdateUserStatus)
+			protected.GET("/users", authService.RequirePermission(auth.ResourceUsers, auth.ActionRead), h.ListUsers)
+			protected.GET("/users/:id", authService.RequirePermission(auth.ResourceUsers, auth.ActionRead), h.GetUser)
+			protected.POST("/users", authService.RequirePermission(auth.ResourceUsers, auth.ActionWrite), h.CreateUser)
+			protected.PUT("/users/:id", authService.RequirePermission(auth.ResourceUsers, auth.ActionWrite), h.UpdateUser)
+			protected.DELETE("/users/:id", authService.RequirePermission(auth.ResourceUsers, auth.ActionWrite), h.DeleteUser)
+			protected.PATCH("/users/:id", authService.RequirePermission(auth.ResourceUsers, auth.ActionWrite), h.UpdateUserStatus)
 			// Password change should be part of user update
 			// PATCH /users/:id with {"password": "newpass"}
 
 			// Station-Voice routes - RESTful naming with hyphens
-			protected.GET("/station-voices", authService.RequirePermission("voices", "read"), h.ListStationVoices)
-			protected.GET("/station-voices/:id", authService.RequirePermission("voices", "read"), h.GetStationVoice)
-			protected.GET("/station-voices/:id/audio", authService.RequirePermission("voices", "read"), func(c *gin.Context) {
+			protected.GET("/station-voices", authService.RequirePermission(auth.ResourceVoices, auth.ActionRead), h.ListStationVoices)
+			protected.GET("/station-voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionRead), h.GetStationVoice)
+			protected.GET("/station-voices/:id/audio", authService.RequirePermission(auth.ResourceVoices, auth.ActionRead), func(c *gin.Context) {
 				h.ServeAudio(c, handlers.AudioConfig{
 					TableName:   "station_voices",
 					IDColumn:    "id",
@@ -169,21 +180,21 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 					Directory:   "processed",
 				})
 			})
-			protected.POST("/station-voices", authService.RequirePermission("voices", "write"), h.CreateStationVoice)
-			protected.PUT("/station-voices/:id", authService.RequirePermission("voices", "write"), h.UpdateStationVoice)
-			protected.DELETE("/station-voices/:id", authService.RequirePermission("voices", "write"), h.DeleteStationVoice)
+			protected.POST("/station-voices", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.CreateStationVoice)
+			protected.PUT("/station-voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.UpdateStationVoice)
+			protected.DELETE("/station-voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.DeleteStationVoice)
 
 			// Bulletin routes - RESTful (no verbs in URLs)
-			protected.GET("/bulletins", authService.RequirePermission("bulletins", "read"), h.ListBulletins)
-			protected.POST("/stations/:id/bulletins", authService.RequirePermission("bulletins", "generate"), h.GenerateBulletin) // Create bulletin
-			protected.GET("/stations/:id/bulletins", authService.RequirePermission("bulletins", "read"), h.GetStationBulletins)   // List station bulletins
-			protected.GET("/bulletins/:id/audio", authService.RequirePermission("bulletins", "read"), h.GetBulletinAudio)
+			protected.GET("/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.ListBulletins)
+			protected.POST("/stations/:id/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionGenerate), h.GenerateBulletin) // Create bulletin
+			protected.GET("/stations/:id/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.GetStationBulletins)   // List station bulletins
+			protected.GET("/bulletins/:id/audio", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)
 
 			// Story bulletin history
-			protected.GET("/stories/:id/bulletins", authService.RequirePermission("stories", "read"), h.GetStoryBulletinHistory)
+			protected.GET("/stories/:id/bulletins", authService.RequirePermission(auth.ResourceStories, auth.ActionRead), h.GetStoryBulletinHistory)
 
 			// Stories included in bulletins
-			protected.GET("/bulletins/:id/stories", authService.RequirePermission("stories", "read"), h.GetBulletinStories)
+			protected.GET("/bulletins/:id/stories", authService.RequirePermission(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)
 		}
 	}
 

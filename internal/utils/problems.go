@@ -51,6 +51,7 @@ const (
 	ProblemTypeInsufficientPermissions = "https://babbel.api/problems/insufficient-permissions"
 	ProblemTypeInternalServerError     = "https://babbel.api/problems/internal-server-error"
 	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
+	ProblemTypeDependencyConstraint    = "https://babbel.api/problems/dependency-constraint"
 )
 
 // NewProblemDetail creates a new RFC 9457 compliant problem detail response.
@@ -137,6 +138,18 @@ func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 		ProblemTypeBadRequest,
 		"Bad Request",
 		400,
+		detail,
+		instance,
+	)
+}
+
+// NewForbiddenProblem creates a standardized 403 Forbidden response for authorization failures.
+// Used when the user is authenticated but lacks permission to access the resource.
+func NewForbiddenProblem(detail, instance string) *ProblemDetail {
+	return NewProblemDetail(
+		ProblemTypeInsufficientPermissions,
+		"Forbidden",
+		403,
 		detail,
 		instance,
 	)

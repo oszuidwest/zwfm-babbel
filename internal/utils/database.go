@@ -2,54 +2,60 @@
 package utils
 
 import (
-	"fmt"
+	"context"
 
 	"github.com/jmoiron/sqlx"
 )
 
-// CountWithJoins returns the count of records using complex query with joins and custom conditions.
+// =============================================================================
+// Type-safe query structs per entity
+// Usage: utils.Stations.Exists(ctx, db, id)
+// =============================================================================
+
+// StationQueries provides type-safe database operations for stations.
+type StationQueries struct{}
+
+// Stations provides query methods for station resources.
+var Stations = StationQueries{}
+
+// Exists checks if a station with the given ID exists.
+func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+	var exists bool
+	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stations WHERE id = ?)", id)
+	return exists, err
+}
+
+// StoryQueries provides type-safe database operations for stories.
+type StoryQueries struct{}
+
+// Stories provides query methods for story resources.
+var Stories = StoryQueries{}
+
+// Exists checks if a story with the given ID exists.
+func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+	var exists bool
+	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stories WHERE id = ?)", id)
+	return exists, err
+}
+
+// BulletinQueries provides type-safe database operations for bulletins.
+type BulletinQueries struct{}
+
+// Bulletins provides query methods for bulletin resources.
+var Bulletins = BulletinQueries{}
+
+// Exists checks if a bulletin with the given ID exists.
+func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+	var exists bool
+	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM bulletins WHERE id = ?)", id)
+	return exists, err
+}
+
+// CountWithJoins returns the count of records using complex query with joins.
 func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, error) {
 	var count int64
-
 	if err := db.Get(&count, query, args...); err != nil {
 		return 0, err
 	}
-
-	return count, nil
-}
-
-// CountDependencies counts records that depend on a specific foreign key for cascade delete validation.
-func CountDependencies(db *sqlx.DB, tableName, foreignKeyColumn string, id int) (int, error) {
-	var count int
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s = ?", tableName, foreignKeyColumn)
-
-	if err := db.Get(&count, query, id); err != nil {
-		return 0, err
-	}
-
-	return count, nil
-}
-
-// CountByCondition counts records that meet a specific condition with parameterized arguments.
-func CountByCondition(db *sqlx.DB, tableName, condition string, args ...interface{}) (int, error) {
-	var count int
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", tableName, condition)
-
-	if err := db.Get(&count, query, args...); err != nil {
-		return 0, err
-	}
-
-	return count, nil
-}
-
-// CountActivesExcludingID counts active records (not suspended/deleted) excluding a specific ID for uniqueness validation.
-func CountActivesExcludingID(db *sqlx.DB, tableName, condition string, id int) (int, error) {
-	var count int
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s AND id != ?", tableName, condition)
-
-	if err := db.Get(&count, query, id); err != nil {
-		return 0, err
-	}
-
 	return count, nil
 }

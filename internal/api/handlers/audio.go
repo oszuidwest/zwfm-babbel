@@ -4,7 +4,6 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 
@@ -47,17 +46,17 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	var filePath sql.NullString
 	err := h.db.Get(&filePath, query, id)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Record not found"})
+		utils.ProblemNotFound(c, "Record")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch record"})
+		utils.ProblemInternalServer(c, "Failed to fetch record")
 		return
 	}
 
 	// Check if filename exists
 	if !filePath.Valid || filePath.String == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No audio file for this record"})
+		utils.ProblemNotFound(c, "Audio file")
 		return
 	}
 
@@ -65,7 +64,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath.String)
 
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Audio file not found"})
+		utils.ProblemNotFound(c, "Audio file")
 		return
 	}
 	c.Header("Content-Type", config.ContentType)

@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -34,12 +35,12 @@ type Service struct {
 
 // IsLocalEnabled returns true if local authentication is enabled.
 func (s *Service) IsLocalEnabled() bool {
-	return s.config.Method == "local" || s.config.Method == "both"
+	return s.config.Method.SupportsLocal()
 }
 
 // IsOAuthEnabled returns true if OAuth/OIDC authentication is enabled.
 func (s *Service) IsOAuthEnabled() bool {
-	return s.config.Method == "oidc" || s.config.Method == "both"
+	return s.config.Method.SupportsOIDC()
 }
 
 // NewService creates a new authentication service.
@@ -50,7 +51,7 @@ func NewService(cfg *Config, db *sqlx.DB) (*Service, error) {
 	}
 
 	// Initialize OIDC if configured
-	if cfg.Method == "oidc" || cfg.Method == "both" {
+	if cfg.Method.SupportsOIDC() {
 		if err := s.initializeOIDC(); err != nil {
 			return nil, fmt.Errorf("failed to initialize OIDC: %w", err)
 		}
@@ -220,10 +221,11 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	username := baseUsername
 	counter := 1
+	ctx := context.Background()
 
 	for {
 		var exists bool
-		err := s.db.Get(&exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
+		err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
 		if err != nil {
 			// On error, assume it might exist and try with suffix
 			username = fmt.Sprintf("%s_%d", baseUsername, counter)
@@ -284,7 +286,19 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		// Check if user is authenticated
 		userID := session.Get("user_id")
 		if userID == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
+			utils.ProblemAuthentication(c, "Authentication required")
+			c.Abort()
+			return
+		}
+
+		// Validate userID type
+		userIDInt, ok := userID.(int)
+		if !ok {
+			session.Delete("user_id")
+			if err := session.Save(c); err != nil {
+				logger.Error("Failed to save session during cleanup: %v", err)
+			}
+			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
 			return
 		}
@@ -297,40 +311,40 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			SuspendedAt *time.Time `db:"suspended_at"`
 		}
 
-		err := s.db.Get(&user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userID)
+		err := s.db.GetContext(c.Request.Context(), &user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userIDInt)
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete("user_id")
 			if err := session.Save(c); err != nil {
 				logger.Error("Failed to save session during cleanup: %v", err)
 			}
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session"})
+			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
 			return
 		}
 
 		// Set user info in context
-		c.Set("user_id", user.ID)
-		c.Set("username", user.Username)
-		c.Set("user_role", user.Role)
+		c.Set(string(CtxKeyUserID), user.ID)
+		c.Set(string(CtxKeyUsername), user.Username)
+		c.Set(string(CtxKeyUserRole), user.Role)
 
 		c.Next()
 	}
 }
 
 // RequirePermission returns middleware that enforces role-based access control.
-func (s *Service) RequirePermission(obj, act string) gin.HandlerFunc {
+func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString("user_role")
+		role := c.GetString(string(CtxKeyUserRole))
 
-		ok, err := s.enforcer.Enforce(role, obj, act)
+		ok, err := s.enforcer.Enforce(role, string(obj), string(act))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Permission check failed"})
+			utils.ProblemInternalServer(c, "Permission check failed")
 			c.Abort()
 			return
 		}
 
 		if !ok {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient permissions"})
+			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "Insufficient permissions")
 			c.Abort()
 			return
 		}
@@ -341,7 +355,7 @@ func (s *Service) RequirePermission(obj, act string) gin.HandlerFunc {
 
 // LocalLogin authenticates a user using username and password.
 func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
-	if s.config.Method == "oidc" {
+	if !s.config.Method.SupportsLocal() {
 		return fmt.Errorf("local authentication is disabled")
 	}
 
@@ -353,7 +367,8 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		SuspendedAt  *time.Time `db:"suspended_at"`
 	}
 
-	err := s.db.Get(&user, "SELECT id, username, password_hash, role, suspended_at FROM users WHERE username = ?", username)
+	ctx := c.Request.Context()
+	err := s.db.GetContext(ctx, &user, "SELECT id, username, password_hash, role, suspended_at FROM users WHERE username = ?", username)
 	if err != nil {
 		return fmt.Errorf("invalid credentials")
 	}
@@ -365,14 +380,14 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		// Increment failed login attempt counter
-		if updateErr := s.updateLoginFailure(user.ID); updateErr != nil {
+		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
 			logger.Error("Failed to update login failure stats: %v", updateErr)
 		}
 		return fmt.Errorf("invalid credentials")
 	}
 
 	// Reset failed attempts and update login statistics
-	if err := s.updateLoginSuccess(user.ID); err != nil {
+	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
 		logger.Error("Failed to update login success stats: %v", err)
 	}
 
@@ -382,8 +397,8 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 // StartOAuthFlow initiates the OAuth/OIDC authentication process.
 func (s *Service) StartOAuthFlow(c *gin.Context) {
-	if s.config.Method == "local" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "OAuth authentication is disabled"})
+	if !s.config.Method.SupportsOIDC() {
+		utils.ProblemBadRequest(c, "OAuth authentication is disabled")
 		return
 	}
 
@@ -399,7 +414,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	}
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save OAuth session: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Session error"})
+		utils.ProblemInternalServer(c, "Session error")
 		return
 	}
 
@@ -415,27 +430,28 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	// Verify state
 	state := c.Query("state")
 	savedState := session.Get("oauth_state")
-	if savedState == nil || state != savedState.(string) {
+	savedStateStr, ok := savedState.(string)
+	if !ok || savedState == nil || state != savedStateStr {
 		return fmt.Errorf("invalid state")
 	}
 	session.Delete("oauth_state")
 
 	// Exchange code for token
 	code := c.Query("code")
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
 
 	token, err := s.config.OIDC.OAuth2Config.Exchange(ctx, code)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code: %w", err)
 	}
 
-	// Extract ID token
+	// Extract and verify ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return fmt.Errorf("no id_token in response")
 	}
 
-	// Verify ID token
 	verifier := s.config.OIDC.Provider.Verifier(&oidc.Config{
 		ClientID: s.config.OIDC.ClientID,
 	})
@@ -457,8 +473,25 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	// Find or create user
-	// First, try to find existing user by email to handle username changes
+	// Find or create user based on OAuth claims
+	user, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
+	if err != nil {
+		return err
+	}
+
+	// Setup session for authenticated OAuth user
+	return s.setupOAuthSession(c, user)
+}
+
+// oauthUser represents the minimal user information needed for OAuth session setup.
+type oauthUser struct {
+	ID       int
+	Username string
+}
+
+// findOrCreateOAuthUser finds an existing user by email or creates a new one.
+// Returns the user ID and username, or an error if the account is suspended or creation fails.
+func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
 		ID          int        `db:"id"`
 		Username    string     `db:"username"`
@@ -466,61 +499,75 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 
 	// Try to find user by email first
-	err = s.db.Get(&existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", claims.Email)
+	err := s.db.GetContext(ctx, &existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", email)
 	if err == nil {
 		// User exists with this email
 		if existingUser.SuspendedAt != nil {
-			return fmt.Errorf("account is suspended")
+			return nil, fmt.Errorf("account is suspended")
 		}
-		// Use existing user
-		user := existingUser
-		// Reset failed attempts and update login statistics
-		if err := s.updateLoginSuccess(user.ID); err != nil {
-			logger.Error("Failed to update login success stats: %v", err)
-		}
-
-		// Get the user's actual role from database
-		var role string
-		if err := s.db.Get(&role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-			logger.Error("Failed to get user role, defaulting to viewer: %v", err)
-			role = "viewer"
-		}
-
-		// Create session with existing username and role
-		if err := s.CreateSession(c, user.ID, existingUser.Username, role, "oidc"); err != nil {
-			return fmt.Errorf("failed to create session: %w", err)
-		}
-		return nil
+		return &oauthUser{
+			ID:       existingUser.ID,
+			Username: existingUser.Username,
+		}, nil
 	}
 
 	// No existing user with this email, create new user
-	// Determine username: prefer PreferredUsername if available, otherwise sanitize email
-	username := claims.PreferredUsername
-	if username == "" {
-		// Use email and sanitize it to create valid username
-		username = s.sanitizeEmailToUsername(claims.Email)
-	} else if strings.Contains(username, "@") || strings.Contains(username, ".") {
-		// Even if PreferredUsername exists, ensure it's valid
-		// Check if it contains invalid characters
-		username = s.sanitizeEmailToUsername(username)
-	}
+	username := s.determineOAuthUsername(preferredUsername, email)
 
-	// Create new user with sanitized username
-	result, err := s.db.Exec(`
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
 		VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
-		username, claims.Name, claims.Email)
+		username, fullName, email)
 	if err != nil {
-		return fmt.Errorf("failed to create user: %w", err)
+		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return fmt.Errorf("failed to get created user ID: %w", err)
+		return nil, fmt.Errorf("failed to get created user ID: %w", err)
 	}
 
-	// Create session for new user
-	if err := s.CreateSession(c, int(id), username, "viewer", "oidc"); err != nil {
+	return &oauthUser{
+		ID:       int(id),
+		Username: username,
+	}, nil
+}
+
+// determineOAuthUsername determines the best username from OAuth claims.
+// Prefers preferredUsername if valid, otherwise sanitizes the email.
+func (s *Service) determineOAuthUsername(preferredUsername, email string) string {
+	username := preferredUsername
+	if username == "" {
+		return s.sanitizeEmailToUsername(email)
+	}
+
+	// Sanitize if preferredUsername contains invalid characters
+	if strings.Contains(username, "@") || strings.Contains(username, ".") {
+		return s.sanitizeEmailToUsername(username)
+	}
+
+	return username
+}
+
+// setupOAuthSession creates a session for an OAuth-authenticated user.
+// Updates login statistics and retrieves the user's current role from the database.
+func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
+	ctx := c.Request.Context()
+
+	// Reset failed attempts and update login statistics
+	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
+		logger.Error("Failed to update login success stats: %v", err)
+	}
+
+	// Get the user's actual role from database
+	var role string
+	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
+		logger.Error("Failed to get user role, defaulting to viewer: %v", err)
+		role = "viewer"
+	}
+
+	// Create session with user credentials
+	if err := s.CreateSession(c, user.ID, user.Username, role, "oidc"); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -556,10 +603,10 @@ func (s *Service) CreateSession(c *gin.Context, userID int, username string, rol
 // updateLoginSuccess updates user statistics after successful login.
 // It resets failed login attempts and increments the login count.
 // Returns an error if the database update fails.
-func (s *Service) updateLoginSuccess(userID int) error {
-	_, err := s.db.Exec(`
-		UPDATE users 
-		SET last_login_at = NOW(), 
+func (s *Service) updateLoginSuccess(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET last_login_at = NOW(),
 		    login_count = login_count + 1,
 		    failed_login_attempts = 0
 		WHERE id = ?`, userID)
@@ -571,10 +618,10 @@ func (s *Service) updateLoginSuccess(userID int) error {
 
 // updateLoginFailure increments failed login attempts for a user.
 // Returns an error if the database update fails.
-func (s *Service) updateLoginFailure(userID int) error {
-	_, err := s.db.Exec(`
-		UPDATE users 
-		SET failed_login_attempts = failed_login_attempts + 1 
+func (s *Service) updateLoginFailure(ctx context.Context, userID int) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET failed_login_attempts = failed_login_attempts + 1
 		WHERE id = ?`, userID)
 	if err != nil {
 		logger.Error("Failed to update failed login attempts: %v", err)

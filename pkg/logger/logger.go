@@ -1,63 +1,58 @@
-// Package logger provides structured logging utilities.
+// Package logger provides structured logging utilities using slog.
 package logger
 
 import (
-	"io"
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 )
 
-var (
-	InfoLogger  *log.Logger
-	ErrorLogger *log.Logger
-	DebugLogger *log.Logger
-)
+var logger *slog.Logger
 
 // Initialize sets up the logging system with the specified level and mode.
 func Initialize(level string, development bool) error {
-	// Configure based on level and development mode
-	flags := log.Ldate | log.Ltime
-	if development {
-		flags |= log.Lshortfile
+	var handler slog.Handler
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelInfo,
 	}
 
-	InfoLogger = log.New(os.Stdout, "INFO: ", flags)
-	ErrorLogger = log.New(os.Stderr, "ERROR: ", flags)
-
-	// Only enable debug logger if level is "debug"
 	if level == "debug" {
-		DebugLogger = log.New(os.Stdout, "DEBUG: ", flags)
-	} else {
-		// Create a no-op logger for non-debug mode
-		DebugLogger = log.New(io.Discard, "", 0)
+		opts.Level = slog.LevelDebug
 	}
 
+	if development {
+		opts.AddSource = true
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	}
+
+	logger = slog.New(handler)
+	slog.SetDefault(logger)
 	return nil
 }
 
-// Info logs informational messages to stdout.
+// Info logs informational messages with Printf-style formatting.
 func Info(message string, args ...interface{}) {
-	if InfoLogger != nil {
-		InfoLogger.Printf(message, args...)
+	if logger != nil {
+		logger.Info(fmt.Sprintf(message, args...))
 	}
 }
 
-// Error logs error messages to stderr.
+// Error logs error messages with Printf-style formatting.
 func Error(message string, args ...interface{}) {
-	if ErrorLogger != nil {
-		ErrorLogger.Printf(message, args...)
+	if logger != nil {
+		logger.Error(fmt.Sprintf(message, args...))
 	}
 }
 
-// Fatal logs fatal error messages to stderr and terminates the program.
+// Fatal logs fatal error messages and terminates the program.
 func Fatal(message string, args ...interface{}) {
-	if ErrorLogger != nil {
-		ErrorLogger.Printf(message, args...)
+	if logger != nil {
+		logger.Error(fmt.Sprintf(message, args...))
 	}
 	os.Exit(1)
 }
 
-// Sync flushes any buffered log entries.
-func Sync() {
-	// No-op for standard log package
-}
+// Sync flushes any buffered log entries (no-op for slog).
+func Sync() {}

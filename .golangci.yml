@@ -1,0 +1,32 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - dogsled
+    - gocritic
+    - gocyclo
+    - gosec
+    - misspell
+    - nakedret
+    - noctx
+    - nolintlint
+    - revive
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - whitespace
+  settings:
+    gocyclo:
+      min-complexity: 15
+    revive:
+      enable-all-rules: false
+      rules:
+        - name: var-naming
+          disabled: true

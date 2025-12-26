@@ -84,18 +84,51 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return "", err
 	}
-	defer func() {
-		if err := os.RemoveAll(tempDir); err != nil {
-			// Ignore cleanup errors
-			fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", tempDir, err)
-		}
-	}()
+	defer cleanupTempDir(tempDir)
 
-	// Build FFmpeg command - First mix all messages together, then overlay on bed
+	// Build FFmpeg command arguments and filters
+	args, filters := s.buildBulletinFFmpegCommand(station, stories, outputPath)
+
+	// Execute FFmpeg command
+	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
+}
+
+// cleanupTempDir removes the temporary directory, ignoring errors.
+func cleanupTempDir(tempDir string) {
+	if err := os.RemoveAll(tempDir); err != nil {
+		// Ignore cleanup errors
+		fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", tempDir, err)
+	}
+}
+
+// buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
+func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []models.Story, outputPath string) ([]string, []string) {
 	args := []string{}
 	filters := []string{}
 
-	// Step 1: Add all story audio files
+	// Step 1: Add all story audio files with padding
+	args, filters = s.addStoryInputsWithPadding(args, filters, station, stories)
+
+	// Step 2: Concatenate all stories into one timeline
+	filters = s.addStoryConcat(filters, stories)
+
+	// Step 2.5: Add delay based on the first story's mix point
+	filters = s.addMixPointDelay(filters, stories)
+
+	// Step 3: Add the bed/jingle if available
+	args, filters = s.addJingleMix(args, filters, station, stories)
+
+	// Final FFmpeg command arguments
+	args = append(args,
+		"-filter_complex", strings.Join(filters, ";"),
+		"-map", "[out]",
+		"-y", outputPath)
+
+	return args, filters
+}
+
+// addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
+func (s *Service) addStoryInputsWithPadding(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
 	for i, story := range stories {
 		storyPath := utils.GetStoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
@@ -108,49 +141,52 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 			filters = append(filters, fmt.Sprintf("[%d:a]anull[padded%d]", i, i))
 		}
 	}
+	return args, filters
+}
 
-	// Step 2: Concatenate all stories into one timeline
+// addStoryConcat creates a filter to concatenate all stories into one timeline.
+func (s *Service) addStoryConcat(filters []string, stories []models.Story) []string {
 	concatInputs := []string{}
 	for i := range stories {
 		concatInputs = append(concatInputs, fmt.Sprintf("[padded%d]", i))
 	}
 	concatFilter := fmt.Sprintf("%sconcat=n=%d:v=0:a=1[concat_messages]",
 		strings.Join(concatInputs, ""), len(stories))
-	filters = append(filters, concatFilter)
+	return append(filters, concatFilter)
+}
 
-	// Step 2.5: Add delay to the message timeline based on the first story's mix point
+// addMixPointDelay adds delay to the message timeline based on the first story's mix point.
+func (s *Service) addMixPointDelay(filters []string, stories []models.Story) []string {
 	if len(stories) > 0 && stories[0].VoiceMixPoint > 0 {
 		delayMs := int(stories[0].VoiceMixPoint * 1000)
-		filters = append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", delayMs))
+		return append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", delayMs))
+	}
+	return append(filters, "[concat_messages]anull[messages]")
+}
+
+// addJingleMix adds the bed/jingle and mixes it with the message timeline.
+func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
+	if len(stories) == 0 {
+		return args, filters
+	}
+
+	// Use station-specific jingle
+	jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
+
+	if _, err := os.Stat(jinglePath); err == nil {
+		args = append(args, "-i", jinglePath)
+		jingleIndex := len(stories)
+		filters = append(filters, fmt.Sprintf("[messages][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
 	} else {
-		filters = append(filters, "[concat_messages]anull[messages]")
+		// No bed, just use the messages
+		filters = append(filters, "[messages]anull[out]")
 	}
 
-	// Step 3: Add the bed/jingle (use the first story's voice as the bed)
-	if len(stories) > 0 {
-		// Use station-specific jingle
-		jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
+	return args, filters
+}
 
-		if _, err := os.Stat(jinglePath); err == nil {
-			args = append(args, "-i", jinglePath)
-
-			// Calculate the correct jingle input index (number of stories)
-			jingleIndex := len(stories)
-
-			// Mix the complete message timeline with the bed, use first duration so bulletin ends when stories end
-			filters = append(filters, fmt.Sprintf("[messages][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
-		} else {
-			// No bed, just use the messages
-			filters = append(filters, "[messages]anull[out]")
-		}
-	}
-
-	// Final FFmpeg command
-	args = append(args,
-		"-filter_complex", strings.Join(filters, ";"),
-		"-map", "[out]",
-		"-y", outputPath)
-
+// executeFFmpegCommand runs the FFmpeg command and handles error reporting.
+func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []string, outputPath string) (string, error) {
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 

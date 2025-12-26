@@ -36,6 +36,10 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+
 	// Log configuration (without sensitive data)
 	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
@@ -46,8 +50,9 @@ func main() {
 	if cfg.LogLevel >= 5 {
 		logLevel = "debug"
 	}
+	isDev := cfg.Environment == config.EnvDevelopment
 
-	if err := logger.Initialize(logLevel, true); err != nil {
+	if err := logger.Initialize(logLevel, isDev); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	defer logger.Sync()
@@ -86,7 +91,6 @@ func main() {
 	// Start story expiration scheduler
 	expirationService := scheduler.NewStoryExpirationService(db)
 	expirationService.Start()
-	defer expirationService.Stop()
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)

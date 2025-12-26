@@ -2,9 +2,12 @@
 package scheduler
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -18,6 +21,8 @@ type StoryExpirationService struct {
 	ticker *time.Ticker
 	// done channel enables graceful shutdown signaling
 	done chan bool
+	// stopOnce ensures Stop() can only be called once, preventing double-stop race conditions
+	stopOnce sync.Once
 }
 
 // NewStoryExpirationService creates a new background service for story expiration management.
@@ -35,8 +40,10 @@ func NewStoryExpirationService(db *sqlx.DB) *StoryExpirationService {
 func (s *StoryExpirationService) Start() {
 	logger.Info("Starting story expiration service (runs hourly)")
 
-	// Run immediately on start
-	s.expireStories()
+	// Run immediately on start with timeout context
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	s.expireStories(ctx)
+	cancel()
 
 	// Then run every hour
 	s.ticker = time.NewTicker(1 * time.Hour)
@@ -45,7 +52,9 @@ func (s *StoryExpirationService) Start() {
 		for {
 			select {
 			case <-s.ticker.C:
-				s.expireStories()
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				s.expireStories(ctx)
+				cancel()
 			case <-s.done:
 				return
 			}
@@ -54,32 +63,37 @@ func (s *StoryExpirationService) Start() {
 }
 
 // Stop gracefully shuts down the expiration service.
-// Stops the ticker and signals the background goroutine to exit.
-// This method is safe to call multiple times.
+// Uses sync.Once to prevent double-stop race conditions and a timeout to prevent deadlock.
 func (s *StoryExpirationService) Stop() {
-	logger.Info("Stopping story expiration service")
-	if s.ticker != nil {
-		s.ticker.Stop()
-	}
-	s.done <- true
+	s.stopOnce.Do(func() {
+		logger.Info("Stopping story expiration service")
+		if s.ticker != nil {
+			s.ticker.Stop()
+		}
+		select {
+		case s.done <- true:
+		case <-time.After(5 * time.Second):
+			logger.Info("Story expiration service shutdown timeout")
+		}
+	})
 }
 
 // expireStories performs the actual expiration logic by updating story statuses.
 // Only affects stories that are currently 'active' and past their end_date.
 // Does not automatically activate draft stories - that requires manual editorial decision.
 // Logs the number of stories affected for monitoring purposes.
-func (s *StoryExpirationService) expireStories() {
+func (s *StoryExpirationService) expireStories(ctx context.Context) {
 	logger.Info("Running story expiration check...")
 
 	// Update active stories with past end dates to expired status
-	result, err := s.db.Exec(`
-		UPDATE stories 
-		SET status = 'expired', 
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE stories
+		SET status = ?,
 		    updated_at = NOW()
-		WHERE status = 'active' 
+		WHERE status = ?
 		AND end_date < CURDATE()
 		AND deleted_at IS NULL
-	`)
+	`, models.StoryStatusExpired, models.StoryStatusActive)
 
 	if err != nil {
 		logger.Error("Failed to expire stories: %v", err)

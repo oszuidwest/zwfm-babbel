@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"reflect"
 	"strings"
 	"time"
@@ -47,107 +48,76 @@ func notBlankValidator(fl validator.FieldLevel) bool {
 // storyStatusValidator validates that a story status is one of the allowed values.
 // Ensures story status integrity by restricting to: draft, active, expired.
 func storyStatusValidator(fl validator.FieldLevel) bool {
-	status := fl.Field().String()
-	validStatuses := []string{"draft", "active", "expired"}
-	for _, validStatus := range validStatuses {
-		if status == validStatus {
-			return true
+	status := models.StoryStatus(fl.Field().String())
+	return status.IsValid()
+}
+
+// parseDateField extracts a time.Time value from a reflect.Value that may be
+// a time.Time, string, *string, or *time.Time. Returns the parsed time, whether
+// the field is empty, whether parsing was successful, and whether to fail validation.
+func parseDateField(field reflect.Value) (parsedTime time.Time, isEmpty bool, ok bool, failValidation bool) {
+	switch {
+	case field.Type() == reflect.TypeOf(time.Time{}):
+		timeVal, valid := field.Interface().(time.Time)
+		if !valid {
+			return time.Time{}, false, false, true
 		}
+		return timeVal, false, true, false
+
+	case field.Kind() == reflect.String:
+		dateStr := field.String()
+		if dateStr == "" {
+			return time.Time{}, true, true, false
+		}
+		t, err := time.Parse("2006-01-02", dateStr)
+		if err != nil {
+			return time.Time{}, false, false, true
+		}
+		return t, false, true, false
+
+	case field.Kind() == reflect.Ptr && !field.IsNil():
+		if field.Elem().Kind() == reflect.String {
+			dateStr := field.Elem().String()
+			if dateStr == "" {
+				return time.Time{}, true, true, false
+			}
+			t, err := time.Parse("2006-01-02", dateStr)
+			if err != nil {
+				return time.Time{}, false, false, true
+			}
+			return t, false, true, false
+		}
+		return time.Time{}, false, false, false // Unknown pointer type, skip
+
+	case field.Kind() == reflect.Ptr && field.IsNil():
+		return time.Time{}, true, true, false
+
+	default:
+		return time.Time{}, false, false, false // Unknown type, skip
 	}
-	return false
 }
 
 // dateAfterValidator validates that a date field is after another date field in the same struct
 // Usage: `validate:"dateafter=StartDate"`
 func dateAfterValidator(fl validator.FieldLevel) bool {
-	field := fl.Field()
-	param := fl.Param()
-
-	// Get the field to compare against
-	parent := fl.Parent()
-	compareField := parent.FieldByName(param)
-
+	compareField := fl.Parent().FieldByName(fl.Param())
 	if !compareField.IsValid() {
-		return true // If comparison field doesn't exist, validation passes
+		return true // Comparison field doesn't exist, validation passes
 	}
 
-	// Handle both time.Time and string fields, including pointers
-	var currentTime, compareTime time.Time
-	var err error
-	var currentEmpty, compareEmpty bool
-
-	// Parse current field
-	switch {
-	case field.Type() == reflect.TypeOf(time.Time{}):
-		currentTime = field.Interface().(time.Time)
-	case field.Kind() == reflect.String:
-		dateStr := field.String()
-		if dateStr == "" {
-			currentEmpty = true
-		} else {
-			currentTime, err = time.Parse("2006-01-02", dateStr)
-			if err != nil {
-				return false // Invalid date format
-			}
-		}
-	case field.Kind() == reflect.Ptr && !field.IsNil():
-		// Handle pointer to string (for optional fields)
-		if field.Elem().Kind() == reflect.String {
-			dateStr := field.Elem().String()
-			if dateStr == "" {
-				currentEmpty = true
-			} else {
-				currentTime, err = time.Parse("2006-01-02", dateStr)
-				if err != nil {
-					return false // Invalid date format
-				}
-			}
-		}
-	case field.Kind() == reflect.Ptr && field.IsNil():
-		currentEmpty = true
-	default:
-		return true // Unknown type, skip validation
+	currentTime, currentEmpty, currentOK, currentFail := parseDateField(fl.Field())
+	if currentFail {
+		return false
 	}
-
-	// Parse comparison field
-	switch {
-	case compareField.Type() == reflect.TypeOf(time.Time{}):
-		compareTime = compareField.Interface().(time.Time)
-	case compareField.Kind() == reflect.String:
-		dateStr := compareField.String()
-		if dateStr == "" {
-			compareEmpty = true
-		} else {
-			compareTime, err = time.Parse("2006-01-02", dateStr)
-			if err != nil {
-				return true // Invalid comparison date format, skip validation
-			}
-		}
-	case compareField.Kind() == reflect.Ptr && !compareField.IsNil():
-		// Handle pointer to string (for optional fields)
-		if compareField.Elem().Kind() == reflect.String {
-			dateStr := compareField.Elem().String()
-			if dateStr == "" {
-				compareEmpty = true
-			} else {
-				compareTime, err = time.Parse("2006-01-02", dateStr)
-				if err != nil {
-					return true // Invalid comparison date format, skip validation
-				}
-			}
-		}
-	case compareField.Kind() == reflect.Ptr && compareField.IsNil():
-		compareEmpty = true
-	default:
-		return true // Unknown type, skip validation
-	}
-
-	// If either date is empty, skip validation (handled by required validation if needed)
-	if currentEmpty || compareEmpty {
+	if !currentOK || currentEmpty {
 		return true
 	}
 
-	// Check if current date is after or equal to comparison date
+	compareTime, compareEmpty, compareOK, _ := parseDateField(compareField)
+	if !compareOK || compareEmpty {
+		return true
+	}
+
 	return currentTime.After(compareTime) || currentTime.Equal(compareTime)
 }
 

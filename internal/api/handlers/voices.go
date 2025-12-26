@@ -26,6 +26,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 			"id":         "v.id",
 			"name":       "v.name",
 			"created_at": "v.created_at",
+			"updated_at": "v.updated_at",
 		},
 	}
 
@@ -49,21 +50,13 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 		return
 	}
 
-	// Check name uniqueness
-	if err := utils.CheckUnique(h.db, "voices", "name", req.Name, nil); err != nil {
-		utils.ProblemDuplicate(c, "Voice name")
-		return
-	}
-
-	// Create voice
-	result, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO voices (name) VALUES (?)", req.Name)
+	voice, err := h.voiceSvc.Create(c.Request.Context(), req.Name)
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to create voice")
+		handleServiceError(c, err, "Voice")
 		return
 	}
 
-	id, _ := result.LastInsertId()
-	utils.CreatedWithID(c, id, "Voice created successfully")
+	utils.CreatedWithID(c, int64(voice.ID), "Voice created successfully")
 }
 
 // UpdateVoice updates an existing newsreader voice's name and configuration.
@@ -80,21 +73,9 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	// Check if voice exists
-	if !utils.ValidateResourceExists(c, h.db, "voices", "Voice", id) {
-		return
-	}
-
-	// Check name uniqueness (excluding current record)
-	if err := utils.CheckUnique(h.db, "voices", "name", req.Name, &id); err != nil {
-		utils.ProblemDuplicate(c, "Voice name")
-		return
-	}
-
-	// Update voice
-	_, err := h.db.ExecContext(c.Request.Context(), "UPDATE voices SET name = ? WHERE id = ?", req.Name, id)
+	err := h.voiceSvc.Update(c.Request.Context(), id, req.Name)
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to update voice")
+		handleServiceError(c, err, "Voice")
 		return
 	}
 
@@ -110,38 +91,9 @@ func (h *Handlers) DeleteVoice(c *gin.Context) {
 		return
 	}
 
-	// Check for dependencies
-	count, err := utils.CountDependencies(h.db, "stories", "voice_id", id)
+	err := h.voiceSvc.Delete(c.Request.Context(), id)
 	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to check dependencies")
-		return
-	}
-	if count > 0 {
-		utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, "Cannot delete voice: it is used by stories")
-		return
-	}
-
-	// Check station_voices dependencies
-	count, err = utils.CountDependencies(h.db, "station_voices", "voice_id", id)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to check dependencies")
-		return
-	}
-	if count > 0 {
-		utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, "Cannot delete voice: it is used by stations")
-		return
-	}
-
-	// Delete voice
-	result, err := h.db.ExecContext(c.Request.Context(), "DELETE FROM voices WHERE id = ?", id)
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to delete voice")
-		return
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		utils.ProblemNotFound(c, "Voice")
+		handleServiceError(c, err, "Voice")
 		return
 	}
 

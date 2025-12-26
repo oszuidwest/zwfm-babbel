@@ -2,17 +2,16 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
-	"log"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
@@ -24,159 +23,6 @@ func GetBulletinAudioURL(bulletinID int) string {
 type BulletinRequest struct {
 	StationID int    `json:"station_id" binding:"required"`
 	Date      string `json:"date"`
-}
-
-// BulletinResponse represents the API response for bulletin generation.
-type BulletinResponse struct {
-	AudioURL        string         `json:"audio_url"`
-	DurationSeconds float64        `json:"duration_seconds"`
-	Station         models.Station `json:"station"`
-}
-
-// BulletinInfo contains metadata about a generated bulletin.
-type BulletinInfo struct {
-	ID           int64
-	Station      models.Station
-	Stories      []models.Story
-	BulletinPath string
-	Duration     float64
-	FileSize     int64
-	CreatedAt    time.Time
-}
-
-// createBulletin handles the complete bulletin creation process
-func (h *Handlers) createBulletin(c *gin.Context, req BulletinRequest) (*BulletinInfo, error) {
-	// Parse date or use today
-	targetDate, err := parseTargetDate(req.Date)
-	if err != nil {
-		return nil, fmt.Errorf("invalid date format")
-	}
-
-	// Get station
-	var station models.Station
-	err = h.db.Get(&station, "SELECT * FROM stations WHERE id = ?", req.StationID)
-	if err != nil {
-		return nil, fmt.Errorf("station not found")
-	}
-
-	// Get stories for the date
-	weekdayColumn := getWeekdayColumn(targetDate.Weekday())
-
-	var stories []models.Story
-	query := fmt.Sprintf(`
-		SELECT s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point
-		FROM stories s 
-		JOIN voices v ON s.voice_id = v.id 
-		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
-		WHERE s.deleted_at IS NULL 
-		AND s.audio_file IS NOT NULL 
-		AND s.audio_file != ''
-		AND s.start_date <= ? 
-		AND s.end_date >= ?
-		AND s.%s = 1
-		ORDER BY RAND()
-		LIMIT ?`, weekdayColumn)
-
-	err = h.db.Select(&stories, query, req.StationID, targetDate, targetDate, station.MaxStoriesPerBlock)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch stories: %w", err)
-	}
-
-	if len(stories) == 0 {
-		return nil, fmt.Errorf("no stories available")
-	}
-
-	// Generate consistent paths using single timestamp
-	timestamp := time.Now()
-	bulletinPath, _ := utils.GenerateBulletinPaths(h.config, req.StationID, timestamp)
-
-	// Create bulletin using the generated absolute path
-	createdPath, err := h.audioSvc.CreateBulletin(c.Request.Context(), &station, stories, bulletinPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bulletin: %w", err)
-	}
-
-	// Verify the paths match (should always be true with unified function)
-	if createdPath != bulletinPath {
-		// This should never happen with the unified function, but log if it does
-		log.Printf("WARNING: Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
-	}
-
-	// Get file info (bulletinPath is the full absolute path)
-	fileInfo, err := os.Stat(bulletinPath)
-	var fileSize int64
-	if err == nil {
-		fileSize = fileInfo.Size()
-	}
-
-	// Calculate total duration including mix point and pauses
-	var totalDuration float64
-
-	// Calculate total duration of all stories + pauses
-	var storiesDuration float64
-	for _, story := range stories {
-		if story.DurationSeconds != nil {
-			storiesDuration += *story.DurationSeconds
-		}
-	}
-	if station.PauseSeconds > 0 && len(stories) > 1 {
-		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
-	}
-
-	// Add mix point delay (when voice starts over jingle)
-	var mixPointDelay float64
-	if len(stories) > 0 && stories[0].VoiceMixPoint > 0 {
-		mixPointDelay = stories[0].VoiceMixPoint
-	}
-
-	// Total duration = stories duration + pauses + mix point delay
-	// The bulletin ends when all stories finish playing (jingle plays underneath)
-	totalDuration = storiesDuration + mixPointDelay
-
-	// Save bulletin record to database using the consistent relative path
-
-	result, err := h.db.ExecContext(c.Request.Context(), `
-		INSERT INTO bulletins (station_id, filename, audio_file, duration_seconds, file_size, story_count)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		req.StationID,
-		filepath.Base(bulletinPath),
-		filepath.Base(bulletinPath),
-		totalDuration,
-		fileSize,
-		len(stories),
-	)
-
-	var bulletinID int64
-	if err == nil {
-		var idErr error
-		bulletinID, idErr = result.LastInsertId()
-		if idErr != nil {
-			log.Printf("WARNING: Failed to get bulletin ID: %v", idErr)
-		}
-
-		// Insert bulletin-story relationships with order
-		if bulletinID > 0 {
-			for i, story := range stories {
-				_, err = h.db.ExecContext(c.Request.Context(),
-					"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
-					bulletinID, story.ID, i,
-				)
-				if err != nil {
-					logger.Error("Failed to insert bulletin story: %v", err)
-				}
-			}
-		}
-	}
-
-	return &BulletinInfo{
-		ID:           bulletinID,
-		Station:      station,
-		Stories:      stories,
-		BulletinPath: bulletinPath,
-		Duration:     totalDuration,
-		FileSize:     fileSize,
-		CreatedAt:    time.Now(),
-	}, nil
 }
 
 // GenerateBulletin generates a news bulletin for a station.
@@ -197,99 +43,129 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	// Create BulletinRequest with station ID from URL
-	bulletinReq := BulletinRequest{
-		StationID: stationID,
-		Date:      req.Date,
+	// Parse date
+	targetDate, err := services.ParseTargetDate(req.Date)
+	if err != nil {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "date",
+			Message: "Invalid date format, use YYYY-MM-DD",
+		}})
+		return
 	}
 
 	// Check HTTP headers for modern behavior
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	download := c.GetHeader("Accept") == "audio/wav"
 
-	// Parse max-age from Cache-Control header
-	var maxAgeStr string
-	cacheControl := c.GetHeader("Cache-Control")
-	if strings.Contains(cacheControl, "max-age=") {
-		parts := strings.Split(cacheControl, "max-age=")
-		if len(parts) > 1 {
-			maxAgeStr = strings.Split(parts[1], ",")[0]
-			maxAgeStr = strings.TrimSpace(maxAgeStr)
+	// Try to serve cached bulletin if available
+	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
+	if !forceNew && maxAge != nil {
+		if h.tryServeCachedBulletin(c, stationID, download, maxAge) {
+			return
 		}
 	}
 
-	// Check if we should return existing bulletin
-	if !forceNew && maxAgeStr != "" {
-		maxAge, err := time.ParseDuration(maxAgeStr + "s")
-		if err == nil && maxAge > 0 {
-			// Check for existing bulletin within cache time limit
-			existingBulletin, err := h.getLatestBulletin(bulletinReq.StationID, &maxAge)
-			if err == nil {
-				// Calculate age of the cached bulletin
-				age := int(time.Since(existingBulletin.CreatedAt).Seconds())
-
-				// Set standard cache headers
-				c.Header("X-Cache", "HIT")
-				c.Header("Age", fmt.Sprintf("%d", age))
-
-				// Handle download if requested
-				if download {
-					c.Header("Content-Description", "File Transfer")
-					c.Header("Content-Transfer-Encoding", "binary")
-					c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", existingBulletin.Filename))
-					c.Header("Content-Type", "audio/wav")
-					c.Header("X-Bulletin-Cached", "true")
-					c.File(filepath.Join("audio/output", existingBulletin.AudioFile))
-					return
-				}
-
-				// Return existing bulletin metadata
-				response := h.bulletinToResponse(existingBulletin)
-				utils.Success(c, response)
-				return
-			}
-		}
-	}
-
-	// Generate new bulletin
-	bulletinInfo, err := h.createBulletin(c, bulletinReq)
+	// Generate new bulletin using service
+	bulletinInfo, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
-		switch {
-		case strings.Contains(err.Error(), "station not found"):
-			utils.ProblemNotFound(c, "Station")
-		case strings.Contains(err.Error(), "no stories available"):
-			utils.ProblemNotFound(c, "No stories available for the specified date")
-		case strings.Contains(err.Error(), "invalid date format"):
-			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-				Field:   "date",
-				Message: "Invalid date format",
-			}})
-		default:
-			utils.ProblemInternalServer(c, "Failed to generate bulletin")
-		}
+		h.handleBulletinCreationError(c, err)
 		return
 	}
 
+	// Serve newly generated bulletin
+	h.serveNewBulletin(c, bulletinInfo, download)
+}
+
+// parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
+// Returns nil if max-age is not present or invalid.
+func parseCacheControlMaxAge(cacheControl string) *time.Duration {
+	if !strings.Contains(cacheControl, "max-age=") {
+		return nil
+	}
+
+	parts := strings.Split(cacheControl, "max-age=")
+	if len(parts) <= 1 {
+		return nil
+	}
+
+	maxAgeStr := strings.Split(parts[1], ",")[0]
+	maxAgeStr = strings.TrimSpace(maxAgeStr)
+
+	maxAge, err := time.ParseDuration(maxAgeStr + "s")
+	if err != nil || maxAge <= 0 {
+		return nil
+	}
+
+	return &maxAge
+}
+
+// tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
+// Returns true if a cached bulletin was served, false otherwise.
+func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int, download bool, maxAge *time.Duration) bool {
+	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
+	if err != nil {
+		return false
+	}
+
+	// Calculate age of the cached bulletin
+	age := int(time.Since(existingBulletin.CreatedAt).Seconds())
+
+	// Set standard cache headers
+	c.Header("X-Cache", "HIT")
+	c.Header("Age", fmt.Sprintf("%d", age))
+
+	if download {
+		serveAudioFile(c, filepath.Join("audio/output", existingBulletin.AudioFile), existingBulletin.Filename, true)
+		return true
+	}
+
+	// Return existing bulletin metadata
+	response := h.bulletinToResponse(existingBulletin)
+	utils.Success(c, response)
+	return true
+}
+
+// serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
+func (h *Handlers) serveNewBulletin(c *gin.Context, bulletinInfo *services.BulletinInfo, download bool) {
 	// Set cache headers for fresh content
 	c.Header("X-Cache", "MISS")
 	c.Header("Age", "0")
 
-	// Handle download if requested
 	if download {
-		c.Header("Content-Description", "File Transfer")
-		c.Header("Content-Transfer-Encoding", "binary")
-		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(bulletinInfo.BulletinPath)))
-		c.Header("Content-Type", "audio/wav")
 		c.Header("X-Bulletin-Cached", "false")
 		c.Header("X-Bulletin-Duration", fmt.Sprintf("%.2f", bulletinInfo.Duration))
 		c.Header("X-Bulletin-Stories", fmt.Sprintf("%d", len(bulletinInfo.Stories)))
-		c.File(bulletinInfo.BulletinPath)
+		serveAudioFile(c, bulletinInfo.BulletinPath, filepath.Base(bulletinInfo.BulletinPath), false)
 		return
 	}
 
 	// Build response without story list
 	response := h.bulletinInfoToResponse(bulletinInfo)
 	utils.Success(c, response)
+}
+
+// serveAudioFile sets headers and serves an audio file for download.
+func serveAudioFile(c *gin.Context, filePath, filename string, cached bool) {
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Type", "audio/wav")
+	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
+	c.File(filePath)
+}
+
+// handleBulletinCreationError maps bulletin service errors to appropriate HTTP responses.
+func (h *Handlers) handleBulletinCreationError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrNotFound):
+		utils.ProblemNotFound(c, "Station")
+	case errors.Is(err, services.ErrNoStoriesAvailable):
+		utils.ProblemNotFound(c, "No stories available for the specified date")
+	case errors.Is(err, services.ErrAudioProcessingFailed):
+		utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
+	default:
+		utils.ProblemInternalServer(c, "Failed to generate bulletin")
+	}
 }
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
@@ -299,7 +175,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	if !utils.ValidateResourceExists(c, h.db, "bulletins", "Bulletin", bulletinID) {
+	if !utils.ValidateBulletinExists(c, h.db, bulletinID) {
 		return
 	}
 
@@ -320,20 +196,25 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 			}},
 			PostProcessor: func(result interface{}) {
 				if stories, ok := result.(*[]models.BulletinStory); ok {
-					processed := make([]map[string]interface{}, len(*stories))
+					processed := make([]BulletinStoryResponse, len(*stories))
 					for i, bs := range *stories {
-						processed[i] = map[string]interface{}{
-							"id": bs.ID, "bulletin_id": bs.BulletinID,
-							"story_id": bs.StoryID, "story_order": bs.StoryOrder,
-							"created_at": bs.CreatedAt,
-							"station": map[string]interface{}{
-								"id": bs.StationID, "name": bs.StationName,
+						processed[i] = BulletinStoryResponse{
+							ID:         bs.ID,
+							BulletinID: bs.BulletinID,
+							StoryID:    bs.StoryID,
+							StoryOrder: bs.StoryOrder,
+							CreatedAt:  bs.CreatedAt,
+							Station: StationRef{
+								ID:   bs.StationID,
+								Name: bs.StationName,
 							},
-							"story": map[string]interface{}{
-								"id": bs.StoryID, "title": bs.StoryTitle,
+							Story: StoryRef{
+								ID:    bs.StoryID,
+								Title: bs.StoryTitle,
 							},
-							"bulletin": map[string]interface{}{
-								"id": bs.BulletinID, "filename": bs.BulletinFilename,
+							Bulletin: BulletinRef{
+								ID:       bs.BulletinID,
+								Filename: bs.BulletinFilename,
 							},
 						}
 					}
@@ -352,47 +233,37 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
-func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) map[string]interface{} {
+func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinResponse {
 	bulletinURL := GetBulletinAudioURL(bulletin.ID)
 
-	response := map[string]interface{}{
-		"station_id":   bulletin.StationID,
-		"station_name": bulletin.StationName,
-		"audio_url":    bulletinURL,
-		"filename":     bulletin.Filename,
-		"created_at":   bulletin.CreatedAt,
-		"duration":     bulletin.DurationSeconds,
-		"file_size":    bulletin.FileSize,
-		"story_count":  bulletin.StoryCount,
+	return BulletinResponse{
+		ID:          bulletin.ID,
+		StationID:   bulletin.StationID,
+		StationName: bulletin.StationName,
+		AudioURL:    bulletinURL,
+		Filename:    bulletin.Filename,
+		CreatedAt:   bulletin.CreatedAt,
+		Duration:    bulletin.DurationSeconds,
+		FileSize:    bulletin.FileSize,
+		StoryCount:  bulletin.StoryCount,
 	}
-
-	if bulletin.ID > 0 {
-		response["id"] = bulletin.ID
-	}
-
-	return response
 }
 
 // bulletinInfoToResponse creates response from BulletinInfo
-func (h *Handlers) bulletinInfoToResponse(info *BulletinInfo) map[string]interface{} {
+func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
 	bulletinURL := GetBulletinAudioURL(int(info.ID))
 
-	response := map[string]interface{}{
-		"station_id":       info.Station.ID,
-		"station_name":     info.Station.Name,
-		"audio_url":        bulletinURL,
-		"filename":         filepath.Base(info.BulletinPath),
-		"created_at":       info.CreatedAt,
-		"duration_seconds": info.Duration,
-		"file_size":        info.FileSize,
-		"story_count":      len(info.Stories),
+	return BulletinResponse{
+		ID:          int(info.ID),
+		StationID:   info.Station.ID,
+		StationName: info.Station.Name,
+		AudioURL:    bulletinURL,
+		Filename:    filepath.Base(info.BulletinPath),
+		CreatedAt:   info.CreatedAt,
+		Duration:    info.Duration,
+		FileSize:    info.FileSize,
+		StoryCount:  len(info.Stories),
 	}
-
-	if info.ID > 0 {
-		response["id"] = info.ID
-	}
-
-	return response
 }
 
 // GetStationBulletins returns bulletins for a specific station with pagination and filtering
@@ -403,13 +274,13 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	// Check if station exists first
-	if !utils.ValidateResourceExists(c, h.db, "stations", "Station", stationID) {
+	if !utils.ValidateStationExists(c, h.db, stationID) {
 		return
 	}
 
 	// Check for 'latest' query parameter for RESTful latest bulletin access
 	if c.Query("latest") == "true" || c.Query("limit") == "1" {
-		bulletin, err := h.getLatestBulletin(stationID, nil)
+		bulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, nil)
 		if err != nil {
 			utils.ProblemNotFound(c, "No bulletin found for this station")
 			return
@@ -530,7 +401,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 
 	// Check if story exists first
-	if !utils.ValidateResourceExists(c, h.db, "stories", "Story", storyID) {
+	if !utils.ValidateStoryExists(c, h.db, storyID) {
 		return
 	}
 
@@ -555,12 +426,14 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			PostProcessor: func(result interface{}) {
 				bulletinHistory := result.(*[]models.StoryBulletinHistory)
 				// Convert to the expected response format
-				processedResults := make([]map[string]interface{}, len(*bulletinHistory))
+				processedResults := make([]StoryBulletinHistoryResponse, len(*bulletinHistory))
 				for i, item := range *bulletinHistory {
-					response := h.bulletinToResponse(&item.Bulletin)
-					response["story_order"] = item.StoryOrder
-					response["included_at"] = item.IncludedAt
-					processedResults[i] = response
+					baseResponse := h.bulletinToResponse(&item.Bulletin)
+					processedResults[i] = StoryBulletinHistoryResponse{
+						BulletinResponse: baseResponse,
+						StoryOrder:       item.StoryOrder,
+						IncludedAt:       item.IncludedAt,
+					}
 				}
 				// Store processed results in context for later retrieval
 				c.Set("processed_results", processedResults)
@@ -610,76 +483,30 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			return
 		}
 
+		// Extract pagination values with type assertions
+		total, ok := paginationInfo["total"].(int64)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination total")
+			return
+		}
+		limit, ok := paginationInfo["limit"].(int)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination limit")
+			return
+		}
+		offset, ok := paginationInfo["offset"].(int)
+		if !ok {
+			utils.ProblemInternalServer(c, "Invalid pagination offset")
+			return
+		}
+
 		// Send the processed paginated response
-		utils.PaginatedResponse(c, processedResults,
-			paginationInfo["total"].(int64),
-			paginationInfo["limit"].(int),
-			paginationInfo["offset"].(int))
+		utils.PaginatedResponse(c, processedResults, total, limit, offset)
 		return
 	}
 
 	// Fallback if PostProcessor didn't run (shouldn't happen)
 	utils.ProblemInternalServer(c, "Failed to process story bulletin history")
-}
-
-// parseTargetDate parses date string or returns current date
-func parseTargetDate(dateStr string) (time.Time, error) {
-	if dateStr == "" {
-		return time.Now(), nil
-	}
-	return time.Parse("2006-01-02", dateStr)
-}
-
-// getWeekdayColumn returns the corresponding weekday column name for a time.Weekday
-func getWeekdayColumn(weekday time.Weekday) string {
-	switch weekday {
-	case time.Monday:
-		return "monday"
-	case time.Tuesday:
-		return "tuesday"
-	case time.Wednesday:
-		return "wednesday"
-	case time.Thursday:
-		return "thursday"
-	case time.Friday:
-		return "friday"
-	case time.Saturday:
-		return "saturday"
-	case time.Sunday:
-		return "sunday"
-	default:
-		return "monday" // fallback
-	}
-}
-
-// getLatestBulletin fetches the most recent bulletin for a station.
-// If maxAge is provided, only returns bulletins newer than that duration.
-func (h *Handlers) getLatestBulletin(stationID int, maxAge *time.Duration) (*models.Bulletin, error) {
-	var bulletin models.Bulletin
-
-	// Build query with optional age filter
-	query := `
-		SELECT b.*, s.name as station_name 
-		FROM bulletins b
-		JOIN stations s ON b.station_id = s.id
-		WHERE b.station_id = ?`
-
-	args := []interface{}{stationID}
-
-	// Add age filter if specified
-	if maxAge != nil {
-		query += ` AND b.created_at >= ?`
-		args = append(args, time.Now().Add(-*maxAge))
-	}
-
-	query += ` ORDER BY b.created_at DESC LIMIT 1`
-
-	err := h.db.Get(&bulletin, query, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	return &bulletin, nil
 }
 
 // GetBulletinAudio serves the audio file for a specific bulletin.
