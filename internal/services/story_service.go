@@ -3,7 +3,7 @@ package services
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,23 +12,26 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	db       *sqlx.DB
-	audioSvc *audio.Service
-	config   *config.Config
+	storyRepo repository.StoryRepository
+	voiceRepo repository.VoiceRepository
+	audioSvc  *audio.Service
+	config    *config.Config
 }
 
 // NewStoryService creates a new story service instance.
-func NewStoryService(db *sqlx.DB, audioSvc *audio.Service, cfg *config.Config) *StoryService {
+func NewStoryService(storyRepo repository.StoryRepository, voiceRepo repository.VoiceRepository, audioSvc *audio.Service, cfg *config.Config) *StoryService {
 	return &StoryService{
-		db:       db,
-		audioSvc: audioSvc,
-		config:   cfg,
+		storyRepo: storyRepo,
+		voiceRepo: voiceRepo,
+		audioSvc:  audioSvc,
+		config:    cfg,
 	}
 }
 
@@ -60,8 +63,12 @@ type UpdateStoryRequest struct {
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
 	// Validate voice exists if provided
 	if req.VoiceID != nil {
-		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
-			return nil, err
+		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
+		}
+		if !exists {
+			return nil, fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *req.VoiceID)
 		}
 	}
 
@@ -85,42 +92,43 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	// Extract weekday booleans from map
 	monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
 
-	// Handle metadata - MySQL JSON column requires NULL not empty
-	var metadataValue interface{}
-	if len(req.Metadata) == 0 {
-		metadataValue = nil
-	} else {
-		// Convert map to JSON string (simple approach - could use json.Marshal)
-		metadataValue = req.Metadata
+	// Create story data
+	data := &repository.StoryCreateData{
+		Title:     req.Title,
+		Text:      req.Text,
+		VoiceID:   req.VoiceID,
+		Status:    req.Status,
+		StartDate: startDate,
+		EndDate:   endDate,
+		Monday:    monday,
+		Tuesday:   tuesday,
+		Wednesday: wednesday,
+		Thursday:  thursday,
+		Friday:    friday,
+		Saturday:  saturday,
+		Sunday:    sunday,
+		Metadata:  req.Metadata,
 	}
 
-	// Insert story into database
-	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO stories (title, text, voice_id, status, start_date, end_date,
-			monday, tuesday, wednesday, thursday, friday, saturday, sunday, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		req.Title, req.Text, req.VoiceID, req.Status, startDate, endDate,
-		monday, tuesday, wednesday, thursday, friday, saturday, sunday, metadataValue)
-
+	// Create story via repository
+	story, err := s.storyRepo.Create(ctx, data)
 	if err != nil {
 		logger.Error("Database error creating story: %v", err)
 		return nil, s.handleDatabaseError(err)
 	}
 
-	storyID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("%w: failed to get last insert ID", ErrDatabaseError)
-	}
-
-	// Fetch and return the created story
-	return s.GetByID(ctx, int(storyID))
+	return story, nil
 }
 
 // Update updates an existing story.
 func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryRequest) (*models.Story, error) {
 	// Verify story exists
-	if _, err := s.GetByID(ctx, id); err != nil {
-		return nil, err
+	exists, err := s.storyRepo.Exists(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%w: story with id %d", ErrNotFound, id)
 	}
 
 	// Parse and validate dates
@@ -129,8 +137,8 @@ func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryReque
 		return nil, err
 	}
 
-	// Build update query with validated data
-	updates, args, err := s.buildUpdateQuery(ctx, req, startDate, endDate)
+	// Build update map with validated data
+	updates, err := s.buildUpdateMap(ctx, req, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -140,10 +148,7 @@ func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryReque
 	}
 
 	// Execute update
-	query := "UPDATE stories SET " + strings.Join(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
-
-	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
 		logger.Error("Database error updating story: %v", err)
 		return nil, s.handleDatabaseError(err)
 	}
@@ -182,112 +187,95 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	return startDate, endDate, nil
 }
 
-// buildUpdateQuery constructs the SQL update statement with validated fields.
-func (s *StoryService) buildUpdateQuery(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) ([]string, []interface{}, error) {
-	updates := []string{}
-	args := []interface{}{}
+// buildUpdateMap constructs a map of fields to update with validated data.
+func (s *StoryService) buildUpdateMap(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) (map[string]interface{}, error) {
+	updates := make(map[string]interface{})
 
 	// Apply simple field updates
-	s.applySimpleFieldUpdates(req, &updates, &args)
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+	if req.Text != nil {
+		updates["text"] = *req.Text
+	}
+	if req.Status != nil {
+		updates["status"] = *req.Status
+	}
 
 	// Apply voice update with validation
 	if req.VoiceID != nil {
-		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
-			return nil, nil, err
+		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
 		}
-		updates = append(updates, "voice_id = ?")
-		args = append(args, *req.VoiceID)
+		if !exists {
+			return nil, fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *req.VoiceID)
+		}
+		updates["voice_id"] = *req.VoiceID
 	}
 
 	// Apply date updates
-	s.applyDateUpdates(startDate, endDate, &updates, &args)
+	if startDate != nil {
+		updates["start_date"] = *startDate
+	}
+	if endDate != nil {
+		updates["end_date"] = *endDate
+	}
 
 	// Apply weekdays updates
-	s.applyWeekdaysUpdates(req, &updates, &args)
+	if len(req.Weekdays) > 0 {
+		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
+		updates["monday"] = monday
+		updates["tuesday"] = tuesday
+		updates["wednesday"] = wednesday
+		updates["thursday"] = thursday
+		updates["friday"] = friday
+		updates["saturday"] = saturday
+		updates["sunday"] = sunday
+	}
 
 	// Apply metadata updates
-	s.applyMetadataUpdates(req, &updates, &args)
-
-	return updates, args, nil
-}
-
-// applySimpleFieldUpdates adds title, text, and status updates to the query.
-func (s *StoryService) applySimpleFieldUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
-	if req.Title != nil {
-		*updates = append(*updates, "title = ?")
-		*args = append(*args, *req.Title)
-	}
-
-	if req.Text != nil {
-		*updates = append(*updates, "text = ?")
-		*args = append(*args, *req.Text)
-	}
-
-	if req.Status != nil {
-		*updates = append(*updates, "status = ?")
-		*args = append(*args, *req.Status)
-	}
-}
-
-// applyDateUpdates adds date field updates to the query.
-func (s *StoryService) applyDateUpdates(startDate, endDate *time.Time, updates *[]string, args *[]interface{}) {
-	if startDate != nil {
-		*updates = append(*updates, "start_date = ?")
-		*args = append(*args, *startDate)
-	}
-
-	if endDate != nil {
-		*updates = append(*updates, "end_date = ?")
-		*args = append(*args, *endDate)
-	}
-}
-
-// applyWeekdaysUpdates adds weekday field updates to the query.
-func (s *StoryService) applyWeekdaysUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
-	if len(req.Weekdays) > 0 {
-		*updates = append(*updates, "monday = ?, tuesday = ?, wednesday = ?, thursday = ?, friday = ?, saturday = ?, sunday = ?")
-		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-		*args = append(*args, monday, tuesday, wednesday, thursday, friday, saturday, sunday)
-	}
-}
-
-// applyMetadataUpdates adds metadata field updates to the query.
-func (s *StoryService) applyMetadataUpdates(req *UpdateStoryRequest, updates *[]string, args *[]interface{}) {
 	if req.Metadata != nil {
-		*updates = append(*updates, "metadata = ?")
 		if len(req.Metadata) == 0 {
-			*args = append(*args, nil)
+			updates["metadata"] = nil
 		} else {
-			*args = append(*args, req.Metadata)
+			updates["metadata"] = req.Metadata
 		}
 	}
+
+	return updates, nil
 }
 
 // GetByID retrieves a story by its ID.
 func (s *StoryService) GetByID(ctx context.Context, id int) (*models.Story, error) {
-	var story models.Story
-	query := utils.BuildStoryQuery("s.id = ?", true)
-
-	if err := s.db.GetContext(ctx, &story, query, id); err != nil {
-		if err == sql.ErrNoRows {
+	story, err := s.storyRepo.GetByIDWithVoice(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%w: story with id %d", ErrNotFound, id)
 		}
 		logger.Error("Database error fetching story %d: %v", id, err)
 		return nil, fmt.Errorf("%w: failed to fetch story", ErrDatabaseError)
 	}
 
-	return &story, nil
+	return story, nil
 }
 
 // SoftDelete marks a story as deleted by setting the deleted_at timestamp.
 func (s *StoryService) SoftDelete(ctx context.Context, id int) error {
 	// Verify story exists
-	if _, err := s.GetByID(ctx, id); err != nil {
-		return err
+	exists, err := s.storyRepo.Exists(ctx, id)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
 	}
 
-	_, err := s.db.ExecContext(ctx, "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+	err = s.storyRepo.SoftDelete(ctx, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
+		}
 		logger.Error("Database error deleting story %d: %v", id, err)
 		return fmt.Errorf("%w: failed to delete story", ErrDatabaseError)
 	}
@@ -298,14 +286,19 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int) error {
 // Restore restores a soft-deleted story by clearing the deleted_at timestamp.
 func (s *StoryService) Restore(ctx context.Context, id int) error {
 	// Verify story exists (even if deleted)
-	var exists bool
-	err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stories WHERE id = ?)", id)
-	if err != nil || !exists {
+	exists, err := s.storyRepo.ExistsIncludingDeleted(ctx, id)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if !exists {
 		return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
 	}
 
-	_, err = s.db.ExecContext(ctx, "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
+	err = s.storyRepo.Restore(ctx, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
+		}
 		logger.Error("Database error restoring story %d: %v", id, err)
 		return fmt.Errorf("%w: failed to restore story", ErrDatabaseError)
 	}
@@ -318,8 +311,12 @@ func (s *StoryService) Restore(ctx context.Context, id int) error {
 // This method will convert the audio to standardized WAV format and update the story record.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int, tempPath string) error {
 	// Verify story exists
-	if _, err := s.GetByID(ctx, storyID); err != nil {
-		return err
+	exists, err := s.storyRepo.Exists(ctx, storyID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: story with id %d", ErrNotFound, storyID)
 	}
 
 	// Process audio with audio service (convert to mono WAV)
@@ -332,29 +329,13 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int, tempPath s
 
 	// Update database with filename and duration
 	filenameOnly := utils.GetStoryFilename(storyID)
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE stories SET audio_file = ?, duration_seconds = ? WHERE id = ?",
-		filenameOnly, duration, storyID)
+	err = s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration)
 	if err != nil {
 		logger.Error("Failed to update story %d audio reference: %v", storyID, err)
 		return fmt.Errorf("%w: failed to update audio reference", ErrDatabaseError)
 	}
 
 	logger.Info("Processed audio for story %d: %s (%.2fs)", storyID, filename, duration)
-	return nil
-}
-
-// validateVoiceExists checks if a voice exists in the database.
-func (s *StoryService) validateVoiceExists(ctx context.Context, voiceID int) error {
-	var exists bool
-	err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM voices WHERE id = ?)", voiceID)
-	if err != nil {
-		logger.Error("Database error checking voice existence: %v", err)
-		return fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
-	}
-	if !exists {
-		return fmt.Errorf("%w: voice with id %d not found", ErrNotFound, voiceID)
-	}
 	return nil
 }
 
@@ -380,8 +361,12 @@ func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesda
 // Valid statuses: draft, active, expired
 func (s *StoryService) UpdateStatus(ctx context.Context, id int, status string) error {
 	// Verify story exists
-	if _, err := s.GetByID(ctx, id); err != nil {
-		return err
+	exists, err := s.storyRepo.Exists(ctx, id)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
 	}
 
 	// Validate status
@@ -390,8 +375,11 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int, status string) 
 		return fmt.Errorf("%w: status must be one of: draft, active, expired", ErrInvalidInput)
 	}
 
-	_, err := s.db.ExecContext(ctx, "UPDATE stories SET status = ? WHERE id = ?", status, id)
+	err = s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%w: story with id %d", ErrNotFound, id)
+		}
 		logger.Error("Database error updating story status %d: %v", id, err)
 		return fmt.Errorf("%w: failed to update story status", ErrDatabaseError)
 	}
@@ -405,8 +393,20 @@ func (s *StoryService) handleDatabaseError(err error) error {
 		return nil
 	}
 
-	errStr := err.Error()
+	if errors.Is(err, repository.ErrNotFound) {
+		return ErrNotFound
+	}
+	if errors.Is(err, repository.ErrDuplicateKey) {
+		return fmt.Errorf("%w: story already exists", ErrDuplicate)
+	}
+	if errors.Is(err, repository.ErrForeignKeyViolation) {
+		return fmt.Errorf("%w: invalid reference to related resource", ErrInvalidInput)
+	}
+	if errors.Is(err, repository.ErrDataTooLong) {
+		return fmt.Errorf("%w: one or more fields exceed maximum length", ErrInvalidInput)
+	}
 
+	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
 		return fmt.Errorf("%w: story already exists", ErrDuplicate)
@@ -417,4 +417,9 @@ func (s *StoryService) handleDatabaseError(err error) error {
 	default:
 		return fmt.Errorf("%w: database operation failed", ErrDatabaseError)
 	}
+}
+
+// DB returns the underlying database for ModernListWithQuery.
+func (s *StoryService) DB() *sqlx.DB {
+	return s.storyRepo.DB()
 }

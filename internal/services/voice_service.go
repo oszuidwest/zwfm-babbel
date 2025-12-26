@@ -3,22 +3,23 @@ package services
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
 // VoiceService handles voice-related business logic
 type VoiceService struct {
-	db *sqlx.DB
+	repo repository.VoiceRepository
 }
 
 // NewVoiceService creates a new voice service instance
-func NewVoiceService(db *sqlx.DB) *VoiceService {
+func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
 	return &VoiceService{
-		db: db,
+		repo: repo,
 	}
 }
 
@@ -27,25 +28,21 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	const op = "VoiceService.Create"
 
 	// Check name uniqueness
-	if err := s.CheckNameUnique(ctx, name, nil); err != nil {
+	taken, err := s.repo.IsNameTaken(ctx, name, nil)
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	if taken {
+		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
 	}
 
 	// Create voice
-	result, err := s.db.ExecContext(ctx, "INSERT INTO voices (name) VALUES (?)", name)
+	voice, err := s.repo.Create(ctx, name)
 	if err != nil {
+		if errors.Is(err, repository.ErrDuplicateKey) {
+			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
+		}
 		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("%s: failed to get last insert id: %w", op, err)
-	}
-
-	// Fetch the created voice
-	voice, err := s.GetByID(ctx, int(id))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	return voice, nil
@@ -56,25 +53,30 @@ func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
 	const op = "VoiceService.Update"
 
 	// Check if voice exists
-	_, err := s.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Check name uniqueness (excluding current record)
-	if err := s.CheckNameUnique(ctx, name, &id); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Update voice
-	result, err := s.db.ExecContext(ctx, "UPDATE voices SET name = ? WHERE id = ?", name, id)
+	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if !exists {
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
+	}
+
+	// Check name uniqueness (excluding current record)
+	taken, err := s.repo.IsNameTaken(ctx, name, &id)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if taken {
+		return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
+	}
+
+	// Update voice
+	err = s.repo.Update(ctx, id, name)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
 	return nil
@@ -84,16 +86,15 @@ func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
 func (s *VoiceService) GetByID(ctx context.Context, id int) (*models.Voice, error) {
 	const op = "VoiceService.GetByID"
 
-	var voice models.Voice
-	err := s.db.GetContext(ctx, &voice, "SELECT * FROM voices WHERE id = ?", id)
+	voice, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
 		}
 		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	return &voice, nil
+	return voice, nil
 }
 
 // Delete deletes a voice after checking for dependencies
@@ -101,13 +102,16 @@ func (s *VoiceService) Delete(ctx context.Context, id int) error {
 	const op = "VoiceService.Delete"
 
 	// Check if voice exists
-	_, err := s.GetByID(ctx, id)
+	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+	}
+	if !exists {
+		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
 	// Check for dependencies
-	hasDeps, err := s.HasDependencies(ctx, id)
+	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -116,14 +120,12 @@ func (s *VoiceService) Delete(ctx context.Context, id int) error {
 	}
 
 	// Delete voice
-	result, err := s.db.ExecContext(ctx, "DELETE FROM voices WHERE id = ?", id)
+	err = s.repo.Delete(ctx, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
 	return nil
@@ -134,21 +136,12 @@ func (s *VoiceService) Delete(ctx context.Context, id int) error {
 func (s *VoiceService) CheckNameUnique(ctx context.Context, name string, excludeID *int) error {
 	const op = "VoiceService.CheckNameUnique"
 
-	var count int
-	query := "SELECT COUNT(*) FROM voices WHERE name = ?"
-	args := []interface{}{name}
-
-	if excludeID != nil {
-		query += " AND id != ?"
-		args = append(args, *excludeID)
-	}
-
-	err := s.db.GetContext(ctx, &count, query, args...)
+	taken, err := s.repo.IsNameTaken(ctx, name, excludeID)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	if count > 0 {
+	if taken {
 		return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
 	}
 
@@ -159,23 +152,15 @@ func (s *VoiceService) CheckNameUnique(ctx context.Context, name string, exclude
 func (s *VoiceService) HasDependencies(ctx context.Context, id int) (bool, error) {
 	const op = "VoiceService.HasDependencies"
 
-	// Check stories
-	var storyCount int
-	err := s.db.GetContext(ctx, &storyCount, "SELECT COUNT(*) FROM stories WHERE voice_id = ?", id)
+	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	if storyCount > 0 {
-		return true, nil
-	}
+	return hasDeps, nil
+}
 
-	// Check station_voices
-	var stationVoiceCount int
-	err = s.db.GetContext(ctx, &stationVoiceCount, "SELECT COUNT(*) FROM station_voices WHERE voice_id = ?", id)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return stationVoiceCount > 0, nil
+// DB returns the underlying database for ModernListWithQuery.
+func (s *VoiceService) DB() *sqlx.DB {
+	return s.repo.DB()
 }

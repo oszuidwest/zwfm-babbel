@@ -2,12 +2,13 @@
 package handlers
 
 import (
-	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -39,29 +40,19 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	// Build query to get file path
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?",
-		config.FileColumn, config.TableName, config.IDColumn)
-
-	var filePath sql.NullString
-	err := h.db.Get(&filePath, query, id)
-	if err == sql.ErrNoRows {
-		utils.ProblemNotFound(c, "Record")
-		return
-	}
+	// Get file path from repository
+	filePath, err := h.audioRepo.GetFilePath(c.Request.Context(), config.TableName, config.FileColumn, config.IDColumn, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			utils.ProblemNotFound(c, "Audio file")
+			return
+		}
 		utils.ProblemInternalServer(c, "Failed to fetch record")
 		return
 	}
 
-	// Check if filename exists
-	if !filePath.Valid || filePath.String == "" {
-		utils.ProblemNotFound(c, "Audio file")
-		return
-	}
-
 	// Construct full path using directory and filename
-	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath.String)
+	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath)
 
 	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
 		utils.ProblemNotFound(c, "Audio file")

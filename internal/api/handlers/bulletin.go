@@ -175,7 +175,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	if !utils.ValidateBulletinExists(c, h.db, bulletinID) {
+	if !utils.ValidateBulletinExists(c, h.bulletinSvc.DB(), bulletinID) {
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	}
 
 	var bulletinStories []models.BulletinStory
-	utils.ModernListWithQuery(c, h.db, config, &bulletinStories)
+	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletinStories)
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
@@ -274,7 +274,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	// Check if station exists first
-	if !utils.ValidateStationExists(c, h.db, stationID) {
+	if !utils.ValidateStationExists(c, h.bulletinSvc.DB(), stationID) {
 		return
 	}
 
@@ -341,7 +341,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	var bulletins []BulletinListResponse
-	utils.ModernListWithQuery(c, h.db, config, &bulletins)
+	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletins)
 }
 
 // BulletinListResponse represents the response format for bulletins in list view with computed fields.
@@ -390,7 +390,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	}
 
 	var bulletins []BulletinListResponse
-	utils.ModernListWithQuery(c, h.db, config, &bulletins)
+	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletins)
 }
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
@@ -401,7 +401,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 
 	// Check if story exists first
-	if !utils.ValidateStoryExists(c, h.db, storyID) {
+	if !utils.ValidateStoryExists(c, h.bulletinSvc.DB(), storyID) {
 		return
 	}
 
@@ -462,7 +462,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 
 	var bulletinHistory []models.StoryBulletinHistory
-	utils.ModernListWithQuery(c, h.db, config, &bulletinHistory)
+	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletinHistory)
 
 	// Check if ModernListWithQuery already handled the response (error case)
 	if c.IsAborted() {

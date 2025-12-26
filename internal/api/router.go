@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -27,19 +28,31 @@ import (
 //
 // Returns a configured Gin engine ready for HTTP serving.
 func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
+	// Create transaction manager
+	txManager := repository.NewTxManager(db)
+
+	// Create repositories
+	stationRepo := repository.NewStationRepository(db)
+	voiceRepo := repository.NewVoiceRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	storyRepo := repository.NewStoryRepository(db)
+	bulletinRepo := repository.NewBulletinRepository(db)
+	stationVoiceRepo := repository.NewStationVoiceRepository(db)
+	audioRepo := repository.NewAudioRepository(db)
+
 	// Create audio service
 	audioSvc := audio.NewService(cfg)
 
-	// Create domain services
-	bulletinSvc := services.NewBulletinService(db, audioSvc, cfg)
-	storySvc := services.NewStoryService(db, audioSvc, cfg)
-	stationSvc := services.NewStationService(db)
-	voiceSvc := services.NewVoiceService(db)
-	userSvc := services.NewUserService(db)
-	stationVoiceSvc := services.NewStationVoiceService(db, audioSvc, cfg)
+	// Create domain services with repositories
+	bulletinSvc := services.NewBulletinService(txManager, bulletinRepo, stationRepo, storyRepo, audioSvc, cfg)
+	storySvc := services.NewStoryService(storyRepo, voiceRepo, audioSvc, cfg)
+	stationSvc := services.NewStationService(stationRepo)
+	voiceSvc := services.NewVoiceService(voiceRepo)
+	userSvc := services.NewUserService(userRepo)
+	stationVoiceSvc := services.NewStationVoiceService(stationVoiceRepo, stationRepo, voiceRepo, audioSvc, cfg)
 
-	// Create handlers with all services
-	h := handlers.NewHandlers(db, audioSvc, cfg, bulletinSvc, storySvc, stationSvc, voiceSvc, userSvc, stationVoiceSvc)
+	// Create handlers with services and audio repository
+	h := handlers.NewHandlers(audioRepo, audioSvc, cfg, bulletinSvc, storySvc, stationSvc, voiceSvc, userSvc, stationVoiceSvc)
 
 	// Create auth configuration
 	authConfig := &auth.Config{

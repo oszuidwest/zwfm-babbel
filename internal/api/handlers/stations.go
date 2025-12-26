@@ -33,14 +33,14 @@ func (h *Handlers) ListStations(c *gin.Context) {
 	}
 
 	var stations []models.Station
-	utils.ModernListWithQuery(c, h.db, config, &stations)
+	utils.ModernListWithQuery(c, h.stationSvc.DB(), config, &stations)
 }
 
 // GetStation returns a single radio station by ID with all configuration details.
 // Requires 'stations' read permission. Returns 404 if station doesn't exist.
 func (h *Handlers) GetStation(c *gin.Context) {
 	var station models.Station
-	utils.GenericGetByID(c, h.db, "stations", "Station", &station)
+	utils.GenericGetByID(c, h.stationSvc.DB(), "stations", "Station", &station)
 }
 
 // CreateStation creates a new radio station with broadcast configuration settings.

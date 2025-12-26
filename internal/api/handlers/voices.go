@@ -31,14 +31,14 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 	}
 
 	var voices []models.Voice
-	utils.ModernListWithQuery(c, h.db, config, &voices)
+	utils.ModernListWithQuery(c, h.voiceSvc.DB(), config, &voices)
 }
 
 // GetVoice returns a single newsreader voice by ID with all configuration details.
 // Requires 'voices' read permission. Returns 404 if voice doesn't exist.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	var voice models.Voice
-	utils.GenericGetByID(c, h.db, "voices", "Voice", &voice)
+	utils.GenericGetByID(c, h.voiceSvc.DB(), "voices", "Voice", &voice)
 }
 
 // CreateVoice creates a new newsreader voice for text-to-speech and jingle association.

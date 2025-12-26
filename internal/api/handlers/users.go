@@ -2,7 +2,6 @@
 package handlers
 
 import (
-	"database/sql"
 	"errors"
 	"time"
 
@@ -62,7 +61,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	}
 
 	var users []UserResponse
-	utils.ModernListWithQuery(c, h.db, config, &users)
+	utils.ModernListWithQuery(c, h.userSvc.DB(), config, &users)
 }
 
 // GetUser returns a single user by ID
@@ -72,18 +71,32 @@ func (h *Handlers) GetUser(c *gin.Context) {
 		return
 	}
 
-	var user UserResponse
-	query := "SELECT id, username, full_name, email, role, suspended_at, last_login_at, login_count, failed_login_attempts, locked_until, password_changed_at, metadata, created_at, updated_at FROM users WHERE id = ?"
-	if err := h.db.Get(&user, query, id); err != nil {
-		if err == sql.ErrNoRows {
-			utils.ProblemNotFound(c, "User")
-		} else {
-			utils.ProblemInternalServer(c, "Failed to fetch user")
-		}
+	// Get user via service
+	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
 		return
 	}
 
-	utils.Success(c, user)
+	// Convert to response format using safe pointer conversion
+	response := UserResponse{
+		ID:                  user.ID,
+		Username:            user.Username,
+		FullName:            stringToPtr(user.FullName),
+		Email:               user.Email,
+		Role:                string(user.Role),
+		SuspendedAt:         user.SuspendedAt,
+		LastLoginAt:         user.LastLoginAt,
+		LoginCount:          user.LoginCount,
+		FailedLoginAttempts: user.FailedLoginAttempts,
+		LockedUntil:         user.LockedUntil,
+		PasswordChangedAt:   user.PasswordChangedAt,
+		Metadata:            user.Metadata,
+		CreatedAt:           user.CreatedAt,
+		UpdatedAt:           user.UpdatedAt,
+	}
+
+	utils.Success(c, response)
 }
 
 // CreateUser creates a new user account
