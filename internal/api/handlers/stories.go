@@ -235,34 +235,6 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	utils.CreatedWithID(c, int64(story.ID), "Story created successfully")
 }
 
-// hasAnyIndividualWeekday checks if any individual weekday field is set in the request
-func hasAnyIndividualWeekday(req *utils.StoryUpdateRequest) bool {
-	return req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
-		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
-}
-
-// applyWeekdayUpdates updates the weekdays map with values from individual request fields
-func applyWeekdayUpdates(weekdays map[string]bool, req *utils.StoryUpdateRequest) {
-	weekdayFields := []struct {
-		name  string
-		value *bool
-	}{
-		{"monday", req.Monday},
-		{"tuesday", req.Tuesday},
-		{"wednesday", req.Wednesday},
-		{"thursday", req.Thursday},
-		{"friday", req.Friday},
-		{"saturday", req.Saturday},
-		{"sunday", req.Sunday},
-	}
-
-	for _, field := range weekdayFields {
-		if field.value != nil {
-			weekdays[field.name] = *field.value
-		}
-	}
-}
-
 // processWeekdaysUpdate handles weekday merging logic for story updates
 func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int, req *utils.StoryUpdateRequest) (map[string]bool, error) {
 	// Handle weekdays - either from weekdays map or individual fields
@@ -271,7 +243,9 @@ func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int, req *utils.Stor
 	}
 
 	// Build from individual fields if any are provided
-	if !hasAnyIndividualWeekday(req) {
+	hasIndividualWeekday := req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
+		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
+	if !hasIndividualWeekday {
 		return nil, nil
 	}
 
@@ -282,20 +256,38 @@ func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int, req *utils.Stor
 	}
 
 	weekdays := current.GetWeekdaysMap()
-	applyWeekdayUpdates(weekdays, req)
+	// Update only the provided fields
+	if req.Monday != nil {
+		weekdays["monday"] = *req.Monday
+	}
+	if req.Tuesday != nil {
+		weekdays["tuesday"] = *req.Tuesday
+	}
+	if req.Wednesday != nil {
+		weekdays["wednesday"] = *req.Wednesday
+	}
+	if req.Thursday != nil {
+		weekdays["thursday"] = *req.Thursday
+	}
+	if req.Friday != nil {
+		weekdays["friday"] = *req.Friday
+	}
+	if req.Saturday != nil {
+		weekdays["saturday"] = *req.Saturday
+	}
+	if req.Sunday != nil {
+		weekdays["sunday"] = *req.Sunday
+	}
 
 	return weekdays, nil
 }
 
-// hasStoryFieldUpdates checks if any story fields need updating
-func hasStoryFieldUpdates(req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
-	return req.Title != nil || req.Text != nil || req.Status != nil ||
+// validateStoryUpdate validates at least one field to update
+func (h *Handlers) validateStoryUpdate(c *gin.Context, req *utils.StoryUpdateRequest, hasWeekdays, hasAudioUpdate bool) bool {
+	hasFieldUpdate := req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		len(weekdays) > 0 || req.Metadata != nil
-}
+		hasWeekdays || req.Metadata != nil
 
-// validateStoryUpdateRequest validates that at least one field or audio is being updated
-func validateStoryUpdateRequest(c *gin.Context, hasFieldUpdate, hasAudioUpdate bool) bool {
 	if !hasFieldUpdate && !hasAudioUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
@@ -303,6 +295,7 @@ func validateStoryUpdateRequest(c *gin.Context, hasFieldUpdate, hasAudioUpdate b
 		}})
 		return false
 	}
+
 	return true
 }
 
@@ -379,15 +372,16 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	_, _, err = c.Request.FormFile("audio")
 	hasAudioUpdate := err == nil
 
-	// Determine if there are field updates
-	hasFieldUpdate := hasStoryFieldUpdates(&req, weekdays)
-
 	// Validate update request
-	if !validateStoryUpdateRequest(c, hasFieldUpdate, hasAudioUpdate) {
+	if !h.validateStoryUpdate(c, &req, len(weekdays) > 0, hasAudioUpdate) {
 		return
 	}
 
 	// Apply field updates if needed
+	hasFieldUpdate := req.Title != nil || req.Text != nil || req.Status != nil ||
+		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
+		len(weekdays) > 0 || req.Metadata != nil
+
 	if hasFieldUpdate {
 		if !h.applyStoryFieldUpdates(c, id, &req, weekdays) {
 			return
