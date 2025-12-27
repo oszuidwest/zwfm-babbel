@@ -17,16 +17,3 @@ type HealthResponse struct {
 	Status  string `json:"status"`
 	Service string `json:"service"`
 }
-
-// PaginationMeta contains pagination metadata for list responses.
-type PaginationMeta struct {
-	Total  int64 `json:"total"`
-	Limit  int   `json:"limit"`
-	Offset int   `json:"offset"`
-}
-
-// PaginatedResponse is a generic wrapper for paginated responses.
-type PaginatedResponse[T any] struct {
-	Data       []T            `json:"data"`
-	Pagination PaginationMeta `json:"pagination"`
-}

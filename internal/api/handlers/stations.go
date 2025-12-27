@@ -41,7 +41,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 // Requires 'stations' read permission. Returns 404 if station doesn't exist.
 func (h *Handlers) GetStation(c *gin.Context) {
 	var station models.Station
-	utils.GenericGetByID(c, h.stationSvc.DB(), "stations", "Station", &station)
+	utils.GenericByID(c, h.stationSvc.DB(), "stations", "Station", &station)
 }
 
 // CreateStation creates a new radio station with broadcast configuration settings.
@@ -66,7 +66,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 // Validates station existence and name uniqueness (excluding current station).
 // Requires 'stations' write permission. Returns 404 if station doesn't exist, 409 for name conflicts.
 func (h *Handlers) UpdateStation(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -96,7 +96,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 // Checks for associated station-voices and other references before deletion.
 // Requires 'stations' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
 func (h *Handlers) DeleteStation(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -137,7 +138,7 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
               WHERE s.id = ?`
 
 	if err := q.GetContext(ctx, &story, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)
@@ -186,15 +187,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUp
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // SoftDelete sets the deleted_at timestamp.
@@ -206,15 +199,7 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // Restore clears the deleted_at timestamp.
@@ -226,15 +211,7 @@ func (r *storyRepository) Restore(ctx context.Context, id int64) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // ExistsIncludingDeleted checks if a story exists (including soft-deleted).
@@ -258,15 +235,7 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile s
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // UpdateStatus updates the story status.
@@ -278,15 +247,7 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status str
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -42,26 +43,26 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 
 	// Validate role
 	if !isValidRole(role) {
-		return nil, fmt.Errorf("%s: %w: invalid role '%s'", op, ErrInvalidInput, role)
+		return nil, fmt.Errorf("%s: %w: invalid role '%s'", op, apperrors.ErrInvalidInput, role)
 	}
 
 	// Check username uniqueness
 	taken, err := s.repo.IsUsernameTaken(ctx, username, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if taken {
-		return nil, fmt.Errorf("%s: %w: username '%s'", op, ErrDuplicate, username)
+		return nil, fmt.Errorf("%s: %w: username '%s'", op, apperrors.ErrDuplicate, username)
 	}
 
 	// Check email uniqueness (if provided)
 	if email != "" {
 		taken, err = s.repo.IsEmailTaken(ctx, email, nil)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 		if taken {
-			return nil, fmt.Errorf("%s: %w: email '%s'", op, ErrDuplicate, email)
+			return nil, fmt.Errorf("%s: %w: email '%s'", op, apperrors.ErrDuplicate, email)
 		}
 	}
 
@@ -81,9 +82,9 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role)
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: username or email already exists", op, ErrDuplicate)
+			return nil, fmt.Errorf("%s: %w: username or email already exists", op, apperrors.ErrDuplicate)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return user, nil
@@ -96,10 +97,10 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 	}
 	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
 	}
 	if taken {
-		return fmt.Errorf("%w: username '%s'", ErrDuplicate, username)
+		return fmt.Errorf("%w: username '%s'", apperrors.ErrDuplicate, username)
 	}
 	updates.Username = &username
 	return nil
@@ -112,10 +113,10 @@ func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.
 	}
 	taken, err := s.repo.IsEmailTaken(ctx, *email, &excludeID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
 	}
 	if taken {
-		return fmt.Errorf("%w: email '%s'", ErrDuplicate, *email)
+		return fmt.Errorf("%w: email '%s'", apperrors.ErrDuplicate, *email)
 	}
 	updates.Email = &email
 	return nil
@@ -141,7 +142,7 @@ func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role strin
 		return nil
 	}
 	if !isValidRole(role) {
-		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, role)
+		return fmt.Errorf("%w: invalid role '%s'", apperrors.ErrInvalidInput, role)
 	}
 	updates.Role = &role
 	return nil
@@ -169,9 +170,9 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 	}
 	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return ErrNotFound
+			return apperrors.ErrNotFound
 		}
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
 	}
 	return nil
 }
@@ -187,9 +188,9 @@ func hasFieldUpdates(updates *repository.UserUpdate) bool {
 func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates *repository.UserUpdate) error {
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return ErrNotFound
+			return apperrors.ErrNotFound
 		}
-		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
 	}
 	return nil
 }
@@ -200,10 +201,10 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	updates := &repository.UserUpdate{}
@@ -231,7 +232,7 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	// Check if we have any updates
 	hasUpdates := hasFieldUpdates(updates)
 	if !hasUpdates && req.Suspended == nil {
-		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
+		return fmt.Errorf("%s: %w: no fields to update", op, apperrors.ErrInvalidInput)
 	}
 
 	// Apply field updates
@@ -251,9 +252,9 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return user, nil
@@ -268,20 +269,20 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	// If user is an admin, check that this is not the last admin
 	if user.Role == models.RoleAdmin {
 		adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
 		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+			return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 
 		if adminCount == 0 {
-			return fmt.Errorf("%s: %w", op, ErrInvalidInput)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrInvalidInput)
 		}
 	}
 
@@ -292,9 +293,9 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	err = s.repo.Delete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
@@ -307,19 +308,19 @@ func (s *UserService) Suspend(ctx context.Context, id int64) error {
 	// Check if user exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Suspend user
 	err = s.repo.SetSuspended(ctx, id, true)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
@@ -332,19 +333,19 @@ func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 	// Check if user exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Unsuspend user
 	err = s.repo.SetSuspended(ctx, id, false)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil

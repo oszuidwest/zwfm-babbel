@@ -34,24 +34,14 @@ func SetUserContext(c *gin.Context, ctx UserContext) {
 	c.Set(string(CtxKeyAuthMethod), ctx.AuthMethod)
 }
 
-// GetUserID retrieves the user ID from context in a type-safe manner.
+// UserID retrieves the user ID from context in a type-safe manner.
 // Returns 0 and false if not found or wrong type.
-func GetUserID(c *gin.Context) (int64, bool) {
+func UserID(c *gin.Context) (int64, bool) {
 	return getContextInt64(c, CtxKeyUserID)
 }
 
-// MustGetUserID retrieves the user ID from context or panics.
-// Only use in handlers where authentication middleware guarantees the value exists.
-func MustGetUserID(c *gin.Context) int64 {
-	id, ok := GetUserID(c)
-	if !ok {
-		panic("MustGetUserID: user_id not found in context - ensure auth middleware ran")
-	}
-	return id
-}
-
-// GetUserRole retrieves the user role from context in a type-safe manner.
-func GetUserRole(c *gin.Context) (string, bool) {
+// UserRole retrieves the user role from context in a type-safe manner.
+func UserRole(c *gin.Context) (string, bool) {
 	return getContextString(c, CtxKeyUserRole)
 }
 

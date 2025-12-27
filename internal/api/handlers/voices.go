@@ -39,7 +39,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 // Requires 'voices' read permission. Returns 404 if voice doesn't exist.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	var voice models.Voice
-	utils.GenericGetByID(c, h.voiceSvc.DB(), "voices", "Voice", &voice)
+	utils.GenericByID(c, h.voiceSvc.DB(), "voices", "Voice", &voice)
 }
 
 // CreateVoice creates a new newsreader voice for text-to-speech and jingle association.
@@ -64,7 +64,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 // Validates voice existence and name uniqueness (excluding current voice).
 // Requires 'voices' write permission. Returns 404 if voice doesn't exist, 409 for name conflicts.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -92,7 +92,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 // Checks for associated stories and station-voices before deletion to maintain referential integrity.
 // Requires 'voices' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
 func (h *Handlers) DeleteVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

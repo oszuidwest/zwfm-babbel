@@ -61,15 +61,13 @@ type LocalConfig struct {
 	RequireUppercase       bool
 	RequireLowercase       bool
 	RequireNumbers         bool
-	RequireSpecialChars    bool
-	PasswordExpiryDays     int
 	MaxFailedAttempts      int
 	LockoutDurationMinutes int
 }
 
 // SessionConfig defines how user sessions are stored and secured via cookies
 type SessionConfig struct {
-	// Session store type: "memory", "redis", "database"
+	// Session store type: "memory" (default)
 	StoreType string
 
 	// Session lifetime
@@ -85,9 +83,4 @@ type SessionConfig struct {
 
 	// Secret key for session encryption
 	SecretKey string
-
-	// Redis configuration (if using Redis store)
-	RedisAddr     string
-	RedisPassword string
-	RedisDB       int
 }

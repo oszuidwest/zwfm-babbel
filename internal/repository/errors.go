@@ -3,10 +3,10 @@ package repository
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Repository-level sentinel errors.
@@ -23,13 +23,12 @@ var (
 
 	// ErrDataTooLong indicates data exceeds column capacity.
 	ErrDataTooLong = errors.New("data too long for column")
-
-	// ErrNoRowsAffected indicates an update/delete affected no rows.
-	ErrNoRowsAffected = errors.New("no rows affected")
 )
 
 // ParseDBError converts MySQL-specific errors to repository errors.
 // This provides a consistent error interface across the repository layer.
+// Internal error details are logged but not exposed in the returned error
+// to prevent database schema leakage to clients.
 func ParseDBError(err error) error {
 	if err == nil {
 		return nil
@@ -40,11 +39,14 @@ func ParseDBError(err error) error {
 	if errors.As(err, &mysqlErr) {
 		switch mysqlErr.Number {
 		case 1062: // ER_DUP_ENTRY
-			return fmt.Errorf("%w: %v", ErrDuplicateKey, err)
+			logger.Debug("MySQL duplicate key: %v", err)
+			return ErrDuplicateKey
 		case 1452: // ER_NO_REFERENCED_ROW_2
-			return fmt.Errorf("%w: %v", ErrForeignKeyViolation, err)
+			logger.Debug("MySQL foreign key violation: %v", err)
+			return ErrForeignKeyViolation
 		case 1406: // ER_DATA_TOO_LONG
-			return fmt.Errorf("%w: %v", ErrDataTooLong, err)
+			logger.Debug("MySQL data too long: %v", err)
+			return ErrDataTooLong
 		}
 	}
 
@@ -52,11 +54,14 @@ func ParseDBError(err error) error {
 	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
-		return fmt.Errorf("%w: %v", ErrDuplicateKey, err)
+		logger.Debug("Duplicate entry detected: %v", err)
+		return ErrDuplicateKey
 	case strings.Contains(errStr, "foreign key constraint"):
-		return fmt.Errorf("%w: %v", ErrForeignKeyViolation, err)
+		logger.Debug("Foreign key constraint violation: %v", err)
+		return ErrForeignKeyViolation
 	case strings.Contains(errStr, "Data too long"):
-		return fmt.Errorf("%w: %v", ErrDataTooLong, err)
+		logger.Debug("Data too long for column: %v", err)
+		return ErrDataTooLong
 	default:
 		return err
 	}

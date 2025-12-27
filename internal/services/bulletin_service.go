@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -17,6 +18,16 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+// BulletinServiceDeps contains all dependencies for BulletinService.
+type BulletinServiceDeps struct {
+	TxManager    repository.TxManager
+	BulletinRepo repository.BulletinRepository
+	StationRepo  repository.StationRepository
+	StoryRepo    repository.StoryRepository
+	AudioSvc     *audio.Service
+	Config       *config.Config
+}
 
 // BulletinService handles bulletin generation and retrieval operations.
 type BulletinService struct {
@@ -29,21 +40,14 @@ type BulletinService struct {
 }
 
 // NewBulletinService creates a new bulletin service instance.
-func NewBulletinService(
-	txManager repository.TxManager,
-	bulletinRepo repository.BulletinRepository,
-	stationRepo repository.StationRepository,
-	storyRepo repository.StoryRepository,
-	audioSvc *audio.Service,
-	config *config.Config,
-) *BulletinService {
+func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 	return &BulletinService{
-		txManager:    txManager,
-		bulletinRepo: bulletinRepo,
-		stationRepo:  stationRepo,
-		storyRepo:    storyRepo,
-		audioSvc:     audioSvc,
-		config:       config,
+		txManager:    deps.TxManager,
+		bulletinRepo: deps.BulletinRepo,
+		stationRepo:  deps.StationRepo,
+		storyRepo:    deps.StoryRepo,
+		audioSvc:     deps.AudioSvc,
+		config:       deps.Config,
 	}
 }
 
@@ -74,7 +78,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	if len(stories) == 0 {
-		return nil, ErrNoStoriesAvailable
+		return nil, apperrors.ErrNoStoriesAvailable
 	}
 
 	// Generate audio file
@@ -109,9 +113,9 @@ func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: station not found", ErrNotFound)
+			return nil, fmt.Errorf("%w: station not found", apperrors.ErrNotFound)
 		}
-		return nil, fmt.Errorf("%w: failed to fetch station: %v", ErrDatabaseError, err)
+		return nil, fmt.Errorf("%w: failed to fetch station: %v", apperrors.ErrDatabaseError, err)
 	}
 	return station, nil
 }
@@ -125,7 +129,7 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 	// Create bulletin using the generated absolute path
 	createdPath, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrAudioProcessingFailed, err)
+		return "", fmt.Errorf("%w: %v", apperrors.ErrAudioProcessingFailed, err)
 	}
 
 	// Verify the paths match (should always be true with unified function)
@@ -197,7 +201,7 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 	})
 
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", ErrDatabaseError, err)
+		return 0, fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
 	}
 
 	return bulletinID, nil
@@ -209,9 +213,9 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 	bulletin, err := s.bulletinRepo.GetLatest(ctx, stationID, maxAge)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: no bulletin found for station", ErrNotFound)
+			return nil, fmt.Errorf("%w: no bulletin found for station", apperrors.ErrNotFound)
 		}
-		return nil, fmt.Errorf("%w: failed to fetch bulletin: %v", ErrDatabaseError, err)
+		return nil, fmt.Errorf("%w: failed to fetch bulletin: %v", apperrors.ErrDatabaseError, err)
 	}
 
 	return bulletin, nil
@@ -222,7 +226,7 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to fetch stories: %v", ErrDatabaseError, err)
+		return nil, fmt.Errorf("%w: failed to fetch stories: %v", apperrors.ErrDatabaseError, err)
 	}
 
 	return stories, nil
@@ -235,7 +239,7 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	}
 	parsedDate, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("%w: invalid date format (expected YYYY-MM-DD)", ErrInvalidInput)
+		return time.Time{}, fmt.Errorf("%w: invalid date format (expected YYYY-MM-DD)", apperrors.ErrInvalidInput)
 	}
 	return parsedDate, nil
 }

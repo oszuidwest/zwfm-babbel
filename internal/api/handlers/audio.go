@@ -35,7 +35,7 @@ type AudioConfig struct {
 //
 // Returns 404 if record or file doesn't exist, 500 for database errors.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

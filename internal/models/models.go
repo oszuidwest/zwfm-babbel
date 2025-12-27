@@ -92,12 +92,12 @@ func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
 	}
 }
 
-// GetWeekdaysMap returns the story's weekday schedule as a map.
+// WeekdaysMap returns the story's weekday schedule as a map.
 //
 // The returned map uses lowercase weekday names as keys ("monday" through "sunday")
 // with boolean values indicating whether the story is scheduled for each day.
 // This format provides a consistent interface for API responses.
-func (s *Story) GetWeekdaysMap() map[string]bool {
+func (s *Story) WeekdaysMap() map[string]bool {
 	return map[string]bool{
 		"monday":    s.Monday,
 		"tuesday":   s.Tuesday,
@@ -148,18 +148,6 @@ type StationVoice struct {
 	AudioURL *string `json:"audio_url,omitempty"`
 }
 
-// Broadcast represents a historical record of when a story was broadcast.
-type Broadcast struct {
-	// ID is the unique identifier.
-	ID int64 `db:"id" json:"id"`
-	// StationID is the broadcasting station.
-	StationID int64 `db:"station_id" json:"station_id"`
-	// StoryID is the story that was broadcast.
-	StoryID int64 `db:"story_id" json:"story_id"`
-	// CreatedAt is when the broadcast occurred.
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-}
-
 // User represents a system user with authentication credentials and role-based permissions.
 type User struct {
 	// ID is the unique identifier.
@@ -194,17 +182,6 @@ type User struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 	// UpdatedAt is the timestamp of the last update.
 	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
-}
-
-// UserSession represents an active authentication session.
-type UserSession struct {
-	ID        int64     `db:"id" json:"id"`
-	UserID    int64     `db:"user_id" json:"user_id"`
-	TokenHash string    `db:"token_hash" json:"-"`
-	ExpiresAt time.Time `db:"expires_at" json:"expires_at"`
-	UserAgent string    `db:"user_agent" json:"user_agent"`
-	IPAddress string    `db:"ip_address" json:"ip_address"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 // UserRole represents a user's permission level.

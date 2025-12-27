@@ -92,7 +92,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 	// Add computed fields
 	hasAudio := story.AudioFile != ""
 	response.AudioURL = StoryAudioURL(story.ID, hasAudio)
-	response.Weekdays = story.GetWeekdaysMap()
+	response.Weekdays = story.WeekdaysMap()
 
 	return response
 }
@@ -150,7 +150,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 
 // GetStory returns a single story by ID
 func (h *Handlers) GetStory(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -286,7 +286,7 @@ func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int64, req *utils.St
 		return nil, err
 	}
 
-	weekdays := current.GetWeekdaysMap()
+	weekdays := current.WeekdaysMap()
 	applyWeekdayUpdates(weekdays, req)
 
 	return weekdays, nil
@@ -361,7 +361,7 @@ func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int64) bool {
 // UpdateStory updates an existing story
 func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Get ID param
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -415,7 +415,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 
 // DeleteStory soft deletes a story by setting deleted_at timestamp
 func (h *Handlers) DeleteStory(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -430,7 +430,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 
 // UpdateStoryStatus updates a story's status or handles soft delete/restore operations
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

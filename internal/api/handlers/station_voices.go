@@ -82,7 +82,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 
 // GetStationVoice returns a single station-voice relationship by ID
 func (h *Handlers) GetStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -268,7 +268,7 @@ func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
 
 // UpdateStationVoice updates an existing station-voice relationship
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -305,7 +305,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file
 func (h *Handlers) DeleteStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

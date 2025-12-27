@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -72,7 +73,7 @@ func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
               WHERE b.id = ?`
 
 	if err := q.GetContext(ctx, &bulletin, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)
@@ -103,7 +104,7 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 	query += ` ORDER BY b.created_at DESC LIMIT 1`
 
 	if err := q.GetContext(ctx, &bulletin, query, args...); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)

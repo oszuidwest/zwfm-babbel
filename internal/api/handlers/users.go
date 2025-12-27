@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -66,7 +67,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 
 // GetUser returns a single user by ID
 func (h *Handlers) GetUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -124,7 +125,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 
 // UpdateUser updates an existing user's information
 func (h *Handlers) UpdateUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -156,7 +157,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 
 // DeleteUser permanently deletes a user account
 func (h *Handlers) DeleteUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -165,7 +166,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
 		// Special handling for last admin constraint
-		if errors.Is(err, services.ErrInvalidInput) {
+		if errors.Is(err, apperrors.ErrInvalidInput) {
 			// Check if this is the last admin error
 			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
 			return
@@ -179,7 +180,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 
 // UpdateUserStatus handles user suspension and restoration
 func (h *Handlers) UpdateUserStatus(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -28,7 +29,7 @@ type BulletinRequest struct {
 
 // GenerateBulletin generates a news bulletin for a station.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
-	stationID, ok := utils.GetIDParam(c)
+	stationID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -154,11 +155,11 @@ func serveAudioFile(c *gin.Context, filePath, filename string, cached bool) {
 // handleBulletinCreationError maps bulletin service errors to appropriate HTTP responses.
 func (h *Handlers) handleBulletinCreationError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, services.ErrNotFound):
+	case errors.Is(err, apperrors.ErrNotFound):
 		utils.ProblemNotFound(c, "Station")
-	case errors.Is(err, services.ErrNoStoriesAvailable):
+	case errors.Is(err, apperrors.ErrNoStoriesAvailable):
 		utils.ProblemNotFound(c, "No stories available for the specified date")
-	case errors.Is(err, services.ErrAudioProcessingFailed):
+	case errors.Is(err, apperrors.ErrAudioProcessingFailed):
 		utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
 	default:
 		utils.ProblemInternalServer(c, "Failed to generate bulletin")
@@ -194,7 +195,7 @@ func (h *Handlers) transformBulletinStories(stories []models.BulletinStory) []Bu
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
-	bulletinID, ok := utils.GetIDParam(c)
+	bulletinID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -271,7 +272,7 @@ func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinR
 
 // GetStationBulletins returns bulletins for a specific station with pagination and filtering
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
-	stationID, ok := utils.GetIDParam(c)
+	stationID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -464,7 +465,7 @@ func (h *Handlers) buildStoryBulletinHistoryConfig(c *gin.Context, storyID int64
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
-	storyID, ok := utils.GetIDParam(c)
+	storyID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

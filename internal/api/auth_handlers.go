@@ -68,8 +68,8 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 // Cleans up temporary session data after processing.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	// Get frontend URL from session or use configured fallback (type-safe)
-	session := h.authService.GetSession(c)
-	frontendURL, ok := auth.GetSessionFrontendURL(session)
+	session := h.authService.Session(c)
+	frontendURL, ok := auth.SessionFrontendURL(session)
 	if !ok || frontendURL == "" {
 		if h.frontendURL != "" {
 			frontendURL = h.frontendURL
@@ -107,8 +107,11 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 // Retrieves user data based on the session and delegates to the standard GetUser handler.
 // Requires valid authentication session.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
-	// Use type-safe context helper
-	userID := auth.MustGetUserID(c)
+	userID, ok := auth.UserID(c)
+	if !ok {
+		utils.ProblemAuthentication(c, "Not authenticated")
+		return
+	}
 
 	// Delegate to GetUser handler
 	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: fmt.Sprintf("%d", userID)})

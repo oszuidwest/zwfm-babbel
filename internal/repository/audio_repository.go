@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
@@ -64,7 +65,7 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 
 	var filePath sql.Null[string]
 	if err := r.db.GetContext(ctx, &filePath, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", ParseDBError(err)
