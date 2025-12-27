@@ -4,6 +4,7 @@ package handlers
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -73,7 +74,12 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	err := h.voiceSvc.Update(c.Request.Context(), id, req.Name)
+	// Convert to service update request
+	updateReq := &services.UpdateVoiceRequest{
+		Name: &req.Name,
+	}
+
+	err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)
 	if err != nil {
 		handleServiceError(c, err, "Voice")
 		return

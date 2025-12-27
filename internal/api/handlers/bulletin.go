@@ -15,8 +15,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func GetBulletinAudioURL(bulletinID int64) string {
+// BulletinAudioURL returns the API URL for downloading a bulletin's audio file.
+func BulletinAudioURL(bulletinID int64) string {
 	return fmt.Sprintf("/bulletins/%d/audio", bulletinID)
 }
 
@@ -165,6 +165,33 @@ func (h *Handlers) handleBulletinCreationError(c *gin.Context, err error) {
 	}
 }
 
+// transformBulletinStories converts BulletinStory models to response format.
+func (h *Handlers) transformBulletinStories(stories []models.BulletinStory) []BulletinStoryResponse {
+	processed := make([]BulletinStoryResponse, len(stories))
+	for i, bs := range stories {
+		processed[i] = BulletinStoryResponse{
+			ID:         bs.ID,
+			BulletinID: bs.BulletinID,
+			StoryID:    bs.StoryID,
+			StoryOrder: bs.StoryOrder,
+			CreatedAt:  bs.CreatedAt,
+			Station: StationRef{
+				ID:   bs.StationID,
+				Name: bs.StationName,
+			},
+			Story: StoryRef{
+				ID:    bs.StoryID,
+				Title: bs.StoryTitle,
+			},
+			Bulletin: BulletinRef{
+				ID:       bs.BulletinID,
+				Filename: bs.BulletinFilename,
+			},
+		}
+	}
+	return processed
+}
+
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	bulletinID, ok := utils.GetIDParam(c)
@@ -178,14 +205,14 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 	config := utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT bs.*, s.title as story_title, st.name as station_name, 
+			BaseQuery: `SELECT bs.*, s.title as story_title, st.name as station_name,
 				b.filename as bulletin_filename, b.station_id
 				FROM bulletin_stories bs
 				JOIN stories s ON bs.story_id = s.id
-				JOIN bulletins b ON bs.bulletin_id = b.id  
+				JOIN bulletins b ON bs.bulletin_id = b.id
 				JOIN stations st ON b.station_id = st.id`,
-			CountQuery: `SELECT COUNT(*) FROM bulletin_stories bs 
-				JOIN stories s ON bs.story_id = s.id 
+			CountQuery: `SELECT COUNT(*) FROM bulletin_stories bs
+				JOIN stories s ON bs.story_id = s.id
 				JOIN bulletins b ON bs.bulletin_id = b.id`,
 			DefaultOrder: "bs.story_order ASC",
 			Filters: []utils.FilterConfig{{
@@ -193,28 +220,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 			}},
 			PostProcessor: func(result any) {
 				if stories, ok := result.(*[]models.BulletinStory); ok {
-					processed := make([]BulletinStoryResponse, len(*stories))
-					for i, bs := range *stories {
-						processed[i] = BulletinStoryResponse{
-							ID:         bs.ID,
-							BulletinID: bs.BulletinID,
-							StoryID:    bs.StoryID,
-							StoryOrder: bs.StoryOrder,
-							CreatedAt:  bs.CreatedAt,
-							Station: StationRef{
-								ID:   bs.StationID,
-								Name: bs.StationName,
-							},
-							Story: StoryRef{
-								ID:    bs.StoryID,
-								Title: bs.StoryTitle,
-							},
-							Bulletin: BulletinRef{
-								ID:       bs.BulletinID,
-								Filename: bs.BulletinFilename,
-							},
-						}
-					}
+					processed := h.transformBulletinStories(*stories)
 					c.Set("processed_bulletin_stories", processed)
 				}
 			},
@@ -231,7 +237,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
 func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinResponse {
-	bulletinURL := GetBulletinAudioURL(bulletin.ID)
+	bulletinURL := BulletinAudioURL(bulletin.ID)
 
 	return BulletinResponse{
 		ID:          bulletin.ID,
@@ -248,7 +254,7 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinRespons
 
 // bulletinInfoToResponse creates response from BulletinInfo
 func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
-	bulletinURL := GetBulletinAudioURL(info.ID)
+	bulletinURL := BulletinAudioURL(info.ID)
 
 	return BulletinResponse{
 		ID:          info.ID,
@@ -306,7 +312,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
-						(*bulletins)[i].AudioURL = GetBulletinAudioURL((*bulletins)[i].ID)
+						(*bulletins)[i].AudioURL = BulletinAudioURL((*bulletins)[i].ID)
 					}
 				}
 			},
@@ -362,7 +368,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
-						(*bulletins)[i].AudioURL = GetBulletinAudioURL((*bulletins)[i].ID)
+						(*bulletins)[i].AudioURL = BulletinAudioURL((*bulletins)[i].ID)
 					}
 				}
 			},
@@ -390,20 +396,23 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletins)
 }
 
-// GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
-func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
-	storyID, ok := utils.GetIDParam(c)
-	if !ok {
-		return
+// transformStoryBulletinHistory converts StoryBulletinHistory models to response format.
+func (h *Handlers) transformStoryBulletinHistory(history []models.StoryBulletinHistory) []StoryBulletinHistoryResponse {
+	processedResults := make([]StoryBulletinHistoryResponse, len(history))
+	for i, item := range history {
+		baseResponse := h.bulletinToResponse(&item.Bulletin)
+		processedResults[i] = StoryBulletinHistoryResponse{
+			BulletinResponse: baseResponse,
+			StoryOrder:       item.StoryOrder,
+			IncludedAt:       item.IncludedAt,
+		}
 	}
+	return processedResults
+}
 
-	// Check if story exists first
-	if !utils.ValidateStoryExists(c, h.bulletinSvc.DB(), storyID) {
-		return
-	}
-
-	// Configure modern query with field mappings, search fields, and story_id filter
-	config := utils.EnhancedQueryConfig{
+// buildStoryBulletinHistoryConfig creates the query configuration for story bulletin history.
+func (h *Handlers) buildStoryBulletinHistoryConfig(c *gin.Context, storyID int64) utils.EnhancedQueryConfig {
+	return utils.EnhancedQueryConfig{
 		QueryConfig: utils.QueryConfig{
 			BaseQuery: `SELECT b.id, b.station_id, b.filename, b.audio_file, b.duration_seconds,
 			            b.file_size, b.story_count, b.metadata, b.created_at, s.name as station_name,
@@ -426,18 +435,8 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 					logger.Error("PostProcessor: type assertion failed for StoryBulletinHistory slice")
 					return
 				}
-				// Convert to the expected response format
-				processedResults := make([]StoryBulletinHistoryResponse, len(*bulletinHistory))
-				for i, item := range *bulletinHistory {
-					baseResponse := h.bulletinToResponse(&item.Bulletin)
-					processedResults[i] = StoryBulletinHistoryResponse{
-						BulletinResponse: baseResponse,
-						StoryOrder:       item.StoryOrder,
-						IncludedAt:       item.IncludedAt,
-					}
-				}
-				// Store processed results in context for later retrieval
-				c.Set("processed_results", processedResults)
+				processed := h.transformStoryBulletinHistory(*bulletinHistory)
+				c.Set("processed_results", processed)
 			},
 		},
 		SearchFields:      []string{"b.filename", "s.name"},
@@ -461,7 +460,22 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			"included_at":      "bs.created_at",
 		},
 	}
+}
 
+// GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
+func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
+	storyID, ok := utils.GetIDParam(c)
+	if !ok {
+		return
+	}
+
+	// Check if story exists first
+	if !utils.ValidateStoryExists(c, h.bulletinSvc.DB(), storyID) {
+		return
+	}
+
+	// Configure and execute query
+	config := h.buildStoryBulletinHistoryConfig(c, storyID)
 	var bulletinHistory []models.StoryBulletinHistory
 	utils.ModernListWithQuery(c, h.bulletinSvc.DB(), config, &bulletinHistory)
 

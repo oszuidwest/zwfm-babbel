@@ -23,6 +23,11 @@ func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
 	}
 }
 
+// UpdateVoiceRequest contains the data needed to update an existing voice.
+type UpdateVoiceRequest struct {
+	Name *string `json:"name"`
+}
+
 // Create creates a new voice with the given name
 func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, error) {
 	const op = "VoiceService.Create"
@@ -49,7 +54,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 }
 
 // Update updates an existing voice's name
-func (s *VoiceService) Update(ctx context.Context, id int64, name string) error {
+func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) error {
 	const op = "VoiceService.Update"
 
 	// Check if voice exists
@@ -61,17 +66,24 @@ func (s *VoiceService) Update(ctx context.Context, id int64, name string) error 
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
-	// Check name uniqueness (excluding current record)
-	taken, err := s.repo.IsNameTaken(ctx, name, &id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+	// Check name uniqueness if name is being updated
+	if req.Name != nil {
+		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
+		if err != nil {
+			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		}
+		if taken {
+			return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, *req.Name)
+		}
 	}
-	if taken {
-		return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
+
+	// Build type-safe update struct
+	updates := &repository.VoiceUpdate{
+		Name: req.Name,
 	}
 
 	// Update voice
-	err = s.repo.Update(ctx, id, name)
+	err = s.repo.Update(ctx, id, updates)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w", op, ErrNotFound)

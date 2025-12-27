@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,22 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 	return
 }
 
+// ValidateDateRange parses start and end date strings and validates the range.
+func ValidateDateRange(startStr, endStr string) (time.Time, time.Time, error) {
+	start, err := time.Parse("2006-01-02", startStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid start_date: %w", err)
+	}
+	end, err := time.Parse("2006-01-02", endStr)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date: %w", err)
+	}
+	if end.Before(start) {
+		return time.Time{}, time.Time{}, errors.New("end_date cannot be before start_date")
+	}
+	return start, end, nil
+}
+
 // ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
 // Performs security checks on file type, size, and filename.
 // Returns the temporary file path, a cleanup function, and any validation errors.
@@ -99,7 +116,7 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	}
 
 	safeFilename := SanitizeFilename(header.Filename)
-	tempPath = filepath.Join("/tmp", fmt.Sprintf("%s_%s", prefix, safeFilename))
+	tempPath = filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s", prefix, safeFilename))
 
 	if err := saveFileToPath(file, tempPath); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
@@ -141,13 +158,10 @@ func ValidateAudioFile(header *multipart.FileHeader) error {
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	validExts := []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
 
-	for _, validExt := range validExts {
-		if ext == validExt {
-			return nil
-		}
+	if !slices.Contains(validExts, ext) {
+		return fmt.Errorf("unsupported file type: %s", ext)
 	}
-
-	return fmt.Errorf("unsupported file type: %s", ext)
+	return nil
 }
 
 // SanitizeFilename removes unsafe characters from filenames to prevent security vulnerabilities.
@@ -285,18 +299,11 @@ func (req *StoryCreateRequest) ValidateDateRange() error {
 		return nil // Individual date validation will catch required field errors
 	}
 
-	startDate, err := time.Parse("2006-01-02", req.StartDate)
-	if err != nil {
-		return nil // Date format validation will catch this
-	}
-
-	endDate, err := time.Parse("2006-01-02", req.EndDate)
-	if err != nil {
-		return nil // Date format validation will catch this
-	}
-
-	if endDate.Before(startDate) {
-		return fmt.Errorf("end date cannot be before start date")
+	_, _, err := ValidateDateRange(req.StartDate, req.EndDate)
+	// Ignore parse errors as they will be caught by date format validators
+	// Only return range validation errors
+	if err != nil && strings.Contains(err.Error(), "end_date cannot be before start_date") {
+		return err
 	}
 
 	return nil
@@ -311,18 +318,11 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 		return nil
 	}
 
-	startDate, err := time.Parse("2006-01-02", *req.StartDate)
-	if err != nil {
-		return nil // Date format validation will catch this
-	}
-
-	endDate, err := time.Parse("2006-01-02", *req.EndDate)
-	if err != nil {
-		return nil // Date format validation will catch this
-	}
-
-	if endDate.Before(startDate) {
-		return fmt.Errorf("end date cannot be before start date")
+	_, _, err := ValidateDateRange(*req.StartDate, *req.EndDate)
+	// Ignore parse errors as they will be caught by date format validators
+	// Only return range validation errors
+	if err != nil && strings.Contains(err.Error(), "end_date cannot be before start_date") {
+		return err
 	}
 
 	return nil

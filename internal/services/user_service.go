@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -352,12 +353,7 @@ func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 // isValidRole checks if a role is valid
 func isValidRole(role string) bool {
 	validRoles := []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}
-	for _, validRole := range validRoles {
-		if role == validRole {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(validRoles, role)
 }
 
 // DB returns the underlying database for ModernListWithQuery.

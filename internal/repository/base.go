@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -16,8 +17,16 @@ type BaseRepository[T any] struct {
 	tableName string
 }
 
+// validTableName is a regex pattern that matches valid SQL table names.
+// Table names must start with a letter or underscore, followed by letters, numbers, or underscores.
+var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
 // NewBaseRepository creates a new base repository for the given table.
+// It validates the table name to prevent SQL injection attacks.
 func NewBaseRepository[T any](db *sqlx.DB, tableName string) *BaseRepository[T] {
+	if !validTableName.MatchString(tableName) {
+		panic(fmt.Sprintf("invalid table name: %s", tableName))
+	}
 	return &BaseRepository[T]{
 		db:        db,
 		tableName: tableName,

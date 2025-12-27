@@ -530,16 +530,6 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	return strings.Join(dbFields, ", ")
 }
 
-// FilterResponseFields filters the response to only include requested fields.
-func FilterResponseFields(data any, fields []string) any {
-	if len(fields) == 0 {
-		return data
-	}
-
-	// Use reflection to create a filtered response
-	return filterStructFields(data, fields)
-}
-
 // filterStructFields uses reflection to filter struct fields.
 func filterStructFields(data any, fields []string) any {
 	if len(fields) == 0 {
@@ -692,7 +682,7 @@ func sendPaginatedListResponse(c *gin.Context, result any, total int64, params *
 		if processedData, exists := c.Get("processed_bulletin_stories"); exists {
 			responseData = processedData
 		} else if len(params.Fields) > 0 {
-			responseData = FilterResponseFields(result, params.Fields)
+			responseData = filterStructFields(result, params.Fields)
 		}
 
 		PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
@@ -701,7 +691,7 @@ func sendPaginatedListResponse(c *gin.Context, result any, total int64, params *
 
 	responseData := result
 	if len(params.Fields) > 0 {
-		responseData = FilterResponseFields(result, params.Fields)
+		responseData = filterStructFields(result, params.Fields)
 	}
 	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
 }

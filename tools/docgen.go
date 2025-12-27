@@ -3,12 +3,14 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -378,8 +380,8 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 
 	// Sort endpoints within each tag
 	for tag := range endpointsByTag {
-		sort.Slice(endpointsByTag[tag], func(i, j int) bool {
-			return endpointsByTag[tag][i].SortKey < endpointsByTag[tag][j].SortKey
+		slices.SortFunc(endpointsByTag[tag], func(a, b EndpointInfo) int {
+			return cmp.Compare(a.SortKey, b.SortKey)
 		})
 	}
 
@@ -404,10 +406,7 @@ func getParameterType(param Parameter) string {
 // formatRequestBodyInfo extracts and formats request body information including content type and description.
 func formatRequestBodyInfo(rb map[string]interface{}) string {
 	if content, ok := rb["content"].(map[string]interface{}); ok {
-		var contentTypes []string
-		for ct := range content {
-			contentTypes = append(contentTypes, ct)
-		}
+		contentTypes := slices.Collect(maps.Keys(content))
 
 		// Get description if available
 		desc := ""
@@ -504,8 +503,11 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 			}{Name: tag})
 		}
 		// Sort tags alphabetically
-		sort.Slice(spec.Tags, func(i, j int) bool {
-			return spec.Tags[i].Name < spec.Tags[j].Name
+		slices.SortFunc(spec.Tags, func(a, b struct {
+			Name        string `yaml:"name"`
+			Description string `yaml:"description"`
+		}) int {
+			return cmp.Compare(a.Name, b.Name)
 		})
 	}
 

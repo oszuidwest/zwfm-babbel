@@ -4,6 +4,7 @@ package api
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -66,12 +67,12 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 		},
 		Local: auth.LocalConfig{
 			Enabled:                cfg.Auth.Method.SupportsLocal(),
-			MinPasswordLength:      8,
-			RequireUppercase:       true,
-			RequireLowercase:       true,
-			RequireNumbers:         true,
-			MaxFailedAttempts:      5,
-			LockoutDurationMinutes: 30,
+			MinPasswordLength:      cfg.Auth.Local.MinPasswordLength,
+			RequireUppercase:       cfg.Auth.Local.RequireUppercase,
+			RequireLowercase:       cfg.Auth.Local.RequireLowercase,
+			RequireNumbers:         cfg.Auth.Local.RequireNumber,
+			MaxFailedAttempts:      cfg.Auth.Local.MaxLoginAttempts,
+			LockoutDurationMinutes: cfg.Auth.Local.LockoutDurationMinutes,
 		},
 		Session: auth.SessionConfig{
 			StoreType:      "memory",
@@ -84,6 +85,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 			CookieSameSite: string(cfg.Auth.CookieSameSite),
 			SecretKey:      cfg.Auth.SessionSecret,
 		},
+		AllowedOrigins: cfg.Server.AllowedOrigins,
 	}
 
 	// Create auth service
@@ -269,16 +271,13 @@ func isAllowedOrigin(origin string, allowedOrigins string) bool {
 		return false
 	}
 
-	// Split the allowed origins by comma
+	// Split and trim the allowed origins
 	origins := strings.Split(allowedOrigins, ",")
-	for _, allowed := range origins {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == origin {
-			return true
-		}
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
 	}
 
-	return false
+	return slices.Contains(origins, origin)
 }
 
 // getEnv retrieves an environment variable with fallback to default value if unset.

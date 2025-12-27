@@ -273,7 +273,7 @@ func (s *Service) SessionMiddleware() gin.HandlerFunc {
 	if _, ok := s.sessions.(*GinSessionStore); ok {
 		// Use gin-contrib/sessions middleware
 		if store, ok := s.ginStore.(sessions.Store); ok {
-			return CreateSessionMiddleware(s.config.Session.CookieName, store)
+			return sessions.Sessions(s.config.Session.CookieName, store)
 		}
 	}
 	// Default pass-through
@@ -414,10 +414,14 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	session := s.sessions.Get(c)
 	SetSessionOAuthState(session, state)
 
-	// Store frontend URL for later redirect (type-safe)
+	// Store frontend URL for later redirect (with validation to prevent open redirect)
 	frontendURL := c.Query("frontend_url")
 	if frontendURL != "" {
-		SetSessionFrontendURL(session, frontendURL)
+		if s.isAllowedFrontendURL(frontendURL) {
+			SetSessionFrontendURL(session, frontendURL)
+		} else {
+			logger.Warn("Rejected invalid frontend_url: %s", frontendURL)
+		}
 	}
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save OAuth session: %v", err)
@@ -648,4 +652,25 @@ func generateState() (string, error) {
 		return "", fmt.Errorf("failed to generate random state: %w", err)
 	}
 	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// isAllowedFrontendURL validates that the provided URL is in the allowed origins list.
+// This prevents open redirect attacks where an attacker could redirect users to a malicious site.
+func (s *Service) isAllowedFrontendURL(urlStr string) bool {
+	if urlStr == "" || s.config.AllowedOrigins == "" {
+		return false
+	}
+
+	// Parse the provided URL to extract the origin
+	for _, origin := range strings.Split(s.config.AllowedOrigins, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			continue
+		}
+		// Check if the URL starts with the allowed origin
+		if strings.HasPrefix(urlStr, origin) {
+			return true
+		}
+	}
+	return false
 }
