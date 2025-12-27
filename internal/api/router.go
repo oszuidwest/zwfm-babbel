@@ -66,12 +66,12 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 		},
 		Local: auth.LocalConfig{
 			Enabled:                cfg.Auth.Method.SupportsLocal(),
-			MinPasswordLength:      8,
-			RequireUppercase:       true,
-			RequireLowercase:       true,
-			RequireNumbers:         true,
-			MaxFailedAttempts:      5,
-			LockoutDurationMinutes: 30,
+			MinPasswordLength:      cfg.Auth.Local.MinPasswordLength,
+			RequireUppercase:       cfg.Auth.Local.RequireUppercase,
+			RequireLowercase:       cfg.Auth.Local.RequireLowercase,
+			RequireNumbers:         cfg.Auth.Local.RequireNumber,
+			MaxFailedAttempts:      cfg.Auth.Local.MaxLoginAttempts,
+			LockoutDurationMinutes: cfg.Auth.Local.LockoutDurationMinutes,
 		},
 		Session: auth.SessionConfig{
 			StoreType:      "memory",
@@ -84,6 +84,7 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 			CookieSameSite: string(cfg.Auth.CookieSameSite),
 			SecretKey:      cfg.Auth.SessionSecret,
 		},
+		AllowedOrigins: cfg.Server.AllowedOrigins,
 	}
 
 	// Create auth service

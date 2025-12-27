@@ -4,6 +4,7 @@ package handlers
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -75,7 +76,14 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 		return
 	}
 
-	err := h.stationSvc.Update(c.Request.Context(), id, req.Name, req.MaxStoriesPerBlock, req.PauseSeconds)
+	// Convert to service update request
+	updateReq := &services.UpdateStationRequest{
+		Name:               &req.Name,
+		MaxStoriesPerBlock: &req.MaxStoriesPerBlock,
+		PauseSeconds:       &req.PauseSeconds,
+	}
+
+	err := h.stationSvc.Update(c.Request.Context(), id, updateReq)
 	if err != nil {
 		handleServiceError(c, err, "Station")
 		return

@@ -52,53 +52,71 @@ func storyStatusValidator(fl validator.FieldLevel) bool {
 	return status.IsValid()
 }
 
-// parseDateField extracts a time.Time value from a reflect.Value that may be
-// a time.Time, string, *string, or *time.Time. Returns the parsed time, whether
-// the field is empty, whether parsing was successful, and whether to fail validation.
-func parseDateField(field reflect.Value) (parsedTime time.Time, isEmpty bool, ok bool, failValidation bool) {
+// dateParseResult holds the result of parsing a date field.
+type dateParseResult struct {
+	Time           time.Time
+	IsEmpty        bool
+	FailValidation bool
+}
+
+// parseDateField attempts to parse a date from a reflect.Value.
+// Returns the parsed result and whether the parse was successful.
+func parseDateField(field reflect.Value) (dateParseResult, bool) {
+	result := dateParseResult{}
+
 	// Check if the field is valid before processing
 	if !field.IsValid() {
-		return time.Time{}, true, true, false
+		result.IsEmpty = true
+		return result, true
 	}
 
 	switch {
 	case field.Type() == reflect.TypeOf(time.Time{}):
-		timeVal, valid := field.Interface().(time.Time)
-		if !valid {
-			return time.Time{}, false, false, true
+		timeVal, ok := field.Interface().(time.Time)
+		if !ok {
+			result.FailValidation = true
+			return result, true
 		}
-		return timeVal, false, true, false
+		result.Time = timeVal
+		return result, true
 
 	case field.Kind() == reflect.String:
 		dateStr := field.String()
 		if dateStr == "" {
-			return time.Time{}, true, true, false
+			result.IsEmpty = true
+			return result, true
 		}
 		t, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			return time.Time{}, false, false, true
+			result.FailValidation = true
+			return result, true
 		}
-		return t, false, true, false
+		result.Time = t
+		return result, true
 
 	case field.Kind() == reflect.Ptr && !field.IsNil():
 		if field.Elem().Kind() == reflect.String {
 			dateStr := field.Elem().String()
 			if dateStr == "" {
-				return time.Time{}, true, true, false
+				result.IsEmpty = true
+				return result, true
 			}
 			t, err := time.Parse("2006-01-02", dateStr)
 			if err != nil {
-				return time.Time{}, false, false, true
+				result.FailValidation = true
+				return result, true
 			}
-			return t, false, true, false
+			result.Time = t
+			return result, true
 		}
-		return time.Time{}, false, false, false // Unknown pointer type, skip
+		return result, false // Unknown pointer type, skip
 
 	case field.Kind() == reflect.Ptr && field.IsNil():
-		return time.Time{}, true, true, false
+		result.IsEmpty = true
+		return result, true
 
 	default:
-		return time.Time{}, false, false, false // Unknown type, skip
+		return result, false // Unknown type, skip
 	}
 }
 
@@ -110,20 +128,20 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 		return true // Comparison field doesn't exist, validation passes
 	}
 
-	currentTime, currentEmpty, currentOK, currentFail := parseDateField(fl.Field())
-	if currentFail {
+	currentResult, currentOK := parseDateField(fl.Field())
+	if currentResult.FailValidation {
 		return false
 	}
-	if !currentOK || currentEmpty {
+	if !currentOK || currentResult.IsEmpty {
 		return true
 	}
 
-	compareTime, compareEmpty, compareOK, _ := parseDateField(compareField)
-	if !compareOK || compareEmpty {
+	compareResult, compareOK := parseDateField(compareField)
+	if !compareOK || compareResult.IsEmpty {
 		return true
 	}
 
-	return currentTime.After(compareTime) || currentTime.Equal(compareTime)
+	return currentResult.Time.After(compareResult.Time) || currentResult.Time.Equal(compareResult.Time)
 }
 
 // dateFormatValidator validates date strings are in YYYY-MM-DD format.

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -433,17 +432,7 @@ func (s *StoryService) handleDatabaseError(err error) error {
 		return fmt.Errorf("%w: one or more fields exceed maximum length", ErrInvalidInput)
 	}
 
-	errStr := err.Error()
-	switch {
-	case strings.Contains(errStr, "Duplicate entry"):
-		return fmt.Errorf("%w: story already exists", ErrDuplicate)
-	case strings.Contains(errStr, "foreign key constraint"):
-		return fmt.Errorf("%w: invalid reference to related resource", ErrInvalidInput)
-	case strings.Contains(errStr, "Data too long"):
-		return fmt.Errorf("%w: one or more fields exceed maximum length", ErrInvalidInput)
-	default:
-		return fmt.Errorf("%w: database operation failed", ErrDatabaseError)
-	}
+	return fmt.Errorf("%w: database operation failed", ErrDatabaseError)
 }
 
 // DB returns the underlying database for ModernListWithQuery.

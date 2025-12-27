@@ -20,6 +20,15 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/version"
 )
 
+const (
+	debugLogLevel           = 5
+	serverReadTimeout       = 15 * time.Second
+	serverWriteTimeout      = 15 * time.Second
+	serverIdleTimeout       = 60 * time.Second
+	serverStartupCheckDelay = 100 * time.Millisecond
+	shutdownTimeout         = 30 * time.Second
+)
+
 func main() {
 	// Parse command line flags
 	showVersion := flag.Bool("version", false, "Show version information")
@@ -40,6 +49,11 @@ func main() {
 		log.Fatalf("Configuration validation failed: %v", err)
 	}
 
+	// Create required directories
+	if err := cfg.EnsureDirectories(); err != nil {
+		log.Fatalf("Failed to create directories: %v", err)
+	}
+
 	// Log configuration (without sensitive data)
 	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
@@ -47,7 +61,7 @@ func main() {
 
 	// Initialize logger
 	logLevel := "info"
-	if cfg.LogLevel >= 5 {
+	if cfg.LogLevel >= debugLogLevel {
 		logLevel = "debug"
 	}
 	isDev := cfg.Environment == config.EnvDevelopment
@@ -78,9 +92,9 @@ func main() {
 	srv := &http.Server{
 		Addr:         cfg.Server.Address,
 		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
 	}
 
 	// Create error channel for server startup
@@ -101,7 +115,7 @@ func main() {
 		if err != nil {
 			logger.Fatal("Failed to start server: %v", err)
 		}
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(serverStartupCheckDelay):
 		// Server started successfully, continue
 	}
 
@@ -122,7 +136,7 @@ func main() {
 	// Note: Stop() returns void, no error to check
 	expirationService.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {

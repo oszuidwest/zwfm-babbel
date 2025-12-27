@@ -26,8 +26,8 @@ type StationVoiceResponse struct {
 	AudioURL    *string   `json:"audio_url,omitempty"`
 }
 
-// GetStationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
-func GetStationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
+// StationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
+func StationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
 	if !hasJingle {
 		return nil
 	}
@@ -54,7 +54,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 				if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
 					for i := range *stationVoices {
 						hasJingle := (*stationVoices)[i].AudioFile != ""
-						(*stationVoices)[i].AudioURL = GetStationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
+						(*stationVoices)[i].AudioURL = StationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
 					}
 				}
 			},
@@ -104,7 +104,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 		VoiceName:   stationVoice.VoiceName,
 		CreatedAt:   stationVoice.CreatedAt,
 		UpdatedAt:   stationVoice.UpdatedAt,
-		AudioURL:    GetStationVoiceAudioURL(stationVoice.ID, stationVoice.AudioFile != ""),
+		AudioURL:    StationVoiceAudioURL(stationVoice.ID, stationVoice.AudioFile != ""),
 	}
 
 	utils.Success(c, response)
@@ -262,7 +262,7 @@ func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
 		VoiceName:   sv.VoiceName,
 		CreatedAt:   sv.CreatedAt,
 		UpdatedAt:   sv.UpdatedAt,
-		AudioURL:    GetStationVoiceAudioURL(sv.ID, sv.AudioFile != ""),
+		AudioURL:    StationVoiceAudioURL(sv.ID, sv.AudioFile != ""),
 	}
 }
 

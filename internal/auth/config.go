@@ -20,6 +20,9 @@ type Config struct {
 
 	// Session configuration
 	Session SessionConfig
+
+	// AllowedOrigins for validating OAuth frontend_url (prevents open redirect)
+	AllowedOrigins string
 }
 
 // OIDCConfig defines OAuth2/OIDC provider settings for SSO authentication

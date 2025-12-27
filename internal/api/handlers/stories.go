@@ -41,8 +41,8 @@ type StoryResponse struct {
 	Weekdays        map[string]bool `json:"weekdays,omitempty"`
 }
 
-// GetStoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
-func GetStoryAudioURL(storyID int64, hasAudio bool) *string {
+// StoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
+func StoryAudioURL(storyID int64, hasAudio bool) *string {
 	if !hasAudio {
 		return nil
 	}
@@ -91,7 +91,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 
 	// Add computed fields
 	hasAudio := story.AudioFile != ""
-	response.AudioURL = GetStoryAudioURL(story.ID, hasAudio)
+	response.AudioURL = StoryAudioURL(story.ID, hasAudio)
 	response.Weekdays = story.GetWeekdaysMap()
 
 	return response
@@ -112,7 +112,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 				if stories, ok := result.(*[]StoryResponse); ok {
 					for i := range *stories {
 						hasAudio := (*stories)[i].AudioFile != ""
-						(*stories)[i].AudioURL = GetStoryAudioURL((*stories)[i].ID, hasAudio)
+						(*stories)[i].AudioURL = StoryAudioURL((*stories)[i].ID, hasAudio)
 						(*stories)[i].Weekdays = weekdaysFromStoryResponse(&(*stories)[i])
 					}
 				}

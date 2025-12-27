@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -16,8 +18,16 @@ type BaseRepository[T any] struct {
 	tableName string
 }
 
+// validTableName is a regex pattern that matches valid SQL table names.
+// Table names must start with a letter or underscore, followed by letters, numbers, or underscores.
+var validTableName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
 // NewBaseRepository creates a new base repository for the given table.
+// It validates the table name to prevent SQL injection attacks.
 func NewBaseRepository[T any](db *sqlx.DB, tableName string) *BaseRepository[T] {
+	if !validTableName.MatchString(tableName) {
+		panic(fmt.Sprintf("invalid table name: %s", tableName))
+	}
 	return &BaseRepository[T]{
 		db:        db,
 		tableName: tableName,
@@ -146,4 +156,36 @@ func addFieldUpdate[T any](setClauses *[]string, args *[]any, column string, val
 	}
 	*setClauses = append(*setClauses, column+" = ?")
 	*args = append(*args, *value)
+}
+
+// UpdateBuilder helps construct dynamic UPDATE queries with only non-nil fields.
+type UpdateBuilder struct {
+	clauses []string
+	args    []any
+}
+
+// NewUpdateBuilder creates a new UpdateBuilder instance.
+func NewUpdateBuilder() *UpdateBuilder {
+	return &UpdateBuilder{
+		clauses: make([]string, 0, 8),
+		args:    make([]any, 0, 8),
+	}
+}
+
+// Set adds a column=value clause unconditionally.
+func (ub *UpdateBuilder) Set(column string, value any) *UpdateBuilder {
+	ub.clauses = append(ub.clauses, column+" = ?")
+	ub.args = append(ub.args, value)
+	return ub
+}
+
+// Build generates the UPDATE query string and arguments.
+// Returns empty string and false if no clauses were added.
+func (ub *UpdateBuilder) Build(table string, id int64) (string, []any, bool) {
+	if len(ub.clauses) == 0 {
+		return "", nil, false
+	}
+	ub.args = append(ub.args, id)
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE id = ?", table, strings.Join(ub.clauses, ", "))
+	return query, ub.args, true
 }
