@@ -69,7 +69,10 @@ func main() {
 	}()
 
 	// Setup API router
-	router := api.SetupRouter(db, cfg)
+	router, err := api.SetupRouter(db, cfg)
+	if err != nil {
+		logger.Fatal("Failed to setup router: %v", err)
+	}
 
 	// Create HTTP server
 	srv := &http.Server{
@@ -80,15 +83,30 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Create error channel for server startup
+	serverErr := make(chan error, 1)
+
 	// Start server in goroutine
 	go func() {
 		logger.Info("Starting Babbel API server on %s (version: %s, commit: %s)", cfg.Server.Address, version.Version, version.Commit)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Fatal("Failed to start server: %v", err)
+			serverErr <- err
 		}
+		close(serverErr)
 	}()
 
+	// Give the server a moment to fail on port binding issues
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			logger.Fatal("Failed to start server: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Server started successfully, continue
+	}
+
 	// Start story expiration scheduler
+	// Note: Start() returns void, no error to check
 	expirationService := scheduler.NewStoryExpirationService(db)
 	expirationService.Start()
 
@@ -101,6 +119,7 @@ func main() {
 	logger.Info("Shutting down server...")
 
 	// Stop scheduler first
+	// Note: Stop() returns void, no error to check
 	expirationService.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -43,7 +44,7 @@ func (r *BaseRepository[T]) TableName() string {
 }
 
 // GetByID retrieves a record by its ID.
-func (r *BaseRepository[T]) GetByID(ctx context.Context, id int) (*T, error) {
+func (r *BaseRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	q := r.getQueryable(ctx)
 
 	var result T
@@ -60,7 +61,7 @@ func (r *BaseRepository[T]) GetByID(ctx context.Context, id int) (*T, error) {
 }
 
 // Exists checks if a record with the given ID exists.
-func (r *BaseRepository[T]) Exists(ctx context.Context, id int) (bool, error) {
+func (r *BaseRepository[T]) Exists(ctx context.Context, id int64) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	var exists bool
@@ -88,7 +89,7 @@ func (r *BaseRepository[T]) Count(ctx context.Context) (int64, error) {
 }
 
 // Delete performs a hard delete of a record by ID.
-func (r *BaseRepository[T]) Delete(ctx context.Context, id int) error {
+func (r *BaseRepository[T]) Delete(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
 
 	query := fmt.Sprintf("DELETE FROM %s WHERE id = ?", r.tableName)
@@ -110,7 +111,7 @@ func (r *BaseRepository[T]) Delete(ctx context.Context, id int) error {
 
 // ExistsBy checks if any record matches the given condition.
 // The condition should be a valid SQL WHERE clause fragment (e.g., "name = ? AND status = ?").
-func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args ...interface{}) (bool, error) {
+func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args ...any) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	var exists bool
@@ -125,7 +126,7 @@ func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args
 
 // CountBy counts records matching a condition.
 // The condition should be a valid SQL WHERE clause fragment.
-func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args ...interface{}) (int, error) {
+func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args ...any) (int, error) {
 	q := r.getQueryable(ctx)
 
 	var count int
@@ -139,7 +140,7 @@ func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args 
 }
 
 // addFieldUpdate adds a field to the update query if the pointer is non-nil.
-func addFieldUpdate[T any](setClauses *[]string, args *[]interface{}, column string, value *T) {
+func addFieldUpdate[T any](setClauses *[]string, args *[]any, column string, value *T) {
 	if value == nil {
 		return
 	}

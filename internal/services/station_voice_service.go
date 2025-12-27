@@ -46,15 +46,15 @@ func NewStationVoiceService(
 
 // CreateStationVoiceRequest contains the data needed to create a new station-voice relationship.
 type CreateStationVoiceRequest struct {
-	StationID int
-	VoiceID   int
+	StationID int64
+	VoiceID   int64
 	MixPoint  float64
 }
 
 // UpdateStationVoiceRequest contains the data needed to update an existing station-voice relationship.
 type UpdateStationVoiceRequest struct {
-	StationID *int
-	VoiceID   *int
+	StationID *int64
+	VoiceID   *int64
 	MixPoint  *float64
 }
 
@@ -106,7 +106,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 // Update updates an existing station-voice relationship.
 // It validates that the station and voice exist (if being updated) and ensures
 // the new combination remains unique.
-func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
+func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
 	const op = "StationVoiceService.Update"
 
 	// Verify station-voice exists and get current values
@@ -149,7 +149,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 }
 
 // validateStationIDUpdate validates station_id if being updated.
-func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stationID *int) error {
+func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stationID *int64) error {
 	if stationID == nil {
 		return nil
 	}
@@ -167,7 +167,7 @@ func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stati
 }
 
 // validateVoiceIDUpdate validates voice_id if being updated.
-func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID *int) error {
+func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID *int64) error {
 	if voiceID == nil {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (s *StationVoiceService) validateMixPointUpdate(mixPoint *float64) error {
 }
 
 // validateUpdateRequest validates all fields in an update request.
-func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
+func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int64, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
 	if err := s.validateStationIDUpdate(ctx, req.StationID); err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int,
 }
 
 // GetByID retrieves a station-voice relationship by its ID with joined station and voice names.
-func (s *StationVoiceService) GetByID(ctx context.Context, id int) (*models.StationVoice, error) {
+func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	const op = "StationVoiceService.GetByID"
 
 	stationVoice, err := s.stationVoiceRepo.GetByID(ctx, id)
@@ -246,7 +246,7 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int) (*models.Stat
 
 // Delete deletes a station-voice relationship and its associated jingle file if it exists.
 // The jingle file is removed from the filesystem after database deletion.
-func (s *StationVoiceService) Delete(ctx context.Context, id int) error {
+func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	const op = "StationVoiceService.Delete"
 
 	// Get jingle file and station/voice IDs before deletion
@@ -286,7 +286,7 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int) error {
 // ProcessJingle processes an uploaded jingle audio file for a station-voice relationship.
 // The tempPath should be a validated temporary file path from ValidateAndSaveAudioFile.
 // This method converts the audio to standardized WAV format (48kHz stereo) and updates the database.
-func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int, tempPath string) error {
+func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
 	const op = "StationVoiceService.ProcessJingle"
 
 	// Get station and voice IDs for the relationship

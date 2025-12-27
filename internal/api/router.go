@@ -2,7 +2,7 @@
 package api
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"strings"
 
@@ -26,8 +26,8 @@ import (
 //   - OAuth/OIDC authentication
 //   - Combined authentication (both methods enabled)
 //
-// Returns a configured Gin engine ready for HTTP serving.
-func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
+// Returns a configured Gin engine ready for HTTP serving, or an error if setup fails.
+func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 	// Create transaction manager
 	txManager := repository.NewTxManager(db)
 
@@ -89,13 +89,13 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 	// Create auth service
 	authService, err := auth.NewService(authConfig, db)
 	if err != nil {
-		log.Fatalf("Failed to create auth service: %v", err)
+		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 
 	// Get frontend URL from environment (required if using OAuth)
 	frontendURL := getEnv("BABBEL_FRONTEND_URL", "")
 	if frontendURL == "" && cfg.Auth.Method.SupportsOIDC() {
-		log.Fatalf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
+		return nil, fmt.Errorf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
 	}
 	authHandlers := NewAuthHandlers(authService, frontendURL, h)
 
@@ -211,15 +211,15 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) *gin.Engine {
 		}
 	}
 
-	// Health check
+	// Health check (typed response for compile-time safety)
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"service": "babbel-api",
+		c.JSON(200, handlers.HealthResponse{
+			Status:  "ok",
+			Service: "babbel-api",
 		})
 	})
 
-	return r
+	return r, nil
 }
 
 // corsMiddleware creates a CORS middleware that respects the configured allowed origins.

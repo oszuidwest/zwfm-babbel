@@ -9,16 +9,17 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StoryResponse represents the response format for news stories with computed weekday information.
 // Includes all story metadata, scheduling configuration, and optional voice/audio associations.
 // The Weekdays field is computed from individual weekday boolean fields for client convenience.
 type StoryResponse struct {
-	ID              int             `json:"id" db:"id"`
+	ID              int64           `json:"id" db:"id"`
 	Title           string          `json:"title" db:"title"`
 	Text            string          `json:"text" db:"text"`
-	VoiceID         *int            `json:"voice_id" db:"voice_id"`
+	VoiceID         *int64          `json:"voice_id" db:"voice_id"`
 	AudioFile       string          `json:"-" db:"audio_file"`
 	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
 	Status          string          `json:"status" db:"status"`
@@ -41,7 +42,7 @@ type StoryResponse struct {
 }
 
 // GetStoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
-func GetStoryAudioURL(storyID int, hasAudio bool) *string {
+func GetStoryAudioURL(storyID int64, hasAudio bool) *string {
 	if !hasAudio {
 		return nil
 	}
@@ -106,7 +107,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 			            LEFT JOIN voices v ON s.voice_id = v.id`,
 			CountQuery:   "SELECT COUNT(*) FROM stories s LEFT JOIN voices v ON s.voice_id = v.id",
 			DefaultOrder: "s.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process stories to add audio URLs and weekdays map
 				if stories, ok := result.(*[]StoryResponse); ok {
 					for i := range *stories {
@@ -223,7 +224,11 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 			}})
 			return
 		}
-		defer cleanup()
+		defer func() {
+			if err := cleanup(); err != nil {
+				logger.Error("Failed to cleanup audio file: %v", err)
+			}
+		}()
 
 		// Process audio via service
 		if err := h.storySvc.ProcessAudio(c.Request.Context(), story.ID, tempPath); err != nil {
@@ -232,7 +237,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		}
 	}
 
-	utils.CreatedWithID(c, int64(story.ID), "Story created successfully")
+	utils.CreatedWithID(c, story.ID, "Story created successfully")
 }
 
 // hasAnyIndividualWeekday checks if any individual weekday field is set in the request
@@ -264,7 +269,7 @@ func applyWeekdayUpdates(weekdays map[string]bool, req *utils.StoryUpdateRequest
 }
 
 // processWeekdaysUpdate handles weekday merging logic for story updates
-func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int, req *utils.StoryUpdateRequest) (map[string]bool, error) {
+func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int64, req *utils.StoryUpdateRequest) (map[string]bool, error) {
 	// Handle weekdays - either from weekdays map or individual fields
 	if len(req.Weekdays) > 0 {
 		return req.Weekdays, nil
@@ -307,7 +312,7 @@ func validateStoryUpdateRequest(c *gin.Context, hasFieldUpdate, hasAudioUpdate b
 }
 
 // applyStoryFieldUpdates applies field updates via service
-func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int, req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
+func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
 	svcReq := &services.UpdateStoryRequest{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -329,7 +334,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int, req *utils.Sto
 }
 
 // processStoryAudioUpdate handles audio file processing
-func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int) bool {
+func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int64) bool {
 	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
 	if err != nil {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
@@ -338,7 +343,11 @@ func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int) bool {
 		}})
 		return false
 	}
-	defer cleanup()
+	defer func() {
+		if err := cleanup(); err != nil {
+			logger.Error("Failed to cleanup audio file: %v", err)
+		}
+	}()
 
 	// Process audio via service
 	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {

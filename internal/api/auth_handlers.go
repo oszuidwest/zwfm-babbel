@@ -1,9 +1,9 @@
-// Package api provides HTTP routing and middleware for the Babbel API server.
 package api
 
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -52,7 +52,7 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Login successful"})
+	c.JSON(http.StatusCreated, handlers.MessageResponse{Message: "Login successful"})
 }
 
 // StartOAuthFlow initiates OAuth/OIDC authentication by redirecting to the provider.
@@ -67,30 +67,25 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 // and creates or updates user accounts. Redirects to frontend with success/error status.
 // Cleans up temporary session data after processing.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	// Get frontend URL from session or use configured fallback
+	// Get frontend URL from session or use configured fallback (type-safe)
 	session := h.authService.GetSession(c)
-	var frontendURL string
-	if sessionURL := session.Get("frontend_url"); sessionURL != nil {
-		var ok bool
-		frontendURL, ok = sessionURL.(string)
-		if !ok {
-			utils.ProblemInternalServer(c, "Invalid frontend URL in session")
+	frontendURL, ok := auth.GetSessionFrontendURL(session)
+	if !ok || frontendURL == "" {
+		if h.frontendURL != "" {
+			frontendURL = h.frontendURL
+		} else {
+			utils.ProblemInternalServer(c, "No frontend URL configured")
 			return
 		}
-	} else if h.frontendURL != "" {
-		frontendURL = h.frontendURL
-	} else {
-		utils.ProblemInternalServer(c, "No frontend URL configured")
-		return
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+err.Error())
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+url.QueryEscape(err.Error()))
 		return
 	}
 
-	// Clean up session
-	session.Delete("frontend_url")
+	// Clean up OAuth session data (type-safe)
+	auth.ClearSessionOAuth(session)
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save session after cleanup: %v", err)
 	}
@@ -101,7 +96,10 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 // Logout securely destroys the current user session and clears all session data.
 // Returns 204 No Content on successful logout. Safe to call multiple times.
 func (h *AuthHandlers) Logout(c *gin.Context) {
-	h.authService.Logout(c)
+	if err := h.authService.Logout(c); err != nil {
+		utils.ProblemInternalServer(c, "Failed to logout")
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 
@@ -109,7 +107,8 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 // Retrieves user data based on the session and delegates to the standard GetUser handler.
 // Requires valid authentication session.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
-	userID := c.GetInt(string(auth.CtxKeyUserID))
+	// Use type-safe context helper
+	userID := auth.MustGetUserID(c)
 
 	// Delegate to GetUser handler
 	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: fmt.Sprintf("%d", userID)})
@@ -120,18 +119,17 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 // Used by frontend applications to discover supported authentication options.
 // Returns array of enabled methods ("local", "oidc") and OIDC initiation URL.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
-	response := gin.H{
-		"methods": []string{},
+	// Build response using typed struct (compile-time type safety)
+	response := handlers.AuthConfigResponse{
+		Methods: []string{},
 	}
 
-	// Build available methods array
 	if h.authService.IsLocalEnabled() {
-		response["methods"] = append(response["methods"].([]string), "local")
+		response.Methods = append(response.Methods, "local")
 	}
-
 	if h.authService.IsOAuthEnabled() {
-		response["methods"] = append(response["methods"].([]string), "oidc")
-		response["oauth_url"] = "/api/v1/auth/oauth"
+		response.Methods = append(response.Methods, "oidc")
+		response.OAuthURL = "/api/v1/auth/oauth"
 	}
 
 	c.JSON(http.StatusOK, response)

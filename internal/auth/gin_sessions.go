@@ -64,11 +64,11 @@ type ginSession struct {
 	ctx     *gin.Context
 }
 
-func (s *ginSession) Get(key string) interface{} {
+func (s *ginSession) Get(key string) any {
 	return s.session.Get(key)
 }
 
-func (s *ginSession) Set(key string, value interface{}) {
+func (s *ginSession) Set(key string, value any) {
 	s.session.Set(key, value)
 }
 

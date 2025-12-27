@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -14,7 +15,7 @@ import (
 type AudioRepository interface {
 	// GetFilePath retrieves a file path from any table by ID.
 	// Used by ServeAudio handler for stories, bulletins, and station_voices.
-	GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int) (string, error)
+	GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error)
 }
 
 // audioRepository implements AudioRepository.
@@ -43,7 +44,7 @@ var allowedTables = map[string]map[string]bool{
 
 // GetFilePath retrieves a file path from the specified table.
 // Returns ErrNotFound if the record doesn't exist or has no file.
-func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int) (string, error) {
+func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error) {
 	// Validate table and column names against whitelist
 	tableColumns, ok := allowedTables[tableName]
 	if !ok {
@@ -61,7 +62,7 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 	// Build and execute query - table/column names are now validated
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", fileColumn, tableName, idColumn)
 
-	var filePath sql.NullString
+	var filePath sql.Null[string]
 	if err := r.db.GetContext(ctx, &filePath, query, id); err != nil {
 		if err == sql.ErrNoRows {
 			return "", ErrNotFound
@@ -69,9 +70,9 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 		return "", ParseDBError(err)
 	}
 
-	if !filePath.Valid || filePath.String == "" {
+	if !filePath.Valid || filePath.V == "" {
 		return "", ErrNotFound
 	}
 
-	return filePath.String, nil
+	return filePath.V, nil
 }

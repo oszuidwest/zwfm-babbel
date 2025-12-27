@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -13,14 +14,14 @@ import (
 // BulletinRepository defines the interface for bulletin data access.
 type BulletinRepository interface {
 	// CRUD operations
-	Create(ctx context.Context, stationID int, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error)
-	GetByID(ctx context.Context, id int) (*models.Bulletin, error)
+	Create(ctx context.Context, stationID int64, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error)
+	GetByID(ctx context.Context, id int64) (*models.Bulletin, error)
 
 	// Query operations
-	GetLatest(ctx context.Context, stationID int, maxAge *time.Duration) (*models.Bulletin, error)
+	GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error)
 
 	// Story linking
-	LinkStories(ctx context.Context, bulletinID int64, storyIDs []int) error
+	LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -39,7 +40,7 @@ func NewBulletinRepository(db *sqlx.DB) BulletinRepository {
 }
 
 // Create inserts a new bulletin and returns the created ID.
-func (r *bulletinRepository) Create(ctx context.Context, stationID int, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error) {
+func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error) {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx,
@@ -60,7 +61,7 @@ func (r *bulletinRepository) Create(ctx context.Context, stationID int, filename
 }
 
 // GetByID retrieves a bulletin by ID with station name.
-func (r *bulletinRepository) GetByID(ctx context.Context, id int) (*models.Bulletin, error) {
+func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
 	q := r.getQueryable(ctx)
 
 	var bulletin models.Bulletin
@@ -81,7 +82,7 @@ func (r *bulletinRepository) GetByID(ctx context.Context, id int) (*models.Bulle
 
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins newer than that duration.
-func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int, maxAge *time.Duration) (*models.Bulletin, error) {
+func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error) {
 	q := r.getQueryable(ctx)
 
 	var bulletin models.Bulletin
@@ -91,7 +92,7 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int, maxAg
               JOIN stations s ON b.station_id = s.id
               WHERE b.station_id = ?`
 
-	args := []interface{}{stationID}
+	args := []any{stationID}
 
 	if maxAge != nil {
 		query += ` AND b.created_at >= ?`
@@ -111,7 +112,7 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int, maxAg
 }
 
 // LinkStories creates bulletin-story relationship records.
-func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int) error {
+func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
 	q := r.getQueryable(ctx)
 
 	for i, storyID := range storyIDs {

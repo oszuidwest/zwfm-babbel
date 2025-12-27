@@ -56,7 +56,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, int64(voice.ID), "Voice created successfully")
+	utils.CreatedWithID(c, voice.ID, "Voice created successfully")
 }
 
 // UpdateVoice updates an existing newsreader voice's name and configuration.

@@ -56,6 +56,11 @@ func storyStatusValidator(fl validator.FieldLevel) bool {
 // a time.Time, string, *string, or *time.Time. Returns the parsed time, whether
 // the field is empty, whether parsing was successful, and whether to fail validation.
 func parseDateField(field reflect.Value) (parsedTime time.Time, isEmpty bool, ok bool, failValidation bool) {
+	// Check if the field is valid before processing
+	if !field.IsValid() {
+		return time.Time{}, true, true, false
+	}
+
 	switch {
 	case field.Type() == reflect.TypeOf(time.Time{}):
 		timeVal, valid := field.Interface().(time.Time)
@@ -97,7 +102,7 @@ func parseDateField(field reflect.Value) (parsedTime time.Time, isEmpty bool, ok
 	}
 }
 
-// dateAfterValidator validates that a date field is after another date field in the same struct
+// dateAfterValidator validates that a date field is after another date field in the same struct.
 // Usage: `validate:"dateafter=StartDate"`
 func dateAfterValidator(fl validator.FieldLevel) bool {
 	compareField := fl.Parent().FieldByName(fl.Param())
@@ -121,7 +126,7 @@ func dateAfterValidator(fl validator.FieldLevel) bool {
 	return currentTime.After(compareTime) || currentTime.Equal(compareTime)
 }
 
-// dateFormatValidator validates date strings are in YYYY-MM-DD format
+// dateFormatValidator validates date strings are in YYYY-MM-DD format.
 func dateFormatValidator(fl validator.FieldLevel) bool {
 	dateStr := fl.Field().String()
 	if dateStr == "" {

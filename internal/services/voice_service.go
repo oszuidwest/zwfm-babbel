@@ -49,7 +49,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 }
 
 // Update updates an existing voice's name
-func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
+func (s *VoiceService) Update(ctx context.Context, id int64, name string) error {
 	const op = "VoiceService.Update"
 
 	// Check if voice exists
@@ -83,7 +83,7 @@ func (s *VoiceService) Update(ctx context.Context, id int, name string) error {
 }
 
 // Delete deletes a voice after checking for dependencies
-func (s *VoiceService) Delete(ctx context.Context, id int) error {
+func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	const op = "VoiceService.Delete"
 
 	// Check if voice exists

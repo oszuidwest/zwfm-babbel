@@ -89,7 +89,7 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 }
 
 // applyUsernameUpdate validates and applies username update.
-func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *repository.UserUpdate, username string, excludeID int) error {
+func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *repository.UserUpdate, username string, excludeID int64) error {
 	if username == "" {
 		return nil
 	}
@@ -105,7 +105,7 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 }
 
 // applyEmailUpdate validates and applies email update.
-func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int) error {
+func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int64) error {
 	if email == nil || *email == "" {
 		return nil
 	}
@@ -162,7 +162,7 @@ func (s *UserService) applyMetadataUpdate(updates *repository.UserUpdate, metada
 }
 
 // handleSuspendedUpdate handles the suspended state update.
-func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int, suspended *bool) error {
+func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspended *bool) error {
 	if suspended == nil {
 		return nil
 	}
@@ -183,7 +183,7 @@ func hasFieldUpdates(updates *repository.UserUpdate) bool {
 }
 
 // executeFieldUpdates applies field updates to the repository.
-func (s *UserService) executeFieldUpdates(ctx context.Context, id int, updates *repository.UserUpdate) error {
+func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates *repository.UserUpdate) error {
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return ErrNotFound
@@ -194,7 +194,7 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int, updates *
 }
 
 // Update updates an existing user's information
-func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest) error {
+func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) error {
 	const op = "UserService.Update"
 
 	exists, err := s.repo.Exists(ctx, id)
@@ -244,7 +244,7 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 }
 
 // GetByID retrieves a user by their ID
-func (s *UserService) GetByID(ctx context.Context, id int) (*models.User, error) {
+func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, error) {
 	const op = "UserService.GetByID"
 
 	user, err := s.repo.GetByID(ctx, id)
@@ -260,7 +260,7 @@ func (s *UserService) GetByID(ctx context.Context, id int) (*models.User, error)
 
 // SoftDelete performs a hard delete of a user account (users table doesn't support soft deletes)
 // Checks that this is not the last admin user before deletion
-func (s *UserService) SoftDelete(ctx context.Context, id int) error {
+func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	const op = "UserService.SoftDelete"
 
 	// Get the user to check their role
@@ -300,7 +300,7 @@ func (s *UserService) SoftDelete(ctx context.Context, id int) error {
 }
 
 // Suspend suspends a user account by setting suspended_at to current time
-func (s *UserService) Suspend(ctx context.Context, id int) error {
+func (s *UserService) Suspend(ctx context.Context, id int64) error {
 	const op = "UserService.Suspend"
 
 	// Check if user exists
@@ -325,7 +325,7 @@ func (s *UserService) Suspend(ctx context.Context, id int) error {
 }
 
 // Unsuspend restores a suspended user account by clearing suspended_at
-func (s *UserService) Unsuspend(ctx context.Context, id int) error {
+func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 	const op = "UserService.Unsuspend"
 
 	// Check if user exists

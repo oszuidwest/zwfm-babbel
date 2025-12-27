@@ -1,4 +1,4 @@
-// Package handlers provides HTTP request handlers for the Babbel API.
+// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -54,8 +54,12 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	// Construct full path using directory and filename
 	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath)
 
-	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		utils.ProblemNotFound(c, "Audio file")
+	if _, err := os.Stat(audioPath); err != nil {
+		if os.IsNotExist(err) {
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
 		return
 	}
 	c.Header("Content-Type", config.ContentType)

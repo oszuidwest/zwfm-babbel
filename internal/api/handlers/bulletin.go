@@ -12,16 +12,17 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func GetBulletinAudioURL(bulletinID int) string {
+func GetBulletinAudioURL(bulletinID int64) string {
 	return fmt.Sprintf("/bulletins/%d/audio", bulletinID)
 }
 
 // BulletinRequest represents the request parameters for bulletin generation.
 type BulletinRequest struct {
-	StationID int    `json:"station_id" binding:"required"`
+	StationID int64  `json:"station_id" binding:"required"`
 	Date      string `json:"date"`
 }
 
@@ -79,16 +80,12 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
 // Returns nil if max-age is not present or invalid.
 func parseCacheControlMaxAge(cacheControl string) *time.Duration {
-	if !strings.Contains(cacheControl, "max-age=") {
+	_, after, found := strings.Cut(cacheControl, "max-age=")
+	if !found {
 		return nil
 	}
 
-	parts := strings.Split(cacheControl, "max-age=")
-	if len(parts) <= 1 {
-		return nil
-	}
-
-	maxAgeStr := strings.Split(parts[1], ",")[0]
+	maxAgeStr, _, _ := strings.Cut(after, ",")
 	maxAgeStr = strings.TrimSpace(maxAgeStr)
 
 	maxAge, err := time.ParseDuration(maxAgeStr + "s")
@@ -101,7 +98,7 @@ func parseCacheControlMaxAge(cacheControl string) *time.Duration {
 
 // tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
 // Returns true if a cached bulletin was served, false otherwise.
-func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int, download bool, maxAge *time.Duration) bool {
+func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, download bool, maxAge *time.Duration) bool {
 	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
 	if err != nil {
 		return false
@@ -194,7 +191,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 			Filters: []utils.FilterConfig{{
 				Column: "bulletin_id", Table: "bs", Value: bulletinID,
 			}},
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				if stories, ok := result.(*[]models.BulletinStory); ok {
 					processed := make([]BulletinStoryResponse, len(*stories))
 					for i, bs := range *stories {
@@ -251,10 +248,10 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinRespons
 
 // bulletinInfoToResponse creates response from BulletinInfo
 func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
-	bulletinURL := GetBulletinAudioURL(int(info.ID))
+	bulletinURL := GetBulletinAudioURL(info.ID)
 
 	return BulletinResponse{
-		ID:          int(info.ID),
+		ID:          info.ID,
 		StationID:   info.Station.ID,
 		StationName: info.Station.Name,
 		AudioURL:    bulletinURL,
@@ -305,7 +302,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
@@ -361,7 +358,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
@@ -423,8 +420,12 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 					Value:  storyID,
 				},
 			},
-			PostProcessor: func(result interface{}) {
-				bulletinHistory := result.(*[]models.StoryBulletinHistory)
+			PostProcessor: func(result any) {
+				bulletinHistory, ok := result.(*[]models.StoryBulletinHistory)
+				if !ok {
+					logger.Error("PostProcessor: type assertion failed for StoryBulletinHistory slice")
+					return
+				}
 				// Convert to the expected response format
 				processedResults := make([]StoryBulletinHistoryResponse, len(*bulletinHistory))
 				for i, item := range *bulletinHistory {
@@ -477,7 +478,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			utils.ProblemInternalServer(c, "Pagination data not found")
 			return
 		}
-		paginationInfo, ok := responseData.(map[string]interface{})
+		paginationInfo, ok := responseData.(map[string]any)
 		if !ok {
 			utils.ProblemInternalServer(c, "Failed to get pagination data")
 			return

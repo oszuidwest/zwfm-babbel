@@ -3,6 +3,7 @@ package utils
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -20,10 +21,10 @@ import (
 )
 
 // GetIDParam extracts and validates the ID parameter from the request URL.
-// Returns the ID as an integer and a boolean indicating success.
+// Returns the ID as int64 and a boolean indicating success.
 // Automatically responds with 400 Bad Request if the ID is invalid or non-positive.
-func GetIDParam(c *gin.Context) (int, bool) {
-	id, err := strconv.Atoi(c.Param("id"))
+func GetIDParam(c *gin.Context) (int64, bool) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		ProblemBadRequest(c, "Invalid ID parameter")
 		return 0, false
@@ -37,7 +38,7 @@ func GetIDParam(c *gin.Context) (int, bool) {
 // =============================================================================
 
 // ValidateStationExists checks if a station exists by ID.
-func ValidateStationExists(c *gin.Context, db *sqlx.DB, id int) bool {
+func ValidateStationExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 	exists, err := Stations.Exists(c.Request.Context(), db, id)
 	if err != nil || !exists {
 		ProblemNotFound(c, "Station")
@@ -47,7 +48,7 @@ func ValidateStationExists(c *gin.Context, db *sqlx.DB, id int) bool {
 }
 
 // ValidateStoryExists checks if a story exists by ID.
-func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int) bool {
+func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 	exists, err := Stories.Exists(c.Request.Context(), db, id)
 	if err != nil || !exists {
 		ProblemNotFound(c, "Story")
@@ -57,7 +58,7 @@ func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int) bool {
 }
 
 // ValidateBulletinExists checks if a bulletin exists by ID.
-func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int) bool {
+func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 	exists, err := Bulletins.Exists(c.Request.Context(), db, id)
 	if err != nil || !exists {
 		ProblemNotFound(c, "Bulletin")
@@ -84,14 +85,16 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 // Performs security checks on file type, size, and filename.
 // Returns the temporary file path, a cleanup function, and any validation errors.
 // The cleanup function should always be called to prevent resource leaks.
-func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
+func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func() error, err error) {
 	file, header, err := c.Request.FormFile(fieldName)
 	if err != nil {
 		return "", nil, err
 	}
 
 	if err := ValidateAudioFile(header); err != nil {
-		_ = file.Close() // Ignore error on cleanup
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Warn("Failed to close file during validation error: %v", closeErr)
+		}
 		return "", nil, fmt.Errorf("invalid audio file: %w", err)
 	}
 
@@ -99,13 +102,26 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	tempPath = filepath.Join("/tmp", fmt.Sprintf("%s_%s", prefix, safeFilename))
 
 	if err := saveFileToPath(file, tempPath); err != nil {
-		_ = file.Close() // Ignore error on cleanup
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Warn("Failed to close file during save error: %v", closeErr)
+		}
 		return "", nil, err
 	}
 
-	cleanup = func() {
-		_ = file.Close()        // Ignore error on cleanup
-		_ = os.Remove(tempPath) // Ignore error on cleanup
+	cleanup = func() error {
+		var errs []error
+		if err := file.Close(); err != nil {
+			logger.Warn("Failed to close uploaded file during cleanup: %v", err)
+			errs = append(errs, err)
+		}
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove temp file %s: %v", tempPath, err)
+			errs = append(errs, err)
+		}
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		return nil
 	}
 
 	return tempPath, cleanup, nil
@@ -180,8 +196,8 @@ type VoiceRequest struct {
 // Links stations to voices with specific mix points for jingle integration.
 // Used for multipart form data when uploading jingle audio files.
 type StationVoiceRequest struct {
-	StationID int     `json:"station_id" form:"station_id" binding:"required,min=1"`
-	VoiceID   int     `json:"voice_id" form:"voice_id" binding:"required,min=1"`
+	StationID int64   `json:"station_id" form:"station_id" binding:"required,min=1"`
+	VoiceID   int64   `json:"voice_id" form:"voice_id" binding:"required,min=1"`
 	MixPoint  float64 `json:"mix_point" form:"mix_point" binding:"gte=0,lte=300"`
 }
 
@@ -189,8 +205,8 @@ type StationVoiceRequest struct {
 // All fields are optional pointers to support partial updates.
 // Used for multipart form data when updating jingle audio files.
 type StationVoiceUpdateRequest struct {
-	StationID *int     `json:"station_id,omitempty" form:"station_id" binding:"omitempty,min=1"`
-	VoiceID   *int     `json:"voice_id,omitempty" form:"voice_id" binding:"omitempty,min=1"`
+	StationID *int64   `json:"station_id,omitempty" form:"station_id" binding:"omitempty,min=1"`
+	VoiceID   *int64   `json:"voice_id,omitempty" form:"voice_id" binding:"omitempty,min=1"`
 	MixPoint  *float64 `json:"mix_point,omitempty" form:"mix_point" binding:"omitempty,gte=0,lte=300"`
 }
 
@@ -225,7 +241,7 @@ type UserUpdateRequest struct {
 type StoryCreateRequest struct {
 	Title     string          `json:"title" form:"title" binding:"required,notblank,max=500"`
 	Text      string          `json:"text" form:"text" binding:"required,notblank"`
-	VoiceID   *int            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	VoiceID   *int64          `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
 	Status    string          `json:"status" form:"status" binding:"omitempty,story_status"`
 	StartDate string          `json:"start_date" form:"start_date" binding:"required,dateformat"`
 	EndDate   string          `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
@@ -246,7 +262,7 @@ type StoryCreateRequest struct {
 type StoryUpdateRequest struct {
 	Title     *string         `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string         `json:"text" form:"text" binding:"omitempty,notblank"`
-	VoiceID   *int            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	VoiceID   *int64          `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
 	Status    *string         `json:"status" form:"status" binding:"omitempty,story_status"`
 	StartDate *string         `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string         `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
@@ -315,7 +331,7 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 // BindAndValidate handles JSON request binding with comprehensive validation and error reporting.
 // Converts validation errors into user-friendly messages with field-level detail.
 // Always returns 422 Unprocessable Entity for validation failures with structured error responses.
-func BindAndValidate(c *gin.Context, req interface{}) bool {
+func BindAndValidate(c *gin.Context, req any) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		validationErrors := convertValidationErrors(err)
 		ProblemValidationError(c, "The request contains invalid data", validationErrors)
@@ -328,7 +344,7 @@ func BindAndValidate(c *gin.Context, req interface{}) bool {
 // Supports multipart/form-data, application/x-www-form-urlencoded, and application/json.
 // Provides unified validation error handling across all content types.
 // Returns 422 Unprocessable Entity for validation failures.
-func BindFormAndValidate(c *gin.Context, req interface{}) bool {
+func BindFormAndValidate(c *gin.Context, req any) bool {
 	contentType := c.GetHeader("Content-Type")
 	var err error
 
@@ -424,7 +440,7 @@ var validTables = map[string]bool{
 // Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
 // The result parameter must be a pointer to the appropriate struct type.
 // Table name is validated against an allowlist to prevent SQL injection.
-func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
+func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result any) {
 	id, ok := GetIDParam(c)
 	if !ok {
 		return

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -40,24 +41,24 @@ func NewStoryService(storyRepo repository.StoryRepository, voiceRepo repository.
 type CreateStoryRequest struct {
 	Title     string
 	Text      string
-	VoiceID   *int
+	VoiceID   *int64
 	Status    string
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // UpdateStoryRequest contains the data needed to update an existing story.
 type UpdateStoryRequest struct {
 	Title     *string
 	Text      *string
-	VoiceID   *int
+	VoiceID   *int64
 	Status    *string
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // Create creates a new story in the database.
@@ -122,7 +123,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 }
 
 // Update updates an existing story.
-func (s *StoryService) Update(ctx context.Context, id int, req *UpdateStoryRequest) (*models.Story, error) {
+func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryRequest) (*models.Story, error) {
 	// Verify story exists
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
@@ -269,7 +270,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 }
 
 // GetByID retrieves a story by its ID.
-func (s *StoryService) GetByID(ctx context.Context, id int) (*models.Story, error) {
+func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	story, err := s.storyRepo.GetByIDWithVoice(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -283,7 +284,7 @@ func (s *StoryService) GetByID(ctx context.Context, id int) (*models.Story, erro
 }
 
 // SoftDelete marks a story as deleted by setting the deleted_at timestamp.
-func (s *StoryService) SoftDelete(ctx context.Context, id int) error {
+func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	// Verify story exists
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
@@ -306,7 +307,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int) error {
 }
 
 // Restore restores a soft-deleted story by clearing the deleted_at timestamp.
-func (s *StoryService) Restore(ctx context.Context, id int) error {
+func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	// Verify story exists (even if deleted)
 	exists, err := s.storyRepo.ExistsIncludingDeleted(ctx, id)
 	if err != nil {
@@ -331,7 +332,7 @@ func (s *StoryService) Restore(ctx context.Context, id int) error {
 // ProcessAudio processes an uploaded audio file for a story.
 // The tempPath should be a validated temporary file path.
 // This method will convert the audio to standardized WAV format and update the story record.
-func (s *StoryService) ProcessAudio(ctx context.Context, storyID int, tempPath string) error {
+func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
 	// Verify story exists
 	exists, err := s.storyRepo.Exists(ctx, storyID)
 	if err != nil {
@@ -353,6 +354,10 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int, tempPath s
 	filenameOnly := utils.GetStoryFilename(storyID)
 	err = s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration)
 	if err != nil {
+		// Clean up file on database error
+		if rmErr := os.Remove(outputPath); rmErr != nil {
+			logger.Error("Failed to remove audio file after database error: %v", rmErr)
+		}
 		logger.Error("Failed to update story %d audio reference: %v", storyID, err)
 		return fmt.Errorf("%w: failed to update audio reference", ErrDatabaseError)
 	}
@@ -381,7 +386,7 @@ func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesda
 
 // UpdateStatus updates a story's status field.
 // Valid statuses: draft, active, expired
-func (s *StoryService) UpdateStatus(ctx context.Context, id int, status string) error {
+func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) error {
 	// Verify story exists
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {

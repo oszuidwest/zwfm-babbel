@@ -33,25 +33,44 @@ func Initialize(level string, development bool) error {
 }
 
 // Info logs informational messages with Printf-style formatting.
-func Info(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Info(fmt.Sprintf(message, args...))
+func Info(message string, args ...any) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Info(fmt.Sprintf(message, args...))
 }
 
 // Error logs error messages with Printf-style formatting.
-func Error(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Error(fmt.Sprintf(message, args...))
+func Error(message string, args ...any) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Error(fmt.Sprintf(message, args...))
 }
 
 // Fatal logs fatal error messages and terminates the program.
-func Fatal(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Error(fmt.Sprintf(message, args...))
+func Fatal(message string, args ...any) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Error(fmt.Sprintf(message, args...))
 	os.Exit(1)
+}
+
+// Debug logs debug messages with Printf-style formatting.
+func Debug(message string, args ...any) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
+	}
+	logger.Debug(fmt.Sprintf(message, args...))
+}
+
+// Warn logs warning messages with Printf-style formatting.
+func Warn(message string, args ...any) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
+	}
+	logger.Warn(fmt.Sprintf(message, args...))
 }
 
 // Sync flushes any buffered log entries (no-op for slog).

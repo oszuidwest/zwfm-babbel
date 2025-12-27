@@ -14,9 +14,9 @@ type SessionStore interface {
 // Provides a consistent API for session management regardless of storage backend.
 type Session interface {
 	// Get retrieves a value from the session by key
-	Get(key string) interface{}
+	Get(key string) any
 	// Set stores a value in the session with the given key
-	Set(key string, value interface{})
+	Set(key string, value any)
 	// Delete removes a key-value pair from the session
 	Delete(key string)
 	// Clear removes all data from the session

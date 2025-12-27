@@ -9,13 +9,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StationVoiceResponse represents the response for station-voice relationships
 type StationVoiceResponse struct {
-	ID          int       `json:"id" db:"id"`
-	StationID   int       `json:"station_id" db:"station_id"`
-	VoiceID     int       `json:"voice_id" db:"voice_id"`
+	ID          int64     `json:"id" db:"id"`
+	StationID   int64     `json:"station_id" db:"station_id"`
+	VoiceID     int64     `json:"voice_id" db:"voice_id"`
 	AudioFile   string    `json:"-" db:"audio_file"`
 	MixPoint    float64   `json:"mix_point" db:"mix_point"`
 	StationName string    `json:"station_name" db:"station_name"`
@@ -26,7 +27,7 @@ type StationVoiceResponse struct {
 }
 
 // GetStationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
-func GetStationVoiceAudioURL(stationVoiceID int, hasJingle bool) *string {
+func GetStationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
 	if !hasJingle {
 		return nil
 	}
@@ -48,7 +49,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 			            JOIN voices v ON sv.voice_id = v.id`,
 			CountQuery:   "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id",
 			DefaultOrder: "sv.id DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Add audio URLs to response
 				if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
 					for i := range *stationVoices {
@@ -145,7 +146,11 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			}})
 			return
 		}
-		defer cleanup()
+		defer func() {
+			if err := cleanup(); err != nil {
+				logger.Error("Failed to cleanup jingle file: %v", err)
+			}
+		}()
 
 		// Process jingle via service
 		if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice.ID, tempPath); err != nil {
@@ -154,13 +159,13 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		}
 	}
 
-	utils.CreatedWithID(c, int64(stationVoice.ID), "Station-voice relationship created successfully")
+	utils.CreatedWithID(c, stationVoice.ID, "Station-voice relationship created successfully")
 }
 
 // stationVoiceUpdateRequest represents the update request structure
 type stationVoiceUpdateRequest struct {
-	StationID *int     `form:"station_id,omitempty"`
-	VoiceID   *int     `form:"voice_id,omitempty"`
+	StationID *int64   `form:"station_id,omitempty"`
+	VoiceID   *int64   `form:"voice_id,omitempty"`
 	MixPoint  *float64 `form:"mix_point,omitempty"`
 }
 
@@ -200,7 +205,7 @@ func validateStationVoiceUpdateRequest(c *gin.Context) (*stationVoiceUpdateReque
 }
 
 // updateStationVoiceFields updates the station-voice relationship fields via service
-func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int, req *stationVoiceUpdateRequest) bool {
+func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *stationVoiceUpdateRequest) bool {
 	serviceReq := &services.UpdateStationVoiceRequest{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
@@ -215,7 +220,7 @@ func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int, req *station
 }
 
 // processStationVoiceJingleUpdate handles jingle file upload and processing
-func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int) bool {
+func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int64) bool {
 	// Get current station/voice IDs for the temporary file naming
 	current, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
@@ -231,7 +236,11 @@ func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int) bool 
 		}})
 		return false
 	}
-	defer cleanup()
+	defer func() {
+		if err := cleanup(); err != nil {
+			logger.Error("Failed to cleanup jingle file: %v", err)
+		}
+	}()
 
 	// Process jingle via service
 	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {

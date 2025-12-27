@@ -30,7 +30,7 @@ type Service struct {
 	db       *sqlx.DB
 	enforcer *casbin.Enforcer
 	sessions SessionStore
-	ginStore interface{}
+	ginStore any
 }
 
 // IsLocalEnabled returns true if local authentication is enabled.
@@ -176,9 +176,13 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	}
 
 	for _, p := range policies {
-		if _, err := enforcer.AddPolicy(p); err != nil {
-			// Some policies might already exist
-			fmt.Printf("Failed to add policy %v: %v\n", p, err)
+		added, err := enforcer.AddPolicy(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add RBAC policy %v: %w", p, err)
+		}
+		if !added {
+			// Policy already exists (from database adapter), this is expected
+			logger.Debug("RBAC policy already exists: %v", p)
 		}
 	}
 
@@ -190,7 +194,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 // Example: raymon@zuidwestfm.nl → raymon
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Take the part before @ (local part of email)
-	base := strings.Split(email, "@")[0]
+	base, _, _ := strings.Cut(email, "@")
 
 	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
 	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
@@ -199,9 +203,8 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Ensure the username is not empty and meets minimum length requirement
 	if len(username) < 3 {
 		// If too short, append part of the domain
-		domain := strings.Split(email, "@")
-		if len(domain) > 1 {
-			domainPart := strings.Split(domain[1], ".")[0]
+		if _, domainStr, found := strings.Cut(email, "@"); found {
+			domainPart, _, _ := strings.Cut(domainStr, ".")
 			domainPart = re.ReplaceAllString(domainPart, "_")
 			username = username + "_" + domainPart
 		}
@@ -228,6 +231,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 		err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
 		if err != nil {
 			// On error, assume it might exist and try with suffix
+			logger.Warn("Database error checking username uniqueness, trying next: %v", err)
 			username = fmt.Sprintf("%s_%d", baseUsername, counter)
 			counter++
 			if counter > 100 {
@@ -283,49 +287,40 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := s.sessions.Get(c)
 
-		// Check if user is authenticated
-		userID := session.Get("user_id")
-		if userID == nil {
-			utils.ProblemAuthentication(c, "Authentication required")
-			c.Abort()
-			return
-		}
-
-		// Validate userID type
-		userIDInt, ok := userID.(int)
+		// Check if user is authenticated (type-safe)
+		userID, ok := GetSessionUserID(session)
 		if !ok {
-			session.Delete("user_id")
-			if err := session.Save(c); err != nil {
-				logger.Error("Failed to save session during cleanup: %v", err)
-			}
-			utils.ProblemAuthentication(c, "Invalid session")
+			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
 			return
 		}
 
 		// Load user from database
 		var user struct {
-			ID          int        `db:"id"`
+			ID          int64      `db:"id"`
 			Username    string     `db:"username"`
 			Role        string     `db:"role"`
 			SuspendedAt *time.Time `db:"suspended_at"`
 		}
 
-		err := s.db.GetContext(c.Request.Context(), &user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userIDInt)
+		err := s.db.GetContext(c.Request.Context(), &user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userID)
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete("user_id")
-			if err := session.Save(c); err != nil {
-				logger.Error("Failed to save session during cleanup: %v", err)
+			session.Delete(string(SessKeyUserID))
+			if saveErr := session.Save(c); saveErr != nil {
+				logger.Error("Failed to save session during cleanup: %v", saveErr)
+				// Continue with authentication error - session cleanup failure is secondary
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
 			return
 		}
 
-		// Set user info in context
-		c.Set(string(CtxKeyUserID), user.ID)
-		c.Set(string(CtxKeyUsername), user.Username)
-		c.Set(string(CtxKeyUserRole), user.Role)
+		// Set user info in context (type-safe)
+		SetUserContext(c, UserContext{
+			UserID:   user.ID,
+			Username: user.Username,
+			Role:     user.Role,
+		})
 
 		c.Next()
 	}
@@ -334,16 +329,22 @@ func (s *Service) Middleware() gin.HandlerFunc {
 // RequirePermission returns middleware that enforces role-based access control.
 func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString(string(CtxKeyUserRole))
+		role, roleOk := GetUserRole(c)
+		if !roleOk {
+			logger.Error("RequirePermission: user role not found in context")
+			utils.ProblemAuthentication(c, "Authentication required")
+			c.Abort()
+			return
+		}
 
-		ok, err := s.enforcer.Enforce(role, string(obj), string(act))
+		allowed, err := s.enforcer.Enforce(role, string(obj), string(act))
 		if err != nil {
 			utils.ProblemInternalServer(c, "Permission check failed")
 			c.Abort()
 			return
 		}
 
-		if !ok {
+		if !allowed {
 			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "Insufficient permissions")
 			c.Abort()
 			return
@@ -360,7 +361,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	}
 
 	var user struct {
-		ID           int        `db:"id"`
+		ID           int64      `db:"id"`
 		Username     string     `db:"username"`
 		PasswordHash string     `db:"password_hash"`
 		Role         string     `db:"role"`
@@ -379,7 +380,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		// Increment failed login attempt counter
+		// Increment failed login attempt counter (log but don't block - we're returning invalid credentials anyway)
 		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
 			logger.Error("Failed to update login failure stats: %v", updateErr)
 		}
@@ -388,7 +389,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
-		logger.Error("Failed to update login success stats: %v", err)
+		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
 	// Create session for authenticated user
@@ -402,15 +403,21 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		return
 	}
 
-	// Generate state for CSRF protection
-	state := generateState()
-	session := s.sessions.Get(c)
-	session.Set("oauth_state", state)
+	// Generate state for CSRF protection (type-safe error handling)
+	state, err := generateState()
+	if err != nil {
+		logger.Error("Failed to generate OAuth state: %v", err)
+		utils.ProblemInternalServer(c, "Failed to initiate OAuth flow")
+		return
+	}
 
-	// Store frontend URL for later redirect
+	session := s.sessions.Get(c)
+	SetSessionOAuthState(session, state)
+
+	// Store frontend URL for later redirect (type-safe)
 	frontendURL := c.Query("frontend_url")
 	if frontendURL != "" {
-		session.Set("frontend_url", frontendURL)
+		SetSessionFrontendURL(session, frontendURL)
 	}
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save OAuth session: %v", err)
@@ -427,14 +434,13 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session := s.sessions.Get(c)
 
-	// Verify state
+	// Verify state (type-safe)
 	state := c.Query("state")
-	savedState := session.Get("oauth_state")
-	savedStateStr, ok := savedState.(string)
-	if !ok || savedState == nil || state != savedStateStr {
+	savedStateStr, ok := GetSessionOAuthState(session)
+	if !ok || state != savedStateStr {
 		return fmt.Errorf("invalid state")
 	}
-	session.Delete("oauth_state")
+	session.Delete(string(SessKeyOAuthState))
 
 	// Exchange code for token
 	code := c.Query("code")
@@ -485,7 +491,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 // oauthUser represents the minimal user information needed for OAuth session setup.
 type oauthUser struct {
-	ID       int
+	ID       int64
 	Username string
 }
 
@@ -493,7 +499,7 @@ type oauthUser struct {
 // Returns the user ID and username, or an error if the account is suspended or creation fails.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
-		ID          int        `db:"id"`
+		ID          int64      `db:"id"`
 		Username    string     `db:"username"`
 		SuspendedAt *time.Time `db:"suspended_at"`
 	}
@@ -528,7 +534,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 	}
 
 	return &oauthUser{
-		ID:       int(id),
+		ID:       id, // Already int64, no cast needed
 		Username: username,
 	}, nil
 }
@@ -556,14 +562,14 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 
 	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
-		logger.Error("Failed to update login success stats: %v", err)
+		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
 	// Get the user's actual role from database
 	var role string
 	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-		logger.Error("Failed to get user role, defaulting to viewer: %v", err)
-		role = "viewer"
+		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
+		return fmt.Errorf("failed to get user role: %w", err)
 	}
 
 	// Create session with user credentials
@@ -579,31 +585,36 @@ func (s *Service) GetSession(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 
-// Logout destroys the user session.
-func (s *Service) Logout(c *gin.Context) {
+// Logout destroys the user session and returns an error if session save fails.
+func (s *Service) Logout(c *gin.Context) error {
 	session := s.sessions.Get(c)
 	session.Clear()
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save session during logout: %v", err)
+		return fmt.Errorf("failed to save session: %w", err)
 	}
+	return nil
 }
 
 // CreateSession creates a new session for the authenticated user.
 // It stores the user ID, username, role, and authentication method in the session.
 // Returns an error if the session cannot be saved.
-func (s *Service) CreateSession(c *gin.Context, userID int, username string, role string, authMethod string) error {
+func (s *Service) CreateSession(c *gin.Context, userID int64, username string, role string, authMethod string) error {
 	session := s.sessions.Get(c)
-	session.Set("user_id", userID)
-	session.Set("username", username)
-	session.Set("role", role)
-	session.Set("auth_method", authMethod)
+	// Use type-safe session helpers
+	SetSessionAuth(session, SessionData{
+		UserID:     userID,
+		Username:   username,
+		Role:       role,
+		AuthMethod: authMethod,
+	})
 	return session.Save(c)
 }
 
 // updateLoginSuccess updates user statistics after successful login.
 // It resets failed login attempts and increments the login count.
 // Returns an error if the database update fails.
-func (s *Service) updateLoginSuccess(ctx context.Context, userID int) error {
+func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE users
 		SET last_login_at = NOW(),
@@ -618,7 +629,7 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int) error {
 
 // updateLoginFailure increments failed login attempts for a user.
 // Returns an error if the database update fails.
-func (s *Service) updateLoginFailure(ctx context.Context, userID int) error {
+func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE users
 		SET failed_login_attempts = failed_login_attempts + 1
@@ -630,11 +641,11 @@ func (s *Service) updateLoginFailure(ctx context.Context, userID int) error {
 }
 
 // generateState generates a cryptographically secure random state parameter for OAuth2 CSRF protection.
-func generateState() string {
+// Returns an error if the random number generator fails (extremely rare but possible).
+func generateState() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// This should never fail with crypto/rand, but if it does, panic as it's a critical security issue
-		panic(fmt.Sprintf("Failed to generate random state: %v", err))
+		return "", fmt.Errorf("failed to generate random state: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.URLEncoding.EncodeToString(b), nil
 }

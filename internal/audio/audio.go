@@ -13,6 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Service handles audio processing operations using FFmpeg.
@@ -25,8 +26,8 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format.
-// channelCount: 1 for mono (stories), 2 for stereo (jingles)
+// ConvertToWAV converts uploaded audio files to standardized WAV format
+// using the specified channel count (1 for mono stories, 2 for stereo jingles).
 func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
 	// Convert to WAV 48kHz with specified channel count
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
@@ -82,7 +83,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	// Create temp directory for mixing
 	tempDir := utils.GetTempBulletinDir(s.config, uuid.New().String())
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create temp directory %s: %w", tempDir, err)
 	}
 	defer cleanupTempDir(tempDir)
 
@@ -97,7 +98,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 func cleanupTempDir(tempDir string) {
 	if err := os.RemoveAll(tempDir); err != nil {
 		// Ignore cleanup errors
-		fmt.Printf("Warning: failed to cleanup temp directory %s: %v\n", tempDir, err)
+		logger.Warn("Failed to cleanup temp directory %s: %v", tempDir, err)
 	}
 }
 
@@ -170,6 +171,13 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 		return args, filters
 	}
 
+	// Check if voice ID is available for jingle lookup
+	if stories[0].VoiceID == nil {
+		logger.Debug("First story has no voice ID, generating bulletin without bed")
+		filters = append(filters, "[messages]anull[out]")
+		return args, filters
+	}
+
 	// Use station-specific jingle
 	jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
 
@@ -179,6 +187,7 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 		filters = append(filters, fmt.Sprintf("[messages][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
 	} else {
 		// No bed, just use the messages
+		logger.Debug("Jingle file not found at %s, generating bulletin without bed", jinglePath)
 		filters = append(filters, "[messages]anull[out]")
 	}
 
@@ -191,8 +200,8 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	// Print command for debugging
-	fmt.Printf("DEBUG: Executing FFmpeg command: %s %s\n", s.config.Audio.FFmpegPath, strings.Join(args, " "))
-	fmt.Printf("DEBUG: Filter complex: %s\n", strings.Join(filters, ";"))
+	logger.Debug("Executing FFmpeg command: %s %s", s.config.Audio.FFmpegPath, strings.Join(args, " "))
+	logger.Debug("Filter complex: %s", strings.Join(filters, ";"))
 
 	// Capture stderr for better error reporting
 	stderr, err := cmd.StderrPipe()
@@ -207,12 +216,16 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
 		// Continue despite read error
-		fmt.Printf("Failed to read stderr: %v\n", readErr)
+		logger.Warn("Failed to read FFmpeg stderr: %v", readErr)
 	}
 
 	if err := cmd.Wait(); err != nil {
-		fmt.Printf("DEBUG: FFmpeg stderr: %s\n", string(stderrBytes))
-		return "", fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", err, string(stderrBytes))
+		logger.Debug("FFmpeg stderr: %s", string(stderrBytes))
+		stderrStr := string(stderrBytes)
+		if readErr != nil {
+			stderrStr = fmt.Sprintf("(stderr read failed: %v)", readErr)
+		}
+		return "", fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", err, stderrStr)
 	}
 
 	return outputPath, nil

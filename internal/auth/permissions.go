@@ -1,3 +1,4 @@
+// Package auth provides authentication and authorization services.
 package auth
 
 // Resource represents a protected resource type

@@ -56,7 +56,7 @@ func (e *Error) Unwrap() error {
 }
 
 // WithInternal adds internal debugging details to the error.
-func (e *Error) WithInternal(format string, args ...interface{}) *Error {
+func (e *Error) WithInternal(format string, args ...any) *Error {
 	e.Internal = fmt.Sprintf(format, args...)
 	return e
 }

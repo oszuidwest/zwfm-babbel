@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -12,14 +13,14 @@ import (
 type StationRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error)
-	GetByID(ctx context.Context, id int) (*models.Station, error)
-	Update(ctx context.Context, id int, name string, maxStories int, pauseSeconds float64) error
-	Delete(ctx context.Context, id int) error
+	GetByID(ctx context.Context, id int64) (*models.Station, error)
+	Update(ctx context.Context, id int64, name string, maxStories int, pauseSeconds float64) error
+	Delete(ctx context.Context, id int64) error
 
 	// Query operations
-	Exists(ctx context.Context, id int) (bool, error)
-	IsNameTaken(ctx context.Context, name string, excludeID *int) (bool, error)
-	HasDependencies(ctx context.Context, id int) (bool, error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
+	HasDependencies(ctx context.Context, id int64) (bool, error)
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -54,11 +55,11 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return r.GetByID(ctx, int(id))
+	return r.GetByID(ctx, id)
 }
 
 // Update updates an existing station's fields.
-func (r *stationRepository) Update(ctx context.Context, id int, name string, maxStories int, pauseSeconds float64) error {
+func (r *stationRepository) Update(ctx context.Context, id int64, name string, maxStories int, pauseSeconds float64) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx,
@@ -81,9 +82,9 @@ func (r *stationRepository) Update(ctx context.Context, id int, name string, max
 }
 
 // IsNameTaken checks if a station name is already in use.
-func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int) (bool, error) {
+func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	condition := "name = ?"
-	args := []interface{}{name}
+	args := []any{name}
 
 	if excludeID != nil {
 		condition += " AND id != ?"
@@ -94,7 +95,7 @@ func (r *stationRepository) IsNameTaken(ctx context.Context, name string, exclud
 }
 
 // HasDependencies checks if station has any station_voices relationships.
-func (r *stationRepository) HasDependencies(ctx context.Context, id int) (bool, error) {
+func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	var count int

@@ -11,7 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
-// QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection
+// QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection.
 type QueryParams struct {
 	// Pagination
 	Limit  int `json:"limit"`
@@ -33,20 +33,20 @@ type QueryParams struct {
 	Search string `json:"search"`
 }
 
-// SortField represents a single sort criteria
+// SortField represents a single sort criterion.
 type SortField struct {
 	Field     string `json:"field"`
 	Direction string `json:"direction"` // "asc" or "desc"
 }
 
-// FilterOperation represents a filter operation on a field
+// FilterOperation represents a filter operation on a field.
 type FilterOperation struct {
-	Operator string      `json:"operator"` // "eq", "ne", "gt", "gte", "lt", "lte", "in", "like", "between"
-	Value    interface{} `json:"value"`
-	Values   []string    `json:"values"` // For "in" and "between" operations
+	Operator string   `json:"operator"` // "eq", "ne", "gt", "gte", "lt", "lte", "in", "like", "between"
+	Value    any      `json:"value"`
+	Values   []string `json:"values"` // For "in" and "between" operations
 }
 
-// ListParams represents simplified parameters for list endpoints
+// ListParams represents simplified parameters for list endpoints.
 type ListParams struct {
 	Limit  int
 	Offset int
@@ -54,7 +54,7 @@ type ListParams struct {
 	Search string
 }
 
-// ParseQueryParams extracts and validates modern query parameters from the request
+// ParseQueryParams extracts and validates modern query parameters from the request.
 func ParseQueryParams(c *gin.Context) *QueryParams {
 	if c == nil {
 		return nil
@@ -91,7 +91,7 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	return params
 }
 
-// parseSorting handles both modern sorting formats:
+// parseSorting handles both modern sorting formats.
 // - ?sort=created_at:desc,name:asc
 // - ?sort=-created_at,+name (or just -created_at,name)
 func parseSorting(c *gin.Context) []SortField {
@@ -104,8 +104,8 @@ func parseSorting(c *gin.Context) []SortField {
 		return nil
 	}
 
-	var sortFields []SortField
 	parts := strings.Split(sortParam, ",")
+	sortFields := make([]SortField, 0, len(parts))
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -118,17 +118,16 @@ func parseSorting(c *gin.Context) []SortField {
 		// Check for prefix notation (-field or +field) or colon notation
 		switch {
 		case strings.HasPrefix(part, "-"):
-			field = strings.TrimPrefix(part, "-")
+			field, _ = strings.CutPrefix(part, "-")
 			direction = "desc"
 		case strings.HasPrefix(part, "+"):
-			field = strings.TrimPrefix(part, "+")
+			field, _ = strings.CutPrefix(part, "+")
 			direction = "asc"
 		case strings.Contains(part, ":"):
 			// Check for colon notation (field:direction)
-			colonParts := strings.Split(part, ":")
-			if len(colonParts) == 2 {
-				field = strings.TrimSpace(colonParts[0])
-				direction = strings.ToLower(strings.TrimSpace(colonParts[1]))
+			if before, after, found := strings.Cut(part, ":"); found {
+				field = strings.TrimSpace(before)
+				direction = strings.ToLower(strings.TrimSpace(after))
 				if direction != "asc" && direction != "desc" {
 					direction = "asc" // Default to asc for invalid direction
 				}
@@ -150,7 +149,7 @@ func parseSorting(c *gin.Context) []SortField {
 	return sortFields
 }
 
-// parseFields handles field selection for sparse fieldsets
+// parseFields handles field selection for sparse fieldsets.
 // ?fields=id,name,created_at
 func parseFields(c *gin.Context) []string {
 	if c == nil {
@@ -162,8 +161,8 @@ func parseFields(c *gin.Context) []string {
 		return nil
 	}
 
-	var fields []string
 	parts := strings.Split(fieldsParam, ",")
+	fields := make([]string, 0, len(parts))
 
 	for _, part := range parts {
 		field := strings.TrimSpace(part)
@@ -175,10 +174,10 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
-// filterOperatorHandler defines a function that creates a FilterOperation from a value
+// filterOperatorHandler defines a function that creates a FilterOperation from a value.
 type filterOperatorHandler func(value string) FilterOperation
 
-// filterOperatorHandlers maps operator names to their handler functions
+// filterOperatorHandlers maps operator names to their handler functions.
 var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"in": func(value string) FilterOperation {
 		filterValues := strings.Split(value, ",")
@@ -220,7 +219,7 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	},
 }
 
-// parseFilters handles modern filtering with nested parameters
+// parseFilters handles modern filtering with nested parameters.
 // ?filter[field]=value
 // ?filter[created_at][gte]=2024-01-01
 // ?filter[id][in]=1,2,3
@@ -255,34 +254,31 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 	return filters
 }
 
-// parseFilterKey extracts field name and operator from filter key
+// parseFilterKey extracts field name and operator from filter key.
 // Examples:
 // filter[name] -> field: "name", operator: ""
 // filter[created_at][gte] -> field: "created_at", operator: "gte"
 func parseFilterKey(key string) (field, operator string) {
 	// Remove "filter[" prefix and "]" suffix
-	if !strings.HasPrefix(key, "filter[") {
+	content, found := strings.CutPrefix(key, "filter[")
+	if !found {
 		return "", ""
 	}
-
-	content := strings.TrimPrefix(key, "filter[")
-	if !strings.HasSuffix(content, "]") {
+	content, found = strings.CutSuffix(content, "]")
+	if !found {
 		return "", ""
 	}
-
-	content = strings.TrimSuffix(content, "]")
 
 	// Check for nested structure: field][operator
-	parts := strings.Split(content, "][")
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	if before, after, found := strings.Cut(content, "]["); found {
+		return before, after
 	}
 
 	// Simple field filter
 	return content, ""
 }
 
-// applyTablePrefix adds table alias to column if needed
+// applyTablePrefix adds table alias to column if needed.
 func applyTablePrefix(column, tableAlias string) string {
 	// Add table prefix if specified and column doesn't contain parentheses or existing table prefix
 	if tableAlias != "" && !strings.Contains(column, "(") && !strings.Contains(column, ".") {
@@ -291,8 +287,8 @@ func applyTablePrefix(column, tableAlias string) string {
 	return column
 }
 
-// processHardcodedFilters processes config.Filters and adds conditions
-func processHardcodedFilters(config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+// processHardcodedFilters processes config.Filters and adds conditions.
+func processHardcodedFilters(config EnhancedQueryConfig, conditions *[]string, args *[]any) {
 	if config.Filters == nil {
 		return
 	}
@@ -314,8 +310,8 @@ func processHardcodedFilters(config EnhancedQueryConfig, conditions *[]string, a
 	}
 }
 
-// processStatusFiltering handles status and soft delete filtering
-func processStatusFiltering(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+// processStatusFiltering handles status and soft delete filtering.
+func processStatusFiltering(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]any) {
 	// Handle status filtering (skip if soft delete is disabled)
 	if !config.DisableSoftDelete {
 		statusCondition := buildStatusCondition(params.Status, args)
@@ -342,7 +338,7 @@ func processStatusFiltering(params *QueryParams, config EnhancedQueryConfig, con
 
 // buildFilterCondition builds a single filter condition with arguments.
 // SECURITY: Requires FieldMapping to prevent SQL injection. Rejects unmapped fields.
-func buildFilterCondition(field string, filter FilterOperation, config EnhancedQueryConfig) (string, []interface{}) {
+func buildFilterCondition(field string, filter FilterOperation, config EnhancedQueryConfig) (string, []any) {
 	// SECURITY: Require FieldMapping for all filter operations
 	if config.FieldMapping == nil {
 		return "", nil // No mapping = no filtering allowed
@@ -358,7 +354,7 @@ func buildFilterCondition(field string, filter FilterOperation, config EnhancedQ
 	dbField = applyTablePrefix(dbField, config.TableAlias)
 
 	var condition string
-	var args []interface{}
+	var args []any
 
 	switch filter.Operator {
 	case "IN":
@@ -386,8 +382,8 @@ func buildFilterCondition(field string, filter FilterOperation, config EnhancedQ
 	return condition, args
 }
 
-// processAdvancedFilters processes query param filters
-func processAdvancedFilters(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]interface{}) {
+// processAdvancedFilters processes query param filters.
+func processAdvancedFilters(params *QueryParams, config EnhancedQueryConfig, conditions *[]string, args *[]any) {
 	for field, filter := range params.Filters {
 		condition, filterArgs := buildFilterCondition(field, filter, config)
 		if condition != "" {
@@ -397,14 +393,14 @@ func processAdvancedFilters(params *QueryParams, config EnhancedQueryConfig, con
 	}
 }
 
-// BuildModernQuery constructs SQL query with WHERE clause from modern query parameters
-func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, []interface{}, error) {
+// BuildModernQuery constructs SQL query with WHERE clause from modern query parameters.
+func BuildModernQuery(params *QueryParams, config EnhancedQueryConfig) (string, []any, error) {
 	if params == nil {
 		return "", nil, fmt.Errorf("params cannot be nil")
 	}
 
 	var conditions []string
-	var args []interface{}
+	var args []any
 
 	// Add base arguments
 	if config.AllowedArgs != nil {
@@ -463,7 +459,7 @@ func buildOrderByClause(sortFields []SortField, config EnhancedQueryConfig) stri
 		return ""
 	}
 
-	var orderParts []string
+	orderParts := make([]string, 0, len(sortFields))
 	for _, sortField := range sortFields {
 		// SECURITY: Only allow fields explicitly in the allowlist
 		dbField, exists := config.FieldMapping[sortField.Field]
@@ -501,7 +497,7 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	}
 
 	// Map requested fields to database columns
-	var dbFields []string
+	dbFields := make([]string, 0, len(params.Fields))
 	for _, field := range params.Fields {
 		// SECURITY: Only allow fields explicitly in the allowlist
 		dbField, exists := config.FieldMapping[field]
@@ -534,8 +530,8 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	return strings.Join(dbFields, ", ")
 }
 
-// FilterResponseFields filters the response to only include requested fields
-func FilterResponseFields(data interface{}, fields []string) interface{} {
+// FilterResponseFields filters the response to only include requested fields.
+func FilterResponseFields(data any, fields []string) any {
 	if len(fields) == 0 {
 		return data
 	}
@@ -544,20 +540,31 @@ func FilterResponseFields(data interface{}, fields []string) interface{} {
 	return filterStructFields(data, fields)
 }
 
-// filterStructFields uses reflection to filter struct fields
-func filterStructFields(data interface{}, fields []string) interface{} {
+// filterStructFields uses reflection to filter struct fields.
+func filterStructFields(data any, fields []string) any {
 	if len(fields) == 0 {
 		return data
 	}
 
 	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return data
+	}
+
 	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return data
+		}
 		value = value.Elem()
+	}
+
+	if !value.IsValid() {
+		return data
 	}
 
 	// Handle slices
 	if value.Kind() == reflect.Slice {
-		result := make([]map[string]interface{}, value.Len())
+		result := make([]map[string]any, value.Len())
 		for i := 0; i < value.Len(); i++ {
 			result[i] = structToFilteredMap(value.Index(i).Interface(), fields)
 		}
@@ -568,16 +575,23 @@ func filterStructFields(data interface{}, fields []string) interface{} {
 	return structToFilteredMap(data, fields)
 }
 
-// structToFilteredMap converts struct to map with only requested fields
-func structToFilteredMap(data interface{}, fields []string) map[string]interface{} {
-	result := make(map[string]interface{})
+// structToFilteredMap converts struct to map with only requested fields.
+func structToFilteredMap(data any, fields []string) map[string]any {
+	result := make(map[string]any)
 
 	value := reflect.ValueOf(data)
+	if !value.IsValid() {
+		return result
+	}
+
 	if value.Kind() == reflect.Ptr {
+		if value.IsNil() {
+			return result
+		}
 		value = value.Elem()
 	}
 
-	if value.Kind() != reflect.Struct {
+	if !value.IsValid() || value.Kind() != reflect.Struct {
 		return result
 	}
 
@@ -594,11 +608,7 @@ func structToFilteredMap(data interface{}, fields []string) map[string]interface
 		// Parse JSON tag
 		fieldName := field.Name
 		if jsonTag != "" && jsonTag != "-" {
-			if commaIdx := strings.Index(jsonTag, ","); commaIdx != -1 {
-				fieldName = jsonTag[:commaIdx]
-			} else {
-				fieldName = jsonTag
-			}
+			fieldName, _, _ = strings.Cut(jsonTag, ",")
 		}
 
 		// Include field if it's in the requested fields
@@ -610,7 +620,7 @@ func structToFilteredMap(data interface{}, fields []string) map[string]interface
 	return result
 }
 
-// EnhancedQueryConfig extends QueryConfig with modern features
+// EnhancedQueryConfig extends QueryConfig with modern features.
 type EnhancedQueryConfig struct {
 	QueryConfig
 	SearchFields      []string          // Fields to search in for full-text search
@@ -620,7 +630,7 @@ type EnhancedQueryConfig struct {
 	DisableSoftDelete bool              // If true, don't apply soft delete filtering
 }
 
-// extractWhereClause extracts the WHERE clause from a query string
+// extractWhereClause extracts the WHERE clause from a query string.
 func extractWhereClause(query string) string {
 	whereStart := strings.Index(query, "WHERE")
 	if whereStart < 0 {
@@ -645,7 +655,7 @@ func extractWhereClause(query string) string {
 	return strings.TrimSpace(remaining[:endPos])
 }
 
-// buildEnhancedConfig creates an EnhancedQueryConfig from the provided config
+// buildEnhancedConfig creates an EnhancedQueryConfig from the provided config.
 func buildEnhancedConfig(config EnhancedQueryConfig) EnhancedQueryConfig {
 	return EnhancedQueryConfig{
 		QueryConfig: QueryConfig{
@@ -664,10 +674,10 @@ func buildEnhancedConfig(config EnhancedQueryConfig) EnhancedQueryConfig {
 	}
 }
 
-// sendPaginatedListResponse handles sending the final paginated response
-func sendPaginatedListResponse(c *gin.Context, result interface{}, total int64, params *QueryParams, config EnhancedQueryConfig) {
+// sendPaginatedListResponse handles sending the final paginated response.
+func sendPaginatedListResponse(c *gin.Context, result any, total int64, params *QueryParams, config EnhancedQueryConfig) {
 	if config.PostProcessor != nil {
-		c.Set("pagination_data", map[string]interface{}{
+		c.Set("pagination_data", map[string]any{
 			"total":  total,
 			"limit":  params.Limit,
 			"offset": params.Offset,
@@ -696,8 +706,8 @@ func sendPaginatedListResponse(c *gin.Context, result interface{}, total int64, 
 	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)
 }
 
-// ModernListWithQuery handles paginated list requests with modern query parameters
-func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig, result interface{}) {
+// ModernListWithQuery handles paginated list requests with modern query parameters.
+func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig, result any) {
 	if c == nil || db == nil || result == nil {
 		ProblemInternalServer(c, "Invalid parameters for query")
 		return
@@ -727,7 +737,7 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 		return
 	}
 
-	countArgs := make([]interface{}, len(args))
+	countArgs := make([]any, len(args))
 	copy(countArgs, args)
 
 	countQuery := config.CountQuery
@@ -752,8 +762,8 @@ func ModernListWithQuery(c *gin.Context, db *sqlx.DB, config EnhancedQueryConfig
 	sendPaginatedListResponse(c, result, total, params, config)
 }
 
-// buildStatusCondition builds the SQL condition for status filtering
-func buildStatusCondition(status string, args *[]interface{}) string {
+// buildStatusCondition builds the SQL condition for status filtering.
+func buildStatusCondition(status string, args *[]any) string {
 	switch status {
 	case "all":
 		return "" // Include all records, no filter
@@ -773,8 +783,8 @@ func buildStatusCondition(status string, args *[]interface{}) string {
 	}
 }
 
-// buildSearchCondition builds the SQL condition for search functionality
-func buildSearchCondition(search string, searchFields []string, args *[]interface{}) string {
+// buildSearchCondition builds the SQL condition for search functionality.
+func buildSearchCondition(search string, searchFields []string, args *[]any) string {
 	if search == "" || searchFields == nil {
 		return ""
 	}
