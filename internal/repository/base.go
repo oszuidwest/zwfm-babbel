@@ -137,3 +137,12 @@ func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args 
 
 	return count, nil
 }
+
+// addFieldUpdate adds a field to the update query if the pointer is non-nil.
+func addFieldUpdate[T any](setClauses *[]string, args *[]interface{}, column string, value *T) {
+	if value == nil {
+		return
+	}
+	*setClauses = append(*setClauses, column+" = ?")
+	*args = append(*args, *value)
+}

@@ -115,64 +115,25 @@ func (r *userRepository) Update(ctx context.Context, id int, updates *UserUpdate
 	args := make([]interface{}, 0)
 
 	// Non-nullable string fields
-	if updates.Username != nil {
-		setClauses = append(setClauses, "username = ?")
-		args = append(args, *updates.Username)
-	}
-	if updates.FullName != nil {
-		setClauses = append(setClauses, "full_name = ?")
-		args = append(args, *updates.FullName)
-	}
-	if updates.PasswordHash != nil {
-		setClauses = append(setClauses, "password_hash = ?")
-		args = append(args, *updates.PasswordHash)
-	}
-	if updates.Role != nil {
-		setClauses = append(setClauses, "role = ?")
-		args = append(args, *updates.Role)
-	}
+	addFieldUpdate(&setClauses, &args, "username", updates.Username)
+	addFieldUpdate(&setClauses, &args, "full_name", updates.FullName)
+	addFieldUpdate(&setClauses, &args, "password_hash", updates.PasswordHash)
+	addFieldUpdate(&setClauses, &args, "role", updates.Role)
 
 	// Non-nullable int fields
-	if updates.LoginCount != nil {
-		setClauses = append(setClauses, "login_count = ?")
-		args = append(args, *updates.LoginCount)
-	}
-	if updates.FailedLoginAttempts != nil {
-		setClauses = append(setClauses, "failed_login_attempts = ?")
-		args = append(args, *updates.FailedLoginAttempts)
-	}
+	addFieldUpdate(&setClauses, &args, "login_count", updates.LoginCount)
+	addFieldUpdate(&setClauses, &args, "failed_login_attempts", updates.FailedLoginAttempts)
 
 	// Nullable string fields (double pointer)
-	if updates.Email != nil {
-		setClauses = append(setClauses, "email = ?")
-		args = append(args, *updates.Email) // Can be nil for NULL
-	}
-	if updates.Metadata != nil {
-		setClauses = append(setClauses, "metadata = ?")
-		args = append(args, *updates.Metadata) // Can be nil for NULL
-	}
+	addFieldUpdate(&setClauses, &args, "email", updates.Email)
+	addFieldUpdate(&setClauses, &args, "metadata", updates.Metadata)
 
 	// Nullable time fields (double pointer)
-	if updates.SuspendedAt != nil {
-		setClauses = append(setClauses, "suspended_at = ?")
-		args = append(args, *updates.SuspendedAt) // Can be nil for NULL
-	}
-	if updates.DeletedAt != nil {
-		setClauses = append(setClauses, "deleted_at = ?")
-		args = append(args, *updates.DeletedAt) // Can be nil for NULL
-	}
-	if updates.LastLoginAt != nil {
-		setClauses = append(setClauses, "last_login_at = ?")
-		args = append(args, *updates.LastLoginAt) // Can be nil for NULL
-	}
-	if updates.LockedUntil != nil {
-		setClauses = append(setClauses, "locked_until = ?")
-		args = append(args, *updates.LockedUntil) // Can be nil for NULL
-	}
-	if updates.PasswordChangedAt != nil {
-		setClauses = append(setClauses, "password_changed_at = ?")
-		args = append(args, *updates.PasswordChangedAt) // Can be nil for NULL
-	}
+	addFieldUpdate(&setClauses, &args, "suspended_at", updates.SuspendedAt)
+	addFieldUpdate(&setClauses, &args, "deleted_at", updates.DeletedAt)
+	addFieldUpdate(&setClauses, &args, "last_login_at", updates.LastLoginAt)
+	addFieldUpdate(&setClauses, &args, "locked_until", updates.LockedUntil)
+	addFieldUpdate(&setClauses, &args, "password_changed_at", updates.PasswordChangedAt)
 
 	// Nothing to update
 	if len(setClauses) == 0 {

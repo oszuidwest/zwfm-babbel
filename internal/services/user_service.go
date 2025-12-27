@@ -88,11 +88,115 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	return user, nil
 }
 
+// applyUsernameUpdate validates and applies username update.
+func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *repository.UserUpdate, username string, excludeID int) error {
+	if username == "" {
+		return nil
+	}
+	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if taken {
+		return fmt.Errorf("%w: username '%s'", ErrDuplicate, username)
+	}
+	updates.Username = &username
+	return nil
+}
+
+// applyEmailUpdate validates and applies email update.
+func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int) error {
+	if email == nil || *email == "" {
+		return nil
+	}
+	taken, err := s.repo.IsEmailTaken(ctx, *email, &excludeID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if taken {
+		return fmt.Errorf("%w: email '%s'", ErrDuplicate, *email)
+	}
+	updates.Email = &email
+	return nil
+}
+
+// applyPasswordUpdate hashes and applies password update.
+func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password string) error {
+	if password == "" {
+		return nil
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	hashedStr := string(hashedPassword)
+	updates.PasswordHash = &hashedStr
+	return nil
+}
+
+// applyRoleUpdate validates and applies role update.
+func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role string) error {
+	if role == "" {
+		return nil
+	}
+	if !isValidRole(role) {
+		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, role)
+	}
+	updates.Role = &role
+	return nil
+}
+
+// applyFullNameUpdate applies full name update.
+func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullName string) {
+	if fullName != "" {
+		updates.FullName = &fullName
+	}
+}
+
+// applyMetadataUpdate applies metadata update.
+func (s *UserService) applyMetadataUpdate(updates *repository.UserUpdate, metadata string) {
+	if metadata != "" {
+		metadataPtr := &metadata
+		updates.Metadata = &metadataPtr
+	}
+}
+
+// handleSuspendedUpdate handles the suspended state update.
+func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int, suspended *bool) error {
+	if suspended == nil {
+		return nil
+	}
+	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return nil
+}
+
+// hasFieldUpdates checks if any field updates are present.
+func hasFieldUpdates(updates *repository.UserUpdate) bool {
+	return updates.Username != nil || updates.FullName != nil ||
+		updates.Email != nil || updates.PasswordHash != nil ||
+		updates.Role != nil || updates.Metadata != nil
+}
+
+// executeFieldUpdates applies field updates to the repository.
+func (s *UserService) executeFieldUpdates(ctx context.Context, id int, updates *repository.UserUpdate) error {
+	if err := s.repo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return nil
+}
+
 // Update updates an existing user's information
 func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest) error {
 	const op = "UserService.Update"
 
-	// Check if user exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
@@ -101,90 +205,38 @@ func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
-	// Build updates struct
 	updates := &repository.UserUpdate{}
-	hasUpdates := false
 
-	// Apply username update
-	if req.Username != "" {
-		taken, err := s.repo.IsUsernameTaken(ctx, req.Username, &id)
-		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-		}
-		if taken {
-			return fmt.Errorf("%s: %w: username '%s'", op, ErrDuplicate, req.Username)
-		}
-		updates.Username = &req.Username
-		hasUpdates = true
+	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyEmailUpdate(ctx, updates, req.Email, id); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyPasswordUpdate(updates, req.Password); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	s.applyFullNameUpdate(updates, req.FullName)
+	s.applyMetadataUpdate(updates, req.Metadata)
+
+	// Handle suspended separately
+	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Apply full name update
-	if req.FullName != "" {
-		updates.FullName = &req.FullName
-		hasUpdates = true
-	}
-
-	// Apply email update
-	if req.Email != nil && *req.Email != "" {
-		taken, err := s.repo.IsEmailTaken(ctx, *req.Email, &id)
-		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-		}
-		if taken {
-			return fmt.Errorf("%s: %w: email '%s'", op, ErrDuplicate, *req.Email)
-		}
-		updates.Email = &req.Email
-		hasUpdates = true
-	}
-
-	// Apply password update
-	if req.Password != "" {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("%s: failed to hash password: %w", op, err)
-		}
-		hashedStr := string(hashedPassword)
-		updates.PasswordHash = &hashedStr
-		hasUpdates = true
-	}
-
-	// Apply role update
-	if req.Role != "" {
-		if !isValidRole(req.Role) {
-			return fmt.Errorf("%s: %w: invalid role '%s'", op, ErrInvalidInput, req.Role)
-		}
-		updates.Role = &req.Role
-		hasUpdates = true
-	}
-
-	// Apply metadata update
-	if req.Metadata != "" {
-		metadataPtr := &req.Metadata
-		updates.Metadata = &metadataPtr
-		hasUpdates = true
-	}
-
-	// Handle suspended separately using SetSuspended
-	if req.Suspended != nil {
-		if err := s.repo.SetSuspended(ctx, id, *req.Suspended); err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				return fmt.Errorf("%s: %w", op, ErrNotFound)
-			}
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-		}
-	}
-
+	// Check if we have any updates
+	hasUpdates := hasFieldUpdates(updates)
 	if !hasUpdates && req.Suspended == nil {
 		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
 	}
 
+	// Apply field updates
 	if hasUpdates {
-		err = s.repo.Update(ctx, id, updates)
-		if err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				return fmt.Errorf("%s: %w", op, ErrNotFound)
-			}
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
+			return fmt.Errorf("%s: %w", op, err)
 		}
 	}
 

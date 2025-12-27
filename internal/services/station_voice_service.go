@@ -148,55 +148,75 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 	return s.stationVoiceRepo.GetByID(ctx, id)
 }
 
+// validateStationIDUpdate validates station_id if being updated.
+func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stationID *int) error {
+	if stationID == nil {
+		return nil
+	}
+	if *stationID <= 0 {
+		return fmt.Errorf("%w: station_id must be positive", ErrInvalidInput)
+	}
+	exists, err := s.stationRepo.Exists(ctx, *stationID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to validate station", ErrDatabaseError)
+	}
+	if !exists {
+		return fmt.Errorf("%w: station with id %d not found", ErrNotFound, *stationID)
+	}
+	return nil
+}
+
+// validateVoiceIDUpdate validates voice_id if being updated.
+func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID *int) error {
+	if voiceID == nil {
+		return nil
+	}
+	if *voiceID <= 0 {
+		return fmt.Errorf("%w: voice_id must be positive", ErrInvalidInput)
+	}
+	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
+	}
+	if !exists {
+		return fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *voiceID)
+	}
+	return nil
+}
+
+// validateMixPointUpdate validates mix_point if being updated.
+func (s *StationVoiceService) validateMixPointUpdate(mixPoint *float64) error {
+	if mixPoint == nil {
+		return nil
+	}
+	if *mixPoint < 0 || *mixPoint > 300 {
+		return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", ErrInvalidInput)
+	}
+	return nil
+}
+
 // validateUpdateRequest validates all fields in an update request.
 func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
-	// Validate station if being updated
-	if req.StationID != nil {
-		if *req.StationID <= 0 {
-			return fmt.Errorf("%w: station_id must be positive", ErrInvalidInput)
-		}
-		exists, err := s.stationRepo.Exists(ctx, *req.StationID)
-		if err != nil {
-			return fmt.Errorf("%w: failed to validate station", ErrDatabaseError)
-		}
-		if !exists {
-			return fmt.Errorf("%w: station with id %d not found", ErrNotFound, *req.StationID)
-		}
+	if err := s.validateStationIDUpdate(ctx, req.StationID); err != nil {
+		return err
 	}
-
-	// Validate voice if being updated
-	if req.VoiceID != nil {
-		if *req.VoiceID <= 0 {
-			return fmt.Errorf("%w: voice_id must be positive", ErrInvalidInput)
-		}
-		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
-		if err != nil {
-			return fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
-		}
-		if !exists {
-			return fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *req.VoiceID)
-		}
+	if err := s.validateVoiceIDUpdate(ctx, req.VoiceID); err != nil {
+		return err
 	}
-
-	// Validate mix_point range if being updated
-	if req.MixPoint != nil {
-		if *req.MixPoint < 0 || *req.MixPoint > 300 {
-			return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", ErrInvalidInput)
-		}
+	if err := s.validateMixPointUpdate(req.MixPoint); err != nil {
+		return err
 	}
 
 	// Check uniqueness if station_id or voice_id is being updated
 	if req.StationID != nil || req.VoiceID != nil {
 		finalStationID := current.StationID
 		finalVoiceID := current.VoiceID
-
 		if req.StationID != nil {
 			finalStationID = *req.StationID
 		}
 		if req.VoiceID != nil {
 			finalVoiceID = *req.VoiceID
 		}
-
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, finalStationID, finalVoiceID, &id)
 		if err != nil {
 			return fmt.Errorf("%w: failed to check uniqueness", ErrDatabaseError)
@@ -205,7 +225,6 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int,
 			return fmt.Errorf("%w: station-voice combination (station_id=%d, voice_id=%d)", ErrDuplicate, finalStationID, finalVoiceID)
 		}
 	}
-
 	return nil
 }
 

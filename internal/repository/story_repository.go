@@ -156,70 +156,22 @@ func (r *storyRepository) Update(ctx context.Context, id int, updates *StoryUpda
 	setClauses := make([]string, 0)
 	args := make([]interface{}, 0)
 
-	if updates.Title != nil {
-		setClauses = append(setClauses, "title = ?")
-		args = append(args, *updates.Title)
-	}
-	if updates.Text != nil {
-		setClauses = append(setClauses, "text = ?")
-		args = append(args, *updates.Text)
-	}
-	if updates.VoiceID != nil {
-		setClauses = append(setClauses, "voice_id = ?")
-		args = append(args, *updates.VoiceID)
-	}
-	if updates.Status != nil {
-		setClauses = append(setClauses, "status = ?")
-		args = append(args, *updates.Status)
-	}
-	if updates.StartDate != nil {
-		setClauses = append(setClauses, "start_date = ?")
-		args = append(args, *updates.StartDate)
-	}
-	if updates.EndDate != nil {
-		setClauses = append(setClauses, "end_date = ?")
-		args = append(args, *updates.EndDate)
-	}
-	if updates.Monday != nil {
-		setClauses = append(setClauses, "monday = ?")
-		args = append(args, *updates.Monday)
-	}
-	if updates.Tuesday != nil {
-		setClauses = append(setClauses, "tuesday = ?")
-		args = append(args, *updates.Tuesday)
-	}
-	if updates.Wednesday != nil {
-		setClauses = append(setClauses, "wednesday = ?")
-		args = append(args, *updates.Wednesday)
-	}
-	if updates.Thursday != nil {
-		setClauses = append(setClauses, "thursday = ?")
-		args = append(args, *updates.Thursday)
-	}
-	if updates.Friday != nil {
-		setClauses = append(setClauses, "friday = ?")
-		args = append(args, *updates.Friday)
-	}
-	if updates.Saturday != nil {
-		setClauses = append(setClauses, "saturday = ?")
-		args = append(args, *updates.Saturday)
-	}
-	if updates.Sunday != nil {
-		setClauses = append(setClauses, "sunday = ?")
-		args = append(args, *updates.Sunday)
-	}
-	if updates.Metadata != nil {
-		setClauses = append(setClauses, "metadata = ?")
-		args = append(args, *updates.Metadata)
-	}
-	if updates.AudioFile != nil {
-		setClauses = append(setClauses, "audio_file = ?")
-		args = append(args, *updates.AudioFile)
-	}
-	if updates.DurationSeconds != nil {
-		setClauses = append(setClauses, "duration_seconds = ?")
-		args = append(args, *updates.DurationSeconds)
-	}
+	addFieldUpdate(&setClauses, &args, "title", updates.Title)
+	addFieldUpdate(&setClauses, &args, "text", updates.Text)
+	addFieldUpdate(&setClauses, &args, "voice_id", updates.VoiceID)
+	addFieldUpdate(&setClauses, &args, "status", updates.Status)
+	addFieldUpdate(&setClauses, &args, "start_date", updates.StartDate)
+	addFieldUpdate(&setClauses, &args, "end_date", updates.EndDate)
+	addFieldUpdate(&setClauses, &args, "monday", updates.Monday)
+	addFieldUpdate(&setClauses, &args, "tuesday", updates.Tuesday)
+	addFieldUpdate(&setClauses, &args, "wednesday", updates.Wednesday)
+	addFieldUpdate(&setClauses, &args, "thursday", updates.Thursday)
+	addFieldUpdate(&setClauses, &args, "friday", updates.Friday)
+	addFieldUpdate(&setClauses, &args, "saturday", updates.Saturday)
+	addFieldUpdate(&setClauses, &args, "sunday", updates.Sunday)
+	addFieldUpdate(&setClauses, &args, "metadata", updates.Metadata)
+	addFieldUpdate(&setClauses, &args, "audio_file", updates.AudioFile)
+	addFieldUpdate(&setClauses, &args, "duration_seconds", updates.DurationSeconds)
 
 	if len(setClauses) == 0 {
 		return nil
