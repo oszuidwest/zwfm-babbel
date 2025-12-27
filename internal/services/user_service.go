@@ -3,23 +3,24 @@ package services
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
 // UserService handles user-related business logic
 type UserService struct {
-	db *sqlx.DB
+	repo repository.UserRepository
 }
 
 // NewUserService creates a new user service instance
-func NewUserService(db *sqlx.DB) *UserService {
+func NewUserService(repo repository.UserRepository) *UserService {
 	return &UserService{
-		db: db,
+		repo: repo,
 	}
 }
 
@@ -44,14 +45,22 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	}
 
 	// Check username uniqueness
-	if err := s.checkUsernameUnique(ctx, username, nil); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+	taken, err := s.repo.IsUsernameTaken(ctx, username, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+	}
+	if taken {
+		return nil, fmt.Errorf("%s: %w: username '%s'", op, ErrDuplicate, username)
 	}
 
 	// Check email uniqueness (if provided)
 	if email != "" {
-		if err := s.checkEmailUnique(ctx, email, nil); err != nil {
-			return nil, fmt.Errorf("%s: %w", op, err)
+		taken, err = s.repo.IsEmailTaken(ctx, email, nil)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		}
+		if taken {
+			return nil, fmt.Errorf("%s: %w: email '%s'", op, ErrDuplicate, email)
 		}
 	}
 
@@ -62,200 +71,191 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	}
 
 	// Handle email - empty string should be NULL
-	var emailValue interface{}
-	if email == "" {
-		emailValue = nil
-	} else {
-		emailValue = email
+	var emailValue *string
+	if email != "" {
+		emailValue = &email
 	}
 
 	// Create user
-	result, err := s.db.ExecContext(ctx,
-		"INSERT INTO users (username, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-		username, fullName, emailValue, string(hashedPassword), role,
-	)
+	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role)
 	if err != nil {
+		if errors.Is(err, repository.ErrDuplicateKey) {
+			return nil, fmt.Errorf("%s: %w: username or email already exists", op, ErrDuplicate)
+		}
 		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("%s: failed to get last insert id: %w", op, err)
-	}
-
-	// Fetch the created user
-	user, err := s.GetByID(ctx, int(id))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
-	}
-
 	return user, nil
+}
+
+// applyUsernameUpdate validates and applies username update.
+func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *repository.UserUpdate, username string, excludeID int) error {
+	if username == "" {
+		return nil
+	}
+	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if taken {
+		return fmt.Errorf("%w: username '%s'", ErrDuplicate, username)
+	}
+	updates.Username = &username
+	return nil
+}
+
+// applyEmailUpdate validates and applies email update.
+func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int) error {
+	if email == nil || *email == "" {
+		return nil
+	}
+	taken, err := s.repo.IsEmailTaken(ctx, *email, &excludeID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	if taken {
+		return fmt.Errorf("%w: email '%s'", ErrDuplicate, *email)
+	}
+	updates.Email = &email
+	return nil
+}
+
+// applyPasswordUpdate hashes and applies password update.
+func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password string) error {
+	if password == "" {
+		return nil
+	}
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	hashedStr := string(hashedPassword)
+	updates.PasswordHash = &hashedStr
+	return nil
+}
+
+// applyRoleUpdate validates and applies role update.
+func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role string) error {
+	if role == "" {
+		return nil
+	}
+	if !isValidRole(role) {
+		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, role)
+	}
+	updates.Role = &role
+	return nil
+}
+
+// applyFullNameUpdate applies full name update.
+func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullName string) {
+	if fullName != "" {
+		updates.FullName = &fullName
+	}
+}
+
+// applyMetadataUpdate applies metadata update.
+func (s *UserService) applyMetadataUpdate(updates *repository.UserUpdate, metadata string) {
+	if metadata != "" {
+		metadataPtr := &metadata
+		updates.Metadata = &metadataPtr
+	}
+}
+
+// handleSuspendedUpdate handles the suspended state update.
+func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int, suspended *bool) error {
+	if suspended == nil {
+		return nil
+	}
+	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return nil
+}
+
+// hasFieldUpdates checks if any field updates are present.
+func hasFieldUpdates(updates *repository.UserUpdate) bool {
+	return updates.Username != nil || updates.FullName != nil ||
+		updates.Email != nil || updates.PasswordHash != nil ||
+		updates.Role != nil || updates.Metadata != nil
+}
+
+// executeFieldUpdates applies field updates to the repository.
+func (s *UserService) executeFieldUpdates(ctx context.Context, id int, updates *repository.UserUpdate) error {
+	if err := s.repo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("%w: %v", ErrDatabaseError, err)
+	}
+	return nil
 }
 
 // Update updates an existing user's information
 func (s *UserService) Update(ctx context.Context, id int, req *UpdateUserRequest) error {
 	const op = "UserService.Update"
 
-	// Check if user exists
-	_, err := s.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Build dynamic update query
-	updates := []string{}
-	args := []interface{}{}
-
-	// Apply each field update
-	if err := s.applyUsernameUpdate(ctx, id, req, &updates, &args); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	if err := s.applyPasswordUpdate(req, &updates, &args); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	if err := s.applyEmailUpdate(ctx, id, req, &updates, &args); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	if err := s.applyRoleUpdate(req, &updates, &args); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	s.applyFullNameUpdate(req, &updates, &args)
-	s.applyMetadataUpdate(req, &updates, &args)
-	s.applySuspendedUpdate(req, &updates)
-
-	if len(updates) == 0 {
-		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
-	}
-
-	// Build and execute query
-	query := "UPDATE users SET " + joinStrings(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
-
-	result, err := s.db.ExecContext(ctx, query, args...)
+	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if !exists {
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
+	updates := &repository.UserUpdate{}
+
+	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyEmailUpdate(ctx, updates, req.Email, id); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyPasswordUpdate(updates, req.Password); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	s.applyFullNameUpdate(updates, req.FullName)
+	s.applyMetadataUpdate(updates, req.Metadata)
+
+	// Handle suspended separately
+	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	// Check if we have any updates
+	hasUpdates := hasFieldUpdates(updates)
+	if !hasUpdates && req.Suspended == nil {
+		return fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
+	}
+
+	// Apply field updates
+	if hasUpdates {
+		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
+			return fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
 	return nil
-}
-
-// applyUsernameUpdate applies username field update if provided
-func (s *UserService) applyUsernameUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
-	if req.Username == "" {
-		return nil
-	}
-
-	if err := s.checkUsernameUnique(ctx, req.Username, &id); err != nil {
-		return err
-	}
-
-	*updates = append(*updates, "username = ?")
-	*args = append(*args, req.Username)
-	return nil
-}
-
-// applyPasswordUpdate applies password field update if provided
-func (s *UserService) applyPasswordUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
-	if req.Password == "" {
-		return nil
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
-	}
-
-	*updates = append(*updates, "password_hash = ?, password_changed_at = NOW()")
-	*args = append(*args, string(hashedPassword))
-	return nil
-}
-
-// applyEmailUpdate applies email field update if provided
-func (s *UserService) applyEmailUpdate(ctx context.Context, id int, req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
-	if req.Email == nil || *req.Email == "" {
-		return nil
-	}
-
-	if err := s.checkEmailUnique(ctx, *req.Email, &id); err != nil {
-		return err
-	}
-
-	*updates = append(*updates, "email = ?")
-	*args = append(*args, *req.Email)
-	return nil
-}
-
-// applyRoleUpdate applies role field update if provided
-func (s *UserService) applyRoleUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) error {
-	if req.Role == "" {
-		return nil
-	}
-
-	if !isValidRole(req.Role) {
-		return fmt.Errorf("%w: invalid role '%s'", ErrInvalidInput, req.Role)
-	}
-
-	*updates = append(*updates, "role = ?")
-	*args = append(*args, req.Role)
-	return nil
-}
-
-// applyFullNameUpdate applies full_name field update if provided
-func (s *UserService) applyFullNameUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) {
-	if req.FullName == "" {
-		return
-	}
-
-	*updates = append(*updates, "full_name = ?")
-	*args = append(*args, req.FullName)
-}
-
-// applyMetadataUpdate applies metadata field update if provided
-func (s *UserService) applyMetadataUpdate(req *UpdateUserRequest, updates *[]string, args *[]interface{}) {
-	if req.Metadata == "" {
-		return
-	}
-
-	*updates = append(*updates, "metadata = ?")
-	*args = append(*args, req.Metadata)
-}
-
-// applySuspendedUpdate applies suspended_at field update if provided
-func (s *UserService) applySuspendedUpdate(req *UpdateUserRequest, updates *[]string) {
-	if req.Suspended == nil {
-		return
-	}
-
-	if *req.Suspended {
-		*updates = append(*updates, "suspended_at = NOW()")
-	} else {
-		*updates = append(*updates, "suspended_at = NULL")
-	}
 }
 
 // GetByID retrieves a user by their ID
 func (s *UserService) GetByID(ctx context.Context, id int) (*models.User, error) {
 	const op = "UserService.GetByID"
 
-	var user models.User
-	err := s.db.GetContext(ctx, &user, "SELECT * FROM users WHERE id = ?", id)
+	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
 		}
 		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 // SoftDelete performs a hard delete of a user account (users table doesn't support soft deletes)
@@ -264,16 +264,19 @@ func (s *UserService) SoftDelete(ctx context.Context, id int) error {
 	const op = "UserService.SoftDelete"
 
 	// Get the user to check their role
-	user, err := s.GetByID(ctx, id)
+	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
 	// If user is an admin, check that this is not the last admin
 	if user.Role == models.RoleAdmin {
-		adminCount, err := s.countActiveAdminsExcluding(ctx, id)
+		adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
 		if err != nil {
-			return fmt.Errorf("%s: %w", op, err)
+			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 		}
 
 		if adminCount == 0 {
@@ -282,17 +285,15 @@ func (s *UserService) SoftDelete(ctx context.Context, id int) error {
 	}
 
 	// Delete user sessions first (ignore errors - session cleanup is non-critical)
-	_, _ = s.db.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id = ?", id)
+	_ = s.repo.DeleteSessions(ctx, id)
 
 	// Delete user (hard delete as users table doesn't have deleted_at)
-	result, err := s.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	err = s.repo.Delete(ctx, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
 	return nil
@@ -303,20 +304,21 @@ func (s *UserService) Suspend(ctx context.Context, id int) error {
 	const op = "UserService.Suspend"
 
 	// Check if user exists
-	_, err := s.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Suspend user
-	result, err := s.db.ExecContext(ctx, "UPDATE users SET suspended_at = NOW() WHERE id = ?", id)
+	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if !exists {
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
+	}
+
+	// Suspend user
+	err = s.repo.SetSuspended(ctx, id, true)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
+		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
 	return nil
@@ -327,89 +329,24 @@ func (s *UserService) Unsuspend(ctx context.Context, id int) error {
 	const op = "UserService.Unsuspend"
 
 	// Check if user exists
-	_, err := s.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
-	}
-
-	// Unsuspend user
-	result, err := s.db.ExecContext(ctx, "UPDATE users SET suspended_at = NULL WHERE id = ?", id)
+	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
-
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
+	if !exists {
 		return fmt.Errorf("%s: %w", op, ErrNotFound)
 	}
 
-	return nil
-}
-
-// checkUsernameUnique checks if a username is unique
-func (s *UserService) checkUsernameUnique(ctx context.Context, username string, excludeID *int) error {
-	const op = "UserService.checkUsernameUnique"
-
-	var count int
-	query := "SELECT COUNT(*) FROM users WHERE username = ?"
-	args := []interface{}{username}
-
-	if excludeID != nil {
-		query += " AND id != ?"
-		args = append(args, *excludeID)
-	}
-
-	err := s.db.GetContext(ctx, &count, query, args...)
+	// Unsuspend user
+	err = s.repo.SetSuspended(ctx, id, false)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
 		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
 	}
 
-	if count > 0 {
-		return fmt.Errorf("%s: %w: username '%s'", op, ErrDuplicate, username)
-	}
-
 	return nil
-}
-
-// checkEmailUnique checks if an email is unique
-func (s *UserService) checkEmailUnique(ctx context.Context, email string, excludeID *int) error {
-	const op = "UserService.checkEmailUnique"
-
-	var count int
-	query := "SELECT COUNT(*) FROM users WHERE email = ?"
-	args := []interface{}{email}
-
-	if excludeID != nil {
-		query += " AND id != ?"
-		args = append(args, *excludeID)
-	}
-
-	err := s.db.GetContext(ctx, &count, query, args...)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	if count > 0 {
-		return fmt.Errorf("%s: %w: email '%s'", op, ErrDuplicate, email)
-	}
-
-	return nil
-}
-
-// countActiveAdminsExcluding counts active admin users excluding the given ID
-func (s *UserService) countActiveAdminsExcluding(ctx context.Context, excludeID int) (int, error) {
-	const op = "UserService.countActiveAdminsExcluding"
-
-	var count int
-	err := s.db.GetContext(ctx, &count,
-		"SELECT COUNT(*) FROM users WHERE role = ? AND suspended_at IS NULL AND id != ?",
-		models.RoleAdmin, excludeID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
-	}
-
-	return count, nil
 }
 
 // isValidRole checks if a role is valid
@@ -423,14 +360,7 @@ func isValidRole(role string) bool {
 	return false
 }
 
-// joinStrings joins strings with a separator (helper for building SQL queries)
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-	result := strs[0]
-	for i := 1; i < len(strs); i++ {
-		result += sep + strs[i]
-	}
-	return result
+// DB returns the underlying database for ModernListWithQuery.
+func (s *UserService) DB() *sqlx.DB {
+	return s.repo.DB()
 }

@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -17,10 +17,10 @@ import (
 
 // Handlers contains all the dependencies needed by the API handlers.
 type Handlers struct {
-	db       *sqlx.DB
-	audioSvc *audio.Service
-	config   *config.Config
-	// New services
+	audioRepo repository.AudioRepository
+	audioSvc  *audio.Service
+	config    *config.Config
+	// Domain services
 	bulletinSvc     *services.BulletinService
 	storySvc        *services.StoryService
 	stationSvc      *services.StationService
@@ -31,7 +31,7 @@ type Handlers struct {
 
 // NewHandlers creates a new Handlers instance with all required dependencies.
 func NewHandlers(
-	db *sqlx.DB,
+	audioRepo repository.AudioRepository,
 	audioSvc *audio.Service,
 	cfg *config.Config,
 	bulletinSvc *services.BulletinService,
@@ -42,7 +42,7 @@ func NewHandlers(
 	stationVoiceSvc *services.StationVoiceService,
 ) *Handlers {
 	return &Handlers{
-		db:              db,
+		audioRepo:       audioRepo,
 		audioSvc:        audioSvc,
 		config:          cfg,
 		bulletinSvc:     bulletinSvc,

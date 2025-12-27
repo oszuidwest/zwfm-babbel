@@ -3,7 +3,7 @@ package services
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,23 +14,36 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // BulletinService handles bulletin generation and retrieval operations.
 type BulletinService struct {
-	db       *sqlx.DB
-	audioSvc *audio.Service
-	config   *config.Config
+	txManager    repository.TxManager
+	bulletinRepo repository.BulletinRepository
+	stationRepo  repository.StationRepository
+	storyRepo    repository.StoryRepository
+	audioSvc     *audio.Service
+	config       *config.Config
 }
 
 // NewBulletinService creates a new bulletin service instance.
-func NewBulletinService(db *sqlx.DB, audioSvc *audio.Service, config *config.Config) *BulletinService {
+func NewBulletinService(
+	txManager repository.TxManager,
+	bulletinRepo repository.BulletinRepository,
+	stationRepo repository.StationRepository,
+	storyRepo repository.StoryRepository,
+	audioSvc *audio.Service,
+	config *config.Config,
+) *BulletinService {
 	return &BulletinService{
-		db:       db,
-		audioSvc: audioSvc,
-		config:   config,
+		txManager:    txManager,
+		bulletinRepo: bulletinRepo,
+		stationRepo:  stationRepo,
+		storyRepo:    storyRepo,
+		audioSvc:     audioSvc,
+		config:       config,
 	}
 }
 
@@ -74,7 +87,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 	fileSize := s.getFileSize(bulletinPath)
 	totalDuration := s.calculateBulletinDuration(station, stories)
 
-	// Persist bulletin to database
+	// Persist bulletin to database using transaction
 	bulletinID, err := s.saveBulletinToDatabase(ctx, stationID, bulletinPath, totalDuration, fileSize, stories)
 	if err != nil {
 		return nil, err
@@ -93,15 +106,14 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 
 // validateAndFetchStation validates that a station exists and returns its details.
 func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int) (*models.Station, error) {
-	var station models.Station
-	err := s.db.GetContext(ctx, &station, "SELECT * FROM stations WHERE id = ?", stationID)
+	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%w: station not found", ErrNotFound)
 		}
 		return nil, fmt.Errorf("%w: failed to fetch station: %v", ErrDatabaseError, err)
 	}
-	return &station, nil
+	return station, nil
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
@@ -160,127 +172,55 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
 func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int, bulletinPath string, duration float64, fileSize int64, stories []models.Story) (int64, error) {
-	tx, err := s.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("%w: failed to begin transaction: %v", ErrDatabaseError, err)
-	}
-	defer func() {
-		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			logger.Error("Failed to rollback transaction: %v", err)
-		}
-	}()
+	var bulletinID int64
 
-	// Insert bulletin record
-	bulletinID, err := s.insertBulletinRecord(ctx, tx, stationID, bulletinPath, duration, fileSize, len(stories))
-	if err != nil {
-		return 0, err
-	}
-
-	// Link stories to bulletin
-	if err := s.linkStoriesToBulletin(ctx, tx, bulletinID, stories); err != nil {
-		return 0, err
-	}
-
-	// Commit transaction
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("%w: failed to commit transaction: %v", ErrDatabaseError, err)
-	}
-
-	return bulletinID, nil
-}
-
-// insertBulletinRecord creates the bulletin database record.
-func (s *BulletinService) insertBulletinRecord(ctx context.Context, tx *sqlx.Tx, stationID int, bulletinPath string, duration float64, fileSize int64, storyCount int) (int64, error) {
-	result, err := tx.ExecContext(ctx, `
-		INSERT INTO bulletins (station_id, filename, audio_file, duration_seconds, file_size, story_count)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		stationID,
-		filepath.Base(bulletinPath),
-		filepath.Base(bulletinPath),
-		duration,
-		fileSize,
-		storyCount,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%w: failed to save bulletin: %v", ErrDatabaseError, err)
-	}
-
-	bulletinID, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("%w: failed to get bulletin ID: %v", ErrDatabaseError, err)
-	}
-
-	return bulletinID, nil
-}
-
-// linkStoriesToBulletin creates bulletin-story relationship records.
-func (s *BulletinService) linkStoriesToBulletin(ctx context.Context, tx *sqlx.Tx, bulletinID int64, stories []models.Story) error {
-	for i, story := range stories {
-		_, err := tx.ExecContext(ctx,
-			"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
-			bulletinID, story.ID, i,
-		)
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		// Insert bulletin record
+		filename := filepath.Base(bulletinPath)
+		id, err := s.bulletinRepo.Create(txCtx, stationID, filename, filename, duration, fileSize, len(stories))
 		if err != nil {
-			return fmt.Errorf("%w: failed to link story %d to bulletin: %v", ErrDatabaseError, story.ID, err)
+			return fmt.Errorf("failed to save bulletin: %v", err)
 		}
+		bulletinID = id
+
+		// Link stories to bulletin
+		storyIDs := make([]int, len(stories))
+		for i, story := range stories {
+			storyIDs[i] = story.ID
+		}
+
+		if err := s.bulletinRepo.LinkStories(txCtx, bulletinID, storyIDs); err != nil {
+			return fmt.Errorf("failed to link stories: %v", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return 0, fmt.Errorf("%w: %v", ErrDatabaseError, err)
 	}
-	return nil
+
+	return bulletinID, nil
 }
 
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins newer than that duration.
 func (s *BulletinService) GetLatest(ctx context.Context, stationID int, maxAge *time.Duration) (*models.Bulletin, error) {
-	var bulletin models.Bulletin
-
-	// Build query with optional age filter
-	query := `
-		SELECT b.*, s.name as station_name
-		FROM bulletins b
-		JOIN stations s ON b.station_id = s.id
-		WHERE b.station_id = ?`
-
-	args := []interface{}{stationID}
-
-	// Add age filter if specified
-	if maxAge != nil {
-		query += ` AND b.created_at >= ?`
-		args = append(args, time.Now().Add(-*maxAge))
-	}
-
-	query += ` ORDER BY b.created_at DESC LIMIT 1`
-
-	err := s.db.GetContext(ctx, &bulletin, query, args...)
+	bulletin, err := s.bulletinRepo.GetLatest(ctx, stationID, maxAge)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%w: no bulletin found for station", ErrNotFound)
 		}
 		return nil, fmt.Errorf("%w: failed to fetch bulletin: %v", ErrDatabaseError, err)
 	}
 
-	return &bulletin, nil
+	return bulletin, nil
 }
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
 func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int, date time.Time, limit int) ([]models.Story, error) {
-	weekdayColumn := getWeekdayColumn(date.Weekday())
-
-	var stories []models.Story
-	query := fmt.Sprintf(`
-		SELECT s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point
-		FROM stories s
-		JOIN voices v ON s.voice_id = v.id
-		JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id
-		WHERE s.deleted_at IS NULL
-		AND s.audio_file IS NOT NULL
-		AND s.audio_file != ''
-		AND s.start_date <= ?
-		AND s.end_date >= ?
-		AND s.%s = 1
-		ORDER BY RAND()
-		LIMIT ?`, weekdayColumn)
-
-	err := s.db.SelectContext(ctx, &stories, query, stationID, date, date, limit)
+	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to fetch stories: %v", ErrDatabaseError, err)
 	}
@@ -300,24 +240,7 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	return parsedDate, nil
 }
 
-// getWeekdayColumn returns the corresponding database column name for a time.Weekday.
-func getWeekdayColumn(weekday time.Weekday) string {
-	switch weekday {
-	case time.Monday:
-		return "monday"
-	case time.Tuesday:
-		return "tuesday"
-	case time.Wednesday:
-		return "wednesday"
-	case time.Thursday:
-		return "thursday"
-	case time.Friday:
-		return "friday"
-	case time.Saturday:
-		return "saturday"
-	case time.Sunday:
-		return "sunday"
-	default:
-		return "monday" // fallback
-	}
+// DB returns the underlying database for ModernListWithQuery.
+func (s *BulletinService) DB() *sqlx.DB {
+	return s.txManager.DB()
 }

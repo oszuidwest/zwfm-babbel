@@ -3,15 +3,15 @@ package services
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -20,17 +20,27 @@ import (
 // It manages the many-to-many relationship between stations and voices, including
 // jingle audio file processing and validation.
 type StationVoiceService struct {
-	db       *sqlx.DB
-	audioSvc *audio.Service
-	config   *config.Config
+	stationVoiceRepo repository.StationVoiceRepository
+	stationRepo      repository.StationRepository
+	voiceRepo        repository.VoiceRepository
+	audioSvc         *audio.Service
+	config           *config.Config
 }
 
 // NewStationVoiceService creates a new station-voice service instance.
-func NewStationVoiceService(db *sqlx.DB, audioSvc *audio.Service, cfg *config.Config) *StationVoiceService {
+func NewStationVoiceService(
+	stationVoiceRepo repository.StationVoiceRepository,
+	stationRepo repository.StationRepository,
+	voiceRepo repository.VoiceRepository,
+	audioSvc *audio.Service,
+	cfg *config.Config,
+) *StationVoiceService {
 	return &StationVoiceService{
-		db:       db,
-		audioSvc: audioSvc,
-		config:   cfg,
+		stationVoiceRepo: stationVoiceRepo,
+		stationRepo:      stationRepo,
+		voiceRepo:        voiceRepo,
+		audioSvc:         audioSvc,
+		config:           cfg,
 	}
 }
 
@@ -54,36 +64,43 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 	const op = "StationVoiceService.Create"
 
 	// Validate station exists
-	if err := s.validateStationExists(ctx, req.StationID); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+	exists, err := s.stationRepo.Exists(ctx, req.StationID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: failed to validate station", op, ErrDatabaseError)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%s: %w: station with id %d not found", op, ErrNotFound, req.StationID)
 	}
 
 	// Validate voice exists
-	if err := s.validateVoiceExists(ctx, req.VoiceID); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+	exists, err = s.voiceRepo.Exists(ctx, req.VoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: failed to validate voice", op, ErrDatabaseError)
+	}
+	if !exists {
+		return nil, fmt.Errorf("%s: %w: voice with id %d not found", op, ErrNotFound, req.VoiceID)
 	}
 
 	// Check uniqueness of station-voice combination
-	if err := s.CheckUniqueness(ctx, req.StationID, req.VoiceID, nil); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+	taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, req.StationID, req.VoiceID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: failed to check uniqueness", op, ErrDatabaseError)
+	}
+	if taken {
+		return nil, fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, ErrDuplicate, req.StationID, req.VoiceID)
 	}
 
-	// Insert station-voice relationship
-	result, err := s.db.ExecContext(ctx,
-		"INSERT INTO station_voices (station_id, voice_id, mix_point) VALUES (?, ?, ?)",
-		req.StationID, req.VoiceID, req.MixPoint)
+	// Create station-voice relationship
+	stationVoice, err := s.stationVoiceRepo.Create(ctx, req.StationID, req.VoiceID, req.MixPoint)
 	if err != nil {
+		if errors.Is(err, repository.ErrDuplicateKey) {
+			return nil, fmt.Errorf("%s: %w: station-voice combination already exists", op, ErrDuplicate)
+		}
 		logger.Error("Database error creating station-voice: %v", err)
-		return nil, fmt.Errorf("%s: %w", op, s.handleDatabaseError(err))
+		return nil, fmt.Errorf("%s: %w", op, ErrDatabaseError)
 	}
 
-	stationVoiceID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: failed to get last insert ID", op, ErrDatabaseError)
-	}
-
-	// Fetch and return the created station-voice relationship
-	return s.GetByID(ctx, int(stationVoiceID))
+	return stationVoice, nil
 }
 
 // Update updates an existing station-voice relationship.
@@ -92,10 +109,13 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
 	const op = "StationVoiceService.Update"
 
-	// Verify station-voice exists
-	current, err := s.GetByID(ctx, id)
+	// Verify station-voice exists and get current values
+	current, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
+		}
+		return nil, fmt.Errorf("%s: %w: failed to fetch station-voice", op, ErrDatabaseError)
 	}
 
 	// Validate update request
@@ -103,97 +123,108 @@ func (s *StationVoiceService) Update(ctx context.Context, id int, req *UpdateSta
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Apply updates to database
-	if err := s.applyUpdates(ctx, id, req); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+	// Build updates struct
+	updates := &repository.StationVoiceUpdate{
+		StationID: req.StationID,
+		VoiceID:   req.VoiceID,
+		MixPoint:  req.MixPoint,
+	}
+
+	// Validate at least one field is being updated
+	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
+		return nil, fmt.Errorf("%s: %w: no fields to update", op, ErrInvalidInput)
+	}
+
+	// Apply updates
+	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
+		}
+		logger.Error("Database error updating station-voice %d: %v", id, err)
+		return nil, fmt.Errorf("%s: %w", op, ErrDatabaseError)
 	}
 
 	// Fetch and return the updated station-voice relationship
-	return s.GetByID(ctx, id)
+	return s.stationVoiceRepo.GetByID(ctx, id)
+}
+
+// validateStationIDUpdate validates station_id if being updated.
+func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stationID *int) error {
+	if stationID == nil {
+		return nil
+	}
+	if *stationID <= 0 {
+		return fmt.Errorf("%w: station_id must be positive", ErrInvalidInput)
+	}
+	exists, err := s.stationRepo.Exists(ctx, *stationID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to validate station", ErrDatabaseError)
+	}
+	if !exists {
+		return fmt.Errorf("%w: station with id %d not found", ErrNotFound, *stationID)
+	}
+	return nil
+}
+
+// validateVoiceIDUpdate validates voice_id if being updated.
+func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID *int) error {
+	if voiceID == nil {
+		return nil
+	}
+	if *voiceID <= 0 {
+		return fmt.Errorf("%w: voice_id must be positive", ErrInvalidInput)
+	}
+	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
+	if err != nil {
+		return fmt.Errorf("%w: failed to validate voice", ErrDatabaseError)
+	}
+	if !exists {
+		return fmt.Errorf("%w: voice with id %d not found", ErrNotFound, *voiceID)
+	}
+	return nil
+}
+
+// validateMixPointUpdate validates mix_point if being updated.
+func (s *StationVoiceService) validateMixPointUpdate(mixPoint *float64) error {
+	if mixPoint == nil {
+		return nil
+	}
+	if *mixPoint < 0 || *mixPoint > 300 {
+		return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", ErrInvalidInput)
+	}
+	return nil
 }
 
 // validateUpdateRequest validates all fields in an update request.
 func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
-	// Validate station if being updated
-	if req.StationID != nil {
-		if *req.StationID <= 0 {
-			return fmt.Errorf("%w: station_id must be positive", ErrInvalidInput)
-		}
-		if err := s.validateStationExists(ctx, *req.StationID); err != nil {
-			return err
-		}
+	if err := s.validateStationIDUpdate(ctx, req.StationID); err != nil {
+		return err
 	}
-
-	// Validate voice if being updated
-	if req.VoiceID != nil {
-		if *req.VoiceID <= 0 {
-			return fmt.Errorf("%w: voice_id must be positive", ErrInvalidInput)
-		}
-		if err := s.validateVoiceExists(ctx, *req.VoiceID); err != nil {
-			return err
-		}
+	if err := s.validateVoiceIDUpdate(ctx, req.VoiceID); err != nil {
+		return err
 	}
-
-	// Validate mix_point range if being updated
-	if req.MixPoint != nil {
-		if *req.MixPoint < 0 || *req.MixPoint > 300 {
-			return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", ErrInvalidInput)
-		}
+	if err := s.validateMixPointUpdate(req.MixPoint); err != nil {
+		return err
 	}
 
 	// Check uniqueness if station_id or voice_id is being updated
 	if req.StationID != nil || req.VoiceID != nil {
 		finalStationID := current.StationID
 		finalVoiceID := current.VoiceID
-
 		if req.StationID != nil {
 			finalStationID = *req.StationID
 		}
 		if req.VoiceID != nil {
 			finalVoiceID = *req.VoiceID
 		}
-
-		if err := s.CheckUniqueness(ctx, finalStationID, finalVoiceID, &id); err != nil {
-			return err
+		taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, finalStationID, finalVoiceID, &id)
+		if err != nil {
+			return fmt.Errorf("%w: failed to check uniqueness", ErrDatabaseError)
+		}
+		if taken {
+			return fmt.Errorf("%w: station-voice combination (station_id=%d, voice_id=%d)", ErrDuplicate, finalStationID, finalVoiceID)
 		}
 	}
-
-	return nil
-}
-
-// applyUpdates builds and executes the update query for station-voice fields.
-func (s *StationVoiceService) applyUpdates(ctx context.Context, id int, req *UpdateStationVoiceRequest) error {
-	updates := []string{}
-	args := []interface{}{}
-
-	if req.StationID != nil {
-		updates = append(updates, "station_id = ?")
-		args = append(args, *req.StationID)
-	}
-
-	if req.VoiceID != nil {
-		updates = append(updates, "voice_id = ?")
-		args = append(args, *req.VoiceID)
-	}
-
-	if req.MixPoint != nil {
-		updates = append(updates, "mix_point = ?")
-		args = append(args, *req.MixPoint)
-	}
-
-	if len(updates) == 0 {
-		return fmt.Errorf("%w: no fields to update", ErrInvalidInput)
-	}
-
-	// Execute update
-	query := "UPDATE station_voices SET " + strings.Join(updates, ", ") + " WHERE id = ?"
-	args = append(args, id)
-
-	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
-		logger.Error("Database error updating station-voice %d: %v", id, err)
-		return s.handleDatabaseError(err)
-	}
-
 	return nil
 }
 
@@ -201,23 +232,16 @@ func (s *StationVoiceService) applyUpdates(ctx context.Context, id int, req *Upd
 func (s *StationVoiceService) GetByID(ctx context.Context, id int) (*models.StationVoice, error) {
 	const op = "StationVoiceService.GetByID"
 
-	var stationVoice models.StationVoice
-	query := `SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point,
-	                 sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name
-	          FROM station_voices sv
-	          JOIN stations s ON sv.station_id = s.id
-	          JOIN voices v ON sv.voice_id = v.id
-	          WHERE sv.id = ?`
-
-	if err := s.db.GetContext(ctx, &stationVoice, query, id); err != nil {
-		if err == sql.ErrNoRows {
+	stationVoice, err := s.stationVoiceRepo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
 			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
 		}
 		logger.Error("Database error fetching station-voice %d: %v", id, err)
 		return nil, fmt.Errorf("%s: %w: failed to fetch station-voice", op, ErrDatabaseError)
 	}
 
-	return &stationVoice, nil
+	return stationVoice, nil
 }
 
 // Delete deletes a station-voice relationship and its associated jingle file if it exists.
@@ -226,16 +250,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int) error {
 	const op = "StationVoiceService.Delete"
 
 	// Get jingle file and station/voice IDs before deletion
-	var record struct {
-		AudioFile string `db:"audio_file"`
-		StationID int    `db:"station_id"`
-		VoiceID   int    `db:"voice_id"`
-	}
-
-	err := s.db.GetContext(ctx, &record,
-		"SELECT audio_file, station_id, voice_id FROM station_voices WHERE id = ?", id)
+	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
 		}
 		logger.Error("Database error fetching station-voice %d for deletion: %v", id, err)
@@ -243,25 +260,23 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int) error {
 	}
 
 	// Delete from database
-	result, err := s.db.ExecContext(ctx, "DELETE FROM station_voices WHERE id = ?", id)
+	err = s.stationVoiceRepo.Delete(ctx, id)
 	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
+		}
 		logger.Error("Database error deleting station-voice %d: %v", id, err)
 		return fmt.Errorf("%s: %w: failed to delete station-voice", op, ErrDatabaseError)
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, id)
-	}
-
 	// Clean up jingle file if it exists
-	if record.AudioFile != "" {
-		jinglePath := utils.GetJinglePath(s.config, record.StationID, record.VoiceID)
+	if audioFile != "" {
+		jinglePath := utils.GetJinglePath(s.config, stationID, voiceID)
 		if err := os.Remove(jinglePath); err != nil {
 			// Log error but don't fail the deletion - database record is already gone
 			logger.Error("Failed to remove jingle file %s after deletion: %v", jinglePath, err)
 		} else {
-			logger.Info("Removed jingle file for station %d voice %d", record.StationID, record.VoiceID)
+			logger.Info("Removed jingle file for station %d voice %d", stationID, voiceID)
 		}
 	}
 
@@ -275,15 +290,9 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	const op = "StationVoiceService.ProcessJingle"
 
 	// Get station and voice IDs for the relationship
-	var record struct {
-		StationID int `db:"station_id"`
-		VoiceID   int `db:"voice_id"`
-	}
-
-	err := s.db.GetContext(ctx, &record,
-		"SELECT station_id, voice_id FROM station_voices WHERE id = ?", stationVoiceID)
+	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, stationVoiceID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, ErrNotFound, stationVoiceID)
 		}
 		logger.Error("Database error fetching station-voice %d for jingle processing: %v", stationVoiceID, err)
@@ -291,7 +300,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	}
 
 	// Process jingle with audio service (convert to WAV 48kHz stereo)
-	outputPath := utils.GetJinglePath(s.config, record.StationID, record.VoiceID)
+	outputPath := utils.GetJinglePath(s.config, stationID, voiceID)
 	filename, _, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 2)
 	if err != nil {
 		logger.Error("Failed to process jingle audio for station-voice %d: %v", stationVoiceID, err)
@@ -299,9 +308,8 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	}
 
 	// Update database with jingle filename only (not full path)
-	filenameOnly := utils.GetJingleFilename(record.StationID, record.VoiceID)
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE station_voices SET audio_file = ? WHERE id = ?", filenameOnly, stationVoiceID)
+	filenameOnly := utils.GetJingleFilename(stationID, voiceID)
+	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoiceID, filenameOnly)
 	if err != nil {
 		// Clean up file on database error
 		if rmErr := os.Remove(outputPath); rmErr != nil {
@@ -315,82 +323,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	return nil
 }
 
-// CheckUniqueness checks if a station-voice combination is unique.
-// The excludeID parameter can be provided to exclude a specific record from the check (for updates).
-// Returns ErrDuplicate if the combination already exists.
-func (s *StationVoiceService) CheckUniqueness(ctx context.Context, stationID, voiceID int, excludeID *int) error {
-	const op = "StationVoiceService.CheckUniqueness"
-
-	var count int
-	query := "SELECT COUNT(*) FROM station_voices WHERE station_id = ? AND voice_id = ?"
-	args := []interface{}{stationID, voiceID}
-
-	if excludeID != nil {
-		query += " AND id != ?"
-		args = append(args, *excludeID)
-	}
-
-	err := s.db.GetContext(ctx, &count, query, args...)
-	if err != nil {
-		logger.Error("Database error checking station-voice uniqueness: %v", err)
-		return fmt.Errorf("%s: %w: failed to check uniqueness", op, ErrDatabaseError)
-	}
-
-	if count > 0 {
-		return fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, ErrDuplicate, stationID, voiceID)
-	}
-
-	return nil
-}
-
-// validateStationExists checks if a station exists in the database.
-func (s *StationVoiceService) validateStationExists(ctx context.Context, stationID int) error {
-	const op = "StationVoiceService.validateStationExists"
-
-	var exists bool
-	err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stations WHERE id = ?)", stationID)
-	if err != nil {
-		logger.Error("Database error checking station existence: %v", err)
-		return fmt.Errorf("%s: %w: failed to validate station", op, ErrDatabaseError)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w: station with id %d not found", op, ErrNotFound, stationID)
-	}
-	return nil
-}
-
-// validateVoiceExists checks if a voice exists in the database.
-func (s *StationVoiceService) validateVoiceExists(ctx context.Context, voiceID int) error {
-	const op = "StationVoiceService.validateVoiceExists"
-
-	var exists bool
-	err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM voices WHERE id = ?)", voiceID)
-	if err != nil {
-		logger.Error("Database error checking voice existence: %v", err)
-		return fmt.Errorf("%s: %w: failed to validate voice", op, ErrDatabaseError)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w: voice with id %d not found", op, ErrNotFound, voiceID)
-	}
-	return nil
-}
-
-// handleDatabaseError converts database errors to service-level errors.
-func (s *StationVoiceService) handleDatabaseError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	errStr := err.Error()
-
-	switch {
-	case strings.Contains(errStr, "Duplicate entry"):
-		return fmt.Errorf("%w: station-voice combination already exists", ErrDuplicate)
-	case strings.Contains(errStr, "foreign key constraint"):
-		return fmt.Errorf("%w: invalid reference to station or voice", ErrInvalidInput)
-	case strings.Contains(errStr, "Data too long"):
-		return fmt.Errorf("%w: one or more fields exceed maximum length", ErrInvalidInput)
-	default:
-		return fmt.Errorf("%w: database operation failed", ErrDatabaseError)
-	}
+// DB returns the underlying database for ModernListWithQuery.
+func (s *StationVoiceService) DB() *sqlx.DB {
+	return s.stationVoiceRepo.DB()
 }

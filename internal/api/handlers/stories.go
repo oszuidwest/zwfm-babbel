@@ -144,7 +144,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	}
 
 	var stories []StoryResponse
-	utils.ModernListWithQuery(c, h.db, config, &stories)
+	utils.ModernListWithQuery(c, h.storySvc.DB(), config, &stories)
 }
 
 // GetStory returns a single story by ID

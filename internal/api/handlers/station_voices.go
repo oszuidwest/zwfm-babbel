@@ -76,7 +76,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	}
 
 	var stationVoices []StationVoiceResponse
-	utils.ModernListWithQuery(c, h.db, config, &stationVoices)
+	utils.ModernListWithQuery(c, h.stationVoiceSvc.DB(), config, &stationVoices)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID
