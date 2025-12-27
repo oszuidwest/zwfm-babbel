@@ -9,7 +9,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StationVoiceResponse represents the response for station-voice relationships
@@ -108,11 +107,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			}})
 			return
 		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				logger.Error("Failed to cleanup jingle file: %v", err)
-			}
-		}()
+		defer deferCleanup(cleanup, "jingle file")()
 
 		// Process jingle via service
 		if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice.ID, tempPath); err != nil {
@@ -198,11 +193,7 @@ func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int64) boo
 		}})
 		return false
 	}
-	defer func() {
-		if err := cleanup(); err != nil {
-			logger.Error("Failed to cleanup jingle file: %v", err)
-		}
-	}()
+	defer deferCleanup(cleanup, "jingle file")()
 
 	// Process jingle via service
 	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {

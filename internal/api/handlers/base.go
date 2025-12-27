@@ -96,3 +96,13 @@ func extractErrorMessage(err error) string {
 	// We want to show meaningful details to the user
 	return msg
 }
+
+// deferCleanup returns a function suitable for use with defer that logs cleanup errors.
+// Usage: defer deferCleanup(cleanup, "audio file")()
+func deferCleanup(cleanup func() error, resourceType string) func() {
+	return func() {
+		if err := cleanup(); err != nil {
+			logger.Error("Failed to cleanup %s: %v", resourceType, err)
+		}
+	}
+}

@@ -9,7 +9,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StoryResponse represents the response format for news stories with computed weekday information.
@@ -165,11 +164,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 			}})
 			return
 		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				logger.Error("Failed to cleanup audio file: %v", err)
-			}
-		}()
+		defer deferCleanup(cleanup, "audio file")()
 
 		// Process audio via service
 		if err := h.storySvc.ProcessAudio(c.Request.Context(), story.ID, tempPath); err != nil {
@@ -284,11 +279,7 @@ func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int64) bool {
 		}})
 		return false
 	}
-	defer func() {
-		if err := cleanup(); err != nil {
-			logger.Error("Failed to cleanup audio file: %v", err)
-		}
-	}()
+	defer deferCleanup(cleanup, "audio file")()
 
 	// Process audio via service
 	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
