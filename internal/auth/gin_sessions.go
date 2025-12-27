@@ -83,8 +83,3 @@ func (s *ginSession) Clear() {
 func (s *ginSession) Save(_ *gin.Context) error {
 	return s.session.Save()
 }
-
-// CreateSessionMiddleware creates a session middleware for gin-contrib/sessions.
-func CreateSessionMiddleware(name string, store sessions.Store) gin.HandlerFunc {
-	return sessions.Sessions(name, store)
-}

@@ -42,8 +42,8 @@ func (s *StoryExpirationService) Start() {
 
 	// Run immediately on start with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	s.expireStories(ctx)
-	cancel()
 
 	// Then run every hour
 	s.ticker = time.NewTicker(1 * time.Hour)
@@ -52,9 +52,11 @@ func (s *StoryExpirationService) Start() {
 		for {
 			select {
 			case <-s.ticker.C:
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				s.expireStories(ctx)
-				cancel()
+				func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					s.expireStories(ctx)
+				}()
 			case <-s.done:
 				return
 			}

@@ -4,17 +4,24 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
+
+// VoiceUpdate contains optional fields for updating a voice.
+// Nil pointer fields are not updated.
+type VoiceUpdate struct {
+	Name *string
+}
 
 // VoiceRepository defines the interface for voice data access.
 type VoiceRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, name string) (*models.Voice, error)
 	GetByID(ctx context.Context, id int64) (*models.Voice, error)
-	Update(ctx context.Context, id int64, name string) error
+	Update(ctx context.Context, id int64, updates *VoiceUpdate) error
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
@@ -55,11 +62,27 @@ func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voic
 	return r.GetByID(ctx, id)
 }
 
-// Update updates an existing voice's name.
-func (r *voiceRepository) Update(ctx context.Context, id int64, name string) error {
+// Update updates an existing voice with type-safe fields.
+func (r *voiceRepository) Update(ctx context.Context, id int64, updates *VoiceUpdate) error {
+	if updates == nil {
+		return nil
+	}
+
 	q := r.getQueryable(ctx)
 
-	result, err := q.ExecContext(ctx, "UPDATE voices SET name = ? WHERE id = ?", name, id)
+	setClauses := make([]string, 0, 1)
+	args := make([]any, 0, 1)
+
+	addFieldUpdate(&setClauses, &args, "name", updates.Name)
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE voices SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+	args = append(args, id)
+
+	result, err := q.ExecContext(ctx, query, args...)
 	if err != nil {
 		return ParseDBError(err)
 	}
@@ -92,20 +115,15 @@ func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeI
 func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	q := r.getQueryable(ctx)
 
-	// Check stories
-	var storyCount int
-	if err := q.GetContext(ctx, &storyCount, "SELECT COUNT(*) FROM stories WHERE voice_id = ?", id); err != nil {
-		return false, ParseDBError(err)
-	}
-	if storyCount > 0 {
-		return true, nil
-	}
-
-	// Check station_voices
-	var svCount int
-	if err := q.GetContext(ctx, &svCount, "SELECT COUNT(*) FROM station_voices WHERE voice_id = ?", id); err != nil {
+	var exists bool
+	query := `SELECT EXISTS(
+		SELECT 1 FROM stories WHERE voice_id = ?
+		UNION ALL
+		SELECT 1 FROM station_voices WHERE voice_id = ?
+	)`
+	if err := q.GetContext(ctx, &exists, query, id, id); err != nil {
 		return false, ParseDBError(err)
 	}
 
-	return svCount > 0, nil
+	return exists, nil
 }

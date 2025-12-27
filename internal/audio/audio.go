@@ -53,8 +53,8 @@ func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string
 
 // GetDuration retrieves the duration of an audio file in seconds using ffprobe.
 func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {
-	// #nosec G204 - ffprobe binary is trusted, filePath is internally validated
-	cmd := exec.CommandContext(ctx, "ffprobe",
+	// #nosec G204 - ffprobe binary is from config, filePath is internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
 		"-i", filePath,
 		"-show_entries", "format=duration",
 		"-v", "quiet",
@@ -67,8 +67,9 @@ func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, er
 	}
 
 	var duration float64
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(output)), "%f", &duration); err != nil {
-		return 0, err
+	outputStr := strings.TrimSpace(string(output))
+	if _, err := fmt.Sscanf(outputStr, "%f", &duration); err != nil {
+		return 0, fmt.Errorf("failed to parse duration from output %q: %w", outputStr, err)
 	}
 
 	return duration, nil
@@ -181,14 +182,19 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 	// Use station-specific jingle
 	jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
 
-	if _, err := os.Stat(jinglePath); err == nil {
+	if _, err := os.Stat(jinglePath); err != nil {
+		if !os.IsNotExist(err) {
+			// Log unexpected errors (permission issues, etc.) but continue without jingle
+			logger.Warn("Failed to stat jingle file %s: %v", jinglePath, err)
+		} else {
+			logger.Debug("Jingle file not found at %s, generating bulletin without bed", jinglePath)
+		}
+		filters = append(filters, "[messages]anull[out]")
+	} else {
+		// File exists, add jingle to mix
 		args = append(args, "-i", jinglePath)
 		jingleIndex := len(stories)
 		filters = append(filters, fmt.Sprintf("[messages][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
-	} else {
-		// No bed, just use the messages
-		logger.Debug("Jingle file not found at %s, generating bulletin without bed", jinglePath)
-		filters = append(filters, "[messages]anull[out]")
 	}
 
 	return args, filters

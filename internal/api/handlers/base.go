@@ -81,7 +81,7 @@ var errorCodeHandlers = map[apperrors.Code]errorCodeHandler{
 		utils.ProblemInternalServer(c, appErr.Message)
 	},
 	apperrors.CodeUnauthorized: func(c *gin.Context, resource string, appErr *apperrors.Error) {
-		utils.ProblemUnauthorized(c, appErr.Message)
+		utils.ProblemAuthentication(c, appErr.Message)
 	},
 	apperrors.CodeForbidden: func(c *gin.Context, resource string, appErr *apperrors.Error) {
 		utils.ProblemForbidden(c, appErr.Message)

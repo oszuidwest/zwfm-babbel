@@ -28,16 +28,25 @@ type ListResponse struct {
 
 // Success responds with HTTP 200 OK status and the provided data.
 func Success(c *gin.Context, data any) {
+	if c == nil {
+		return
+	}
 	c.JSON(http.StatusOK, data)
 }
 
 // NoContent responds with HTTP 204 No Content.
 func NoContent(c *gin.Context) {
+	if c == nil {
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 
 // PaginatedResponse responds with paginated data in a consistent format.
 func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int) {
+	if c == nil {
+		return
+	}
 	c.JSON(http.StatusOK, ListResponse{
 		Data:   data,
 		Total:  total,
@@ -48,6 +57,9 @@ func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int)
 
 // CreatedWithID responds with HTTP 201 Created status including the new resource ID.
 func CreatedWithID(c *gin.Context, id int64, message string) {
+	if c == nil {
+		return
+	}
 	c.JSON(http.StatusCreated, IDMessageResponse{
 		ID:      id,
 		Message: message,
@@ -56,6 +68,9 @@ func CreatedWithID(c *gin.Context, id int64, message string) {
 
 // SuccessWithMessage responds with HTTP 200 OK status and a success message.
 func SuccessWithMessage(c *gin.Context, message string) {
+	if c == nil {
+		return
+	}
 	c.JSON(http.StatusOK, MessageResponse{Message: message})
 }
 
@@ -63,6 +78,9 @@ func SuccessWithMessage(c *gin.Context, message string) {
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
 func ProblemValidationError(c *gin.Context, detail string, errors []ValidationError) {
+	if c == nil {
+		return
+	}
 	problem := NewValidationProblem(detail, c.Request.URL.Path, errors)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -72,6 +90,9 @@ func ProblemValidationError(c *gin.Context, detail string, errors []ValidationEr
 
 // ProblemNotFound responds with HTTP 404 Not Found.
 func ProblemNotFound(c *gin.Context, resource string) {
+	if c == nil {
+		return
+	}
 	problem := NewNotFoundProblem(resource, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -81,6 +102,9 @@ func ProblemNotFound(c *gin.Context, resource string) {
 
 // ProblemDuplicate responds with HTTP 409 Conflict.
 func ProblemDuplicate(c *gin.Context, resource string) {
+	if c == nil {
+		return
+	}
 	problem := NewDuplicateProblem(resource, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -90,6 +114,9 @@ func ProblemDuplicate(c *gin.Context, resource string) {
 
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
 func ProblemAuthentication(c *gin.Context, detail string) {
+	if c == nil {
+		return
+	}
 	problem := NewAuthenticationProblem(detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -97,15 +124,12 @@ func ProblemAuthentication(c *gin.Context, detail string) {
 	SendProblem(c, problem)
 }
 
-// ProblemUnauthorized responds with HTTP 401 Unauthorized.
-// Alias for ProblemAuthentication for consistency with error code naming.
-func ProblemUnauthorized(c *gin.Context, detail string) {
-	ProblemAuthentication(c, detail)
-}
-
 // ProblemForbidden responds with HTTP 403 Forbidden.
 // Used when the user is authenticated but lacks permission for the action.
 func ProblemForbidden(c *gin.Context, detail string) {
+	if c == nil {
+		return
+	}
 	problem := NewForbiddenProblem(detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -115,6 +139,9 @@ func ProblemForbidden(c *gin.Context, detail string) {
 
 // ProblemInternalServer responds with HTTP 500 Internal Server Error.
 func ProblemInternalServer(c *gin.Context, detail string) {
+	if c == nil {
+		return
+	}
 	problem := NewInternalServerProblem(detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -124,6 +151,9 @@ func ProblemInternalServer(c *gin.Context, detail string) {
 
 // ProblemBadRequest responds with HTTP 400 Bad Request.
 func ProblemBadRequest(c *gin.Context, detail string) {
+	if c == nil {
+		return
+	}
 	problem := NewBadRequestProblem(detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
@@ -133,6 +163,9 @@ func ProblemBadRequest(c *gin.Context, detail string) {
 
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
+	if c == nil {
+		return
+	}
 	problem := NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)

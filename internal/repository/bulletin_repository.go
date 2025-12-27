@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -111,18 +112,26 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 	return &bulletin, nil
 }
 
-// LinkStories creates bulletin-story relationship records.
+// LinkStories creates bulletin-story relationship records using batch INSERT.
 func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
+	if len(storyIDs) == 0 {
+		return nil
+	}
+
 	q := r.getQueryable(ctx)
 
+	// Build batch INSERT for all stories
+	valueStrings := make([]string, 0, len(storyIDs))
+	valueArgs := make([]any, 0, len(storyIDs)*3)
 	for i, storyID := range storyIDs {
-		_, err := q.ExecContext(ctx,
-			"INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES (?, ?, ?)",
-			bulletinID, storyID, i,
-		)
-		if err != nil {
-			return ParseDBError(err)
-		}
+		valueStrings = append(valueStrings, "(?, ?, ?)")
+		valueArgs = append(valueArgs, bulletinID, storyID, i)
+	}
+
+	query := fmt.Sprintf("INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES %s", strings.Join(valueStrings, ", "))
+	_, err := q.ExecContext(ctx, query, valueArgs...)
+	if err != nil {
+		return ParseDBError(err)
 	}
 
 	return nil

@@ -72,3 +72,41 @@ func (e *Error) Wrap(err error) *Error {
 	e.Err = err
 	return e
 }
+
+// String returns the string representation of the error code.
+func (c Code) String() string {
+	switch c {
+	case CodeUnknown:
+		return "unknown"
+	case CodeNotFound:
+		return "not_found"
+	case CodeDuplicate:
+		return "duplicate"
+	case CodeInvalidInput:
+		return "invalid_input"
+	case CodeValidation:
+		return "validation"
+	case CodeDependencyExists:
+		return "dependency_exists"
+	case CodeNoStoriesAvailable:
+		return "no_stories_available"
+	case CodeAudioProcessing:
+		return "audio_processing"
+	case CodeDatabase:
+		return "database"
+	case CodeUnauthorized:
+		return "unauthorized"
+	case CodeForbidden:
+		return "forbidden"
+	default:
+		return fmt.Sprintf("unknown_code_%d", c)
+	}
+}
+
+// Is reports whether target matches this error's code.
+func (e *Error) Is(target error) bool {
+	if t, ok := target.(*Error); ok {
+		return e.Code == t.Code
+	}
+	return false
+}

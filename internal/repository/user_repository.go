@@ -208,14 +208,13 @@ func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
 	q := r.getQueryable(ctx)
 
-	var query string
+	var result sql.Result
+	var err error
 	if suspended {
-		query = "UPDATE users SET suspended_at = NOW() WHERE id = ?"
+		result, err = q.ExecContext(ctx, "UPDATE users SET suspended_at = ? WHERE id = ?", time.Now(), id)
 	} else {
-		query = "UPDATE users SET suspended_at = NULL WHERE id = ?"
+		result, err = q.ExecContext(ctx, "UPDATE users SET suspended_at = NULL WHERE id = ?", id)
 	}
-
-	result, err := q.ExecContext(ctx, query, id)
 	if err != nil {
 		return ParseDBError(err)
 	}

@@ -4,17 +4,26 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
+
+// StationUpdate contains optional fields for updating a station.
+// Nil pointer fields are not updated.
+type StationUpdate struct {
+	Name               *string
+	MaxStoriesPerBlock *int
+	PauseSeconds       *float64
+}
 
 // StationRepository defines the interface for station data access.
 type StationRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error)
 	GetByID(ctx context.Context, id int64) (*models.Station, error)
-	Update(ctx context.Context, id int64, name string, maxStories int, pauseSeconds float64) error
+	Update(ctx context.Context, id int64, updates *StationUpdate) error
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
@@ -58,14 +67,29 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 	return r.GetByID(ctx, id)
 }
 
-// Update updates an existing station's fields.
-func (r *stationRepository) Update(ctx context.Context, id int64, name string, maxStories int, pauseSeconds float64) error {
+// Update updates an existing station with type-safe fields.
+func (r *stationRepository) Update(ctx context.Context, id int64, updates *StationUpdate) error {
+	if updates == nil {
+		return nil
+	}
+
 	q := r.getQueryable(ctx)
 
-	result, err := q.ExecContext(ctx,
-		"UPDATE stations SET name = ?, max_stories_per_block = ?, pause_seconds = ? WHERE id = ?",
-		name, maxStories, pauseSeconds, id,
-	)
+	setClauses := make([]string, 0, 3)
+	args := make([]any, 0, 3)
+
+	addFieldUpdate(&setClauses, &args, "name", updates.Name)
+	addFieldUpdate(&setClauses, &args, "max_stories_per_block", updates.MaxStoriesPerBlock)
+	addFieldUpdate(&setClauses, &args, "pause_seconds", updates.PauseSeconds)
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	query := fmt.Sprintf("UPDATE stations SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+	args = append(args, id)
+
+	result, err := q.ExecContext(ctx, query, args...)
 	if err != nil {
 		return ParseDBError(err)
 	}

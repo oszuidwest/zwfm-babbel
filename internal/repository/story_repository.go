@@ -201,7 +201,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUp
 func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
 
-	result, err := q.ExecContext(ctx, "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
+	result, err := q.ExecContext(ctx, "UPDATE stories SET deleted_at = ? WHERE id = ?", time.Now(), id)
 	if err != nil {
 		return ParseDBError(err)
 	}
@@ -293,10 +293,10 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status str
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
 	q := r.getQueryable(ctx)
 
-	weekdayColumn := getWeekdayColumn(date.Weekday())
-
 	var stories []models.Story
-	query := fmt.Sprintf(`
+	// Use CASE statement to select weekday column dynamically via parameter
+	// This avoids string interpolation and is more portable
+	query := `
         SELECT s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point
         FROM stories s
         JOIN voices v ON s.voice_id = v.id
@@ -306,27 +306,18 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
         AND s.audio_file != ''
         AND s.start_date <= ?
         AND s.end_date >= ?
-        AND s.%s = 1
+        AND CASE ?
+            WHEN 0 THEN s.sunday
+            WHEN 1 THEN s.monday
+            WHEN 2 THEN s.tuesday
+            WHEN 3 THEN s.wednesday
+            WHEN 4 THEN s.thursday
+            WHEN 5 THEN s.friday
+            WHEN 6 THEN s.saturday
+        END = 1
         ORDER BY RAND()
-        LIMIT ?`, weekdayColumn)
+        LIMIT ?`
 
-	err := q.SelectContext(ctx, &stories, query, stationID, date, date, limit)
+	err := q.SelectContext(ctx, &stories, query, stationID, date, date, int(date.Weekday()), limit)
 	return stories, ParseDBError(err)
-}
-
-// getWeekdayColumn returns the database column for a weekday.
-func getWeekdayColumn(weekday time.Weekday) string {
-	columns := map[time.Weekday]string{
-		time.Monday:    "monday",
-		time.Tuesday:   "tuesday",
-		time.Wednesday: "wednesday",
-		time.Thursday:  "thursday",
-		time.Friday:    "friday",
-		time.Saturday:  "saturday",
-		time.Sunday:    "sunday",
-	}
-	if col, ok := columns[weekday]; ok {
-		return col
-	}
-	return "monday"
 }

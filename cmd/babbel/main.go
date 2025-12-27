@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,73 +21,104 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/version"
 )
 
+const (
+	debugLogLevel           = 5
+	serverReadTimeout       = 15 * time.Second
+	serverWriteTimeout      = 15 * time.Second
+	serverIdleTimeout       = 60 * time.Second
+	serverStartupCheckDelay = 100 * time.Millisecond
+	shutdownTimeout         = 30 * time.Second
+)
+
 func main() {
-	// Parse command line flags
-	showVersion := flag.Bool("version", false, "Show version information")
-	flag.Parse()
-
-	// Show version if requested
-	if *showVersion {
-		fmt.Printf("babbel %s (commit: %s, built: %s)\n", version.Version, version.Commit, version.BuildTime)
-		os.Exit(0)
-	}
-	// Load configuration
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	if handleVersionFlag() {
+		return
 	}
 
-	if err := cfg.Validate(); err != nil {
-		log.Fatalf("Configuration validation failed: %v", err)
-	}
-
-	// Log configuration (without sensitive data)
-	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
-	log.Printf("Server config: Address=%s", cfg.Server.Address)
-
-	// Initialize logger
-	logLevel := "info"
-	if cfg.LogLevel >= 5 {
-		logLevel = "debug"
-	}
-	isDev := cfg.Environment == config.EnvDevelopment
-
-	if err := logger.Initialize(logLevel, isDev); err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
-	}
+	cfg := mustLoadConfig()
+	initLogger(cfg)
 	defer logger.Sync()
 
-	// Connect to database
 	db, err := database.Connect(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database: %v", err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			logger.Error("Failed to close database connection: %v", err)
-		}
-	}()
+	defer closeDatabase(db)
 
-	// Setup API router
 	router, err := api.SetupRouter(db, cfg)
 	if err != nil {
 		logger.Fatal("Failed to setup router: %v", err)
 	}
 
-	// Create HTTP server
-	srv := &http.Server{
-		Addr:         cfg.Server.Address,
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+	srv := newServer(cfg, router)
+	startServer(srv, cfg)
+
+	expirationService := scheduler.NewStoryExpirationService(db)
+	expirationService.Start()
+
+	waitForShutdown()
+
+	logger.Info("Shutting down server...")
+	expirationService.Stop()
+	shutdownServer(srv)
+	logger.Info("Server exited")
+}
+
+func handleVersionFlag() bool {
+	showVersion := flag.Bool("version", false, "Show version information")
+	flag.Parse()
+	if *showVersion {
+		fmt.Printf("babbel %s (commit: %s, built: %s)\n", version.Version, version.Commit, version.BuildTime)
+		return true
 	}
+	return false
+}
 
-	// Create error channel for server startup
+func mustLoadConfig() *config.Config {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Configuration validation failed: %v", err)
+	}
+	if err := cfg.EnsureDirectories(); err != nil {
+		log.Fatalf("Failed to create directories: %v", err)
+	}
+	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
+		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
+	log.Printf("Server config: Address=%s", cfg.Server.Address)
+	return cfg
+}
+
+func initLogger(cfg *config.Config) {
+	logLevel := "info"
+	if cfg.LogLevel >= debugLogLevel {
+		logLevel = "debug"
+	}
+	if err := logger.Initialize(logLevel, cfg.Environment == config.EnvDevelopment); err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+}
+
+func closeDatabase(db io.Closer) {
+	if err := db.Close(); err != nil {
+		logger.Error("Failed to close database connection: %v", err)
+	}
+}
+
+func newServer(cfg *config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:         cfg.Server.Address,
+		Handler:      handler,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
+	}
+}
+
+func startServer(srv *http.Server, cfg *config.Config) {
 	serverErr := make(chan error, 1)
-
-	// Start server in goroutine
 	go func() {
 		logger.Info("Starting Babbel API server on %s (version: %s, commit: %s)", cfg.Server.Address, version.Version, version.Commit)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -95,39 +127,25 @@ func main() {
 		close(serverErr)
 	}()
 
-	// Give the server a moment to fail on port binding issues
 	select {
 	case err := <-serverErr:
 		if err != nil {
 			logger.Fatal("Failed to start server: %v", err)
 		}
-	case <-time.After(100 * time.Millisecond):
-		// Server started successfully, continue
+	case <-time.After(serverStartupCheckDelay):
 	}
+}
 
-	// Start story expiration scheduler
-	// Note: Start() returns void, no error to check
-	expirationService := scheduler.NewStoryExpirationService(db)
-	expirationService.Start()
-
-	// Wait for interrupt signal
+func waitForShutdown() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+}
 
-	// Graceful shutdown
-	logger.Info("Shutting down server...")
-
-	// Stop scheduler first
-	// Note: Stop() returns void, no error to check
-	expirationService.Stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func shutdownServer(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-
 	if err := srv.Shutdown(ctx); err != nil {
 		logger.Fatal("Server forced to shutdown: %v", err)
 	}
-
-	logger.Info("Server exited")
 }

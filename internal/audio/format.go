@@ -44,12 +44,14 @@ type Format struct {
 
 // Standard formats
 var (
+	// FormatStoryWAV defines the standard audio format for mono news stories (48kHz, 16-bit PCM).
 	FormatStoryWAV = Format{
 		SampleRate: SampleRate48000,
 		Channels:   Mono,
 		Codec:      CodecPCM16LE,
 	}
 
+	// FormatJingleWAV defines the standard audio format for stereo jingles (48kHz, 16-bit PCM).
 	FormatJingleWAV = Format{
 		SampleRate: SampleRate48000,
 		Channels:   Stereo,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -48,6 +49,30 @@ type DatabaseConfig struct {
 	Database string `env:"NAME" envDefault:"babbel"`
 	// MigrationsPath is the filesystem path to database migration files.
 	MigrationsPath string `env:"-"`
+	// MaxOpenConns is the maximum number of open connections to the database.
+	MaxOpenConns int `env:"MAX_OPEN_CONNS" envDefault:"25"`
+	// MaxIdleConns is the maximum number of idle connections to the database.
+	MaxIdleConns int `env:"MAX_IDLE_CONNS" envDefault:"5"`
+	// ConnMaxLifetime is the maximum lifetime of a database connection.
+	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"5m"`
+}
+
+// LocalAuthConfig holds password policy and lockout configuration for local authentication.
+type LocalAuthConfig struct {
+	// MinPasswordLength is the minimum required password length (default: 8).
+	MinPasswordLength int `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
+	// RequireUppercase requires at least one uppercase letter in passwords (default: true).
+	RequireUppercase bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
+	// RequireLowercase requires at least one lowercase letter in passwords (default: true).
+	RequireLowercase bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
+	// RequireNumber requires at least one number in passwords (default: true).
+	RequireNumber bool `env:"REQUIRE_NUMBER" envDefault:"true"`
+	// RequireSpecialChar requires at least one special character in passwords (default: false).
+	RequireSpecialChar bool `env:"REQUIRE_SPECIAL" envDefault:"false"`
+	// MaxLoginAttempts is the maximum number of failed login attempts before lockout (default: 5).
+	MaxLoginAttempts int `env:"MAX_LOGIN_ATTEMPTS" envDefault:"5"`
+	// LockoutDurationMinutes is the account lockout duration in minutes (default: 15).
+	LockoutDurationMinutes int `env:"LOCKOUT_MINUTES" envDefault:"15"`
 }
 
 // AuthConfig holds authentication and session configuration.
@@ -68,12 +93,16 @@ type AuthConfig struct {
 	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
 	// OIDCRedirectURL is the OAuth callback URL for this application.
 	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
+	// Local holds local authentication password policy and lockout configuration.
+	Local LocalAuthConfig `envPrefix:"AUTH_"`
 }
 
 // AudioConfig holds audio processing and file storage configuration.
 type AudioConfig struct {
 	// FFmpegPath is the path to the FFmpeg binary executable.
 	FFmpegPath string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
+	// FFprobePath is the path to the FFprobe binary executable.
+	FFprobePath string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
 	// ProcessedPath is the directory for processed audio files.
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
 	// OutputPath is the directory for generated bulletin output files.
@@ -84,7 +113,7 @@ type AudioConfig struct {
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
 }
 
-// Load reads configuration from environment variables and creates required directories.
+// Load reads configuration from environment variables.
 func Load() (*Config, error) {
 	cfg, err := env.ParseAsWithOptions[Config](env.Options{
 		Prefix: "BABBEL_",
@@ -96,21 +125,24 @@ func Load() (*Config, error) {
 	// Set non-env fields
 	cfg.Database.MigrationsPath = "migrations"
 
-	// Create required directories
+	return &cfg, nil
+}
+
+// EnsureDirectories creates all required application directories.
+func (c *Config) EnsureDirectories() error {
 	dirs := []string{
-		cfg.Audio.ProcessedPath,
-		cfg.Audio.OutputPath,
-		cfg.Audio.TempPath,
+		c.Audio.ProcessedPath,
+		c.Audio.OutputPath,
+		c.Audio.TempPath,
 		"./uploads",
 	}
 	for _, dir := range dirs {
 		// #nosec G301 - 0755 is appropriate for audio directories
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
-
-	return &cfg, nil
+	return nil
 }
 
 // Validate checks the configuration for required values and valid settings.

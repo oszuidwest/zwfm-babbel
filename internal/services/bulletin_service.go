@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // BulletinService handles bulletin generation and retrieval operations.
@@ -130,7 +130,7 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 
 	// Verify the paths match (should always be true with unified function)
 	if createdPath != bulletinPath {
-		log.Printf("WARNING: Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
+		logger.Warn("Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
 	}
 
 	return bulletinPath, nil

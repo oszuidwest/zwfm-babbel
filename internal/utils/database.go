@@ -3,6 +3,7 @@ package utils
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -12,44 +13,30 @@ import (
 // Usage: utils.Stations.Exists(ctx, db, id)
 // =============================================================================
 
-// StationQueries provides type-safe database operations for stations.
-type StationQueries struct{}
+// EntityQuerier provides database existence checks for entities.
+type EntityQuerier struct {
+	tableName string
+}
 
-// Stations provides query methods for station resources.
-var Stations = StationQueries{}
+// NewEntityQuerier creates a new EntityQuerier for the given table.
+func NewEntityQuerier(tableName string) EntityQuerier {
+	return EntityQuerier{tableName: tableName}
+}
 
-// Exists checks if a station with the given ID exists.
-func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
+// Exists checks if an entity with the given ID exists in the table.
+func (q EntityQuerier) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
 	var exists bool
-	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stations WHERE id = ?)", id)
+	query := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE id = ?)", q.tableName)
+	err := db.GetContext(ctx, &exists, query, id)
 	return exists, err
 }
 
-// StoryQueries provides type-safe database operations for stories.
-type StoryQueries struct{}
-
-// Stories provides query methods for story resources.
-var Stories = StoryQueries{}
-
-// Exists checks if a story with the given ID exists.
-func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
-	var exists bool
-	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stories WHERE id = ?)", id)
-	return exists, err
-}
-
-// BulletinQueries provides type-safe database operations for bulletins.
-type BulletinQueries struct{}
-
-// Bulletins provides query methods for bulletin resources.
-var Bulletins = BulletinQueries{}
-
-// Exists checks if a bulletin with the given ID exists.
-func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
-	var exists bool
-	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM bulletins WHERE id = ?)", id)
-	return exists, err
-}
+// Predefined entity queriers
+var (
+	Stations  = NewEntityQuerier("stations")
+	Stories   = NewEntityQuerier("stories")
+	Bulletins = NewEntityQuerier("bulletins")
+)
 
 // CountWithJoins returns the count of records using complex query with joins.
 func CountWithJoins(db *sqlx.DB, query string, args ...any) (int64, error) {

@@ -10,6 +10,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
+const defaultAudioOutputPath = "audio/output"
+
 // GetStoryFilename returns the standardized filename for a story audio file.
 func GetStoryFilename(storyID int64) string {
 	return fmt.Sprintf("story_%d.wav", storyID)
@@ -29,6 +31,9 @@ func GetBulletinFilename(stationID int64, timestamp time.Time) string {
 // Returns (absolutePath, relativePath) where absolutePath includes the full system path
 // and relativePath is relative to the upload directory.
 func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp time.Time) (string, string) {
+	if config == nil {
+		panic("paths: config is nil")
+	}
 	filename := GetBulletinFilename(stationID, timestamp)
 
 	// Generate absolute path for file creation
@@ -38,7 +43,7 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 	rel, err := filepath.Rel(config.Audio.AppRoot, config.Audio.OutputPath)
 	if err != nil {
 		logger.Warn("Failed to compute relative path for bulletin output, using default: %v", err)
-		rel = "audio/output"
+		rel = defaultAudioOutputPath
 	}
 	relativePath := filepath.Join(rel, filename)
 
@@ -47,15 +52,24 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 
 // GetStoryPath returns the absolute filesystem path for a story audio file.
 func GetStoryPath(config *config.Config, storyID int64) string {
+	if config == nil {
+		panic("paths: config is nil")
+	}
 	return filepath.Join(config.Audio.ProcessedPath, GetStoryFilename(storyID))
 }
 
 // GetJinglePath returns the absolute filesystem path for a jingle file.
 func GetJinglePath(config *config.Config, stationID, voiceID int64) string {
+	if config == nil {
+		panic("paths: config is nil")
+	}
 	return filepath.Join(config.Audio.ProcessedPath, GetJingleFilename(stationID, voiceID))
 }
 
 // GetTempBulletinDir returns a temporary directory path for bulletin creation.
 func GetTempBulletinDir(config *config.Config, uuid string) string {
+	if config == nil {
+		panic("paths: config is nil")
+	}
 	return filepath.Join(config.Audio.TempPath, uuid)
 }
