@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -17,7 +18,7 @@ import (
 type StoryUpdate struct {
 	Title           *string
 	Text            *string
-	VoiceID         *int
+	VoiceID         *int64
 	Status          *string
 	StartDate       *time.Time
 	EndDate         *time.Time
@@ -37,7 +38,7 @@ type StoryUpdate struct {
 type StoryCreateData struct {
 	Title     string
 	Text      string
-	VoiceID   *int
+	VoiceID   *int64
 	Status    string
 	StartDate time.Time
 	EndDate   time.Time
@@ -55,26 +56,26 @@ type StoryCreateData struct {
 type StoryRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, data *StoryCreateData) (*models.Story, error)
-	GetByID(ctx context.Context, id int) (*models.Story, error)
-	GetByIDWithVoice(ctx context.Context, id int) (*models.Story, error)
-	Update(ctx context.Context, id int, updates *StoryUpdate) error
+	GetByID(ctx context.Context, id int64) (*models.Story, error)
+	GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error)
+	Update(ctx context.Context, id int64, updates *StoryUpdate) error
 
 	// Soft delete operations
-	SoftDelete(ctx context.Context, id int) error
-	Restore(ctx context.Context, id int) error
+	SoftDelete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
 
 	// Query operations
-	Exists(ctx context.Context, id int) (bool, error)
-	ExistsIncludingDeleted(ctx context.Context, id int) (bool, error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error)
 
 	// Audio operations
-	UpdateAudio(ctx context.Context, id int, audioFile string, duration float64) error
+	UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error
 
 	// Status operations
-	UpdateStatus(ctx context.Context, id int, status string) error
+	UpdateStatus(ctx context.Context, id int64, status string) error
 
 	// Bulletin-related queries
-	GetStoriesForBulletin(ctx context.Context, stationID int, date time.Time, limit int) ([]models.Story, error)
+	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error)
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -122,11 +123,11 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return r.GetByIDWithVoice(ctx, int(id))
+	return r.GetByIDWithVoice(ctx, id)
 }
 
 // GetByIDWithVoice retrieves a story with voice information via JOIN.
-func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int) (*models.Story, error) {
+func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error) {
 	q := r.getQueryable(ctx)
 
 	var story models.Story
@@ -146,7 +147,7 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int) (*models
 }
 
 // Update updates a story with type-safe fields.
-func (r *storyRepository) Update(ctx context.Context, id int, updates *StoryUpdate) error {
+func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUpdate) error {
 	if updates == nil {
 		return nil
 	}
@@ -197,7 +198,7 @@ func (r *storyRepository) Update(ctx context.Context, id int, updates *StoryUpda
 }
 
 // SoftDelete sets the deleted_at timestamp.
-func (r *storyRepository) SoftDelete(ctx context.Context, id int) error {
+func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "UPDATE stories SET deleted_at = NOW() WHERE id = ?", id)
@@ -217,7 +218,7 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int) error {
 }
 
 // Restore clears the deleted_at timestamp.
-func (r *storyRepository) Restore(ctx context.Context, id int) error {
+func (r *storyRepository) Restore(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "UPDATE stories SET deleted_at = NULL WHERE id = ?", id)
@@ -237,7 +238,7 @@ func (r *storyRepository) Restore(ctx context.Context, id int) error {
 }
 
 // ExistsIncludingDeleted checks if a story exists (including soft-deleted).
-func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int) (bool, error) {
+func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	var exists bool
@@ -246,7 +247,7 @@ func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int) (b
 }
 
 // UpdateAudio updates the audio file and duration.
-func (r *storyRepository) UpdateAudio(ctx context.Context, id int, audioFile string, duration float64) error {
+func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx,
@@ -269,7 +270,7 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int, audioFile str
 }
 
 // UpdateStatus updates the story status.
-func (r *storyRepository) UpdateStatus(ctx context.Context, id int, status string) error {
+func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "UPDATE stories SET status = ? WHERE id = ?", status, id)
@@ -289,7 +290,7 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int, status strin
 }
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.
-func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int, date time.Time, limit int) ([]models.Story, error) {
+func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
 	q := r.getQueryable(ctx)
 
 	weekdayColumn := getWeekdayColumn(date.Weekday())

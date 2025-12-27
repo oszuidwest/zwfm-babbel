@@ -12,49 +12,76 @@ import (
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	Server      ServerConfig
-	Database    DatabaseConfig `envPrefix:"DB_"`
-	Auth        AuthConfig
-	Audio       AudioConfig
-	LogLevel    int         `env:"LOG_LEVEL" envDefault:"4"`
+	// Server holds HTTP server and CORS configuration.
+	Server ServerConfig
+	// Database holds database connection settings.
+	Database DatabaseConfig `envPrefix:"DB_"`
+	// Auth holds authentication and session configuration.
+	Auth AuthConfig
+	// Audio holds audio processing and file storage paths.
+	Audio AudioConfig
+	// LogLevel sets the logging verbosity level (0-5, default: 4).
+	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
+	// Environment specifies the runtime environment (development or production).
 	Environment Environment `env:"ENV" envDefault:"development"`
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
 type ServerConfig struct {
-	Address        string `env:"SERVER_ADDRESS" envDefault:":8080"`
+	// Address is the HTTP server listen address (default: ":8080").
+	Address string `env:"SERVER_ADDRESS" envDefault:":8080"`
+	// AllowedOrigins is a comma-separated list of CORS allowed origins.
 	AllowedOrigins string `env:"ALLOWED_ORIGINS"`
 }
 
 // DatabaseConfig holds MySQL database connection parameters.
 type DatabaseConfig struct {
-	Host           string `env:"HOST" envDefault:"localhost"`
-	Port           int    `env:"PORT" envDefault:"3306"`
-	User           string `env:"USER" envDefault:"babbel"`
-	Password       string `env:"PASSWORD" envDefault:"babbel"`
-	Database       string `env:"NAME" envDefault:"babbel"`
+	// Host is the MySQL server hostname or IP address.
+	Host string `env:"HOST" envDefault:"localhost"`
+	// Port is the MySQL server port number (default: 3306).
+	Port int `env:"PORT" envDefault:"3306"`
+	// User is the MySQL database username.
+	User string `env:"USER" envDefault:"babbel"`
+	// Password is the MySQL database password.
+	Password string `env:"PASSWORD" envDefault:"babbel"`
+	// Database is the MySQL database name.
+	Database string `env:"NAME" envDefault:"babbel"`
+	// MigrationsPath is the filesystem path to database migration files.
 	MigrationsPath string `env:"-"`
 }
 
 // AuthConfig holds authentication and session configuration.
 type AuthConfig struct {
-	Method           AuthMethod     `env:"AUTH_METHOD" envDefault:"local"`
-	SessionSecret    string         `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
-	CookieDomain     string         `env:"COOKIE_DOMAIN"`
-	CookieSameSite   CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
-	OIDCProviderURL  string         `env:"OIDC_PROVIDER_URL"`
-	OIDCClientID     string         `env:"OIDC_CLIENT_ID"`
-	OIDCClientSecret string         `env:"OIDC_CLIENT_SECRET"`
-	OIDCRedirectURL  string         `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
+	// Method specifies the authentication method (local, oidc, or both).
+	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
+	// SessionSecret is the secret key for session encryption (min 32 characters).
+	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
+	// CookieDomain is the domain scope for session cookies.
+	CookieDomain string `env:"COOKIE_DOMAIN"`
+	// CookieSameSite controls the SameSite attribute for session cookies (strict, lax, or none).
+	CookieSameSite CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
+	// OIDCProviderURL is the OpenID Connect provider's base URL.
+	OIDCProviderURL string `env:"OIDC_PROVIDER_URL"`
+	// OIDCClientID is the OAuth/OIDC client identifier.
+	OIDCClientID string `env:"OIDC_CLIENT_ID"`
+	// OIDCClientSecret is the OAuth/OIDC client secret.
+	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
+	// OIDCRedirectURL is the OAuth callback URL for this application.
+	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
 }
 
 // AudioConfig holds audio processing and file storage configuration.
 type AudioConfig struct {
-	FFmpegPath    string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
+	// FFmpegPath is the path to the FFmpeg binary executable.
+	FFmpegPath string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
+	// ProcessedPath is the directory for processed audio files.
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
-	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	AppRoot       string `env:"APP_ROOT" envDefault:"/app"`
+	// OutputPath is the directory for generated bulletin output files.
+	OutputPath string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
+	// TempPath is the directory for temporary audio processing files.
+	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
+	// AppRoot is the application root directory path.
+	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
 }
 
 // Load reads configuration from environment variables and creates required directories.

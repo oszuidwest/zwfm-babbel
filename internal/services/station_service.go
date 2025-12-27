@@ -49,7 +49,7 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 }
 
 // Update updates an existing station's configuration
-func (s *StationService) Update(ctx context.Context, id int, name string, maxStories int, pauseSeconds float64) error {
+func (s *StationService) Update(ctx context.Context, id int64, name string, maxStories int, pauseSeconds float64) error {
 	const op = "StationService.Update"
 
 	// Check if station exists
@@ -83,7 +83,7 @@ func (s *StationService) Update(ctx context.Context, id int, name string, maxSto
 }
 
 // Delete deletes a station after checking for dependencies
-func (s *StationService) Delete(ctx context.Context, id int) error {
+func (s *StationService) Delete(ctx context.Context, id int64) error {
 	const op = "StationService.Delete"
 
 	// Check if station exists

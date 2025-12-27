@@ -211,11 +211,11 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 		}
 	}
 
-	// Health check
+	// Health check (typed response for compile-time safety)
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status":  "ok",
-			"service": "babbel-api",
+		c.JSON(200, handlers.HealthResponse{
+			Status:  "ok",
+			Service: "babbel-api",
 		})
 	})
 

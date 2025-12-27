@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (

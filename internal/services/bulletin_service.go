@@ -60,7 +60,7 @@ type BulletinInfo struct {
 
 // Create generates a new bulletin for the specified station and date.
 // It selects appropriate stories, generates the audio file, and saves the bulletin record.
-func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate time.Time) (*BulletinInfo, error) {
+func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*BulletinInfo, error) {
 	// Validate station exists and fetch details
 	station, err := s.validateAndFetchStation(ctx, stationID)
 	if err != nil {
@@ -105,7 +105,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int, targetDate 
 }
 
 // validateAndFetchStation validates that a station exists and returns its details.
-func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int) (*models.Station, error) {
+func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int64) (*models.Station, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -171,7 +171,7 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 }
 
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
-func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int, bulletinPath string, duration float64, fileSize int64, stories []models.Story) (int64, error) {
+func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int64, bulletinPath string, duration float64, fileSize int64, stories []models.Story) (int64, error) {
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
@@ -184,7 +184,7 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 		bulletinID = id
 
 		// Link stories to bulletin
-		storyIDs := make([]int, len(stories))
+		storyIDs := make([]int64, len(stories))
 		for i, story := range stories {
 			storyIDs[i] = story.ID
 		}
@@ -205,7 +205,7 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins newer than that duration.
-func (s *BulletinService) GetLatest(ctx context.Context, stationID int, maxAge *time.Duration) (*models.Bulletin, error) {
+func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error) {
 	bulletin, err := s.bulletinRepo.GetLatest(ctx, stationID, maxAge)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -219,7 +219,7 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int, maxAge *
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
-func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int, date time.Time, limit int) ([]models.Story, error) {
+func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to fetch stories: %v", ErrDatabaseError, err)

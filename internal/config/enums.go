@@ -34,14 +34,14 @@ func (a AuthMethod) SupportsOIDC() bool {
 	return a == AuthMethodOIDC || a == AuthMethodBoth
 }
 
-// Environment represents the runtime environment
+// Environment represents the runtime environment.
 type Environment string
 
 // Runtime environments supported by the application.
 const (
-	// EnvDevelopment represents the development environment
+	// EnvDevelopment represents the development environment.
 	EnvDevelopment Environment = "development"
-	// EnvProduction represents the production environment
+	// EnvProduction represents the production environment.
 	EnvProduction Environment = "production"
 )
 
@@ -59,16 +59,16 @@ func (e Environment) IsProduction() bool {
 	return e == EnvProduction
 }
 
-// CookieSameSite represents cookie SameSite policy
+// CookieSameSite represents cookie SameSite policy.
 type CookieSameSite string
 
 // Cookie SameSite policies supported by the application.
 const (
-	// SameSiteStrict restricts cookies to same-site requests only
+	// SameSiteStrict restricts cookies to same-site requests only.
 	SameSiteStrict CookieSameSite = "strict"
-	// SameSiteLax allows cookies on top-level navigation (default)
+	// SameSiteLax allows cookies on top-level navigation (default).
 	SameSiteLax CookieSameSite = "lax"
-	// SameSiteNone allows cookies on cross-site requests (requires HTTPS)
+	// SameSiteNone allows cookies on cross-site requests (requires HTTPS).
 	SameSiteNone CookieSameSite = "none"
 )
 
@@ -93,13 +93,13 @@ func (c CookieSameSite) ToHTTP() http.SameSite {
 	}
 }
 
-// SessionStoreType represents the session storage backend
+// SessionStoreType represents the session storage backend.
 type SessionStoreType string
 
 // Session storage backends supported by the application.
 const (
-	// StoreTypeMemory stores sessions in memory (not suitable for production)
+	// StoreTypeMemory stores sessions in memory (not suitable for production).
 	StoreTypeMemory SessionStoreType = "memory"
-	// StoreTypeCookie stores sessions in encrypted cookies
+	// StoreTypeCookie stores sessions in encrypted cookies.
 	StoreTypeCookie SessionStoreType = "cookie"
 )

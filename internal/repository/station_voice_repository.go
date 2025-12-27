@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -13,8 +14,8 @@ import (
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
 // Nil pointer fields are not updated.
 type StationVoiceUpdate struct {
-	StationID *int
-	VoiceID   *int
+	StationID *int64
+	VoiceID   *int64
 	AudioFile *string
 	MixPoint  *float64
 }
@@ -22,18 +23,18 @@ type StationVoiceUpdate struct {
 // StationVoiceRepository defines the interface for station-voice relationship data access.
 type StationVoiceRepository interface {
 	// CRUD operations
-	Create(ctx context.Context, stationID, voiceID int, mixPoint float64) (*models.StationVoice, error)
-	GetByID(ctx context.Context, id int) (*models.StationVoice, error)
-	Update(ctx context.Context, id int, updates *StationVoiceUpdate) error
-	Delete(ctx context.Context, id int) error
+	Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error)
+	GetByID(ctx context.Context, id int64) (*models.StationVoice, error)
+	Update(ctx context.Context, id int64, updates *StationVoiceUpdate) error
+	Delete(ctx context.Context, id int64) error
 
 	// Query operations
-	Exists(ctx context.Context, id int) (bool, error)
-	IsCombinationTaken(ctx context.Context, stationID, voiceID int, excludeID *int) (bool, error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error)
 
 	// Audio operations
-	GetStationVoiceIDs(ctx context.Context, id int) (stationID, voiceID int, audioFile string, err error)
-	UpdateAudio(ctx context.Context, id int, audioFile string) error
+	GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error)
+	UpdateAudio(ctx context.Context, id int64, audioFile string) error
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -52,7 +53,7 @@ func NewStationVoiceRepository(db *sqlx.DB) StationVoiceRepository {
 }
 
 // Create inserts a new station-voice relationship and returns the created record.
-func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int, mixPoint float64) (*models.StationVoice, error) {
+func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx,
@@ -68,11 +69,11 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return r.GetByID(ctx, int(id))
+	return r.GetByID(ctx, id)
 }
 
 // GetByID retrieves a station-voice relationship with joined station and voice names.
-func (r *stationVoiceRepository) GetByID(ctx context.Context, id int) (*models.StationVoice, error) {
+func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	q := r.getQueryable(ctx)
 
 	var stationVoice models.StationVoice
@@ -94,7 +95,7 @@ func (r *stationVoiceRepository) GetByID(ctx context.Context, id int) (*models.S
 }
 
 // Update updates a station-voice relationship with dynamic fields.
-func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates *StationVoiceUpdate) error {
+func (r *stationVoiceRepository) Update(ctx context.Context, id int64, updates *StationVoiceUpdate) error {
 	if updates == nil {
 		return nil
 	}
@@ -145,7 +146,7 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates *St
 }
 
 // Delete removes a station-voice relationship.
-func (r *stationVoiceRepository) Delete(ctx context.Context, id int) error {
+func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "DELETE FROM station_voices WHERE id = ?", id)
@@ -165,7 +166,7 @@ func (r *stationVoiceRepository) Delete(ctx context.Context, id int) error {
 }
 
 // IsCombinationTaken checks if a station-voice combination is already in use.
-func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int, excludeID *int) (bool, error) {
+func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	condition := "station_id = ? AND voice_id = ?"
 	args := []interface{}{stationID, voiceID}
 
@@ -179,12 +180,12 @@ func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 
 // GetStationVoiceIDs retrieves the station_id, voice_id, and audio_file for a station-voice record.
 // This is useful for file operations (jingle processing/deletion).
-func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int) (stationID, voiceID int, audioFile string, err error) {
+func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error) {
 	q := r.getQueryable(ctx)
 
 	var record struct {
-		StationID int    `db:"station_id"`
-		VoiceID   int    `db:"voice_id"`
+		StationID int64  `db:"station_id"`
+		VoiceID   int64  `db:"voice_id"`
 		AudioFile string `db:"audio_file"`
 	}
 
@@ -200,7 +201,7 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int)
 }
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
-func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int, audioFile string) error {
+func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "UPDATE station_voices SET audio_file = ? WHERE id = ?", audioFile, id)

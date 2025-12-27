@@ -12,7 +12,7 @@ import (
 
 // UserResponse represents the user data returned by the API
 type UserResponse struct {
-	ID                  int        `json:"id" db:"id"`
+	ID                  int64      `json:"id" db:"id"`
 	Username            string     `json:"username" db:"username"`
 	FullName            *string    `json:"full_name" db:"full_name"`
 	Email               *string    `json:"email" db:"email"`
@@ -119,7 +119,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, int64(user.ID), "User created successfully")
+	utils.CreatedWithID(c, user.ID, "User created successfully")
 }
 
 // UpdateUser updates an existing user's information

@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -12,14 +13,14 @@ import (
 type VoiceRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, name string) (*models.Voice, error)
-	GetByID(ctx context.Context, id int) (*models.Voice, error)
-	Update(ctx context.Context, id int, name string) error
-	Delete(ctx context.Context, id int) error
+	GetByID(ctx context.Context, id int64) (*models.Voice, error)
+	Update(ctx context.Context, id int64, name string) error
+	Delete(ctx context.Context, id int64) error
 
 	// Query operations
-	Exists(ctx context.Context, id int) (bool, error)
-	IsNameTaken(ctx context.Context, name string, excludeID *int) (bool, error)
-	HasDependencies(ctx context.Context, id int) (bool, error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
+	HasDependencies(ctx context.Context, id int64) (bool, error)
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -51,11 +52,11 @@ func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voic
 		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return r.GetByID(ctx, int(id))
+	return r.GetByID(ctx, id)
 }
 
 // Update updates an existing voice's name.
-func (r *voiceRepository) Update(ctx context.Context, id int, name string) error {
+func (r *voiceRepository) Update(ctx context.Context, id int64, name string) error {
 	q := r.getQueryable(ctx)
 
 	result, err := q.ExecContext(ctx, "UPDATE voices SET name = ? WHERE id = ?", name, id)
@@ -75,7 +76,7 @@ func (r *voiceRepository) Update(ctx context.Context, id int, name string) error
 }
 
 // IsNameTaken checks if a voice name is already in use.
-func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int) (bool, error) {
+func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	condition := "name = ?"
 	args := []interface{}{name}
 
@@ -88,7 +89,7 @@ func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeI
 }
 
 // HasDependencies checks if voice is used by stories or station_voices.
-func (r *voiceRepository) HasDependencies(ctx context.Context, id int) (bool, error) {
+func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	// Check stories

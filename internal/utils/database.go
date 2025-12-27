@@ -19,7 +19,7 @@ type StationQueries struct{}
 var Stations = StationQueries{}
 
 // Exists checks if a station with the given ID exists.
-func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+func (StationQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stations WHERE id = ?)", id)
 	return exists, err
@@ -32,7 +32,7 @@ type StoryQueries struct{}
 var Stories = StoryQueries{}
 
 // Exists checks if a story with the given ID exists.
-func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+func (StoryQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM stories WHERE id = ?)", id)
 	return exists, err
@@ -45,7 +45,7 @@ type BulletinQueries struct{}
 var Bulletins = BulletinQueries{}
 
 // Exists checks if a bulletin with the given ID exists.
-func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int) (bool, error) {
+func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool, error) {
 	var exists bool
 	err := db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM bulletins WHERE id = ?)", id)
 	return exists, err

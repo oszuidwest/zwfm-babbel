@@ -26,8 +26,8 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format.
-// channelCount: 1 for mono (stories), 2 for stereo (jingles)
+// ConvertToWAV converts uploaded audio files to standardized WAV format
+// using the specified channel count (1 for mono stories, 2 for stereo jingles).
 func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
 	// Convert to WAV 48kHz with specified channel count
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
@@ -168,6 +168,13 @@ func (s *Service) addMixPointDelay(filters []string, stories []models.Story) []s
 // addJingleMix adds the bed/jingle and mixes it with the message timeline.
 func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
 	if len(stories) == 0 {
+		return args, filters
+	}
+
+	// Check if voice ID is available for jingle lookup
+	if stories[0].VoiceID == nil {
+		logger.Debug("First story has no voice ID, generating bulletin without bed")
+		filters = append(filters, "[messages]anull[out]")
 		return args, filters
 	}
 

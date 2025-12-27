@@ -10,8 +10,6 @@ import (
 var logger *slog.Logger
 
 // Initialize sets up the logging system with the specified level and mode.
-// Returns nil always as initialization cannot fail.
-// The error return is kept for API compatibility and future extensibility.
 func Initialize(level string, development bool) error {
 	var handler slog.Handler
 	opts := &slog.HandlerOptions{

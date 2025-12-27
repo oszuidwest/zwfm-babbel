@@ -7,7 +7,7 @@ func stringToPtr(s string) *string {
 	if s == "" {
 		return nil
 	}
-	// Create a new string in heap by copying value
+	// Create a local copy to avoid returning a pointer to the parameter.
 	copy := s
 	return &copy
 }

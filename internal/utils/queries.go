@@ -1,7 +1,7 @@
 // Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
-// Story query constants for common JOIN operations
+// Story query constants for common JOIN operations.
 const (
 	StoryWithVoiceQuery = `
         SELECT s.*, COALESCE(v.name, '') as voice_name
@@ -19,10 +19,10 @@ type FilterConfig struct {
 	Table    string      // Optional table alias/prefix (e.g. "s" for "s.status")
 }
 
-// PostProcessor defines a function to modify results after querying but before response
+// PostProcessor defines a function to modify results after querying but before response.
 type PostProcessor func(result interface{})
 
-// QueryConfig defines configuration for GenericListWithJoins
+// QueryConfig defines configuration for GenericListWithJoins.
 type QueryConfig struct {
 	BaseQuery     string         // SELECT ... FROM ... JOIN ... part
 	CountQuery    string         // SELECT COUNT(*) FROM ... JOIN ... part

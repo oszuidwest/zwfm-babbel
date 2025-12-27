@@ -15,13 +15,13 @@ import (
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func GetBulletinAudioURL(bulletinID int) string {
+func GetBulletinAudioURL(bulletinID int64) string {
 	return fmt.Sprintf("/bulletins/%d/audio", bulletinID)
 }
 
 // BulletinRequest represents the request parameters for bulletin generation.
 type BulletinRequest struct {
-	StationID int    `json:"station_id" binding:"required"`
+	StationID int64  `json:"station_id" binding:"required"`
 	Date      string `json:"date"`
 }
 
@@ -97,7 +97,7 @@ func parseCacheControlMaxAge(cacheControl string) *time.Duration {
 
 // tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
 // Returns true if a cached bulletin was served, false otherwise.
-func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int, download bool, maxAge *time.Duration) bool {
+func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, download bool, maxAge *time.Duration) bool {
 	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
 	if err != nil {
 		return false
@@ -247,10 +247,10 @@ func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinRespons
 
 // bulletinInfoToResponse creates response from BulletinInfo
 func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
-	bulletinURL := GetBulletinAudioURL(int(info.ID))
+	bulletinURL := GetBulletinAudioURL(info.ID)
 
 	return BulletinResponse{
-		ID:          int(info.ID),
+		ID:          info.ID,
 		StationID:   info.Station.ID,
 		StationName: info.Station.Name,
 		AudioURL:    bulletinURL,

@@ -1,3 +1,4 @@
+// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -35,20 +36,20 @@ type UserUpdate struct {
 type UserRepository interface {
 	// CRUD operations
 	Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string) (*models.User, error)
-	GetByID(ctx context.Context, id int) (*models.User, error)
+	GetByID(ctx context.Context, id int64) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
-	Update(ctx context.Context, id int, updates *UserUpdate) error
-	Delete(ctx context.Context, id int) error
+	Update(ctx context.Context, id int64, updates *UserUpdate) error
+	Delete(ctx context.Context, id int64) error
 
 	// Query operations
-	Exists(ctx context.Context, id int) (bool, error)
-	IsUsernameTaken(ctx context.Context, username string, excludeID *int) (bool, error)
-	IsEmailTaken(ctx context.Context, email string, excludeID *int) (bool, error)
-	CountActiveAdminsExcluding(ctx context.Context, excludeID int) (int, error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error)
+	IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error)
+	CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error)
 
 	// User-specific operations
-	SetSuspended(ctx context.Context, id int, suspended bool) error
-	DeleteSessions(ctx context.Context, userID int) error
+	SetSuspended(ctx context.Context, id int64, suspended bool) error
+	DeleteSessions(ctx context.Context, userID int64) error
 
 	// DB returns the underlying database for ModernListWithQuery
 	DB() *sqlx.DB
@@ -83,7 +84,7 @@ func (r *userRepository) Create(ctx context.Context, username, fullName string, 
 		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return r.GetByID(ctx, int(id))
+	return r.GetByID(ctx, id)
 }
 
 // GetByUsername retrieves a user by username.
@@ -103,7 +104,7 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 }
 
 // Update updates a user with the provided field values.
-func (r *userRepository) Update(ctx context.Context, id int, updates *UserUpdate) error {
+func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpdate) error {
 	if updates == nil {
 		return nil
 	}
@@ -162,7 +163,7 @@ func (r *userRepository) Update(ctx context.Context, id int, updates *UserUpdate
 }
 
 // IsUsernameTaken checks if username is in use.
-func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int) (bool, error) {
+func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
 	condition := "username = ?"
 	args := []interface{}{username}
 
@@ -175,7 +176,7 @@ func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, e
 }
 
 // IsEmailTaken checks if email is in use.
-func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int) (bool, error) {
+func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
 	condition := "email = ?"
 	args := []interface{}{email}
 
@@ -188,7 +189,7 @@ func (r *userRepository) IsEmailTaken(ctx context.Context, email string, exclude
 }
 
 // CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
-func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int) (int, error) {
+func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
 	q := r.getQueryable(ctx)
 
 	var count int
@@ -204,7 +205,7 @@ func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 }
 
 // SetSuspended updates the user's suspended status.
-func (r *userRepository) SetSuspended(ctx context.Context, id int, suspended bool) error {
+func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
 	q := r.getQueryable(ctx)
 
 	var query string
@@ -231,7 +232,7 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int, suspended boo
 }
 
 // DeleteSessions removes all sessions for a user.
-func (r *userRepository) DeleteSessions(ctx context.Context, userID int) error {
+func (r *userRepository) DeleteSessions(ctx context.Context, userID int64) error {
 	q := r.getQueryable(ctx)
 
 	_, err := q.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id = ?", userID)
