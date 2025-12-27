@@ -111,8 +111,8 @@ func (r *userRepository) Update(ctx context.Context, id int, updates *UserUpdate
 	q := r.getQueryable(ctx)
 
 	// Build dynamic query from struct fields
-	setClauses := make([]string, 0)
-	args := make([]interface{}, 0)
+	setClauses := make([]string, 0, 12)
+	args := make([]interface{}, 0, 12)
 
 	// Non-nullable string fields
 	addFieldUpdate(&setClauses, &args, "username", updates.Username)

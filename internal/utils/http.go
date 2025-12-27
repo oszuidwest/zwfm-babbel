@@ -3,6 +3,7 @@ package utils
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -84,14 +85,16 @@ func GetPagination(c *gin.Context) (limit, offset int) {
 // Performs security checks on file type, size, and filename.
 // Returns the temporary file path, a cleanup function, and any validation errors.
 // The cleanup function should always be called to prevent resource leaks.
-func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func(), err error) {
+func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func() error, err error) {
 	file, header, err := c.Request.FormFile(fieldName)
 	if err != nil {
 		return "", nil, err
 	}
 
 	if err := ValidateAudioFile(header); err != nil {
-		_ = file.Close() // Ignore error on cleanup
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Warn("Failed to close file during validation error: %v", closeErr)
+		}
 		return "", nil, fmt.Errorf("invalid audio file: %w", err)
 	}
 
@@ -99,13 +102,26 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	tempPath = filepath.Join("/tmp", fmt.Sprintf("%s_%s", prefix, safeFilename))
 
 	if err := saveFileToPath(file, tempPath); err != nil {
-		_ = file.Close() // Ignore error on cleanup
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Warn("Failed to close file during save error: %v", closeErr)
+		}
 		return "", nil, err
 	}
 
-	cleanup = func() {
-		_ = file.Close()        // Ignore error on cleanup
-		_ = os.Remove(tempPath) // Ignore error on cleanup
+	cleanup = func() error {
+		var errs []error
+		if err := file.Close(); err != nil {
+			logger.Warn("Failed to close uploaded file during cleanup: %v", err)
+			errs = append(errs, err)
+		}
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove temp file %s: %v", tempPath, err)
+			errs = append(errs, err)
+		}
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		return nil
 	}
 
 	return tempPath, cleanup, nil

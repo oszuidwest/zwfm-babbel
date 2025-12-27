@@ -56,7 +56,7 @@ func (m *txManager) WithTransactionOpts(ctx context.Context, opts *sql.TxOptions
 	// Handle panic recovery - rollback and re-panic
 	defer func() {
 		if p := recover(); p != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
 				logger.Error("Failed to rollback transaction after panic: %v", rollbackErr)
 			}
 			panic(p) // Re-raise the panic

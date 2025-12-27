@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetStoryFilename returns the standardized filename for a story audio file.
@@ -36,6 +37,7 @@ func GenerateBulletinPaths(config *config.Config, stationID int, timestamp time.
 	// Generate relative path for database storage
 	rel, err := filepath.Rel(config.Audio.AppRoot, config.Audio.OutputPath)
 	if err != nil {
+		logger.Warn("Failed to compute relative path for bulletin output, using default: %v", err)
 		rel = "audio/output"
 	}
 	relativePath := filepath.Join(rel, filename)

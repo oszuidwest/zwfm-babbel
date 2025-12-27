@@ -104,8 +104,8 @@ func parseSorting(c *gin.Context) []SortField {
 		return nil
 	}
 
-	var sortFields []SortField
 	parts := strings.Split(sortParam, ",")
+	sortFields := make([]SortField, 0, len(parts))
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -118,17 +118,16 @@ func parseSorting(c *gin.Context) []SortField {
 		// Check for prefix notation (-field or +field) or colon notation
 		switch {
 		case strings.HasPrefix(part, "-"):
-			field = strings.TrimPrefix(part, "-")
+			field, _ = strings.CutPrefix(part, "-")
 			direction = "desc"
 		case strings.HasPrefix(part, "+"):
-			field = strings.TrimPrefix(part, "+")
+			field, _ = strings.CutPrefix(part, "+")
 			direction = "asc"
 		case strings.Contains(part, ":"):
 			// Check for colon notation (field:direction)
-			colonParts := strings.Split(part, ":")
-			if len(colonParts) == 2 {
-				field = strings.TrimSpace(colonParts[0])
-				direction = strings.ToLower(strings.TrimSpace(colonParts[1]))
+			if before, after, found := strings.Cut(part, ":"); found {
+				field = strings.TrimSpace(before)
+				direction = strings.ToLower(strings.TrimSpace(after))
 				if direction != "asc" && direction != "desc" {
 					direction = "asc" // Default to asc for invalid direction
 				}
@@ -162,8 +161,8 @@ func parseFields(c *gin.Context) []string {
 		return nil
 	}
 
-	var fields []string
 	parts := strings.Split(fieldsParam, ",")
+	fields := make([]string, 0, len(parts))
 
 	for _, part := range parts {
 		field := strings.TrimSpace(part)
@@ -261,21 +260,18 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 // filter[created_at][gte] -> field: "created_at", operator: "gte"
 func parseFilterKey(key string) (field, operator string) {
 	// Remove "filter[" prefix and "]" suffix
-	if !strings.HasPrefix(key, "filter[") {
+	content, found := strings.CutPrefix(key, "filter[")
+	if !found {
 		return "", ""
 	}
-
-	content := strings.TrimPrefix(key, "filter[")
-	if !strings.HasSuffix(content, "]") {
+	content, found = strings.CutSuffix(content, "]")
+	if !found {
 		return "", ""
 	}
-
-	content = strings.TrimSuffix(content, "]")
 
 	// Check for nested structure: field][operator
-	parts := strings.Split(content, "][")
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	if before, after, found := strings.Cut(content, "]["); found {
+		return before, after
 	}
 
 	// Simple field filter
@@ -463,7 +459,7 @@ func buildOrderByClause(sortFields []SortField, config EnhancedQueryConfig) stri
 		return ""
 	}
 
-	var orderParts []string
+	orderParts := make([]string, 0, len(sortFields))
 	for _, sortField := range sortFields {
 		// SECURITY: Only allow fields explicitly in the allowlist
 		dbField, exists := config.FieldMapping[sortField.Field]
@@ -501,7 +497,7 @@ func SelectFields(params *QueryParams, config EnhancedQueryConfig) string {
 	}
 
 	// Map requested fields to database columns
-	var dbFields []string
+	dbFields := make([]string, 0, len(params.Fields))
 	for _, field := range params.Fields {
 		// SECURITY: Only allow fields explicitly in the allowlist
 		dbField, exists := config.FieldMapping[field]
@@ -594,11 +590,7 @@ func structToFilteredMap(data interface{}, fields []string) map[string]interface
 		// Parse JSON tag
 		fieldName := field.Name
 		if jsonTag != "" && jsonTag != "-" {
-			if commaIdx := strings.Index(jsonTag, ","); commaIdx != -1 {
-				fieldName = jsonTag[:commaIdx]
-			} else {
-				fieldName = jsonTag
-			}
+			fieldName, _, _ = strings.Cut(jsonTag, ",")
 		}
 
 		// Include field if it's in the requested fields

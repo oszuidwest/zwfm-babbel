@@ -4,6 +4,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -85,7 +86,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+err.Error())
+		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+url.QueryEscape(err.Error()))
 		return
 	}
 

@@ -79,16 +79,12 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
 // Returns nil if max-age is not present or invalid.
 func parseCacheControlMaxAge(cacheControl string) *time.Duration {
-	if !strings.Contains(cacheControl, "max-age=") {
+	_, after, found := strings.Cut(cacheControl, "max-age=")
+	if !found {
 		return nil
 	}
 
-	parts := strings.Split(cacheControl, "max-age=")
-	if len(parts) <= 1 {
-		return nil
-	}
-
-	maxAgeStr := strings.Split(parts[1], ",")[0]
+	maxAgeStr, _, _ := strings.Cut(after, ",")
 	maxAgeStr = strings.TrimSpace(maxAgeStr)
 
 	maxAge, err := time.ParseDuration(maxAgeStr + "s")

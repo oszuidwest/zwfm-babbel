@@ -153,8 +153,8 @@ func (r *storyRepository) Update(ctx context.Context, id int, updates *StoryUpda
 
 	q := r.getQueryable(ctx)
 
-	setClauses := make([]string, 0)
-	args := make([]interface{}, 0)
+	setClauses := make([]string, 0, 16)
+	args := make([]interface{}, 0, 16)
 
 	addFieldUpdate(&setClauses, &args, "title", updates.Title)
 	addFieldUpdate(&setClauses, &args, "text", updates.Text)
@@ -249,11 +249,23 @@ func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int) (b
 func (r *storyRepository) UpdateAudio(ctx context.Context, id int, audioFile string, duration float64) error {
 	q := r.getQueryable(ctx)
 
-	_, err := q.ExecContext(ctx,
+	result, err := q.ExecContext(ctx,
 		"UPDATE stories SET audio_file = ?, duration_seconds = ? WHERE id = ?",
 		audioFile, duration, id,
 	)
-	return ParseDBError(err)
+	if err != nil {
+		return ParseDBError(err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
+	}
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 // UpdateStatus updates the story status.

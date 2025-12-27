@@ -10,6 +10,8 @@ import (
 var logger *slog.Logger
 
 // Initialize sets up the logging system with the specified level and mode.
+// Returns nil always as initialization cannot fail.
+// The error return is kept for API compatibility and future extensibility.
 func Initialize(level string, development bool) error {
 	var handler slog.Handler
 	opts := &slog.HandlerOptions{
@@ -34,24 +36,43 @@ func Initialize(level string, development bool) error {
 
 // Info logs informational messages with Printf-style formatting.
 func Info(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Info(fmt.Sprintf(message, args...))
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Info(fmt.Sprintf(message, args...))
 }
 
 // Error logs error messages with Printf-style formatting.
 func Error(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Error(fmt.Sprintf(message, args...))
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Error(fmt.Sprintf(message, args...))
 }
 
 // Fatal logs fatal error messages and terminates the program.
 func Fatal(message string, args ...interface{}) {
-	if logger != nil {
-		logger.Error(fmt.Sprintf(message, args...))
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
 	}
+	logger.Error(fmt.Sprintf(message, args...))
 	os.Exit(1)
+}
+
+// Debug logs debug messages with Printf-style formatting.
+func Debug(message string, args ...interface{}) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
+	}
+	logger.Debug(fmt.Sprintf(message, args...))
+}
+
+// Warn logs warning messages with Printf-style formatting.
+func Warn(message string, args ...interface{}) {
+	if logger == nil {
+		panic("logger: not initialized - call Initialize() first")
+	}
+	logger.Warn(fmt.Sprintf(message, args...))
 }
 
 // Sync flushes any buffered log entries (no-op for slog).

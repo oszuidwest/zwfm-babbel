@@ -178,7 +178,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	for _, p := range policies {
 		if _, err := enforcer.AddPolicy(p); err != nil {
 			// Some policies might already exist
-			fmt.Printf("Failed to add policy %v: %v\n", p, err)
+			logger.Warn("Failed to add policy %v: %v", p, err)
 		}
 	}
 
@@ -190,7 +190,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 // Example: raymon@zuidwestfm.nl → raymon
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Take the part before @ (local part of email)
-	base := strings.Split(email, "@")[0]
+	base, _, _ := strings.Cut(email, "@")
 
 	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
 	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
@@ -199,9 +199,8 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Ensure the username is not empty and meets minimum length requirement
 	if len(username) < 3 {
 		// If too short, append part of the domain
-		domain := strings.Split(email, "@")
-		if len(domain) > 1 {
-			domainPart := strings.Split(domain[1], ".")[0]
+		if _, domainStr, found := strings.Cut(email, "@"); found {
+			domainPart, _, _ := strings.Cut(domainStr, ".")
 			domainPart = re.ReplaceAllString(domainPart, "_")
 			username = username + "_" + domainPart
 		}
@@ -228,6 +227,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 		err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
 		if err != nil {
 			// On error, assume it might exist and try with suffix
+			logger.Warn("Database error checking username uniqueness, trying next: %v", err)
 			username = fmt.Sprintf("%s_%d", baseUsername, counter)
 			counter++
 			if counter > 100 {
@@ -562,7 +562,7 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 	// Get the user's actual role from database
 	var role string
 	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-		logger.Error("Failed to get user role, defaulting to viewer: %v", err)
+		logger.Error("SECURITY: Failed to get user role for user %d, defaulting to viewer: %v", user.ID, err)
 		role = "viewer"
 	}
 

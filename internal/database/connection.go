@@ -9,6 +9,7 @@ import (
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // Connect establishes a connection to the MySQL database using the provided configuration.
@@ -33,6 +34,9 @@ func Connect(cfg config.DatabaseConfig) (*sqlx.DB, error) {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
+		if closeErr := db.Close(); closeErr != nil {
+			logger.Warn("Failed to close database connection after ping failure: %v", closeErr)
+		}
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 

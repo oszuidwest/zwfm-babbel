@@ -101,8 +101,8 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int, updates *St
 
 	q := r.getQueryable(ctx)
 
-	setClauses := make([]string, 0)
-	args := make([]interface{}, 0)
+	setClauses := make([]string, 0, 4)
+	args := make([]interface{}, 0, 4)
 
 	if updates.StationID != nil {
 		setClauses = append(setClauses, "station_id = ?")

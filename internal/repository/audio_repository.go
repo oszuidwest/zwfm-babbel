@@ -61,7 +61,7 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 	// Build and execute query - table/column names are now validated
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", fileColumn, tableName, idColumn)
 
-	var filePath sql.NullString
+	var filePath sql.Null[string]
 	if err := r.db.GetContext(ctx, &filePath, query, id); err != nil {
 		if err == sql.ErrNoRows {
 			return "", ErrNotFound
@@ -69,9 +69,9 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 		return "", ParseDBError(err)
 	}
 
-	if !filePath.Valid || filePath.String == "" {
+	if !filePath.Valid || filePath.V == "" {
 		return "", ErrNotFound
 	}
 
-	return filePath.String, nil
+	return filePath.V, nil
 }
