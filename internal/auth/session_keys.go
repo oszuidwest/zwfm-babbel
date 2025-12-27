@@ -65,21 +65,6 @@ func GetSessionString(session Session, key SessionKey) (string, bool) {
 	return "", false
 }
 
-// GetSessionUsername retrieves the username from session.
-func GetSessionUsername(session Session) (string, bool) {
-	return GetSessionString(session, SessKeyUsername)
-}
-
-// GetSessionRole retrieves the role from session.
-func GetSessionRole(session Session) (string, bool) {
-	return GetSessionString(session, SessKeyRole)
-}
-
-// GetSessionAuthMethod retrieves the authentication method from session.
-func GetSessionAuthMethod(session Session) (string, bool) {
-	return GetSessionString(session, SessKeyAuthMethod)
-}
-
 // GetSessionOAuthState retrieves the OAuth state token from session.
 func GetSessionOAuthState(session Session) (string, bool) {
 	return GetSessionString(session, SessKeyOAuthState)

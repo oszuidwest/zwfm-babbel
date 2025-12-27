@@ -34,26 +34,6 @@ func SetUserContext(c *gin.Context, ctx UserContext) {
 	c.Set(string(CtxKeyAuthMethod), ctx.AuthMethod)
 }
 
-// GetUserContext retrieves user context data in a type-safe manner.
-// Returns the context and a boolean indicating if all values were found.
-func GetUserContext(c *gin.Context) (UserContext, bool) {
-	userID, ok1 := getContextInt64(c, CtxKeyUserID)
-	username, ok2 := getContextString(c, CtxKeyUsername)
-	role, ok3 := getContextString(c, CtxKeyUserRole)
-	authMethod, ok4 := getContextString(c, CtxKeyAuthMethod)
-
-	if !ok1 || !ok2 || !ok3 {
-		return UserContext{}, false
-	}
-
-	return UserContext{
-		UserID:     userID,
-		Username:   username,
-		Role:       role,
-		AuthMethod: authMethod, // ok4 can be false for legacy sessions
-	}, true && ok4 || !ok4 // Allow missing auth_method for backwards compat
-}
-
 // GetUserID retrieves the user ID from context in a type-safe manner.
 // Returns 0 and false if not found or wrong type.
 func GetUserID(c *gin.Context) (int64, bool) {
