@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // GetBulletinAudioURL returns the API URL for downloading a bulletin's audio file.
@@ -190,7 +191,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 			Filters: []utils.FilterConfig{{
 				Column: "bulletin_id", Table: "bs", Value: bulletinID,
 			}},
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				if stories, ok := result.(*[]models.BulletinStory); ok {
 					processed := make([]BulletinStoryResponse, len(*stories))
 					for i, bs := range *stories {
@@ -301,7 +302,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
@@ -357,7 +358,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 			            JOIN stations s ON b.station_id = s.id`,
 			CountQuery:   "SELECT COUNT(*) FROM bulletins b JOIN stations s ON b.station_id = s.id",
 			DefaultOrder: "b.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process bulletins to add audio URLs
 				if bulletins, ok := result.(*[]BulletinListResponse); ok {
 					for i := range *bulletins {
@@ -419,8 +420,12 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 					Value:  storyID,
 				},
 			},
-			PostProcessor: func(result interface{}) {
-				bulletinHistory := result.(*[]models.StoryBulletinHistory)
+			PostProcessor: func(result any) {
+				bulletinHistory, ok := result.(*[]models.StoryBulletinHistory)
+				if !ok {
+					logger.Error("PostProcessor: type assertion failed for StoryBulletinHistory slice")
+					return
+				}
 				// Convert to the expected response format
 				processedResults := make([]StoryBulletinHistoryResponse, len(*bulletinHistory))
 				for i, item := range *bulletinHistory {
@@ -473,7 +478,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 			utils.ProblemInternalServer(c, "Pagination data not found")
 			return
 		}
-		paginationInfo, ok := responseData.(map[string]interface{})
+		paginationInfo, ok := responseData.(map[string]any)
 		if !ok {
 			utils.ProblemInternalServer(c, "Failed to get pagination data")
 			return

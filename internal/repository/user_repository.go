@@ -113,7 +113,7 @@ func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpda
 
 	// Build dynamic query from struct fields
 	setClauses := make([]string, 0, 12)
-	args := make([]interface{}, 0, 12)
+	args := make([]any, 0, 12)
 
 	// Non-nullable string fields
 	addFieldUpdate(&setClauses, &args, "username", updates.Username)
@@ -165,7 +165,7 @@ func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpda
 // IsUsernameTaken checks if username is in use.
 func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
 	condition := "username = ?"
-	args := []interface{}{username}
+	args := []any{username}
 
 	if excludeID != nil {
 		condition += " AND id != ?"
@@ -178,7 +178,7 @@ func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, e
 // IsEmailTaken checks if email is in use.
 func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
 	condition := "email = ?"
-	args := []interface{}{email}
+	args := []any{email}
 
 	if excludeID != nil {
 		condition += " AND id != ?"

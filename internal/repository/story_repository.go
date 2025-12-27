@@ -49,7 +49,7 @@ type StoryCreateData struct {
 	Friday    bool
 	Saturday  bool
 	Sunday    bool
-	Metadata  interface{}
+	Metadata  any
 }
 
 // StoryRepository defines the interface for story data access.
@@ -98,7 +98,7 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	q := r.getQueryable(ctx)
 
 	// Convert metadata to JSON if not nil
-	var metadataJSON interface{}
+	var metadataJSON any
 	if data.Metadata != nil {
 		jsonBytes, err := json.Marshal(data.Metadata)
 		if err != nil {
@@ -155,7 +155,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUp
 	q := r.getQueryable(ctx)
 
 	setClauses := make([]string, 0, 16)
-	args := make([]interface{}, 0, 16)
+	args := make([]any, 0, 16)
 
 	addFieldUpdate(&setClauses, &args, "title", updates.Title)
 	addFieldUpdate(&setClauses, &args, "text", updates.Text)

@@ -52,7 +52,7 @@ func (BulletinQueries) Exists(ctx context.Context, db *sqlx.DB, id int64) (bool,
 }
 
 // CountWithJoins returns the count of records using complex query with joins.
-func CountWithJoins(db *sqlx.DB, query string, args ...interface{}) (int64, error) {
+func CountWithJoins(db *sqlx.DB, query string, args ...any) (int64, error) {
 	var count int64
 	if err := db.Get(&count, query, args...); err != nil {
 		return 0, err

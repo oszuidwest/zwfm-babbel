@@ -107,7 +107,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 			            LEFT JOIN voices v ON s.voice_id = v.id`,
 			CountQuery:   "SELECT COUNT(*) FROM stories s LEFT JOIN voices v ON s.voice_id = v.id",
 			DefaultOrder: "s.created_at DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Post-process stories to add audio URLs and weekdays map
 				if stories, ok := result.(*[]StoryResponse); ok {
 					for i := range *stories {

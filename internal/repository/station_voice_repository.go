@@ -103,7 +103,7 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, updates *
 	q := r.getQueryable(ctx)
 
 	setClauses := make([]string, 0, 4)
-	args := make([]interface{}, 0, 4)
+	args := make([]any, 0, 4)
 
 	if updates.StationID != nil {
 		setClauses = append(setClauses, "station_id = ?")
@@ -168,7 +168,7 @@ func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
 // IsCombinationTaken checks if a station-voice combination is already in use.
 func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	condition := "station_id = ? AND voice_id = ?"
-	args := []interface{}{stationID, voiceID}
+	args := []any{stationID, voiceID}
 
 	if excludeID != nil {
 		condition += " AND id != ?"

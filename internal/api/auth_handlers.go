@@ -96,7 +96,10 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 // Logout securely destroys the current user session and clears all session data.
 // Returns 204 No Content on successful logout. Safe to call multiple times.
 func (h *AuthHandlers) Logout(c *gin.Context) {
-	h.authService.Logout(c)
+	if err := h.authService.Logout(c); err != nil {
+		utils.ProblemInternalServer(c, "Failed to logout")
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 

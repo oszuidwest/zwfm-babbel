@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -45,7 +46,7 @@ type CreateStoryRequest struct {
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // UpdateStoryRequest contains the data needed to update an existing story.
@@ -57,7 +58,7 @@ type UpdateStoryRequest struct {
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // Create creates a new story in the database.
@@ -353,6 +354,10 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	filenameOnly := utils.GetStoryFilename(storyID)
 	err = s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration)
 	if err != nil {
+		// Clean up file on database error
+		if rmErr := os.Remove(outputPath); rmErr != nil {
+			logger.Error("Failed to remove audio file after database error: %v", rmErr)
+		}
 		logger.Error("Failed to update story %d audio reference: %v", storyID, err)
 		return fmt.Errorf("%w: failed to update audio reference", ErrDatabaseError)
 	}

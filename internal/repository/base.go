@@ -111,7 +111,7 @@ func (r *BaseRepository[T]) Delete(ctx context.Context, id int64) error {
 
 // ExistsBy checks if any record matches the given condition.
 // The condition should be a valid SQL WHERE clause fragment (e.g., "name = ? AND status = ?").
-func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args ...interface{}) (bool, error) {
+func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args ...any) (bool, error) {
 	q := r.getQueryable(ctx)
 
 	var exists bool
@@ -126,7 +126,7 @@ func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args
 
 // CountBy counts records matching a condition.
 // The condition should be a valid SQL WHERE clause fragment.
-func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args ...interface{}) (int, error) {
+func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args ...any) (int, error) {
 	q := r.getQueryable(ctx)
 
 	var count int
@@ -140,7 +140,7 @@ func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args 
 }
 
 // addFieldUpdate adds a field to the update query if the pointer is non-nil.
-func addFieldUpdate[T any](setClauses *[]string, args *[]interface{}, column string, value *T) {
+func addFieldUpdate[T any](setClauses *[]string, args *[]any, column string, value *T) {
 	if value == nil {
 		return
 	}

@@ -7,8 +7,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// MessageResponse represents a simple message response (typed alternative to gin.H).
+type MessageResponse struct {
+	Message string `json:"message"`
+}
+
+// IDMessageResponse represents a response with an ID and message (typed alternative to gin.H).
+type IDMessageResponse struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+}
+
+// ListResponse represents a paginated list response (typed alternative to gin.H).
+type ListResponse struct {
+	Data   any   `json:"data"`
+	Total  int64 `json:"total"`
+	Limit  int   `json:"limit"`
+	Offset int   `json:"offset"`
+}
+
 // Success responds with HTTP 200 OK status and the provided data.
-func Success(c *gin.Context, data interface{}) {
+func Success(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, data)
 }
 
@@ -18,26 +37,26 @@ func NoContent(c *gin.Context) {
 }
 
 // PaginatedResponse responds with paginated data in a consistent format.
-func PaginatedResponse(c *gin.Context, data interface{}, total int64, limit, offset int) {
-	c.JSON(http.StatusOK, gin.H{
-		"data":   data,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int) {
+	c.JSON(http.StatusOK, ListResponse{
+		Data:   data,
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
 	})
 }
 
 // CreatedWithID responds with HTTP 201 Created status including the new resource ID.
 func CreatedWithID(c *gin.Context, id int64, message string) {
-	c.JSON(http.StatusCreated, gin.H{
-		"id":      id,
-		"message": message,
+	c.JSON(http.StatusCreated, IDMessageResponse{
+		ID:      id,
+		Message: message,
 	})
 }
 
 // SuccessWithMessage responds with HTTP 200 OK status and a success message.
 func SuccessWithMessage(c *gin.Context, message string) {
-	c.JSON(http.StatusOK, gin.H{"message": message})
+	c.JSON(http.StatusOK, MessageResponse{Message: message})
 }
 
 // RFC 9457 Problem Details compatible error response functions.

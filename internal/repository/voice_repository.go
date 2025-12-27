@@ -78,7 +78,7 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, name string) err
 // IsNameTaken checks if a voice name is already in use.
 func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	condition := "name = ?"
-	args := []interface{}{name}
+	args := []any{name}
 
 	if excludeID != nil {
 		condition += " AND id != ?"

@@ -92,7 +92,7 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
               JOIN stations s ON b.station_id = s.id
               WHERE b.station_id = ?`
 
-	args := []interface{}{stationID}
+	args := []any{stationID}
 
 	if maxAge != nil {
 		query += ` AND b.created_at >= ?`

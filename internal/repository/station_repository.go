@@ -84,7 +84,7 @@ func (r *stationRepository) Update(ctx context.Context, id int64, name string, m
 // IsNameTaken checks if a station name is already in use.
 func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	condition := "name = ?"
-	args := []interface{}{name}
+	args := []any{name}
 
 	if excludeID != nil {
 		condition += " AND id != ?"

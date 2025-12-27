@@ -33,7 +33,7 @@ func Initialize(level string, development bool) error {
 }
 
 // Info logs informational messages with Printf-style formatting.
-func Info(message string, args ...interface{}) {
+func Info(message string, args ...any) {
 	if logger == nil {
 		panic("logger: not initialized - call Initialize() first")
 	}
@@ -41,7 +41,7 @@ func Info(message string, args ...interface{}) {
 }
 
 // Error logs error messages with Printf-style formatting.
-func Error(message string, args ...interface{}) {
+func Error(message string, args ...any) {
 	if logger == nil {
 		panic("logger: not initialized - call Initialize() first")
 	}
@@ -49,7 +49,7 @@ func Error(message string, args ...interface{}) {
 }
 
 // Fatal logs fatal error messages and terminates the program.
-func Fatal(message string, args ...interface{}) {
+func Fatal(message string, args ...any) {
 	if logger == nil {
 		panic("logger: not initialized - call Initialize() first")
 	}
@@ -58,7 +58,7 @@ func Fatal(message string, args ...interface{}) {
 }
 
 // Debug logs debug messages with Printf-style formatting.
-func Debug(message string, args ...interface{}) {
+func Debug(message string, args ...any) {
 	if logger == nil {
 		panic("logger: not initialized - call Initialize() first")
 	}
@@ -66,7 +66,7 @@ func Debug(message string, args ...interface{}) {
 }
 
 // Warn logs warning messages with Printf-style formatting.
-func Warn(message string, args ...interface{}) {
+func Warn(message string, args ...any) {
 	if logger == nil {
 		panic("logger: not initialized - call Initialize() first")
 	}

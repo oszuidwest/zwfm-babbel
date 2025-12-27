@@ -49,7 +49,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 			            JOIN voices v ON sv.voice_id = v.id`,
 			CountQuery:   "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id",
 			DefaultOrder: "sv.id DESC",
-			PostProcessor: func(result interface{}) {
+			PostProcessor: func(result any) {
 				// Add audio URLs to response
 				if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
 					for i := range *stationVoices {

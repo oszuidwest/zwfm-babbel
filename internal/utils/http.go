@@ -331,7 +331,7 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 // BindAndValidate handles JSON request binding with comprehensive validation and error reporting.
 // Converts validation errors into user-friendly messages with field-level detail.
 // Always returns 422 Unprocessable Entity for validation failures with structured error responses.
-func BindAndValidate(c *gin.Context, req interface{}) bool {
+func BindAndValidate(c *gin.Context, req any) bool {
 	if err := c.ShouldBindJSON(req); err != nil {
 		validationErrors := convertValidationErrors(err)
 		ProblemValidationError(c, "The request contains invalid data", validationErrors)
@@ -344,7 +344,7 @@ func BindAndValidate(c *gin.Context, req interface{}) bool {
 // Supports multipart/form-data, application/x-www-form-urlencoded, and application/json.
 // Provides unified validation error handling across all content types.
 // Returns 422 Unprocessable Entity for validation failures.
-func BindFormAndValidate(c *gin.Context, req interface{}) bool {
+func BindFormAndValidate(c *gin.Context, req any) bool {
 	contentType := c.GetHeader("Content-Type")
 	var err error
 
@@ -440,7 +440,7 @@ var validTables = map[string]bool{
 // Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
 // The result parameter must be a pointer to the appropriate struct type.
 // Table name is validated against an allowlist to prevent SQL injection.
-func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result interface{}) {
+func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result any) {
 	id, ok := GetIDParam(c)
 	if !ok {
 		return

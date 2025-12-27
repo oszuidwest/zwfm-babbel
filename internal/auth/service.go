@@ -30,7 +30,7 @@ type Service struct {
 	db       *sqlx.DB
 	enforcer *casbin.Enforcer
 	sessions SessionStore
-	ginStore interface{}
+	ginStore any
 }
 
 // IsLocalEnabled returns true if local authentication is enabled.
@@ -176,9 +176,13 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	}
 
 	for _, p := range policies {
-		if _, err := enforcer.AddPolicy(p); err != nil {
-			// Some policies might already exist
-			logger.Warn("Failed to add policy %v: %v", p, err)
+		added, err := enforcer.AddPolicy(p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add RBAC policy %v: %w", p, err)
+		}
+		if !added {
+			// Policy already exists (from database adapter), this is expected
+			logger.Debug("RBAC policy already exists: %v", p)
 		}
 	}
 
@@ -302,8 +306,9 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		err := s.db.GetContext(c.Request.Context(), &user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userID)
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete(string(SessKeyUserID))
-			if err := session.Save(c); err != nil {
-				logger.Error("Failed to save session during cleanup: %v", err)
+			if saveErr := session.Save(c); saveErr != nil {
+				logger.Error("Failed to save session during cleanup: %v", saveErr)
+				// Continue with authentication error - session cleanup failure is secondary
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
@@ -375,7 +380,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		// Increment failed login attempt counter
+		// Increment failed login attempt counter (log but don't block - we're returning invalid credentials anyway)
 		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
 			logger.Error("Failed to update login failure stats: %v", updateErr)
 		}
@@ -384,7 +389,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
-		logger.Error("Failed to update login success stats: %v", err)
+		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
 	// Create session for authenticated user
@@ -557,14 +562,14 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 
 	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
-		logger.Error("Failed to update login success stats: %v", err)
+		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
 	// Get the user's actual role from database
 	var role string
 	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
-		logger.Error("SECURITY: Failed to get user role for user %d, defaulting to viewer: %v", user.ID, err)
-		role = "viewer"
+		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
+		return fmt.Errorf("failed to get user role: %w", err)
 	}
 
 	// Create session with user credentials
@@ -580,13 +585,15 @@ func (s *Service) GetSession(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 
-// Logout destroys the user session.
-func (s *Service) Logout(c *gin.Context) {
+// Logout destroys the user session and returns an error if session save fails.
+func (s *Service) Logout(c *gin.Context) error {
 	session := s.sessions.Get(c)
 	session.Clear()
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save session during logout: %v", err)
+		return fmt.Errorf("failed to save session: %w", err)
 	}
+	return nil
 }
 
 // CreateSession creates a new session for the authenticated user.
