@@ -57,6 +57,12 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 		deletedAt = &story.DeletedAt.Time
 	}
 
+	// Get voice name from preloaded relation
+	voiceName := ""
+	if story.Voice != nil {
+		voiceName = story.Voice.Name
+	}
+
 	response := StoryResponse{
 		ID:              story.ID,
 		Title:           story.Title,
@@ -78,7 +84,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 		DeletedAt:       deletedAt,
 		CreatedAt:       story.CreatedAt,
 		UpdatedAt:       story.UpdatedAt,
-		VoiceName:       story.VoiceName,
+		VoiceName:       voiceName,
 	}
 
 	// Add computed fields

@@ -64,26 +64,17 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 	return r.GetByID(ctx, stationVoice.ID)
 }
 
-// GetByID retrieves a station-voice relationship with joined station and voice names.
+// GetByID retrieves a station-voice relationship with preloaded station and voice.
 func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	var stationVoice models.StationVoice
 
-	// Use a raw query with joins to populate the virtual fields
 	err := r.db.WithContext(ctx).
-		Table("station_voices sv").
-		Select("sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name").
-		Joins("JOIN stations s ON sv.station_id = s.id").
-		Joins("JOIN voices v ON sv.voice_id = v.id").
-		Where("sv.id = ?", id).
-		Scan(&stationVoice).Error
+		Preload("Station").
+		Preload("Voice").
+		First(&stationVoice, id).Error
 
 	if err != nil {
-		return nil, err
-	}
-
-	// Check if record was found (Scan doesn't return ErrRecordNotFound)
-	if stationVoice.ID == 0 {
-		return nil, ErrNotFound
+		return nil, ParseDBError(err)
 	}
 
 	return &stationVoice, nil
@@ -202,21 +193,20 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 
 // stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.
 var stationVoiceFieldMapping = FieldMapping{
-	"id":         "station_voices.id",
-	"station_id": "station_voices.station_id",
-	"voice_id":   "station_voices.voice_id",
-	"mix_point":  "station_voices.mix_point",
-	"created_at": "station_voices.created_at",
-	"updated_at": "station_voices.updated_at",
+	"id":         "id",
+	"station_id": "station_id",
+	"voice_id":   "voice_id",
+	"mix_point":  "mix_point",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
 }
 
-// List retrieves a paginated list of station-voice relationships with joined station and voice names.
+// List retrieves a paginated list of station-voice relationships with preloaded relations.
 func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
 	db := r.db.WithContext(ctx).
-		Table("station_voices").
-		Select("station_voices.*, stations.name as station_name, voices.name as voice_name").
-		Joins("LEFT JOIN stations ON stations.id = station_voices.station_id").
-		Joins("LEFT JOIN voices ON voices.id = station_voices.voice_id")
+		Model(&models.StationVoice{}).
+		Preload("Station").
+		Preload("Voice")
 
-	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "station_voices.id ASC")
+	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "id ASC")
 }

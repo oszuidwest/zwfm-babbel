@@ -59,13 +59,12 @@ func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filena
 	return bulletin.ID, nil
 }
 
-// GetByID retrieves a bulletin by ID with station name.
+// GetByID retrieves a bulletin by ID with preloaded station.
 func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
 	var bulletin models.Bulletin
 
 	err := r.db.WithContext(ctx).
-		Select("bulletins.*, stations.name as station_name").
-		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Preload("Station").
 		First(&bulletin, id).Error
 
 	if err != nil {
@@ -81,13 +80,12 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 	var bulletin models.Bulletin
 
 	query := r.db.WithContext(ctx).
-		Select("bulletins.*, stations.name as station_name").
-		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Preload("Station").
 		Where("station_id = ?", stationID)
 
 	if maxAge != nil {
 		minTime := time.Now().Add(-*maxAge)
-		query = query.Where("bulletins.created_at >= ?", minTime)
+		query = query.Where("created_at >= ?", minTime)
 	}
 
 	err := query.Order("created_at DESC").
@@ -128,26 +126,25 @@ func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 
 // bulletinFieldMapping maps API field names to database columns for bulletins.
 var bulletinFieldMapping = FieldMapping{
-	"id":               "bulletins.id",
-	"station_id":       "bulletins.station_id",
-	"filename":         "bulletins.filename",
-	"duration_seconds": "bulletins.duration_seconds",
-	"file_size":        "bulletins.file_size",
-	"story_count":      "bulletins.story_count",
-	"created_at":       "bulletins.created_at",
+	"id":               "id",
+	"station_id":       "station_id",
+	"filename":         "filename",
+	"duration_seconds": "duration_seconds",
+	"file_size":        "file_size",
+	"story_count":      "story_count",
+	"created_at":       "created_at",
 }
 
 // bulletinSearchFields defines which fields are searchable for bulletins.
-var bulletinSearchFields = []string{"bulletins.filename"}
+var bulletinSearchFields = []string{"filename"}
 
 // List retrieves bulletins with pagination, filtering, and sorting.
 func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
-		Select("bulletins.*, stations.name as station_name").
-		Joins("JOIN stations ON bulletins.station_id = stations.id")
+		Preload("Station")
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
 }
 
 // Exists checks if a bulletin with the given ID exists.
@@ -160,10 +157,9 @@ func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID 
 	var bulletinStories []models.BulletinStory
 
 	err := r.db.WithContext(ctx).
-		Select("bulletin_stories.*, stories.title as story_title").
-		Joins("JOIN stories ON bulletin_stories.story_id = stories.id").
-		Where("bulletin_stories.bulletin_id = ?", bulletinID).
-		Order("bulletin_stories.story_order ASC").
+		Preload("Story").
+		Where("bulletin_id = ?", bulletinID).
+		Order("story_order ASC").
 		Find(&bulletinStories).Error
 
 	if err != nil {
@@ -177,21 +173,19 @@ func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID 
 func (r *bulletinRepository) GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
-		Select("bulletins.*, stations.name as station_name").
-		Joins("JOIN stations ON bulletins.station_id = stations.id").
-		Where("bulletins.station_id = ?", stationID)
+		Preload("Station").
+		Where("station_id = ?", stationID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
 func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
-		Select("bulletins.*, stations.name as station_name").
-		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Preload("Station").
 		Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
 		Where("bulletin_stories.story_id = ?", storyID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
 }

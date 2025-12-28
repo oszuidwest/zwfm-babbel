@@ -75,7 +75,7 @@ type StoryRepository interface {
 	UpdateStatus(ctx context.Context, id int64, status string) error
 
 	// Bulletin-related queries
-	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error)
+	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error)
 }
 
 // storyRepository implements StoryRepository using GORM.
@@ -137,11 +137,6 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 
 	if err != nil {
 		return nil, ParseDBError(err)
-	}
-
-	// Populate the VoiceName field from the preloaded Voice relation
-	if story.Voice != nil {
-		story.VoiceName = story.Voice.Name
 	}
 
 	return &story, nil
@@ -274,32 +269,28 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 		// default "active" uses GORM's automatic soft delete filtering
 	}
 
-	result, err := ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
+	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
+}
 
-	// Populate VoiceName from preloaded Voice relation
-	for i := range result.Data {
-		if result.Data[i].Voice != nil {
-			result.Data[i].VoiceName = result.Data[i].Voice.Name
-		}
-	}
-
-	return result, nil
+// BulletinStoryData contains story data with station-specific audio processing info.
+// This is used for bulletin generation where we need jingle mix points.
+type BulletinStoryData struct {
+	models.Story
+	MixPoint float64 `gorm:"column:mix_point"`
 }
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.
-func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
-	var stories []models.Story
+// Returns stories with station-specific mix point data needed for audio processing.
+func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
+	var stories []BulletinStoryData
 
 	// Get the weekday column name
 	weekdayColumn := getWeekdayColumn(date.Weekday())
 
-	// Build the query with proper joins
+	// Build the query with proper joins to get mix_point from station_voices
 	err := r.db.WithContext(ctx).
 		Table("stories s").
-		Select("s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point").
+		Select("s.*, sv.mix_point").
 		Joins("JOIN voices v ON s.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id", stationID).
 		Where("s.deleted_at IS NULL").

@@ -77,6 +77,16 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 		return
 	}
 
+	// Get names from preloaded relations
+	stationName := ""
+	if stationVoice.Station != nil {
+		stationName = stationVoice.Station.Name
+	}
+	voiceName := ""
+	if stationVoice.Voice != nil {
+		voiceName = stationVoice.Voice.Name
+	}
+
 	// Convert to response format and add audio URL
 	response := StationVoiceResponse{
 		ID:          stationVoice.ID,
@@ -84,8 +94,8 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 		VoiceID:     stationVoice.VoiceID,
 		AudioFile:   stationVoice.AudioFile,
 		MixPoint:    stationVoice.MixPoint,
-		StationName: stationVoice.StationName,
-		VoiceName:   stationVoice.VoiceName,
+		StationName: stationName,
+		VoiceName:   voiceName,
 		CreatedAt:   stationVoice.CreatedAt,
 		UpdatedAt:   stationVoice.UpdatedAt,
 		AudioURL:    StationVoiceAudioURL(stationVoice.ID, stationVoice.AudioFile != ""),
@@ -228,14 +238,24 @@ func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int64) boo
 
 // buildStationVoiceResponse converts a model to response format with audio URL
 func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
+	// Get names from preloaded relations
+	stationName := ""
+	if sv.Station != nil {
+		stationName = sv.Station.Name
+	}
+	voiceName := ""
+	if sv.Voice != nil {
+		voiceName = sv.Voice.Name
+	}
+
 	return StationVoiceResponse{
 		ID:          sv.ID,
 		StationID:   sv.StationID,
 		VoiceID:     sv.VoiceID,
 		AudioFile:   sv.AudioFile,
 		MixPoint:    sv.MixPoint,
-		StationName: sv.StationName,
-		VoiceName:   sv.VoiceName,
+		StationName: stationName,
+		VoiceName:   voiceName,
 		CreatedAt:   sv.CreatedAt,
 		UpdatedAt:   sv.UpdatedAt,
 		AudioURL:    StationVoiceAudioURL(sv.ID, sv.AudioFile != ""),

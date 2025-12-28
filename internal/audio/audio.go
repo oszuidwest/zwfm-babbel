@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -76,7 +77,7 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 }
 
 // CreateBulletin generates a complete audio bulletin by combining multiple stories with station-specific jingles.
-func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []models.Story, outputPath string) (string, error) {
+func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, outputPath string) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
@@ -104,7 +105,7 @@ func cleanupTempDir(tempDir string) {
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
-func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []models.Story, outputPath string) ([]string, []string) {
+func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []repository.BulletinStoryData, outputPath string) ([]string, []string) {
 	args := []string{}
 	filters := []string{}
 
@@ -130,7 +131,7 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 }
 
 // addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
-func (s *Service) addStoryInputsWithPadding(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
+func (s *Service) addStoryInputsWithPadding(args, filters []string, station *models.Station, stories []repository.BulletinStoryData) ([]string, []string) {
 	for i, story := range stories {
 		storyPath := utils.StoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
@@ -147,7 +148,7 @@ func (s *Service) addStoryInputsWithPadding(args, filters []string, station *mod
 }
 
 // addStoryConcat creates a filter to concatenate all stories into one timeline.
-func (s *Service) addStoryConcat(filters []string, stories []models.Story) []string {
+func (s *Service) addStoryConcat(filters []string, stories []repository.BulletinStoryData) []string {
 	concatInputs := []string{}
 	for i := range stories {
 		concatInputs = append(concatInputs, fmt.Sprintf("[padded%d]", i))
@@ -158,16 +159,16 @@ func (s *Service) addStoryConcat(filters []string, stories []models.Story) []str
 }
 
 // addMixPointDelay adds delay to the message timeline based on the first story's mix point.
-func (s *Service) addMixPointDelay(filters []string, stories []models.Story) []string {
-	if len(stories) > 0 && stories[0].VoiceMixPoint > 0 {
-		delayMs := int(stories[0].VoiceMixPoint * 1000)
+func (s *Service) addMixPointDelay(filters []string, stories []repository.BulletinStoryData) []string {
+	if len(stories) > 0 && stories[0].MixPoint > 0 {
+		delayMs := int(stories[0].MixPoint * 1000)
 		return append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", delayMs))
 	}
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
 // addJingleMix adds the bed/jingle and mixes it with the message timeline.
-func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
+func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []repository.BulletinStoryData) ([]string, []string) {
 	if len(stories) == 0 {
 		return args, filters
 	}
