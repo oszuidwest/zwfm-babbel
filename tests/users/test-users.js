@@ -911,10 +911,10 @@ class UsersTests extends BaseTest {
     async testUserMetadata() {
         this.printSection('Testing User Metadata');
 
-        // Test 1: Create user with metadata
+        // Test 1: Create user with metadata (native JSON object)
         this.printInfo('Creating user with metadata...');
         const uniqueId = Date.now();
-        const metadata = JSON.stringify({ department: 'engineering', location: 'Amsterdam', team: 'backend' });
+        const metadata = { department: 'engineering', location: 'Amsterdam', team: 'backend' };
 
         const userData = {
             username: `metadatauser${uniqueId}`,
@@ -948,21 +948,20 @@ class UsersTests extends BaseTest {
             return false;
         }
 
-        const returnedMetadata = this.parseJsonField(getResponse.data, 'metadata');
+        const returnedMetadata = getResponse.data.metadata;
         if (returnedMetadata) {
             this.printSuccess('Metadata field is present in response');
 
-            // Parse the metadata (it's a JSON string)
-            try {
-                const parsed = typeof returnedMetadata === 'string' ? JSON.parse(returnedMetadata) : returnedMetadata;
-                if (parsed.department === 'engineering' && parsed.location === 'Amsterdam') {
+            // Metadata should be a native object now
+            if (typeof returnedMetadata === 'object') {
+                if (returnedMetadata.department === 'engineering' && returnedMetadata.location === 'Amsterdam') {
                     this.printSuccess('Metadata content is correct');
                 } else {
                     this.printError('Metadata content does not match expected values');
                     return false;
                 }
-            } catch (e) {
-                this.printError(`Failed to parse metadata: ${e.message}`);
+            } else {
+                this.printError('Metadata is not an object (expected native JSON)');
                 return false;
             }
         } else {
@@ -970,11 +969,11 @@ class UsersTests extends BaseTest {
             return false;
         }
 
-        // Test 3: Update metadata
+        // Test 3: Update metadata (native JSON object)
         this.printInfo('Updating user metadata...');
-        const updatedMetadata = JSON.stringify({ department: 'platform', location: 'Rotterdam', version: 2 });
+        const updatedMetadata = { department: 'platform', location: 'Rotterdam', version: 2 };
 
-        const updateResponse = await this.apiCall('PATCH', `/users/${userId}`, {
+        const updateResponse = await this.apiCall('PUT', `/users/${userId}`, {
             metadata: updatedMetadata
         });
 
@@ -992,18 +991,17 @@ class UsersTests extends BaseTest {
             return false;
         }
 
-        const updatedReturnedMetadata = this.parseJsonField(getUpdatedResponse.data, 'metadata');
+        const updatedReturnedMetadata = getUpdatedResponse.data.metadata;
         if (updatedReturnedMetadata) {
-            try {
-                const parsed = typeof updatedReturnedMetadata === 'string' ? JSON.parse(updatedReturnedMetadata) : updatedReturnedMetadata;
-                if (parsed.department === 'platform' && parsed.version === 2) {
+            if (typeof updatedReturnedMetadata === 'object') {
+                if (updatedReturnedMetadata.department === 'platform' && updatedReturnedMetadata.version === 2) {
                     this.printSuccess('Updated metadata content is correct');
                 } else {
                     this.printError('Updated metadata content does not match expected values');
                     return false;
                 }
-            } catch (e) {
-                this.printError(`Failed to parse updated metadata: ${e.message}`);
+            } else {
+                this.printError('Updated metadata is not an object (expected native JSON)');
                 return false;
             }
         } else {

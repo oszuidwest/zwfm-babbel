@@ -38,7 +38,7 @@ type UpdateUserRequest struct {
 }
 
 // Create creates a new user account with the given parameters.
-func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string) (*models.User, error) {
+func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string, metadata *datatypes.JSONMap) (*models.User, error) {
 	const op = "UserService.Create"
 
 	// Validate role
@@ -79,7 +79,7 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	}
 
 	// Create user
-	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role)
+	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role, metadata)
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
 			return nil, fmt.Errorf("%s: %w: username or email already exists", op, apperrors.ErrDuplicate)

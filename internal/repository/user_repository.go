@@ -36,7 +36,7 @@ type UserUpdate struct {
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// CRUD operations
-	Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string) (*models.User, error)
+	Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string, metadata *datatypes.JSONMap) (*models.User, error)
 	GetByID(ctx context.Context, id int64) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	Update(ctx context.Context, id int64, updates *UserUpdate) error
@@ -67,13 +67,14 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 }
 
 // Create inserts a new user and returns the created record.
-func (r *userRepository) Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string) (*models.User, error) {
+func (r *userRepository) Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string, metadata *datatypes.JSONMap) (*models.User, error) {
 	user := &models.User{
 		Username:     username,
 		FullName:     fullName,
 		Email:        email,
 		PasswordHash: passwordHash,
 		Role:         models.UserRole(role),
+		Metadata:     metadata,
 	}
 
 	db := DBFromContext(ctx, r.db)

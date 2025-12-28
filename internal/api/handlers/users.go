@@ -106,7 +106,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	}
 
 	// Create user via service
-	user, err := h.userSvc.Create(c.Request.Context(), req.Username, req.FullName, email, req.Password, req.Role)
+	user, err := h.userSvc.Create(c.Request.Context(), req.Username, req.FullName, email, req.Password, req.Role, req.Metadata)
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return

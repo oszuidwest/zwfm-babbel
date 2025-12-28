@@ -41,7 +41,7 @@ class StoriesTests extends BaseTest {
         const storyData = {
             title,
             text,
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -133,7 +133,7 @@ class StoriesTests extends BaseTest {
         const updateData = {
             title: 'Updated CRUD Story',
             text: 'Updated content',
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -421,7 +421,7 @@ class StoriesTests extends BaseTest {
         const futureData = {
             title: 'Future Story',
             text: 'This story is scheduled for the future.',
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2030-01-01',
             end_date: '2030-12-31',
@@ -452,7 +452,7 @@ class StoriesTests extends BaseTest {
         const weekendData = {
             title: 'Weekend Story',
             text: 'This story only plays on weekends.',
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -1099,7 +1099,7 @@ class StoriesTests extends BaseTest {
         const storyData = {
             title: 'Story With Audio Upload Test',
             text: 'This story has uploaded audio for testing',
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -1214,7 +1214,7 @@ class StoriesTests extends BaseTest {
         const storyData = {
             title: 'Metadata Test Story',
             text: 'This is a story with metadata.',
-            voice_id: voiceId,
+            voice_id: voiceId ? parseInt(voiceId, 10) : null,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
@@ -1280,7 +1280,7 @@ class StoriesTests extends BaseTest {
             metadata: updatedMetadata
         };
 
-        const updateResponse = await this.apiCall('PATCH', `/stories/${storyId}`, updateData);
+        const updateResponse = await this.apiCall('PUT', `/stories/${storyId}`, updateData);
 
         if (!this.assertions.checkResponse(updateResponse, 200, 'Update story metadata')) {
             return false;

@@ -331,20 +331,20 @@ class ValidationTester extends BaseTest {
         
         let passed = 0;
         for (const testCase of testCases) {
-            // Create form data for story tests
-            const formFields = Object.assign({}, testCase.data);
-            if (!formFields.status) formFields.status = 'active';
-            if (!formFields.start_date) formFields.start_date = '2024-01-01';
-            if (!formFields.end_date) formFields.end_date = '2024-12-31';
-            if (!formFields.monday) formFields.monday = 'true';
-            if (!formFields.tuesday) formFields.tuesday = 'true';
-            if (!formFields.wednesday) formFields.wednesday = 'true';
-            if (!formFields.thursday) formFields.thursday = 'true';
-            if (!formFields.friday) formFields.friday = 'true';
-            if (!formFields.saturday) formFields.saturday = 'false';
-            if (!formFields.sunday) formFields.sunday = 'false';
-            
-            const response = await this.uploadFile('/stories', formFields);
+            // Create JSON body for story tests (pure JSON API)
+            const jsonBody = Object.assign({}, testCase.data);
+            if (!jsonBody.status) jsonBody.status = 'active';
+            if (!jsonBody.start_date) jsonBody.start_date = '2024-01-01';
+            if (!jsonBody.end_date) jsonBody.end_date = '2024-12-31';
+            if (jsonBody.monday === undefined) jsonBody.monday = true;
+            if (jsonBody.tuesday === undefined) jsonBody.tuesday = true;
+            if (jsonBody.wednesday === undefined) jsonBody.wednesday = true;
+            if (jsonBody.thursday === undefined) jsonBody.thursday = true;
+            if (jsonBody.friday === undefined) jsonBody.friday = true;
+            if (jsonBody.saturday === undefined) jsonBody.saturday = false;
+            if (jsonBody.sunday === undefined) jsonBody.sunday = false;
+
+            const response = await this.apiCall('POST', '/stories', jsonBody);
             
             // If a story was successfully created (201), track it for cleanup
             if (response.status === 201) {
@@ -391,20 +391,20 @@ class ValidationTester extends BaseTest {
         
         let passed = 0;
         for (const testCase of testCases) {
-            const formFields = Object.assign({}, testCase.data, {
+            const jsonBody = Object.assign({}, testCase.data, {
                 status: 'active',
                 start_date: '2024-01-01',
                 end_date: '2024-12-31',
-                monday: 'true',
-                tuesday: 'true',
-                wednesday: 'true',
-                thursday: 'true',
-                friday: 'true',
-                saturday: 'false',
-                sunday: 'false'
+                monday: true,
+                tuesday: true,
+                wednesday: true,
+                thursday: true,
+                friday: true,
+                saturday: false,
+                sunday: false
             });
-            
-            const response = await this.uploadFile('/stories', formFields);
+
+            const response = await this.apiCall('POST', '/stories', jsonBody);
             
             // Track successfully created stories for cleanup
             if (response.status === 201) {
@@ -449,26 +449,26 @@ class ValidationTester extends BaseTest {
         
         let passed = 0;
         for (const testCase of testCases) {
-            const formFields = Object.assign({
+            const jsonBody = Object.assign({
                 status: 'active',
                 start_date: '2024-01-01',
                 end_date: '2024-12-31',
-                monday: 'true',
-                tuesday: 'true',
-                wednesday: 'true',
-                thursday: 'true',
-                friday: 'true',
-                saturday: 'false',
-                sunday: 'false'
+                monday: true,
+                tuesday: true,
+                wednesday: true,
+                thursday: true,
+                friday: true,
+                saturday: false,
+                sunday: false
             }, testCase.data);
-            
-            const response = await this.uploadFile('/stories', formFields);
-            
+
+            const response = await this.apiCall('POST', '/stories', jsonBody);
+
             if (this.assertStatusCode(response.status, testCase.expected, testCase.description)) {
                 passed++;
             }
         }
-        
+
         return passed === testCases.length;
     }
 
@@ -489,13 +489,14 @@ class ValidationTester extends BaseTest {
         
         let passed = 0;
         for (const testCase of testCases) {
-            const response = await this.uploadFile('/station-voices', testCase.data);
-            
+            // Pure JSON API - no form-data
+            const response = await this.apiCall('POST', '/station-voices', testCase.data);
+
             if (this.assertStatusCode(response.status, testCase.expectedStatus, testCase.description)) {
                 passed++;
             }
         }
-        
+
         return passed === testCases.length;
     }
 
@@ -636,44 +637,44 @@ class ValidationTester extends BaseTest {
      */
     async testAudioFileUploadValidation() {
         this.printSection("Audio File Upload Validation");
-        
+
         // Create a voice first
         const voiceResponse = await this.apiCall('POST', '/voices', { name: `AudioTestVoice_${Date.now()}` });
         const voiceId = this.parseJsonField(voiceResponse.data, 'id');
         if (voiceId) {
             this.createdVoiceIds.push(voiceId);
         }
-        
-        // Test story upload without file (should be allowed)
-        const noFileResponse = await this.uploadFile('/stories', {
+
+        // Test story creation without audio (pure JSON API - audio is separate endpoint)
+        const noFileResponse = await this.apiCall('POST', '/stories', {
             title: "No File Test",
             text: "Test content",
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'false',
-            wednesday: 'false',
-            thursday: 'false',
-            friday: 'false',
-            saturday: 'false',
-            sunday: 'false'
+            monday: true,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: false,
+            sunday: false
         });
-        
+
         let passed = 0;
         if (noFileResponse.status === 201) {
-            this.printSuccess("Story creation without audio file allowed");
+            this.printSuccess("Story creation without audio file allowed (pure JSON API)");
             passed++;
-            
+
             const storyId = this.parseJsonField(noFileResponse.data, 'id');
             if (storyId) {
                 this.createdStoryIds.push(storyId);
             }
         } else {
-            this.printError(`Story without file rejected: ${noFileResponse.status}`);
+            this.printError(`Story creation rejected: ${noFileResponse.status}`);
         }
-        
+
         return passed >= 1;
     }
 
