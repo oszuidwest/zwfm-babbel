@@ -38,15 +38,7 @@ type StoryUpdate struct {
 	ClearMetadata        bool `gorm:"-"`
 }
 
-// hasUpdates returns true if any field is set for update.
-func (u *StoryUpdate) hasUpdates() bool {
-	return u.Title != nil || u.Text != nil || u.VoiceID != nil ||
-		u.AudioFile != nil || u.DurationSeconds != nil || u.Status != nil ||
-		u.StartDate != nil || u.EndDate != nil || u.Metadata != nil ||
-		u.Monday != nil || u.Tuesday != nil || u.Wednesday != nil ||
-		u.Thursday != nil || u.Friday != nil || u.Saturday != nil || u.Sunday != nil ||
-		u.ClearVoiceID || u.ClearAudioFile || u.ClearDurationSeconds || u.ClearMetadata
-}
+// hasUpdates is no longer needed - BuildUpdateMap handles empty check
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
@@ -163,77 +155,15 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 }
 
 // Update updates a story with type-safe fields.
-// Clear* flags explicitly set fields to NULL in the database.
+// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
 func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
-	if u == nil || !u.hasUpdates() {
+	if u == nil {
 		return nil
 	}
 
-	// Build update map to handle Clear* flags (which need explicit NULL values)
-	updateMap := make(map[string]any)
-
-	// Regular pointer fields - only add if not nil
-	if u.Title != nil {
-		updateMap["title"] = *u.Title
-	}
-	if u.Text != nil {
-		updateMap["text"] = *u.Text
-	}
-	if u.VoiceID != nil {
-		updateMap["voice_id"] = *u.VoiceID
-	}
-	if u.Status != nil {
-		updateMap["status"] = *u.Status
-	}
-	if u.StartDate != nil {
-		updateMap["start_date"] = *u.StartDate
-	}
-	if u.EndDate != nil {
-		updateMap["end_date"] = *u.EndDate
-	}
-	if u.Monday != nil {
-		updateMap["monday"] = *u.Monday
-	}
-	if u.Tuesday != nil {
-		updateMap["tuesday"] = *u.Tuesday
-	}
-	if u.Wednesday != nil {
-		updateMap["wednesday"] = *u.Wednesday
-	}
-	if u.Thursday != nil {
-		updateMap["thursday"] = *u.Thursday
-	}
-	if u.Friday != nil {
-		updateMap["friday"] = *u.Friday
-	}
-	if u.Saturday != nil {
-		updateMap["saturday"] = *u.Saturday
-	}
-	if u.Sunday != nil {
-		updateMap["sunday"] = *u.Sunday
-	}
-	if u.Metadata != nil {
-		updateMap["metadata"] = *u.Metadata
-	}
-	if u.AudioFile != nil {
-		updateMap["audio_file"] = *u.AudioFile
-	}
-	if u.DurationSeconds != nil {
-		updateMap["duration_seconds"] = *u.DurationSeconds
-	}
-
-	// Clear flags - explicitly set to NULL (overrides pointer values)
-	if u.ClearVoiceID {
-		updateMap["voice_id"] = nil
-	}
-	if u.ClearAudioFile {
-		updateMap["audio_file"] = nil
-	}
-	if u.ClearDurationSeconds {
-		updateMap["duration_seconds"] = nil
-	}
-	if u.ClearMetadata {
-		updateMap["metadata"] = nil
+	updateMap := BuildUpdateMap(u)
+	if len(updateMap) == 0 {
+		return nil
 	}
 
 	return r.UpdateByID(ctx, id, updateMap)

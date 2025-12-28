@@ -32,15 +32,6 @@ type UserUpdate struct {
 	ClearMetadata    bool
 }
 
-// hasUpdates returns true if any field is set for update.
-func (u *UserUpdate) hasUpdates() bool {
-	return u.Username != nil || u.FullName != nil || u.Email != nil ||
-		u.PasswordHash != nil || u.Role != nil || u.LastLoginAt != nil ||
-		u.LoginCount != nil || u.FailedLoginAttempts != nil ||
-		u.LockedUntil != nil || u.PasswordChangedAt != nil || u.Metadata != nil ||
-		u.ClearEmail || u.ClearLockedUntil || u.ClearMetadata
-}
-
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// CRUD operations
@@ -105,59 +96,13 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 }
 
 // Update updates a user with the provided field values.
+// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
 func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
-	if u == nil || !u.hasUpdates() {
+	if u == nil {
 		return nil
 	}
 
-	// Build update map for fields that need special handling (Clear* flags)
-	updateMap := make(map[string]any)
-
-	// Regular pointer fields - GORM handles these directly
-	if u.Username != nil {
-		updateMap["username"] = *u.Username
-	}
-	if u.FullName != nil {
-		updateMap["full_name"] = *u.FullName
-	}
-	if u.PasswordHash != nil {
-		updateMap["password_hash"] = *u.PasswordHash
-	}
-	if u.Role != nil {
-		updateMap["role"] = *u.Role
-	}
-	if u.LastLoginAt != nil {
-		updateMap["last_login_at"] = *u.LastLoginAt
-	}
-	if u.LoginCount != nil {
-		updateMap["login_count"] = *u.LoginCount
-	}
-	if u.FailedLoginAttempts != nil {
-		updateMap["failed_login_attempts"] = *u.FailedLoginAttempts
-	}
-	if u.PasswordChangedAt != nil {
-		updateMap["password_changed_at"] = *u.PasswordChangedAt
-	}
-
-	// Handle nullable fields with Clear* flags (NULL takes precedence)
-	if u.ClearEmail {
-		updateMap["email"] = nil
-	} else if u.Email != nil {
-		updateMap["email"] = *u.Email
-	}
-
-	if u.ClearLockedUntil {
-		updateMap["locked_until"] = nil
-	} else if u.LockedUntil != nil {
-		updateMap["locked_until"] = *u.LockedUntil
-	}
-
-	if u.ClearMetadata {
-		updateMap["metadata"] = nil
-	} else if u.Metadata != nil {
-		updateMap["metadata"] = *u.Metadata
-	}
-
+	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
