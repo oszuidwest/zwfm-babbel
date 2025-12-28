@@ -45,13 +45,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: true,
-            tuesday: true,
-            wednesday: true,
-            thursday: true,
-            friday: true,
-            saturday: false,
-            sunday: false
         };
 
         const response = await this.apiCall('POST', '/stories', storyData);
@@ -137,13 +130,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: true,
-            tuesday: false,
-            wednesday: true,
-            thursday: false,
-            friday: true,
-            saturday: false,
-            sunday: false
         };
 
         const updateResponse = await this.apiCall('PUT', `/stories/${storyId}`, updateData);
@@ -278,13 +264,6 @@ class StoriesTests extends BaseTest {
         // Test updating weekday schedule
         this.printInfo('Updating story weekday schedule...');
         const weekdayData = {
-            monday: false,
-            tuesday: true,
-            wednesday: false,
-            thursday: true,
-            friday: false,
-            saturday: true,
-            sunday: true
         };
 
         const weekdayResponse = await this.apiCall('PUT', `/stories/${storyId}`, weekdayData);
@@ -425,13 +404,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2030-01-01',
             end_date: '2030-12-31',
-            monday: true,
-            tuesday: true,
-            wednesday: true,
-            thursday: true,
-            friday: true,
-            saturday: true,
-            sunday: true
         };
 
         const futureResponse = await this.apiCall('POST', '/stories', futureData);
@@ -456,13 +428,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: false,
-            tuesday: false,
-            wednesday: false,
-            thursday: false,
-            friday: false,
-            saturday: true,
-            sunday: true
         };
 
         const weekendResponse = await this.apiCall('POST', '/stories', weekendData);
@@ -1103,13 +1068,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: true,
-            tuesday: true,
-            wednesday: true,
-            thursday: true,
-            friday: true,
-            saturday: false,
-            sunday: false
         };
 
         const createResponse = await this.apiCall('POST', '/stories', storyData);
@@ -1218,13 +1176,6 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: true,
-            tuesday: true,
-            wednesday: true,
-            thursday: true,
-            friday: true,
-            saturday: false,
-            sunday: false,
             metadata: metadata
         };
 

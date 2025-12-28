@@ -40,7 +40,7 @@ type Story struct {
 	// VoiceID is the voice used for text-to-speech generation.
 	VoiceID *int64 `gorm:"index" json:"voice_id"`
 	// AudioFile is the path to the generated audio file.
-	AudioFile string `gorm:"size:500" json:"audio_file"`
+	AudioFile string `gorm:"size:500" json:"-"`
 	// DurationSeconds is the length of the audio in seconds.
 	DurationSeconds *float64 `json:"duration_seconds"`
 	// Status is the story lifecycle state: draft, active, or expired.
@@ -49,20 +49,8 @@ type Story struct {
 	StartDate time.Time `gorm:"not null;index" json:"start_date"`
 	// EndDate is when the story expires.
 	EndDate time.Time `gorm:"not null;index" json:"end_date"`
-	// Monday indicates if the story is scheduled for Mondays.
-	Monday bool `gorm:"not null;default:true" json:"monday"`
-	// Tuesday indicates if the story is scheduled for Tuesdays.
-	Tuesday bool `gorm:"not null;default:true" json:"tuesday"`
-	// Wednesday indicates if the story is scheduled for Wednesdays.
-	Wednesday bool `gorm:"not null;default:true" json:"wednesday"`
-	// Thursday indicates if the story is scheduled for Thursdays.
-	Thursday bool `gorm:"not null;default:true" json:"thursday"`
-	// Friday indicates if the story is scheduled for Fridays.
-	Friday bool `gorm:"not null;default:true" json:"friday"`
-	// Saturday indicates if the story is scheduled for Saturdays.
-	Saturday bool `gorm:"not null;default:true" json:"saturday"`
-	// Sunday indicates if the story is scheduled for Sundays.
-	Sunday bool `gorm:"not null;default:true" json:"sunday"`
+	// Weekdays is a bitmask for scheduling on specific days (0-127, where 127 = all days).
+	Weekdays Weekdays `gorm:"not null;default:127;index" json:"weekdays"`
 	// Metadata stores additional custom data as JSON.
 	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	// CreatedAt is when the story was created.
@@ -76,9 +64,8 @@ type Story struct {
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 
 	// Computed fields (populated by AfterFind hook, not stored in DB)
-	VoiceName string          `gorm:"-" json:"voice_name,omitempty"`
-	AudioURL  *string         `gorm:"-" json:"audio_url,omitempty"`
-	Weekdays  map[string]bool `gorm:"-" json:"weekdays,omitempty"`
+	VoiceName string  `gorm:"-" json:"voice_name,omitempty"`
+	AudioURL  *string `gorm:"-" json:"audio_url,omitempty"`
 }
 
 // AfterFind populates computed fields from preloaded relations.
@@ -94,45 +81,12 @@ func (s *Story) AfterFind(_ *gorm.DB) error {
 		s.AudioURL = &url
 	}
 
-	// Build weekdays map
-	s.Weekdays = s.WeekdaysMap()
-
 	return nil
 }
 
 // IsActiveOnWeekday reports whether the story is scheduled for the given weekday.
 func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
-	switch weekday {
-	case time.Monday:
-		return s.Monday
-	case time.Tuesday:
-		return s.Tuesday
-	case time.Wednesday:
-		return s.Wednesday
-	case time.Thursday:
-		return s.Thursday
-	case time.Friday:
-		return s.Friday
-	case time.Saturday:
-		return s.Saturday
-	case time.Sunday:
-		return s.Sunday
-	default:
-		return false
-	}
-}
-
-// WeekdaysMap returns the story's weekday schedule as a map.
-func (s *Story) WeekdaysMap() map[string]bool {
-	return map[string]bool{
-		"monday":    s.Monday,
-		"tuesday":   s.Tuesday,
-		"wednesday": s.Wednesday,
-		"thursday":  s.Thursday,
-		"friday":    s.Friday,
-		"saturday":  s.Saturday,
-		"sunday":    s.Sunday,
-	}
+	return s.Weekdays.IsActive(weekday)
 }
 
 // Voice represents a text-to-speech voice configuration.

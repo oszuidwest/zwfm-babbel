@@ -138,13 +138,6 @@ class BulletinsTests extends BaseTest {
         
         // Set weekday flags
         const weekdayFlags = {
-            monday: false,
-            tuesday: false,
-            wednesday: false,
-            thursday: false,
-            friday: false,
-            saturday: false,
-            sunday: false
         };
 
         const days = weekdays.split(',');

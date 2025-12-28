@@ -54,75 +54,76 @@ CROSS JOIN voices v
 WHERE s.name = 'Demo Station' AND v.name IN ('Test Voice Female', 'Demo Announcer');
 
 -- Create test stories with various configurations
-INSERT INTO stories (title, text, voice_id, monday, tuesday, wednesday, thursday, friday, saturday, sunday, start_date, end_date, status, created_at, updated_at) 
-SELECT 
+-- Weekdays bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64 (all days = 127)
+INSERT INTO stories (title, text, voice_id, weekdays, start_date, end_date, status, created_at, updated_at)
+SELECT
     'Breaking News Test',
     'This is a test breaking news story for automated testing. It contains important information that should be broadcast across all days of the week.',
     v.id,
-    true, true, true, true, true, true, true,
+    127,  -- All days enabled
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Test Voice Male'
 UNION ALL
-SELECT 
+SELECT
     'Weather Update Test',
     'Test weather update for the automated test suite. Today will be partly cloudy with a chance of rain in the afternoon.',
     v.id,
-    true, true, true, true, true, false, false,
+    62,   -- Mon-Fri (2+4+8+16+32)
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Test Voice Female'
 UNION ALL
-SELECT 
+SELECT
     'Traffic Report Test',
     'This is a test traffic report story. Heavy traffic on the main highway due to construction work.',
     v.id,
-    true, false, true, false, true, false, false,
+    42,   -- Mon, Wed, Fri (2+8+32)
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Test Voice Male'
 UNION ALL
-SELECT 
+SELECT
     'Sports Update Test',
     'Test sports update for verification purposes. Local team wins championship game.',
     v.id,
-    false, false, false, false, false, true, true,
+    65,   -- Sat, Sun (64+1)
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Demo Announcer'
 UNION ALL
-SELECT 
+SELECT
     'Morning News Test',
     'Good morning listeners, this is your morning news update test story.',
     v.id,
-    true, true, true, true, true, false, false,
+    62,   -- Mon-Fri (2+4+8+16+32)
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Morning Voice'
 UNION ALL
-SELECT 
+SELECT
     'Weekend Special Test',
     'Special weekend programming test story for Saturday and Sunday broadcasts.',
     v.id,
-    false, false, false, false, false, true, true,
+    65,   -- Sat, Sun (64+1)
     '2024-01-01', '2025-12-31', 'active',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Weekend Voice'
 UNION ALL
-SELECT 
+SELECT
     'Archived Story Test',
     'This story should be archived/deleted for testing soft delete functionality.',
     v.id,
-    true, true, true, true, true, true, true,
+    127,  -- All days
     '2024-01-01', '2025-12-31', 'expired',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Test Voice Female'
 UNION ALL
-SELECT 
+SELECT
     'Future Story Test',
     'This story is scheduled for future dates and should not appear in current bulletins.',
     v.id,
-    true, true, true, true, true, true, true,
+    127,  -- All days
     '2030-01-01', '2030-12-31', 'draft',
     NOW(), NOW()
 FROM voices v WHERE v.name = 'Test Voice Male';

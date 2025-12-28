@@ -98,8 +98,8 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
 	}
 
-	// Extract weekday booleans from map
-	monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
+	// Convert weekday map to bitmask
+	weekdays := models.WeekdaysFromMap(req.Weekdays)
 
 	// Create story data
 	data := &repository.StoryCreateData{
@@ -109,13 +109,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		Status:    req.Status,
 		StartDate: startDate,
 		EndDate:   endDate,
-		Monday:    monday,
-		Tuesday:   tuesday,
-		Wednesday: wednesday,
-		Thursday:  thursday,
-		Friday:    friday,
-		Saturday:  saturday,
-		Sunday:    sunday,
+		Weekdays:  weekdays,
 		Metadata:  req.Metadata,
 	}
 
@@ -234,14 +228,8 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 
 	// Apply weekdays updates
 	if len(req.Weekdays) > 0 {
-		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-		updates.Monday = &monday
-		updates.Tuesday = &tuesday
-		updates.Wednesday = &wednesday
-		updates.Thursday = &thursday
-		updates.Friday = &friday
-		updates.Saturday = &saturday
-		updates.Sunday = &sunday
+		weekdays := models.WeekdaysFromMap(req.Weekdays)
+		updates.Weekdays = &weekdays
 		hasUpdates = true
 	}
 
@@ -336,23 +324,6 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 
 	logger.Info("Processed audio for story %d: %s (%.2fs)", storyID, filename, duration)
 	return nil
-}
-
-// extractWeekdays converts a weekday map to individual boolean values.
-func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesday, wednesday, thursday, friday, saturday, sunday bool) {
-	if len(weekdays) == 0 {
-		return false, false, false, false, false, false, false
-	}
-
-	monday = weekdays["monday"]
-	tuesday = weekdays["tuesday"]
-	wednesday = weekdays["wednesday"]
-	thursday = weekdays["thursday"]
-	friday = weekdays["friday"]
-	saturday = weekdays["saturday"]
-	sunday = weekdays["sunday"]
-
-	return
 }
 
 // UpdateStatus changes a story's status to draft, active, or expired.
