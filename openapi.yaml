@@ -168,12 +168,14 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: Session created successfully
+                    example: Login successful
           headers:
             Set-Cookie:
               schema:
                 type: string
                 description: Session cookie
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -277,6 +279,8 @@ paths:
       responses:
         '204':
           description: Session terminated successfully
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stations:
     get:
@@ -393,17 +397,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Station'
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
               examples:
                 created_station:
                   summary: Newly created station
                   value:
                     id: 3
-                    name: "Community Radio"
-                    max_stories_per_block: 6
-                    pause_seconds: 2.5
-                    created_at: "2024-01-20T09:15:00Z"
-                    updated_at: "2024-01-20T09:15:00Z"
+                    message: "Station created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -449,7 +455,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Station'
+                type: object
+                properties:
+                  message:
+                    type: string
+              examples:
+                updated_station:
+                  summary: Station updated successfully
+                  value:
+                    message: "Station updated successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -583,9 +597,23 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Voice'
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
+              examples:
+                created_voice:
+                  summary: Newly created voice
+                  value:
+                    id: 3
+                    message: "Voice created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -630,9 +658,21 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Voice'
+                type: object
+                properties:
+                  message:
+                    type: string
+              examples:
+                updated_voice:
+                  summary: Voice updated successfully
+                  value:
+                    message: "Voice updated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
@@ -646,6 +686,8 @@ paths:
           description: Voice deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -793,40 +835,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Story'
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
               examples:
                 created_story:
                   summary: Newly created story
                   value:
                     id: 101
-                    title: "Breaking News Update"
-                    text: "This is an important news update for our listeners."
-                    voice_id: 1
-                    voice_name: "Sarah Johnson"
-                    audio_url: "/stories/101/audio"
-                    duration_seconds: 45.2
-                    status: "active"
-                    start_date: "2024-01-20T00:00:00Z"
-                    end_date: "2024-01-27T23:59:59Z"
-                    monday: true
-                    tuesday: true
-                    wednesday: true
-                    thursday: true
-                    friday: true
-                    saturday: false
-                    sunday: false
-                    weekdays:
-                      monday: true
-                      tuesday: true
-                      wednesday: true
-                      thursday: true
-                      friday: true
-                      saturday: false
-                      sunday: false
-                    metadata: {}
-                    created_at: "2024-01-20T10:00:00Z"
-                    updated_at: "2024-01-20T10:00:00Z"
-                    deleted_at: null
+                    message: "Story created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -861,14 +882,16 @@ paths:
       requestBody:
         required: true
         content:
-          audio/wav:
+          multipart/form-data:
             schema:
-              type: string
-              format: binary
-          audio/mpeg:
-            schema:
-              type: string
-              format: binary
+              type: object
+              required:
+                - audio
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: Audio file (WAV, MP3, or other supported formats)
       responses:
         '200':
           description: Audio uploaded successfully
@@ -1174,7 +1197,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
+              examples:
+                created_user:
+                  summary: Newly created user
+                  value:
+                    id: 5
+                    message: "User created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
 
@@ -1215,7 +1250,15 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                type: object
+                properties:
+                  message:
+                    type: string
+              examples:
+                updated_user:
+                  summary: User updated successfully
+                  value:
+                    message: "User updated successfully"
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
@@ -1439,8 +1482,9 @@ paths:
         - `station_name` - Station name
         
         ## Special Parameters
-        - `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
-        
+        - `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
+        - `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
+
         ## Notes
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
@@ -1921,7 +1965,19 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StationVoice'
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                  message:
+                    type: string
+              examples:
+                created_station_voice:
+                  summary: Newly created station-voice relationship
+                  value:
+                    id: 1
+                    message: "Station-voice relationship created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -1959,14 +2015,16 @@ paths:
       requestBody:
         required: true
         content:
-          audio/wav:
+          multipart/form-data:
             schema:
-              type: string
-              format: binary
-          audio/mpeg:
-            schema:
-              type: string
-              format: binary
+              type: object
+              required:
+                - jingle
+              properties:
+                jingle:
+                  type: string
+                  format: binary
+                  description: Jingle audio file
       responses:
         '200':
           description: Jingle uploaded successfully
@@ -2213,7 +2271,7 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: Station ID
         name:
           type: string
@@ -2267,7 +2325,7 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: Voice ID
         name:
           type: string
@@ -2287,16 +2345,16 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: StationVoice relationship ID
         station_id:
           type: integer
-          format: int32
+          format: int64
           description: Station ID
           x-foreign-key: stations.id
         voice_id:
           type: integer
-          format: int32
+          format: int64
           description: Voice ID
           x-foreign-key: voices.id
         audio_url:
@@ -2369,7 +2427,7 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: Story ID
         title:
           type: string
@@ -2380,7 +2438,7 @@ components:
           minLength: 1
         voice_id:
           type: integer
-          format: int32
+          format: int64
           nullable: true
           description: Voice ID if assigned, null if no voice is assigned
           x-foreign-key: voices.id
@@ -2406,32 +2464,9 @@ components:
           type: string
           format: date-time
           description: End date and time in RFC3339 format
-        monday:
-          type: boolean
-          description: Schedule for Monday
-        tuesday:
-          type: boolean
-          description: Schedule for Tuesday
-        wednesday:
-          type: boolean
-          description: Schedule for Wednesday
-        thursday:
-          type: boolean
-          description: Schedule for Thursday
-        friday:
-          type: boolean
-          description: Schedule for Friday
-        saturday:
-          type: boolean
-          description: Schedule for Saturday
-        sunday:
-          type: boolean
-          description: Schedule for Sunday
         weekdays:
           type: object
-          description: |
-            Computed weekdays object containing boolean values for each day.
-            This is a computed field that combines the individual weekday boolean fields above.
+          description: Weekdays object containing boolean values for each day of the week.
           properties:
             monday:
               type: boolean
@@ -2500,12 +2535,12 @@ components:
           description: Story status
         start_date:
           type: string
-          format: date-time
-          description: Start date and time in RFC3339 format
+          format: date
+          description: Start date in YYYY-MM-DD format
         end_date:
           type: string
-          format: date-time
-          description: End date and time in RFC3339 format
+          format: date
+          description: End date in YYYY-MM-DD format
         monday:
           type: boolean
           default: false
@@ -2569,12 +2604,12 @@ components:
           description: Story status
         start_date:
           type: string
-          format: date-time
-          description: Start date and time in RFC3339 format
+          format: date
+          description: Start date in YYYY-MM-DD format
         end_date:
           type: string
-          format: date-time
-          description: End date and time in RFC3339 format
+          format: date
+          description: End date in YYYY-MM-DD format
         monday:
           type: boolean
           description: Schedule for Monday
@@ -2609,13 +2644,12 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: User ID
         username:
           type: string
         full_name:
           type: string
-          nullable: true
         email:
           type: string
           format: email
@@ -2668,13 +2702,15 @@ components:
       required:
         - username
         - full_name
+        - password
+        - role
       properties:
         username:
           type: string
           minLength: 3
           maxLength: 100
-          pattern: '^[a-zA-Z0-9_-]+$'
-          description: Unique username (alphanumeric, underscore, hyphen only)
+          pattern: '^[a-zA-Z0-9]+$'
+          description: Unique username (alphanumeric only)
           x-unique: true
         full_name:
           type: string
@@ -2684,7 +2720,8 @@ components:
           type: string
           writeOnly: true
           minLength: 8
-          description: Required when creating a new user, optional when updating
+          maxLength: 128
+          description: User password
         email:
           type: string
           format: email
@@ -2693,7 +2730,6 @@ components:
         role:
           type: string
           enum: [admin, editor, viewer]
-          default: viewer
           description: |
             User roles and permissions:
             - admin: Full access to all resources including user management
@@ -2713,11 +2749,11 @@ components:
       properties:
         id:
           type: integer
-          format: int32
+          format: int64
           description: Bulletin ID
         station_id:
           type: integer
-          format: int32
+          format: int64
           description: Station ID
           x-foreign-key: stations.id
         station_name:
@@ -2744,20 +2780,23 @@ components:
           type: integer
           description: Number of stories included in the bulletin
 
-    Error:
-      type: object
-      properties:
-        error:
-          type: string
-        message:
-          type: string
-        details:
-          type: object
-          additionalProperties: true
-
     ProblemDetails:
       type: object
-      description: RFC 9457 Problem Details for HTTP APIs
+      description: |
+        RFC 9457 Problem Details for HTTP APIs.
+
+        ## Problem Types
+        The following problem type URIs are used:
+        - `https://babbel.api/problems/validation-error` - 422 validation errors
+        - `https://babbel.api/problems/not-found` - 404 resource not found
+        - `https://babbel.api/problems/duplicate` - 409 duplicate resource
+        - `https://babbel.api/problems/dependency-constraint` - 409 resource has dependencies that prevent deletion
+        - `https://babbel.api/problems/admin-constraint` - 409 cannot delete last admin user
+        - `https://babbel.api/problems/data-too-long` - 422 data exceeds maximum allowed length
+        - `https://babbel.api/problems/no-stories` - 422 no stories available for bulletin generation
+        - `https://babbel.api/problems/unauthorized` - 401 authentication required
+        - `https://babbel.api/problems/forbidden` - 403 insufficient permissions
+        - `https://babbel.api/problems/internal-error` - 500 internal server error
       required:
         - type
         - title
@@ -2767,7 +2806,7 @@ components:
           type: string
           format: uri
           description: URI that identifies the problem type
-          example: "https://api.example.com/problems/validation-error"
+          example: "https://babbel.api/problems/validation-error"
         title:
           type: string
           description: Short, human-readable summary of the problem
@@ -2785,6 +2824,15 @@ components:
           format: uri
           description: URI that identifies the specific occurrence of the problem
           example: "/api/v1/stories/123"
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when the error occurred
+          example: "2024-01-20T14:05:00Z"
+        trace_id:
+          type: string
+          description: Optional trace ID for debugging
+          example: "abc123def456"
         errors:
           type: array
           description: Array of validation errors (for 422 responses)
@@ -2795,10 +2843,6 @@ components:
                 type: string
                 description: Field name that failed validation
                 example: "title"
-              code:
-                type: string
-                description: Error code
-                example: "required"
               message:
                 type: string
                 description: Human-readable error message
@@ -2810,7 +2854,7 @@ components:
         - type: object
           properties:
             type:
-              example: "https://api.example.com/problems/validation-error"
+              example: "https://babbel.api/problems/validation-error"
             title:
               example: "Validation Error"
             status:
@@ -2822,7 +2866,7 @@ components:
         - type: object
           properties:
             type:
-              example: "https://api.example.com/problems/resource-conflict"
+              example: "https://babbel.api/problems/duplicate"
             title:
               example: "Resource Conflict"
             status:
@@ -2903,13 +2947,19 @@ components:
 
     BulletinStoriesListResponse:
       type: object
-      description: Paginated response for bulletin stories list endpoint
+      description: |
+        Paginated response for bulletin stories list endpoint.
+
+        **Note:** The current implementation returns only the basic relationship fields.
+        Nested objects (station, story, bulletin) shown in examples are NOT currently
+        included in the actual API response. Use the individual resource endpoints
+        to fetch full details for stations, stories, or bulletins.
       properties:
         data:
           type: array
           items:
             type: object
-            description: Bulletin-story relationship with nested objects
+            description: Bulletin-story relationship (basic fields only)
             properties:
               id:
                 type: integer
@@ -2927,8 +2977,12 @@ components:
                 type: string
                 format: date-time
                 description: When story was added to bulletin
+              # NOTE: The following nested objects are documented for future implementation
+              # but are NOT currently returned by the API
               station:
                 type: object
+                description: "NOT CURRENTLY IMPLEMENTED - Use GET /stations/{id} instead"
+                x-not-implemented: true
                 properties:
                   id:
                     type: integer
@@ -2938,6 +2992,8 @@ components:
                     description: Station name
               story:
                 type: object
+                description: "NOT CURRENTLY IMPLEMENTED - Use GET /stories/{id} instead"
+                x-not-implemented: true
                 properties:
                   id:
                     type: integer
@@ -2947,6 +3003,8 @@ components:
                     description: Story title
               bulletin:
                 type: object
+                description: "NOT CURRENTLY IMPLEMENTED - Use GET /bulletins/{id} instead"
+                x-not-implemented: true
                 properties:
                   id:
                     type: integer
@@ -2966,7 +3024,12 @@ components:
 
     StoryBulletinsListResponse:
       type: object
-      description: Paginated response for story bulletins history endpoint
+      description: |
+        Paginated response for story bulletins history endpoint.
+
+        **Note:** The `story_order` and `included_at` fields shown below are planned
+        but NOT currently returned by the API. The current implementation returns
+        only the standard BulletinResponse fields.
       properties:
         data:
           type: array
@@ -2977,11 +3040,17 @@ components:
                 properties:
                   story_order:
                     type: integer
-                    description: Order of story in this bulletin
+                    description: |
+                      Order of story in this bulletin.
+                      **NOT CURRENTLY IMPLEMENTED** - Planned for future release.
+                    x-not-implemented: true
                   included_at:
                     type: string
                     format: date-time
-                    description: When story was included in this bulletin
+                    description: |
+                      When story was included in this bulletin.
+                      **NOT CURRENTLY IMPLEMENTED** - Planned for future release.
+                    x-not-implemented: true
         total:
           type: integer
           description: Total number of bulletins that included this story
@@ -2999,38 +3068,41 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     Unauthorized:
       description: Unauthorized
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     Forbidden:
       description: Insufficient permissions
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
+          examples:
+            insufficient_permissions:
+              summary: User lacks required permission
+              value:
+                type: "https://babbel.api/problems/forbidden"
+                title: "Insufficient Permissions"
+                status: 403
+                detail: "You do not have permission to perform this action"
+                instance: "/api/v1/users"
     NotFound:
       description: Resource not found
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     Conflict:
-      description: Resource conflict (duplicate, constraint violation)
+      description: |
+        Resource conflict (duplicate, constraint violation).
+
+        Common problem types for 409 responses:
+        - `https://babbel.api/problems/duplicate` - Duplicate resource (e.g., station name already exists)
+        - `https://babbel.api/problems/dependency-constraint` - Resource has dependencies that prevent deletion
+        - `https://babbel.api/problems/admin-constraint` - Cannot delete last admin user
       content:
         application/problem+json:
           schema:
@@ -3039,23 +3111,27 @@ components:
             duplicate_name:
               summary: Duplicate station name
               value:
-                type: "https://api.example.com/problems/resource-conflict"
+                type: "https://babbel.api/problems/duplicate"
                 title: "Resource Conflict"
                 status: 409
                 detail: "A station with this name already exists"
                 instance: "/api/v1/stations"
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          examples:
-            legacy_conflict_error:
-              summary: Legacy conflict error format
+            dependency_constraint:
+              summary: Resource has dependencies
               value:
-                error: "duplicate_resource"
-                message: "Station name already exists"
-                details:
-                  field: "name"
-                  value: "Radio Station 1"
+                type: "https://babbel.api/problems/dependency-constraint"
+                title: "Dependency Constraint"
+                status: 409
+                detail: "Cannot delete station with existing bulletins"
+                instance: "/api/v1/stations/1"
+            admin_constraint:
+              summary: Cannot delete last admin
+              value:
+                type: "https://babbel.api/problems/admin-constraint"
+                title: "Admin Constraint"
+                status: 409
+                detail: "Cannot delete the last admin user"
+                instance: "/api/v1/users/1"
     UnprocessableEntity:
       description: Validation error
       content:
@@ -3066,36 +3142,38 @@ components:
             validation_errors:
               summary: Field validation errors
               value:
-                type: "https://api.example.com/problems/validation-error"
+                type: "https://babbel.api/problems/validation-error"
                 title: "Validation Error"
                 status: 422
                 detail: "The request contains validation errors"
                 instance: "/api/v1/stations"
                 errors:
                   - field: "name"
-                    code: "required"
                     message: "Name is required"
                   - field: "max_stories_per_block"
-                    code: "range"
                     message: "Must be between 1 and 50"
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-          examples:
-            legacy_validation_error:
-              summary: Legacy validation error format
+            data_too_long:
+              summary: Data exceeds maximum length
               value:
-                error: "validation_error"
-                message: "Validation failed"
-                details:
-                  name: "Name is required"
-                  max_stories_per_block: "Must be between 1 and 50"
+                type: "https://babbel.api/problems/data-too-long"
+                title: "Data Too Long"
+                status: 422
+                detail: "Data exceeds maximum length"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "title"
+                    message: "Title exceeds maximum length of 500 characters"
+            no_stories:
+              summary: No stories available for bulletin generation
+              value:
+                type: "https://babbel.api/problems/no-stories"
+                title: "No Stories Available"
+                status: 422
+                detail: "No stories available for bulletin generation"
+                instance: "/api/v1/stations/1/bulletins"
     InternalServerError:
       description: Internal server error
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'

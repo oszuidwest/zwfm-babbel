@@ -341,6 +341,10 @@ If not provided, uses BABBEL_FRONTEND_URL environment variable.
 
 
 
+**Error Responses:**
+
+- `500`: Error
+
 
 ---
 
@@ -385,6 +389,7 @@ Returns the complete user object for the authenticated user, including full_name
 
 **Error Responses:**
 
+- `400`: Error
 - `401`: Error
 
 
@@ -632,6 +637,7 @@ Voice/presenter management
 **Error Responses:**
 
 - `404`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -691,7 +697,9 @@ Voice/presenter management
 
 **Error Responses:**
 
+- `400`: Error
 - `404`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -799,6 +807,7 @@ Supported operators:
 **Error Responses:**
 
 - `400`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -855,7 +864,7 @@ Audio duration is automatically calculated and stored.
 
 
 
-**Request Body:** `audio/wav`
+**Request Body:** `multipart/form-data`
 
 
 
@@ -1693,7 +1702,8 @@ Available sort fields:
 - `station_name` - Station name
 
 ## Special Parameters
-- `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
+- `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
+- `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
 
 ## Notes
 To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
@@ -1859,7 +1869,7 @@ Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 fo
 
 
 
-**Request Body:** `audio/wav`
+**Request Body:** `multipart/form-data`
 
 
 
