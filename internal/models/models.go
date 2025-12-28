@@ -2,6 +2,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"gorm.io/datatypes"
@@ -73,6 +74,30 @@ type Story struct {
 
 	// Relations
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
+
+	// Computed fields (populated by AfterFind hook, not stored in DB)
+	VoiceName string          `gorm:"-" json:"voice_name,omitempty"`
+	AudioURL  *string         `gorm:"-" json:"audio_url,omitempty"`
+	Weekdays  map[string]bool `gorm:"-" json:"weekdays,omitempty"`
+}
+
+// AfterFind populates computed fields from preloaded relations.
+func (s *Story) AfterFind(_ *gorm.DB) error {
+	// Populate voice name from preloaded relation
+	if s.Voice != nil {
+		s.VoiceName = s.Voice.Name
+	}
+
+	// Generate audio URL if audio file exists
+	if s.AudioFile != "" {
+		url := fmt.Sprintf("/stories/%d/audio", s.ID)
+		s.AudioURL = &url
+	}
+
+	// Build weekdays map
+	s.Weekdays = s.WeekdaysMap()
+
+	return nil
 }
 
 // IsActiveOnWeekday reports whether the story is scheduled for the given weekday.
@@ -146,6 +171,32 @@ type StationVoice struct {
 	// Relations
 	Station *Station `gorm:"foreignKey:StationID" json:"-"`
 	Voice   *Voice   `gorm:"foreignKey:VoiceID" json:"-"`
+
+	// Computed fields (populated by AfterFind hook, not stored in DB)
+	StationName string  `gorm:"-" json:"station_name,omitempty"`
+	VoiceName   string  `gorm:"-" json:"voice_name,omitempty"`
+	AudioURL    *string `gorm:"-" json:"audio_url,omitempty"`
+}
+
+// AfterFind populates computed fields from preloaded relations.
+func (sv *StationVoice) AfterFind(_ *gorm.DB) error {
+	// Populate station name from preloaded relation
+	if sv.Station != nil {
+		sv.StationName = sv.Station.Name
+	}
+
+	// Populate voice name from preloaded relation
+	if sv.Voice != nil {
+		sv.VoiceName = sv.Voice.Name
+	}
+
+	// Generate audio URL if audio file exists
+	if sv.AudioFile != "" {
+		url := fmt.Sprintf("/station-voices/%d/audio", sv.ID)
+		sv.AudioURL = &url
+	}
+
+	return nil
 }
 
 // User represents a system user with authentication credentials and role-based permissions.
@@ -235,6 +286,23 @@ type Bulletin struct {
 	// Relations
 	Station *Station        `gorm:"foreignKey:StationID" json:"-"`
 	Stories []BulletinStory `gorm:"foreignKey:BulletinID" json:"-"`
+
+	// Computed fields (populated by AfterFind hook, not stored in DB)
+	StationName string `gorm:"-" json:"station_name,omitempty"`
+	AudioURL    string `gorm:"-" json:"audio_url,omitempty"`
+}
+
+// AfterFind populates computed fields from preloaded relations.
+func (b *Bulletin) AfterFind(_ *gorm.DB) error {
+	// Populate station name from preloaded relation
+	if b.Station != nil {
+		b.StationName = b.Station.Name
+	}
+
+	// Generate audio URL
+	b.AudioURL = fmt.Sprintf("/bulletins/%d/audio", b.ID)
+
+	return nil
 }
 
 // BulletinStory represents the relationship between bulletins and stories with join data.

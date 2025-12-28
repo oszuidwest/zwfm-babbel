@@ -2,37 +2,10 @@
 package handlers
 
 import (
-	"fmt"
-	"time"
-
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
-
-// StationVoiceResponse represents the response for station-voice relationships
-type StationVoiceResponse struct {
-	ID          int64     `json:"id" db:"id"`
-	StationID   int64     `json:"station_id" db:"station_id"`
-	VoiceID     int64     `json:"voice_id" db:"voice_id"`
-	AudioFile   string    `json:"-" db:"audio_file"`
-	MixPoint    float64   `json:"mix_point" db:"mix_point"`
-	StationName string    `json:"station_name" db:"station_name"`
-	VoiceName   string    `json:"voice_name" db:"voice_name"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
-	AudioURL    *string   `json:"audio_url,omitempty"`
-}
-
-// StationVoiceAudioURL returns the API URL for downloading a jingle file, or nil if no jingle.
-func StationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
-	if !hasJingle {
-		return nil
-	}
-	url := fmt.Sprintf("/station-voices/%d/audio", stationVoiceID)
-	return &url
-}
 
 // ListStationVoices returns a paginated list of station-voice relationships.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
@@ -53,13 +26,8 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 		return
 	}
 
-	// Convert to response format with audio URLs
-	responses := make([]StationVoiceResponse, len(result.Data))
-	for i, sv := range result.Data {
-		responses[i] = buildStationVoiceResponse(&sv)
-	}
-
-	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
+	// Return directly - AfterFind hook populates computed fields
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID
@@ -75,31 +43,8 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Get names from preloaded relations
-	stationName := ""
-	if stationVoice.Station != nil {
-		stationName = stationVoice.Station.Name
-	}
-	voiceName := ""
-	if stationVoice.Voice != nil {
-		voiceName = stationVoice.Voice.Name
-	}
-
-	// Convert to response format and add audio URL
-	response := StationVoiceResponse{
-		ID:          stationVoice.ID,
-		StationID:   stationVoice.StationID,
-		VoiceID:     stationVoice.VoiceID,
-		AudioFile:   stationVoice.AudioFile,
-		MixPoint:    stationVoice.MixPoint,
-		StationName: stationName,
-		VoiceName:   voiceName,
-		CreatedAt:   stationVoice.CreatedAt,
-		UpdatedAt:   stationVoice.UpdatedAt,
-		AudioURL:    StationVoiceAudioURL(stationVoice.ID, stationVoice.AudioFile != ""),
-	}
-
-	utils.Success(c, response)
+	// Return directly - AfterFind hook populates computed fields
+	utils.Success(c, stationVoice)
 }
 
 // CreateStationVoice creates a new station-voice relationship (JSON API only)
@@ -147,33 +92,7 @@ func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *utils
 	return true
 }
 
-// buildStationVoiceResponse converts a model to response format with audio URL
-func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
-	// Get names from preloaded relations
-	stationName := ""
-	if sv.Station != nil {
-		stationName = sv.Station.Name
-	}
-	voiceName := ""
-	if sv.Voice != nil {
-		voiceName = sv.Voice.Name
-	}
-
-	return StationVoiceResponse{
-		ID:          sv.ID,
-		StationID:   sv.StationID,
-		VoiceID:     sv.VoiceID,
-		AudioFile:   sv.AudioFile,
-		MixPoint:    sv.MixPoint,
-		StationName: stationName,
-		VoiceName:   voiceName,
-		CreatedAt:   sv.CreatedAt,
-		UpdatedAt:   sv.UpdatedAt,
-		AudioURL:    StationVoiceAudioURL(sv.ID, sv.AudioFile != ""),
-	}
-}
-
-// UpdateStationVoice updates an existing station-voice relationship (JSON API only)
+// UpdateStationVoice updates an existing station-voice relationship
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -200,14 +119,14 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Get updated record for response
+	// Get updated record for response - AfterFind hook populates computed fields
 	updatedRecord, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "Station-voice relationship")
 		return
 	}
 
-	utils.Success(c, buildStationVoiceResponse(updatedRecord))
+	utils.Success(c, updatedRecord)
 }
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file
