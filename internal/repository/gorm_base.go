@@ -3,6 +3,9 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -86,4 +89,65 @@ func ApplySoftDeleteFilter(db *gorm.DB, status string) *gorm.DB {
 	default:
 		return db // "active" - use GORM's default soft delete filtering
 	}
+}
+
+// UpdateByID updates a record by its primary key with the provided updates.
+// The updates parameter can be a struct or map[string]any.
+func (r *GormRepository[T]) UpdateByID(ctx context.Context, id int64, updates any) error {
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(new(T)).Where("id = ?", id).Updates(updates)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetByIDWithPreload retrieves a record by its primary key with eager loading.
+// Use this for belongs-to relations that need to be loaded with the main record.
+func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, preloads ...string) (*T, error) {
+	var result T
+	db := DBFromContext(ctx, r.db)
+	query := db.WithContext(ctx)
+	for _, p := range preloads {
+		query = query.Preload(p)
+	}
+	if err := query.First(&result, id).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+	return &result, nil
+}
+
+// HasRelatedRecords checks if a record has related records in specified tables.
+// Uses a single UNION query for efficiency instead of multiple COUNT queries.
+// tables is a map of table_name -> foreign_key_column
+func (r *GormRepository[T]) HasRelatedRecords(ctx context.Context, id int64, tables map[string]string) (bool, error) {
+	if len(tables) == 0 {
+		return false, nil
+	}
+
+	db := DBFromContext(ctx, r.db)
+
+	// Build UNION query: SELECT 1 FROM table1 WHERE fk = ? UNION SELECT 1 FROM table2 WHERE fk = ? LIMIT 1
+	var parts []string
+	var args []any
+	for table, fk := range tables {
+		parts = append(parts, fmt.Sprintf("SELECT 1 FROM %s WHERE %s = ?", table, fk))
+		args = append(args, id)
+	}
+
+	query := strings.Join(parts, " UNION ") + " LIMIT 1"
+
+	var exists int
+	err := db.WithContext(ctx).Raw(query, args...).Scan(&exists).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, ParseDBError(err)
+	}
+
+	return exists == 1, nil
 }

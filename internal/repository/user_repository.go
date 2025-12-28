@@ -32,6 +32,15 @@ type UserUpdate struct {
 	ClearMetadata    bool
 }
 
+// hasUpdates returns true if any field is set for update.
+func (u *UserUpdate) hasUpdates() bool {
+	return u.Username != nil || u.FullName != nil || u.Email != nil ||
+		u.PasswordHash != nil || u.Role != nil || u.LastLoginAt != nil ||
+		u.LoginCount != nil || u.FailedLoginAttempts != nil ||
+		u.LockedUntil != nil || u.PasswordChangedAt != nil || u.Metadata != nil ||
+		u.ClearEmail || u.ClearLockedUntil || u.ClearMetadata
+}
+
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// CRUD operations
@@ -97,7 +106,7 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 
 // Update updates a user with the provided field values.
 func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
 
@@ -153,16 +162,7 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 		return nil
 	}
 
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // IsUsernameTaken checks if username is in use.
@@ -201,16 +201,7 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 		updateMap = map[string]any{"suspended_at": nil}
 	}
 
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // DeleteSessions removes all sessions for a user.
