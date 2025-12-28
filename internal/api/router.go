@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
@@ -29,17 +28,17 @@ import (
 //   - Combined authentication (both methods enabled)
 //
 // Returns a configured Gin engine ready for HTTP serving, or an error if setup fails.
-func SetupRouter(db *sqlx.DB, gormDB *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
-	// Create transaction manager
+func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
+	// Create transaction manager using GORM for transaction support
 	txManager := repository.NewTxManager(db)
 
-	// Create repositories (GORM-based repositories use gormDB, legacy use db)
-	stationRepo := repository.NewStationRepository(gormDB)
-	voiceRepo := repository.NewVoiceRepository(gormDB)
-	userRepo := repository.NewUserRepository(gormDB)
-	storyRepo := repository.NewStoryRepository(gormDB)
-	bulletinRepo := repository.NewBulletinRepository(gormDB)
-	stationVoiceRepo := repository.NewStationVoiceRepository(gormDB)
+	// Create repositories (all GORM-based)
+	stationRepo := repository.NewStationRepository(db)
+	voiceRepo := repository.NewVoiceRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	storyRepo := repository.NewStoryRepository(db)
+	bulletinRepo := repository.NewBulletinRepository(db)
+	stationVoiceRepo := repository.NewStationVoiceRepository(db)
 	audioRepo := repository.NewAudioRepository(db)
 
 	// Create audio service
@@ -53,25 +52,25 @@ func SetupRouter(db *sqlx.DB, gormDB *gorm.DB, cfg *config.Config) (*gin.Engine,
 		StoryRepo:    storyRepo,
 		AudioSvc:     audioSvc,
 		Config:       cfg,
-		GormDB:       gormDB,
+		GormDB:       db,
 	})
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
 		StoryRepo: storyRepo,
 		VoiceRepo: voiceRepo,
 		AudioSvc:  audioSvc,
 		Config:    cfg,
-		GormDB:    gormDB,
+		GormDB:    db,
 	})
-	stationSvc := services.NewStationService(stationRepo, gormDB)
-	voiceSvc := services.NewVoiceService(voiceRepo, gormDB)
-	userSvc := services.NewUserService(userRepo, gormDB)
+	stationSvc := services.NewStationService(stationRepo, db)
+	voiceSvc := services.NewVoiceService(voiceRepo, db)
+	userSvc := services.NewUserService(userRepo, db)
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		StationVoiceRepo: stationVoiceRepo,
 		StationRepo:      stationRepo,
 		VoiceRepo:        voiceRepo,
 		AudioSvc:         audioSvc,
 		Config:           cfg,
-		GormDB:           gormDB,
+		GormDB:           db,
 	})
 
 	// Create handlers with services and audio repository

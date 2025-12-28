@@ -17,7 +17,7 @@ import (
 type UserUpdate struct {
 	Username            *string
 	FullName            *string
-	Email               **string    // Nullable: outer nil = skip, inner nil = set NULL
+	Email               **string // Nullable: outer nil = skip, inner nil = set NULL
 	PasswordHash        *string
 	Role                *string
 	SuspendedAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL

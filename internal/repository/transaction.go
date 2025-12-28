@@ -3,11 +3,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // TxManager defines the transaction management interface.
@@ -18,67 +17,48 @@ type TxManager interface {
 	// If the function succeeds, the transaction is committed.
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 
-	// WithTransactionOpts allows specifying custom transaction options.
-	WithTransactionOpts(ctx context.Context, opts *sql.TxOptions, fn func(ctx context.Context) error) error
-
-	// DB returns the underlying database connection for non-transactional queries.
-	DB() *sqlx.DB
+	// DB returns the underlying GORM database connection for non-transactional queries.
+	DB() *gorm.DB
 }
 
-// txManager implements TxManager using sqlx.
+// txManager implements TxManager using GORM.
 type txManager struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
 // NewTxManager creates a new transaction manager.
-func NewTxManager(db *sqlx.DB) TxManager {
+func NewTxManager(db *gorm.DB) TxManager {
 	return &txManager{db: db}
 }
 
-// DB returns the underlying database connection.
-func (m *txManager) DB() *sqlx.DB {
+// DB returns the underlying GORM database connection.
+func (m *txManager) DB() *gorm.DB {
 	return m.db
 }
 
-// WithTransaction executes fn within a transaction with default options.
-func (m *txManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	return m.WithTransactionOpts(ctx, nil, fn)
-}
-
-// WithTransactionOpts executes fn within a transaction with custom options.
+// WithTransaction executes fn within a GORM transaction.
 // The transaction is automatically stored in the context and can be retrieved
 // by repositories using TxFromContext.
-func (m *txManager) WithTransactionOpts(ctx context.Context, opts *sql.TxOptions, fn func(ctx context.Context) error) error {
-	tx, err := m.db.BeginTxx(ctx, opts)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Handle panic recovery - rollback and re-panic
-	defer func() {
-		if p := recover(); p != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
-				logger.Error("Failed to rollback transaction after panic: %v", rollbackErr)
+func (m *txManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	// Use GORM's Transaction method which handles begin, commit, and rollback
+	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Handle panic recovery - GORM's Transaction already handles rollback on panic,
+		// but we need to log it
+		defer func() {
+			if p := recover(); p != nil {
+				logger.Error("Panic in transaction: %v", p)
+				panic(p) // Re-raise the panic after logging
 			}
-			panic(p) // Re-raise the panic
+		}()
+
+		// Store transaction in context for repositories to use
+		txCtx := ContextWithTx(ctx, tx)
+
+		// Execute the function
+		if err := fn(txCtx); err != nil {
+			return fmt.Errorf("transaction failed: %w", err)
 		}
-	}()
 
-	// Store transaction in context for repositories to use
-	txCtx := ContextWithTx(ctx, tx)
-
-	// Execute the function
-	if err := fn(txCtx); err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
-			logger.Error("Failed to rollback transaction: %v", rollbackErr)
-		}
-		return err
-	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }

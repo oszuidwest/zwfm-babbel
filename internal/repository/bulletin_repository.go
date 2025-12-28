@@ -44,6 +44,7 @@ func (r *bulletinRepository) GormDB() *gorm.DB {
 }
 
 // Create inserts a new bulletin and returns the created ID.
+// Uses transaction from context if available.
 func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error) {
 	bulletin := &models.Bulletin{
 		StationID:       stationID,
@@ -54,7 +55,8 @@ func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filena
 		StoryCount:      storyCount,
 	}
 
-	if err := r.db.WithContext(ctx).Create(bulletin).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(bulletin).Error; err != nil {
 		if IsDuplicateKeyError(err) {
 			return 0, ErrDuplicateKey
 		}
@@ -112,6 +114,7 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 }
 
 // LinkStories creates bulletin-story relationship records.
+// Uses transaction from context if available.
 func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
 	if len(storyIDs) == 0 {
 		return nil
@@ -127,8 +130,9 @@ func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 		}
 	}
 
-	// Batch insert all records
-	if err := r.db.WithContext(ctx).Create(&bulletinStories).Error; err != nil {
+	// Batch insert all records using transaction if available
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(&bulletinStories).Error; err != nil {
 		if IsDuplicateKeyError(err) {
 			return ErrDuplicateKey
 		}

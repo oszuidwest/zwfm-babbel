@@ -475,28 +475,6 @@ type StoryListItem struct {
 	Weekdays        map[string]bool `json:"weekdays,omitempty"`
 }
 
-// storyAudioURL returns the API URL for downloading a story's audio file.
-func storyAudioURL(storyID int64, hasAudio bool) *string {
-	if !hasAudio {
-		return nil
-	}
-	url := fmt.Sprintf("/stories/%d/audio", storyID)
-	return &url
-}
-
-// weekdaysFromItem converts individual weekday fields to map.
-func weekdaysFromItem(item *StoryListItem) map[string]bool {
-	return map[string]bool{
-		"monday":    item.Monday,
-		"tuesday":   item.Tuesday,
-		"wednesday": item.Wednesday,
-		"thursday":  item.Thursday,
-		"friday":    item.Friday,
-		"saturday":  item.Saturday,
-		"sunday":    item.Sunday,
-	}
-}
-
 // ListWithContext handles paginated list requests with query parameters.
 // Encapsulates query configuration and writes JSON response directly.
 func (s *StoryService) ListWithContext(c *gin.Context) {
