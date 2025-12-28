@@ -9,7 +9,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StationVoiceResponse represents the response for station-voice relationships
@@ -39,7 +38,30 @@ func StationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
 // Supports advanced filtering, sorting, field selection, and full-text search.
 // Search functionality covers station names and voice names for easy discovery.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
-	h.stationVoiceSvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert to repository ListQuery
+	query := convertToListQuery(params)
+
+	// Call service
+	result, err := h.stationVoiceSvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Station-voice relationships")
+		return
+	}
+
+	// Convert to response format with audio URLs
+	responses := make([]StationVoiceResponse, len(result.Data))
+	for i, sv := range result.Data {
+		responses[i] = buildStationVoiceResponse(&sv)
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID
@@ -108,11 +130,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 			}})
 			return
 		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				logger.Error("Failed to cleanup jingle file: %v", err)
-			}
-		}()
+		defer deferCleanup(cleanup, "jingle file")()
 
 		// Process jingle via service
 		if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice.ID, tempPath); err != nil {
@@ -198,11 +216,7 @@ func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int64) boo
 		}})
 		return false
 	}
-	defer func() {
-		if err := cleanup(); err != nil {
-			logger.Error("Failed to cleanup jingle file: %v", err)
-		}
-	}()
+	defer deferCleanup(cleanup, "jingle file")()
 
 	// Process jingle via service
 	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {

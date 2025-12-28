@@ -9,7 +9,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // StoryResponse represents the response format for news stories with computed weekday information.
@@ -52,6 +51,12 @@ func StoryAudioURL(storyID int64, hasAudio bool) *string {
 
 // modelStoryToResponse converts a models.Story to StoryResponse with computed fields
 func modelStoryToResponse(story *models.Story) StoryResponse {
+	// Convert gorm.DeletedAt to *time.Time for response
+	var deletedAt *time.Time
+	if story.DeletedAt.Valid {
+		deletedAt = &story.DeletedAt.Time
+	}
+
 	response := StoryResponse{
 		ID:              story.ID,
 		Title:           story.Title,
@@ -70,7 +75,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 		Saturday:        story.Saturday,
 		Sunday:          story.Sunday,
 		Metadata:        story.Metadata,
-		DeletedAt:       story.DeletedAt,
+		DeletedAt:       deletedAt,
 		CreatedAt:       story.CreatedAt,
 		UpdatedAt:       story.UpdatedAt,
 		VoiceName:       story.VoiceName,
@@ -86,7 +91,30 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 
 // ListStories returns a paginated list of stories with modern query parameter support
 func (h *Handlers) ListStories(c *gin.Context) {
-	h.storySvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert to repository ListQuery
+	query := convertToListQuery(params)
+
+	// Call service
+	result, err := h.storySvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	// Convert stories to response format
+	responses := make([]StoryResponse, len(result.Data))
+	for i := range result.Data {
+		responses[i] = modelStoryToResponse(&result.Data[i])
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // GetStory returns a single story by ID
@@ -165,11 +193,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 			}})
 			return
 		}
-		defer func() {
-			if err := cleanup(); err != nil {
-				logger.Error("Failed to cleanup audio file: %v", err)
-			}
-		}()
+		defer deferCleanup(cleanup, "audio file")()
 
 		// Process audio via service
 		if err := h.storySvc.ProcessAudio(c.Request.Context(), story.ID, tempPath); err != nil {
@@ -284,11 +308,7 @@ func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int64) bool {
 		}})
 		return false
 	}
-	defer func() {
-		if err := cleanup(); err != nil {
-			logger.Error("Failed to cleanup audio file: %v", err)
-		}
-	}()
+	defer deferCleanup(cleanup, "audio file")()
 
 	// Process audio via service
 	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {

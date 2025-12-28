@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
-	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -109,7 +107,7 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 }
 
 // applyEmailUpdate validates and applies email update.
-func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int64) error {
+func (s *UserService) applyEmailUpdate(ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64) error {
 	if email == nil || *email == "" {
 		return nil
 	}
@@ -120,7 +118,7 @@ func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.
 	if taken {
 		return fmt.Errorf("%w: email '%s'", apperrors.ErrDuplicate, *email)
 	}
-	updates.Email = &email
+	u.Email = updates.Set(*email)
 	return nil
 }
 
@@ -158,10 +156,9 @@ func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullNa
 }
 
 // applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(updates *repository.UserUpdate, metadata string) {
+func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata string) {
 	if metadata != "" {
-		metadataPtr := &metadata
-		updates.Metadata = &metadataPtr
+		u.Metadata = updates.Set(metadata)
 	}
 }
 
@@ -180,10 +177,10 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 }
 
 // hasFieldUpdates checks if any field updates are present.
-func hasFieldUpdates(updates *repository.UserUpdate) bool {
-	return updates.Username != nil || updates.FullName != nil ||
-		updates.Email != nil || updates.PasswordHash != nil ||
-		updates.Role != nil || updates.Metadata != nil
+func hasFieldUpdates(u *repository.UserUpdate) bool {
+	return u.Username != nil || u.FullName != nil ||
+		u.Email.IsSet || u.PasswordHash != nil ||
+		u.Role != nil || u.Metadata.IsSet
 }
 
 // executeFieldUpdates applies field updates to the repository.
@@ -359,57 +356,14 @@ func isValidRole(role string) bool {
 	return slices.Contains(validRoles, role)
 }
 
-// UserListItem represents a user in list responses.
-type UserListItem struct {
-	ID                  int64      `json:"id" db:"id"`
-	Username            string     `json:"username" db:"username"`
-	FullName            *string    `json:"full_name" db:"full_name"`
-	Email               *string    `json:"email" db:"email"`
-	Role                string     `json:"role" db:"role"`
-	SuspendedAt         *time.Time `json:"suspended_at" db:"suspended_at"`
-	LastLoginAt         *time.Time `json:"last_login_at" db:"last_login_at"`
-	LoginCount          int        `json:"login_count" db:"login_count"`
-	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
-	LockedUntil         *time.Time `json:"locked_until" db:"locked_until"`
-	PasswordChangedAt   *time.Time `json:"password_changed_at" db:"password_changed_at"`
-	Metadata            *string    `json:"metadata" db:"metadata"`
-	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
-}
+// List retrieves a paginated list of users with filtering, sorting, and search support.
+func (s *UserService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.User], error) {
+	const op = "UserService.List"
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *UserService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
-			            login_count, failed_login_attempts, locked_until, password_changed_at,
-			            metadata, created_at, updated_at FROM users`,
-			CountQuery:   "SELECT COUNT(*) FROM users",
-			DefaultOrder: "username ASC",
-		},
-		SearchFields:      []string{"username", "full_name", "email"},
-		TableAlias:        "",
-		DefaultFields:     "*",
-		DisableSoftDelete: true,
-		FieldMapping: map[string]string{
-			"id":                    "id",
-			"username":              "username",
-			"full_name":             "full_name",
-			"email":                 "email",
-			"role":                  "role",
-			"suspended_at":          "suspended_at",
-			"last_login_at":         "last_login_at",
-			"login_count":           "login_count",
-			"failed_login_attempts": "failed_login_attempts",
-			"locked_until":          "locked_until",
-			"password_changed_at":   "password_changed_at",
-			"metadata":              "metadata",
-			"created_at":            "created_at",
-			"updated_at":            "updated_at",
-		},
+	result, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	var users []UserListItem
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &users)
+	return result, nil
 }

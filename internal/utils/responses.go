@@ -124,19 +124,6 @@ func ProblemAuthentication(c *gin.Context, detail string) {
 	SendProblem(c, problem)
 }
 
-// ProblemForbidden responds with HTTP 403 Forbidden.
-// Used when the user is authenticated but lacks permission for the action.
-func ProblemForbidden(c *gin.Context, detail string) {
-	if c == nil {
-		return
-	}
-	problem := NewForbiddenProblem(detail, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
-}
-
 // ProblemInternalServer responds with HTTP 500 Internal Server Error.
 func ProblemInternalServer(c *gin.Context, detail string) {
 	if c == nil {

@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
-	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // StationService handles station-related business logic
@@ -100,6 +98,15 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	return nil
 }
 
+// Exists checks if a station with the given ID exists.
+func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
+	exists, err := s.repo.Exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to check station existence: %v", apperrors.ErrDatabaseError, err)
+	}
+	return exists, nil
+}
+
 // Delete deletes a station after checking for dependencies
 func (s *StationService) Delete(ctx context.Context, id int64) error {
 	const op = "StationService.Delete"
@@ -134,49 +141,29 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetByIDWithContext retrieves a station by ID and writes the JSON response.
-func (s *StationService) GetByIDWithContext(c *gin.Context) {
-	id, ok := utils.IDParam(c)
-	if !ok {
-		return
-	}
+// GetByID retrieves a station by ID.
+func (s *StationService) GetByID(ctx context.Context, id int64) (*models.Station, error) {
+	const op = "StationService.GetByID"
 
-	station, err := s.repo.GetByID(c.Request.Context(), id)
+	station, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			utils.ProblemNotFound(c, "Station")
-			return
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		utils.ProblemInternalServer(c, "Failed to retrieve station")
-		return
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	c.JSON(200, station)
+	return station, nil
 }
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *StationService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery:    "SELECT s.* FROM stations s",
-			CountQuery:   "SELECT COUNT(*) FROM stations s",
-			DefaultOrder: "s.name ASC",
-		},
-		SearchFields:      []string{"s.name"},
-		TableAlias:        "s",
-		DefaultFields:     "s.*",
-		DisableSoftDelete: true,
-		FieldMapping: map[string]string{
-			"id":                    "s.id",
-			"name":                  "s.name",
-			"max_stories_per_block": "s.max_stories_per_block",
-			"pause_seconds":         "s.pause_seconds",
-			"created_at":            "s.created_at",
-			"updated_at":            "s.updated_at",
-		},
+// List returns a paginated list of stations.
+func (s *StationService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Station], error) {
+	const op = "StationService.List"
+
+	result, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	var stations []models.Station
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &stations)
+	return result, nil
 }

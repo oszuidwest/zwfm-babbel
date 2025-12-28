@@ -11,13 +11,46 @@ import (
 // Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
 // Requires 'stations' read permission. Returns station data with metadata including total count and pagination info.
 func (h *Handlers) ListStations(c *gin.Context) {
-	h.stationSvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert utils.QueryParams to repository.ListQuery
+	query := convertToListQuery(params)
+
+	result, err := h.stationSvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Station")
+		return
+	}
+
+	// Apply field filtering if requested
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = filterFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetStation returns a single radio station by ID with all configuration details.
 // Requires 'stations' read permission. Returns 404 if station doesn't exist.
 func (h *Handlers) GetStation(c *gin.Context) {
-	h.stationSvc.GetByIDWithContext(c)
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	station, err := h.stationSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Station")
+		return
+	}
+
+	c.JSON(200, station)
 }
 
 // CreateStation creates a new radio station with broadcast configuration settings.

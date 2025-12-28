@@ -5,7 +5,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/scheduler"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"github.com/oszuidwest/zwfm-babbel/pkg/version"
+	"gorm.io/gorm"
 )
 
 const (
@@ -39,7 +39,7 @@ func main() {
 	initLogger(cfg)
 	defer logger.Sync()
 
-	db, err := database.Connect(cfg.Database)
+	db, err := database.NewGormDB(cfg)
 	if err != nil {
 		logger.Fatal("Failed to connect to database: %v", err)
 	}
@@ -101,8 +101,13 @@ func initLogger(cfg *config.Config) {
 	}
 }
 
-func closeDatabase(db io.Closer) {
-	if err := db.Close(); err != nil {
+func closeDatabase(db *gorm.DB) {
+	sqlDB, err := db.DB()
+	if err != nil {
+		logger.Error("Failed to get underlying database connection: %v", err)
+		return
+	}
+	if err := sqlDB.Close(); err != nil {
 		logger.Error("Failed to close database connection: %v", err)
 	}
 }

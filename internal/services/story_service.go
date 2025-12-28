@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -291,6 +290,15 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	return story, nil
 }
 
+// Exists checks if a story with the given ID exists.
+func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
+	exists, err := s.storyRepo.Exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to check story existence: %v", apperrors.ErrDatabaseError, err)
+	}
+	return exists, nil
+}
+
 // SoftDelete marks a story as deleted by setting the deleted_at timestamp.
 func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	// Verify story exists
@@ -444,101 +452,13 @@ func (s *StoryService) handleDatabaseError(err error) error {
 	return fmt.Errorf("%w: database operation failed", apperrors.ErrDatabaseError)
 }
 
-// StoryListItem represents a story in list responses with computed fields.
-type StoryListItem struct {
-	ID              int64           `json:"id" db:"id"`
-	Title           string          `json:"title" db:"title"`
-	Text            string          `json:"text" db:"text"`
-	VoiceID         *int64          `json:"voice_id" db:"voice_id"`
-	AudioFile       string          `json:"-" db:"audio_file"`
-	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
-	Status          string          `json:"status" db:"status"`
-	StartDate       time.Time       `json:"start_date" db:"start_date"`
-	EndDate         time.Time       `json:"end_date" db:"end_date"`
-	Monday          bool            `json:"-" db:"monday"`
-	Tuesday         bool            `json:"-" db:"tuesday"`
-	Wednesday       bool            `json:"-" db:"wednesday"`
-	Thursday        bool            `json:"-" db:"thursday"`
-	Friday          bool            `json:"-" db:"friday"`
-	Saturday        bool            `json:"-" db:"saturday"`
-	Sunday          bool            `json:"-" db:"sunday"`
-	Metadata        *string         `json:"metadata" db:"metadata"`
-	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
-	VoiceName       string          `json:"voice_name" db:"voice_name"`
-	AudioURL        *string         `json:"audio_url,omitempty"`
-	Weekdays        map[string]bool `json:"weekdays,omitempty"`
-}
-
-// storyAudioURL returns the API URL for downloading a story's audio file.
-func storyAudioURL(storyID int64, hasAudio bool) *string {
-	if !hasAudio {
-		return nil
+// List retrieves stories with filtering, sorting, and pagination.
+// Delegates to the repository layer for data access.
+func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
+	result, err := s.storyRepo.List(ctx, query)
+	if err != nil {
+		logger.Error("Database error listing stories: %v", err)
+		return nil, fmt.Errorf("%w: failed to list stories", apperrors.ErrDatabaseError)
 	}
-	url := fmt.Sprintf("/stories/%d/audio", storyID)
-	return &url
-}
-
-// weekdaysFromItem converts individual weekday fields to map.
-func weekdaysFromItem(item *StoryListItem) map[string]bool {
-	return map[string]bool{
-		"monday":    item.Monday,
-		"tuesday":   item.Tuesday,
-		"wednesday": item.Wednesday,
-		"thursday":  item.Thursday,
-		"friday":    item.Friday,
-		"saturday":  item.Saturday,
-		"sunday":    item.Sunday,
-	}
-}
-
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *StoryService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT s.*, COALESCE(v.name, '') as voice_name
-			            FROM stories s
-			            LEFT JOIN voices v ON s.voice_id = v.id`,
-			CountQuery:   "SELECT COUNT(*) FROM stories s LEFT JOIN voices v ON s.voice_id = v.id",
-			DefaultOrder: "s.created_at DESC",
-			PostProcessor: func(result any) {
-				if stories, ok := result.(*[]StoryListItem); ok {
-					for i := range *stories {
-						hasAudio := (*stories)[i].AudioFile != ""
-						(*stories)[i].AudioURL = storyAudioURL((*stories)[i].ID, hasAudio)
-						(*stories)[i].Weekdays = weekdaysFromItem(&(*stories)[i])
-					}
-				}
-			},
-		},
-		SearchFields:  []string{"s.title", "s.text", "v.name"},
-		TableAlias:    "s",
-		DefaultFields: "s.*, COALESCE(v.name, '') as voice_name",
-		FieldMapping: map[string]string{
-			"id":         "s.id",
-			"title":      "s.title",
-			"text":       "s.text",
-			"voice_id":   "s.voice_id",
-			"voice_name": "COALESCE(v.name, '')",
-			"status":     "s.status",
-			"start_date": "s.start_date",
-			"end_date":   "s.end_date",
-			"created_at": "s.created_at",
-			"updated_at": "s.updated_at",
-			"deleted_at": "s.deleted_at",
-			"audio_file": "s.audio_file",
-			"monday":     "s.monday",
-			"tuesday":    "s.tuesday",
-			"wednesday":  "s.wednesday",
-			"thursday":   "s.thursday",
-			"friday":     "s.friday",
-			"saturday":   "s.saturday",
-			"sunday":     "s.sunday",
-		},
-	}
-
-	var stories []StoryListItem
-	utils.ModernListWithQuery(c, s.storyRepo.DB(), config, &stories)
+	return result, nil
 }

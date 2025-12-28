@@ -3,14 +3,10 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"gorm.io/gorm"
 )
 
 // BulletinRepository defines the interface for bulletin data access.
@@ -21,61 +17,58 @@ type BulletinRepository interface {
 
 	// Query operations
 	GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error)
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error)
+	Exists(ctx context.Context, id int64) (bool, error)
+	GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error)
+	GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
+	GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
 
 	// Story linking
 	LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error
-
-	// DB returns the underlying database for ModernListWithQuery
-	DB() *sqlx.DB
 }
 
-// bulletinRepository implements BulletinRepository.
+// bulletinRepository implements BulletinRepository using GORM.
 type bulletinRepository struct {
-	*BaseRepository[models.Bulletin]
+	*GormRepository[models.Bulletin]
 }
 
 // NewBulletinRepository creates a new bulletin repository.
-func NewBulletinRepository(db *sqlx.DB) BulletinRepository {
+func NewBulletinRepository(db *gorm.DB) BulletinRepository {
 	return &bulletinRepository{
-		BaseRepository: NewBaseRepository[models.Bulletin](db, "bulletins"),
+		GormRepository: NewGormRepository[models.Bulletin](db),
 	}
 }
 
 // Create inserts a new bulletin and returns the created ID.
+// Uses transaction from context if available.
 func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filename, audioFile string, duration float64, fileSize int64, storyCount int) (int64, error) {
-	q := r.getQueryable(ctx)
+	bulletin := &models.Bulletin{
+		StationID:       stationID,
+		Filename:        filename,
+		AudioFile:       audioFile,
+		DurationSeconds: duration,
+		FileSize:        fileSize,
+		StoryCount:      storyCount,
+	}
 
-	result, err := q.ExecContext(ctx,
-		`INSERT INTO bulletins (station_id, filename, audio_file, duration_seconds, file_size, story_count)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		stationID, filename, audioFile, duration, fileSize, storyCount,
-	)
-	if err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(bulletin).Error; err != nil {
 		return 0, ParseDBError(err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get last insert id: %w", err)
-	}
-
-	return id, nil
+	return bulletin.ID, nil
 }
 
 // GetByID retrieves a bulletin by ID with station name.
 func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
-	q := r.getQueryable(ctx)
-
 	var bulletin models.Bulletin
-	query := `SELECT b.*, s.name as station_name
-              FROM bulletins b
-              JOIN stations s ON b.station_id = s.id
-              WHERE b.id = ?`
 
-	if err := q.GetContext(ctx, &bulletin, query, id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
+	err := r.db.WithContext(ctx).
+		Select("bulletins.*, stations.name as station_name").
+		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		First(&bulletin, id).Error
+
+	if err != nil {
 		return nil, ParseDBError(err)
 	}
 
@@ -85,55 +78,120 @@ func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins newer than that duration.
 func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error) {
-	q := r.getQueryable(ctx)
-
 	var bulletin models.Bulletin
 
-	query := `SELECT b.*, s.name as station_name
-              FROM bulletins b
-              JOIN stations s ON b.station_id = s.id
-              WHERE b.station_id = ?`
-
-	args := []any{stationID}
+	query := r.db.WithContext(ctx).
+		Select("bulletins.*, stations.name as station_name").
+		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Where("station_id = ?", stationID)
 
 	if maxAge != nil {
-		query += ` AND b.created_at >= ?`
-		args = append(args, time.Now().Add(-*maxAge))
+		minTime := time.Now().Add(-*maxAge)
+		query = query.Where("bulletins.created_at >= ?", minTime)
 	}
 
-	query += ` ORDER BY b.created_at DESC LIMIT 1`
+	err := query.Order("created_at DESC").
+		First(&bulletin).Error
 
-	if err := q.GetContext(ctx, &bulletin, query, args...); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
+	if err != nil {
 		return nil, ParseDBError(err)
 	}
 
 	return &bulletin, nil
 }
 
-// LinkStories creates bulletin-story relationship records using batch INSERT.
+// LinkStories creates bulletin-story relationship records.
+// Uses transaction from context if available.
 func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
 	if len(storyIDs) == 0 {
 		return nil
 	}
 
-	q := r.getQueryable(ctx)
-
-	// Build batch INSERT for all stories
-	valueStrings := make([]string, 0, len(storyIDs))
-	valueArgs := make([]any, 0, len(storyIDs)*3)
+	// Build slice of BulletinStory records
+	bulletinStories := make([]models.BulletinStory, len(storyIDs))
 	for i, storyID := range storyIDs {
-		valueStrings = append(valueStrings, "(?, ?, ?)")
-		valueArgs = append(valueArgs, bulletinID, storyID, i)
+		bulletinStories[i] = models.BulletinStory{
+			BulletinID: bulletinID,
+			StoryID:    storyID,
+			StoryOrder: i,
+		}
 	}
 
-	query := fmt.Sprintf("INSERT INTO bulletin_stories (bulletin_id, story_id, story_order) VALUES %s", strings.Join(valueStrings, ", "))
-	_, err := q.ExecContext(ctx, query, valueArgs...)
-	if err != nil {
+	// Batch insert all records using transaction if available
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(&bulletinStories).Error; err != nil {
 		return ParseDBError(err)
 	}
 
 	return nil
+}
+
+// bulletinFieldMapping maps API field names to database columns for bulletins.
+var bulletinFieldMapping = FieldMapping{
+	"id":               "bulletins.id",
+	"station_id":       "bulletins.station_id",
+	"filename":         "bulletins.filename",
+	"duration_seconds": "bulletins.duration_seconds",
+	"file_size":        "bulletins.file_size",
+	"story_count":      "bulletins.story_count",
+	"created_at":       "bulletins.created_at",
+}
+
+// bulletinSearchFields defines which fields are searchable for bulletins.
+var bulletinSearchFields = []string{"bulletins.filename"}
+
+// List retrieves bulletins with pagination, filtering, and sorting.
+func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error) {
+	db := r.db.WithContext(ctx).
+		Model(&models.Bulletin{}).
+		Select("bulletins.*, stations.name as station_name").
+		Joins("JOIN stations ON bulletins.station_id = stations.id")
+
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+}
+
+// Exists checks if a bulletin with the given ID exists.
+func (r *bulletinRepository) Exists(ctx context.Context, id int64) (bool, error) {
+	return r.GormRepository.Exists(ctx, id)
+}
+
+// GetBulletinStories retrieves all stories included in a specific bulletin.
+func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
+	var bulletinStories []models.BulletinStory
+
+	err := r.db.WithContext(ctx).
+		Select("bulletin_stories.*, stories.title as story_title").
+		Joins("JOIN stories ON bulletin_stories.story_id = stories.id").
+		Where("bulletin_stories.bulletin_id = ?", bulletinID).
+		Order("bulletin_stories.story_order ASC").
+		Find(&bulletinStories).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return bulletinStories, nil
+}
+
+// GetStationBulletins retrieves bulletins for a specific station with pagination.
+func (r *bulletinRepository) GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
+	db := r.db.WithContext(ctx).
+		Model(&models.Bulletin{}).
+		Select("bulletins.*, stations.name as station_name").
+		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Where("bulletins.station_id = ?", stationID)
+
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+}
+
+// GetStoryBulletinHistory retrieves bulletins that included a specific story.
+func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
+	db := r.db.WithContext(ctx).
+		Model(&models.Bulletin{}).
+		Select("bulletins.*, stations.name as station_name").
+		Joins("JOIN stations ON bulletins.station_id = stations.id").
+		Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
+		Where("bulletin_stories.story_id = ?", storyID)
+
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }

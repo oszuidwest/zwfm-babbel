@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
+
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -15,8 +16,8 @@ import (
 // Runs as a background service that periodically checks for stories that should be expired
 // and updates their status from 'active' to 'expired'. This ensures bulletins only include current content.
 type StoryExpirationService struct {
-	// db provides database access for story status updates
-	db *sqlx.DB
+	// db provides GORM database access for story status updates
+	db *gorm.DB
 	// ticker controls the hourly execution schedule
 	ticker *time.Ticker
 	// done channel enables graceful shutdown signaling
@@ -27,7 +28,7 @@ type StoryExpirationService struct {
 
 // NewStoryExpirationService creates a new background service for story expiration management.
 // The service must be started with [StoryExpirationService.Start] to begin operations.
-func NewStoryExpirationService(db *sqlx.DB) *StoryExpirationService {
+func NewStoryExpirationService(db *gorm.DB) *StoryExpirationService {
 	return &StoryExpirationService{
 		db:   db,
 		done: make(chan bool),
@@ -88,27 +89,19 @@ func (s *StoryExpirationService) expireStories(ctx context.Context) {
 	logger.Info("Running story expiration check...")
 
 	// Update active stories with past end dates to expired status
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE stories
-		SET status = ?,
-		    updated_at = NOW()
-		WHERE status = ?
-		AND end_date < CURDATE()
-		AND deleted_at IS NULL
-	`, models.StoryStatusExpired, models.StoryStatusActive)
+	// GORM automatically excludes soft-deleted records (deleted_at IS NULL)
+	result := s.db.WithContext(ctx).
+		Model(&models.Story{}).
+		Where("status = ?", models.StoryStatusActive).
+		Where("end_date < CURDATE()").
+		Update("status", models.StoryStatusExpired)
 
-	if err != nil {
-		logger.Error("Failed to expire stories: %v", err)
+	if result.Error != nil {
+		logger.Error("Failed to expire stories: %v", result.Error)
 		return
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		logger.Error("Failed to get affected rows: %v", err)
-		return
-	}
-
-	if affected > 0 {
-		logger.Info("Expired %d stories past their end date", affected)
+	if result.RowsAffected > 0 {
+		logger.Info("Expired %d stories past their end date", result.RowsAffected)
 	}
 }

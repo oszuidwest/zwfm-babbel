@@ -4,38 +4,31 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
-// Queryable defines the common interface between *sqlx.DB and *sqlx.Tx.
-// This allows repositories to work seamlessly with both direct queries and transactions.
-// Only includes methods actually used by repositories (YAGNI principle).
-type Queryable interface {
-	GetContext(ctx context.Context, dest any, query string, args ...any) error
-	SelectContext(ctx context.Context, dest any, query string, args ...any) error
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
-// Compile-time verification that sqlx.DB and sqlx.Tx implement Queryable
-var (
-	_ Queryable = (*sqlx.DB)(nil)
-	_ Queryable = (*sqlx.Tx)(nil)
-)
-
-// txContextKey is the context key for storing transactions
+// txContextKey is the context key for storing GORM transactions.
 type txContextKey struct{}
 
-// ContextWithTx stores a transaction in the context for use by repositories.
-func ContextWithTx(ctx context.Context, tx Queryable) context.Context {
+// ContextWithTx stores a GORM transaction in the context for use by repositories.
+func ContextWithTx(ctx context.Context, tx *gorm.DB) context.Context {
 	return context.WithValue(ctx, txContextKey{}, tx)
 }
 
-// TxFromContext retrieves a transaction from context, or nil if not present.
-func TxFromContext(ctx context.Context) Queryable {
-	if tx, ok := ctx.Value(txContextKey{}).(Queryable); ok {
+// TxFromContext retrieves a GORM transaction from context, or nil if not present.
+func TxFromContext(ctx context.Context) *gorm.DB {
+	if tx, ok := ctx.Value(txContextKey{}).(*gorm.DB); ok {
 		return tx
 	}
 	return nil
+}
+
+// DBFromContext returns the transaction from context if present, otherwise returns the provided db.
+// This is a convenience function for repositories to automatically use transactions when available.
+func DBFromContext(ctx context.Context, db *gorm.DB) *gorm.DB {
+	if tx := TxFromContext(ctx); tx != nil {
+		return tx
+	}
+	return db
 }

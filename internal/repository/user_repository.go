@@ -3,34 +3,30 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
+	"gorm.io/gorm"
 )
 
 // UserUpdate contains optional fields for updating a user.
-// Nil pointer fields are not updated.
-// For nullable fields (double pointers), outer nil = don't update,
-// inner nil = set to NULL, inner value = set to that value.
+// Use regular pointers (*T) for non-nullable fields (nil = skip update).
+// Use updates.Nullable[T] for nullable fields (skip, set value, or set NULL).
 type UserUpdate struct {
-	Username            *string
-	FullName            *string
-	Email               **string // Nullable: outer nil = skip, inner nil = set NULL
-	PasswordHash        *string
-	Role                *string
-	SuspendedAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	DeletedAt           **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	LastLoginAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	LoginCount          *int
-	FailedLoginAttempts *int
-	LockedUntil         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	PasswordChangedAt   **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	Metadata            **string    // Nullable: outer nil = skip, inner nil = set NULL
+	Username            *string                     `db:"username"`
+	FullName            *string                     `db:"full_name"`
+	Email               updates.Nullable[string]    `db:"email"`
+	PasswordHash        *string                     `db:"password_hash"`
+	Role                *string                     `db:"role"`
+	SuspendedAt         updates.Nullable[time.Time] `db:"suspended_at"`
+	DeletedAt           updates.Nullable[time.Time] `db:"deleted_at"`
+	LastLoginAt         updates.Nullable[time.Time] `db:"last_login_at"`
+	LoginCount          *int                        `db:"login_count"`
+	FailedLoginAttempts *int                        `db:"failed_login_attempts"`
+	LockedUntil         updates.Nullable[time.Time] `db:"locked_until"`
+	PasswordChangedAt   updates.Nullable[time.Time] `db:"password_changed_at"`
+	Metadata            updates.Nullable[string]    `db:"metadata"`
 }
 
 // UserRepository defines the interface for user data access.
@@ -43,6 +39,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error)
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error)
 	IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error)
@@ -51,53 +48,43 @@ type UserRepository interface {
 	// User-specific operations
 	SetSuspended(ctx context.Context, id int64, suspended bool) error
 	DeleteSessions(ctx context.Context, userID int64) error
-
-	// DB returns the underlying database for ModernListWithQuery
-	DB() *sqlx.DB
 }
 
-// userRepository implements UserRepository.
+// userRepository implements UserRepository using GORM.
 type userRepository struct {
-	*BaseRepository[models.User]
+	*GormRepository[models.User]
 }
 
 // NewUserRepository creates a new user repository.
-func NewUserRepository(db *sqlx.DB) UserRepository {
+func NewUserRepository(db *gorm.DB) UserRepository {
 	return &userRepository{
-		BaseRepository: NewBaseRepository[models.User](db, "users"),
+		GormRepository: NewGormRepository[models.User](db),
 	}
 }
 
 // Create inserts a new user and returns the created record.
 func (r *userRepository) Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string) (*models.User, error) {
-	q := r.getQueryable(ctx)
+	user := &models.User{
+		Username:     username,
+		FullName:     fullName,
+		Email:        email,
+		PasswordHash: passwordHash,
+		Role:         models.UserRole(role),
+	}
 
-	result, err := q.ExecContext(ctx,
-		"INSERT INTO users (username, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-		username, fullName, email, passwordHash, role,
-	)
+	err := r.db.WithContext(ctx).Create(user).Error
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert id: %w", err)
-	}
-
-	return r.GetByID(ctx, id)
+	return user, nil
 }
 
 // GetByUsername retrieves a user by username.
 func (r *userRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
-	q := r.getQueryable(ctx)
-
 	var user models.User
-	err := q.GetContext(ctx, &user, "SELECT * FROM users WHERE username = ?", username)
+	err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
 		return nil, ParseDBError(err)
 	}
 
@@ -105,120 +92,139 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 }
 
 // Update updates a user with the provided field values.
-func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpdate) error {
-	if updates == nil {
+func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	q := r.getQueryable(ctx)
-
-	// Build dynamic query from struct fields
-	setClauses := make([]string, 0, 12)
-	args := make([]any, 0, 12)
-
-	// Non-nullable string fields
-	addFieldUpdate(&setClauses, &args, "username", updates.Username)
-	addFieldUpdate(&setClauses, &args, "full_name", updates.FullName)
-	addFieldUpdate(&setClauses, &args, "password_hash", updates.PasswordHash)
-	addFieldUpdate(&setClauses, &args, "role", updates.Role)
-
-	// Non-nullable int fields
-	addFieldUpdate(&setClauses, &args, "login_count", updates.LoginCount)
-	addFieldUpdate(&setClauses, &args, "failed_login_attempts", updates.FailedLoginAttempts)
-
-	// Nullable string fields (double pointer)
-	addFieldUpdate(&setClauses, &args, "email", updates.Email)
-	addFieldUpdate(&setClauses, &args, "metadata", updates.Metadata)
-
-	// Nullable time fields (double pointer)
-	addFieldUpdate(&setClauses, &args, "suspended_at", updates.SuspendedAt)
-	addFieldUpdate(&setClauses, &args, "deleted_at", updates.DeletedAt)
-	addFieldUpdate(&setClauses, &args, "last_login_at", updates.LastLoginAt)
-	addFieldUpdate(&setClauses, &args, "locked_until", updates.LockedUntil)
-	addFieldUpdate(&setClauses, &args, "password_changed_at", updates.PasswordChangedAt)
-
-	// Nothing to update
-	if len(setClauses) == 0 {
+	updateMap := updates.ToMap(u)
+	if len(updateMap) == 0 {
 		return nil
 	}
 
-	// Add ID to args
-	args = append(args, id)
-
-	query := fmt.Sprintf("UPDATE users SET %s WHERE id = ?", strings.Join(setClauses, ", "))
-
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return ParseDBError(err)
+	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
 	}
 
-	return checkRowsAffected(result)
+	return nil
 }
 
 // IsUsernameTaken checks if username is in use.
 func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
-	condition := "username = ?"
-	args := []any{username}
+	var count int64
+	query := r.db.WithContext(ctx).Model(&models.User{}).Where("username = ?", username)
 
 	if excludeID != nil {
-		condition += " AND id != ?"
-		args = append(args, *excludeID)
+		query = query.Where("id != ?", *excludeID)
 	}
 
-	return r.ExistsBy(ctx, condition, args...)
+	err := query.Count(&count).Error
+	if err != nil {
+		return false, ParseDBError(err)
+	}
+
+	return count > 0, nil
 }
 
 // IsEmailTaken checks if email is in use.
 func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
-	condition := "email = ?"
-	args := []any{email}
+	var count int64
+	query := r.db.WithContext(ctx).Model(&models.User{}).Where("email = ?", email)
 
 	if excludeID != nil {
-		condition += " AND id != ?"
-		args = append(args, *excludeID)
+		query = query.Where("id != ?", *excludeID)
 	}
 
-	return r.ExistsBy(ctx, condition, args...)
+	err := query.Count(&count).Error
+	if err != nil {
+		return false, ParseDBError(err)
+	}
+
+	return count > 0, nil
 }
 
 // CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
 func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
-	q := r.getQueryable(ctx)
-
-	var count int
-	err := q.GetContext(ctx, &count,
-		"SELECT COUNT(*) FROM users WHERE role = ? AND suspended_at IS NULL AND id != ?",
-		models.RoleAdmin, excludeID,
-	)
+	var count int64
+	err := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("suspended_at IS NULL").
+		Where("role = ?", models.RoleAdmin).
+		Where("id != ?", excludeID).
+		Count(&count).Error
 	if err != nil {
 		return 0, ParseDBError(err)
 	}
 
-	return count, nil
+	return int(count), nil
 }
 
 // SetSuspended updates the user's suspended status.
 func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
-	q := r.getQueryable(ctx)
-
-	var result sql.Result
-	var err error
+	var updateMap map[string]any
 	if suspended {
-		result, err = q.ExecContext(ctx, "UPDATE users SET suspended_at = ? WHERE id = ?", time.Now(), id)
+		updateMap = map[string]any{"suspended_at": time.Now()}
 	} else {
-		result, err = q.ExecContext(ctx, "UPDATE users SET suspended_at = NULL WHERE id = ?", id)
-	}
-	if err != nil {
-		return ParseDBError(err)
+		updateMap = map[string]any{"suspended_at": nil}
 	}
 
-	return checkRowsAffected(result)
+	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 // DeleteSessions removes all sessions for a user.
 func (r *userRepository) DeleteSessions(ctx context.Context, userID int64) error {
-	q := r.getQueryable(ctx)
-
-	_, err := q.ExecContext(ctx, "DELETE FROM user_sessions WHERE user_id = ?", userID)
+	// user_sessions is not a GORM model, so we use raw SQL
+	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
 	return ParseDBError(err)
+}
+
+// userFieldMapping maps API field names to database columns for users.
+var userFieldMapping = FieldMapping{
+	"id":         "id",
+	"username":   "username",
+	"full_name":  "full_name",
+	"email":      "email",
+	"role":       "role",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
+}
+
+// userSearchFields defines which fields are searchable for users.
+var userSearchFields = []string{"username", "full_name"}
+
+// List retrieves a paginated list of users with filtering, sorting, and search support.
+func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
+	if query == nil {
+		query = NewListQuery()
+	}
+
+	db := r.db.WithContext(ctx).Model(&models.User{})
+
+	// Apply soft delete filter based on status
+	switch query.Status {
+	case "deleted":
+		db = db.Unscoped().Where("deleted_at IS NOT NULL")
+	case "all":
+		db = db.Unscoped()
+		// default "active" uses GORM's automatic soft delete filtering
+	}
+
+	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, "username ASC")
+	if err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return result, nil
 }

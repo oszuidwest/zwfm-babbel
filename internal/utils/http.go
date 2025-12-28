@@ -2,7 +2,6 @@
 package utils
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -31,41 +29,6 @@ func IDParam(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-// =============================================================================
-// Type-safe resource existence checks
-// These use explicit table names to prevent SQL injection.
-// =============================================================================
-
-// ValidateStationExists checks if a station exists by ID.
-func ValidateStationExists(c *gin.Context, db *sqlx.DB, id int64) bool {
-	exists, err := Stations.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "Station")
-		return false
-	}
-	return true
-}
-
-// ValidateStoryExists checks if a story exists by ID.
-func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int64) bool {
-	exists, err := Stories.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "Story")
-		return false
-	}
-	return true
-}
-
-// ValidateBulletinExists checks if a bulletin exists by ID.
-func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int64) bool {
-	exists, err := Bulletins.Exists(c.Request.Context(), db, id)
-	if err != nil || !exists {
-		ProblemNotFound(c, "Bulletin")
-		return false
-	}
-	return true
 }
 
 // Pagination extracts pagination parameters from query string with validation.
@@ -422,45 +385,4 @@ func convertValidationErrors(err error) []ValidationError {
 	}
 
 	return errors
-}
-
-// validTables defines the allowlist of valid table names for GenericByID.
-// This prevents SQL injection attacks by restricting table name interpolation.
-var validTables = map[string]bool{
-	"stations":       true,
-	"stories":        true,
-	"voices":         true,
-	"users":          true,
-	"bulletins":      true,
-	"station_voices": true,
-}
-
-// GenericByID provides a generic handler for retrieving database records by ID.
-// Handles parameter extraction, database queries, and error responses automatically.
-// Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
-// The result parameter must be a pointer to the appropriate struct type.
-// Table name is validated against an allowlist to prevent SQL injection.
-func GenericByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result any) {
-	id, ok := IDParam(c)
-	if !ok {
-		return
-	}
-
-	// Validate table name against allowlist to prevent SQL injection
-	if !validTables[tableName] {
-		ProblemBadRequest(c, "Invalid resource type")
-		return
-	}
-
-	query := fmt.Sprintf("SELECT * FROM %s WHERE id = ?", tableName)
-	if err := db.Get(result, query, id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			ProblemNotFound(c, resourceName)
-		} else {
-			ProblemInternalServer(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))
-		}
-		return
-	}
-
-	Success(c, result)
 }

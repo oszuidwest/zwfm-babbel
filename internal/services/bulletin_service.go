@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -244,8 +243,47 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	return parsedDate, nil
 }
 
-// DB returns the underlying database for validation helpers and complex list queries.
-// TODO: Remove when migrating to ORM - validation helpers should use service methods.
-func (s *BulletinService) DB() *sqlx.DB {
-	return s.txManager.DB()
+// List retrieves bulletins with pagination, filtering, and sorting.
+func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list bulletins: %v", apperrors.ErrDatabaseError, err)
+	}
+	return result, nil
+}
+
+// Exists checks if a bulletin with the given ID exists.
+func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
+	exists, err := s.bulletinRepo.Exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to check bulletin existence: %v", apperrors.ErrDatabaseError, err)
+	}
+	return exists, nil
+}
+
+// GetBulletinStories retrieves all stories included in a specific bulletin.
+func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
+	stories, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get bulletin stories: %v", apperrors.ErrDatabaseError, err)
+	}
+	return stories, nil
+}
+
+// GetStationBulletins retrieves bulletins for a specific station with pagination.
+func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.GetStationBulletins(ctx, stationID, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get station bulletins: %v", apperrors.ErrDatabaseError, err)
+	}
+	return result, nil
+}
+
+// GetStoryBulletinHistory retrieves bulletins that included a specific story.
+func (s *BulletinService) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.GetStoryBulletinHistory(ctx, storyID, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get story bulletin history: %v", apperrors.ErrDatabaseError, err)
+	}
+	return result, nil
 }

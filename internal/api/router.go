@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
@@ -16,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"gorm.io/gorm"
 )
 
 // SetupRouter configures and returns the main API router with all routes and middleware.
@@ -28,11 +28,11 @@ import (
 //   - Combined authentication (both methods enabled)
 //
 // Returns a configured Gin engine ready for HTTP serving, or an error if setup fails.
-func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
-	// Create transaction manager
+func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
+	// Create transaction manager using GORM for transaction support
 	txManager := repository.NewTxManager(db)
 
-	// Create repositories
+	// Create repositories (all GORM-based)
 	stationRepo := repository.NewStationRepository(db)
 	voiceRepo := repository.NewVoiceRepository(db)
 	userRepo := repository.NewUserRepository(db)

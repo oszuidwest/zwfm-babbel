@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
-	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // VoiceService handles voice-related business logic
@@ -130,47 +128,29 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetByIDWithContext retrieves a voice by ID and writes the JSON response.
-func (s *VoiceService) GetByIDWithContext(c *gin.Context) {
-	id, ok := utils.IDParam(c)
-	if !ok {
-		return
-	}
+// GetByID retrieves a voice by ID.
+func (s *VoiceService) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
+	const op = "VoiceService.GetByID"
 
-	voice, err := s.repo.GetByID(c.Request.Context(), id)
+	voice, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			utils.ProblemNotFound(c, "Voice")
-			return
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		utils.ProblemInternalServer(c, "Failed to retrieve voice")
-		return
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	c.JSON(200, voice)
+	return voice, nil
 }
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *VoiceService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery:    "SELECT v.* FROM voices v",
-			CountQuery:   "SELECT COUNT(*) FROM voices v",
-			DefaultOrder: "v.name ASC",
-		},
-		SearchFields:      []string{"v.name"},
-		TableAlias:        "v",
-		DefaultFields:     "v.*",
-		DisableSoftDelete: true,
-		FieldMapping: map[string]string{
-			"id":         "v.id",
-			"name":       "v.name",
-			"created_at": "v.created_at",
-			"updated_at": "v.updated_at",
-		},
+// List retrieves a paginated list of voices.
+func (s *VoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Voice], error) {
+	const op = "VoiceService.List"
+
+	result, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	var voices []models.Voice
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &voices)
+	return result, nil
 }

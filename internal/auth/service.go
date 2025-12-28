@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -16,9 +17,9 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
+	"gorm.io/gorm"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -27,7 +28,7 @@ import (
 // Service handles authentication and authorization.
 type Service struct {
 	config   *Config
-	db       *sqlx.DB
+	db       *gorm.DB
 	enforcer *casbin.Enforcer
 	sessions SessionStore
 	ginStore any
@@ -44,7 +45,7 @@ func (s *Service) IsOAuthEnabled() bool {
 }
 
 // NewService creates a new authentication service.
-func NewService(cfg *Config, db *sqlx.DB) (*Service, error) {
+func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 	s := &Service{
 		config: cfg,
 		db:     db,
@@ -220,8 +221,8 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	ctx := context.Background()
 
 	for {
-		var exists bool
-		err := s.db.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)", username)
+		var count int64
+		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Count(&count).Error
 		if err != nil {
 			// On error, assume it might exist and try with suffix
 			logger.Warn("Database error checking username uniqueness, trying next: %v", err)
@@ -235,7 +236,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 			continue
 		}
 
-		if !exists {
+		if count == 0 {
 			break
 		}
 
@@ -290,13 +291,17 @@ func (s *Service) Middleware() gin.HandlerFunc {
 
 		// Load user from database
 		var user struct {
-			ID          int64      `db:"id"`
-			Username    string     `db:"username"`
-			Role        string     `db:"role"`
-			SuspendedAt *time.Time `db:"suspended_at"`
+			ID          int64
+			Username    string
+			Role        string
+			SuspendedAt *time.Time
 		}
 
-		err := s.db.GetContext(c.Request.Context(), &user, "SELECT id, username, role, suspended_at FROM users WHERE id = ?", userID)
+		err := s.db.WithContext(c.Request.Context()).
+			Table("users").
+			Select("id, username, role, suspended_at").
+			Where("id = ?", userID).
+			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete(string(SessKeyUserID))
 			if saveErr := session.Save(c); saveErr != nil {
@@ -354,16 +359,23 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	}
 
 	var user struct {
-		ID           int64      `db:"id"`
-		Username     string     `db:"username"`
-		PasswordHash string     `db:"password_hash"`
-		Role         string     `db:"role"`
-		SuspendedAt  *time.Time `db:"suspended_at"`
+		ID           int64
+		Username     string
+		PasswordHash string
+		Role         string
+		SuspendedAt  *time.Time
 	}
 
 	ctx := c.Request.Context()
-	err := s.db.GetContext(ctx, &user, "SELECT id, username, password_hash, role, suspended_at FROM users WHERE username = ?", username)
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select("id, username, password_hash, role, suspended_at").
+		Where("username = ?", username).
+		First(&user).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("invalid credentials")
+		}
 		return fmt.Errorf("invalid credentials")
 	}
 
@@ -496,13 +508,17 @@ type oauthUser struct {
 // Returns the user ID and username, or an error if the account is suspended or creation fails.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
-		ID          int64      `db:"id"`
-		Username    string     `db:"username"`
-		SuspendedAt *time.Time `db:"suspended_at"`
+		ID          int64
+		Username    string
+		SuspendedAt *time.Time
 	}
 
 	// Try to find user by email first
-	err := s.db.GetContext(ctx, &existingUser, "SELECT id, username, suspended_at FROM users WHERE email = ?", email)
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Select("id, username, suspended_at").
+		Where("email = ?", email).
+		First(&existingUser).Error
 	if err == nil {
 		// User exists with this email
 		if existingUser.SuspendedAt != nil {
@@ -514,24 +530,40 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		}, nil
 	}
 
-	// No existing user with this email, create new user
-	username := s.determineOAuthUsername(preferredUsername, email)
-
-	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO users (username, full_name, email, role, password_hash, last_login_at, login_count)
-		VALUES (?, ?, ?, 'viewer', '', NOW(), 1)`,
-		username, fullName, email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
+	// Check if it's not a "not found" error
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 
-	id, err := result.LastInsertId()
+	// No existing user with this email, create new user
+	username := s.determineOAuthUsername(preferredUsername, email)
+	now := time.Now()
+
+	// Use a map for inserting raw data (not using the models.User since we need to insert specific fields)
+	newUser := map[string]any{
+		"username":      username,
+		"full_name":     fullName,
+		"email":         email,
+		"role":          "viewer",
+		"password_hash": "",
+		"last_login_at": now,
+		"login_count":   1,
+	}
+
+	result := s.db.WithContext(ctx).Table("users").Create(newUser)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to create user: %w", result.Error)
+	}
+
+	// Get the last inserted ID
+	var id int64
+	err = s.db.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&id).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get created user ID: %w", err)
 	}
 
 	return &oauthUser{
-		ID:       id, // Already int64, no cast needed
+		ID:       id,
 		Username: username,
 	}, nil
 }
@@ -564,7 +596,11 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 
 	// Get the user's actual role from database
 	var role string
-	if err := s.db.GetContext(ctx, &role, "SELECT role FROM users WHERE id = ?", user.ID); err != nil {
+	if err := s.db.WithContext(ctx).
+		Table("users").
+		Select("role").
+		Where("id = ?", user.ID).
+		Scan(&role).Error; err != nil {
 		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
 		return fmt.Errorf("failed to get user role: %w", err)
 	}
@@ -612,12 +648,14 @@ func (s *Service) CreateSession(c *gin.Context, userID int64, username string, r
 // It resets failed login attempts and increments the login count.
 // Returns an error if the database update fails.
 func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE users
-		SET last_login_at = NOW(),
-		    login_count = login_count + 1,
-		    failed_login_attempts = 0
-		WHERE id = ?`, userID)
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Where("id = ?", userID).
+		Updates(map[string]any{
+			"last_login_at":         time.Now(),
+			"login_count":           gorm.Expr("login_count + 1"),
+			"failed_login_attempts": 0,
+		}).Error
 	if err != nil {
 		logger.Error("Failed to update login stats: %v", err)
 	}
@@ -627,10 +665,10 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 // updateLoginFailure increments failed login attempts for a user.
 // Returns an error if the database update fails.
 func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE users
-		SET failed_login_attempts = failed_login_attempts + 1
-		WHERE id = ?`, userID)
+	err := s.db.WithContext(ctx).
+		Table("users").
+		Where("id = ?", userID).
+		Update("failed_login_attempts", gorm.Expr("failed_login_attempts + 1")).Error
 	if err != nil {
 		logger.Error("Failed to update failed login attempts: %v", err)
 	}

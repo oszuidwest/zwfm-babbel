@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -328,67 +326,15 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	return nil
 }
 
-// StationVoiceListItem represents a station-voice relationship in list responses.
-type StationVoiceListItem struct {
-	ID          int64     `json:"id" db:"id"`
-	StationID   int64     `json:"station_id" db:"station_id"`
-	VoiceID     int64     `json:"voice_id" db:"voice_id"`
-	AudioFile   string    `json:"-" db:"audio_file"`
-	MixPoint    float64   `json:"mix_point" db:"mix_point"`
-	StationName string    `json:"station_name" db:"station_name"`
-	VoiceName   string    `json:"voice_name" db:"voice_name"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
-	AudioURL    *string   `json:"audio_url,omitempty"`
-}
+// List retrieves a paginated list of station-voice relationships.
+func (s *StationVoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.StationVoice], error) {
+	const op = "StationVoiceService.List"
 
-// stationVoiceAudioURL returns the API URL for downloading a jingle file.
-func stationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
-	if !hasJingle {
-		return nil
-	}
-	url := fmt.Sprintf("/station-voices/%d/audio", stationVoiceID)
-	return &url
-}
-
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *StationVoiceService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point,
-			            sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name
-			            FROM station_voices sv
-			            JOIN stations s ON sv.station_id = s.id
-			            JOIN voices v ON sv.voice_id = v.id`,
-			CountQuery:   "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id",
-			DefaultOrder: "sv.id DESC",
-			PostProcessor: func(result any) {
-				if stationVoices, ok := result.(*[]StationVoiceListItem); ok {
-					for i := range *stationVoices {
-						hasJingle := (*stationVoices)[i].AudioFile != ""
-						(*stationVoices)[i].AudioURL = stationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
-					}
-				}
-			},
-		},
-		SearchFields:      []string{"s.name", "v.name"},
-		TableAlias:        "sv",
-		DefaultFields:     "sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name",
-		DisableSoftDelete: true,
-		FieldMapping: map[string]string{
-			"id":           "sv.id",
-			"station_id":   "sv.station_id",
-			"voice_id":     "sv.voice_id",
-			"audio_file":   "sv.audio_file",
-			"mix_point":    "sv.mix_point",
-			"created_at":   "sv.created_at",
-			"updated_at":   "sv.updated_at",
-			"station_name": "s.name",
-			"voice_name":   "v.name",
-		},
+	result, err := s.stationVoiceRepo.List(ctx, query)
+	if err != nil {
+		logger.Error("Database error listing station-voices: %v", err)
+		return nil, fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
 	}
 
-	var stationVoices []StationVoiceListItem
-	utils.ModernListWithQuery(c, s.stationVoiceRepo.DB(), config, &stationVoices)
+	return result, nil
 }

@@ -3,17 +3,16 @@ package repository
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
+	"gorm.io/gorm"
 )
 
 // VoiceUpdate contains optional fields for updating a voice.
 // Nil pointer fields are not updated.
 type VoiceUpdate struct {
-	Name *string
+	Name *string `db:"name"`
 }
 
 // VoiceRepository defines the interface for voice data access.
@@ -24,98 +23,164 @@ type VoiceRepository interface {
 	Update(ctx context.Context, id int64, updates *VoiceUpdate) error
 	Delete(ctx context.Context, id int64) error
 
+	// List operations
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error)
+
 	// Query operations
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
 	HasDependencies(ctx context.Context, id int64) (bool, error)
-
-	// DB returns the underlying database for ModernListWithQuery
-	DB() *sqlx.DB
 }
 
-// voiceRepository implements VoiceRepository.
+// voiceRepository implements VoiceRepository using GORM.
 type voiceRepository struct {
-	*BaseRepository[models.Voice]
+	*GormRepository[models.Voice]
 }
 
 // NewVoiceRepository creates a new voice repository.
-func NewVoiceRepository(db *sqlx.DB) VoiceRepository {
+func NewVoiceRepository(db *gorm.DB) VoiceRepository {
 	return &voiceRepository{
-		BaseRepository: NewBaseRepository[models.Voice](db, "voices"),
+		GormRepository: NewGormRepository[models.Voice](db),
 	}
 }
 
 // Create inserts a new voice and returns the created record.
 func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voice, error) {
-	q := r.getQueryable(ctx)
+	voice := &models.Voice{
+		Name: name,
+	}
 
-	result, err := q.ExecContext(ctx, "INSERT INTO voices (name) VALUES (?)", name)
+	if err := r.db.WithContext(ctx).Create(voice).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return voice, nil
+}
+
+// GetByID retrieves a voice by its ID.
+func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
+	var voice models.Voice
+
+	err := r.db.WithContext(ctx).First(&voice, id).Error
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert id: %w", err)
-	}
-
-	return r.GetByID(ctx, id)
+	return &voice, nil
 }
 
 // Update updates an existing voice with type-safe fields.
-func (r *voiceRepository) Update(ctx context.Context, id int64, updates *VoiceUpdate) error {
-	if updates == nil {
+func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	q := r.getQueryable(ctx)
-
-	setClauses := make([]string, 0, 1)
-	args := make([]any, 0, 1)
-
-	addFieldUpdate(&setClauses, &args, "name", updates.Name)
-
-	if len(setClauses) == 0 {
+	updateMap := updates.ToMap(u)
+	if len(updateMap) == 0 {
 		return nil
 	}
 
-	query := fmt.Sprintf("UPDATE voices SET %s WHERE id = ?", strings.Join(setClauses, ", "))
-	args = append(args, id)
+	result := r.db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(updateMap)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
 
-	result, err := q.ExecContext(ctx, query, args...)
+	return nil
+}
+
+// Delete removes a voice by its ID (hard delete since Voice has no soft delete).
+func (r *voiceRepository) Delete(ctx context.Context, id int64) error {
+	result := r.db.WithContext(ctx).Delete(&models.Voice{}, id)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// Exists checks if a voice with the given ID exists.
+func (r *voiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
+	var count int64
+
+	err := r.db.WithContext(ctx).
+		Model(&models.Voice{}).
+		Where("id = ?", id).
+		Count(&count).Error
 	if err != nil {
-		return ParseDBError(err)
+		return false, err
 	}
 
-	return checkRowsAffected(result)
+	return count > 0, nil
 }
 
 // IsNameTaken checks if a voice name is already in use.
 func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
-	condition := "name = ?"
-	args := []any{name}
+	var count int64
+
+	query := r.db.WithContext(ctx).
+		Model(&models.Voice{}).
+		Where("name = ?", name)
 
 	if excludeID != nil {
-		condition += " AND id != ?"
-		args = append(args, *excludeID)
+		query = query.Where("id != ?", *excludeID)
 	}
 
-	return r.ExistsBy(ctx, condition, args...)
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
 
 // HasDependencies checks if voice is used by stories or station_voices.
 func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
-	q := r.getQueryable(ctx)
+	var storyCount int64
+	var stationVoiceCount int64
 
-	var exists bool
-	query := `SELECT EXISTS(
-		SELECT 1 FROM stories WHERE voice_id = ?
-		UNION ALL
-		SELECT 1 FROM station_voices WHERE voice_id = ?
-	)`
-	if err := q.GetContext(ctx, &exists, query, id, id); err != nil {
-		return false, ParseDBError(err)
+	// Check stories table
+	if err := r.db.WithContext(ctx).
+		Model(&models.Story{}).
+		Where("voice_id = ?", id).
+		Count(&storyCount).Error; err != nil {
+		return false, err
 	}
 
-	return exists, nil
+	if storyCount > 0 {
+		return true, nil
+	}
+
+	// Check station_voices table
+	if err := r.db.WithContext(ctx).
+		Model(&models.StationVoice{}).
+		Where("voice_id = ?", id).
+		Count(&stationVoiceCount).Error; err != nil {
+		return false, err
+	}
+
+	return stationVoiceCount > 0, nil
+}
+
+// voiceFieldMapping maps API field names to database columns for voices.
+var voiceFieldMapping = FieldMapping{
+	"id":         "id",
+	"name":       "name",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
+}
+
+// voiceSearchFields defines which fields are searchable for voices.
+var voiceSearchFields = []string{"name"}
+
+// List retrieves a paginated list of voices with filtering, sorting, and search.
+func (r *voiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error) {
+	db := r.db.WithContext(ctx).Model(&models.Voice{})
+	return ApplyListQuery[models.Voice](db, query, voiceFieldMapping, voiceSearchFields, "name ASC")
 }

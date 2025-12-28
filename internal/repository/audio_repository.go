@@ -3,11 +3,9 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
 // AudioRepository defines the interface for audio file path lookups.
@@ -21,11 +19,11 @@ type AudioRepository interface {
 
 // audioRepository implements AudioRepository.
 type audioRepository struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
 // NewAudioRepository creates a new audio repository.
-func NewAudioRepository(db *sqlx.DB) AudioRepository {
+func NewAudioRepository(db *gorm.DB) AudioRepository {
 	return &audioRepository{db: db}
 }
 
@@ -60,20 +58,21 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 		return "", fmt.Errorf("id column must be 'id'")
 	}
 
-	// Build and execute query - table/column names are now validated
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", fileColumn, tableName, idColumn)
+	// Use GORM's raw query with context
+	var filePath *string
+	err := r.db.WithContext(ctx).
+		Table(tableName).
+		Select(fileColumn).
+		Where(idColumn+" = ?", id).
+		Scan(&filePath).Error
 
-	var filePath sql.Null[string]
-	if err := r.db.GetContext(ctx, &filePath, query, id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrNotFound
-		}
+	if err != nil {
 		return "", ParseDBError(err)
 	}
 
-	if !filePath.Valid || filePath.V == "" {
+	if filePath == nil || *filePath == "" {
 		return "", ErrNotFound
 	}
 
-	return filePath.V, nil
+	return *filePath, nil
 }
