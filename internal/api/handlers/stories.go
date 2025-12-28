@@ -9,33 +9,34 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"gorm.io/datatypes"
 )
 
 // StoryResponse represents the response format for news stories.
 type StoryResponse struct {
-	ID              int64           `json:"id" db:"id"`
-	Title           string          `json:"title" db:"title"`
-	Text            string          `json:"text" db:"text"`
-	VoiceID         *int64          `json:"voice_id" db:"voice_id"`
-	AudioFile       string          `json:"-" db:"audio_file"`
-	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
-	Status          string          `json:"status" db:"status"`
-	StartDate       time.Time       `json:"start_date" db:"start_date"`
-	EndDate         time.Time       `json:"end_date" db:"end_date"`
-	Monday          bool            `json:"-" db:"monday"`
-	Tuesday         bool            `json:"-" db:"tuesday"`
-	Wednesday       bool            `json:"-" db:"wednesday"`
-	Thursday        bool            `json:"-" db:"thursday"`
-	Friday          bool            `json:"-" db:"friday"`
-	Saturday        bool            `json:"-" db:"saturday"`
-	Sunday          bool            `json:"-" db:"sunday"`
-	Metadata        *string         `json:"metadata" db:"metadata"`
-	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
-	VoiceName       string          `json:"voice_name" db:"voice_name"`
-	AudioURL        *string         `json:"audio_url,omitempty"`
-	Weekdays        map[string]bool `json:"weekdays,omitempty"`
+	ID              int64             `json:"id" db:"id"`
+	Title           string            `json:"title" db:"title"`
+	Text            string            `json:"text" db:"text"`
+	VoiceID         *int64            `json:"voice_id" db:"voice_id"`
+	AudioFile       string            `json:"-" db:"audio_file"`
+	DurationSeconds *float64          `json:"duration_seconds" db:"duration_seconds"`
+	Status          string            `json:"status" db:"status"`
+	StartDate       time.Time         `json:"start_date" db:"start_date"`
+	EndDate         time.Time         `json:"end_date" db:"end_date"`
+	Monday          bool              `json:"-" db:"monday"`
+	Tuesday         bool              `json:"-" db:"tuesday"`
+	Wednesday       bool              `json:"-" db:"wednesday"`
+	Thursday        bool              `json:"-" db:"thursday"`
+	Friday          bool              `json:"-" db:"friday"`
+	Saturday        bool              `json:"-" db:"saturday"`
+	Sunday          bool              `json:"-" db:"sunday"`
+	Metadata        datatypes.JSONMap `json:"metadata,omitempty" db:"metadata"`
+	DeletedAt       *time.Time        `json:"deleted_at" db:"deleted_at"`
+	CreatedAt       time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at" db:"updated_at"`
+	VoiceName       string            `json:"voice_name" db:"voice_name"`
+	AudioURL        *string           `json:"audio_url,omitempty"`
+	Weekdays        map[string]bool   `json:"weekdays,omitempty"`
 }
 
 // StoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.

@@ -17,6 +17,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/datatypes"
 )
 
 // IDParam extracts and validates the ID parameter from the request URL.
@@ -171,61 +172,61 @@ type StationVoiceUpdateRequest struct {
 
 // UserCreateRequest represents the request for creating new user accounts.
 type UserCreateRequest struct {
-	Username string  `json:"username" binding:"required,min=3,max=100,alphanum"`
-	FullName string  `json:"full_name" binding:"required,notblank,max=255"`
-	Password string  `json:"password" binding:"required,min=8,max=128"`
-	Email    *string `json:"email" binding:"omitempty,email,max=255"`
-	Role     string  `json:"role" binding:"required,oneof=admin editor viewer"`
-	Metadata string  `json:"metadata" binding:"omitempty,json"`
+	Username string            `json:"username" binding:"required,min=3,max=100,alphanum"`
+	FullName string            `json:"full_name" binding:"required,notblank,max=255"`
+	Password string            `json:"password" binding:"required,min=8,max=128"`
+	Email    *string           `json:"email" binding:"omitempty,email,max=255"`
+	Role     string            `json:"role" binding:"required,oneof=admin editor viewer"`
+	Metadata datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
 // UserUpdateRequest represents the request for updating existing user accounts.
 type UserUpdateRequest struct {
-	Username  string  `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
-	FullName  string  `json:"full_name" binding:"omitempty,notblank,max=255"`
-	Email     *string `json:"email" binding:"omitempty,email,max=255"`
-	Password  string  `json:"password" binding:"omitempty,min=8,max=255"`
-	Role      string  `json:"role" binding:"omitempty,oneof=admin editor viewer"`
-	Metadata  string  `json:"metadata" binding:"omitempty,json"`
-	Suspended *bool   `json:"suspended" binding:"omitempty"`
+	Username  string            `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
+	FullName  string            `json:"full_name" binding:"omitempty,notblank,max=255"`
+	Email     *string           `json:"email" binding:"omitempty,email,max=255"`
+	Password  string            `json:"password" binding:"omitempty,min=8,max=255"`
+	Role      string            `json:"role" binding:"omitempty,oneof=admin editor viewer"`
+	Metadata  datatypes.JSONMap `json:"metadata,omitempty"`
+	Suspended *bool             `json:"suspended" binding:"omitempty"`
 }
 
 // StoryCreateRequest represents the request for creating news stories.
 type StoryCreateRequest struct {
-	Title     string          `json:"title" form:"title" binding:"required,notblank,max=500"`
-	Text      string          `json:"text" form:"text" binding:"required,notblank"`
-	VoiceID   *int64          `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
-	Status    string          `json:"status" form:"status" binding:"omitempty,story_status"`
-	StartDate string          `json:"start_date" form:"start_date" binding:"required,dateformat"`
-	EndDate   string          `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Monday    bool            `json:"monday" form:"monday"`
-	Tuesday   bool            `json:"tuesday" form:"tuesday"`
-	Wednesday bool            `json:"wednesday" form:"wednesday"`
-	Thursday  bool            `json:"thursday" form:"thursday"`
-	Friday    bool            `json:"friday" form:"friday"`
-	Saturday  bool            `json:"saturday" form:"saturday"`
-	Sunday    bool            `json:"sunday" form:"sunday"`
-	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
-	Metadata  *string         `json:"metadata" form:"metadata"`
+	Title     string            `json:"title" form:"title" binding:"required,notblank,max=500"`
+	Text      string            `json:"text" form:"text" binding:"required,notblank"`
+	VoiceID   *int64            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    string            `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate string            `json:"start_date" form:"start_date" binding:"required,dateformat"`
+	EndDate   string            `json:"end_date" form:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	Monday    bool              `json:"monday" form:"monday"`
+	Tuesday   bool              `json:"tuesday" form:"tuesday"`
+	Wednesday bool              `json:"wednesday" form:"wednesday"`
+	Thursday  bool              `json:"thursday" form:"thursday"`
+	Friday    bool              `json:"friday" form:"friday"`
+	Saturday  bool              `json:"saturday" form:"saturday"`
+	Sunday    bool              `json:"sunday" form:"sunday"`
+	Weekdays  map[string]bool   `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
+	Metadata  datatypes.JSONMap `json:"metadata,omitempty" form:"metadata"`
 }
 
 // StoryUpdateRequest represents the request for updating existing stories.
 type StoryUpdateRequest struct {
-	Title     *string         `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
-	Text      *string         `json:"text" form:"text" binding:"omitempty,notblank"`
-	VoiceID   *int64          `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
-	Status    *string         `json:"status" form:"status" binding:"omitempty,story_status"`
-	StartDate *string         `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
-	EndDate   *string         `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
-	Monday    *bool           `json:"monday" form:"monday"`
-	Tuesday   *bool           `json:"tuesday" form:"tuesday"`
-	Wednesday *bool           `json:"wednesday" form:"wednesday"`
-	Thursday  *bool           `json:"thursday" form:"thursday"`
-	Friday    *bool           `json:"friday" form:"friday"`
-	Saturday  *bool           `json:"saturday" form:"saturday"`
-	Sunday    *bool           `json:"sunday" form:"sunday"`
-	Weekdays  map[string]bool `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
-	Metadata  *string         `json:"metadata" form:"metadata"`
+	Title     *string           `json:"title" form:"title" binding:"omitempty,notblank,max=500"`
+	Text      *string           `json:"text" form:"text" binding:"omitempty,notblank"`
+	VoiceID   *int64            `json:"voice_id" form:"voice_id" binding:"omitempty,min=1"`
+	Status    *string           `json:"status" form:"status" binding:"omitempty,story_status"`
+	StartDate *string           `json:"start_date" form:"start_date" binding:"omitempty,dateformat"`
+	EndDate   *string           `json:"end_date" form:"end_date" binding:"omitempty,dateformat"`
+	Monday    *bool             `json:"monday" form:"monday"`
+	Tuesday   *bool             `json:"tuesday" form:"tuesday"`
+	Wednesday *bool             `json:"wednesday" form:"wednesday"`
+	Thursday  *bool             `json:"thursday" form:"thursday"`
+	Friday    *bool             `json:"friday" form:"friday"`
+	Saturday  *bool             `json:"saturday" form:"saturday"`
+	Sunday    *bool             `json:"sunday" form:"sunday"`
+	Weekdays  map[string]bool   `json:"weekdays" form:"-"` // Only for JSON, ignored in form data
+	Metadata  datatypes.JSONMap `json:"metadata,omitempty" form:"metadata"`
 }
 
 // ValidateDateRange validates that end date is not before start date.

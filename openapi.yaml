@@ -773,7 +773,7 @@ paths:
               friday: true
               saturday: false
               sunday: false
-              metadata: "{\"priority\": \"high\", \"category\": \"breaking\"}"
+              metadata: {"priority": "high", "category": "breaking"}
       responses:
         '201':
           description: Story created
@@ -874,7 +874,7 @@ paths:
               status: "active"
               monday: false
               tuesday: true
-              metadata: "{\"priority\": \"medium\"}"
+              metadata: {"priority": "medium"}
       responses:
         '200':
           description: Story updated
@@ -2383,9 +2383,9 @@ components:
         - title and text must be non-empty strings
         - voice_id is optional - stories without voice won't be in bulletins
         - weekdays must be a valid JSON string when provided
-        - metadata can be empty string (stored as NULL) or valid JSON
+        - metadata is a JSON object (optional)
         - Validation differs from JSON endpoints which use struct binding
-        
+
         **Form Field Examples**:
         ```
         title: "Breaking News Update"
@@ -2397,7 +2397,7 @@ components:
         monday: "true"
         tuesday: "true"
         wednesday: "false"
-        metadata: "{\"priority\": \"high\", \"category\": \"news\"}"
+        metadata: {"priority": "high", "category": "news"}
         audio: <binary file>
         ```
         
@@ -2452,10 +2452,9 @@ components:
           type: boolean
           description: Schedule for Sunday
         metadata:
-          type: string
-          description: |
-            Optional JSON metadata. Pass empty string to set to NULL.
-            When submitted via multipart/form-data, this must be a JSON-encoded string or empty string.
+          type: object
+          additionalProperties: true
+          description: Optional JSON metadata object for story-specific settings
 
     StoryUpdateInput:
       type: object
@@ -2469,9 +2468,9 @@ components:
         - title and text, when provided, must be non-empty strings
         - voice_id is optional - stories without voice won't be in bulletins
         - weekdays must be a valid JSON string when provided
-        - metadata can be empty string (stored as NULL) or valid JSON
+        - metadata is a JSON object (optional)
         - Validation differs from JSON endpoints which use struct binding
-        
+
         **Form Field Examples** (all optional):
         ```
         title: "Updated Breaking News"
@@ -2483,7 +2482,7 @@ components:
         monday: "false"
         tuesday: "true"
         wednesday: "false"
-        metadata: "{\"priority\": \"medium\", \"category\": \"news\"}"
+        metadata: {"priority": "medium", "category": "news"}
         audio: <binary file>
         ```
         
@@ -2538,10 +2537,9 @@ components:
           type: boolean
           description: Schedule for Sunday
         metadata:
-          type: string
-          description: |
-            Optional JSON metadata. Pass empty string to set to NULL.
-            When submitted via multipart/form-data, this must be a JSON-encoded string or empty string.
+          type: object
+          additionalProperties: true
+          description: Optional JSON metadata object for story-specific settings
 
     User:
       type: object
@@ -2592,8 +2590,9 @@ components:
           format: date-time
           nullable: true
         metadata:
-          type: string
-          description: JSON metadata for user-specific settings
+          type: object
+          additionalProperties: true
+          description: JSON metadata object for user-specific settings
         created_at:
           type: string
           format: date-time
@@ -2638,8 +2637,9 @@ components:
             - editor: Can manage content (stations, voices, stories, bulletins)
             - viewer: Read-only access to content
         metadata:
-          type: string
-          description: JSON metadata for user-specific settings (optional)
+          type: object
+          additionalProperties: true
+          description: JSON metadata object for user-specific settings (optional)
         suspended:
           type: boolean
           description: Set to true to suspend user, false to restore (optional, only for PUT /users/{id})
