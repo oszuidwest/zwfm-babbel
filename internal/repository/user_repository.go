@@ -132,8 +132,8 @@ func (r *userRepository) Create(ctx context.Context, username, fullName string, 
 		Role:         models.UserRole(role),
 	}
 
-	err := r.db.WithContext(ctx).Create(user).Error
-	if err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(user).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
@@ -162,7 +162,8 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -175,36 +176,12 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 
 // IsUsernameTaken checks if username is in use.
 func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
-	var count int64
-	query := r.db.WithContext(ctx).Model(&models.User{}).Where("username = ?", username)
-
-	if excludeID != nil {
-		query = query.Where("id != ?", *excludeID)
-	}
-
-	err := query.Count(&count).Error
-	if err != nil {
-		return false, ParseDBError(err)
-	}
-
-	return count > 0, nil
+	return r.IsFieldValueTaken(ctx, "username", username, excludeID)
 }
 
 // IsEmailTaken checks if email is in use.
 func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
-	var count int64
-	query := r.db.WithContext(ctx).Model(&models.User{}).Where("email = ?", email)
-
-	if excludeID != nil {
-		query = query.Where("id != ?", *excludeID)
-	}
-
-	err := query.Count(&count).Error
-	if err != nil {
-		return false, ParseDBError(err)
-	}
-
-	return count > 0, nil
+	return r.IsFieldValueTaken(ctx, "email", email, excludeID)
 }
 
 // CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
@@ -232,7 +209,8 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 		updateMap = map[string]any{"suspended_at": nil}
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -270,16 +248,9 @@ func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 		query = NewListQuery()
 	}
 
+	// Build base query with soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.User{})
-
-	// Apply soft delete filter based on status
-	switch query.Status {
-	case "deleted":
-		db = db.Unscoped().Where("deleted_at IS NOT NULL")
-	case "all":
-		db = db.Unscoped()
-		// default "active" uses GORM's automatic soft delete filtering
-	}
+	db = ApplySoftDeleteFilter(db, query.Status)
 
 	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, "username ASC")
 	if err != nil {

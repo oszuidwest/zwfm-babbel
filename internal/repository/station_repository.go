@@ -56,8 +56,8 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 		PauseSeconds:       pauseSeconds,
 	}
 
-	err := r.GormRepository.db.WithContext(ctx).Create(station).Error
-	if err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(station).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
@@ -75,7 +75,8 @@ func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpda
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(u)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -117,21 +118,7 @@ func (r *stationRepository) Exists(ctx context.Context, id int64) (bool, error) 
 
 // IsNameTaken checks if a station name is already in use.
 func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
-	var count int64
-	query := r.GormRepository.db.WithContext(ctx).
-		Model(&models.Station{}).
-		Where("name = ?", name)
-
-	if excludeID != nil {
-		query = query.Where("id != ?", *excludeID)
-	}
-
-	err := query.Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
 // HasDependencies checks if station has any station_voices relationships.

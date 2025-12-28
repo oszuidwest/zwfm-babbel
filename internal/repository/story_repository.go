@@ -119,11 +119,19 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Metadata:  metadataJSON,
 	}
 
-	if err := r.db.WithContext(ctx).Create(story).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(story).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	return r.GetByIDWithVoice(ctx, story.ID)
+	// Load voice relation on the created record (avoids separate GetByID query)
+	if story.VoiceID != nil {
+		if err := db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error; err != nil {
+			return nil, ParseDBError(err)
+		}
+	}
+
+	return story, nil
 }
 
 // GetByIDWithVoice retrieves a story with voice information via Preload.
@@ -147,7 +155,8 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(u)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -161,7 +170,8 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 // SoftDelete sets the deleted_at timestamp.
 // GORM handles soft deletes automatically for models with gorm.DeletedAt.
 func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Delete(&models.Story{}, id)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Delete(&models.Story{}, id)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -173,7 +183,8 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 
 // Restore clears the deleted_at timestamp.
 func (r *storyRepository) Restore(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
 		Where("id = ?", id).
 		Update("deleted_at", nil)
 	if result.Error != nil {
@@ -197,7 +208,8 @@ func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) 
 
 // UpdateAudio updates the audio file and duration.
 func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	result := r.db.WithContext(ctx).Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"audio_file":       audioFile,
@@ -214,9 +226,10 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile s
 
 // UpdateStatus updates the story status.
 func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	result := r.db.WithContext(ctx).Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
-		Update("status", status)
+		Updates(map[string]any{"status": status})
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -251,17 +264,9 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 		query = NewListQuery()
 	}
 
-	// Build base query with voice preload
+	// Build base query with voice preload and soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
-
-	// Apply soft delete filtering based on status
-	switch query.Status {
-	case "deleted":
-		db = db.Unscoped().Where("deleted_at IS NOT NULL")
-	case "all":
-		db = db.Unscoped()
-		// default "active" uses GORM's automatic soft delete filtering
-	}
+	db = ApplySoftDeleteFilter(db, query.Status)
 
 	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
 }

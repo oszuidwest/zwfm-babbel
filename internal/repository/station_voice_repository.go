@@ -47,20 +47,25 @@ func NewStationVoiceRepository(db *gorm.DB) StationVoiceRepository {
 	}
 }
 
-// Create inserts a new station-voice relationship and returns the created record.
+// Create inserts a new station-voice relationship and returns the created record with preloaded relations.
 func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
-	stationVoice := models.StationVoice{
+	stationVoice := &models.StationVoice{
 		StationID: stationID,
 		VoiceID:   voiceID,
 		MixPoint:  mixPoint,
 	}
 
-	if err := r.db.WithContext(ctx).Create(&stationVoice).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(stationVoice).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	// Fetch the created record with joined station and voice names
-	return r.GetByID(ctx, stationVoice.ID)
+	// Load relations on the created record (avoids separate GetByID query)
+	if err := db.WithContext(ctx).Preload("Station").Preload("Voice").First(stationVoice, stationVoice.ID).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return stationVoice, nil
 }
 
 // GetByID retrieves a station-voice relationship with preloaded station and voice.
@@ -85,7 +90,8 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(u)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -98,32 +104,12 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 
 // Delete removes a station-voice relationship.
 func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Delete(&models.StationVoice{}, id)
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.GormRepository.Delete(ctx, id)
 }
 
 // Exists checks if a station-voice relationship with the given ID exists.
 func (r *stationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("id = ?", id).
-		Count(&count).Error
-
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsCombinationTaken checks if a station-voice combination is already in use.
@@ -139,7 +125,7 @@ func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 	}
 
 	if err := query.Count(&count).Error; err != nil {
-		return false, err
+		return false, ParseDBError(err)
 	}
 
 	return count > 0, nil
@@ -169,13 +155,14 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
 func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
-	result := r.db.WithContext(ctx).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Where("id = ?", id).
 		Update("audio_file", audioFile)
 
 	if result.Error != nil {
-		return result.Error
+		return ParseDBError(result.Error)
 	}
 
 	if result.RowsAffected == 0 {
