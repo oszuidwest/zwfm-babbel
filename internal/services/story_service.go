@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/datatypes"
 )
 
 // StoryServiceDeps contains all dependencies for StoryService.
@@ -52,7 +53,7 @@ type CreateStoryRequest struct {
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  *string
+	Metadata  *datatypes.JSONMap
 }
 
 // UpdateStoryRequest contains the data needed to update an existing story.
@@ -64,7 +65,7 @@ type UpdateStoryRequest struct {
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  *string
+	Metadata  *datatypes.JSONMap
 }
 
 // Create creates a new story in the database.

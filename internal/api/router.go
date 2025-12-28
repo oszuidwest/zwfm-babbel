@@ -187,6 +187,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 					Directory:   "processed",
 				})
 			})
+			protected.POST("/stories/:id/audio", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UploadStoryAudio)
 			protected.POST("/stories", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.CreateStory)
 			protected.PUT("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UpdateStory)
 			protected.DELETE("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.DeleteStory)
@@ -215,6 +216,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 					Directory:   "processed",
 				})
 			})
+			protected.POST("/station-voices/:id/audio", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.UploadStationVoiceAudio)
 			protected.POST("/station-voices", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.CreateStationVoice)
 			protected.PUT("/station-voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.UpdateStationVoice)
 			protected.DELETE("/station-voices/:id", authService.RequirePermission(auth.ResourceVoices, auth.ActionWrite), h.DeleteStationVoice)

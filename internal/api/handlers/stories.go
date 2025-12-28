@@ -9,33 +9,34 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"gorm.io/datatypes"
 )
 
 // StoryResponse represents the response format for news stories.
 type StoryResponse struct {
-	ID              int64           `json:"id" db:"id"`
-	Title           string          `json:"title" db:"title"`
-	Text            string          `json:"text" db:"text"`
-	VoiceID         *int64          `json:"voice_id" db:"voice_id"`
-	AudioFile       string          `json:"-" db:"audio_file"`
-	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
-	Status          string          `json:"status" db:"status"`
-	StartDate       time.Time       `json:"start_date" db:"start_date"`
-	EndDate         time.Time       `json:"end_date" db:"end_date"`
-	Monday          bool            `json:"-" db:"monday"`
-	Tuesday         bool            `json:"-" db:"tuesday"`
-	Wednesday       bool            `json:"-" db:"wednesday"`
-	Thursday        bool            `json:"-" db:"thursday"`
-	Friday          bool            `json:"-" db:"friday"`
-	Saturday        bool            `json:"-" db:"saturday"`
-	Sunday          bool            `json:"-" db:"sunday"`
-	Metadata        *string         `json:"metadata,omitempty" db:"metadata"`
-	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
-	VoiceName       string          `json:"voice_name" db:"voice_name"`
-	AudioURL        *string         `json:"audio_url,omitempty"`
-	Weekdays        map[string]bool `json:"weekdays,omitempty"`
+	ID              int64              `json:"id" db:"id"`
+	Title           string             `json:"title" db:"title"`
+	Text            string             `json:"text" db:"text"`
+	VoiceID         *int64             `json:"voice_id" db:"voice_id"`
+	AudioFile       string             `json:"-" db:"audio_file"`
+	DurationSeconds *float64           `json:"duration_seconds" db:"duration_seconds"`
+	Status          string             `json:"status" db:"status"`
+	StartDate       time.Time          `json:"start_date" db:"start_date"`
+	EndDate         time.Time          `json:"end_date" db:"end_date"`
+	Monday          bool               `json:"-" db:"monday"`
+	Tuesday         bool               `json:"-" db:"tuesday"`
+	Wednesday       bool               `json:"-" db:"wednesday"`
+	Thursday        bool               `json:"-" db:"thursday"`
+	Friday          bool               `json:"-" db:"friday"`
+	Saturday        bool               `json:"-" db:"saturday"`
+	Sunday          bool               `json:"-" db:"sunday"`
+	Metadata        *datatypes.JSONMap `json:"metadata,omitempty" db:"metadata"`
+	DeletedAt       *time.Time         `json:"deleted_at" db:"deleted_at"`
+	CreatedAt       time.Time          `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at" db:"updated_at"`
+	VoiceName       string             `json:"voice_name" db:"voice_name"`
+	AudioURL        *string            `json:"audio_url,omitempty"`
+	Weekdays        map[string]bool    `json:"weekdays,omitempty"`
 }
 
 // StoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
@@ -138,12 +139,12 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, response)
 }
 
-// CreateStory creates a new story with optional audio upload
+// CreateStory creates a new story (JSON API only)
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
-	// Bind and validate the request using our unified validation
-	if !utils.BindFormAndValidate(c, &req) {
+	// Pure JSON binding - no form-data support
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -152,10 +153,10 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		req.Status = string(models.StoryStatusDraft)
 	}
 
-	// Handle weekdays from JSON if provided, otherwise use individual form fields
+	// Handle weekdays from JSON if provided, otherwise use individual fields
 	weekdays := req.Weekdays
 	if len(weekdays) == 0 {
-		// Build from individual form fields
+		// Build from individual JSON fields
 		weekdays = map[string]bool{
 			"monday":    req.Monday,
 			"tuesday":   req.Tuesday,
@@ -176,7 +177,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		StartDate: req.StartDate,
 		EndDate:   req.EndDate,
 		Weekdays:  weekdays,
-		Metadata:  nil, // Metadata not yet supported in service
+		Metadata:  req.Metadata,
 	}
 
 	// Create story via service
@@ -184,26 +185,6 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
-	}
-
-	// Handle optional audio file upload
-	_, _, err = c.Request.FormFile("audio")
-	if err == nil {
-		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", story.ID))
-		if err != nil {
-			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-				Field:   "audio",
-				Message: err.Error(),
-			}})
-			return
-		}
-		defer deferCleanup(cleanup, "audio file")()
-
-		// Process audio via service
-		if err := h.storySvc.ProcessAudio(c.Request.Context(), story.ID, tempPath); err != nil {
-			handleServiceError(c, err, "Story")
-			return
-		}
 	}
 
 	utils.CreatedWithID(c, story.ID, "Story created successfully")
@@ -268,18 +249,6 @@ func hasStoryFieldUpdates(req *utils.StoryUpdateRequest, weekdays map[string]boo
 		len(weekdays) > 0 || req.Metadata != nil
 }
 
-// validateStoryUpdateRequest reports whether at least one field or audio is being updated.
-func validateStoryUpdateRequest(c *gin.Context, hasFieldUpdate, hasAudioUpdate bool) bool {
-	if !hasFieldUpdate && !hasAudioUpdate {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
-		return false
-	}
-	return true
-}
-
 // applyStoryFieldUpdates applies field updates via service
 func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
 	svcReq := &services.UpdateStoryRequest{
@@ -290,7 +259,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 		StartDate: req.StartDate,
 		EndDate:   req.EndDate,
 		Weekdays:  weekdays,
-		Metadata:  nil, // Metadata not yet supported in service
+		Metadata:  req.Metadata,
 	}
 
 	_, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
@@ -302,28 +271,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 	return true
 }
 
-// processStoryAudioUpdate handles audio file processing
-func (h *Handlers) processStoryAudioUpdate(c *gin.Context, id int64) bool {
-	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
-	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "audio",
-			Message: err.Error(),
-		}})
-		return false
-	}
-	defer deferCleanup(cleanup, "audio file")()
-
-	// Process audio via service
-	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
-		handleServiceError(c, err, "Story")
-		return false
-	}
-
-	return true
-}
-
-// UpdateStory updates an existing story
+// UpdateStory updates an existing story (JSON API only)
 func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Get ID param
 	id, ok := utils.IDParam(c)
@@ -331,9 +279,9 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Bind request
+	// Pure JSON binding - no form-data support
 	var req utils.StoryUpdateRequest
-	if !utils.BindFormAndValidate(c, &req) {
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -349,30 +297,21 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Check for audio update
-	_, _, err = c.Request.FormFile("audio")
-	hasAudioUpdate := err == nil
-
 	// Determine if there are field updates
 	hasFieldUpdate := hasStoryFieldUpdates(&req, weekdays)
 
-	// Validate update request
-	if !validateStoryUpdateRequest(c, hasFieldUpdate, hasAudioUpdate) {
+	// Validate update request - at least one field must be updated
+	if !hasFieldUpdate {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
 		return
 	}
 
-	// Apply field updates if needed
-	if hasFieldUpdate {
-		if !h.applyStoryFieldUpdates(c, id, &req, weekdays) {
-			return
-		}
-	}
-
-	// Process audio if needed
-	if hasAudioUpdate {
-		if !h.processStoryAudioUpdate(c, id) {
-			return
-		}
+	// Apply field updates
+	if !h.applyStoryFieldUpdates(c, id, &req, weekdays) {
+		return
 	}
 
 	utils.SuccessWithMessage(c, "Story updated successfully")

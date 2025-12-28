@@ -3,37 +3,46 @@ info:
   title: Babbel API
   description: |
     HTTP API for generating audio news bulletins. Combines news stories with station-specific jingles using FFmpeg.
-    
+
+    ## Breaking Changes (v2.0)
+
+    **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
+    - Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+    - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
+    - StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+    - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
+    - Metadata: Returned as native JSON object instead of escaped string
+
     ## Authentication
-    
+
     - **Local**: Username/password with session cookies
     - **OAuth/OIDC**: Microsoft Entra ID, Google, Okta support
     - **Headless Support**: Frontend redirect flow for separate API/UI domains
     - **Auto-provisioning**: New OAuth users get 'viewer' role automatically
     - **Account lockout protection**: Failed login attempt tracking
-    
+
     ## Authorization
-    
+
     Role-based access control:
     - admin: Full access including user management
     - editor: Content management (stations, voices, stories, bulletins)
     - viewer: Read-only access
-    
+
     ## Architecture
-    
+
     Station-voice junction table:
     - Each voice has different jingles per station
     - Mix point defines when voice starts over jingle
     - Files stored as `station_{id}_voice_{id}_jingle.wav`
-    
+
     ## CORS
-    
+
     Cross-Origin Resource Sharing (CORS) is configurable:
     - Set `BABBEL_ALLOWED_ORIGINS` environment variable
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 0.0.1
+  version: 2.0.0
       - "Station-specific voice jingles with mix points"
       - "Local and OAuth/OIDC authentication"
       - "Role-based access control (admin, editor, viewer)"
@@ -751,14 +760,16 @@ paths:
                     offset: 0
     post:
       summary: Create a new story
+      description: |
+        Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
       tags:
         - Stories
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              $ref: '#/components/schemas/StoryInput'
+              $ref: '#/components/schemas/StoryCreate'
             example:
               title: "Breaking News Update"
               text: "This is important news content for our listeners."
@@ -773,7 +784,9 @@ paths:
               friday: true
               saturday: false
               sunday: false
-              metadata: {"priority": "high", "category": "breaking"}
+              metadata:
+                priority: "high"
+                category: "breaking"
       responses:
         '201':
           description: Story created
@@ -836,6 +849,39 @@ paths:
                 format: binary
         '404':
           description: Story not found or no audio file
+    post:
+      summary: Upload story audio file
+      description: |
+        Upload audio file for a story. Accepts WAV or MP3 format.
+        Audio duration is automatically calculated and stored.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema:
+              type: string
+              format: binary
+          audio/mpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Audio uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Story'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stories/{id}:
     get:
@@ -856,7 +902,10 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
     put:
-      summary: Update story
+      summary: Update story (full update)
+      description: |
+        Update story with JSON body. All fields are optional - only provided fields will be updated.
+        Audio file must be uploaded separately via POST /stories/{id}/audio.
       tags:
         - Stories
       parameters:
@@ -864,9 +913,9 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              $ref: '#/components/schemas/StoryUpdateInput'
+              $ref: '#/components/schemas/StoryUpdate'
             example:
               title: "Updated Breaking News"
               text: "This is the updated news content."
@@ -874,7 +923,9 @@ paths:
               status: "active"
               monday: false
               tuesday: true
-              metadata: {"priority": "medium"}
+              metadata:
+                priority: "medium"
+                updated: true
       responses:
         '200':
           description: Story updated
@@ -882,8 +933,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Story'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
@@ -1842,46 +1897,20 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       summary: Create a new station-voice relationship
+      description: |
+        Create station-voice relationship with JSON body. Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       tags:
         - Station-Voices
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              required:
-                - station_id
-                - voice_id
-              properties:
-                station_id:
-                  type: integer
-                  description: Station ID
-                voice_id:
-                  type: integer
-                  description: Voice ID  
-                mix_point:
-                  type: number
-                  format: float
-                  minimum: 0
-                  default: 0.0
-                  description: Mix point in seconds (0-300)
-                jingle:
-                  type: string
-                  format: binary
-                  description: Station-specific jingle audio file (optional)
-              description: |
-                Create station-voice relationship with optional jingle file
-                
-                **Form Field Examples**:
-                ```
-                station_id: "1"
-                voice_id: "2"
-                mix_point: "2.5"
-                jingle: <binary audio file>
-                ```
-                
-                **Important**: Numeric values must be sent as strings in form data.
+              $ref: '#/components/schemas/StationVoiceCreate'
+            example:
+              station_id: 1
+              voice_id: 2
+              mix_point: 2.5
       responses:
         '201':
           description: Station-voice relationship created
@@ -1891,6 +1920,12 @@ paths:
                 $ref: '#/components/schemas/StationVoice'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /station-voices/{id}/audio:
     get:
@@ -1909,6 +1944,38 @@ paths:
                 format: binary
         '404':
           description: Station-voice not found or no jingle file
+    post:
+      summary: Upload station-voice jingle file
+      description: |
+        Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 format.
+      tags:
+        - Station-Voices
+      parameters:
+        - $ref: '#/components/parameters/id'
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema:
+              type: string
+              format: binary
+          audio/mpeg:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Jingle uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StationVoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /station-voices/{id}:
     get:
@@ -1929,8 +1996,9 @@ paths:
     put:
       summary: Update station-voice relationship
       description: |
-        Update station-voice relationship properties. All fields are optional - only provided fields will be updated.
+        Update station-voice relationship properties with JSON body. All fields are optional - only provided fields will be updated.
         When updating station_id or voice_id, the system checks for duplicate combinations.
+        Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       tags:
         - Station-Voices
       parameters:
@@ -1938,38 +2006,13 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              properties:
-                station_id:
-                  type: integer
-                  description: New station ID (optional)
-                voice_id:
-                  type: integer
-                  description: New voice ID (optional)
-                mix_point:
-                  type: number
-                  format: float
-                  minimum: 0
-                  maximum: 300
-                  description: Mix point in seconds (0-300)
-                jingle:
-                  type: string
-                  format: binary
-                  description: New station-specific jingle audio file (optional)
-              description: |
-                Update station-voice relationship with optional new jingle file
-                
-                **Form Field Examples** (all optional):
-                ```
-                station_id: "1"
-                voice_id: "3"
-                mix_point: "3.0"
-                jingle: <binary audio file>
-                ```
-                
-                **Important**: Only provide fields you want to update. Numeric values must be sent as strings in form data.
+              $ref: '#/components/schemas/StationVoiceUpdate'
+            example:
+              station_id: 1
+              voice_id: 3
+              mix_point: 3.0
       responses:
         '200':
           description: Station-voice relationship updated
@@ -1977,8 +2020,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StationVoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       summary: Delete station-voice relationship
       tags:
@@ -2262,6 +2313,49 @@ components:
           type: string
           description: Name of the voice (populated by joins)
 
+    StationVoiceCreate:
+      type: object
+      required:
+        - station_id
+        - voice_id
+      description: |
+        Station-voice relationship creation schema for JSON API.
+        Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
+      properties:
+        station_id:
+          type: integer
+          description: Station ID
+        voice_id:
+          type: integer
+          description: Voice ID
+        mix_point:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          default: 0.0
+          description: Mix point in seconds (0-300) - when voice should start over the jingle
+
+    StationVoiceUpdate:
+      type: object
+      description: |
+        Station-voice relationship update schema for JSON API.
+        All fields are optional - only provided fields will be updated.
+        Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
+      properties:
+        station_id:
+          type: integer
+          description: New station ID (optional)
+        voice_id:
+          type: integer
+          description: New voice ID (optional)
+        mix_point:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 300
+          description: Mix point in seconds (0-300)
+
     Story:
       type: object
       properties:
@@ -2367,7 +2461,7 @@ components:
           nullable: true
           description: Timestamp when the story was soft-deleted
 
-    StoryInput:
+    StoryCreate:
       type: object
       required:
         - title
@@ -2375,53 +2469,27 @@ components:
         - start_date
         - end_date
       description: |
-        Story input for multipart/form-data submissions.
-        
-        **Important Form Validation Notes**:
-        - Required fields are validated manually (not through binding tags)
-        - Empty strings are treated as missing for required fields
-        - title and text must be non-empty strings
-        - voice_id is optional - stories without voice won't be in bulletins
-        - weekdays must be a valid JSON string when provided
-        - metadata is a JSON object (optional)
-        - Validation differs from JSON endpoints which use struct binding
-
-        **Form Field Examples**:
-        ```
-        title: "Breaking News Update"
-        text: "This is the news content for the story."
-        voice_id: "1"
-        status: "active"
-        start_date: "2024-01-20T00:00:00Z"
-        end_date: "2024-01-27T23:59:59Z"
-        monday: "true"
-        tuesday: "true"
-        wednesday: "false"
-        metadata: {"priority": "high", "category": "news"}
-        audio: <binary file>
-        ```
-        
-        **Important**: Boolean values must be sent as strings ("true"/"false") in form data.
+        Story creation schema for JSON API.
+        Audio file must be uploaded separately via POST /stories/{id}/audio.
       properties:
         title:
           type: string
           minLength: 1
           maxLength: 500
+          description: Story title
         text:
           type: string
           minLength: 1
+          description: Story text content
         voice_id:
           type: integer
           nullable: true
           description: Optional voice ID. Stories without a voice will not be included in bulletin generation
-        audio:
-          type: string
-          format: binary
-          description: Audio file (optional)
         status:
           type: string
           enum: [draft, active, expired]
           default: draft
+          description: Story status
         start_date:
           type: string
           format: date-time
@@ -2432,77 +2500,61 @@ components:
           description: End date and time in RFC3339 format
         monday:
           type: boolean
+          default: false
           description: Schedule for Monday
         tuesday:
           type: boolean
-          description: Schedule for Tuesday  
+          default: false
+          description: Schedule for Tuesday
         wednesday:
           type: boolean
+          default: false
           description: Schedule for Wednesday
         thursday:
           type: boolean
+          default: false
           description: Schedule for Thursday
         friday:
           type: boolean
+          default: false
           description: Schedule for Friday
         saturday:
           type: boolean
+          default: false
           description: Schedule for Saturday
         sunday:
           type: boolean
+          default: false
           description: Schedule for Sunday
         metadata:
           type: object
           additionalProperties: true
           description: Optional JSON metadata object for story-specific settings
+          example:
+            priority: "high"
+            category: "breaking"
+            source: "AP"
 
-    StoryUpdateInput:
+    StoryUpdate:
       type: object
       description: |
-        Story input for partial updates via multipart/form-data submissions.
-        All fields are optional for update operations - only provided fields will be updated.
-        
-        **Important Form Validation Notes**:
-        - All fields are optional for updates (partial update support)
-        - Empty strings are treated as missing for optional fields
-        - title and text, when provided, must be non-empty strings
-        - voice_id is optional - stories without voice won't be in bulletins
-        - weekdays must be a valid JSON string when provided
-        - metadata is a JSON object (optional)
-        - Validation differs from JSON endpoints which use struct binding
-
-        **Form Field Examples** (all optional):
-        ```
-        title: "Updated Breaking News"
-        text: "This is the updated news content."
-        voice_id: "2"
-        status: "active"
-        start_date: "2024-01-20T00:00:00Z"
-        end_date: "2024-01-27T23:59:59Z"
-        monday: "false"
-        tuesday: "true"
-        wednesday: "false"
-        metadata: {"priority": "medium", "category": "news"}
-        audio: <binary file>
-        ```
-        
-        **Important**: Boolean values must be sent as strings ("true"/"false") in form data.
+        Story update schema for JSON API.
+        All fields are optional - only provided fields will be updated.
+        Audio file must be uploaded separately via POST /stories/{id}/audio.
       properties:
         title:
           type: string
           minLength: 1
           maxLength: 500
+          description: Story title
         text:
           type: string
           minLength: 1
+          description: Story text content
         voice_id:
           type: integer
           nullable: true
           description: Optional voice ID. Stories without a voice will not be included in bulletin generation
-        audio:
-          type: string
-          format: binary
-          description: Audio file (optional)
         status:
           type: string
           enum: [draft, active, expired]
@@ -2520,7 +2572,7 @@ components:
           description: Schedule for Monday
         tuesday:
           type: boolean
-          description: Schedule for Tuesday  
+          description: Schedule for Tuesday
         wednesday:
           type: boolean
           description: Schedule for Wednesday
@@ -2540,6 +2592,9 @@ components:
           type: object
           additionalProperties: true
           description: Optional JSON metadata object for story-specific settings
+          example:
+            priority: "medium"
+            updated: true
 
     User:
       type: object

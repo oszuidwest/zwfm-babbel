@@ -11,6 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/datatypes"
 )
 
 // UserService handles user-related business logic.
@@ -32,7 +33,7 @@ type UpdateUserRequest struct {
 	Email     *string
 	Password  string
 	Role      string
-	Metadata  *string
+	Metadata  *datatypes.JSONMap
 	Suspended *bool
 }
 
@@ -163,7 +164,7 @@ func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullNa
 }
 
 // applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata *string) {
+func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata *datatypes.JSONMap) {
 	if metadata != nil {
 		u.Metadata = metadata
 	}

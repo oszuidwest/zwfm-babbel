@@ -4,6 +4,7 @@ package models
 import (
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -62,7 +63,7 @@ type Story struct {
 	// Sunday indicates if the story is scheduled for Sundays.
 	Sunday bool `gorm:"not null;default:true" json:"sunday"`
 	// Metadata stores additional custom data as JSON.
-	Metadata *string `gorm:"type:json" json:"metadata,omitempty"`
+	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	// CreatedAt is when the story was created.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the story was last modified.
@@ -176,7 +177,7 @@ type User struct {
 	// PasswordChangedAt is the timestamp of the last password change.
 	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
 	// Metadata is optional JSON metadata.
-	Metadata *string `gorm:"type:json" json:"metadata,omitempty"`
+	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	// CreatedAt is the timestamp when the user was created.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the last update.
@@ -227,7 +228,7 @@ type Bulletin struct {
 	// StoryCount is the number of stories included in this bulletin.
 	StoryCount int `gorm:"not null;default:0" json:"story_count"`
 	// Metadata stores additional custom data as JSON.
-	Metadata *string `gorm:"type:json" json:"metadata,omitempty"`
+	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	// CreatedAt is when the bulletin was generated.
 	CreatedAt time.Time `gorm:"index" json:"created_at"`
 

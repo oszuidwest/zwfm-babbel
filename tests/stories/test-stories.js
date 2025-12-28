@@ -38,24 +38,24 @@ class StoriesTests extends BaseTest {
      * Helper function to create a story and track its ID
      */
     async createStory(title, text, voiceId) {
-        const formFields = {
+        const storyData = {
             title,
             text,
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'true',
-            wednesday: 'true',
-            thursday: 'true',
-            friday: 'true',
-            saturday: 'false',
-            sunday: 'false'
+            monday: true,
+            tuesday: true,
+            wednesday: true,
+            thursday: true,
+            friday: true,
+            saturday: false,
+            sunday: false
         };
-        
-        const response = await this.uploadFile('/stories', formFields);
-        
+
+        const response = await this.apiCall('POST', '/stories', storyData);
+
         if (response.status === 201) {
             const storyId = this.parseJsonField(response.data, 'id');
             if (storyId) {
@@ -63,7 +63,7 @@ class StoriesTests extends BaseTest {
                 return storyId;
             }
         }
-        
+
         return null;
     }
     
@@ -130,23 +130,23 @@ class StoriesTests extends BaseTest {
         }
         
         // Test updating
-        const updateFields = {
+        const updateData = {
             title: 'Updated CRUD Story',
             text: 'Updated content',
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'false',
-            wednesday: 'true',
-            thursday: 'false',
-            friday: 'true',
-            saturday: 'false',
-            sunday: 'false'
+            monday: true,
+            tuesday: false,
+            wednesday: true,
+            thursday: false,
+            friday: true,
+            saturday: false,
+            sunday: false
         };
-        
-        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFields, null, 'file', 'PUT');
+
+        const updateResponse = await this.apiCall('PUT', `/stories/${storyId}`, updateData);
         if (this.assertions.checkResponse(updateResponse, 200, 'Update story')) {
             this.printSuccess('Story updated successfully');
         } else {
@@ -252,12 +252,12 @@ class StoriesTests extends BaseTest {
         
         // Test updating story title and text
         this.printInfo('Updating story title and text...');
-        const updateFields = {
+        const updateData = {
             title: 'Updated Story Title',
             text: 'Updated story content'
         };
-        
-        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFields, null, null, 'PUT');
+
+        const updateResponse = await this.apiCall('PUT', `/stories/${storyId}`, updateData);
         
         if (this.assertions.checkResponse(updateResponse, 200, 'Update story')) {
             // Verify the update
@@ -277,17 +277,17 @@ class StoriesTests extends BaseTest {
         
         // Test updating weekday schedule
         this.printInfo('Updating story weekday schedule...');
-        const weekdayFields = {
-            monday: 'false',
-            tuesday: 'true',
-            wednesday: 'false',
-            thursday: 'true',
-            friday: 'false',
-            saturday: 'true',
-            sunday: 'true'
+        const weekdayData = {
+            monday: false,
+            tuesday: true,
+            wednesday: false,
+            thursday: true,
+            friday: false,
+            saturday: true,
+            sunday: true
         };
-        
-        const weekdayResponse = await this.uploadFile(`/stories/${storyId}`, weekdayFields, null, null, 'PUT');
+
+        const weekdayResponse = await this.apiCall('PUT', `/stories/${storyId}`, weekdayData);
         
         if (this.assertions.checkResponse(weekdayResponse, 200, 'Update weekdays')) {
             this.printSuccess('Story weekday schedule updated');
@@ -297,9 +297,9 @@ class StoriesTests extends BaseTest {
         
         // Test updating status
         this.printInfo('Updating story status to draft...');
-        const statusFields = { status: 'draft' };
-        
-        const statusResponse = await this.uploadFile(`/stories/${storyId}`, statusFields, null, null, 'PUT');
+        const statusData = { status: 'draft' };
+
+        const statusResponse = await this.apiCall('PUT', `/stories/${storyId}`, statusData);
         
         if (this.assertions.checkResponse(statusResponse, 200, 'Update status')) {
             // Verify the status update
@@ -318,7 +318,7 @@ class StoriesTests extends BaseTest {
         
         // Test updating non-existent story
         this.printInfo('Testing update of non-existent story...');
-        const nonExistentResponse = await this.uploadFile('/stories/99999', { title: 'Non-existent' }, null, null, 'PUT');
+        const nonExistentResponse = await this.apiCall('PUT', '/stories/99999', { title: 'Non-existent' });
         
         if (nonExistentResponse.status === 404) {
             this.printSuccess('Non-existent story update correctly rejected');
@@ -418,23 +418,23 @@ class StoriesTests extends BaseTest {
         
         // Test creating a future-dated story
         this.printInfo('Creating future-dated story...');
-        const futureFields = {
+        const futureData = {
             title: 'Future Story',
             text: 'This story is scheduled for the future.',
             voice_id: voiceId,
             status: 'active',
             start_date: '2030-01-01',
             end_date: '2030-12-31',
-            monday: 'true',
-            tuesday: 'true',
-            wednesday: 'true',
-            thursday: 'true',
-            friday: 'true',
-            saturday: 'true',
-            sunday: 'true'
+            monday: true,
+            tuesday: true,
+            wednesday: true,
+            thursday: true,
+            friday: true,
+            saturday: true,
+            sunday: true
         };
-        
-        const futureResponse = await this.uploadFile('/stories', futureFields);
+
+        const futureResponse = await this.apiCall('POST', '/stories', futureData);
         
         if (futureResponse.status === 201) {
             this.printSuccess('Future-dated story created');
@@ -449,23 +449,23 @@ class StoriesTests extends BaseTest {
         
         // Test creating a weekend-only story
         this.printInfo('Creating weekend-only story...');
-        const weekendFields = {
+        const weekendData = {
             title: 'Weekend Story',
             text: 'This story only plays on weekends.',
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'false',
-            tuesday: 'false',
-            wednesday: 'false',
-            thursday: 'false',
-            friday: 'false',
-            saturday: 'true',
-            sunday: 'true'
+            monday: false,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: true,
+            sunday: true
         };
-        
-        const weekendResponse = await this.uploadFile('/stories', weekendFields);
+
+        const weekendResponse = await this.apiCall('POST', '/stories', weekendData);
         
         if (weekendResponse.status === 201) {
             this.printSuccess('Weekend-only story created');
@@ -604,12 +604,12 @@ class StoriesTests extends BaseTest {
         if (!stationVoiceId) {
             this.printWarning('Failed to create station-voice relationship - may not have FFmpeg available');
             // Try to create a simple station-voice relationship without jingle
-            const FormData = require('form-data');
-            const basicForm = new FormData();
-            basicForm.append('station_id', stationId.toString());
-            basicForm.append('voice_id', voiceId.toString());
-            basicForm.append('mix_point', '3.0');
-            const basicResponse = await this.apiCallFormData('POST', '/station-voices', basicForm);
+            const basicData = {
+                station_id: parseInt(stationId),
+                voice_id: parseInt(voiceId),
+                mix_point: 3.0
+            };
+            const basicResponse = await this.apiCall('POST', '/station-voices', basicData);
             if (basicResponse.status !== 201) {
                 this.printError('Failed to create even basic station-voice relationship for bulletin history tests');
                 return false;
@@ -1013,7 +1013,7 @@ class StoriesTests extends BaseTest {
         // Create a simple test jingle audio file
         const jingleFile = `/tmp/test_jingle_${stationId}_${voiceId}.wav`;
         const fs = require('fs');
-        
+
         try {
             const { execSync } = require('child_process');
             execSync(`ffmpeg -f lavfi -i "sine=frequency=440:duration=2" -ar 44100 -ac 2 -f wav "${jingleFile}" -y 2>/dev/null`, { stdio: 'ignore' });
@@ -1025,25 +1025,41 @@ class StoriesTests extends BaseTest {
             this.printWarning('ffmpeg not available - skipping jingle creation');
             return null;
         }
-        
-        // Upload the station-voice relationship with jingle
-        const formFields = {
-            station_id: stationId.toString(),
-            voice_id: voiceId.toString(),
-            mix_point: mixPoint.toString()
+
+        // Step 1: Create the station-voice relationship with JSON
+        const svData = {
+            station_id: parseInt(stationId),
+            voice_id: parseInt(voiceId),
+            mix_point: mixPoint
         };
-        
-        const response = await this.uploadFile('/station-voices', formFields, jingleFile, 'jingle');
-        
+
+        const createResponse = await this.apiCall('POST', '/station-voices', svData);
+
+        if (createResponse.status !== 201) {
+            this.printWarning('Failed to create station-voice relationship');
+            fs.unlinkSync(jingleFile);
+            return null;
+        }
+
+        const svId = this.parseJsonField(createResponse.data, 'id');
+        if (!svId) {
+            this.printWarning('Failed to extract station-voice ID');
+            fs.unlinkSync(jingleFile);
+            return null;
+        }
+
+        // Step 2: Upload jingle separately
+        const jingleResponse = await this.uploadFile(`/station-voices/${svId}/audio`, {}, jingleFile, 'jingle');
+
         // Clean up temp file
         fs.unlinkSync(jingleFile);
-        
-        if (response.status === 201) {
-            const svId = this.parseJsonField(response.data, 'id');
+
+        if (jingleResponse.status === 200) {
             return svId;
         }
-        
-        return null;
+
+        this.printWarning('Failed to upload jingle, but station-voice created');
+        return svId; // Return svId even if jingle upload failed
     }
 
     /**
@@ -1051,7 +1067,7 @@ class StoriesTests extends BaseTest {
      */
     async testStoryAudio() {
         this.printSection('Testing Story Audio Upload and Download');
-        
+
         // Create a voice for the test story
         this.printInfo('Creating test voice for audio test...');
         const voiceId = await this.createVoice('Audio Test Voice');
@@ -1059,12 +1075,12 @@ class StoriesTests extends BaseTest {
             this.printError('Failed to create test voice');
             return false;
         }
-        
+
         // Create a test audio file
         this.printInfo('Creating test audio file...');
         const testAudio = '/tmp/test_audio_upload.wav';
         const fs = require('fs');
-        
+
         try {
             const { execSync } = require('child_process');
             execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 2 -f wav "${testAudio}" -y 2>/dev/null`, { stdio: 'ignore' });
@@ -1077,59 +1093,72 @@ class StoriesTests extends BaseTest {
             this.printWarning('ffmpeg not available, skipping audio test');
             return true; // Skip this test
         }
-        
-        // Test creating story with audio upload
-        this.printInfo('Creating story with audio file upload...');
-        const audioFields = {
+
+        // Step 1: Create story with JSON (no audio yet)
+        this.printInfo('Step 1: Creating story with JSON...');
+        const storyData = {
             title: 'Story With Audio Upload Test',
             text: 'This story has uploaded audio for testing',
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'true',
-            wednesday: 'true',
-            thursday: 'true',
-            friday: 'true',
-            saturday: 'false',
-            sunday: 'false'
+            monday: true,
+            tuesday: true,
+            wednesday: true,
+            thursday: true,
+            friday: true,
+            saturday: false,
+            sunday: false
         };
-        
-        const audioResponse = await this.uploadFile('/stories', audioFields, testAudio, 'audio');
-        
-        if (audioResponse.status !== 201) {
-            this.printError(`Failed to create story with audio (HTTP: ${audioResponse.status})`);
-            this.printError(`Response: ${JSON.stringify(audioResponse.data)}`);
+
+        const createResponse = await this.apiCall('POST', '/stories', storyData);
+
+        if (createResponse.status !== 201) {
+            this.printError(`Failed to create story (HTTP: ${createResponse.status})`);
+            this.printError(`Response: ${JSON.stringify(createResponse.data)}`);
             fs.unlinkSync(testAudio);
             return false;
         }
-        
-        const storyId = this.parseJsonField(audioResponse.data, 'id');
+
+        const storyId = this.parseJsonField(createResponse.data, 'id');
         if (!storyId) {
             this.printError('Failed to extract story ID from response');
             fs.unlinkSync(testAudio);
             return false;
         }
-        
+
         this.createdStoryIds.push(storyId);
-        this.printSuccess(`Story with audio created successfully (ID: ${storyId})`);
-        
+        this.printSuccess(`Story created successfully (ID: ${storyId})`);
+
+        // Step 2: Upload audio separately
+        this.printInfo('Step 2: Uploading audio file separately...');
+        const audioUploadResponse = await this.uploadFile(`/stories/${storyId}/audio`, {}, testAudio, 'audio');
+
+        if (audioUploadResponse.status !== 200) {
+            this.printError(`Failed to upload audio (HTTP: ${audioUploadResponse.status})`);
+            this.printError(`Response: ${JSON.stringify(audioUploadResponse.data)}`);
+            fs.unlinkSync(testAudio);
+            return false;
+        }
+
+        this.printSuccess('Audio uploaded successfully');
+
         // Verify the story has an audio URL
         this.printInfo('Verifying story has audio URL...');
         const getResponse = await this.apiCall('GET', `/stories/${storyId}`);
-        
+
         if (this.assertions.checkResponse(getResponse, 200, 'Get story with audio')) {
             const audioUrl = this.parseJsonField(getResponse.data, 'audio_url');
-            
+
             if (audioUrl) {
                 this.printSuccess(`Story has audio URL: ${audioUrl}`);
-                
+
                 // Test downloading the audio
                 this.printInfo('Testing audio download from API...');
                 const downloadPath = '/tmp/downloaded_story_audio.wav';
                 const downloadResponse = await this.downloadFile(audioUrl, downloadPath);
-                
+
                 if (downloadResponse === 200) {
                     if (fs.existsSync(downloadPath)) {
                         const stats = fs.statSync(downloadPath);
@@ -1158,7 +1187,7 @@ class StoriesTests extends BaseTest {
             fs.unlinkSync(testAudio);
             return false;
         }
-        
+
         // Clean up
         fs.unlinkSync(testAudio);
 
@@ -1180,26 +1209,26 @@ class StoriesTests extends BaseTest {
 
         // Test 1: Create story with metadata
         this.printInfo('Creating story with metadata...');
-        const metadata = JSON.stringify({ source: 'test', priority: 'high', tags: ['breaking', 'local'] });
+        const metadata = { source: 'test', priority: 'high', tags: ['breaking', 'local'] };
 
-        const formFields = {
+        const storyData = {
             title: 'Metadata Test Story',
             text: 'This is a story with metadata.',
             voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'true',
-            wednesday: 'true',
-            thursday: 'true',
-            friday: 'true',
-            saturday: 'false',
-            sunday: 'false',
+            monday: true,
+            tuesday: true,
+            wednesday: true,
+            thursday: true,
+            friday: true,
+            saturday: false,
+            sunday: false,
             metadata: metadata
         };
 
-        const createResponse = await this.uploadFile('/stories', formFields);
+        const createResponse = await this.apiCall('POST', '/stories', storyData);
 
         if (!this.assertions.checkResponse(createResponse, 201, 'Create story with metadata')) {
             return false;
@@ -1222,21 +1251,20 @@ class StoriesTests extends BaseTest {
             return false;
         }
 
-        const returnedMetadata = this.parseJsonField(getResponse.data, 'metadata');
+        const returnedMetadata = getResponse.data.metadata;
         if (returnedMetadata) {
             this.printSuccess('Metadata field is present in response');
 
-            // Parse the metadata (it's a JSON string)
-            try {
-                const parsed = typeof returnedMetadata === 'string' ? JSON.parse(returnedMetadata) : returnedMetadata;
-                if (parsed.source === 'test' && parsed.priority === 'high') {
+            // Metadata should be a native object now
+            if (typeof returnedMetadata === 'object') {
+                if (returnedMetadata.source === 'test' && returnedMetadata.priority === 'high') {
                     this.printSuccess('Metadata content is correct');
                 } else {
                     this.printError('Metadata content does not match expected values');
                     return false;
                 }
-            } catch (e) {
-                this.printError(`Failed to parse metadata: ${e.message}`);
+            } else {
+                this.printError('Metadata is not a native object');
                 return false;
             }
         } else {
@@ -1246,13 +1274,13 @@ class StoriesTests extends BaseTest {
 
         // Test 3: Update metadata
         this.printInfo('Updating story metadata...');
-        const updatedMetadata = JSON.stringify({ source: 'updated', priority: 'low', version: 2 });
+        const updatedMetadata = { source: 'updated', priority: 'low', version: 2 };
 
-        const updateFormFields = {
+        const updateData = {
             metadata: updatedMetadata
         };
 
-        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFormFields, null, null, 'PATCH');
+        const updateResponse = await this.apiCall('PATCH', `/stories/${storyId}`, updateData);
 
         if (!this.assertions.checkResponse(updateResponse, 200, 'Update story metadata')) {
             return false;
@@ -1268,18 +1296,17 @@ class StoriesTests extends BaseTest {
             return false;
         }
 
-        const updatedReturnedMetadata = this.parseJsonField(getUpdatedResponse.data, 'metadata');
+        const updatedReturnedMetadata = getUpdatedResponse.data.metadata;
         if (updatedReturnedMetadata) {
-            try {
-                const parsed = typeof updatedReturnedMetadata === 'string' ? JSON.parse(updatedReturnedMetadata) : updatedReturnedMetadata;
-                if (parsed.source === 'updated' && parsed.version === 2) {
+            if (typeof updatedReturnedMetadata === 'object') {
+                if (updatedReturnedMetadata.source === 'updated' && updatedReturnedMetadata.version === 2) {
                     this.printSuccess('Updated metadata content is correct');
                 } else {
                     this.printError('Updated metadata content does not match expected values');
                     return false;
                 }
-            } catch (e) {
-                this.printError(`Failed to parse updated metadata: ${e.message}`);
+            } else {
+                this.printError('Updated metadata is not a native object');
                 return false;
             }
         } else {
