@@ -6,29 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
-	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
 // UserService handles user-related business logic
 type UserService struct {
-	repo   repository.UserRepository
-	gormDB *gorm.DB
+	repo repository.UserRepository
 }
 
 // NewUserService creates a new user service instance
-func NewUserService(repo repository.UserRepository, gormDB *gorm.DB) *UserService {
+func NewUserService(repo repository.UserRepository) *UserService {
 	return &UserService{
-		repo:   repo,
-		gormDB: gormDB,
+		repo: repo,
 	}
 }
 
@@ -362,41 +356,14 @@ func isValidRole(role string) bool {
 	return slices.Contains(validRoles, role)
 }
 
-// UserListItem represents a user in list responses.
-type UserListItem struct {
-	ID                  int64      `json:"id" db:"id"`
-	Username            string     `json:"username" db:"username"`
-	FullName            *string    `json:"full_name" db:"full_name"`
-	Email               *string    `json:"email" db:"email"`
-	Role                string     `json:"role" db:"role"`
-	SuspendedAt         *time.Time `json:"suspended_at" db:"suspended_at"`
-	LastLoginAt         *time.Time `json:"last_login_at" db:"last_login_at"`
-	LoginCount          int        `json:"login_count" db:"login_count"`
-	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
-	LockedUntil         *time.Time `json:"locked_until" db:"locked_until"`
-	PasswordChangedAt   *time.Time `json:"password_changed_at" db:"password_changed_at"`
-	Metadata            *string    `json:"metadata" db:"metadata"`
-	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
-}
+// List retrieves a paginated list of users with filtering, sorting, and search support.
+func (s *UserService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.User], error) {
+	const op = "UserService.List"
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *UserService) ListWithContext(c *gin.Context) {
-	config := utils.GormListConfig{
-		SearchFields: []string{"username", "display_name"},
-		FieldMapping: map[string]string{
-			"id":           "id",
-			"username":     "username",
-			"display_name": "display_name",
-			"role":         "role",
-			"auth_type":    "auth_type",
-			"is_suspended": "is_suspended",
-			"created_at":   "created_at",
-			"updated_at":   "updated_at",
-		},
-		DefaultSort: "username ASC",
-		SoftDelete:  true, // Users have soft delete
+	result, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
-	utils.GormListWithQuery[models.User](c, s.gormDB, config)
+
+	return result, nil
 }

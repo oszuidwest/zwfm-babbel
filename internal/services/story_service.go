@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -17,7 +16,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"gorm.io/gorm"
 )
 
 // StoryServiceDeps contains all dependencies for StoryService.
@@ -26,7 +24,6 @@ type StoryServiceDeps struct {
 	VoiceRepo repository.VoiceRepository
 	AudioSvc  *audio.Service
 	Config    *config.Config
-	GormDB    *gorm.DB
 }
 
 // StoryService handles business logic for news story operations.
@@ -35,7 +32,6 @@ type StoryService struct {
 	voiceRepo repository.VoiceRepository
 	audioSvc  *audio.Service
 	config    *config.Config
-	gormDB    *gorm.DB
 }
 
 // NewStoryService creates a new story service instance.
@@ -45,7 +41,6 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		voiceRepo: deps.VoiceRepo,
 		audioSvc:  deps.AudioSvc,
 		config:    deps.Config,
-		gormDB:    deps.GormDB,
 	}
 }
 
@@ -295,6 +290,15 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	return story, nil
 }
 
+// Exists checks if a story with the given ID exists.
+func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
+	exists, err := s.storyRepo.Exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to check story existence: %v", apperrors.ErrDatabaseError, err)
+	}
+	return exists, nil
+}
+
 // SoftDelete marks a story as deleted by setting the deleted_at timestamp.
 func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	// Verify story exists
@@ -448,52 +452,13 @@ func (s *StoryService) handleDatabaseError(err error) error {
 	return fmt.Errorf("%w: database operation failed", apperrors.ErrDatabaseError)
 }
 
-// StoryListItem represents a story in list responses with computed fields.
-type StoryListItem struct {
-	ID              int64           `json:"id" db:"id"`
-	Title           string          `json:"title" db:"title"`
-	Text            string          `json:"text" db:"text"`
-	VoiceID         *int64          `json:"voice_id" db:"voice_id"`
-	AudioFile       string          `json:"-" db:"audio_file"`
-	DurationSeconds *float64        `json:"duration_seconds" db:"duration_seconds"`
-	Status          string          `json:"status" db:"status"`
-	StartDate       time.Time       `json:"start_date" db:"start_date"`
-	EndDate         time.Time       `json:"end_date" db:"end_date"`
-	Monday          bool            `json:"-" db:"monday"`
-	Tuesday         bool            `json:"-" db:"tuesday"`
-	Wednesday       bool            `json:"-" db:"wednesday"`
-	Thursday        bool            `json:"-" db:"thursday"`
-	Friday          bool            `json:"-" db:"friday"`
-	Saturday        bool            `json:"-" db:"saturday"`
-	Sunday          bool            `json:"-" db:"sunday"`
-	Metadata        *string         `json:"metadata" db:"metadata"`
-	DeletedAt       *time.Time      `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
-	VoiceName       string          `json:"voice_name" db:"voice_name"`
-	AudioURL        *string         `json:"audio_url,omitempty"`
-	Weekdays        map[string]bool `json:"weekdays,omitempty"`
-}
-
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *StoryService) ListWithContext(c *gin.Context) {
-	config := utils.GormListConfig{
-		SearchFields: []string{"title", "text"},
-		FieldMapping: map[string]string{
-			"id":               "id",
-			"title":            "title",
-			"text":             "text",
-			"voice_id":         "voice_id",
-			"status":           "status",
-			"start_date":       "start_date",
-			"end_date":         "end_date",
-			"duration_seconds": "duration_seconds",
-			"created_at":       "created_at",
-			"updated_at":       "updated_at",
-		},
-		DefaultSort: "created_at DESC",
-		SoftDelete:  true, // Stories have soft delete
+// List retrieves stories with filtering, sorting, and pagination.
+// Delegates to the repository layer for data access.
+func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
+	result, err := s.storyRepo.List(ctx, query)
+	if err != nil {
+		logger.Error("Database error listing stories: %v", err)
+		return nil, fmt.Errorf("%w: failed to list stories", apperrors.ErrDatabaseError)
 	}
-	utils.GormListWithQuery[models.Story](c, s.gormDB, config)
+	return result, nil
 }

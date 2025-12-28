@@ -27,6 +27,7 @@ type StationRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error)
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
 	HasDependencies(ctx context.Context, id int64) (bool, error)
@@ -93,6 +94,83 @@ func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpda
 // Delete removes a station by its ID.
 func (r *stationRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
+}
+
+// List retrieves a paginated list of stations with filtering, sorting, and search.
+func (r *stationRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error) {
+	if query == nil {
+		query = NewListQuery()
+	}
+
+	// Field mapping for stations (API field name -> DB column)
+	fieldMapping := map[string]string{
+		"id":                    "id",
+		"name":                  "name",
+		"max_stories_per_block": "max_stories_per_block",
+		"pause_seconds":         "pause_seconds",
+		"created_at":            "created_at",
+		"updated_at":            "updated_at",
+	}
+
+	// Search fields for stations
+	searchFields := []string{"name"}
+
+	// Build base query
+	baseQuery := r.db.WithContext(ctx).Model(&models.Station{})
+
+	// Apply search
+	if query.Search != "" {
+		searchPattern := "%" + query.Search + "%"
+		baseQuery = baseQuery.Where("name LIKE ?", searchPattern)
+	}
+
+	// Apply filters using the shared applyFilterWithMapping helper
+	for _, filter := range query.Filters {
+		baseQuery = applyFilterWithMapping(baseQuery, filter, fieldMapping)
+	}
+
+	// Count total before pagination
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// Apply sorting
+	if len(query.Sort) > 0 {
+		for _, sf := range query.Sort {
+			dbField, ok := fieldMapping[sf.Field]
+			if !ok {
+				continue
+			}
+			direction := "ASC"
+			if sf.Direction == SortDesc {
+				direction = "DESC"
+			}
+			baseQuery = baseQuery.Order(dbField + " " + direction)
+		}
+	} else {
+		// Default sort by name
+		baseQuery = baseQuery.Order("name ASC")
+	}
+
+	// Apply pagination
+	baseQuery = baseQuery.Offset(query.Offset).Limit(query.Limit)
+
+	// Execute query
+	var stations []models.Station
+	if err := baseQuery.Find(&stations).Error; err != nil {
+		return nil, err
+	}
+
+	// Suppress unused variable warning for searchFields
+	_ = searchFields
+
+	return &ListResult[models.Station]{
+		Data:   stations,
+		Total:  total,
+		Limit:  query.Limit,
+		Offset: query.Offset,
+	}, nil
 }
 
 // Exists checks if a station with the given ID exists.

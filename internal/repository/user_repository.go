@@ -40,6 +40,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	// Query operations
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error)
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error)
 	IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error)
@@ -191,4 +192,107 @@ func (r *userRepository) DeleteSessions(ctx context.Context, userID int64) error
 	// user_sessions is not a GORM model, so we use raw SQL
 	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
 	return ParseDBError(err)
+}
+
+// userFieldMapping maps API field names to database columns for users.
+var userFieldMapping = map[string]string{
+	"id":         "id",
+	"username":   "username",
+	"full_name":  "full_name",
+	"email":      "email",
+	"role":       "role",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
+}
+
+// List retrieves a paginated list of users with filtering, sorting, and search support.
+func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
+	if query == nil {
+		query = NewListQuery()
+	}
+
+	db := r.db.WithContext(ctx).Model(&models.User{})
+
+	// Apply soft delete filter based on status
+	// Users have gorm.DeletedAt so GORM handles soft delete automatically
+	switch query.Status {
+	case "deleted":
+		db = db.Unscoped().Where("deleted_at IS NOT NULL")
+	case "all":
+		db = db.Unscoped()
+	default:
+		// "active" is default - GORM automatically excludes soft-deleted records
+	}
+
+	// Apply search
+	if query.Search != "" {
+		searchPattern := "%" + query.Search + "%"
+		db = db.Where("username LIKE ? OR full_name LIKE ?", searchPattern, searchPattern)
+	}
+
+	// Apply filters
+	for _, filter := range query.Filters {
+		dbField, ok := userFieldMapping[filter.Field]
+		if !ok {
+			continue
+		}
+
+		switch filter.Operator {
+		case FilterEquals:
+			db = db.Where(dbField+" = ?", filter.Value)
+		case FilterNotEquals:
+			db = db.Where(dbField+" != ?", filter.Value)
+		case FilterGreaterThan:
+			db = db.Where(dbField+" > ?", filter.Value)
+		case FilterGreaterOrEq:
+			db = db.Where(dbField+" >= ?", filter.Value)
+		case FilterLessThan:
+			db = db.Where(dbField+" < ?", filter.Value)
+		case FilterLessOrEq:
+			db = db.Where(dbField+" <= ?", filter.Value)
+		case FilterLike:
+			db = db.Where(dbField+" LIKE ?", filter.Value)
+		case FilterIn:
+			db = db.Where(dbField+" IN ?", filter.Value)
+		}
+	}
+
+	// Count total before pagination
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	// Apply sorting
+	if len(query.Sort) > 0 {
+		for _, sf := range query.Sort {
+			dbField, ok := userFieldMapping[sf.Field]
+			if !ok {
+				continue
+			}
+			direction := "ASC"
+			if sf.Direction == SortDesc {
+				direction = "DESC"
+			}
+			db = db.Order(dbField + " " + direction)
+		}
+	} else {
+		db = db.Order("username ASC")
+	}
+
+	// Apply pagination
+	db = db.Offset(query.Offset).Limit(query.Limit)
+
+	// Execute query
+	var users []models.User
+	if err := db.Find(&users).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return &ListResult[models.User]{
+		Data:   users,
+		Total:  total,
+		Limit:  query.Limit,
+		Offset: query.Offset,
+	}, nil
 }

@@ -52,25 +52,22 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		StoryRepo:    storyRepo,
 		AudioSvc:     audioSvc,
 		Config:       cfg,
-		GormDB:       db,
 	})
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
 		StoryRepo: storyRepo,
 		VoiceRepo: voiceRepo,
 		AudioSvc:  audioSvc,
 		Config:    cfg,
-		GormDB:    db,
 	})
-	stationSvc := services.NewStationService(stationRepo, db)
-	voiceSvc := services.NewVoiceService(voiceRepo, db)
-	userSvc := services.NewUserService(userRepo, db)
+	stationSvc := services.NewStationService(stationRepo)
+	voiceSvc := services.NewVoiceService(voiceRepo)
+	userSvc := services.NewUserService(userRepo)
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		StationVoiceRepo: stationVoiceRepo,
 		StationRepo:      stationRepo,
 		VoiceRepo:        voiceRepo,
 		AudioSvc:         audioSvc,
 		Config:           cfg,
-		GormDB:           db,
 	})
 
 	// Create handlers with services and audio repository

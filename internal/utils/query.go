@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
 // QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection.
@@ -267,8 +268,9 @@ func parseFilterKey(key string) (field, operator string) {
 	return content, ""
 }
 
-// filterStructFields uses reflection to filter struct fields.
-func filterStructFields(data any, fields []string) any {
+// FilterStructFields uses reflection to filter struct fields.
+// Exported for use by handlers that need field filtering.
+func FilterStructFields(data any, fields []string) any {
 	if len(fields) == 0 {
 		return data
 	}
@@ -345,4 +347,67 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	}
 
 	return result
+}
+
+// ParseListQuery parses HTTP query parameters into a repository.ListQuery.
+// Converts utils.QueryParams format to repository.ListQuery format for use with repository List methods.
+func ParseListQuery(c *gin.Context) *repository.ListQuery {
+	params := ParseQueryParams(c)
+	if params == nil {
+		return repository.NewListQuery()
+	}
+
+	query := &repository.ListQuery{
+		Limit:  params.Limit,
+		Offset: params.Offset,
+		Search: params.Search,
+		Status: params.Status,
+	}
+
+	// Convert sort fields
+	for _, sf := range params.Sort {
+		direction := repository.SortAsc
+		if strings.ToLower(sf.Direction) == "desc" {
+			direction = repository.SortDesc
+		}
+		query.Sort = append(query.Sort, repository.SortField{
+			Field:     sf.Field,
+			Direction: direction,
+		})
+	}
+
+	// Convert filters
+	for field, filter := range params.Filters {
+		condition := repository.FilterCondition{
+			Field: field,
+			Value: filter.Value,
+		}
+
+		// Map operator strings to repository.FilterOperator
+		switch filter.Operator {
+		case "=":
+			condition.Operator = repository.FilterEquals
+		case "!=":
+			condition.Operator = repository.FilterNotEquals
+		case ">":
+			condition.Operator = repository.FilterGreaterThan
+		case ">=":
+			condition.Operator = repository.FilterGreaterOrEq
+		case "<":
+			condition.Operator = repository.FilterLessThan
+		case "<=":
+			condition.Operator = repository.FilterLessOrEq
+		case "LIKE":
+			condition.Operator = repository.FilterLike
+		case "IN":
+			condition.Operator = repository.FilterIn
+			condition.Value = filter.Values
+		default:
+			condition.Operator = repository.FilterEquals
+		}
+
+		query.Filters = append(query.Filters, condition)
+	}
+
+	return query
 }

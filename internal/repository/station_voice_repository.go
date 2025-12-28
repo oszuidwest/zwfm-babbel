@@ -30,6 +30,7 @@ type StationVoiceRepository interface {
 	// Query operations
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error)
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error)
 
 	// Audio operations
 	GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error)
@@ -204,4 +205,94 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 	}
 
 	return nil
+}
+
+// stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.
+var stationVoiceFieldMapping = map[string]string{
+	"id":         "station_voices.id",
+	"station_id": "station_voices.station_id",
+	"voice_id":   "station_voices.voice_id",
+	"mix_point":  "station_voices.mix_point",
+	"created_at": "station_voices.created_at",
+	"updated_at": "station_voices.updated_at",
+}
+
+// List retrieves a paginated list of station-voice relationships with joined station and voice names.
+func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
+	if query == nil {
+		query = NewListQuery()
+	}
+
+	// Build base query with joins for station and voice names
+	baseQuery := r.db.WithContext(ctx).
+		Table("station_voices").
+		Select("station_voices.*, stations.name as station_name, voices.name as voice_name").
+		Joins("LEFT JOIN stations ON stations.id = station_voices.station_id").
+		Joins("LEFT JOIN voices ON voices.id = station_voices.voice_id")
+
+	// Apply filters
+	for _, filter := range query.Filters {
+		dbField, ok := stationVoiceFieldMapping[filter.Field]
+		if !ok {
+			continue // Skip unknown fields for security
+		}
+
+		switch filter.Operator {
+		case FilterEquals:
+			baseQuery = baseQuery.Where(dbField+" = ?", filter.Value)
+		case FilterNotEquals:
+			baseQuery = baseQuery.Where(dbField+" != ?", filter.Value)
+		case FilterGreaterThan:
+			baseQuery = baseQuery.Where(dbField+" > ?", filter.Value)
+		case FilterGreaterOrEq:
+			baseQuery = baseQuery.Where(dbField+" >= ?", filter.Value)
+		case FilterLessThan:
+			baseQuery = baseQuery.Where(dbField+" < ?", filter.Value)
+		case FilterLessOrEq:
+			baseQuery = baseQuery.Where(dbField+" <= ?", filter.Value)
+		case FilterLike:
+			baseQuery = baseQuery.Where(dbField+" LIKE ?", filter.Value)
+		case FilterIn:
+			baseQuery = baseQuery.Where(dbField+" IN ?", filter.Value)
+		}
+	}
+
+	// Count total before pagination
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// Apply sorting
+	if len(query.Sort) > 0 {
+		for _, sort := range query.Sort {
+			dbField, ok := stationVoiceFieldMapping[sort.Field]
+			if !ok {
+				continue // Skip unknown fields for security
+			}
+			direction := "ASC"
+			if sort.Direction == SortDesc {
+				direction = "DESC"
+			}
+			baseQuery = baseQuery.Order(dbField + " " + direction)
+		}
+	} else {
+		baseQuery = baseQuery.Order("station_voices.id ASC")
+	}
+
+	// Apply pagination
+	baseQuery = baseQuery.Offset(query.Offset).Limit(query.Limit)
+
+	// Execute query
+	var results []models.StationVoice
+	if err := baseQuery.Find(&results).Error; err != nil {
+		return nil, err
+	}
+
+	return &ListResult[models.StationVoice]{
+		Data:   results,
+		Total:  total,
+		Limit:  query.Limit,
+		Offset: query.Offset,
+	}, nil
 }

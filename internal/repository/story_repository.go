@@ -67,6 +67,7 @@ type StoryRepository interface {
 	// Query operations
 	Exists(ctx context.Context, id int64) (bool, error)
 	ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error)
+	List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error)
 
 	// Audio operations
 	UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error
@@ -238,6 +239,133 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status str
 		return ErrNotFound
 	}
 	return nil
+}
+
+// List retrieves stories with filtering, sorting, and pagination.
+// Supports soft delete filtering via Status field: "active", "deleted", or "all".
+func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
+	if query == nil {
+		query = NewListQuery()
+	}
+
+	// Build base query with voice preload
+	baseQuery := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
+
+	// Apply soft delete filtering based on status
+	switch query.Status {
+	case "deleted":
+		baseQuery = baseQuery.Unscoped().Where("deleted_at IS NOT NULL")
+	case "all":
+		baseQuery = baseQuery.Unscoped()
+	default: // "active" or empty
+		// GORM automatically filters deleted_at IS NULL for models with gorm.DeletedAt
+	}
+
+	// Apply search across title and text fields
+	if query.Search != "" {
+		searchPattern := "%" + query.Search + "%"
+		baseQuery = baseQuery.Where("title LIKE ? OR text LIKE ?", searchPattern, searchPattern)
+	}
+
+	// Apply filters
+	for _, filter := range query.Filters {
+		baseQuery = applyStoryFilter(baseQuery, filter)
+	}
+
+	// Count total before pagination
+	var total int64
+	if err := baseQuery.Count(&total).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	// Apply sorting
+	if len(query.Sort) > 0 {
+		for _, sort := range query.Sort {
+			direction := "ASC"
+			if sort.Direction == SortDesc {
+				direction = "DESC"
+			}
+			// Validate field names to prevent SQL injection
+			if isValidStoryField(sort.Field) {
+				baseQuery = baseQuery.Order(sort.Field + " " + direction)
+			}
+		}
+	} else {
+		// Default sort by created_at descending
+		baseQuery = baseQuery.Order("created_at DESC")
+	}
+
+	// Apply pagination
+	baseQuery = baseQuery.Offset(query.Offset).Limit(query.Limit)
+
+	// Execute query
+	var stories []models.Story
+	if err := baseQuery.Find(&stories).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	// Populate VoiceName from preloaded Voice relation
+	for i := range stories {
+		if stories[i].Voice != nil {
+			stories[i].VoiceName = stories[i].Voice.Name
+		}
+	}
+
+	return &ListResult[models.Story]{
+		Data:   stories,
+		Total:  total,
+		Limit:  query.Limit,
+		Offset: query.Offset,
+	}, nil
+}
+
+// storyValidFields contains the allowed fields for story queries (for SQL injection prevention).
+var storyValidFields = map[string]bool{
+	"id":               true,
+	"title":            true,
+	"text":             true,
+	"voice_id":         true,
+	"status":           true,
+	"start_date":       true,
+	"end_date":         true,
+	"duration_seconds": true,
+	"created_at":       true,
+	"updated_at":       true,
+	"deleted_at":       true,
+}
+
+// isValidStoryField validates that a field name is safe for use in queries.
+func isValidStoryField(field string) bool {
+	return storyValidFields[field]
+}
+
+// applyStoryFilter applies a single filter condition to the query with field validation.
+func applyStoryFilter(query *gorm.DB, filter FilterCondition) *gorm.DB {
+	// Validate field name to prevent SQL injection
+	if !isValidStoryField(filter.Field) {
+		return query
+	}
+
+	switch filter.Operator {
+	case FilterEquals:
+		return query.Where(filter.Field+" = ?", filter.Value)
+	case FilterNotEquals:
+		return query.Where(filter.Field+" != ?", filter.Value)
+	case FilterGreaterThan:
+		return query.Where(filter.Field+" > ?", filter.Value)
+	case FilterGreaterOrEq:
+		return query.Where(filter.Field+" >= ?", filter.Value)
+	case FilterLessThan:
+		return query.Where(filter.Field+" < ?", filter.Value)
+	case FilterLessOrEq:
+		return query.Where(filter.Field+" <= ?", filter.Value)
+	case FilterLike:
+		return query.Where(filter.Field+" LIKE ?", "%"+filter.Value.(string)+"%")
+	case FilterIn:
+		return query.Where(filter.Field+" IN ?", filter.Value)
+	default:
+		return query.Where(filter.Field+" = ?", filter.Value)
+	}
 }
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.

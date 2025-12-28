@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -17,7 +16,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"gorm.io/gorm"
 )
 
 // BulletinServiceDeps contains all dependencies for BulletinService.
@@ -28,7 +26,6 @@ type BulletinServiceDeps struct {
 	StoryRepo    repository.StoryRepository
 	AudioSvc     *audio.Service
 	Config       *config.Config
-	GormDB       *gorm.DB
 }
 
 // BulletinService handles bulletin generation and retrieval operations.
@@ -39,7 +36,6 @@ type BulletinService struct {
 	storyRepo    repository.StoryRepository
 	audioSvc     *audio.Service
 	config       *config.Config
-	gormDB       *gorm.DB
 }
 
 // NewBulletinService creates a new bulletin service instance.
@@ -51,7 +47,6 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		storyRepo:    deps.StoryRepo,
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
-		gormDB:       deps.GormDB,
 	}
 }
 
@@ -248,115 +243,47 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	return parsedDate, nil
 }
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *BulletinService) ListWithContext(c *gin.Context) {
-	config := utils.GormListConfig{
-		SearchFields: []string{"filename"},
-		FieldMapping: map[string]string{
-			"id":               "id",
-			"station_id":       "station_id",
-			"filename":         "filename",
-			"duration_seconds": "duration_seconds",
-			"duration":         "duration_seconds",
-			"file_size":        "file_size",
-			"story_count":      "story_count",
-			"created_at":       "created_at",
-		},
-		DefaultSort: "created_at DESC",
-		SoftDelete:  false,
+// List retrieves bulletins with pagination, filtering, and sorting.
+func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.List(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list bulletins: %v", apperrors.ErrDatabaseError, err)
 	}
-	utils.GormListWithQuery[models.Bulletin](c, s.gormDB, config)
+	return result, nil
 }
 
-// GetStationBulletinsWithContext returns paginated bulletins for a specific station.
-func (s *BulletinService) GetStationBulletinsWithContext(c *gin.Context) {
-	stationID, ok := utils.IDParam(c)
-	if !ok {
-		return
+// Exists checks if a bulletin with the given ID exists.
+func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
+	exists, err := s.bulletinRepo.Exists(ctx, id)
+	if err != nil {
+		return false, fmt.Errorf("%w: failed to check bulletin existence: %v", apperrors.ErrDatabaseError, err)
 	}
-
-	config := utils.GormListConfig{
-		SearchFields: []string{},
-		FieldMapping: map[string]string{
-			"id":               "id",
-			"station_id":       "station_id",
-			"filename":         "filename",
-			"duration_seconds": "duration_seconds",
-			"duration":         "duration_seconds",
-			"file_size":        "file_size",
-			"story_count":      "story_count",
-			"created_at":       "created_at",
-		},
-		DefaultSort: "created_at DESC",
-		SoftDelete:  false,
-	}
-	utils.GormListWithQuery[models.Bulletin](c, s.gormDB.Where("station_id = ?", stationID), config)
+	return exists, nil
 }
 
-// GetStoryBulletinHistoryWithContext returns paginated bulletins that included a specific story.
-func (s *BulletinService) GetStoryBulletinHistoryWithContext(c *gin.Context) {
-	storyID, ok := utils.IDParam(c)
-	if !ok {
-		return
+// GetBulletinStories retrieves all stories included in a specific bulletin.
+func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
+	stories, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get bulletin stories: %v", apperrors.ErrDatabaseError, err)
 	}
-
-	config := utils.GormListConfig{
-		SearchFields: []string{},
-		FieldMapping: map[string]string{
-			"id":               "bulletins.id",
-			"station_id":       "bulletins.station_id",
-			"filename":         "bulletins.filename",
-			"duration_seconds": "bulletins.duration_seconds",
-			"duration":         "bulletins.duration_seconds",
-			"file_size":        "bulletins.file_size",
-			"story_count":      "bulletins.story_count",
-			"created_at":       "bulletins.created_at",
-			"story_order":      "bulletin_stories.story_order",
-			"included_at":      "bulletin_stories.created_at",
-		},
-		DefaultSort: "bulletin_stories.created_at DESC",
-		SoftDelete:  false,
-	}
-	utils.GormListWithQuery[models.StoryBulletinHistory](c,
-		s.gormDB.Table("bulletins").
-			Select("bulletins.*, bulletin_stories.story_order, bulletin_stories.created_at as included_at").
-			Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
-			Where("bulletin_stories.story_id = ?", storyID),
-		config)
+	return stories, nil
 }
 
-// GetBulletinStoriesWithContext returns paginated stories for a specific bulletin.
-func (s *BulletinService) GetBulletinStoriesWithContext(c *gin.Context) {
-	bulletinID, ok := utils.IDParam(c)
-	if !ok {
-		return
+// GetStationBulletins retrieves bulletins for a specific station with pagination.
+func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.GetStationBulletins(ctx, stationID, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get station bulletins: %v", apperrors.ErrDatabaseError, err)
 	}
-
-	config := utils.GormListConfig{
-		SearchFields: []string{"stories.title"},
-		FieldMapping: map[string]string{
-			"id":          "bulletin_stories.id",
-			"bulletin_id": "bulletin_stories.bulletin_id",
-			"story_id":    "bulletin_stories.story_id",
-			"story_order": "bulletin_stories.story_order",
-			"created_at":  "bulletin_stories.created_at",
-			"story_title": "stories.title",
-		},
-		DefaultSort: "bulletin_stories.story_order ASC",
-		SoftDelete:  false,
-	}
-	utils.GormListWithQuery[models.BulletinStory](c,
-		s.gormDB.Table("bulletin_stories").
-			Select("bulletin_stories.*, stories.title as story_title, stations.name as station_name, bulletins.filename as bulletin_filename, bulletins.station_id").
-			Joins("JOIN stories ON bulletin_stories.story_id = stories.id").
-			Joins("JOIN bulletins ON bulletin_stories.bulletin_id = bulletins.id").
-			Joins("JOIN stations ON bulletins.station_id = stations.id").
-			Where("bulletin_stories.bulletin_id = ?", bulletinID),
-		config)
+	return result, nil
 }
 
-// GormDB returns the GORM database instance for validation helpers.
-func (s *BulletinService) GormDB() *gorm.DB {
-	return s.gormDB
+// GetStoryBulletinHistory retrieves bulletins that included a specific story.
+func (s *BulletinService) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+	result, err := s.bulletinRepo.GetStoryBulletinHistory(ctx, storyID, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to get story bulletin history: %v", apperrors.ErrDatabaseError, err)
+	}
+	return result, nil
 }

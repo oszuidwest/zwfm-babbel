@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -15,7 +14,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
-	"gorm.io/gorm"
 )
 
 // StationVoiceServiceDeps contains all dependencies for StationVoiceService.
@@ -25,7 +23,6 @@ type StationVoiceServiceDeps struct {
 	VoiceRepo        repository.VoiceRepository
 	AudioSvc         *audio.Service
 	Config           *config.Config
-	GormDB           *gorm.DB
 }
 
 // StationVoiceService handles business logic for station-voice relationship operations.
@@ -37,7 +34,6 @@ type StationVoiceService struct {
 	voiceRepo        repository.VoiceRepository
 	audioSvc         *audio.Service
 	config           *config.Config
-	gormDB           *gorm.DB
 }
 
 // NewStationVoiceService creates a new station-voice service instance.
@@ -48,7 +44,6 @@ func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 		voiceRepo:        deps.VoiceRepo,
 		audioSvc:         deps.AudioSvc,
 		config:           deps.Config,
-		gormDB:           deps.GormDB,
 	}
 }
 
@@ -331,26 +326,15 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	return nil
 }
 
-// ListWithContext handles paginated list requests with query parameters.
-// Encapsulates query configuration and writes JSON response directly.
-func (s *StationVoiceService) ListWithContext(c *gin.Context) {
-	config := utils.GormListConfig{
-		SearchFields: []string{},
-		FieldMapping: map[string]string{
-			"id":         "id",
-			"station_id": "station_id",
-			"voice_id":   "voice_id",
-			"mix_point":  "mix_point",
-			"created_at": "created_at",
-			"updated_at": "updated_at",
-		},
-		DefaultSort: "id ASC",
-		SoftDelete:  false,
+// List retrieves a paginated list of station-voice relationships.
+func (s *StationVoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.StationVoice], error) {
+	const op = "StationVoiceService.List"
+
+	result, err := s.stationVoiceRepo.List(ctx, query)
+	if err != nil {
+		logger.Error("Database error listing station-voices: %v", err)
+		return nil, fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
 	}
-	// Need to preload station and voice names - use Joins
-	db := s.gormDB.
-		Select("station_voices.*, stations.name as station_name, voices.name as voice_name").
-		Joins("LEFT JOIN stations ON stations.id = station_voices.station_id").
-		Joins("LEFT JOIN voices ON voices.id = station_voices.voice_id")
-	utils.GormListWithQuery[models.StationVoice](c, db, config)
+
+	return result, nil
 }

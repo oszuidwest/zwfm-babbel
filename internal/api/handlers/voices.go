@@ -2,6 +2,8 @@
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -11,13 +13,32 @@ import (
 // Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
 // Requires 'voices' read permission. Returns voice data with metadata including total count and pagination info.
 func (h *Handlers) ListVoices(c *gin.Context) {
-	h.voiceSvc.ListWithContext(c)
+	query := utils.ParseListQuery(c)
+
+	result, err := h.voiceSvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Voice")
+		return
+	}
+
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // GetVoice returns a single newsreader voice by ID with all configuration details.
 // Requires 'voices' read permission. Returns 404 if voice doesn't exist.
 func (h *Handlers) GetVoice(c *gin.Context) {
-	h.voiceSvc.GetByIDWithContext(c)
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	voice, err := h.voiceSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Voice")
+		return
+	}
+
+	c.JSON(http.StatusOK, voice)
 }
 
 // CreateVoice creates a new newsreader voice for text-to-speech and jingle association.

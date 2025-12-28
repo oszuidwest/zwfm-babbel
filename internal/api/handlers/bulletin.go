@@ -172,11 +172,22 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	if !utils.GormValidateBulletinExists(c, h.bulletinSvc.GormDB(), bulletinID) {
+	exists, err := h.bulletinSvc.Exists(c.Request.Context(), bulletinID)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+	if !exists {
+		utils.ProblemNotFound(c, "Bulletin")
 		return
 	}
 
-	h.bulletinSvc.GetBulletinStoriesWithContext(c)
+	stories, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+	utils.Success(c, stories)
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
@@ -221,7 +232,13 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	// Check if station exists first
-	if !utils.GormValidateStationExists(c, h.bulletinSvc.GormDB(), stationID) {
+	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
+	if err != nil {
+		handleServiceError(c, err, "Station")
+		return
+	}
+	if !exists {
+		utils.ProblemNotFound(c, "Station")
 		return
 	}
 
@@ -243,12 +260,48 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	h.bulletinSvc.GetStationBulletinsWithContext(c)
+	query := utils.ParseListQuery(c)
+	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, query)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+
+	// Transform bulletins to responses
+	responses := make([]BulletinResponse, len(result.Data))
+	for i, bulletin := range result.Data {
+		responses[i] = h.bulletinToResponse(&bulletin)
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	h.bulletinSvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert to repository ListQuery
+	query := h.paramsToListQuery(params)
+
+	// Call service
+	result, err := h.bulletinSvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+
+	// Transform bulletins to responses
+	responses := make([]BulletinResponse, len(result.Data))
+	for i, bulletin := range result.Data {
+		responses[i] = h.bulletinToResponse(&bulletin)
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
@@ -259,11 +312,30 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 
 	// Check if story exists first
-	if !utils.GormValidateStoryExists(c, h.bulletinSvc.GormDB(), storyID) {
+	exists, err := h.storySvc.Exists(c.Request.Context(), storyID)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+	if !exists {
+		utils.ProblemNotFound(c, "Story")
 		return
 	}
 
-	h.bulletinSvc.GetStoryBulletinHistoryWithContext(c)
+	query := utils.ParseListQuery(c)
+	result, err := h.bulletinSvc.GetStoryBulletinHistory(c.Request.Context(), storyID, query)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+
+	// Transform bulletins to responses
+	responses := make([]BulletinResponse, len(result.Data))
+	for i, bulletin := range result.Data {
+		responses[i] = h.bulletinToResponse(&bulletin)
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // GetBulletinAudio serves the audio file for a specific bulletin.

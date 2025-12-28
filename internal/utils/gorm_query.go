@@ -62,7 +62,7 @@ func GormListWithQuery[T any](c *gin.Context, db *gorm.DB, config GormListConfig
 	// Apply field filtering if requested
 	var responseData any = results
 	if len(params.Fields) > 0 {
-		responseData = filterStructFields(results, params.Fields)
+		responseData = FilterStructFields(results, params.Fields)
 	}
 
 	PaginatedResponse(c, responseData, total, params.Limit, params.Offset)

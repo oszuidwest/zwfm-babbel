@@ -31,7 +31,29 @@ type UserResponse struct {
 
 // ListUsers returns a paginated list of users with modern query parameter support
 func (h *Handlers) ListUsers(c *gin.Context) {
-	h.userSvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert utils.QueryParams to repository.ListQuery using shared function
+	query := convertToListQuery(params)
+
+	result, err := h.userSvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return
+	}
+
+	// Apply field filtering if requested
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetUser returns a single user by ID

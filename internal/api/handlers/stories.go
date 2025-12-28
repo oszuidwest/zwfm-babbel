@@ -91,7 +91,30 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 
 // ListStories returns a paginated list of stories with modern query parameter support
 func (h *Handlers) ListStories(c *gin.Context) {
-	h.storySvc.ListWithContext(c)
+	// Parse query parameters
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	// Convert to repository ListQuery
+	query := convertToListQuery(params)
+
+	// Call service
+	result, err := h.storySvc.List(c.Request.Context(), query)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	// Convert stories to response format
+	responses := make([]StoryResponse, len(result.Data))
+	for i := range result.Data {
+		responses[i] = modelStoryToResponse(&result.Data[i])
+	}
+
+	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
 }
 
 // GetStory returns a single story by ID
