@@ -290,10 +290,9 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 
 	// Build the query with proper joins to get mix_point from station_voices.
 	// Using Model() ensures GORM's soft delete filtering is applied automatically.
-	// Preload Voice to prevent N+1 queries when accessing story.Voice later.
+	// Note: Voice preload not needed - only VoiceID is used for jingle lookup.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
-		Preload("Voice").
 		Select("stories.*, sv.mix_point").
 		Joins("JOIN voices v ON stories.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).

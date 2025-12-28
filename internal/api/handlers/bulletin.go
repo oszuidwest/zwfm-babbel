@@ -184,6 +184,10 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 
 	// Parse query params for pagination (database-level via GORM Limit/Offset)
 	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
 
 	stories, total, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID, params.Limit, params.Offset)
 	if err != nil {

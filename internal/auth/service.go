@@ -597,12 +597,13 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	// Get the user's actual role from database
+	// Get the user's actual role from database (exclude soft-deleted users)
 	var role string
 	if err := s.db.WithContext(ctx).
 		Table("users").
 		Select("role").
 		Where("id = ?", user.ID).
+		Where("deleted_at IS NULL").
 		Scan(&role).Error; err != nil {
 		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
 		return fmt.Errorf("failed to get user role: %w", err)
