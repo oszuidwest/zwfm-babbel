@@ -477,25 +477,25 @@ class VoicesTests extends BaseTest {
             return false;
         }
         
-        // Create a story with this voice (using form data with individual weekday fields)
+        // Create a story with this voice (pure JSON API)
         this.printInfo('Creating story with voice...');
-        const formFields = {
+        const storyData = {
             title: 'Test Story with Voice',
             text: 'This is a test story.',
-            voice_id: voiceData.id,
+            voice_id: parseInt(voiceData.id, 10),
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            monday: 'true',
-            tuesday: 'true',
-            wednesday: 'true',
-            thursday: 'true',
-            friday: 'true',
-            saturday: 'false',
-            sunday: 'false'
+            monday: true,
+            tuesday: true,
+            wednesday: true,
+            thursday: true,
+            friday: true,
+            saturday: false,
+            sunday: false
         };
-        
-        const storyResponse = await this.uploadFile('/stories', formFields);
+
+        const storyResponse = await this.apiCall('POST', '/stories', storyData);
         
         if (storyResponse.status === 201) {
             this.printSuccess('Story created with voice');

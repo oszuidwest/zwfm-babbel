@@ -105,6 +105,11 @@ func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFi
 		return col, fieldVal.Elem().Interface(), true
 	}
 
+	// Handle map fields (like datatypes.JSONMap) - only include if non-nil and non-empty
+	if fieldVal.Kind() == reflect.Map && !fieldVal.IsNil() && fieldVal.Len() > 0 {
+		return col, fieldVal.Interface(), true
+	}
+
 	return "", nil, false
 }
 

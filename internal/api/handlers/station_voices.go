@@ -102,15 +102,12 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 	utils.Success(c, response)
 }
 
-// CreateStationVoice creates a new station-voice relationship with optional jingle upload
+// CreateStationVoice creates a new station-voice relationship (JSON API only)
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
-	// Only accept multipart/form-data for consistency with other file upload endpoints
 	var req utils.StationVoiceRequest
-	if err := c.ShouldBind(&req); err != nil {
-		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
-			Field:   "request_body",
-			Message: "Invalid form data format",
-		}})
+
+	// Pure JSON binding - no form-data support
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
@@ -127,73 +124,16 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Handle optional jingle file upload
-	_, _, err = c.Request.FormFile("jingle")
-	if err == nil {
-		tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", req.StationID, req.VoiceID))
-		if err != nil {
-			utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-				Field:   "jingle",
-				Message: err.Error(),
-			}})
-			return
-		}
-		defer deferCleanup(cleanup, "jingle file")()
-
-		// Process jingle via service
-		if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice.ID, tempPath); err != nil {
-			handleServiceError(c, err, "Jingle processing")
-			return
-		}
-	}
-
 	utils.CreatedWithID(c, stationVoice.ID, "Station-voice relationship created successfully")
 }
 
-// stationVoiceUpdateRequest represents the update request structure
-type stationVoiceUpdateRequest struct {
-	StationID *int64   `form:"station_id,omitempty"`
-	VoiceID   *int64   `form:"voice_id,omitempty"`
-	MixPoint  *float64 `form:"mix_point,omitempty"`
-}
-
-// hasFieldUpdates reports whether the request contains any field updates.
-func (r *stationVoiceUpdateRequest) hasFieldUpdates() bool {
-	return r.StationID != nil || r.VoiceID != nil || r.MixPoint != nil
-}
-
-// validateStationVoiceUpdateRequest binds and validates the update request
-func validateStationVoiceUpdateRequest(c *gin.Context) (*stationVoiceUpdateRequest, bool, bool) {
-	var req stationVoiceUpdateRequest
-	if err := c.ShouldBind(&req); err != nil {
-		utils.ProblemValidationError(c, "Invalid form data", []utils.ValidationError{{
-			Field:   "request_body",
-			Message: "Invalid form data format",
-		}})
-		return nil, false, false
-	}
-
-	// Check if there's a jingle file to process
-	hasJingleUpdate := false
-	_, _, err := c.Request.FormFile("jingle")
-	if err == nil {
-		hasJingleUpdate = true
-	}
-
-	// Validate that there's something to update
-	if !req.hasFieldUpdates() && !hasJingleUpdate {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
-		return nil, false, false
-	}
-
-	return &req, hasJingleUpdate, true
+// hasStationVoiceFieldUpdates reports whether the request contains any field updates.
+func hasStationVoiceFieldUpdates(req *utils.StationVoiceUpdateRequest) bool {
+	return req.StationID != nil || req.VoiceID != nil || req.MixPoint != nil
 }
 
 // updateStationVoiceFields updates the station-voice relationship fields via service
-func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *stationVoiceUpdateRequest) bool {
+func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *utils.StationVoiceUpdateRequest) bool {
 	serviceReq := &services.UpdateStationVoiceRequest{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
@@ -202,33 +142,6 @@ func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *stati
 
 	if _, err := h.stationVoiceSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
 		handleServiceError(c, err, "Station-voice relationship")
-		return false
-	}
-	return true
-}
-
-// processStationVoiceJingleUpdate handles jingle file upload and processing
-func (h *Handlers) processStationVoiceJingleUpdate(c *gin.Context, id int64) bool {
-	// Get current station/voice IDs for the temporary file naming
-	current, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "Station-voice relationship")
-		return false
-	}
-
-	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", current.StationID, current.VoiceID))
-	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "jingle",
-			Message: err.Error(),
-		}})
-		return false
-	}
-	defer deferCleanup(cleanup, "jingle file")()
-
-	// Process jingle via service
-	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
-		handleServiceError(c, err, "Jingle processing")
 		return false
 	}
 	return true
@@ -260,31 +173,31 @@ func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
 	}
 }
 
-// UpdateStationVoice updates an existing station-voice relationship
+// UpdateStationVoice updates an existing station-voice relationship (JSON API only)
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Bind and validate request
-	req, hasJingleUpdate, valid := validateStationVoiceUpdateRequest(c)
-	if !valid {
+	// Pure JSON binding - no form-data support
+	var req utils.StationVoiceUpdateRequest
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Update station-voice relationship fields if provided
-	if req.hasFieldUpdates() {
-		if !h.updateStationVoiceFields(c, id, req) {
-			return
-		}
+	// Validate that there's at least one field to update
+	if !hasStationVoiceFieldUpdates(&req) {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
+		return
 	}
 
-	// Handle jingle file replacement if provided
-	if hasJingleUpdate {
-		if !h.processStationVoiceJingleUpdate(c, id) {
-			return
-		}
+	// Update station-voice relationship fields
+	if !h.updateStationVoiceFields(c, id, &req) {
+		return
 	}
 
 	// Get updated record for response

@@ -16,17 +16,16 @@ class StationVoicesTests extends BaseTest {
     }
     
     /**
-     * Helper to create FormData for station-voice requests
+     * Helper to create JSON data for station-voice requests
      */
-    createStationVoiceFormData(data) {
-        const FormData = require('form-data');
-        const form = new FormData();
-        
-        if (data.station_id !== undefined) form.append('station_id', data.station_id.toString());
-        if (data.voice_id !== undefined) form.append('voice_id', data.voice_id.toString());
-        if (data.mix_point !== undefined) form.append('mix_point', data.mix_point.toString());
-        
-        return form;
+    createStationVoiceData(data) {
+        const stationVoiceData = {};
+
+        if (data.station_id !== undefined) stationVoiceData.station_id = data.station_id;
+        if (data.voice_id !== undefined) stationVoiceData.voice_id = data.voice_id;
+        if (data.mix_point !== undefined) stationVoiceData.mix_point = data.mix_point;
+
+        return stationVoiceData;
     }
     
     /**
@@ -94,16 +93,16 @@ class StationVoicesTests extends BaseTest {
         }
         this.printSuccess(`Created voice (ID: ${voiceId})`);
         
-        // Test creating station-voice relationship with FormData
-        this.printInfo('Creating station-voice relationship with FormData...');
-        const form = this.createStationVoiceFormData({
+        // Test creating station-voice relationship with JSON
+        this.printInfo('Creating station-voice relationship with JSON...');
+        const svData = this.createStationVoiceData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 2.5
         });
-        
-        const response = await this.apiCallFormData('POST', '/station-voices', form);
-        
+
+        const response = await this.apiCall('POST', '/station-voices', svData);
+
         if (response.status === 201) {
             const svId = this.parseJsonField(response.data, 'id');
             if (svId) {
@@ -117,16 +116,16 @@ class StationVoicesTests extends BaseTest {
             this.printError(`Failed to create station-voice relationship (HTTP: ${response.status})`);
             return false;
         }
-        
+
         // Test creating duplicate relationship (should fail)
         this.printInfo('Testing duplicate station-voice relationship...');
-        const duplicateForm = this.createStationVoiceFormData({
+        const duplicateData = this.createStationVoiceData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 3.0
         });
-        
-        const duplicateResponse = await this.apiCallFormData('POST', '/station-voices', duplicateForm);
+
+        const duplicateResponse = await this.apiCall('POST', '/station-voices', duplicateData);
         
         if (duplicateResponse.status === 409) {
             this.printSuccess('Duplicate relationship correctly rejected (409 Conflict)');
@@ -143,7 +142,7 @@ class StationVoicesTests extends BaseTest {
      */
     async testCreateStationVoiceWithAudio() {
         this.printSection('Testing Station-Voice Creation with Audio Upload');
-        
+
         // Create a station and voice first
         this.printInfo('Creating test station for audio upload...');
         const stationId = await this.createStation('Audio Test Station');
@@ -151,18 +150,18 @@ class StationVoicesTests extends BaseTest {
             this.printError('Failed to create test station');
             return false;
         }
-        
+
         this.printInfo('Creating test voice for audio upload...');
         const voiceId = await this.createVoice('Audio Test Voice');
         if (!voiceId) {
             this.printError('Failed to create test voice');
             return false;
         }
-        
+
         // Create a simple test audio file if it doesn't exist
         const testAudio = '/tmp/test_jingle.wav';
         const fs = require('fs');
-        
+
         if (!fs.existsSync(testAudio)) {
             this.printInfo('Creating test audio file...');
             // Create a minimal WAV file (silent audio) for testing
@@ -180,41 +179,52 @@ class StationVoicesTests extends BaseTest {
                 return true; // Skip this test
             }
         }
-        
-        // Test creating station-voice with multipart/form-data and audio file
-        this.printInfo('Creating station-voice with audio upload...');
-        const FormData = require('form-data');
-        const form = new FormData();
-        form.append('station_id', stationId.toString());
-        form.append('voice_id', voiceId.toString());
-        form.append('mix_point', '1.5');
-        form.append('jingle', fs.createReadStream(testAudio));
-        
-        const response = await this.apiCallFormData('POST', '/station-voices', form);
-        
-        if (response.status === 201) {
-            const svId = this.parseJsonField(response.data, 'id');
-            if (svId) {
-                this.createdStationVoiceIds.push(svId);
-                this.printSuccess(`Created station-voice with audio (ID: ${svId})`);
-                
-                // Verify the jingle file was saved
-                const jinglePath = `${this.audioDir}/processed/station_${stationId}_voice_${voiceId}_jingle.wav`;
-                if (await this.waitForAudioFile(jinglePath, 5)) {
-                    this.printSuccess('Jingle file saved successfully');
-                } else {
-                    this.printWarning('Jingle file not found at expected location');
-                }
-            } else {
-                this.printError('Could not extract station-voice ID from response');
-                return false;
-            }
-        } else {
-            this.printError(`Failed to create station-voice with audio (HTTP: ${response.status})`);
-            this.printError(`Response: ${JSON.stringify(response.data)}`);
+
+        // Step 1: Create station-voice with JSON (no jingle yet)
+        this.printInfo('Step 1: Creating station-voice relationship with JSON...');
+        const svData = {
+            station_id: parseInt(stationId),
+            voice_id: parseInt(voiceId),
+            mix_point: 1.5
+        };
+
+        const createResponse = await this.apiCall('POST', '/station-voices', svData);
+
+        if (createResponse.status !== 201) {
+            this.printError(`Failed to create station-voice (HTTP: ${createResponse.status})`);
+            this.printError(`Response: ${JSON.stringify(createResponse.data)}`);
             return false;
         }
-        
+
+        const svId = this.parseJsonField(createResponse.data, 'id');
+        if (!svId) {
+            this.printError('Could not extract station-voice ID from response');
+            return false;
+        }
+
+        this.createdStationVoiceIds.push(svId);
+        this.printSuccess(`Station-voice relationship created (ID: ${svId})`);
+
+        // Step 2: Upload jingle separately
+        this.printInfo('Step 2: Uploading jingle file separately...');
+        const jingleUploadResponse = await this.uploadFile(`/station-voices/${svId}/audio`, {}, testAudio, 'jingle');
+
+        if (jingleUploadResponse.status !== 200) {
+            this.printError(`Failed to upload jingle (HTTP: ${jingleUploadResponse.status})`);
+            this.printError(`Response: ${JSON.stringify(jingleUploadResponse.data)}`);
+            return false;
+        }
+
+        this.printSuccess('Jingle uploaded successfully');
+
+        // Verify the jingle file was saved
+        const jinglePath = `${this.audioDir}/processed/station_${stationId}_voice_${voiceId}_jingle.wav`;
+        if (await this.waitForAudioFile(jinglePath, 5)) {
+            this.printSuccess('Jingle file saved successfully');
+        } else {
+            this.printWarning('Jingle file not found at expected location');
+        }
+
         return true;
     }
     
@@ -232,19 +242,19 @@ class StationVoicesTests extends BaseTest {
         const voice2 = await this.createVoice('Basic List Voice 2');
         
         // Create relationships
-        const sv1Form = this.createStationVoiceFormData({
+        const sv1Data = this.createStationVoiceData({
             station_id: parseInt(station1),
             voice_id: parseInt(voice1),
             mix_point: 1.0
         });
-        const sv1Response = await this.apiCallFormData('POST', '/station-voices', sv1Form);
-        
-        const sv2Form = this.createStationVoiceFormData({
+        const sv1Response = await this.apiCall('POST', '/station-voices', sv1Data);
+
+        const sv2Data = this.createStationVoiceData({
             station_id: parseInt(station2),
             voice_id: parseInt(voice2),
             mix_point: 2.0
         });
-        const sv2Response = await this.apiCallFormData('POST', '/station-voices', sv2Form);
+        const sv2Response = await this.apiCall('POST', '/station-voices', sv2Data);
         
         // Track created station-voice relationships
         if (sv1Response.status === 201) {
@@ -348,7 +358,7 @@ class StationVoicesTests extends BaseTest {
         // Create station-voice relationships with varying mix points
         const mixPoints = [1.0, 2.5, 3.0, 1.5, 2.0];
         for (let i = 0; i < 5; i++) {
-            const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
+            const response = await this.apiCall('POST', '/station-voices', this.createStationVoiceData({
                 station_id: parseInt(stationIds[i]),
                 voice_id: parseInt(voiceIds[i]),
                 mix_point: mixPoints[i]
@@ -587,22 +597,22 @@ class StationVoicesTests extends BaseTest {
         const voiceId = await this.createVoice('Update Test Voice');
         
         // Create a station-voice relationship
-        const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
+        const response = await this.apiCall('POST', '/station-voices', this.createStationVoiceData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 1.0
         }));
-        
+
         const svId = this.parseJsonField(response.data, 'id');
         if (!svId) {
             this.printError('Failed to create station-voice for update test');
             return false;
         }
-        
+
         // Test updating mix_point
         this.printInfo('Updating station-voice mix_point...');
-        const updateForm = this.createStationVoiceFormData({ mix_point: 3.5 });
-        const updateResponse = await this.apiCallFormData('PUT', `/station-voices/${svId}`, updateForm);
+        const updateData = this.createStationVoiceData({ mix_point: 3.5 });
+        const updateResponse = await this.apiCall('PUT', `/station-voices/${svId}`, updateData);
         
         if (this.assertions.checkResponse(updateResponse, 200, 'Update station-voice')) {
             this.printSuccess('Station-voice updated successfully');
@@ -623,8 +633,8 @@ class StationVoicesTests extends BaseTest {
         
         // Test updating non-existent station-voice
         this.printInfo('Testing update of non-existent station-voice...');
-        const nonExistentForm = this.createStationVoiceFormData({ mix_point: 5.0 });
-        const nonExistentResponse = await this.apiCallFormData('PUT', '/station-voices/99999', nonExistentForm);
+        const nonExistentData = this.createStationVoiceData({ mix_point: 5.0 });
+        const nonExistentResponse = await this.apiCall('PUT', '/station-voices/99999', nonExistentData);
         
         if (nonExistentResponse.status === 404) {
             this.printSuccess('Non-existent station-voice update correctly rejected');
@@ -648,7 +658,7 @@ class StationVoicesTests extends BaseTest {
         const voiceId = await this.createVoice('Delete Test Voice');
         
         // Create a station-voice relationship
-        const response = await this.apiCallFormData('POST', '/station-voices', this.createStationVoiceFormData({
+        const response = await this.apiCall('POST', '/station-voices', this.createStationVoiceData({
             station_id: parseInt(stationId),
             voice_id: parseInt(voiceId),
             mix_point: 2.0

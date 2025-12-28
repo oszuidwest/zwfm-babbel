@@ -36,23 +36,13 @@ GET /api/v1/stories?filter[status][in]=active,draft
 GET /api/v1/stories?filter[voice_id][in]=1,2,3
 ```
 
-#### Range Filters (BETWEEN operations)
-```http
-# Date ranges
-GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
-
-# Numeric ranges
-GET /api/v1/stories?filter[duration_seconds][between]=10,60
-```
-
 #### Pattern Matching
 ```http
-# LIKE searches (case-sensitive)
-GET /api/v1/stories?filter[title][like]=news
-
-# Case-insensitive searches
-GET /api/v1/stories?filter[title][ilike]=NEWS
+# LIKE searches (case-sensitive pattern matching)
+GET /api/v1/stories?filter[title][like]=%news%
 ```
+
+> **Note:** The `between` and `ilike` operators are not yet implemented. Use `gte` and `lte` for range queries, and `like` for pattern matching.
 
 ### 2. Sorting
 
@@ -110,16 +100,20 @@ GET /api/v1/users?status=all            # All users
 GET /api/v1/users?status=suspended      # Only suspended users
 ```
 
-### 6. Boolean Filters
+### 6. Common Filter Patterns
 
 ```http
-# Boolean filters
-GET /api/v1/stories?filter[voice_id][ne]=null     # Stories with voice assigned
-GET /api/v1/stories?filter[voice_id][null]=true   # Stories without voice
-GET /api/v1/stories?filter[audio_file][ne]=       # Stories with audio files
-GET /api/v1/stories?filter[status]=active         # Active stories
-GET /api/v1/stories?filter[end_date][gte]=2024-06-15  # Non-expired stories
+# Active stories
+GET /api/v1/stories?filter[status]=active
+
+# Non-expired stories (active on or after date)
+GET /api/v1/stories?filter[end_date][gte]=2024-06-15
+
+# Stories created in a date range (use gte + lte instead of between)
+GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
 ```
+
+> **Note:** The `null` operator is not yet implemented. Use the `status` parameter or explicit field filters instead.
 
 ### 7. Pagination
 
@@ -133,14 +127,14 @@ GET /api/v1/stories?limit=20&offset=40
 ### Stories API
 
 ```http
-# Complex filtering
-GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2&filter[created_at][gte]=2024-01-01&filter[audio_file][ne]=&search=breaking&sort=-created_at&fields=id,title,voice_name,created_at
+# Complex filtering with multiple conditions
+GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2&filter[created_at][gte]=2024-01-01&search=breaking&sort=-created_at&fields=id,title,voice_name,created_at
 
-# Date-based filtering
+# Date-based filtering (active stories on a specific date)
 GET /api/v1/stories?filter[start_date][lte]=2024-06-01&filter[end_date][gte]=2024-06-01
 
-# Boolean combinations
-GET /api/v1/stories?filter[voice_id][ne]=null&filter[status]=active&filter[audio_file]=
+# Filter by status and voice
+GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2,3
 ```
 
 ### Users API
@@ -159,8 +153,8 @@ GET /api/v1/users?filter[last_login_at][gte]=2024-01-01&filter[login_count][gt]=
 # Station filtering with search
 GET /api/v1/bulletins?filter[station_id]=1&search=morning&sort=-created_at&fields=id,filename,created_at,station_name
 
-# File size filtering
-GET /api/v1/bulletins?filter[file_size][gte]=1000000&filter[duration_seconds][between]=60,300
+# File size and duration filtering (use gte/lte for ranges)
+GET /api/v1/bulletins?filter[file_size][gte]=1000000&filter[duration_seconds][gte]=60&filter[duration_seconds][lte]=300
 ```
 
 ### Stations & Voices API
@@ -310,8 +304,8 @@ GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&status=al
 
 ### Data Export
 ```http
-# Bulk export with date range
-GET /api/v1/bulletins?filter[created_at][between]=2024-01-01,2024-12-31&limit=1000&fields=id,filename,created_at,station_name
+# Bulk export with date range (use gte + lte for ranges)
+GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31&limit=1000&fields=id,filename,created_at,station_name
 ```
 
 ### Integration Testing

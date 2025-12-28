@@ -81,27 +81,39 @@ class BulletinsTests extends BaseTest {
             return null;
         }
         
-        // Upload the station-voice relationship with jingle
-        const formFields = {
-            station_id: stationId.toString(),
-            voice_id: voiceId.toString(),
-            mix_point: mixPoint.toString()
+        // Step 1: Create station-voice relationship with JSON
+        const jsonBody = {
+            station_id: parseInt(stationId, 10),
+            voice_id: parseInt(voiceId, 10),
+            mix_point: parseFloat(mixPoint)
         };
-        
-        const response = await this.uploadFile('/station-voices', formFields, jingleFile, 'jingle');
-        
+
+        const createResponse = await this.apiCall('POST', '/station-voices', jsonBody);
+
+        if (createResponse.status !== 201) {
+            fs.unlinkSync(jingleFile);
+            return null;
+        }
+
+        const svId = this.parseJsonField(createResponse.data, 'id');
+        if (!svId) {
+            fs.unlinkSync(jingleFile);
+            return null;
+        }
+
+        this.createdStationVoiceIds.push(svId);
+
+        // Step 2: Upload jingle separately
+        const uploadResponse = await this.uploadFile(`/station-voices/${svId}/audio`, {}, jingleFile, 'jingle');
+
         // Clean up temp file
         fs.unlinkSync(jingleFile);
-        
-        if (response.status === 201) {
-            const svId = this.parseJsonField(response.data, 'id');
-            if (svId) {
-                this.createdStationVoiceIds.push(svId);
-                return svId;
-            }
+
+        if (uploadResponse.status !== 200) {
+            return null;
         }
-        
-        return null;
+
+        return svId;
     }
     
     /**
@@ -126,51 +138,64 @@ class BulletinsTests extends BaseTest {
         
         // Set weekday flags
         const weekdayFlags = {
-            monday: 'false',
-            tuesday: 'false',
-            wednesday: 'false',
-            thursday: 'false',
-            friday: 'false',
-            saturday: 'false',
-            sunday: 'false'
+            monday: false,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: false,
+            sunday: false
         };
-        
+
         const days = weekdays.split(',');
         days.forEach(day => {
             if (weekdayFlags.hasOwnProperty(day.trim())) {
-                weekdayFlags[day.trim()] = 'true';
+                weekdayFlags[day.trim()] = true;
             }
         });
-        
+
         // Use date range that includes today
         const today = new Date();
         const startDate = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0]; // Jan 1 of current year
         const endDate = new Date(today.getFullYear(), 11, 31).toISOString().split('T')[0]; // Dec 31 of current year
-        
-        const formFields = {
+
+        // Step 1: Create story with JSON
+        const jsonBody = {
             title,
             text,
-            voice_id: voiceId.toString(),
+            voice_id: parseInt(voiceId, 10),
             status: 'active',
             start_date: startDate,
             end_date: endDate,
             ...weekdayFlags
         };
-        
-        const response = await this.uploadFile('/stories', formFields, audioFile, 'audio');
-        
+
+        const createResponse = await this.apiCall('POST', '/stories', jsonBody);
+
+        if (createResponse.status !== 201) {
+            fs.unlinkSync(audioFile);
+            return null;
+        }
+
+        const storyId = this.parseJsonField(createResponse.data, 'id');
+        if (!storyId) {
+            fs.unlinkSync(audioFile);
+            return null;
+        }
+
+        this.createdStoryIds.push(storyId);
+
+        // Step 2: Upload audio separately
+        const uploadResponse = await this.uploadFile(`/stories/${storyId}/audio`, {}, audioFile, 'audio');
+
         // Clean up temp file
         fs.unlinkSync(audioFile);
-        
-        if (response.status === 201) {
-            const storyId = this.parseJsonField(response.data, 'id');
-            if (storyId) {
-                this.createdStoryIds.push(storyId);
-                return storyId;
-            }
+
+        if (uploadResponse.status !== 200) {
+            return null;
         }
-        
-        return null;
+
+        return storyId;
     }
     
     /**

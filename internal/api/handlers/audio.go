@@ -57,3 +57,71 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 
 	c.File(audioPath)
 }
+
+// UploadStoryAudio handles audio file upload for a story
+func (h *Handlers) UploadStoryAudio(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	// Validate that story exists
+	_, err := h.storySvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	// Get and validate audio file
+	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
+	if err != nil {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "audio",
+			Message: err.Error(),
+		}})
+		return
+	}
+	defer deferCleanup(cleanup, "audio file")()
+
+	// Process audio via service
+	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "Audio uploaded successfully")
+}
+
+// UploadStationVoiceAudio handles jingle file upload for a station-voice relationship
+func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	// Get current station-voice to validate existence and get IDs for temp file naming
+	stationVoice, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Station-voice relationship")
+		return
+	}
+
+	// Get and validate jingle file
+	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
+	if err != nil {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "jingle",
+			Message: err.Error(),
+		}})
+		return
+	}
+	defer deferCleanup(cleanup, "jingle file")()
+
+	// Process jingle via service
+	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
+		handleServiceError(c, err, "Jingle processing")
+		return
+	}
+
+	utils.SuccessWithMessage(c, "Jingle uploaded successfully")
+}

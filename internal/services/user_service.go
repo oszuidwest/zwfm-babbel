@@ -11,6 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/datatypes"
 )
 
 // UserService handles user-related business logic.
@@ -32,12 +33,12 @@ type UpdateUserRequest struct {
 	Email     *string
 	Password  string
 	Role      string
-	Metadata  string
+	Metadata  *datatypes.JSONMap
 	Suspended *bool
 }
 
 // Create creates a new user account with the given parameters.
-func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string) (*models.User, error) {
+func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string, metadata *datatypes.JSONMap) (*models.User, error) {
 	const op = "UserService.Create"
 
 	// Validate role
@@ -78,7 +79,7 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 	}
 
 	// Create user
-	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role)
+	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role, metadata)
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
 			return nil, fmt.Errorf("%s: %w: username or email already exists", op, apperrors.ErrDuplicate)
@@ -163,9 +164,9 @@ func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullNa
 }
 
 // applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata string) {
-	if metadata != "" {
-		u.Metadata = &metadata
+func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata *datatypes.JSONMap) {
+	if metadata != nil {
+		u.Metadata = metadata
 	}
 }
 

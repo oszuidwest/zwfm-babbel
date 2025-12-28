@@ -2,6 +2,15 @@
 
 HTTP API for generating audio news bulletins. Combines news stories with station-specific jingles using FFmpeg.
 
+## Breaking Changes (v2.0)
+
+**Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
+- Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+- Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
+- StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+- Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
+- Metadata: Returned as native JSON object instead of escaped string
+
 ## Authentication
 
 - **Local**: Username/password with session cookies
@@ -33,7 +42,7 @@ Cross-Origin Resource Sharing (CORS) is configurable:
 - Credentials (cookies) are supported when origin is allowed
 
 
-**Version:** 0.0.1 - "Station-specific voice jingles with mix points" - "Local and OAuth/OIDC authentication" - "Role-based access control (admin, editor, viewer)" - "Soft delete for stories and users" - "FFmpeg audio processing" - "Pagination and filtering on all list endpoints" - "RESTful design for radio automation" - "Removed redundant /broadcasts endpoint"  
+**Version:** 2.0.0 - "Station-specific voice jingles with mix points" - "Local and OAuth/OIDC authentication" - "Role-based access control (admin, editor, viewer)" - "Soft delete for stories and users" - "FFmpeg audio processing" - "Pagination and filtering on all list endpoints" - "RESTful design for radio automation" - "Removed redundant /broadcasts endpoint"  
 **Base URL:** http://localhost:8080/api/v1
 
 ## Table of Contents
@@ -332,6 +341,10 @@ If not provided, uses BABBEL_FRONTEND_URL environment variable.
 
 
 
+**Error Responses:**
+
+- `500`: Error
+
 
 ---
 
@@ -376,6 +389,7 @@ Returns the complete user object for the authenticated user, including full_name
 
 **Error Responses:**
 
+- `400`: Error
 - `401`: Error
 
 
@@ -623,6 +637,7 @@ Voice/presenter management
 **Error Responses:**
 
 - `404`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -682,7 +697,9 @@ Voice/presenter management
 
 **Error Responses:**
 
+- `400`: Error
 - `404`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -790,6 +807,7 @@ Supported operators:
 **Error Responses:**
 
 - `400`: Error
+- `409`: Error
 - `500`: Error
 
 
@@ -825,6 +843,40 @@ News story management
 **Error Responses:**
 
 - `404`: Story not found or no audio file
+
+
+---
+
+#### Upload story audio file
+
+`POST /stories/{id}/audio`
+
+Upload audio file for a story. Accepts WAV or MP3 format.
+Audio duration is automatically calculated and stored.
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Resource ID |
+
+
+
+**Request Body:** `multipart/form-data`
+
+
+
+**Response:** `200` - Audio uploaded successfully
+
+
+
+**Error Responses:**
+
+- `400`: Error
+- `404`: Error
+- `500`: Error
 
 
 ---
@@ -1026,10 +1078,12 @@ This endpoint can be used to:
 
 ---
 
-#### Update story
+#### Update story (full update)
 
 `PUT /stories/{id}`
 
+Update story with JSON body. All fields are optional - only provided fields will be updated.
+Audio file must be uploaded separately via POST /stories/{id}/audio.
 
 
 
@@ -1041,7 +1095,7 @@ This endpoint can be used to:
 
 
 
-**Request Body:** `multipart/form-data`
+**Request Body:** `application/json`
 
 
 
@@ -1051,7 +1105,9 @@ This endpoint can be used to:
 
 **Error Responses:**
 
+- `400`: Error
 - `404`: Error
+- `422`: Error
 - `500`: Error
 
 
@@ -1139,12 +1195,13 @@ Supported operators:
 
 `POST /stories`
 
+Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
 
 
 
 
 
-**Request Body:** `multipart/form-data`
+**Request Body:** `application/json`
 
 
 
@@ -1645,7 +1702,8 @@ Available sort fields:
 - `station_name` - Station name
 
 ## Special Parameters
-- `latest=true` - Returns only the latest bulletin (equivalent to `limit=1`)
+- `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
+- `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
 
 ## Notes
 To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
@@ -1795,6 +1853,39 @@ Station-specific voice jingle management
 
 ---
 
+#### Upload station-voice jingle file
+
+`POST /station-voices/{id}/audio`
+
+Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 format.
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Resource ID |
+
+
+
+**Request Body:** `multipart/form-data`
+
+
+
+**Response:** `200` - Jingle uploaded successfully
+
+
+
+**Error Responses:**
+
+- `400`: Error
+- `404`: Error
+- `500`: Error
+
+
+---
+
 #### Delete station-voice relationship
 
 `DELETE /station-voices/{id}`
@@ -1855,8 +1946,9 @@ Station-specific voice jingle management
 
 `PUT /station-voices/{id}`
 
-Update station-voice relationship properties. All fields are optional - only provided fields will be updated.
+Update station-voice relationship properties with JSON body. All fields are optional - only provided fields will be updated.
 When updating station_id or voice_id, the system checks for duplicate combinations.
+Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
 
 
 
@@ -1868,7 +1960,7 @@ When updating station_id or voice_id, the system checks for duplicate combinatio
 
 
 
-**Request Body:** `multipart/form-data`
+**Request Body:** `application/json`
 
 
 
@@ -1878,7 +1970,11 @@ When updating station_id or voice_id, the system checks for duplicate combinatio
 
 **Error Responses:**
 
+- `400`: Error
 - `404`: Error
+- `409`: Error
+- `422`: Error
+- `500`: Error
 
 
 ---
@@ -1982,12 +2078,13 @@ Supported operators:
 
 `POST /station-voices`
 
+Create station-voice relationship with JSON body. Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
 
 
 
 
 
-**Request Body:** `multipart/form-data`
+**Request Body:** `application/json`
 
 
 
@@ -1998,6 +2095,9 @@ Supported operators:
 **Error Responses:**
 
 - `400`: Error
+- `409`: Error
+- `422`: Error
+- `500`: Error
 
 
 ---

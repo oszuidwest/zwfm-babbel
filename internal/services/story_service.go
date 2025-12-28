@@ -3,7 +3,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/datatypes"
 )
 
 // StoryServiceDeps contains all dependencies for StoryService.
@@ -53,7 +53,7 @@ type CreateStoryRequest struct {
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]any
+	Metadata  *datatypes.JSONMap
 }
 
 // UpdateStoryRequest contains the data needed to update an existing story.
@@ -65,7 +65,7 @@ type UpdateStoryRequest struct {
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
 	Weekdays  map[string]bool
-	Metadata  map[string]any
+	Metadata  *datatypes.JSONMap
 }
 
 // Create creates a new story in the database.
@@ -247,19 +247,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 
 	// Apply metadata updates
 	if req.Metadata != nil {
-		var metadataStr string
-		if len(req.Metadata) == 0 {
-			// Empty map means clear the metadata (set to NULL in DB)
-			updates.Metadata = &metadataStr // Empty string will be stored as NULL
-		} else {
-			// Marshal to JSON string
-			jsonBytes, err := json.Marshal(req.Metadata)
-			if err != nil {
-				return nil, fmt.Errorf("%w: failed to marshal metadata", apperrors.ErrInvalidInput)
-			}
-			metadataStr = string(jsonBytes)
-			updates.Metadata = &metadataStr
-		}
+		updates.Metadata = req.Metadata
 		hasUpdates = true
 	}
 
