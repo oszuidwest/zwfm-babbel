@@ -163,7 +163,7 @@ func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID 
 		Find(&bulletinStories).Error
 
 	if err != nil {
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return bulletinStories, nil

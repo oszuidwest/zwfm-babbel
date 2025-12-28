@@ -124,7 +124,7 @@ func (r *stationRepository) IsNameTaken(ctx context.Context, name string, exclud
 // HasDependencies checks if station has any station_voices relationships.
 func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	var count int64
-	err := r.GormRepository.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Where("station_id = ?", id).
 		Count(&count).Error
