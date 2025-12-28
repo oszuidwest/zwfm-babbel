@@ -8,29 +8,28 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated.
 type StoryUpdate struct {
-	Title           *string    `db:"title"`
-	Text            *string    `db:"text"`
-	VoiceID         *int64     `db:"voice_id"`
-	Status          *string    `db:"status"`
-	StartDate       *time.Time `db:"start_date"`
-	EndDate         *time.Time `db:"end_date"`
-	Monday          *bool      `db:"monday"`
-	Tuesday         *bool      `db:"tuesday"`
-	Wednesday       *bool      `db:"wednesday"`
-	Thursday        *bool      `db:"thursday"`
-	Friday          *bool      `db:"friday"`
-	Saturday        *bool      `db:"saturday"`
-	Sunday          *bool      `db:"sunday"`
-	Metadata        *string    `db:"metadata"` // Already JSON string
-	AudioFile       *string    `db:"audio_file"`
-	DurationSeconds *float64   `db:"duration_seconds"`
+	Title           *string    `gorm:"column:title"`
+	Text            *string    `gorm:"column:text"`
+	VoiceID         *int64     `gorm:"column:voice_id"`
+	Status          *string    `gorm:"column:status"`
+	StartDate       *time.Time `gorm:"column:start_date"`
+	EndDate         *time.Time `gorm:"column:end_date"`
+	Monday          *bool      `gorm:"column:monday"`
+	Tuesday         *bool      `gorm:"column:tuesday"`
+	Wednesday       *bool      `gorm:"column:wednesday"`
+	Thursday        *bool      `gorm:"column:thursday"`
+	Friday          *bool      `gorm:"column:friday"`
+	Saturday        *bool      `gorm:"column:saturday"`
+	Sunday          *bool      `gorm:"column:sunday"`
+	Metadata        *string    `gorm:"column:metadata"` // Already JSON string
+	AudioFile       *string    `gorm:"column:audio_file"`
+	DurationSeconds *float64   `gorm:"column:duration_seconds"`
 }
 
 // StoryCreateData contains the data for creating a story.
@@ -75,7 +74,7 @@ type StoryRepository interface {
 	UpdateStatus(ctx context.Context, id int64, status string) error
 
 	// Bulletin-related queries
-	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error)
+	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error)
 }
 
 // storyRepository implements StoryRepository using GORM.
@@ -120,11 +119,19 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Metadata:  metadataJSON,
 	}
 
-	if err := r.db.WithContext(ctx).Create(story).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(story).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	return r.GetByIDWithVoice(ctx, story.ID)
+	// Load voice relation on the created record (avoids separate GetByID query)
+	if story.VoiceID != nil {
+		if err := db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error; err != nil {
+			return nil, ParseDBError(err)
+		}
+	}
+
+	return story, nil
 }
 
 // GetByIDWithVoice retrieves a story with voice information via Preload.
@@ -139,11 +146,6 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 		return nil, ParseDBError(err)
 	}
 
-	// Populate the VoiceName field from the preloaded Voice relation
-	if story.Voice != nil {
-		story.VoiceName = story.Voice.Name
-	}
-
 	return &story, nil
 }
 
@@ -153,12 +155,8 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -172,7 +170,8 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 // SoftDelete sets the deleted_at timestamp.
 // GORM handles soft deletes automatically for models with gorm.DeletedAt.
 func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Delete(&models.Story{}, id)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Delete(&models.Story{}, id)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -184,7 +183,8 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 
 // Restore clears the deleted_at timestamp.
 func (r *storyRepository) Restore(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
 		Where("id = ?", id).
 		Update("deleted_at", nil)
 	if result.Error != nil {
@@ -208,7 +208,8 @@ func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) 
 
 // UpdateAudio updates the audio file and duration.
 func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	result := r.db.WithContext(ctx).Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"audio_file":       audioFile,
@@ -225,9 +226,10 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile s
 
 // UpdateStatus updates the story status.
 func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	result := r.db.WithContext(ctx).Model(&models.Story{}).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
-		Update("status", status)
+		Updates(map[string]any{"status": status})
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -262,44 +264,32 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 		query = NewListQuery()
 	}
 
-	// Build base query with voice preload
+	// Build base query with voice preload and soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
+	db = ApplySoftDeleteFilter(db, query.Status)
 
-	// Apply soft delete filtering based on status
-	switch query.Status {
-	case "deleted":
-		db = db.Unscoped().Where("deleted_at IS NOT NULL")
-	case "all":
-		db = db.Unscoped()
-		// default "active" uses GORM's automatic soft delete filtering
-	}
+	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
+}
 
-	result, err := ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	// Populate VoiceName from preloaded Voice relation
-	for i := range result.Data {
-		if result.Data[i].Voice != nil {
-			result.Data[i].VoiceName = result.Data[i].Voice.Name
-		}
-	}
-
-	return result, nil
+// BulletinStoryData contains story data with station-specific audio processing info.
+// This is used for bulletin generation where we need jingle mix points.
+type BulletinStoryData struct {
+	models.Story
+	MixPoint float64 `gorm:"column:mix_point"`
 }
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.
-func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
-	var stories []models.Story
+// Returns stories with station-specific mix point data needed for audio processing.
+func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
+	var stories []BulletinStoryData
 
 	// Get the weekday column name
 	weekdayColumn := getWeekdayColumn(date.Weekday())
 
-	// Build the query with proper joins
+	// Build the query with proper joins to get mix_point from station_voices
 	err := r.db.WithContext(ctx).
 		Table("stories s").
-		Select("s.*, v.name as voice_name, sv.audio_file as voice_jingle, sv.mix_point as voice_mix_point").
+		Select("s.*, sv.mix_point").
 		Joins("JOIN voices v ON s.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id", stationID).
 		Where("s.deleted_at IS NULL").

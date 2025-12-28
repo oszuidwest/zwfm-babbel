@@ -1,11 +1,6 @@
 // Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
-// MessageResponse represents a simple message response.
-type MessageResponse struct {
-	Message string `json:"message"`
-}
-
 // AuthConfigResponse represents the authentication configuration response.
 type AuthConfigResponse struct {
 	Methods  []string `json:"methods"`

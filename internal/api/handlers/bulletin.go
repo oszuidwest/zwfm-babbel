@@ -194,10 +194,16 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinResponse {
 	bulletinURL := BulletinAudioURL(bulletin.ID)
 
+	// Get station name from preloaded relation
+	stationName := ""
+	if bulletin.Station != nil {
+		stationName = bulletin.Station.Name
+	}
+
 	return BulletinResponse{
 		ID:          bulletin.ID,
 		StationID:   bulletin.StationID,
-		StationName: bulletin.StationName,
+		StationName: stationName,
 		AudioURL:    bulletinURL,
 		Filename:    bulletin.Filename,
 		CreatedAt:   bulletin.CreatedAt,

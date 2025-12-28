@@ -72,11 +72,6 @@ type Story struct {
 
 	// Relations
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
-
-	// Fields populated by joins (not GORM relations)
-	VoiceName     string  `gorm:"-" json:"voice_name"`
-	VoiceJingle   string  `gorm:"-" json:"-"`
-	VoiceMixPoint float64 `gorm:"-" json:"-"`
 }
 
 // IsActiveOnWeekday returns whether the story is scheduled for the given weekday.
@@ -154,15 +149,6 @@ type StationVoice struct {
 	// Relations
 	Station *Station `gorm:"foreignKey:StationID" json:"-"`
 	Voice   *Voice   `gorm:"foreignKey:VoiceID" json:"-"`
-
-	// Fields populated by joins (not GORM relations)
-	// StationName is the name of the associated station.
-	StationName string `gorm:"-" json:"station_name,omitempty"`
-	// VoiceName is the name of the associated voice.
-	VoiceName string `gorm:"-" json:"voice_name,omitempty"`
-
-	// AudioURL is dynamically generated for API responses.
-	AudioURL *string `gorm:"-" json:"audio_url,omitempty"`
 }
 
 // User represents a system user with authentication credentials and role-based permissions.
@@ -252,10 +238,6 @@ type Bulletin struct {
 	// Relations
 	Station *Station        `gorm:"foreignKey:StationID" json:"-"`
 	Stories []BulletinStory `gorm:"foreignKey:BulletinID" json:"-"`
-
-	// Fields populated by joins (not GORM relations)
-	// StationName is the name of the station this bulletin belongs to.
-	StationName string `gorm:"-" json:"station_name,omitempty"`
 }
 
 // BulletinStory represents the relationship between bulletins and stories with join data.
@@ -274,23 +256,4 @@ type BulletinStory struct {
 	// Relations
 	Bulletin *Bulletin `gorm:"foreignKey:BulletinID" json:"-"`
 	Story    *Story    `gorm:"foreignKey:StoryID" json:"-"`
-
-	// Fields populated by joins (not GORM relations)
-	// StationID is the station ID from the bulletin.
-	StationID int64 `gorm:"-" json:"-"`
-	// StationName is the station name from the bulletin.
-	StationName string `gorm:"-" json:"-"`
-	// StoryTitle is the title of the story.
-	StoryTitle string `gorm:"-" json:"-"`
-	// BulletinFilename is the filename of the bulletin.
-	BulletinFilename string `gorm:"-" json:"-"`
-}
-
-// StoryBulletinHistory represents a bulletin with story-specific metadata for history queries.
-type StoryBulletinHistory struct {
-	Bulletin // Embed the full Bulletin struct
-	// StoryOrder is the position of the story within this bulletin.
-	StoryOrder int `gorm:"-" json:"story_order"`
-	// IncludedAt is when the story was included in this bulletin.
-	IncludedAt time.Time `gorm:"-" json:"included_at"`
 }

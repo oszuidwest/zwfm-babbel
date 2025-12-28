@@ -5,17 +5,16 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
 // Nil pointer fields are not updated.
 type StationVoiceUpdate struct {
-	StationID *int64   `db:"station_id"`
-	VoiceID   *int64   `db:"voice_id"`
-	AudioFile *string  `db:"audio_file"`
-	MixPoint  *float64 `db:"mix_point"`
+	StationID *int64   `gorm:"column:station_id"`
+	VoiceID   *int64   `gorm:"column:voice_id"`
+	AudioFile *string  `gorm:"column:audio_file"`
+	MixPoint  *float64 `gorm:"column:mix_point"`
 }
 
 // StationVoiceRepository defines the interface for station-voice relationship data access.
@@ -48,42 +47,38 @@ func NewStationVoiceRepository(db *gorm.DB) StationVoiceRepository {
 	}
 }
 
-// Create inserts a new station-voice relationship and returns the created record.
+// Create inserts a new station-voice relationship and returns the created record with preloaded relations.
 func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
-	stationVoice := models.StationVoice{
+	stationVoice := &models.StationVoice{
 		StationID: stationID,
 		VoiceID:   voiceID,
 		MixPoint:  mixPoint,
 	}
 
-	if err := r.db.WithContext(ctx).Create(&stationVoice).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(stationVoice).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
-	// Fetch the created record with joined station and voice names
-	return r.GetByID(ctx, stationVoice.ID)
+	// Load relations on the created record (avoids separate GetByID query)
+	if err := db.WithContext(ctx).Preload("Station").Preload("Voice").First(stationVoice, stationVoice.ID).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return stationVoice, nil
 }
 
-// GetByID retrieves a station-voice relationship with joined station and voice names.
+// GetByID retrieves a station-voice relationship with preloaded station and voice.
 func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	var stationVoice models.StationVoice
 
-	// Use a raw query with joins to populate the virtual fields
 	err := r.db.WithContext(ctx).
-		Table("station_voices sv").
-		Select("sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name").
-		Joins("JOIN stations s ON sv.station_id = s.id").
-		Joins("JOIN voices v ON sv.voice_id = v.id").
-		Where("sv.id = ?", id).
-		Scan(&stationVoice).Error
+		Preload("Station").
+		Preload("Voice").
+		First(&stationVoice, id).Error
 
 	if err != nil {
-		return nil, err
-	}
-
-	// Check if record was found (Scan doesn't return ErrRecordNotFound)
-	if stationVoice.ID == 0 {
-		return nil, ErrNotFound
+		return nil, ParseDBError(err)
 	}
 
 	return &stationVoice, nil
@@ -95,12 +90,8 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -113,32 +104,12 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 
 // Delete removes a station-voice relationship.
 func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Delete(&models.StationVoice{}, id)
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.GormRepository.Delete(ctx, id)
 }
 
 // Exists checks if a station-voice relationship with the given ID exists.
 func (r *stationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("id = ?", id).
-		Count(&count).Error
-
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsCombinationTaken checks if a station-voice combination is already in use.
@@ -154,7 +125,7 @@ func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 	}
 
 	if err := query.Count(&count).Error; err != nil {
-		return false, err
+		return false, ParseDBError(err)
 	}
 
 	return count > 0, nil
@@ -184,13 +155,14 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
 func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
-	result := r.db.WithContext(ctx).
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Where("id = ?", id).
 		Update("audio_file", audioFile)
 
 	if result.Error != nil {
-		return result.Error
+		return ParseDBError(result.Error)
 	}
 
 	if result.RowsAffected == 0 {
@@ -202,21 +174,20 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 
 // stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.
 var stationVoiceFieldMapping = FieldMapping{
-	"id":         "station_voices.id",
-	"station_id": "station_voices.station_id",
-	"voice_id":   "station_voices.voice_id",
-	"mix_point":  "station_voices.mix_point",
-	"created_at": "station_voices.created_at",
-	"updated_at": "station_voices.updated_at",
+	"id":         "id",
+	"station_id": "station_id",
+	"voice_id":   "voice_id",
+	"mix_point":  "mix_point",
+	"created_at": "created_at",
+	"updated_at": "updated_at",
 }
 
-// List retrieves a paginated list of station-voice relationships with joined station and voice names.
+// List retrieves a paginated list of station-voice relationships with preloaded relations.
 func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
 	db := r.db.WithContext(ctx).
-		Table("station_voices").
-		Select("station_voices.*, stations.name as station_name, voices.name as voice_name").
-		Joins("LEFT JOIN stations ON stations.id = station_voices.station_id").
-		Joins("LEFT JOIN voices ON voices.id = station_voices.voice_id")
+		Model(&models.StationVoice{}).
+		Preload("Station").
+		Preload("Voice")
 
-	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "station_voices.id ASC")
+	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "id ASC")
 }

@@ -38,7 +38,7 @@ func (r *GormRepository[T]) Exists(ctx context.Context, id int64) (bool, error) 
 	var model T
 	err := r.db.WithContext(ctx).Model(&model).Where("id = ?", id).Count(&count).Error
 	if err != nil {
-		return false, err
+		return false, ParseDBError(err)
 	}
 	return count > 0, nil
 }
@@ -47,12 +47,43 @@ func (r *GormRepository[T]) Exists(ctx context.Context, id int64) (bool, error) 
 // For models with gorm.DeletedAt, this performs a soft delete.
 func (r *GormRepository[T]) Delete(ctx context.Context, id int64) error {
 	var model T
-	result := r.db.WithContext(ctx).Delete(&model, id)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Delete(&model, id)
 	if result.Error != nil {
-		return result.Error
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// IsFieldValueTaken checks if a field value is already in use by another record.
+// Useful for unique constraints validation before insert/update.
+func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value string, excludeID *int64) (bool, error) {
+	var count int64
+	var model T
+	query := r.db.WithContext(ctx).Model(&model).Where(field+" = ?", value)
+	if excludeID != nil {
+		query = query.Where("id != ?", *excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, ParseDBError(err)
+	}
+	return count > 0, nil
+}
+
+// ApplySoftDeleteFilter applies soft delete filtering to a query based on status.
+// - "active" (default): only non-deleted records (GORM default behavior)
+// - "deleted": only soft-deleted records
+// - "all": include all records regardless of deletion status
+func ApplySoftDeleteFilter(db *gorm.DB, status string) *gorm.DB {
+	switch status {
+	case "deleted":
+		return db.Unscoped().Where("deleted_at IS NOT NULL")
+	case "all":
+		return db.Unscoped()
+	default:
+		return db // "active" - use GORM's default soft delete filtering
+	}
 }

@@ -54,7 +54,7 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 type BulletinInfo struct {
 	ID           int64
 	Station      models.Station
-	Stories      []models.Story
+	Stories      []repository.BulletinStoryData
 	BulletinPath string
 	Duration     float64
 	FileSize     int64
@@ -120,7 +120,7 @@ func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
-func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *models.Station, stories []models.Story) (string, error) {
+func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData) (string, error) {
 	// Generate consistent paths using single timestamp
 	timestamp := time.Now()
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
@@ -149,7 +149,7 @@ func (s *BulletinService) getFileSize(path string) int64 {
 }
 
 // calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
-func (s *BulletinService) calculateBulletinDuration(station *models.Station, stories []models.Story) float64 {
+func (s *BulletinService) calculateBulletinDuration(station *models.Station, stories []repository.BulletinStoryData) float64 {
 	// Calculate total duration of all stories
 	var storiesDuration float64
 	for _, story := range stories {
@@ -165,8 +165,8 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 
 	// Add mix point delay (when voice starts over jingle)
 	var mixPointDelay float64
-	if len(stories) > 0 && stories[0].VoiceMixPoint > 0 {
-		mixPointDelay = stories[0].VoiceMixPoint
+	if len(stories) > 0 && stories[0].MixPoint > 0 {
+		mixPointDelay = stories[0].MixPoint
 	}
 
 	// Total duration = stories duration + pauses + mix point delay
@@ -174,7 +174,7 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 }
 
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
-func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int64, bulletinPath string, duration float64, fileSize int64, stories []models.Story) (int64, error) {
+func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int64, bulletinPath string, duration float64, fileSize int64, stories []repository.BulletinStoryData) (int64, error) {
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
@@ -222,7 +222,7 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
-func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]models.Story, error) {
+func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to fetch stories: %v", apperrors.ErrDatabaseError, err)

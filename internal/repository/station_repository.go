@@ -5,16 +5,20 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StationUpdate contains optional fields for updating a station.
 // Nil pointer fields are not updated.
 type StationUpdate struct {
-	Name               *string  `db:"name"`
-	MaxStoriesPerBlock *int     `db:"max_stories_per_block"`
-	PauseSeconds       *float64 `db:"pause_seconds"`
+	Name               *string  `gorm:"column:name"`
+	MaxStoriesPerBlock *int     `gorm:"column:max_stories_per_block"`
+	PauseSeconds       *float64 `gorm:"column:pause_seconds"`
+}
+
+// hasUpdates returns true if any update field is non-nil.
+func (u *StationUpdate) hasUpdates() bool {
+	return u.Name != nil || u.MaxStoriesPerBlock != nil || u.PauseSeconds != nil
 }
 
 // StationRepository defines the interface for station data access.
@@ -52,8 +56,8 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 		PauseSeconds:       pauseSeconds,
 	}
 
-	err := r.GormRepository.db.WithContext(ctx).Create(station).Error
-	if err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(station).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
@@ -67,16 +71,12 @@ func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Stat
 
 // Update updates an existing station with type-safe fields.
 func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -118,27 +118,13 @@ func (r *stationRepository) Exists(ctx context.Context, id int64) (bool, error) 
 
 // IsNameTaken checks if a station name is already in use.
 func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
-	var count int64
-	query := r.GormRepository.db.WithContext(ctx).
-		Model(&models.Station{}).
-		Where("name = ?", name)
-
-	if excludeID != nil {
-		query = query.Where("id != ?", *excludeID)
-	}
-
-	err := query.Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
 // HasDependencies checks if station has any station_voices relationships.
 func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	var count int64
-	err := r.GormRepository.db.WithContext(ctx).
+	err := r.db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Where("station_id = ?", id).
 		Count(&count).Error

@@ -10,7 +10,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -107,8 +106,16 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 }
 
 // applyEmailUpdate validates and applies email update.
+// If email is nil, the field is not updated.
+// If email points to empty string, the email is cleared to NULL.
+// Otherwise, the email is validated for uniqueness and updated.
 func (s *UserService) applyEmailUpdate(ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64) error {
-	if email == nil || *email == "" {
+	if email == nil {
+		return nil
+	}
+	// Empty string means clear email to NULL
+	if *email == "" {
+		u.ClearEmail = true
 		return nil
 	}
 	taken, err := s.repo.IsEmailTaken(ctx, *email, &excludeID)
@@ -118,7 +125,7 @@ func (s *UserService) applyEmailUpdate(ctx context.Context, u *repository.UserUp
 	if taken {
 		return fmt.Errorf("%w: email '%s'", apperrors.ErrDuplicate, *email)
 	}
-	u.Email = updates.Set(*email)
+	u.Email = email
 	return nil
 }
 
@@ -158,7 +165,7 @@ func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullNa
 // applyMetadataUpdate applies metadata update.
 func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata string) {
 	if metadata != "" {
-		u.Metadata = updates.Set(metadata)
+		u.Metadata = &metadata
 	}
 }
 
@@ -179,8 +186,8 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 // hasFieldUpdates checks if any field updates are present.
 func hasFieldUpdates(u *repository.UserUpdate) bool {
 	return u.Username != nil || u.FullName != nil ||
-		u.Email.IsSet || u.PasswordHash != nil ||
-		u.Role != nil || u.Metadata.IsSet
+		u.Email != nil || u.ClearEmail || u.PasswordHash != nil ||
+		u.Role != nil || u.Metadata != nil
 }
 
 // executeFieldUpdates applies field updates to the repository.

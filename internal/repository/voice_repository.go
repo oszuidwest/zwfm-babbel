@@ -5,14 +5,13 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // VoiceUpdate contains optional fields for updating a voice.
 // Nil pointer fields are not updated.
 type VoiceUpdate struct {
-	Name *string `db:"name"`
+	Name *string `gorm:"column:name"`
 }
 
 // VoiceRepository defines the interface for voice data access.
@@ -50,7 +49,8 @@ func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voic
 		Name: name,
 	}
 
-	if err := r.db.WithContext(ctx).Create(voice).Error; err != nil {
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Create(voice).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 
@@ -59,14 +59,7 @@ func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voic
 
 // GetByID retrieves a voice by its ID.
 func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
-	var voice models.Voice
-
-	err := r.db.WithContext(ctx).First(&voice, id).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &voice, nil
+	return r.GormRepository.GetByID(ctx, id)
 }
 
 // Update updates an existing voice with type-safe fields.
@@ -75,12 +68,8 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(updateMap)
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
@@ -93,51 +82,17 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 
 // Delete removes a voice by its ID (hard delete since Voice has no soft delete).
 func (r *voiceRepository) Delete(ctx context.Context, id int64) error {
-	result := r.db.WithContext(ctx).Delete(&models.Voice{}, id)
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.GormRepository.Delete(ctx, id)
 }
 
 // Exists checks if a voice with the given ID exists.
 func (r *voiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	var count int64
-
-	err := r.db.WithContext(ctx).
-		Model(&models.Voice{}).
-		Where("id = ?", id).
-		Count(&count).Error
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken checks if a voice name is already in use.
 func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
-	var count int64
-
-	query := r.db.WithContext(ctx).
-		Model(&models.Voice{}).
-		Where("name = ?", name)
-
-	if excludeID != nil {
-		query = query.Where("id != ?", *excludeID)
-	}
-
-	if err := query.Count(&count).Error; err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
+	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
 // HasDependencies checks if voice is used by stories or station_voices.
