@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
@@ -58,10 +57,7 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 	}
 
 	if err := r.db.WithContext(ctx).Create(&stationVoice).Error; err != nil {
-		if IsDuplicateKeyError(err) {
-			return nil, ErrDuplicateKey
-		}
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	// Fetch the created record with joined station and voice names
@@ -179,11 +175,8 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 		Where("id = ?", id).
 		First(&record).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, 0, "", ErrNotFound
-	}
 	if err != nil {
-		return 0, 0, "", err
+		return 0, 0, "", ParseDBError(err)
 	}
 
 	return record.StationID, record.VoiceID, record.AudioFile, nil

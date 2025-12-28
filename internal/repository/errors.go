@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // Repository-level sentinel errors.
@@ -25,7 +26,7 @@ var (
 	ErrDataTooLong = errors.New("data too long for column")
 )
 
-// ParseDBError converts MySQL-specific errors to repository errors.
+// ParseDBError converts database-specific errors to repository errors.
 // This provides a consistent error interface across the repository layer.
 // Internal error details are logged but not exposed in the returned error
 // to prevent database schema leakage to clients.
@@ -34,7 +35,12 @@ func ParseDBError(err error) error {
 		return nil
 	}
 
-	// First, try type assertion for MySQL-specific errors (more robust)
+	// Handle GORM's record not found error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return ErrNotFound
+	}
+
+	// Handle MySQL-specific errors via type assertion (more robust)
 	var mysqlErr *mysql.MySQLError
 	if errors.As(err, &mysqlErr) {
 		switch mysqlErr.Number {

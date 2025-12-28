@@ -4,7 +4,6 @@ package repository
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -136,9 +135,6 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 		Preload("Voice").
 		First(&story, id).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
 		return nil, ParseDBError(err)
 	}

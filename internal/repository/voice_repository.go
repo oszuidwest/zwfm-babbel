@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
@@ -52,10 +51,7 @@ func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voic
 	}
 
 	if err := r.db.WithContext(ctx).Create(voice).Error; err != nil {
-		if IsDuplicateKeyError(err) {
-			return nil, ErrDuplicateKey
-		}
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return voice, nil
@@ -66,11 +62,8 @@ func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice,
 	var voice models.Voice
 
 	err := r.db.WithContext(ctx).First(&voice, id).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return &voice, nil

@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -54,10 +53,7 @@ func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filena
 
 	db := DBFromContext(ctx, r.db)
 	if err := db.WithContext(ctx).Create(bulletin).Error; err != nil {
-		if IsDuplicateKeyError(err) {
-			return 0, ErrDuplicateKey
-		}
-		return 0, err
+		return 0, ParseDBError(err)
 	}
 
 	return bulletin.ID, nil
@@ -72,11 +68,8 @@ func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 		Joins("JOIN stations ON bulletins.station_id = stations.id").
 		First(&bulletin, id).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return &bulletin, nil
@@ -90,21 +83,18 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 	query := r.db.WithContext(ctx).
 		Select("bulletins.*, stations.name as station_name").
 		Joins("JOIN stations ON bulletins.station_id = stations.id").
-		Scopes(ByStationID(stationID))
+		Where("station_id = ?", stationID)
 
 	if maxAge != nil {
 		minTime := time.Now().Add(-*maxAge)
 		query = query.Where("bulletins.created_at >= ?", minTime)
 	}
 
-	err := query.Scopes(OrderByCreatedDesc).
+	err := query.Order("created_at DESC").
 		First(&bulletin).Error
 
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return &bulletin, nil
@@ -130,10 +120,7 @@ func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 	// Batch insert all records using transaction if available
 	db := DBFromContext(ctx, r.db)
 	if err := db.WithContext(ctx).Create(&bulletinStories).Error; err != nil {
-		if IsDuplicateKeyError(err) {
-			return ErrDuplicateKey
-		}
-		return err
+		return ParseDBError(err)
 	}
 
 	return nil

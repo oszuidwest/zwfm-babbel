@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -68,9 +67,6 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 		Scan(&filePath).Error
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", ErrNotFound
-		}
 		return "", ParseDBError(err)
 	}
 

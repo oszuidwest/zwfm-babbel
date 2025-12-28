@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
@@ -55,10 +54,7 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 
 	err := r.GormRepository.db.WithContext(ctx).Create(station).Error
 	if err != nil {
-		if IsDuplicateKeyError(err) {
-			return nil, ErrDuplicateKey
-		}
-		return nil, err
+		return nil, ParseDBError(err)
 	}
 
 	return station, nil
@@ -206,10 +202,7 @@ func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool
 		Count(&count).Error
 
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
-		}
-		return false, err
+		return false, ParseDBError(err)
 	}
 
 	return count > 0, nil

@@ -3,7 +3,6 @@ package repository
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -85,9 +84,6 @@ func (r *userRepository) Create(ctx context.Context, username, fullName string, 
 func (r *userRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
 	err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
@@ -156,7 +152,7 @@ func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 	var count int64
 	err := r.db.WithContext(ctx).
 		Model(&models.User{}).
-		Scopes(NotSuspended).
+		Where("suspended_at IS NULL").
 		Where("role = ?", models.RoleAdmin).
 		Where("id != ?", excludeID).
 		Count(&count).Error
