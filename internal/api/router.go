@@ -63,6 +63,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	voiceSvc := services.NewVoiceService(voiceRepo)
 	userSvc := services.NewUserService(userRepo)
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
+		TxManager:        txManager,
 		StationVoiceRepo: stationVoiceRepo,
 		StationRepo:      stationRepo,
 		VoiceRepo:        voiceRepo,

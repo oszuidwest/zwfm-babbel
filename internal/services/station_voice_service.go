@@ -18,6 +18,7 @@ import (
 
 // StationVoiceServiceDeps contains all dependencies for StationVoiceService.
 type StationVoiceServiceDeps struct {
+	TxManager        repository.TxManager
 	StationVoiceRepo repository.StationVoiceRepository
 	StationRepo      repository.StationRepository
 	VoiceRepo        repository.VoiceRepository
@@ -29,6 +30,7 @@ type StationVoiceServiceDeps struct {
 // It manages the many-to-many relationship between stations and voices, including
 // jingle audio file processing and validation.
 type StationVoiceService struct {
+	txManager        repository.TxManager
 	stationVoiceRepo repository.StationVoiceRepository
 	stationRepo      repository.StationRepository
 	voiceRepo        repository.VoiceRepository
@@ -39,6 +41,7 @@ type StationVoiceService struct {
 // NewStationVoiceService creates a new station-voice service instance.
 func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 	return &StationVoiceService{
+		txManager:        deps.TxManager,
 		stationVoiceRepo: deps.StationVoiceRepo,
 		stationRepo:      deps.StationRepo,
 		voiceRepo:        deps.VoiceRepo,
@@ -63,47 +66,59 @@ type UpdateStationVoiceRequest struct {
 
 // Create creates a new station-voice relationship in the database.
 // It validates that both station and voice exist and that the combination is unique.
+// All operations are wrapped in a transaction for consistency.
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
 	const op = "StationVoiceService.Create"
 
-	// Validate station exists
-	exists, err := s.stationRepo.Exists(ctx, req.StationID)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: failed to validate station", op, apperrors.ErrDatabaseError)
-	}
-	if !exists {
-		return nil, fmt.Errorf("%s: %w: station with id %d not found", op, apperrors.ErrNotFound, req.StationID)
-	}
+	var result *models.StationVoice
 
-	// Validate voice exists
-	exists, err = s.voiceRepo.Exists(ctx, req.VoiceID)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: failed to validate voice", op, apperrors.ErrDatabaseError)
-	}
-	if !exists {
-		return nil, fmt.Errorf("%s: %w: voice with id %d not found", op, apperrors.ErrNotFound, req.VoiceID)
-	}
-
-	// Check uniqueness of station-voice combination
-	taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, req.StationID, req.VoiceID, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w: failed to check uniqueness", op, apperrors.ErrDatabaseError)
-	}
-	if taken {
-		return nil, fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, apperrors.ErrDuplicate, req.StationID, req.VoiceID)
-	}
-
-	// Create station-voice relationship
-	stationVoice, err := s.stationVoiceRepo.Create(ctx, req.StationID, req.VoiceID, req.MixPoint)
-	if err != nil {
-		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: station-voice combination already exists", op, apperrors.ErrDuplicate)
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		// Validate station exists
+		exists, err := s.stationRepo.Exists(txCtx, req.StationID)
+		if err != nil {
+			return fmt.Errorf("%s: %w: failed to validate station", op, apperrors.ErrDatabaseError)
 		}
-		logger.Error("Database error creating station-voice: %v", err)
-		return nil, fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
+		if !exists {
+			return fmt.Errorf("%s: %w: station with id %d not found", op, apperrors.ErrNotFound, req.StationID)
+		}
+
+		// Validate voice exists
+		exists, err = s.voiceRepo.Exists(txCtx, req.VoiceID)
+		if err != nil {
+			return fmt.Errorf("%s: %w: failed to validate voice", op, apperrors.ErrDatabaseError)
+		}
+		if !exists {
+			return fmt.Errorf("%s: %w: voice with id %d not found", op, apperrors.ErrNotFound, req.VoiceID)
+		}
+
+		// Check uniqueness of station-voice combination
+		taken, err := s.stationVoiceRepo.IsCombinationTaken(txCtx, req.StationID, req.VoiceID, nil)
+		if err != nil {
+			return fmt.Errorf("%s: %w: failed to check uniqueness", op, apperrors.ErrDatabaseError)
+		}
+		if taken {
+			return fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, apperrors.ErrDuplicate, req.StationID, req.VoiceID)
+		}
+
+		// Create station-voice relationship
+		stationVoice, err := s.stationVoiceRepo.Create(txCtx, req.StationID, req.VoiceID, req.MixPoint)
+		if err != nil {
+			if errors.Is(err, repository.ErrDuplicateKey) {
+				return fmt.Errorf("%s: %w: station-voice combination already exists", op, apperrors.ErrDuplicate)
+			}
+			logger.Error("Database error creating station-voice: %v", err)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
+		}
+
+		result = stationVoice
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
-	return stationVoice, nil
+	return result, nil
 }
 
 // Update updates an existing station-voice relationship.
