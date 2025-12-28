@@ -6,29 +6,28 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated. Clear* flags explicitly set fields to NULL.
 type StoryUpdate struct {
-	Title           *string           `gorm:"column:title"`
-	Text            *string           `gorm:"column:text"`
-	VoiceID         *int64            `gorm:"column:voice_id"`
-	Status          *string           `gorm:"column:status"`
-	StartDate       *time.Time        `gorm:"column:start_date"`
-	EndDate         *time.Time        `gorm:"column:end_date"`
-	Monday          *bool             `gorm:"column:monday"`
-	Tuesday         *bool             `gorm:"column:tuesday"`
-	Wednesday       *bool             `gorm:"column:wednesday"`
-	Thursday        *bool             `gorm:"column:thursday"`
-	Friday          *bool             `gorm:"column:friday"`
-	Saturday        *bool             `gorm:"column:saturday"`
-	Sunday          *bool             `gorm:"column:sunday"`
-	Metadata        datatypes.JSONMap `gorm:"column:metadata"`
-	AudioFile       *string           `gorm:"column:audio_file"`
-	DurationSeconds *float64          `gorm:"column:duration_seconds"`
+	Title           *string    `gorm:"column:title"`
+	Text            *string    `gorm:"column:text"`
+	VoiceID         *int64     `gorm:"column:voice_id"`
+	Status          *string    `gorm:"column:status"`
+	StartDate       *time.Time `gorm:"column:start_date"`
+	EndDate         *time.Time `gorm:"column:end_date"`
+	Monday          *bool      `gorm:"column:monday"`
+	Tuesday         *bool      `gorm:"column:tuesday"`
+	Wednesday       *bool      `gorm:"column:wednesday"`
+	Thursday        *bool      `gorm:"column:thursday"`
+	Friday          *bool      `gorm:"column:friday"`
+	Saturday        *bool      `gorm:"column:saturday"`
+	Sunday          *bool      `gorm:"column:sunday"`
+	Metadata        *string    `gorm:"column:metadata"`
+	AudioFile       *string    `gorm:"column:audio_file"`
+	DurationSeconds *float64   `gorm:"column:duration_seconds"`
 
 	// Clear flags - when true, explicitly set the field to NULL
 	ClearVoiceID         bool `gorm:"-"`
@@ -54,7 +53,7 @@ type StoryCreateData struct {
 	Friday    bool
 	Saturday  bool
 	Sunday    bool
-	Metadata  datatypes.JSONMap
+	Metadata  *string
 }
 
 // StoryRepository defines the interface for story data access.

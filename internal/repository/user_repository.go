@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +24,7 @@ type UserUpdate struct {
 	FailedLoginAttempts *int
 	LockedUntil         *time.Time
 	PasswordChangedAt   *time.Time
-	Metadata            datatypes.JSONMap
+	Metadata            *string
 
 	// Explicit NULL setting flags (takes precedence over pointer values)
 	ClearEmail       bool

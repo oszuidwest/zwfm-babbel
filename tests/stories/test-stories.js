@@ -1161,10 +1161,135 @@ class StoriesTests extends BaseTest {
         
         // Clean up
         fs.unlinkSync(testAudio);
-        
+
         return true;
     }
-    
+
+    /**
+     * Test story metadata creation and updates
+     */
+    async testStoryMetadata() {
+        this.printSection('Testing Story Metadata');
+
+        // Create a voice for the story
+        const voiceId = await this.createVoice('MetadataTestVoice');
+        if (!voiceId) {
+            this.printError('Failed to create voice for metadata tests');
+            return false;
+        }
+
+        // Test 1: Create story with metadata
+        this.printInfo('Creating story with metadata...');
+        const metadata = JSON.stringify({ source: 'test', priority: 'high', tags: ['breaking', 'local'] });
+
+        const formFields = {
+            title: 'Metadata Test Story',
+            text: 'This is a story with metadata.',
+            voice_id: voiceId,
+            status: 'active',
+            start_date: '2024-01-01',
+            end_date: '2024-12-31',
+            monday: 'true',
+            tuesday: 'true',
+            wednesday: 'true',
+            thursday: 'true',
+            friday: 'true',
+            saturday: 'false',
+            sunday: 'false',
+            metadata: metadata
+        };
+
+        const createResponse = await this.uploadFile('/stories', formFields);
+
+        if (!this.assertions.checkResponse(createResponse, 201, 'Create story with metadata')) {
+            return false;
+        }
+
+        const storyId = this.parseJsonField(createResponse.data, 'id');
+        if (!storyId) {
+            this.printError('Failed to extract story ID from response');
+            return false;
+        }
+
+        this.createdStoryIds.push(storyId);
+        this.printSuccess(`Story with metadata created (ID: ${storyId})`);
+
+        // Test 2: Verify metadata is returned correctly
+        this.printInfo('Verifying metadata is returned...');
+        const getResponse = await this.apiCall('GET', `/stories/${storyId}`);
+
+        if (!this.assertions.checkResponse(getResponse, 200, 'Get story with metadata')) {
+            return false;
+        }
+
+        const returnedMetadata = this.parseJsonField(getResponse.data, 'metadata');
+        if (returnedMetadata) {
+            this.printSuccess('Metadata field is present in response');
+
+            // Parse the metadata (it's a JSON string)
+            try {
+                const parsed = typeof returnedMetadata === 'string' ? JSON.parse(returnedMetadata) : returnedMetadata;
+                if (parsed.source === 'test' && parsed.priority === 'high') {
+                    this.printSuccess('Metadata content is correct');
+                } else {
+                    this.printError('Metadata content does not match expected values');
+                    return false;
+                }
+            } catch (e) {
+                this.printError(`Failed to parse metadata: ${e.message}`);
+                return false;
+            }
+        } else {
+            this.printError('Metadata field is missing from response');
+            return false;
+        }
+
+        // Test 3: Update metadata
+        this.printInfo('Updating story metadata...');
+        const updatedMetadata = JSON.stringify({ source: 'updated', priority: 'low', version: 2 });
+
+        const updateFormFields = {
+            metadata: updatedMetadata
+        };
+
+        const updateResponse = await this.uploadFile(`/stories/${storyId}`, updateFormFields, null, null, 'PATCH');
+
+        if (!this.assertions.checkResponse(updateResponse, 200, 'Update story metadata')) {
+            return false;
+        }
+
+        this.printSuccess('Story metadata updated');
+
+        // Test 4: Verify updated metadata
+        this.printInfo('Verifying updated metadata...');
+        const getUpdatedResponse = await this.apiCall('GET', `/stories/${storyId}`);
+
+        if (!this.assertions.checkResponse(getUpdatedResponse, 200, 'Get story with updated metadata')) {
+            return false;
+        }
+
+        const updatedReturnedMetadata = this.parseJsonField(getUpdatedResponse.data, 'metadata');
+        if (updatedReturnedMetadata) {
+            try {
+                const parsed = typeof updatedReturnedMetadata === 'string' ? JSON.parse(updatedReturnedMetadata) : updatedReturnedMetadata;
+                if (parsed.source === 'updated' && parsed.version === 2) {
+                    this.printSuccess('Updated metadata content is correct');
+                } else {
+                    this.printError('Updated metadata content does not match expected values');
+                    return false;
+                }
+            } catch (e) {
+                this.printError(`Failed to parse updated metadata: ${e.message}`);
+                return false;
+            }
+        } else {
+            this.printError('Updated metadata field is missing from response');
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Setup function
      */
@@ -1230,7 +1355,8 @@ class StoriesTests extends BaseTest {
             'testStoryScheduling',
             'testModernQueryParams',
             'testStoryBulletinHistory',
-            'testStoryAudio'
+            'testStoryAudio',
+            'testStoryMetadata'
         ];
         
         let failed = 0;

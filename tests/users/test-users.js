@@ -904,7 +904,116 @@ class UsersTests extends BaseTest {
         
         return true;
     }
-    
+
+    /**
+     * Test user metadata
+     */
+    async testUserMetadata() {
+        this.printSection('Testing User Metadata');
+
+        // Test 1: Create user with metadata
+        this.printInfo('Creating user with metadata...');
+        const uniqueId = Date.now();
+        const metadata = JSON.stringify({ department: 'engineering', location: 'Amsterdam', team: 'backend' });
+
+        const userData = {
+            username: `metadatauser${uniqueId}`,
+            full_name: 'Metadata Test User',
+            password: 'TestPassword123!',
+            email: `metadata${uniqueId}@test.local`,
+            role: 'editor',
+            metadata: metadata
+        };
+
+        const createResponse = await this.apiCall('POST', '/users', userData);
+
+        if (!this.assertions.checkResponse(createResponse, 201, 'Create user with metadata')) {
+            return false;
+        }
+
+        const userId = this.parseJsonField(createResponse.data, 'id');
+        if (!userId) {
+            this.printError('Failed to extract user ID from response');
+            return false;
+        }
+
+        this.createdUserIds.push(userId);
+        this.printSuccess(`User with metadata created (ID: ${userId})`);
+
+        // Test 2: Verify metadata is returned correctly
+        this.printInfo('Verifying metadata is returned...');
+        const getResponse = await this.apiCall('GET', `/users/${userId}`);
+
+        if (!this.assertions.checkResponse(getResponse, 200, 'Get user with metadata')) {
+            return false;
+        }
+
+        const returnedMetadata = this.parseJsonField(getResponse.data, 'metadata');
+        if (returnedMetadata) {
+            this.printSuccess('Metadata field is present in response');
+
+            // Parse the metadata (it's a JSON string)
+            try {
+                const parsed = typeof returnedMetadata === 'string' ? JSON.parse(returnedMetadata) : returnedMetadata;
+                if (parsed.department === 'engineering' && parsed.location === 'Amsterdam') {
+                    this.printSuccess('Metadata content is correct');
+                } else {
+                    this.printError('Metadata content does not match expected values');
+                    return false;
+                }
+            } catch (e) {
+                this.printError(`Failed to parse metadata: ${e.message}`);
+                return false;
+            }
+        } else {
+            this.printError('Metadata field is missing from response');
+            return false;
+        }
+
+        // Test 3: Update metadata
+        this.printInfo('Updating user metadata...');
+        const updatedMetadata = JSON.stringify({ department: 'platform', location: 'Rotterdam', version: 2 });
+
+        const updateResponse = await this.apiCall('PATCH', `/users/${userId}`, {
+            metadata: updatedMetadata
+        });
+
+        if (!this.assertions.checkResponse(updateResponse, 200, 'Update user metadata')) {
+            return false;
+        }
+
+        this.printSuccess('User metadata updated');
+
+        // Test 4: Verify updated metadata
+        this.printInfo('Verifying updated metadata...');
+        const getUpdatedResponse = await this.apiCall('GET', `/users/${userId}`);
+
+        if (!this.assertions.checkResponse(getUpdatedResponse, 200, 'Get user with updated metadata')) {
+            return false;
+        }
+
+        const updatedReturnedMetadata = this.parseJsonField(getUpdatedResponse.data, 'metadata');
+        if (updatedReturnedMetadata) {
+            try {
+                const parsed = typeof updatedReturnedMetadata === 'string' ? JSON.parse(updatedReturnedMetadata) : updatedReturnedMetadata;
+                if (parsed.department === 'platform' && parsed.version === 2) {
+                    this.printSuccess('Updated metadata content is correct');
+                } else {
+                    this.printError('Updated metadata content does not match expected values');
+                    return false;
+                }
+            } catch (e) {
+                this.printError(`Failed to parse updated metadata: ${e.message}`);
+                return false;
+            }
+        } else {
+            this.printError('Updated metadata field is missing from response');
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Setup function
      */
@@ -913,7 +1022,7 @@ class UsersTests extends BaseTest {
         await this.restoreAdminSession();
         return true;
     }
-    
+
     /**
      * Cleanup function
      */
@@ -969,7 +1078,8 @@ class UsersTests extends BaseTest {
             'testDeleteNonexistentUser',
             'testLastAdminProtection',
             'testPasswordSecurity',
-            'testAuthenticationFields'
+            'testAuthenticationFields',
+            'testUserMetadata'
         ];
         
         let failed = 0;
