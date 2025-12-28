@@ -60,6 +60,7 @@ func SetupRouter(db *sqlx.DB, gormDB *gorm.DB, cfg *config.Config) (*gin.Engine,
 		VoiceRepo: voiceRepo,
 		AudioSvc:  audioSvc,
 		Config:    cfg,
+		GormDB:    gormDB,
 	})
 	stationSvc := services.NewStationService(stationRepo, gormDB)
 	voiceSvc := services.NewVoiceService(voiceRepo, gormDB)
