@@ -72,6 +72,8 @@ func handleServiceError(c *gin.Context, err error, resource string) {
 		utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, fmt.Sprintf("Cannot delete %s: it has dependencies", resource))
 	case errors.Is(err, apperrors.ErrInvalidInput):
 		utils.ProblemBadRequest(c, extractErrorMessage(err))
+	case errors.Is(err, apperrors.ErrDataTooLong):
+		utils.ProblemCustom(c, "https://babbel.api/problems/data-too-long", "Data Too Long", 422, extractErrorMessage(err))
 	case errors.Is(err, apperrors.ErrNoStoriesAvailable):
 		utils.ProblemCustom(c, "https://babbel.api/problems/no-stories", "No Stories Available", 422, "No active stories available")
 	case errors.Is(err, apperrors.ErrAudioProcessingFailed):

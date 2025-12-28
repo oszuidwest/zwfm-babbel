@@ -28,4 +28,8 @@ var (
 
 	// ErrDatabaseError indicates an unexpected database error.
 	ErrDatabaseError = errors.New("database operation failed")
+
+	// ErrDataTooLong indicates data exceeds database column capacity.
+	// Maps to HTTP 422 Unprocessable Entity.
+	ErrDataTooLong = errors.New("data exceeds maximum length")
 )
