@@ -50,19 +50,6 @@ func StoryAudioURL(storyID int64, hasAudio bool) *string {
 	return &url
 }
 
-// weekdaysFromStoryResponse converts StoryResponse weekday fields to map
-func weekdaysFromStoryResponse(story *StoryResponse) map[string]bool {
-	return map[string]bool{
-		"monday":    story.Monday,
-		"tuesday":   story.Tuesday,
-		"wednesday": story.Wednesday,
-		"thursday":  story.Thursday,
-		"friday":    story.Friday,
-		"saturday":  story.Saturday,
-		"sunday":    story.Sunday,
-	}
-}
-
 // modelStoryToResponse converts a models.Story to StoryResponse with computed fields
 func modelStoryToResponse(story *models.Story) StoryResponse {
 	response := StoryResponse{
@@ -99,53 +86,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 
 // ListStories returns a paginated list of stories with modern query parameter support
 func (h *Handlers) ListStories(c *gin.Context) {
-	// Configure modern query with field mappings and search fields
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT s.*, COALESCE(v.name, '') as voice_name
-			            FROM stories s 
-			            LEFT JOIN voices v ON s.voice_id = v.id`,
-			CountQuery:   "SELECT COUNT(*) FROM stories s LEFT JOIN voices v ON s.voice_id = v.id",
-			DefaultOrder: "s.created_at DESC",
-			PostProcessor: func(result any) {
-				// Post-process stories to add audio URLs and weekdays map
-				if stories, ok := result.(*[]StoryResponse); ok {
-					for i := range *stories {
-						hasAudio := (*stories)[i].AudioFile != ""
-						(*stories)[i].AudioURL = StoryAudioURL((*stories)[i].ID, hasAudio)
-						(*stories)[i].Weekdays = weekdaysFromStoryResponse(&(*stories)[i])
-					}
-				}
-			},
-		},
-		SearchFields:  []string{"s.title", "s.text", "v.name"},
-		TableAlias:    "s",
-		DefaultFields: "s.*, COALESCE(v.name, '') as voice_name",
-		FieldMapping: map[string]string{
-			"id":         "s.id",
-			"title":      "s.title",
-			"text":       "s.text",
-			"voice_id":   "s.voice_id",
-			"voice_name": "COALESCE(v.name, '')",
-			"status":     "s.status",
-			"start_date": "s.start_date",
-			"end_date":   "s.end_date",
-			"created_at": "s.created_at",
-			"updated_at": "s.updated_at",
-			"deleted_at": "s.deleted_at",
-			"audio_file": "s.audio_file",
-			"monday":     "s.monday",
-			"tuesday":    "s.tuesday",
-			"wednesday":  "s.wednesday",
-			"thursday":   "s.thursday",
-			"friday":     "s.friday",
-			"saturday":   "s.saturday",
-			"sunday":     "s.sunday",
-		},
-	}
-
-	var stories []StoryResponse
-	utils.ModernListWithQuery(c, h.storySvc.DB(), config, &stories)
+	h.storySvc.ListWithContext(c)
 }
 
 // GetStory returns a single story by ID

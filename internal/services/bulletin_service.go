@@ -244,7 +244,8 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	return parsedDate, nil
 }
 
-// DB returns the underlying database for ModernListWithQuery.
+// DB returns the underlying database for validation helpers and complex list queries.
+// TODO: Remove when migrating to ORM - validation helpers should use service methods.
 func (s *BulletinService) DB() *sqlx.DB {
 	return s.txManager.DB()
 }

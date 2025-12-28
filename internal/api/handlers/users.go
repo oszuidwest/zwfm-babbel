@@ -31,38 +31,7 @@ type UserResponse struct {
 
 // ListUsers returns a paginated list of users with modern query parameter support
 func (h *Handlers) ListUsers(c *gin.Context) {
-	// Configure modern query with field mappings and search fields
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
-			            login_count, failed_login_attempts, locked_until, password_changed_at,
-			            metadata, created_at, updated_at FROM users`,
-			CountQuery:   "SELECT COUNT(*) FROM users",
-			DefaultOrder: "username ASC",
-		},
-		SearchFields:  []string{"username", "full_name", "email"},
-		TableAlias:    "",
-		DefaultFields: "*",
-		FieldMapping: map[string]string{
-			"id":                    "id",
-			"username":              "username",
-			"full_name":             "full_name",
-			"email":                 "email",
-			"role":                  "role",
-			"suspended_at":          "suspended_at",
-			"last_login_at":         "last_login_at",
-			"login_count":           "login_count",
-			"failed_login_attempts": "failed_login_attempts",
-			"locked_until":          "locked_until",
-			"password_changed_at":   "password_changed_at",
-			"metadata":              "metadata",
-			"created_at":            "created_at",
-			"updated_at":            "updated_at",
-		},
-	}
-
-	var users []UserResponse
-	utils.ModernListWithQuery(c, h.userSvc.DB(), config, &users)
+	h.userSvc.ListWithContext(c)
 }
 
 // GetUser returns a single user by ID

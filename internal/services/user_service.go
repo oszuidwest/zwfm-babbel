@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -357,7 +359,57 @@ func isValidRole(role string) bool {
 	return slices.Contains(validRoles, role)
 }
 
-// DB returns the underlying database for ModernListWithQuery.
-func (s *UserService) DB() *sqlx.DB {
-	return s.repo.DB()
+// UserListItem represents a user in list responses.
+type UserListItem struct {
+	ID                  int64      `json:"id" db:"id"`
+	Username            string     `json:"username" db:"username"`
+	FullName            *string    `json:"full_name" db:"full_name"`
+	Email               *string    `json:"email" db:"email"`
+	Role                string     `json:"role" db:"role"`
+	SuspendedAt         *time.Time `json:"suspended_at" db:"suspended_at"`
+	LastLoginAt         *time.Time `json:"last_login_at" db:"last_login_at"`
+	LoginCount          int        `json:"login_count" db:"login_count"`
+	FailedLoginAttempts int        `json:"failed_login_attempts" db:"failed_login_attempts"`
+	LockedUntil         *time.Time `json:"locked_until" db:"locked_until"`
+	PasswordChangedAt   *time.Time `json:"password_changed_at" db:"password_changed_at"`
+	Metadata            *string    `json:"metadata" db:"metadata"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// ListWithContext handles paginated list requests with query parameters.
+// Encapsulates query configuration and writes JSON response directly.
+func (s *UserService) ListWithContext(c *gin.Context) {
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
+			            login_count, failed_login_attempts, locked_until, password_changed_at,
+			            metadata, created_at, updated_at FROM users`,
+			CountQuery:   "SELECT COUNT(*) FROM users",
+			DefaultOrder: "username ASC",
+		},
+		SearchFields:      []string{"username", "full_name", "email"},
+		TableAlias:        "",
+		DefaultFields:     "*",
+		DisableSoftDelete: true,
+		FieldMapping: map[string]string{
+			"id":                    "id",
+			"username":              "username",
+			"full_name":             "full_name",
+			"email":                 "email",
+			"role":                  "role",
+			"suspended_at":          "suspended_at",
+			"last_login_at":         "last_login_at",
+			"login_count":           "login_count",
+			"failed_login_attempts": "failed_login_attempts",
+			"locked_until":          "locked_until",
+			"password_changed_at":   "password_changed_at",
+			"metadata":              "metadata",
+			"created_at":            "created_at",
+			"updated_at":            "updated_at",
+		},
+	}
+
+	var users []UserListItem
+	utils.ModernListWithQuery(c, s.repo.DB(), config, &users)
 }
