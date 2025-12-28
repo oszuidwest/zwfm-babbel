@@ -169,7 +169,7 @@ func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, 
 }
 
 // voiceFieldMapping maps API field names to database columns for voices.
-var voiceFieldMapping = map[string]string{
+var voiceFieldMapping = FieldMapping{
 	"id":         "id",
 	"name":       "name",
 	"created_at": "created_at",
@@ -181,44 +181,6 @@ var voiceSearchFields = []string{"name"}
 
 // List retrieves a paginated list of voices with filtering, sorting, and search.
 func (r *voiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
 	db := r.db.WithContext(ctx).Model(&models.Voice{})
-
-	// Apply search
-	if query.Search != "" {
-		db = applySearch(db, query.Search, voiceSearchFields)
-	}
-
-	// Apply filters
-	for _, filter := range query.Filters {
-		db = applyFilterWithMapping(db, filter, voiceFieldMapping)
-	}
-
-	// Count total before pagination
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	// Apply sorting
-	db = applySorting(db, query.Sort, voiceFieldMapping, "name ASC")
-
-	// Apply pagination
-	db = db.Offset(query.Offset).Limit(query.Limit)
-
-	// Execute query
-	var voices []models.Voice
-	if err := db.Find(&voices).Error; err != nil {
-		return nil, err
-	}
-
-	return &ListResult[models.Voice]{
-		Data:   voices,
-		Total:  total,
-		Limit:  query.Limit,
-		Offset: query.Offset,
-	}, nil
+	return ApplyListQuery[models.Voice](db, query, voiceFieldMapping, voiceSearchFields, "name ASC")
 }

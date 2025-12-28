@@ -126,91 +126,33 @@ func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 	return nil
 }
 
+// bulletinFieldMapping maps API field names to database columns for bulletins.
+var bulletinFieldMapping = FieldMapping{
+	"id":               "bulletins.id",
+	"station_id":       "bulletins.station_id",
+	"filename":         "bulletins.filename",
+	"duration_seconds": "bulletins.duration_seconds",
+	"file_size":        "bulletins.file_size",
+	"story_count":      "bulletins.story_count",
+	"created_at":       "bulletins.created_at",
+}
+
+// bulletinSearchFields defines which fields are searchable for bulletins.
+var bulletinSearchFields = []string{"bulletins.filename"}
+
 // List retrieves bulletins with pagination, filtering, and sorting.
 func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
-	// Start building the query with station name join
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Select("bulletins.*, stations.name as station_name").
 		Joins("JOIN stations ON bulletins.station_id = stations.id")
 
-	// Apply filters
-	for _, filter := range query.Filters {
-		db = applyFilter(db, filter)
-	}
-
-	// Apply search on filename
-	if query.Search != "" {
-		db = db.Where("bulletins.filename LIKE ?", "%"+query.Search+"%")
-	}
-
-	// Count total before pagination
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	// Apply sorting
-	if len(query.Sort) > 0 {
-		for _, sort := range query.Sort {
-			direction := "ASC"
-			if sort.Direction == SortDesc {
-				direction = "DESC"
-			}
-			db = db.Order(sort.Field + " " + direction)
-		}
-	} else {
-		db = db.Order("bulletins.created_at DESC")
-	}
-
-	// Apply pagination
-	db = db.Offset(query.Offset).Limit(query.Limit)
-
-	// Execute query
-	var bulletins []models.Bulletin
-	if err := db.Find(&bulletins).Error; err != nil {
-		return nil, err
-	}
-
-	return &ListResult[models.Bulletin]{
-		Data:   bulletins,
-		Total:  total,
-		Limit:  query.Limit,
-		Offset: query.Offset,
-	}, nil
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }
 
 // Exists checks if a bulletin with the given ID exists.
 func (r *bulletinRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
-}
-
-// applyFilter applies a single filter condition to the query.
-func applyFilter(db *gorm.DB, filter FilterCondition) *gorm.DB {
-	switch filter.Operator {
-	case FilterEquals:
-		return db.Where(filter.Field+" = ?", filter.Value)
-	case FilterNotEquals:
-		return db.Where(filter.Field+" != ?", filter.Value)
-	case FilterGreaterThan:
-		return db.Where(filter.Field+" > ?", filter.Value)
-	case FilterGreaterOrEq:
-		return db.Where(filter.Field+" >= ?", filter.Value)
-	case FilterLessThan:
-		return db.Where(filter.Field+" < ?", filter.Value)
-	case FilterLessOrEq:
-		return db.Where(filter.Field+" <= ?", filter.Value)
-	case FilterLike:
-		return db.Where(filter.Field+" LIKE ?", filter.Value)
-	case FilterIn:
-		return db.Where(filter.Field+" IN ?", filter.Value)
-	default:
-		return db.Where(filter.Field+" = ?", filter.Value)
-	}
 }
 
 // GetBulletinStories retrieves all stories included in a specific bulletin.
@@ -233,70 +175,17 @@ func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID 
 
 // GetStationBulletins retrieves bulletins for a specific station with pagination.
 func (r *bulletinRepository) GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
-	// Start building the query with station name join
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Select("bulletins.*, stations.name as station_name").
 		Joins("JOIN stations ON bulletins.station_id = stations.id").
 		Where("bulletins.station_id = ?", stationID)
 
-	// Apply filters
-	for _, filter := range query.Filters {
-		db = applyFilter(db, filter)
-	}
-
-	// Apply search on filename
-	if query.Search != "" {
-		db = db.Where("bulletins.filename LIKE ?", "%"+query.Search+"%")
-	}
-
-	// Count total before pagination
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	// Apply sorting
-	if len(query.Sort) > 0 {
-		for _, sort := range query.Sort {
-			direction := "ASC"
-			if sort.Direction == SortDesc {
-				direction = "DESC"
-			}
-			db = db.Order(sort.Field + " " + direction)
-		}
-	} else {
-		db = db.Order("bulletins.created_at DESC")
-	}
-
-	// Apply pagination
-	db = db.Offset(query.Offset).Limit(query.Limit)
-
-	// Execute query
-	var bulletins []models.Bulletin
-	if err := db.Find(&bulletins).Error; err != nil {
-		return nil, err
-	}
-
-	return &ListResult[models.Bulletin]{
-		Data:   bulletins,
-		Total:  total,
-		Limit:  query.Limit,
-		Offset: query.Offset,
-	}, nil
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
 func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
-	// Start building the query with joins
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Select("bulletins.*, stations.name as station_name").
@@ -304,48 +193,5 @@ func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyI
 		Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
 		Where("bulletin_stories.story_id = ?", storyID)
 
-	// Apply filters
-	for _, filter := range query.Filters {
-		db = applyFilter(db, filter)
-	}
-
-	// Apply search on filename
-	if query.Search != "" {
-		db = db.Where("bulletins.filename LIKE ?", "%"+query.Search+"%")
-	}
-
-	// Count total before pagination
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	// Apply sorting
-	if len(query.Sort) > 0 {
-		for _, sort := range query.Sort {
-			direction := "ASC"
-			if sort.Direction == SortDesc {
-				direction = "DESC"
-			}
-			db = db.Order(sort.Field + " " + direction)
-		}
-	} else {
-		db = db.Order("bulletins.created_at DESC")
-	}
-
-	// Apply pagination
-	db = db.Offset(query.Offset).Limit(query.Limit)
-
-	// Execute query
-	var bulletins []models.Bulletin
-	if err := db.Find(&bulletins).Error; err != nil {
-		return nil, err
-	}
-
-	return &ListResult[models.Bulletin]{
-		Data:   bulletins,
-		Total:  total,
-		Limit:  query.Limit,
-		Offset: query.Offset,
-	}, nil
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }

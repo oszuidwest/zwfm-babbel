@@ -2,10 +2,11 @@
 package repository
 
 import (
-	"strings"
-
 	"gorm.io/gorm"
 )
+
+// FieldMapping maps API field names to database column names for security.
+type FieldMapping map[string]string
 
 // SortDirection represents ascending or descending sort order.
 type SortDirection string
@@ -70,27 +71,80 @@ func NewListQuery() *ListQuery {
 	}
 }
 
-// applySearch applies search conditions across multiple fields using LIKE.
-func applySearch(db *gorm.DB, search string, fields []string) *gorm.DB {
-	if search == "" || len(fields) == 0 {
-		return db
+// ApplyListQuery applies pagination, filtering, sorting, and search to a GORM query.
+// Returns a ListResult with the data and pagination info.
+// The fieldMapping is used to validate and map field names to prevent SQL injection.
+// searchFields are the database columns to search in when query.Search is set.
+// defaultSort is used when no sort fields are provided (e.g., "name ASC").
+func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort string) (*ListResult[T], error) {
+	if query == nil {
+		query = NewListQuery()
 	}
 
-	searchPattern := "%" + search + "%"
-	conditions := make([]string, 0, len(fields))
-	args := make([]any, 0, len(fields))
-
-	for _, field := range fields {
-		conditions = append(conditions, field+" LIKE ?")
-		args = append(args, searchPattern)
+	// Apply search
+	if query.Search != "" && len(searchFields) > 0 {
+		searchPattern := "%" + query.Search + "%"
+		for i, field := range searchFields {
+			if i == 0 {
+				db = db.Where(field+" LIKE ?", searchPattern)
+			} else {
+				db = db.Or(field+" LIKE ?", searchPattern)
+			}
+		}
 	}
 
-	return db.Where(strings.Join(conditions, " OR "), args...)
+	// Apply filters
+	for _, filter := range query.Filters {
+		db = applyFilterCondition(db, filter, fieldMapping)
+	}
+
+	// Count total before pagination
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	// Apply sorting
+	if len(query.Sort) > 0 {
+		for _, sf := range query.Sort {
+			dbField, ok := fieldMapping[sf.Field]
+			if !ok {
+				continue
+			}
+			direction := "ASC"
+			if sf.Direction == SortDesc {
+				direction = "DESC"
+			}
+			db = db.Order(dbField + " " + direction)
+		}
+	} else if defaultSort != "" {
+		db = db.Order(defaultSort)
+	}
+
+	// Apply pagination
+	if query.Limit > 0 {
+		db = db.Limit(query.Limit)
+	}
+	if query.Offset > 0 {
+		db = db.Offset(query.Offset)
+	}
+
+	// Execute query
+	var data []T
+	if err := db.Find(&data).Error; err != nil {
+		return nil, err
+	}
+
+	return &ListResult[T]{
+		Data:   data,
+		Total:  total,
+		Limit:  query.Limit,
+		Offset: query.Offset,
+	}, nil
 }
 
-// applyFilterWithMapping applies a single filter condition to the query with field mapping.
-// Use this when you need to map API field names to database column names.
-func applyFilterWithMapping(db *gorm.DB, filter FilterCondition, fieldMapping map[string]string) *gorm.DB {
+// applyFilterCondition applies a single filter condition to the query.
+func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) *gorm.DB {
 	// Validate field name to prevent SQL injection
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
@@ -118,33 +172,6 @@ func applyFilterWithMapping(db *gorm.DB, filter FilterCondition, fieldMapping ma
 	case FilterIn:
 		return db.Where(dbField+" IN ?", filter.Value)
 	default:
-		return db.Where(dbField+" = ?", filter.Value)
-	}
-}
-
-// applySorting applies sorting from query parameters with field mapping.
-func applySorting(db *gorm.DB, sortFields []SortField, fieldMapping map[string]string, defaultSort string) *gorm.DB {
-	if len(sortFields) == 0 {
-		if defaultSort != "" {
-			return db.Order(defaultSort)
-		}
 		return db
 	}
-
-	for _, sf := range sortFields {
-		// Validate field name to prevent SQL injection
-		dbField, ok := fieldMapping[sf.Field]
-		if !ok {
-			continue
-		}
-
-		direction := "ASC"
-		if sf.Direction == SortDesc {
-			direction = "DESC"
-		}
-
-		db = db.Order(dbField + " " + direction)
-	}
-
-	return db
 }
