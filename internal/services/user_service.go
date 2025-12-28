@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -112,7 +113,7 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 }
 
 // applyEmailUpdate validates and applies email update.
-func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.UserUpdate, email *string, excludeID int64) error {
+func (s *UserService) applyEmailUpdate(ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64) error {
 	if email == nil || *email == "" {
 		return nil
 	}
@@ -123,7 +124,7 @@ func (s *UserService) applyEmailUpdate(ctx context.Context, updates *repository.
 	if taken {
 		return fmt.Errorf("%w: email '%s'", apperrors.ErrDuplicate, *email)
 	}
-	updates.Email = &email
+	u.Email = updates.Set(*email)
 	return nil
 }
 
@@ -161,10 +162,9 @@ func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullNa
 }
 
 // applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(updates *repository.UserUpdate, metadata string) {
+func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata string) {
 	if metadata != "" {
-		metadataPtr := &metadata
-		updates.Metadata = &metadataPtr
+		u.Metadata = updates.Set(metadata)
 	}
 }
 
@@ -183,10 +183,10 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 }
 
 // hasFieldUpdates checks if any field updates are present.
-func hasFieldUpdates(updates *repository.UserUpdate) bool {
-	return updates.Username != nil || updates.FullName != nil ||
-		updates.Email != nil || updates.PasswordHash != nil ||
-		updates.Role != nil || updates.Metadata != nil
+func hasFieldUpdates(u *repository.UserUpdate) bool {
+	return u.Username != nil || u.FullName != nil ||
+		u.Email.IsSet || u.PasswordHash != nil ||
+		u.Role != nil || u.Metadata.IsSet
 }
 
 // executeFieldUpdates applies field updates to the repository.

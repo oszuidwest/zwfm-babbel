@@ -7,27 +7,27 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // UserUpdate contains optional fields for updating a user.
-// Nil pointer fields are not updated.
-// For nullable fields (double pointers), outer nil = don't update,
-// inner nil = set to NULL, inner value = set to that value.
+// Use regular pointers (*T) for non-nullable fields (nil = skip update).
+// Use updates.Nullable[T] for nullable fields (skip, set value, or set NULL).
 type UserUpdate struct {
-	Username            *string
-	FullName            *string
-	Email               **string // Nullable: outer nil = skip, inner nil = set NULL
-	PasswordHash        *string
-	Role                *string
-	SuspendedAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	DeletedAt           **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	LastLoginAt         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	LoginCount          *int
-	FailedLoginAttempts *int
-	LockedUntil         **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	PasswordChangedAt   **time.Time // Nullable: outer nil = skip, inner nil = set NULL
-	Metadata            **string    // Nullable: outer nil = skip, inner nil = set NULL
+	Username            *string                     `db:"username"`
+	FullName            *string                     `db:"full_name"`
+	Email               updates.Nullable[string]    `db:"email"`
+	PasswordHash        *string                     `db:"password_hash"`
+	Role                *string                     `db:"role"`
+	SuspendedAt         updates.Nullable[time.Time] `db:"suspended_at"`
+	DeletedAt           updates.Nullable[time.Time] `db:"deleted_at"`
+	LastLoginAt         updates.Nullable[time.Time] `db:"last_login_at"`
+	LoginCount          *int                        `db:"login_count"`
+	FailedLoginAttempts *int                        `db:"failed_login_attempts"`
+	LockedUntil         updates.Nullable[time.Time] `db:"locked_until"`
+	PasswordChangedAt   updates.Nullable[time.Time] `db:"password_changed_at"`
+	Metadata            updates.Nullable[string]    `db:"metadata"`
 }
 
 // UserRepository defines the interface for user data access.
@@ -74,7 +74,7 @@ func (r *userRepository) Create(ctx context.Context, username, fullName string, 
 
 	err := r.db.WithContext(ctx).Create(user).Error
 	if err != nil {
-		return nil, parseGormError(err)
+		return nil, ParseDBError(err)
 	}
 
 	return user, nil
@@ -88,104 +88,26 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, parseGormError(err)
+		return nil, ParseDBError(err)
 	}
 
 	return &user, nil
 }
 
 // Update updates a user with the provided field values.
-func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpdate) error {
-	if updates == nil {
+func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	// Build update map from struct fields
-	updateMap := make(map[string]any)
-
-	// Non-nullable string fields
-	if updates.Username != nil {
-		updateMap["username"] = *updates.Username
-	}
-	if updates.FullName != nil {
-		updateMap["full_name"] = *updates.FullName
-	}
-	if updates.PasswordHash != nil {
-		updateMap["password_hash"] = *updates.PasswordHash
-	}
-	if updates.Role != nil {
-		updateMap["role"] = *updates.Role
-	}
-
-	// Non-nullable int fields
-	if updates.LoginCount != nil {
-		updateMap["login_count"] = *updates.LoginCount
-	}
-	if updates.FailedLoginAttempts != nil {
-		updateMap["failed_login_attempts"] = *updates.FailedLoginAttempts
-	}
-
-	// Nullable string fields (double pointer)
-	if updates.Email != nil {
-		if *updates.Email == nil {
-			updateMap["email"] = nil
-		} else {
-			updateMap["email"] = **updates.Email
-		}
-	}
-	if updates.Metadata != nil {
-		if *updates.Metadata == nil {
-			updateMap["metadata"] = nil
-		} else {
-			updateMap["metadata"] = **updates.Metadata
-		}
-	}
-
-	// Nullable time fields (double pointer)
-	if updates.SuspendedAt != nil {
-		if *updates.SuspendedAt == nil {
-			updateMap["suspended_at"] = nil
-		} else {
-			updateMap["suspended_at"] = **updates.SuspendedAt
-		}
-	}
-	if updates.DeletedAt != nil {
-		if *updates.DeletedAt == nil {
-			updateMap["deleted_at"] = nil
-		} else {
-			updateMap["deleted_at"] = **updates.DeletedAt
-		}
-	}
-	if updates.LastLoginAt != nil {
-		if *updates.LastLoginAt == nil {
-			updateMap["last_login_at"] = nil
-		} else {
-			updateMap["last_login_at"] = **updates.LastLoginAt
-		}
-	}
-	if updates.LockedUntil != nil {
-		if *updates.LockedUntil == nil {
-			updateMap["locked_until"] = nil
-		} else {
-			updateMap["locked_until"] = **updates.LockedUntil
-		}
-	}
-	if updates.PasswordChangedAt != nil {
-		if *updates.PasswordChangedAt == nil {
-			updateMap["password_changed_at"] = nil
-		} else {
-			updateMap["password_changed_at"] = **updates.PasswordChangedAt
-		}
-	}
-
-	// Nothing to update
+	updateMap := updates.ToMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
 
 	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
-		return parseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -205,7 +127,7 @@ func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, e
 
 	err := query.Count(&count).Error
 	if err != nil {
-		return false, parseGormError(err)
+		return false, ParseDBError(err)
 	}
 
 	return count > 0, nil
@@ -222,7 +144,7 @@ func (r *userRepository) IsEmailTaken(ctx context.Context, email string, exclude
 
 	err := query.Count(&count).Error
 	if err != nil {
-		return false, parseGormError(err)
+		return false, ParseDBError(err)
 	}
 
 	return count > 0, nil
@@ -238,7 +160,7 @@ func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 		Where("id != ?", excludeID).
 		Count(&count).Error
 	if err != nil {
-		return 0, parseGormError(err)
+		return 0, ParseDBError(err)
 	}
 
 	return int(count), nil
@@ -255,7 +177,7 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 
 	result := r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
-		return parseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -268,17 +190,5 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 func (r *userRepository) DeleteSessions(ctx context.Context, userID int64) error {
 	// user_sessions is not a GORM model, so we use raw SQL
 	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
-	return parseGormError(err)
-}
-
-// parseGormError converts GORM/MySQL errors to repository errors.
-func parseGormError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
-	}
-	// Use the existing ParseDBError for MySQL-specific errors
 	return ParseDBError(err)
 }

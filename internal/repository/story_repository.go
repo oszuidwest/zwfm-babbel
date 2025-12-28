@@ -9,28 +9,29 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated.
 type StoryUpdate struct {
-	Title           *string
-	Text            *string
-	VoiceID         *int64
-	Status          *string
-	StartDate       *time.Time
-	EndDate         *time.Time
-	Monday          *bool
-	Tuesday         *bool
-	Wednesday       *bool
-	Thursday        *bool
-	Friday          *bool
-	Saturday        *bool
-	Sunday          *bool
-	Metadata        *string // Already JSON string
-	AudioFile       *string
-	DurationSeconds *float64
+	Title           *string    `db:"title"`
+	Text            *string    `db:"text"`
+	VoiceID         *int64     `db:"voice_id"`
+	Status          *string    `db:"status"`
+	StartDate       *time.Time `db:"start_date"`
+	EndDate         *time.Time `db:"end_date"`
+	Monday          *bool      `db:"monday"`
+	Tuesday         *bool      `db:"tuesday"`
+	Wednesday       *bool      `db:"wednesday"`
+	Thursday        *bool      `db:"thursday"`
+	Friday          *bool      `db:"friday"`
+	Saturday        *bool      `db:"saturday"`
+	Sunday          *bool      `db:"sunday"`
+	Metadata        *string    `db:"metadata"` // Already JSON string
+	AudioFile       *string    `db:"audio_file"`
+	DurationSeconds *float64   `db:"duration_seconds"`
 }
 
 // StoryCreateData contains the data for creating a story.
@@ -120,7 +121,7 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	}
 
 	if err := r.db.WithContext(ctx).Create(story).Error; err != nil {
-		return nil, ParseGormError(err)
+		return nil, ParseDBError(err)
 	}
 
 	return r.GetByIDWithVoice(ctx, story.ID)
@@ -138,7 +139,7 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 		return nil, ErrNotFound
 	}
 	if err != nil {
-		return nil, ParseGormError(err)
+		return nil, ParseDBError(err)
 	}
 
 	// Populate the VoiceName field from the preloaded Voice relation
@@ -150,70 +151,19 @@ func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*mode
 }
 
 // Update updates a story with type-safe fields.
-func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUpdate) error {
-	if updates == nil {
+func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	// Build the updates map
-	updateMap := make(map[string]any)
-
-	if updates.Title != nil {
-		updateMap["title"] = *updates.Title
-	}
-	if updates.Text != nil {
-		updateMap["text"] = *updates.Text
-	}
-	if updates.VoiceID != nil {
-		updateMap["voice_id"] = *updates.VoiceID
-	}
-	if updates.Status != nil {
-		updateMap["status"] = *updates.Status
-	}
-	if updates.StartDate != nil {
-		updateMap["start_date"] = *updates.StartDate
-	}
-	if updates.EndDate != nil {
-		updateMap["end_date"] = *updates.EndDate
-	}
-	if updates.Monday != nil {
-		updateMap["monday"] = *updates.Monday
-	}
-	if updates.Tuesday != nil {
-		updateMap["tuesday"] = *updates.Tuesday
-	}
-	if updates.Wednesday != nil {
-		updateMap["wednesday"] = *updates.Wednesday
-	}
-	if updates.Thursday != nil {
-		updateMap["thursday"] = *updates.Thursday
-	}
-	if updates.Friday != nil {
-		updateMap["friday"] = *updates.Friday
-	}
-	if updates.Saturday != nil {
-		updateMap["saturday"] = *updates.Saturday
-	}
-	if updates.Sunday != nil {
-		updateMap["sunday"] = *updates.Sunday
-	}
-	if updates.Metadata != nil {
-		updateMap["metadata"] = *updates.Metadata
-	}
-	if updates.AudioFile != nil {
-		updateMap["audio_file"] = *updates.AudioFile
-	}
-	if updates.DurationSeconds != nil {
-		updateMap["duration_seconds"] = *updates.DurationSeconds
-	}
-
+	updateMap := updates.ToMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
 
 	result := r.db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
-		return ParseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -227,7 +177,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, updates *StoryUp
 func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 	result := r.db.WithContext(ctx).Delete(&models.Story{}, id)
 	if result.Error != nil {
-		return ParseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -241,7 +191,7 @@ func (r *storyRepository) Restore(ctx context.Context, id int64) error {
 		Where("id = ?", id).
 		Update("deleted_at", nil)
 	if result.Error != nil {
-		return ParseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -254,7 +204,7 @@ func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) 
 	var count int64
 	err := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).Where("id = ?", id).Count(&count).Error
 	if err != nil {
-		return false, ParseGormError(err)
+		return false, ParseDBError(err)
 	}
 	return count > 0, nil
 }
@@ -268,7 +218,7 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile s
 			"duration_seconds": duration,
 		})
 	if result.Error != nil {
-		return ParseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -282,7 +232,7 @@ func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status str
 		Where("id = ?", id).
 		Update("status", status)
 	if result.Error != nil {
-		return ParseGormError(result.Error)
+		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrNotFound
@@ -314,7 +264,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Find(&stories).Error
 
 	if err != nil {
-		return nil, ParseGormError(err)
+		return nil, ParseDBError(err)
 	}
 
 	return stories, nil
@@ -335,16 +285,4 @@ func getWeekdayColumn(weekday time.Weekday) string {
 		return col
 	}
 	return "s.monday" // Default fallback
-}
-
-// ParseGormError converts GORM errors to repository errors.
-func ParseGormError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return ErrNotFound
-	}
-	// Use the existing ParseDBError for MySQL-specific error handling
-	return ParseDBError(err)
 }

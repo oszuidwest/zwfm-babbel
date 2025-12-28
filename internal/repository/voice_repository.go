@@ -6,13 +6,14 @@ import (
 	"errors"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // VoiceUpdate contains optional fields for updating a voice.
 // Nil pointer fields are not updated.
 type VoiceUpdate struct {
-	Name *string
+	Name *string `db:"name"`
 }
 
 // VoiceRepository defines the interface for voice data access.
@@ -73,34 +74,20 @@ func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice,
 }
 
 // Update updates an existing voice with type-safe fields.
-func (r *voiceRepository) Update(ctx context.Context, id int64, updates *VoiceUpdate) error {
-	if updates == nil {
+func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	// Build updates map from non-nil fields
-	updateMap := make(map[string]any)
-	if updates.Name != nil {
-		updateMap["name"] = *updates.Name
-	}
-
-	// No fields to update
+	updateMap := updates.ToMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).
-		Model(&models.Voice{}).
-		Where("id = ?", id).
-		Updates(updateMap)
-
+	result := r.db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
-		if IsDuplicateKeyError(result.Error) {
-			return ErrDuplicateKey
-		}
-		return result.Error
+		return ParseDBError(result.Error)
 	}
-
 	if result.RowsAffected == 0 {
 		return ErrNotFound
 	}

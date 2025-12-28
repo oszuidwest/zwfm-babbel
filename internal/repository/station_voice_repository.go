@@ -6,16 +6,17 @@ import (
 	"errors"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
 // Nil pointer fields are not updated.
 type StationVoiceUpdate struct {
-	StationID *int64
-	VoiceID   *int64
-	AudioFile *string
-	MixPoint  *float64
+	StationID *int64   `db:"station_id"`
+	VoiceID   *int64   `db:"voice_id"`
+	AudioFile *string  `db:"audio_file"`
+	MixPoint  *float64 `db:"mix_point"`
 }
 
 // StationVoiceRepository defines the interface for station-voice relationship data access.
@@ -92,43 +93,20 @@ func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models
 }
 
 // Update updates a station-voice relationship with dynamic fields.
-func (r *stationVoiceRepository) Update(ctx context.Context, id int64, updates *StationVoiceUpdate) error {
-	if updates == nil {
+func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
+	if u == nil {
 		return nil
 	}
 
-	// Build the update map with only non-nil fields
-	updateMap := make(map[string]any)
-
-	if updates.StationID != nil {
-		updateMap["station_id"] = *updates.StationID
-	}
-	if updates.VoiceID != nil {
-		updateMap["voice_id"] = *updates.VoiceID
-	}
-	if updates.AudioFile != nil {
-		updateMap["audio_file"] = *updates.AudioFile
-	}
-	if updates.MixPoint != nil {
-		updateMap["mix_point"] = *updates.MixPoint
-	}
-
+	updateMap := updates.ToMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
 
-	result := r.db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("id = ?", id).
-		Updates(updateMap)
-
+	result := r.db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(updateMap)
 	if result.Error != nil {
-		if IsDuplicateKeyError(result.Error) {
-			return ErrDuplicateKey
-		}
-		return result.Error
+		return ParseDBError(result.Error)
 	}
-
 	if result.RowsAffected == 0 {
 		return ErrNotFound
 	}
