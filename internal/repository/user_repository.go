@@ -6,27 +6,87 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // UserUpdate contains optional fields for updating a user.
-// Use regular pointers (*T) for non-nullable fields (nil = skip update).
-// Use updates.Nullable[T] for nullable fields (skip, set value, or set NULL).
+// Use pointers for optional updates: nil = skip, non-nil = set value.
+// Use Clear* flags to explicitly set a field to NULL.
 type UserUpdate struct {
-	Username            *string                     `db:"username"`
-	FullName            *string                     `db:"full_name"`
-	Email               updates.Nullable[string]    `db:"email"`
-	PasswordHash        *string                     `db:"password_hash"`
-	Role                *string                     `db:"role"`
-	SuspendedAt         updates.Nullable[time.Time] `db:"suspended_at"`
-	DeletedAt           updates.Nullable[time.Time] `db:"deleted_at"`
-	LastLoginAt         updates.Nullable[time.Time] `db:"last_login_at"`
-	LoginCount          *int                        `db:"login_count"`
-	FailedLoginAttempts *int                        `db:"failed_login_attempts"`
-	LockedUntil         updates.Nullable[time.Time] `db:"locked_until"`
-	PasswordChangedAt   updates.Nullable[time.Time] `db:"password_changed_at"`
-	Metadata            updates.Nullable[string]    `db:"metadata"`
+	// Regular fields (nil = skip, non-nil = set value)
+	Username            *string    `db:"username"`
+	FullName            *string    `db:"full_name"`
+	Email               *string    `db:"email"`
+	PasswordHash        *string    `db:"password_hash"`
+	Role                *string    `db:"role"`
+	LastLoginAt         *time.Time `db:"last_login_at"`
+	LoginCount          *int       `db:"login_count"`
+	FailedLoginAttempts *int       `db:"failed_login_attempts"`
+	LockedUntil         *time.Time `db:"locked_until"`
+	PasswordChangedAt   *time.Time `db:"password_changed_at"`
+	Metadata            *string    `db:"metadata"`
+
+	// Explicit NULL setting flags (takes precedence over pointer values)
+	ClearEmail       bool
+	ClearLockedUntil bool
+	ClearMetadata    bool
+}
+
+// buildUserUpdateMap converts UserUpdate to a map for GORM's Updates method.
+// Handles both regular pointer fields and explicit NULL clearing flags.
+func buildUserUpdateMap(u *UserUpdate) map[string]any {
+	if u == nil {
+		return nil
+	}
+
+	m := make(map[string]any)
+
+	// Handle regular pointer fields
+	if u.Username != nil {
+		m["username"] = *u.Username
+	}
+	if u.FullName != nil {
+		m["full_name"] = *u.FullName
+	}
+	if u.PasswordHash != nil {
+		m["password_hash"] = *u.PasswordHash
+	}
+	if u.Role != nil {
+		m["role"] = *u.Role
+	}
+	if u.LastLoginAt != nil {
+		m["last_login_at"] = *u.LastLoginAt
+	}
+	if u.LoginCount != nil {
+		m["login_count"] = *u.LoginCount
+	}
+	if u.FailedLoginAttempts != nil {
+		m["failed_login_attempts"] = *u.FailedLoginAttempts
+	}
+	if u.PasswordChangedAt != nil {
+		m["password_changed_at"] = *u.PasswordChangedAt
+	}
+
+	// Handle nullable fields with Clear* flags (NULL takes precedence)
+	if u.ClearEmail {
+		m["email"] = nil
+	} else if u.Email != nil {
+		m["email"] = *u.Email
+	}
+
+	if u.ClearLockedUntil {
+		m["locked_until"] = nil
+	} else if u.LockedUntil != nil {
+		m["locked_until"] = *u.LockedUntil
+	}
+
+	if u.ClearMetadata {
+		m["metadata"] = nil
+	} else if u.Metadata != nil {
+		m["metadata"] = *u.Metadata
+	}
+
+	return m
 }
 
 // UserRepository defines the interface for user data access.
@@ -97,7 +157,7 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
+	updateMap := buildUserUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}

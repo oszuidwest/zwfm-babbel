@@ -5,14 +5,13 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // VoiceUpdate contains optional fields for updating a voice.
 // Nil pointer fields are not updated.
 type VoiceUpdate struct {
-	Name *string `db:"name"`
+	Name *string `gorm:"column:name"`
 }
 
 // VoiceRepository defines the interface for voice data access.
@@ -75,12 +74,7 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(updateMap)
+	result := r.db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}

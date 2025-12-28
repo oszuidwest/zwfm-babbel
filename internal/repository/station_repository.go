@@ -5,16 +5,20 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StationUpdate contains optional fields for updating a station.
 // Nil pointer fields are not updated.
 type StationUpdate struct {
-	Name               *string  `db:"name"`
-	MaxStoriesPerBlock *int     `db:"max_stories_per_block"`
-	PauseSeconds       *float64 `db:"pause_seconds"`
+	Name               *string  `gorm:"column:name"`
+	MaxStoriesPerBlock *int     `gorm:"column:max_stories_per_block"`
+	PauseSeconds       *float64 `gorm:"column:pause_seconds"`
+}
+
+// hasUpdates returns true if any update field is non-nil.
+func (u *StationUpdate) hasUpdates() bool {
+	return u.Name != nil || u.MaxStoriesPerBlock != nil || u.PauseSeconds != nil
 }
 
 // StationRepository defines the interface for station data access.
@@ -67,16 +71,11 @@ func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Stat
 
 // Update updates an existing station with type-safe fields.
 func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(updateMap)
+	result := r.db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}

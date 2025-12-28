@@ -8,29 +8,28 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated.
 type StoryUpdate struct {
-	Title           *string    `db:"title"`
-	Text            *string    `db:"text"`
-	VoiceID         *int64     `db:"voice_id"`
-	Status          *string    `db:"status"`
-	StartDate       *time.Time `db:"start_date"`
-	EndDate         *time.Time `db:"end_date"`
-	Monday          *bool      `db:"monday"`
-	Tuesday         *bool      `db:"tuesday"`
-	Wednesday       *bool      `db:"wednesday"`
-	Thursday        *bool      `db:"thursday"`
-	Friday          *bool      `db:"friday"`
-	Saturday        *bool      `db:"saturday"`
-	Sunday          *bool      `db:"sunday"`
-	Metadata        *string    `db:"metadata"` // Already JSON string
-	AudioFile       *string    `db:"audio_file"`
-	DurationSeconds *float64   `db:"duration_seconds"`
+	Title           *string    `gorm:"column:title"`
+	Text            *string    `gorm:"column:text"`
+	VoiceID         *int64     `gorm:"column:voice_id"`
+	Status          *string    `gorm:"column:status"`
+	StartDate       *time.Time `gorm:"column:start_date"`
+	EndDate         *time.Time `gorm:"column:end_date"`
+	Monday          *bool      `gorm:"column:monday"`
+	Tuesday         *bool      `gorm:"column:tuesday"`
+	Wednesday       *bool      `gorm:"column:wednesday"`
+	Thursday        *bool      `gorm:"column:thursday"`
+	Friday          *bool      `gorm:"column:friday"`
+	Saturday        *bool      `gorm:"column:saturday"`
+	Sunday          *bool      `gorm:"column:sunday"`
+	Metadata        *string    `gorm:"column:metadata"` // Already JSON string
+	AudioFile       *string    `gorm:"column:audio_file"`
+	DurationSeconds *float64   `gorm:"column:duration_seconds"`
 }
 
 // StoryCreateData contains the data for creating a story.
@@ -148,12 +147,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(updateMap)
+	result := r.db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}

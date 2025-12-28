@@ -5,17 +5,16 @@ import (
 	"context"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository/updates"
 	"gorm.io/gorm"
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
 // Nil pointer fields are not updated.
 type StationVoiceUpdate struct {
-	StationID *int64   `db:"station_id"`
-	VoiceID   *int64   `db:"voice_id"`
-	AudioFile *string  `db:"audio_file"`
-	MixPoint  *float64 `db:"mix_point"`
+	StationID *int64   `gorm:"column:station_id"`
+	VoiceID   *int64   `gorm:"column:voice_id"`
+	AudioFile *string  `gorm:"column:audio_file"`
+	MixPoint  *float64 `gorm:"column:mix_point"`
 }
 
 // StationVoiceRepository defines the interface for station-voice relationship data access.
@@ -86,12 +85,7 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 		return nil
 	}
 
-	updateMap := updates.ToMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	result := r.db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(updateMap)
+	result := r.db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(u)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
