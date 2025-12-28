@@ -205,14 +205,6 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) error {
 	const op = "UserService.Update"
 
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-	}
-
 	updates := &repository.UserUpdate{}
 
 	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
@@ -311,17 +303,7 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 func (s *UserService) Suspend(ctx context.Context, id int64) error {
 	const op = "UserService.Suspend"
 
-	// Check if user exists
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-	}
-
-	// Suspend user
-	err = s.repo.SetSuspended(ctx, id, true)
+	err := s.repo.SetSuspended(ctx, id, true)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
@@ -336,17 +318,7 @@ func (s *UserService) Suspend(ctx context.Context, id int64) error {
 func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 	const op = "UserService.Unsuspend"
 
-	// Check if user exists
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-	}
-
-	// Unsuspend user
-	err = s.repo.SetSuspended(ctx, id, false)
+	err := s.repo.SetSuspended(ctx, id, false)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)

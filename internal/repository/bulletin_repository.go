@@ -158,12 +158,13 @@ func (r *bulletinRepository) Exists(ctx context.Context, id int64) (bool, error)
 }
 
 // GetBulletinStories retrieves all stories included in a specific bulletin.
-// Uses Joins for efficiency (single query with LEFT JOIN instead of separate queries).
+// Uses Preload for nested relations (Story and Story.Voice) since Joins doesn't support nested loading.
 func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
 	var bulletinStories []models.BulletinStory
 
 	err := r.db.WithContext(ctx).
-		Joins("Story").
+		Preload("Story").
+		Preload("Story.Voice").
 		Where("bulletin_id = ?", bulletinID).
 		Order("story_order ASC").
 		Find(&bulletinStories).Error

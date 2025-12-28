@@ -18,11 +18,6 @@ type StationVoiceUpdate struct {
 	ClearAudioFile bool     // When true, sets audio_file to NULL
 }
 
-// hasUpdates returns true if there are any updates to apply.
-func (u *StationVoiceUpdate) hasUpdates() bool {
-	return u.AudioFile != nil || u.MixPoint != nil || u.ClearAudioFile
-}
-
 // StationVoiceRepository defines the interface for station-voice relationship data access.
 type StationVoiceRepository interface {
 	// CRUD operations
@@ -80,25 +75,14 @@ func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models
 	return r.GetByIDWithJoins(ctx, id, "Station", "Voice")
 }
 
-// Update updates a station-voice relationship with dynamic fields.
+// Update updates a station-voice relationship.
+// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
 func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
-	if u == nil || !u.hasUpdates() {
+	if u == nil {
 		return nil
 	}
 
-	// Build update map for Clear* flags
-	updateMap := make(map[string]any)
-
-	if u.ClearAudioFile {
-		updateMap["audio_file"] = nil
-	} else if u.AudioFile != nil {
-		updateMap["audio_file"] = *u.AudioFile
-	}
-
-	if u.MixPoint != nil {
-		updateMap["mix_point"] = *u.MixPoint
-	}
-
+	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
