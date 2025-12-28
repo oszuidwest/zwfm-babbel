@@ -13,7 +13,7 @@ const (
 	StoryStatusExpired StoryStatus = "expired"
 )
 
-// IsValid checks if the status is a valid value.
+// IsValid reports whether the status is a valid value.
 func (s StoryStatus) IsValid() bool {
 	switch s {
 	case StoryStatusDraft, StoryStatusActive, StoryStatusExpired:

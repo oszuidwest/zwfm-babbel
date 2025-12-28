@@ -17,8 +17,6 @@ import (
 )
 
 // HandlersDeps contains all dependencies required by the API handlers.
-// Using a struct for dependencies improves readability and makes adding new
-// dependencies easier without changing function signatures.
 type HandlersDeps struct {
 	AudioRepo       repository.AudioRepository
 	AudioSvc        *audio.Service
@@ -61,7 +59,6 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// Internal error details are logged but never exposed to clients.
 func handleServiceError(c *gin.Context, err error, resource string) {
 	switch {
 	case errors.Is(err, apperrors.ErrNotFound):
@@ -89,7 +86,6 @@ func handleServiceError(c *gin.Context, err error, resource string) {
 }
 
 // extractErrorMessage extracts a user-safe message from wrapped errors.
-// For errors wrapped with fmt.Errorf("%w: message", err), it returns the message portion.
 func extractErrorMessage(err error) string {
 	if err == nil {
 		return "Invalid input"
@@ -111,7 +107,6 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 }
 
 // convertToListQuery converts utils.QueryParams to repository.ListQuery.
-// This is used by handlers that need to pass query parameters to service layer.
 func convertToListQuery(params *utils.QueryParams) *repository.ListQuery {
 	if params == nil {
 		return repository.NewListQuery()
@@ -173,13 +168,11 @@ func convertToListQuery(params *utils.QueryParams) *repository.ListQuery {
 }
 
 // filterFields filters struct fields based on requested field names.
-// Used for sparse fieldsets in list responses.
 func filterFields[T any](data []T, fields []string) any {
 	return utils.FilterStructFields(data, fields)
 }
 
 // paramsToListQuery converts utils.QueryParams to repository.ListQuery.
-// This is a method version for use by handlers.
 func (h *Handlers) paramsToListQuery(params *utils.QueryParams) *repository.ListQuery {
 	return convertToListQuery(params)
 }

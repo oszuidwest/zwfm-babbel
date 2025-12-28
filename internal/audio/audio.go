@@ -27,8 +27,7 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format
-// using the specified channel count (1 for mono stories, 2 for stereo jingles).
+// ConvertToWAV converts uploaded audio files to standardized WAV format.
 func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
 	// Convert to WAV 48kHz with specified channel count
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated

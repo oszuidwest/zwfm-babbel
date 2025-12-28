@@ -2,7 +2,7 @@ package config
 
 import "net/http"
 
-// AuthMethod represents the authentication method configuration
+// AuthMethod represents the authentication method configuration.
 type AuthMethod string
 
 // Authentication methods supported by the application.
@@ -15,7 +15,7 @@ const (
 	AuthMethodBoth AuthMethod = "both"
 )
 
-// IsValid returns true if the authentication method is recognized.
+// IsValid reports whether the authentication method is recognized.
 func (a AuthMethod) IsValid() bool {
 	switch a {
 	case AuthMethodLocal, AuthMethodOIDC, AuthMethodBoth:
@@ -24,12 +24,12 @@ func (a AuthMethod) IsValid() bool {
 	return false
 }
 
-// SupportsLocal returns true if local authentication is enabled.
+// SupportsLocal reports whether local authentication is enabled.
 func (a AuthMethod) SupportsLocal() bool {
 	return a == AuthMethodLocal || a == AuthMethodBoth
 }
 
-// SupportsOIDC returns true if OAuth/OIDC authentication is enabled.
+// SupportsOIDC reports whether OAuth/OIDC authentication is enabled.
 func (a AuthMethod) SupportsOIDC() bool {
 	return a == AuthMethodOIDC || a == AuthMethodBoth
 }
@@ -45,7 +45,7 @@ const (
 	EnvProduction Environment = "production"
 )
 
-// IsValid returns true if the environment is recognized.
+// IsValid reports whether the environment is recognized.
 func (e Environment) IsValid() bool {
 	switch e {
 	case EnvDevelopment, EnvProduction:
@@ -54,7 +54,7 @@ func (e Environment) IsValid() bool {
 	return false
 }
 
-// IsProduction returns true if the environment is production.
+// IsProduction reports whether the environment is production.
 func (e Environment) IsProduction() bool {
 	return e == EnvProduction
 }
@@ -72,7 +72,7 @@ const (
 	SameSiteNone CookieSameSite = "none"
 )
 
-// IsValid returns true if the SameSite policy is recognized.
+// IsValid reports whether the SameSite policy is recognized.
 func (c CookieSameSite) IsValid() bool {
 	switch c {
 	case SameSiteStrict, SameSiteLax, SameSiteNone:

@@ -74,7 +74,7 @@ type Story struct {
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 }
 
-// IsActiveOnWeekday returns whether the story is scheduled for the given weekday.
+// IsActiveOnWeekday reports whether the story is scheduled for the given weekday.
 func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
 	switch weekday {
 	case time.Monday:
@@ -97,10 +97,6 @@ func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
 }
 
 // WeekdaysMap returns the story's weekday schedule as a map.
-//
-// The returned map uses lowercase weekday names as keys ("monday" through "sunday")
-// with boolean values indicating whether the story is scheduled for each day.
-// This format provides a consistent interface for API responses.
 func (s *Story) WeekdaysMap() map[string]bool {
 	return map[string]bool{
 		"monday":    s.Monday,
@@ -200,7 +196,7 @@ const (
 	RoleViewer UserRole = "viewer"
 )
 
-// IsValid checks if the role is valid.
+// IsValid reports whether the role is valid.
 func (r UserRole) IsValid() bool {
 	switch r {
 	case RoleAdmin, RoleEditor, RoleViewer:

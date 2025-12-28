@@ -13,19 +13,19 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// UserService handles user-related business logic
+// UserService handles user-related business logic.
 type UserService struct {
 	repo repository.UserRepository
 }
 
-// NewUserService creates a new user service instance
+// NewUserService creates a new user service instance.
 func NewUserService(repo repository.UserRepository) *UserService {
 	return &UserService{
 		repo: repo,
 	}
 }
 
-// UpdateUserRequest represents the parameters for updating a user
+// UpdateUserRequest represents the parameters for updating a user.
 type UpdateUserRequest struct {
 	Username  string
 	FullName  string
@@ -36,7 +36,7 @@ type UpdateUserRequest struct {
 	Suspended *bool
 }
 
-// Create creates a new user account with the given parameters
+// Create creates a new user account with the given parameters.
 func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string) (*models.User, error) {
 	const op = "UserService.Create"
 
@@ -183,7 +183,7 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 	return nil
 }
 
-// hasFieldUpdates checks if any field updates are present.
+// hasFieldUpdates reports whether any field updates are present.
 func hasFieldUpdates(u *repository.UserUpdate) bool {
 	return u.Username != nil || u.FullName != nil ||
 		u.Email != nil || u.ClearEmail || u.PasswordHash != nil ||
@@ -201,7 +201,7 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates
 	return nil
 }
 
-// Update updates an existing user's information
+// Update updates an existing user's information.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) error {
 	const op = "UserService.Update"
 
@@ -243,7 +243,7 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	return nil
 }
 
-// GetByID retrieves a user by their ID
+// GetByID retrieves a user by their ID.
 func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, error) {
 	const op = "UserService.GetByID"
 
@@ -258,8 +258,8 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 	return user, nil
 }
 
-// SoftDelete performs a hard delete of a user account (users table doesn't support soft deletes)
-// Checks that this is not the last admin user before deletion
+// SoftDelete permanently deletes a user account and their sessions.
+// It ensures at least one admin remains in the system.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	const op = "UserService.SoftDelete"
 
@@ -299,7 +299,7 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Suspend suspends a user account by setting suspended_at to current time
+// Suspend prevents a user from logging in by marking their account as suspended.
 func (s *UserService) Suspend(ctx context.Context, id int64) error {
 	const op = "UserService.Suspend"
 
@@ -314,7 +314,7 @@ func (s *UserService) Suspend(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Unsuspend restores a suspended user account by clearing suspended_at
+// Unsuspend reactivates a suspended user account, allowing them to log in again.
 func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 	const op = "UserService.Unsuspend"
 
@@ -329,7 +329,7 @@ func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
 	return nil
 }
 
-// isValidRole checks if a role is valid
+// isValidRole reports whether the given role is valid.
 func isValidRole(role string) bool {
 	validRoles := []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}
 	return slices.Contains(validRoles, role)

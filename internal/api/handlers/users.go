@@ -11,7 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// UserResponse represents the user data returned by the API
+// UserResponse represents the user data returned by the API.
 type UserResponse struct {
 	ID                  int64      `json:"id" db:"id"`
 	Username            string     `json:"username" db:"username"`
@@ -29,7 +29,7 @@ type UserResponse struct {
 	UpdatedAt           time.Time  `json:"updated_at" db:"updated_at"`
 }
 
-// ListUsers returns a paginated list of users with modern query parameter support
+// ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)

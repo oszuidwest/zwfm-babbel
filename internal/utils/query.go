@@ -81,9 +81,7 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	return params
 }
 
-// parseSorting handles both modern sorting formats.
-// - ?sort=created_at:desc,name:asc
-// - ?sort=-created_at,+name (or just -created_at,name)
+// parseSorting parses the sort query parameter into sort fields.
 func parseSorting(c *gin.Context) []SortField {
 	if c == nil {
 		return nil
@@ -139,8 +137,7 @@ func parseSorting(c *gin.Context) []SortField {
 	return sortFields
 }
 
-// parseFields handles field selection for sparse fieldsets.
-// ?fields=id,name,created_at
+// parseFields parses the fields query parameter for sparse fieldsets.
 func parseFields(c *gin.Context) []string {
 	if c == nil {
 		return nil
@@ -209,10 +206,7 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	},
 }
 
-// parseFilters handles modern filtering with nested parameters.
-// ?filter[field]=value
-// ?filter[created_at][gte]=2024-01-01
-// ?filter[id][in]=1,2,3
+// parseFilters parses the filter query parameters into filter operations.
 func parseFilters(c *gin.Context) map[string]FilterOperation {
 	filters := make(map[string]FilterOperation)
 
@@ -244,10 +238,7 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 	return filters
 }
 
-// parseFilterKey extracts field name and operator from filter key.
-// Examples:
-// filter[name] -> field: "name", operator: ""
-// filter[created_at][gte] -> field: "created_at", operator: "gte"
+// parseFilterKey extracts field name and operator from a filter key.
 func parseFilterKey(key string) (field, operator string) {
 	// Remove "filter[" prefix and "]" suffix
 	content, found := strings.CutPrefix(key, "filter[")
@@ -268,8 +259,7 @@ func parseFilterKey(key string) (field, operator string) {
 	return content, ""
 }
 
-// FilterStructFields uses reflection to filter struct fields.
-// Exported for use by handlers that need field filtering.
+// FilterStructFields filters struct fields to return only requested fields.
 func FilterStructFields(data any, fields []string) any {
 	if len(fields) == 0 {
 		return data
@@ -350,7 +340,6 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 }
 
 // ParseListQuery parses HTTP query parameters into a repository.ListQuery.
-// Converts utils.QueryParams format to repository.ListQuery format for use with repository List methods.
 func ParseListQuery(c *gin.Context) *repository.ListQuery {
 	params := ParseQueryParams(c)
 	if params == nil {

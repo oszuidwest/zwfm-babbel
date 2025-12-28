@@ -1,6 +1,4 @@
 // Package apperrors provides domain-level error definitions for the Babbel API.
-// These sentinel errors are used throughout the service layer and mapped to
-// RFC 9457 Problem Details responses at the handler layer.
 package apperrors
 
 import "errors"
@@ -30,6 +28,5 @@ var (
 	ErrDatabaseError = errors.New("database operation failed")
 
 	// ErrDataTooLong indicates data exceeds database column capacity.
-	// Maps to HTTP 422 Unprocessable Entity.
 	ErrDataTooLong = errors.New("data exceeds maximum length")
 )

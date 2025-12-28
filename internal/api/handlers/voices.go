@@ -9,9 +9,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListVoices returns a paginated list of newsreader voices with search and sorting support.
-// Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
-// Requires 'voices' read permission. Returns voice data with metadata including total count and pagination info.
+// ListVoices returns a paginated list of newsreader voices.
 func (h *Handlers) ListVoices(c *gin.Context) {
 	query := utils.ParseListQuery(c)
 
@@ -24,8 +22,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
-// GetVoice returns a single newsreader voice by ID with all configuration details.
-// Requires 'voices' read permission. Returns 404 if voice doesn't exist.
+// GetVoice returns a single newsreader voice by ID.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -41,9 +38,7 @@ func (h *Handlers) GetVoice(c *gin.Context) {
 	c.JSON(http.StatusOK, voice)
 }
 
-// CreateVoice creates a new newsreader voice for text-to-speech and jingle association.
-// Validates that voice names are unique across the system. Requires 'voices' write permission.
-// Returns 201 Created with the new voice ID on success, 409 Conflict for duplicate names.
+// CreateVoice creates a new newsreader voice.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -59,9 +54,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 	utils.CreatedWithID(c, voice.ID, "Voice created successfully")
 }
 
-// UpdateVoice updates an existing newsreader voice's name and configuration.
-// Validates voice existence and name uniqueness (excluding current voice).
-// Requires 'voices' write permission. Returns 404 if voice doesn't exist, 409 for name conflicts.
+// UpdateVoice updates an existing newsreader voice.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -87,9 +80,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Voice updated successfully")
 }
 
-// DeleteVoice removes a newsreader voice after validating no dependencies exist.
-// Checks for associated stories and station-voices before deletion to maintain referential integrity.
-// Requires 'voices' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
+// DeleteVoice removes a newsreader voice.
 func (h *Handlers) DeleteVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

@@ -11,9 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// StoryResponse represents the response format for news stories with computed weekday information.
-// Includes all story metadata, scheduling configuration, and optional voice/audio associations.
-// The Weekdays field is computed from individual weekday boolean fields for client convenience.
+// StoryResponse represents the response format for news stories.
 type StoryResponse struct {
 	ID              int64           `json:"id" db:"id"`
 	Title           string          `json:"title" db:"title"`
@@ -211,7 +209,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	utils.CreatedWithID(c, story.ID, "Story created successfully")
 }
 
-// hasAnyIndividualWeekday checks if any individual weekday field is set in the request
+// hasAnyIndividualWeekday reports whether any individual weekday field is set in the request.
 func hasAnyIndividualWeekday(req *utils.StoryUpdateRequest) bool {
 	return req.Monday != nil || req.Tuesday != nil || req.Wednesday != nil ||
 		req.Thursday != nil || req.Friday != nil || req.Saturday != nil || req.Sunday != nil
@@ -263,14 +261,14 @@ func (h *Handlers) processWeekdaysUpdate(c *gin.Context, id int64, req *utils.St
 	return weekdays, nil
 }
 
-// hasStoryFieldUpdates checks if any story fields need updating
+// hasStoryFieldUpdates reports whether any story fields need updating.
 func hasStoryFieldUpdates(req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
 	return req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
 		len(weekdays) > 0 || req.Metadata != nil
 }
 
-// validateStoryUpdateRequest validates that at least one field or audio is being updated
+// validateStoryUpdateRequest reports whether at least one field or audio is being updated.
 func validateStoryUpdateRequest(c *gin.Context, hasFieldUpdate, hasAudioUpdate bool) bool {
 	if !hasFieldUpdate && !hasAudioUpdate {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
@@ -380,7 +378,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Story updated successfully")
 }
 
-// DeleteStory soft deletes a story by setting deleted_at timestamp
+// DeleteStory soft deletes a story.
 func (h *Handlers) DeleteStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -450,7 +448,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 }
 
-// validateDateRange validates start and end dates if both are provided
+// validateDateRange reports whether the date range is valid.
 func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *string) bool {
 	if startDateStr == nil || endDateStr == nil {
 		return true // Skip validation if either date is missing

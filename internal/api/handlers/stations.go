@@ -7,9 +7,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStations returns a paginated list of all radio stations with their configuration.
-// Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
-// Requires 'stations' read permission. Returns station data with metadata including total count and pagination info.
+// ListStations returns a paginated list of all radio stations.
 func (h *Handlers) ListStations(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)
@@ -36,8 +34,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
-// GetStation returns a single radio station by ID with all configuration details.
-// Requires 'stations' read permission. Returns 404 if station doesn't exist.
+// GetStation returns a single radio station by ID.
 func (h *Handlers) GetStation(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -53,9 +50,7 @@ func (h *Handlers) GetStation(c *gin.Context) {
 	c.JSON(200, station)
 }
 
-// CreateStation creates a new radio station with broadcast configuration settings.
-// Validates that station names are unique across the system. Requires 'stations' write permission.
-// Returns 201 Created with the new station ID on success, 409 Conflict for duplicate names.
+// CreateStation creates a new radio station.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -71,9 +66,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 	utils.CreatedWithID(c, station.ID, "Station created successfully")
 }
 
-// UpdateStation updates an existing radio station's configuration settings.
-// Validates station existence and name uniqueness (excluding current station).
-// Requires 'stations' write permission. Returns 404 if station doesn't exist, 409 for name conflicts.
+// UpdateStation updates an existing radio station.
 func (h *Handlers) UpdateStation(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -101,9 +94,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 	utils.SuccessWithMessage(c, "Station updated successfully")
 }
 
-// DeleteStation removes a radio station after validating no dependencies exist.
-// Checks for associated station-voices and other references before deletion.
-// Requires 'stations' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
+// DeleteStation removes a radio station.
 func (h *Handlers) DeleteStation(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

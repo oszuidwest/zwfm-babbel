@@ -26,7 +26,6 @@ func (r *GormRepository[T]) DB() *gorm.DB {
 }
 
 // GetByID retrieves a record by its primary key.
-// Uses DBFromContext to support transactions.
 func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)
@@ -37,8 +36,7 @@ func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	return &result, nil
 }
 
-// Exists checks if a record with the given ID exists.
-// Uses DBFromContext to support transactions.
+// Exists reports whether a record with the given ID exists.
 func (r *GormRepository[T]) Exists(ctx context.Context, id int64) (bool, error) {
 	var count int64
 	var model T
@@ -65,9 +63,8 @@ func (r *GormRepository[T]) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// IsFieldValueTaken checks if a field value is already in use by another record.
-// Useful for unique constraints validation before insert/update.
-// Uses DBFromContext to support transactions.
+// IsFieldValueTaken reports whether a field value is already in use.
+// If excludeID is provided, that record is excluded from the check.
 func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value string, excludeID *int64) (bool, error) {
 	var count int64
 	var model T
@@ -111,8 +108,7 @@ func (r *GormRepository[T]) UpdateByID(ctx context.Context, id int64, updates an
 	return nil
 }
 
-// GetByIDWithPreload retrieves a record by its primary key with eager loading.
-// Use this for has-many relations that need separate queries.
+// GetByIDWithPreload retrieves a record by its primary key with specified relations loaded.
 func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, preloads ...string) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)
@@ -126,8 +122,7 @@ func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, pr
 	return &result, nil
 }
 
-// GetByIDWithJoins retrieves a record by its primary key with joined relations.
-// More efficient than Preload for belongs-to relations (single query with LEFT JOIN).
+// GetByIDWithJoins retrieves a record by its primary key with specified relations joined.
 func (r *GormRepository[T]) GetByIDWithJoins(ctx context.Context, id int64, joins ...string) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)
@@ -141,9 +136,8 @@ func (r *GormRepository[T]) GetByIDWithJoins(ctx context.Context, id int64, join
 	return &result, nil
 }
 
-// HasRelatedRecords checks if a record has related records in specified tables.
-// Uses a single UNION query for efficiency instead of multiple COUNT queries.
-// tables is a map of table_name -> foreign_key_column
+// HasRelatedRecords reports whether a record has related records in the specified tables.
+// The tables map specifies table names to their foreign key columns referencing this record.
 func (r *GormRepository[T]) HasRelatedRecords(ctx context.Context, id int64, tables map[string]string) (bool, error) {
 	if len(tables) == 0 {
 		return false, nil

@@ -7,7 +7,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Config combines all authentication methods (local, OIDC) and session management settings
+// Config combines all authentication methods (local, OIDC) and session management settings.
 type Config struct {
 	// Auth method: "local", "oidc", or "both"
 	Method config.AuthMethod
@@ -25,7 +25,7 @@ type Config struct {
 	AllowedOrigins string
 }
 
-// OIDCConfig defines OAuth2/OIDC provider settings for SSO authentication
+// OIDCConfig defines OAuth2/OIDC provider settings for SSO authentication.
 type OIDCConfig struct {
 	// Provider URL (e.g., https://login.microsoftonline.com/{tenant}/v2.0 for Azure AD)
 	ProviderURL string
@@ -51,7 +51,7 @@ type OIDCConfig struct {
 	OAuth2Config *oauth2.Config
 }
 
-// LocalConfig defines password policies and lockout rules for database-backed authentication
+// LocalConfig defines password policies and lockout rules for database-backed authentication.
 type LocalConfig struct {
 	// Enable local username/password authentication
 	Enabled bool
@@ -65,7 +65,7 @@ type LocalConfig struct {
 	LockoutDurationMinutes int
 }
 
-// SessionConfig defines how user sessions are stored and secured via cookies
+// SessionConfig defines how user sessions are stored and secured.
 type SessionConfig struct {
 	// Session store type: "memory" (default)
 	StoreType string

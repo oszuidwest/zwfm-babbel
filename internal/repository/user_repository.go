@@ -95,8 +95,7 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 	return &user, nil
 }
 
-// Update updates a user with the provided field values.
-// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
+// Update updates a user. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
 	if u == nil {
 		return nil
@@ -110,12 +109,12 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 	return r.UpdateByID(ctx, id, updateMap)
 }
 
-// IsUsernameTaken checks if username is in use.
+// IsUsernameTaken reports whether the username is already in use.
 func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "username", username, excludeID)
 }
 
-// IsEmailTaken checks if email is in use.
+// IsEmailTaken reports whether the email is already in use.
 func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "email", email, excludeID)
 }

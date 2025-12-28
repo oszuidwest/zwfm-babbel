@@ -34,9 +34,7 @@ func StationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
 	return &url
 }
 
-// ListStationVoices returns a paginated list of station-voice relationships with modern query parameter support.
-// Supports advanced filtering, sorting, field selection, and full-text search.
-// Search functionality covers station names and voice names for easy discovery.
+// ListStationVoices returns a paginated list of station-voice relationships.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)
@@ -159,7 +157,7 @@ type stationVoiceUpdateRequest struct {
 	MixPoint  *float64 `form:"mix_point,omitempty"`
 }
 
-// hasFieldUpdates checks if the request contains any field updates
+// hasFieldUpdates reports whether the request contains any field updates.
 func (r *stationVoiceUpdateRequest) hasFieldUpdates() bool {
 	return r.StationID != nil || r.VoiceID != nil || r.MixPoint != nil
 }

@@ -64,8 +64,7 @@ func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Stat
 	return r.GormRepository.GetByID(ctx, id)
 }
 
-// Update updates an existing station with type-safe fields.
-// Uses BuildUpdateMap for automatic nil-pointer handling.
+// Update updates an existing station. Nil pointer fields are skipped.
 func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
 	if u == nil {
 		return nil
@@ -103,17 +102,17 @@ func (r *stationRepository) List(ctx context.Context, query *ListQuery) (*ListRe
 	return ApplyListQuery[models.Station](db, query, stationFieldMapping, stationSearchFields, "name ASC")
 }
 
-// Exists checks if a station with the given ID exists.
+// Exists reports whether a station with the given ID exists.
 func (r *stationRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
-// IsNameTaken checks if a station name is already in use.
+// IsNameTaken reports whether a station name is already in use.
 func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
-// HasDependencies checks if station has any station_voices relationships.
+// HasDependencies reports whether the station has any station_voices relationships.
 func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	return r.HasRelatedRecords(ctx, id, map[string]string{
 		"station_voices": "station_id",

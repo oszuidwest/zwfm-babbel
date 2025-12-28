@@ -11,7 +11,7 @@ const (
 	StoryWithVoiceWhereActive = StoryWithVoiceQuery + ` WHERE s.deleted_at IS NULL`
 )
 
-// FilterConfig defines configuration for a single filter
+// FilterConfig defines configuration for a single filter.
 type FilterConfig struct {
 	Column   string // Database column name
 	Value    any    // Filter value

@@ -11,12 +11,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// VoiceService handles voice-related business logic
+// VoiceService handles voice-related business logic.
 type VoiceService struct {
 	repo repository.VoiceRepository
 }
 
-// NewVoiceService creates a new voice service instance
+// NewVoiceService creates a new voice service instance.
 func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
 	return &VoiceService{
 		repo: repo,
@@ -28,7 +28,7 @@ type UpdateVoiceRequest struct {
 	Name *string `json:"name"`
 }
 
-// Create creates a new voice with the given name
+// Create creates a new voice with the given name.
 func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, error) {
 	const op = "VoiceService.Create"
 
@@ -53,7 +53,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	return voice, nil
 }
 
-// Update updates an existing voice's name
+// Update updates an existing voice's name.
 func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) error {
 	const op = "VoiceService.Update"
 
@@ -84,7 +84,7 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	return nil
 }
 
-// Delete deletes a voice after checking for dependencies
+// Delete deletes a voice after checking for dependencies.
 func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	const op = "VoiceService.Delete"
 
