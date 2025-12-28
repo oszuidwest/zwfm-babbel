@@ -131,15 +131,6 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 
 // Update updates an existing story.
 func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryRequest) (*models.Story, error) {
-	// Verify story exists
-	exists, err := s.storyRepo.Exists(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
-	}
-
 	// Parse and validate dates
 	startDate, endDate, err := s.parseDateUpdates(req)
 	if err != nil {
@@ -158,6 +149,9 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 
 	// Execute update
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+		}
 		logger.Error("Database error updating story: %v", err)
 		return nil, s.handleDatabaseError(err)
 	}
@@ -301,16 +295,7 @@ func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 
 // SoftDelete marks a story as deleted by setting the deleted_at timestamp.
 func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
-	// Verify story exists
-	exists, err := s.storyRepo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
-	}
-
-	err = s.storyRepo.SoftDelete(ctx, id)
+	err := s.storyRepo.SoftDelete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
@@ -324,16 +309,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 
 // Restore restores a soft-deleted story by clearing the deleted_at timestamp.
 func (s *StoryService) Restore(ctx context.Context, id int64) error {
-	// Verify story exists (even if deleted)
-	exists, err := s.storyRepo.ExistsIncludingDeleted(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
-	}
-
-	err = s.storyRepo.Restore(ctx, id)
+	err := s.storyRepo.Restore(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
@@ -349,15 +325,6 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 // The tempPath should be a validated temporary file path.
 // This method will convert the audio to standardized WAV format and update the story record.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
-	// Verify story exists
-	exists, err := s.storyRepo.Exists(ctx, storyID)
-	if err != nil {
-		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, storyID)
-	}
-
 	// Process audio with audio service (convert to mono WAV)
 	outputPath := utils.StoryPath(s.config, storyID)
 	filename, duration, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 1)
@@ -373,6 +340,9 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 		// Clean up file on database error
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove audio file after database error: %v", rmErr)
+		}
+		if errors.Is(err, repository.ErrNotFound) {
+			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, storyID)
 		}
 		logger.Error("Failed to update story %d audio reference: %v", storyID, err)
 		return fmt.Errorf("%w: failed to update audio reference", apperrors.ErrDatabaseError)
@@ -403,22 +373,13 @@ func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesda
 // UpdateStatus updates a story's status field.
 // Valid statuses: draft, active, expired
 func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) error {
-	// Verify story exists
-	exists, err := s.storyRepo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
-	}
-
 	// Validate status
 	storyStatus := models.StoryStatus(status)
 	if !storyStatus.IsValid() {
 		return fmt.Errorf("%w: status must be one of: draft, active, expired", apperrors.ErrInvalidInput)
 	}
 
-	err = s.storyRepo.UpdateStatus(ctx, id, status)
+	err := s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)

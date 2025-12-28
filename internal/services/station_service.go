@@ -59,15 +59,6 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) error {
 	const op = "StationService.Update"
 
-	// Check if station exists
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
-	}
-	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-	}
-
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
@@ -87,8 +78,7 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	}
 
 	// Update station
-	err = s.repo.Update(ctx, id, updates)
-	if err != nil {
+	if err := s.repo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
