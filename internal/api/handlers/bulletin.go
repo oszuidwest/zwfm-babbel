@@ -182,29 +182,16 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	stories, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID)
+	// Parse query params for pagination (database-level via GORM Limit/Offset)
+	params := utils.ParseQueryParams(c)
+
+	stories, total, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID, params.Limit, params.Offset)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	// Parse query params for pagination
-	params := utils.ParseQueryParams(c)
-	total := int64(len(stories))
-	limit := params.Limit
-	offset := params.Offset
-
-	// Apply pagination to results
-	if offset > len(stories) {
-		stories = []models.BulletinStory{}
-	} else {
-		stories = stories[offset:]
-		if limit > 0 && limit < len(stories) {
-			stories = stories[:limit]
-		}
-	}
-
-	utils.PaginatedResponse(c, stories, total, limit, offset)
+	utils.PaginatedResponse(c, stories, total, params.Limit, params.Offset)
 }
 
 // bulletinToResponse creates a consistent response format for bulletin endpoints
