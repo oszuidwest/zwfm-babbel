@@ -358,17 +358,17 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	// Get the weekday column name
 	weekdayColumn := getWeekdayColumn(date.Weekday())
 
-	// Build the query with proper joins to get mix_point from station_voices
+	// Build the query with proper joins to get mix_point from station_voices.
+	// Using Model() ensures GORM's soft delete filtering is applied automatically.
 	err := r.db.WithContext(ctx).
-		Table("stories s").
-		Select("s.*, sv.mix_point").
-		Joins("JOIN voices v ON s.voice_id = v.id").
-		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = s.voice_id", stationID).
-		Where("s.deleted_at IS NULL").
-		Where("s.audio_file IS NOT NULL").
-		Where("s.audio_file != ''").
-		Where("s.start_date <= ?", date).
-		Where("s.end_date >= ?", date).
+		Model(&models.Story{}).
+		Select("stories.*, sv.mix_point").
+		Joins("JOIN voices v ON stories.voice_id = v.id").
+		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).
+		Where("stories.audio_file IS NOT NULL").
+		Where("stories.audio_file != ''").
+		Where("stories.start_date <= ?", date).
+		Where("stories.end_date >= ?", date).
 		Where(weekdayColumn+" = ?", true).
 		Order("RAND()").
 		Limit(limit).
@@ -384,13 +384,13 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 // weekdayColumns maps time.Weekday to the corresponding story column name.
 // Package-level variable to avoid allocation on every GetStoriesForBulletin call.
 var weekdayColumns = map[time.Weekday]string{
-	time.Monday:    "s.monday",
-	time.Tuesday:   "s.tuesday",
-	time.Wednesday: "s.wednesday",
-	time.Thursday:  "s.thursday",
-	time.Friday:    "s.friday",
-	time.Saturday:  "s.saturday",
-	time.Sunday:    "s.sunday",
+	time.Monday:    "stories.monday",
+	time.Tuesday:   "stories.tuesday",
+	time.Wednesday: "stories.wednesday",
+	time.Thursday:  "stories.thursday",
+	time.Friday:    "stories.friday",
+	time.Saturday:  "stories.saturday",
+	time.Sunday:    "stories.sunday",
 }
 
 // getWeekdayColumn returns the column name for the given weekday.
@@ -398,5 +398,5 @@ func getWeekdayColumn(weekday time.Weekday) string {
 	if col, ok := weekdayColumns[weekday]; ok {
 		return col
 	}
-	return "s.monday" // Default fallback
+	return "stories.monday" // Default fallback
 }

@@ -106,13 +106,28 @@ func (r *GormRepository[T]) UpdateByID(ctx context.Context, id int64, updates an
 }
 
 // GetByIDWithPreload retrieves a record by its primary key with eager loading.
-// Use this for belongs-to relations that need to be loaded with the main record.
+// Use this for has-many relations that need separate queries.
 func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, preloads ...string) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)
 	query := db.WithContext(ctx)
 	for _, p := range preloads {
 		query = query.Preload(p)
+	}
+	if err := query.First(&result, id).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+	return &result, nil
+}
+
+// GetByIDWithJoins retrieves a record by its primary key with joined relations.
+// More efficient than Preload for belongs-to relations (single query with LEFT JOIN).
+func (r *GormRepository[T]) GetByIDWithJoins(ctx context.Context, id int64, joins ...string) (*T, error) {
+	var result T
+	db := DBFromContext(ctx, r.db)
+	query := db.WithContext(ctx)
+	for _, j := range joins {
+		query = query.Joins(j)
 	}
 	if err := query.First(&result, id).Error; err != nil {
 		return nil, ParseDBError(err)
