@@ -14,6 +14,11 @@ type VoiceUpdate struct {
 	Name *string `gorm:"column:name"`
 }
 
+// hasUpdates returns true if any update field is non-nil.
+func (u *VoiceUpdate) hasUpdates() bool {
+	return u.Name != nil
+}
+
 // VoiceRepository defines the interface for voice data access.
 type VoiceRepository interface {
 	// CRUD operations
@@ -64,20 +69,10 @@ func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice,
 
 // Update updates an existing voice with type-safe fields.
 func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
-
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Voice{}).Where("id = ?", id).Updates(u)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.UpdateByID(ctx, id, u)
 }
 
 // Delete removes a voice by its ID (hard delete since Voice has no soft delete).
@@ -97,30 +92,10 @@ func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeI
 
 // HasDependencies checks if voice is used by stories or station_voices.
 func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
-	var storyCount int64
-	var stationVoiceCount int64
-
-	// Check stories table
-	if err := r.db.WithContext(ctx).
-		Model(&models.Story{}).
-		Where("voice_id = ?", id).
-		Count(&storyCount).Error; err != nil {
-		return false, err
-	}
-
-	if storyCount > 0 {
-		return true, nil
-	}
-
-	// Check station_voices table
-	if err := r.db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("voice_id = ?", id).
-		Count(&stationVoiceCount).Error; err != nil {
-		return false, err
-	}
-
-	return stationVoiceCount > 0, nil
+	return r.HasRelatedRecords(ctx, id, map[string]string{
+		"stories":        "voice_id",
+		"station_voices": "voice_id",
+	})
 }
 
 // voiceFieldMapping maps API field names to database columns for voices.

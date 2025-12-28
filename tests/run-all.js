@@ -120,15 +120,47 @@ ${chalk.bold('Examples:')}
             this.printInfo('Skipping Docker setup (--no-docker or --quick)');
             return true;
         }
-        
-        this.printSection('Starting Docker Services');
-        
-        return new Promise((resolve) => {
-            const proc = spawn('docker-compose', ['up', '-d'], {
+
+        // First, stop and remove volumes for clean state
+        this.printSection('Cleaning Docker Environment');
+        await new Promise((resolve) => {
+            const proc = spawn('docker', ['compose', 'down', '-v'], {
                 cwd: path.join(__dirname, '..'),
                 stdio: 'inherit'
             });
-            
+            proc.on('close', () => resolve());
+        });
+
+        // Build with fresh code
+        this.printSection('Building Docker Image');
+        const buildSuccess = await new Promise((resolve) => {
+            const proc = spawn('docker', ['compose', 'build'], {
+                cwd: path.join(__dirname, '..'),
+                stdio: 'inherit'
+            });
+            proc.on('close', (code) => {
+                if (code === 0) {
+                    this.printSuccess('Docker image built');
+                    resolve(true);
+                } else {
+                    this.printError('Failed to build Docker image');
+                    resolve(false);
+                }
+            });
+        });
+
+        if (!buildSuccess) {
+            return false;
+        }
+
+        this.printSection('Starting Docker Services');
+
+        return new Promise((resolve) => {
+            const proc = spawn('docker', ['compose', 'up', '-d'], {
+                cwd: path.join(__dirname, '..'),
+                stdio: 'inherit'
+            });
+
             proc.on('close', (code) => {
                 if (code === 0) {
                     this.printSuccess('Docker services started');

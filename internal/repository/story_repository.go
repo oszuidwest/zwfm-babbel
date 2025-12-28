@@ -12,7 +12,7 @@ import (
 )
 
 // StoryUpdate contains optional fields for updating a story.
-// Nil pointer fields are not updated.
+// Nil pointer fields are not updated. Clear* flags explicitly set fields to NULL.
 type StoryUpdate struct {
 	Title           *string    `gorm:"column:title"`
 	Text            *string    `gorm:"column:text"`
@@ -30,6 +30,22 @@ type StoryUpdate struct {
 	Metadata        *string    `gorm:"column:metadata"` // Already JSON string
 	AudioFile       *string    `gorm:"column:audio_file"`
 	DurationSeconds *float64   `gorm:"column:duration_seconds"`
+
+	// Clear flags - when true, explicitly set the field to NULL
+	ClearVoiceID         bool `gorm:"-"`
+	ClearAudioFile       bool `gorm:"-"`
+	ClearDurationSeconds bool `gorm:"-"`
+	ClearMetadata        bool `gorm:"-"`
+}
+
+// hasUpdates returns true if any field is set for update.
+func (u *StoryUpdate) hasUpdates() bool {
+	return u.Title != nil || u.Text != nil || u.VoiceID != nil ||
+		u.AudioFile != nil || u.DurationSeconds != nil || u.Status != nil ||
+		u.StartDate != nil || u.EndDate != nil || u.Metadata != nil ||
+		u.Monday != nil || u.Tuesday != nil || u.Wednesday != nil ||
+		u.Thursday != nil || u.Friday != nil || u.Saturday != nil || u.Sunday != nil ||
+		u.ClearVoiceID || u.ClearAudioFile || u.ClearDurationSeconds || u.ClearMetadata
 }
 
 // StoryCreateData contains the data for creating a story.
@@ -134,37 +150,93 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	return story, nil
 }
 
+// GetByID retrieves a story by ID with the Voice relation preloaded.
+func (r *storyRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
+	return r.GetByIDWithPreload(ctx, id, "Voice")
+}
+
 // GetByIDWithVoice retrieves a story with voice information via Preload.
+//
+// Deprecated: Use GetByID instead, which also preloads Voice.
 func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error) {
-	var story models.Story
-
-	err := r.db.WithContext(ctx).
-		Preload("Voice").
-		First(&story, id).Error
-
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &story, nil
+	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
 // Update updates a story with type-safe fields.
+// Clear* flags explicitly set fields to NULL in the database.
 func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
 
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Story{}).Where("id = ?", id).Updates(u)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
+	// Build update map to handle Clear* flags (which need explicit NULL values)
+	updateMap := make(map[string]any)
+
+	// Regular pointer fields - only add if not nil
+	if u.Title != nil {
+		updateMap["title"] = *u.Title
 	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
+	if u.Text != nil {
+		updateMap["text"] = *u.Text
+	}
+	if u.VoiceID != nil {
+		updateMap["voice_id"] = *u.VoiceID
+	}
+	if u.Status != nil {
+		updateMap["status"] = *u.Status
+	}
+	if u.StartDate != nil {
+		updateMap["start_date"] = *u.StartDate
+	}
+	if u.EndDate != nil {
+		updateMap["end_date"] = *u.EndDate
+	}
+	if u.Monday != nil {
+		updateMap["monday"] = *u.Monday
+	}
+	if u.Tuesday != nil {
+		updateMap["tuesday"] = *u.Tuesday
+	}
+	if u.Wednesday != nil {
+		updateMap["wednesday"] = *u.Wednesday
+	}
+	if u.Thursday != nil {
+		updateMap["thursday"] = *u.Thursday
+	}
+	if u.Friday != nil {
+		updateMap["friday"] = *u.Friday
+	}
+	if u.Saturday != nil {
+		updateMap["saturday"] = *u.Saturday
+	}
+	if u.Sunday != nil {
+		updateMap["sunday"] = *u.Sunday
+	}
+	if u.Metadata != nil {
+		updateMap["metadata"] = *u.Metadata
+	}
+	if u.AudioFile != nil {
+		updateMap["audio_file"] = *u.AudioFile
+	}
+	if u.DurationSeconds != nil {
+		updateMap["duration_seconds"] = *u.DurationSeconds
 	}
 
-	return nil
+	// Clear flags - explicitly set to NULL (overrides pointer values)
+	if u.ClearVoiceID {
+		updateMap["voice_id"] = nil
+	}
+	if u.ClearAudioFile {
+		updateMap["audio_file"] = nil
+	}
+	if u.ClearDurationSeconds {
+		updateMap["duration_seconds"] = nil
+	}
+	if u.ClearMetadata {
+		updateMap["metadata"] = nil
+	}
+
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // SoftDelete sets the deleted_at timestamp.

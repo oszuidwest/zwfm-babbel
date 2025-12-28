@@ -74,17 +74,7 @@ func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpda
 	if u == nil || !u.hasUpdates() {
 		return nil
 	}
-
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Station{}).Where("id = ?", id).Updates(u)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.UpdateByID(ctx, id, u)
 }
 
 // Delete removes a station by its ID.
@@ -123,15 +113,7 @@ func (r *stationRepository) IsNameTaken(ctx context.Context, name string, exclud
 
 // HasDependencies checks if station has any station_voices relationships.
 func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("station_id = ?", id).
-		Count(&count).Error
-
-	if err != nil {
-		return false, ParseDBError(err)
-	}
-
-	return count > 0, nil
+	return r.HasRelatedRecords(ctx, id, map[string]string{
+		"station_voices": "station_id",
+	})
 }

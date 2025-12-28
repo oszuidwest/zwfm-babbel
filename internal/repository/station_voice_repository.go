@@ -9,12 +9,18 @@ import (
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
-// Nil pointer fields are not updated.
+// Nil pointer fields are not updated. ClearAudioFile explicitly sets audio_file to NULL.
 type StationVoiceUpdate struct {
-	StationID *int64   `gorm:"column:station_id"`
-	VoiceID   *int64   `gorm:"column:voice_id"`
-	AudioFile *string  `gorm:"column:audio_file"`
-	MixPoint  *float64 `gorm:"column:mix_point"`
+	StationID      *int64   `gorm:"column:station_id"`
+	VoiceID        *int64   `gorm:"column:voice_id"`
+	AudioFile      *string  `gorm:"column:audio_file"`
+	MixPoint       *float64 `gorm:"column:mix_point"`
+	ClearAudioFile bool     // When true, sets audio_file to NULL
+}
+
+// hasUpdates returns true if there are any updates to apply.
+func (u *StationVoiceUpdate) hasUpdates() bool {
+	return u.AudioFile != nil || u.MixPoint != nil || u.ClearAudioFile
 }
 
 // StationVoiceRepository defines the interface for station-voice relationship data access.
@@ -70,36 +76,33 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 
 // GetByID retrieves a station-voice relationship with preloaded station and voice.
 func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
-	var stationVoice models.StationVoice
-
-	err := r.db.WithContext(ctx).
-		Preload("Station").
-		Preload("Voice").
-		First(&stationVoice, id).Error
-
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &stationVoice, nil
+	return r.GetByIDWithPreload(ctx, id, "Station", "Voice")
 }
 
 // Update updates a station-voice relationship with dynamic fields.
 func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
-	if u == nil {
+	if u == nil || !u.hasUpdates() {
 		return nil
 	}
 
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.StationVoice{}).Where("id = ?", id).Updates(u)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
+	// Build update map for Clear* flags
+	updateMap := make(map[string]any)
+
+	if u.ClearAudioFile {
+		updateMap["audio_file"] = nil
+	} else if u.AudioFile != nil {
+		updateMap["audio_file"] = *u.AudioFile
 	}
 
-	return nil
+	if u.MixPoint != nil {
+		updateMap["mix_point"] = *u.MixPoint
+	}
+
+	if len(updateMap) == 0 {
+		return nil
+	}
+
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // Delete removes a station-voice relationship.
