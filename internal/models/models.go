@@ -18,9 +18,9 @@ type Station struct {
 	// PauseSeconds is the pause duration between stories.
 	PauseSeconds float64 `gorm:"not null;default:0" json:"pause_seconds"`
 	// CreatedAt is when the station was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the station was last modified.
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relations
 	StationVoices []StationVoice `gorm:"foreignKey:StationID" json:"-"`
@@ -32,7 +32,7 @@ type Story struct {
 	// ID is the unique identifier.
 	ID int64 `gorm:"primaryKey;autoIncrement" json:"id"`
 	// Title is the story's headline.
-	Title string `gorm:"size:255;not null" json:"title"`
+	Title string `gorm:"size:500;not null" json:"title"`
 	// Text is the story content for text-to-speech.
 	Text string `gorm:"type:text" json:"text"`
 	// VoiceID is the voice used for text-to-speech generation.
@@ -48,25 +48,25 @@ type Story struct {
 	// EndDate is when the story expires.
 	EndDate time.Time `gorm:"not null;index" json:"end_date"`
 	// Monday indicates if the story is scheduled for Mondays.
-	Monday bool `gorm:"not null;default:false" json:"monday"`
+	Monday bool `gorm:"not null;default:true" json:"monday"`
 	// Tuesday indicates if the story is scheduled for Tuesdays.
-	Tuesday bool `gorm:"not null;default:false" json:"tuesday"`
+	Tuesday bool `gorm:"not null;default:true" json:"tuesday"`
 	// Wednesday indicates if the story is scheduled for Wednesdays.
-	Wednesday bool `gorm:"not null;default:false" json:"wednesday"`
+	Wednesday bool `gorm:"not null;default:true" json:"wednesday"`
 	// Thursday indicates if the story is scheduled for Thursdays.
-	Thursday bool `gorm:"not null;default:false" json:"thursday"`
+	Thursday bool `gorm:"not null;default:true" json:"thursday"`
 	// Friday indicates if the story is scheduled for Fridays.
-	Friday bool `gorm:"not null;default:false" json:"friday"`
+	Friday bool `gorm:"not null;default:true" json:"friday"`
 	// Saturday indicates if the story is scheduled for Saturdays.
-	Saturday bool `gorm:"not null;default:false" json:"saturday"`
+	Saturday bool `gorm:"not null;default:true" json:"saturday"`
 	// Sunday indicates if the story is scheduled for Sundays.
-	Sunday bool `gorm:"not null;default:false" json:"sunday"`
+	Sunday bool `gorm:"not null;default:true" json:"sunday"`
 	// Metadata stores additional custom data as JSON.
 	Metadata *string `gorm:"type:json" json:"metadata"`
 	// CreatedAt is when the story was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the story was last modified.
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 	// DeletedAt is when the story was soft-deleted, if applicable.
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
@@ -120,9 +120,9 @@ type Voice struct {
 	// Name is the voice's display name.
 	Name string `gorm:"size:255;not null;uniqueIndex" json:"name"`
 	// CreatedAt is when the voice was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the voice was last modified.
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relations
 	Stories       []Story        `gorm:"foreignKey:VoiceID" json:"-"`
@@ -142,9 +142,9 @@ type StationVoice struct {
 	// MixPoint is the time offset (in seconds) where story audio is mixed into the jingle.
 	MixPoint float64 `gorm:"not null;default:0" json:"mix_point"`
 	// CreatedAt is when the station voice was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the station voice was last modified.
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 
 	// Relations
 	Station *Station `gorm:"foreignKey:StationID" json:"-"`
@@ -182,9 +182,9 @@ type User struct {
 	// Metadata is optional JSON metadata.
 	Metadata *string `gorm:"type:json" json:"metadata"`
 	// CreatedAt is the timestamp when the user was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the last update.
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // UserRole represents a user's permission level.
@@ -233,7 +233,7 @@ type Bulletin struct {
 	// Metadata stores additional custom data as JSON.
 	Metadata *string `gorm:"type:json" json:"metadata"`
 	// CreatedAt is when the bulletin was generated.
-	CreatedAt time.Time `gorm:"autoCreateTime;index" json:"created_at"`
+	CreatedAt time.Time `gorm:"index" json:"created_at"`
 
 	// Relations
 	Station *Station        `gorm:"foreignKey:StationID" json:"-"`
@@ -251,7 +251,7 @@ type BulletinStory struct {
 	// StoryOrder is the position of this story within the bulletin sequence.
 	StoryOrder int `gorm:"not null;default:0" json:"story_order"`
 	// CreatedAt is when this relationship was created.
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
 
 	// Relations
 	Bulletin *Bulletin `gorm:"foreignKey:BulletinID" json:"-"`
