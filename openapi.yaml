@@ -875,7 +875,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Story'
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Audio uploaded successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -1969,7 +1973,11 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StationVoice'
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Jingle uploaded successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
