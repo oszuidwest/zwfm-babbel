@@ -2,6 +2,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 
 	"gorm.io/gorm"
@@ -145,6 +146,17 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}, nil
 }
 
+// operatorFormats maps filter operators to their SQL format strings.
+var operatorFormats = map[FilterOperator]string{
+	FilterEquals:      "%s = ?",
+	FilterNotEquals:   "%s != ?",
+	FilterGreaterThan: "%s > ?",
+	FilterGreaterOrEq: "%s >= ?",
+	FilterLessThan:    "%s < ?",
+	FilterLessOrEq:    "%s <= ?",
+	FilterIn:          "%s IN ?",
+}
+
 // applyFilterCondition applies a single filter condition to the query.
 func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) *gorm.DB {
 	// Validate field name to prevent SQL injection
@@ -153,27 +165,18 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return db
 	}
 
-	switch filter.Operator {
-	case FilterEquals:
-		return db.Where(dbField+" = ?", filter.Value)
-	case FilterNotEquals:
-		return db.Where(dbField+" != ?", filter.Value)
-	case FilterGreaterThan:
-		return db.Where(dbField+" > ?", filter.Value)
-	case FilterGreaterOrEq:
-		return db.Where(dbField+" >= ?", filter.Value)
-	case FilterLessThan:
-		return db.Where(dbField+" < ?", filter.Value)
-	case FilterLessOrEq:
-		return db.Where(dbField+" <= ?", filter.Value)
-	case FilterLike:
+	// Special case for LIKE operator (needs pattern wrapping)
+	if filter.Operator == FilterLike {
 		if s, ok := filter.Value.(string); ok {
 			return db.Where(dbField+" LIKE ?", "%"+s+"%")
 		}
 		return db
-	case FilterIn:
-		return db.Where(dbField+" IN ?", filter.Value)
-	default:
-		return db
 	}
+
+	// Use map lookup for standard operators
+	if format, ok := operatorFormats[filter.Operator]; ok {
+		return db.Where(fmt.Sprintf(format, dbField), filter.Value)
+	}
+
+	return db
 }
