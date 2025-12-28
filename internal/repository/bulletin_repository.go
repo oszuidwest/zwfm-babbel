@@ -19,7 +19,7 @@ type BulletinRepository interface {
 	GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error)
 	List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error)
 	Exists(ctx context.Context, id int64) (bool, error)
-	GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error)
+	GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error)
 	GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
 	GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
 
@@ -157,23 +157,40 @@ func (r *bulletinRepository) Exists(ctx context.Context, id int64) (bool, error)
 	return r.GormRepository.Exists(ctx, id)
 }
 
-// GetBulletinStories retrieves all stories included in a specific bulletin.
-// Uses Preload for nested relations (Story and Story.Voice) since Joins doesn't support nested loading.
-func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
+// GetBulletinStories retrieves stories included in a specific bulletin with pagination.
+// Uses GORM Limit/Offset for efficient database-level pagination.
+func (r *bulletinRepository) GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error) {
 	var bulletinStories []models.BulletinStory
+	var total int64
 
-	err := r.db.WithContext(ctx).
+	db := r.db.WithContext(ctx).
+		Model(&models.BulletinStory{}).
+		Where("bulletin_id = ?", bulletinID)
+
+	// Count total before pagination
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, ParseDBError(err)
+	}
+
+	// Apply pagination and fetch with preloads
+	query := r.db.WithContext(ctx).
 		Preload("Story").
 		Preload("Story.Voice").
 		Where("bulletin_id = ?", bulletinID).
-		Order("story_order ASC").
-		Find(&bulletinStories).Error
+		Order("story_order ASC")
 
-	if err != nil {
-		return nil, ParseDBError(err)
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	if offset > 0 {
+		query = query.Offset(offset)
 	}
 
-	return bulletinStories, nil
+	if err := query.Find(&bulletinStories).Error; err != nil {
+		return nil, 0, ParseDBError(err)
+	}
+
+	return bulletinStories, total, nil
 }
 
 // GetStationBulletins retrieves bulletins for a specific station with pagination.

@@ -407,7 +407,7 @@ func (s *StoryService) handleDatabaseError(err error) error {
 		return fmt.Errorf("%w: invalid reference to related resource", apperrors.ErrInvalidInput)
 	}
 	if errors.Is(err, repository.ErrDataTooLong) {
-		return fmt.Errorf("%w: one or more fields exceed maximum length", apperrors.ErrInvalidInput)
+		return fmt.Errorf("%w: one or more fields exceed maximum length", apperrors.ErrDataTooLong)
 	}
 
 	return fmt.Errorf("%w: database operation failed", apperrors.ErrDatabaseError)

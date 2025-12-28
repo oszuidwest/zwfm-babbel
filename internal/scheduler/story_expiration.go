@@ -67,16 +67,20 @@ func (s *StoryExpirationService) Start() {
 
 // Stop gracefully shuts down the expiration service.
 // Uses sync.Once to prevent double-stop race conditions and a timeout to prevent deadlock.
+// Sends the done signal before stopping the ticker to avoid a race condition where the
+// goroutine might read from a closed ticker channel before receiving the shutdown signal.
 func (s *StoryExpirationService) Stop() {
 	s.stopOnce.Do(func() {
 		logger.Info("Stopping story expiration service")
-		if s.ticker != nil {
-			s.ticker.Stop()
-		}
+		// Signal done FIRST to ensure goroutine exits before we stop the ticker.
+		// This prevents a race condition where ticker.C could be read after Stop().
 		select {
 		case s.done <- true:
 		case <-time.After(5 * time.Second):
 			logger.Info("Story expiration service shutdown timeout")
+		}
+		if s.ticker != nil {
+			s.ticker.Stop()
 		}
 	})
 }

@@ -261,13 +261,13 @@ func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 	return exists, nil
 }
 
-// GetBulletinStories retrieves all stories included in a specific bulletin.
-func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64) ([]models.BulletinStory, error) {
-	stories, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID)
+// GetBulletinStories retrieves stories included in a specific bulletin with pagination.
+func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error) {
+	stories, total, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID, limit, offset)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to get bulletin stories: %v", apperrors.ErrDatabaseError, err)
+		return nil, 0, fmt.Errorf("%w: failed to get bulletin stories: %v", apperrors.ErrDatabaseError, err)
 	}
-	return stories, nil
+	return stories, total, nil
 }
 
 // GetStationBulletins retrieves bulletins for a specific station with pagination.

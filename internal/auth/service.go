@@ -222,7 +222,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 
 	for {
 		var count int64
-		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Count(&count).Error
+		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Where("deleted_at IS NULL").Count(&count).Error
 		if err != nil {
 			// On error, assume it might exist and try with suffix
 			logger.Warn("Database error checking username uniqueness, trying next: %v", err)
@@ -301,6 +301,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Table("users").
 			Select("id, username, role, suspended_at").
 			Where("id = ?", userID).
+			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete(string(SessKeyUserID))
@@ -371,6 +372,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		Table("users").
 		Select("id, username, password_hash, role, suspended_at").
 		Where("username = ?", username).
+		Where("deleted_at IS NULL").
 		First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -518,6 +520,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		Table("users").
 		Select("id, username, suspended_at").
 		Where("email = ?", email).
+		Where("deleted_at IS NULL").
 		First(&existingUser).Error
 	if err == nil {
 		// User exists with this email
@@ -594,12 +597,13 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	// Get the user's actual role from database
+	// Get the user's actual role from database (exclude soft-deleted users)
 	var role string
 	if err := s.db.WithContext(ctx).
 		Table("users").
 		Select("role").
 		Where("id = ?", user.ID).
+		Where("deleted_at IS NULL").
 		Scan(&role).Error; err != nil {
 		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
 		return fmt.Errorf("failed to get user role: %w", err)
