@@ -26,9 +26,11 @@ func (r *GormRepository[T]) DB() *gorm.DB {
 }
 
 // GetByID retrieves a record by its primary key.
+// Uses DBFromContext to support transactions.
 func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	var result T
-	err := r.db.WithContext(ctx).First(&result, id).Error
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).First(&result, id).Error
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
@@ -36,10 +38,12 @@ func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 }
 
 // Exists checks if a record with the given ID exists.
+// Uses DBFromContext to support transactions.
 func (r *GormRepository[T]) Exists(ctx context.Context, id int64) (bool, error) {
 	var count int64
 	var model T
-	err := r.db.WithContext(ctx).Model(&model).Where("id = ?", id).Count(&count).Error
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).Model(&model).Where("id = ?", id).Count(&count).Error
 	if err != nil {
 		return false, ParseDBError(err)
 	}
@@ -63,10 +67,12 @@ func (r *GormRepository[T]) Delete(ctx context.Context, id int64) error {
 
 // IsFieldValueTaken checks if a field value is already in use by another record.
 // Useful for unique constraints validation before insert/update.
+// Uses DBFromContext to support transactions.
 func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value string, excludeID *int64) (bool, error) {
 	var count int64
 	var model T
-	query := r.db.WithContext(ctx).Model(&model).Where(field+" = ?", value)
+	db := DBFromContext(ctx, r.db)
+	query := db.WithContext(ctx).Model(&model).Where(field+" = ?", value)
 	if excludeID != nil {
 		query = query.Where("id != ?", *excludeID)
 	}

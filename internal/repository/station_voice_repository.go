@@ -101,10 +101,12 @@ func (r *stationVoiceRepository) Exists(ctx context.Context, id int64) (bool, er
 }
 
 // IsCombinationTaken checks if a station-voice combination is already in use.
+// Uses DBFromContext to support transactions.
 func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	var count int64
 
-	query := r.db.WithContext(ctx).
+	db := DBFromContext(ctx, r.db)
+	query := db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Where("station_id = ? AND voice_id = ?", stationID, voiceID)
 
