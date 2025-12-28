@@ -16,11 +16,6 @@ type StationUpdate struct {
 	PauseSeconds       *float64 `gorm:"column:pause_seconds"`
 }
 
-// hasUpdates returns true if any update field is non-nil.
-func (u *StationUpdate) hasUpdates() bool {
-	return u.Name != nil || u.MaxStoriesPerBlock != nil || u.PauseSeconds != nil
-}
-
 // StationRepository defines the interface for station data access.
 type StationRepository interface {
 	// CRUD operations
@@ -70,11 +65,18 @@ func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Stat
 }
 
 // Update updates an existing station with type-safe fields.
+// Uses BuildUpdateMap for automatic nil-pointer handling.
 func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
-	if u == nil || !u.hasUpdates() {
+	if u == nil {
 		return nil
 	}
-	return r.UpdateByID(ctx, id, u)
+
+	updateMap := BuildUpdateMap(u)
+	if len(updateMap) == 0 {
+		return nil
+	}
+
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // Delete removes a station by its ID.

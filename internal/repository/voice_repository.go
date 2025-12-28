@@ -14,11 +14,6 @@ type VoiceUpdate struct {
 	Name *string `gorm:"column:name"`
 }
 
-// hasUpdates returns true if any update field is non-nil.
-func (u *VoiceUpdate) hasUpdates() bool {
-	return u.Name != nil
-}
-
 // VoiceRepository defines the interface for voice data access.
 type VoiceRepository interface {
 	// CRUD operations
@@ -68,11 +63,18 @@ func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice,
 }
 
 // Update updates an existing voice with type-safe fields.
+// Uses BuildUpdateMap for automatic nil-pointer handling.
 func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
-	if u == nil || !u.hasUpdates() {
+	if u == nil {
 		return nil
 	}
-	return r.UpdateByID(ctx, id, u)
+
+	updateMap := BuildUpdateMap(u)
+	if len(updateMap) == 0 {
+		return nil
+	}
+
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // Delete removes a voice by its ID (hard delete since Voice has no soft delete).
