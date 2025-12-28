@@ -284,7 +284,7 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	return story, nil
 }
 
-// Exists checks if a story with the given ID exists.
+// Exists reports whether a story with the given ID exists.
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
@@ -293,7 +293,7 @@ func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	return exists, nil
 }
 
-// SoftDelete marks a story as deleted by setting the deleted_at timestamp.
+// SoftDelete marks a story as deleted.
 func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	err := s.storyRepo.SoftDelete(ctx, id)
 	if err != nil {
@@ -307,7 +307,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Restore restores a soft-deleted story by clearing the deleted_at timestamp.
+// Restore reactivates a soft-deleted story.
 func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	err := s.storyRepo.Restore(ctx, id)
 	if err != nil {
@@ -321,9 +321,7 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessAudio processes an uploaded audio file for a story.
-// The tempPath should be a validated temporary file path.
-// This method will convert the audio to standardized WAV format and update the story record.
+// ProcessAudio converts an uploaded audio file and associates it with a story.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
 	// Process audio with audio service (convert to mono WAV)
 	outputPath := utils.StoryPath(s.config, storyID)
@@ -352,8 +350,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	return nil
 }
 
-// extractWeekdays extracts individual weekday booleans from a weekdays map.
-// Returns all weekdays as false if the map is empty or nil.
+// extractWeekdays converts a weekday map to individual boolean values.
 func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesday, wednesday, thursday, friday, saturday, sunday bool) {
 	if len(weekdays) == 0 {
 		return false, false, false, false, false, false, false
@@ -370,8 +367,7 @@ func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesda
 	return
 }
 
-// UpdateStatus updates a story's status field.
-// Valid statuses: draft, active, expired
+// UpdateStatus changes a story's status to draft, active, or expired.
 func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) error {
 	// Validate status
 	storyStatus := models.StoryStatus(status)
@@ -414,7 +410,6 @@ func (s *StoryService) handleDatabaseError(err error) error {
 }
 
 // List retrieves stories with filtering, sorting, and pagination.
-// Delegates to the repository layer for data access.
 func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
 	result, err := s.storyRepo.List(ctx, query)
 	if err != nil {

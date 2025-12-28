@@ -62,7 +62,6 @@ type BulletinInfo struct {
 }
 
 // Create generates a new bulletin for the specified station and date.
-// It selects appropriate stories, generates the audio file, and saves the bulletin record.
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*BulletinInfo, error) {
 	// Validate station exists and fetch details
 	station, err := s.validateAndFetchStation(ctx, stationID)
@@ -252,7 +251,7 @@ func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery)
 	return result, nil
 }
 
-// Exists checks if a bulletin with the given ID exists.
+// Exists reports whether a bulletin with the given ID exists.
 func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.bulletinRepo.Exists(ctx, id)
 	if err != nil {

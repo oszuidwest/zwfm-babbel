@@ -28,9 +28,6 @@ func BulletinFilename(stationID int64, timestamp time.Time) string {
 }
 
 // GenerateBulletinPaths returns both absolute and relative paths for a bulletin.
-// Returns (absolutePath, relativePath) where absolutePath includes the full system path
-// and relativePath is relative to the upload directory.
-// Precondition: config must not be nil (programming error if violated).
 func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp time.Time) (string, string) {
 	if config == nil {
 		logger.Error("GenerateBulletinPaths called with nil config - this is a programming error")
@@ -53,7 +50,6 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 }
 
 // StoryPath returns the absolute filesystem path for a story audio file.
-// Precondition: config must not be nil (programming error if violated).
 func StoryPath(config *config.Config, storyID int64) string {
 	if config == nil {
 		logger.Error("StoryPath called with nil config - this is a programming error")
@@ -63,7 +59,6 @@ func StoryPath(config *config.Config, storyID int64) string {
 }
 
 // JinglePath returns the absolute filesystem path for a jingle file.
-// Precondition: config must not be nil (programming error if violated).
 func JinglePath(config *config.Config, stationID, voiceID int64) string {
 	if config == nil {
 		logger.Error("JinglePath called with nil config - this is a programming error")
@@ -73,7 +68,6 @@ func JinglePath(config *config.Config, stationID, voiceID int64) string {
 }
 
 // TempBulletinDir returns a temporary directory path for bulletin creation.
-// Precondition: config must not be nil (programming error if violated).
 func TempBulletinDir(config *config.Config, uuid string) string {
 	if config == nil {
 		logger.Error("TempBulletinDir called with nil config - this is a programming error")

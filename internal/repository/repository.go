@@ -1,5 +1,4 @@
 // Package repository provides data access abstractions for the Babbel application.
-// It implements the Repository pattern to separate data access concerns from business logic.
 package repository
 
 import (
@@ -24,8 +23,7 @@ func TxFromContext(ctx context.Context) *gorm.DB {
 	return nil
 }
 
-// DBFromContext returns the transaction from context if present, otherwise returns the provided db.
-// This is a convenience function for repositories to automatically use transactions when available.
+// DBFromContext returns the transaction from context if present, otherwise returns db.
 func DBFromContext(ctx context.Context, db *gorm.DB) *gorm.DB {
 	if tx := TxFromContext(ctx); tx != nil {
 		return tx

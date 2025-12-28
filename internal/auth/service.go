@@ -34,12 +34,12 @@ type Service struct {
 	ginStore any
 }
 
-// IsLocalEnabled returns true if local authentication is enabled.
+// IsLocalEnabled reports whether local authentication is enabled.
 func (s *Service) IsLocalEnabled() bool {
 	return s.config.Method.SupportsLocal()
 }
 
-// IsOAuthEnabled returns true if OAuth/OIDC authentication is enabled.
+// IsOAuthEnabled reports whether OAuth/OIDC authentication is enabled.
 func (s *Service) IsOAuthEnabled() bool {
 	return s.config.Method.SupportsOIDC()
 }
@@ -184,8 +184,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 }
 
 // sanitizeEmailToUsername converts an email address to a valid username.
-// It takes the local part (before @) and replaces invalid characters with underscores.
-// Example: raymon@zuidwestfm.nl → raymon
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	// Take the part before @ (local part of email)
 	base, _, _ := strings.Cut(email, "@")
@@ -213,8 +211,7 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 	return s.ensureUniqueUsername(username)
 }
 
-// ensureUniqueUsername checks if a username exists and adds a numeric suffix if needed.
-// It returns a unique username, appending _1, _2, etc. until an available username is found.
+// ensureUniqueUsername returns a unique username, adding numeric suffixes if needed.
 func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	username := baseUsername
 	counter := 1
@@ -507,7 +504,6 @@ type oauthUser struct {
 }
 
 // findOrCreateOAuthUser finds an existing user by email or creates a new one.
-// Returns the user ID and username, or an error if the account is suspended or creation fails.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
 		ID          int64
@@ -572,7 +568,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 }
 
 // determineOAuthUsername determines the best username from OAuth claims.
-// Prefers preferredUsername if valid, otherwise sanitizes the email.
 func (s *Service) determineOAuthUsername(preferredUsername, email string) string {
 	username := preferredUsername
 	if username == "" {
@@ -588,7 +583,6 @@ func (s *Service) determineOAuthUsername(preferredUsername, email string) string
 }
 
 // setupOAuthSession creates a session for an OAuth-authenticated user.
-// Updates login statistics and retrieves the user's current role from the database.
 func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 	ctx := c.Request.Context()
 
@@ -634,8 +628,6 @@ func (s *Service) Logout(c *gin.Context) error {
 }
 
 // CreateSession creates a new session for the authenticated user.
-// It stores the user ID, username, role, and authentication method in the session.
-// Returns an error if the session cannot be saved.
 func (s *Service) CreateSession(c *gin.Context, userID int64, username string, role string, authMethod string) error {
 	session := s.sessions.Get(c)
 	// Use type-safe session helpers
@@ -649,8 +641,6 @@ func (s *Service) CreateSession(c *gin.Context, userID int64, username string, r
 }
 
 // updateLoginSuccess updates user statistics after successful login.
-// It resets failed login attempts and increments the login count.
-// Returns an error if the database update fails.
 func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 	err := s.db.WithContext(ctx).
 		Table("users").
@@ -667,7 +657,6 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 }
 
 // updateLoginFailure increments failed login attempts for a user.
-// Returns an error if the database update fails.
 func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
 	err := s.db.WithContext(ctx).
 		Table("users").
@@ -679,8 +668,7 @@ func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
 	return err
 }
 
-// generateState generates a cryptographically secure random state parameter for OAuth2 CSRF protection.
-// Returns an error if the random number generator fails (extremely rare but possible).
+// generateState generates a cryptographically secure random state for OAuth2 CSRF protection.
 func generateState() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -689,8 +677,7 @@ func generateState() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-// isAllowedFrontendURL validates that the provided URL is in the allowed origins list.
-// This prevents open redirect attacks where an attacker could redirect users to a malicious site.
+// isAllowedFrontendURL reports whether the URL is in the allowed origins list.
 func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 	if urlStr == "" || s.config.AllowedOrigins == "" {
 		return false

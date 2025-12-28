@@ -11,12 +11,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// StationService handles station-related business logic
+// StationService handles station-related business logic.
 type StationService struct {
 	repo repository.StationRepository
 }
 
-// NewStationService creates a new station service instance
+// NewStationService creates a new station service instance.
 func NewStationService(repo repository.StationRepository) *StationService {
 	return &StationService{
 		repo: repo,
@@ -30,7 +30,7 @@ type UpdateStationRequest struct {
 	PauseSeconds       *float64 `json:"pause_seconds"`
 }
 
-// Create creates a new station with the given parameters
+// Create creates a new station with the given parameters.
 func (s *StationService) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
 	const op = "StationService.Create"
 
@@ -55,7 +55,7 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	return station, nil
 }
 
-// Update updates an existing station's configuration
+// Update updates an existing station's configuration.
 func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) error {
 	const op = "StationService.Update"
 
@@ -88,7 +88,7 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	return nil
 }
 
-// Exists checks if a station with the given ID exists.
+// Exists reports whether a station with the given ID exists.
 func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
 	return exists, nil
 }
 
-// Delete deletes a station after checking for dependencies
+// Delete deletes a station after checking for dependencies.
 func (s *StationService) Delete(ctx context.Context, id int64) error {
 	const op = "StationService.Delete"
 

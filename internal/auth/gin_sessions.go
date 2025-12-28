@@ -11,12 +11,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// GinSessionStore implements SessionStore using gin-contrib/sessions
+// GinSessionStore implements SessionStore using gin-contrib/sessions.
 type GinSessionStore struct {
 	name string
 }
 
-// NewGinSessionStore creates a new session store using gin-contrib/sessions
+// NewGinSessionStore creates a new session store.
 func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error) {
 	var store sessions.Store
 
@@ -50,7 +50,7 @@ func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error)
 	return &GinSessionStore{name: cfg.CookieName}, store, nil
 }
 
-// Get returns a session for the given context
+// Get returns a session for the given context.
 func (s *GinSessionStore) Get(c *gin.Context) Session {
 	return &ginSession{
 		session: sessions.Default(c),

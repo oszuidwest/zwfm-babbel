@@ -48,7 +48,8 @@ func NewStationVoiceRepository(db *gorm.DB) StationVoiceRepository {
 	}
 }
 
-// Create inserts a new station-voice relationship and returns the created record with joined relations.
+// Create inserts a new station-voice relationship and returns the created record
+// with its associated station and voice.
 func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
 	stationVoice := &models.StationVoice{
 		StationID: stationID,
@@ -69,14 +70,12 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 	return stationVoice, nil
 }
 
-// GetByID retrieves a station-voice relationship with joined station and voice.
-// Uses Joins for efficiency (single query with LEFT JOIN instead of separate queries).
+// GetByID retrieves a station-voice relationship with its associated station and voice.
 func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	return r.GetByIDWithJoins(ctx, id, "Station", "Voice")
 }
 
-// Update updates a station-voice relationship.
-// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
+// Update updates a station-voice relationship. Nil pointer fields are skipped.
 func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
 	if u == nil {
 		return nil
@@ -95,13 +94,12 @@ func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
-// Exists checks if a station-voice relationship with the given ID exists.
+// Exists reports whether a station-voice relationship with the given ID exists.
 func (r *stationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
-// IsCombinationTaken checks if a station-voice combination is already in use.
-// Uses DBFromContext to support transactions.
+// IsCombinationTaken reports whether a station-voice combination is already in use.
 func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	var count int64
 
@@ -121,8 +119,7 @@ func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 	return count > 0, nil
 }
 
-// GetStationVoiceIDs retrieves the station_id, voice_id, and audio_file for a station-voice record.
-// This is useful for file operations (jingle processing/deletion).
+// GetStationVoiceIDs retrieves the station ID, voice ID, and audio file path for a record.
 func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error) {
 	var record struct {
 		StationID int64  `gorm:"column:station_id"`
@@ -163,7 +160,6 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 }
 
 // stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.
-// Uses table prefix to avoid ambiguity when using Joins.
 var stationVoiceFieldMapping = FieldMapping{
 	"id":         "station_voices.id",
 	"station_id": "station_voices.station_id",
@@ -173,8 +169,7 @@ var stationVoiceFieldMapping = FieldMapping{
 	"updated_at": "station_voices.updated_at",
 }
 
-// List retrieves a paginated list of station-voice relationships with joined relations.
-// Uses Joins for efficiency (single query with LEFT JOIN instead of separate queries).
+// List retrieves a paginated list of station-voice relationships with their associated stations and voices.
 func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.StationVoice{}).

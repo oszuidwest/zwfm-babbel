@@ -1,7 +1,7 @@
 // Package auth provides authentication and authorization services.
 package auth
 
-// Resource represents a protected resource type
+// Resource represents a protected resource type.
 type Resource string
 
 // Resources that can be protected by RBAC.
@@ -20,7 +20,7 @@ const (
 	ResourceStationVoices Resource = "station_voices"
 )
 
-// Action represents an operation on a resource
+// Action represents an operation on a resource.
 type Action string
 
 // Actions that can be performed on resources.

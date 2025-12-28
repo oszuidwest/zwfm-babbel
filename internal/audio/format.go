@@ -1,6 +1,6 @@
 package audio
 
-// SampleRate represents audio sample rate in Hz
+// SampleRate represents audio sample rate in Hz.
 type SampleRate int
 
 // Sample rates for audio processing.
@@ -11,7 +11,7 @@ const (
 	SampleRate48000 SampleRate = 48000
 )
 
-// ChannelCount represents number of audio channels
+// ChannelCount represents the number of audio channels.
 type ChannelCount int
 
 // Channel configurations.
@@ -42,7 +42,7 @@ type Format struct {
 	Codec      Codec
 }
 
-// Standard formats
+// Standard formats.
 var (
 	// FormatStoryWAV defines the standard audio format for mono news stories (48kHz, 16-bit PCM).
 	FormatStoryWAV = Format{

@@ -62,8 +62,7 @@ func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice,
 	return r.GormRepository.GetByID(ctx, id)
 }
 
-// Update updates an existing voice with type-safe fields.
-// Uses BuildUpdateMap for automatic nil-pointer handling.
+// Update updates an existing voice. Nil pointer fields are skipped.
 func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
 	if u == nil {
 		return nil
@@ -77,22 +76,22 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 	return r.UpdateByID(ctx, id, updateMap)
 }
 
-// Delete removes a voice by its ID (hard delete since Voice has no soft delete).
+// Delete permanently removes a voice by its ID.
 func (r *voiceRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
-// Exists checks if a voice with the given ID exists.
+// Exists reports whether a voice with the given ID exists.
 func (r *voiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
-// IsNameTaken checks if a voice name is already in use.
+// IsNameTaken reports whether a voice name is already in use.
 func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
-// HasDependencies checks if voice is used by stories or station_voices.
+// HasDependencies reports whether the voice is used by stories or station_voices.
 func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	return r.HasRelatedRecords(ctx, id, map[string]string{
 		"stories":        "voice_id",

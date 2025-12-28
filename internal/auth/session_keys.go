@@ -36,8 +36,7 @@ func SetSessionAuth(session Session, data SessionData) {
 	session.Set(string(SessKeyAuthMethod), data.AuthMethod)
 }
 
-// SessionUserID retrieves the user ID from session in a type-safe manner.
-// Handles both int and int64 stored values for backwards compatibility.
+// SessionUserID retrieves the user ID from session.
 func SessionUserID(session Session) (int64, bool) {
 	val := session.Get(string(SessKeyUserID))
 	if val == nil {

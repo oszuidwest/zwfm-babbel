@@ -108,7 +108,7 @@ func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFi
 	return "", nil, false
 }
 
-// shouldSkipGormField returns true if the gorm tag indicates the field should be skipped.
+// shouldSkipGormField reports whether the gorm tag indicates the field should be skipped.
 func shouldSkipGormField(gormTag string) bool {
 	return gormTag == "-" || strings.HasPrefix(gormTag, "-,") || strings.Contains(gormTag, ",-")
 }

@@ -10,8 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Repository-level sentinel errors.
-// These are distinct from service errors but can be mapped to them.
+// Repository-level sentinel errors returned by data access operations.
 var (
 	// ErrNotFound indicates the requested record does not exist.
 	ErrNotFound = errors.New("record not found")
@@ -26,10 +25,8 @@ var (
 	ErrDataTooLong = errors.New("data too long for column")
 )
 
-// ParseDBError converts database-specific errors to repository errors.
-// This provides a consistent error interface across the repository layer.
-// Internal error details are logged but not exposed in the returned error
-// to prevent database schema leakage to clients.
+// ParseDBError converts database-specific errors to repository sentinel errors.
+// Returns nil if err is nil.
 func ParseDBError(err error) error {
 	if err == nil {
 		return nil

@@ -142,20 +142,19 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	return story, nil
 }
 
-// GetByID retrieves a story by ID with the Voice relation preloaded.
+// GetByID retrieves a story by ID with its associated voice.
 func (r *storyRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// GetByIDWithVoice retrieves a story with voice information via Preload.
+// GetByIDWithVoice retrieves a story with its associated voice.
 //
-// Deprecated: Use GetByID instead, which also preloads Voice.
+// Deprecated: Use GetByID instead, which includes voice information.
 func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error) {
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// Update updates a story with type-safe fields.
-// Uses BuildUpdateMap for automatic nil-pointer and Clear* flag handling.
+// Update updates a story. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
@@ -169,8 +168,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 	return r.UpdateByID(ctx, id, updateMap)
 }
 
-// SoftDelete sets the deleted_at timestamp.
-// GORM handles soft deletes automatically for models with gorm.DeletedAt.
+// SoftDelete marks a story as deleted without removing it from the database.
 func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).Delete(&models.Story{}, id)
@@ -198,7 +196,7 @@ func (r *storyRepository) Restore(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ExistsIncludingDeleted checks if a story exists (including soft-deleted).
+// ExistsIncludingDeleted reports whether a story exists, including soft-deleted stories.
 func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error) {
 	var count int64
 	err := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).Where("id = ?", id).Count(&count).Error
@@ -273,8 +271,7 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
 }
 
-// BulletinStoryData contains story data with station-specific audio processing info.
-// This is used for bulletin generation where we need jingle mix points.
+// BulletinStoryData contains story data with station-specific mix point for audio processing.
 type BulletinStoryData struct {
 	models.Story
 	MixPoint float64 `gorm:"column:mix_point"`
@@ -313,7 +310,6 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 }
 
 // weekdayColumns maps time.Weekday to the corresponding story column name.
-// Package-level variable to avoid allocation on every GetStoriesForBulletin call.
 var weekdayColumns = map[time.Weekday]string{
 	time.Monday:    "stories.monday",
 	time.Tuesday:   "stories.tuesday",

@@ -3,7 +3,7 @@ package auth
 
 import "github.com/gin-gonic/gin"
 
-// ContextKey is a typed key for context values
+// ContextKey is a typed key for context values.
 type ContextKey string
 
 // Context keys for storing user information in request context.
@@ -34,8 +34,7 @@ func SetUserContext(c *gin.Context, ctx UserContext) {
 	c.Set(string(CtxKeyAuthMethod), ctx.AuthMethod)
 }
 
-// UserID retrieves the user ID from context in a type-safe manner.
-// Returns 0 and false if not found or wrong type.
+// UserID retrieves the user ID from context.
 func UserID(c *gin.Context) (int64, bool) {
 	return getContextInt64(c, CtxKeyUserID)
 }

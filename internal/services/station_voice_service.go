@@ -27,8 +27,6 @@ type StationVoiceServiceDeps struct {
 }
 
 // StationVoiceService handles business logic for station-voice relationship operations.
-// It manages the many-to-many relationship between stations and voices, including
-// jingle audio file processing and validation.
 type StationVoiceService struct {
 	txManager        repository.TxManager
 	stationVoiceRepo repository.StationVoiceRepository
@@ -64,9 +62,7 @@ type UpdateStationVoiceRequest struct {
 	MixPoint  *float64
 }
 
-// Create creates a new station-voice relationship in the database.
-// It validates that both station and voice exist and that the combination is unique.
-// All operations are wrapped in a transaction for consistency.
+// Create creates a new station-voice relationship.
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
 	const op = "StationVoiceService.Create"
 
@@ -122,8 +118,6 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 }
 
 // Update updates an existing station-voice relationship.
-// It validates that the station and voice exist (if being updated) and ensures
-// the new combination remains unique.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
 	const op = "StationVoiceService.Update"
 
@@ -246,7 +240,7 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 	return nil
 }
 
-// GetByID retrieves a station-voice relationship by its ID with joined station and voice names.
+// GetByID retrieves a station-voice relationship by its ID.
 func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	const op = "StationVoiceService.GetByID"
 
@@ -262,8 +256,7 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete deletes a station-voice relationship and its associated jingle file if it exists.
-// The jingle file is removed from the filesystem after database deletion.
+// Delete removes a station-voice relationship and its associated jingle file.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	const op = "StationVoiceService.Delete"
 
@@ -301,9 +294,7 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessJingle processes an uploaded jingle audio file for a station-voice relationship.
-// The tempPath should be a validated temporary file path from ValidateAndSaveAudioFile.
-// This method converts the audio to standardized WAV format (48kHz stereo) and updates the database.
+// ProcessJingle converts an uploaded audio file and associates it with a station-voice relationship.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
 	const op = "StationVoiceService.ProcessJingle"
 
