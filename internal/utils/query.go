@@ -46,14 +46,6 @@ type FilterOperation struct {
 	Values   []string `json:"values"` // For "in" and "between" operations
 }
 
-// ListParams represents simplified parameters for list endpoints.
-type ListParams struct {
-	Limit  int
-	Offset int
-	Sort   string
-	Search string
-}
-
 // ParseQueryParams extracts and validates modern query parameters from the request.
 func ParseQueryParams(c *gin.Context) *QueryParams {
 	if c == nil {
@@ -65,7 +57,7 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	}
 
 	// Parse pagination
-	params.Limit, params.Offset = GetPagination(c)
+	params.Limit, params.Offset = Pagination(c)
 
 	// Parse sorting - handle nil safely
 	if sortFields := parseSorting(c); sortFields != nil {

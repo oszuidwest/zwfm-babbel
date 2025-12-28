@@ -87,15 +87,7 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, updates *VoiceUp
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // IsNameTaken checks if a voice name is already in use.

@@ -21,10 +21,10 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// GetIDParam extracts and validates the ID parameter from the request URL.
+// IDParam extracts and validates the ID parameter from the request URL.
 // Returns the ID as int64 and a boolean indicating success.
 // Automatically responds with 400 Bad Request if the ID is invalid or non-positive.
-func GetIDParam(c *gin.Context) (int64, bool) {
+func IDParam(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
 		ProblemBadRequest(c, "Invalid ID parameter")
@@ -68,10 +68,10 @@ func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 	return true
 }
 
-// GetPagination extracts pagination parameters from query string with validation.
+// Pagination extracts pagination parameters from query string with validation.
 // Returns limit (default 20, max 100) and offset (default 0, min 0).
 // Invalid values are ignored and defaults are used instead.
-func GetPagination(c *gin.Context) (limit, offset int) {
+func Pagination(c *gin.Context) (limit, offset int) {
 	limit = 20 // default
 	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
 		limit = l
@@ -424,7 +424,7 @@ func convertValidationErrors(err error) []ValidationError {
 	return errors
 }
 
-// validTables defines the allowlist of valid table names for GenericGetByID.
+// validTables defines the allowlist of valid table names for GenericByID.
 // This prevents SQL injection attacks by restricting table name interpolation.
 var validTables = map[string]bool{
 	"stations":       true,
@@ -435,13 +435,13 @@ var validTables = map[string]bool{
 	"station_voices": true,
 }
 
-// GenericGetByID provides a generic handler for retrieving database records by ID.
+// GenericByID provides a generic handler for retrieving database records by ID.
 // Handles parameter extraction, database queries, and error responses automatically.
 // Returns 200 OK with data on success, 404 Not Found if record doesn't exist, 500 for database errors.
 // The result parameter must be a pointer to the appropriate struct type.
 // Table name is validated against an allowlist to prevent SQL injection.
-func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result any) {
-	id, ok := GetIDParam(c)
+func GenericByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string, result any) {
+	id, ok := IDParam(c)
 	if !ok {
 		return
 	}
@@ -454,7 +454,7 @@ func GenericGetByID(c *gin.Context, db *sqlx.DB, tableName, resourceName string,
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id = ?", tableName)
 	if err := db.Get(result, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			ProblemNotFound(c, resourceName)
 		} else {
 			ProblemInternalServer(c, fmt.Sprintf("Failed to fetch %s", strings.ToLower(resourceName)))

@@ -43,7 +43,7 @@ func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string
 		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", err)
 	}
 
-	duration, err := s.GetDuration(ctx, outputPath)
+	duration, err := s.Duration(ctx, outputPath)
 	if err != nil {
 		return "", 0, err
 	}
@@ -51,8 +51,8 @@ func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string
 	return outputPath, duration, nil
 }
 
-// GetDuration retrieves the duration of an audio file in seconds using ffprobe.
-func (s *Service) GetDuration(ctx context.Context, filePath string) (float64, error) {
+// Duration retrieves the duration of an audio file in seconds using ffprobe.
+func (s *Service) Duration(ctx context.Context, filePath string) (float64, error) {
 	// #nosec G204 - ffprobe binary is from config, filePath is internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
 		"-i", filePath,
@@ -82,7 +82,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	}
 
 	// Create temp directory for mixing
-	tempDir := utils.GetTempBulletinDir(s.config, uuid.New().String())
+	tempDir := utils.TempBulletinDir(s.config, uuid.New().String())
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create temp directory %s: %w", tempDir, err)
 	}
@@ -132,7 +132,7 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 // addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
 func (s *Service) addStoryInputsWithPadding(args, filters []string, station *models.Station, stories []models.Story) ([]string, []string) {
 	for i, story := range stories {
-		storyPath := utils.GetStoryPath(s.config, story.ID)
+		storyPath := utils.StoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
 
 		// Add padding after each story except the last one
@@ -180,7 +180,7 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 	}
 
 	// Use station-specific jingle
-	jinglePath := utils.GetJinglePath(s.config, station.ID, *stories[0].VoiceID)
+	jinglePath := utils.JinglePath(s.config, station.ID, *stories[0].VoiceID)
 
 	if _, err := os.Stat(jinglePath); err != nil {
 		if !os.IsNotExist(err) {

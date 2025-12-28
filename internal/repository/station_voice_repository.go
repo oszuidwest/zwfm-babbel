@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -85,7 +86,7 @@ func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models
               WHERE sv.id = ?`
 
 	if err := q.GetContext(ctx, &stationVoice, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)
@@ -134,15 +135,7 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, updates *
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // Delete removes a station-voice relationship.
@@ -154,15 +147,7 @@ func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // IsCombinationTaken checks if a station-voice combination is already in use.
@@ -191,7 +176,7 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 
 	err = q.GetContext(ctx, &record, "SELECT station_id, voice_id, audio_file FROM station_voices WHERE id = ?", id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, 0, "", ErrNotFound
 		}
 		return 0, 0, "", ParseDBError(err)
@@ -209,13 +194,5 @@ func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }

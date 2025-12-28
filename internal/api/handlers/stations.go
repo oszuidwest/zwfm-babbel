@@ -3,7 +3,6 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -12,36 +11,13 @@ import (
 // Supports modern query parameters: search, filtering, sorting, field selection, and pagination.
 // Requires 'stations' read permission. Returns station data with metadata including total count and pagination info.
 func (h *Handlers) ListStations(c *gin.Context) {
-	// Configure modern query with field mappings and search fields
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery:    "SELECT s.* FROM stations s",
-			CountQuery:   "SELECT COUNT(*) FROM stations s",
-			DefaultOrder: "s.name ASC",
-		},
-		SearchFields:      []string{"s.name"},
-		TableAlias:        "s",
-		DefaultFields:     "s.*",
-		DisableSoftDelete: true, // Stations table doesn't have deleted_at column
-		FieldMapping: map[string]string{
-			"id":                    "s.id",
-			"name":                  "s.name",
-			"max_stories_per_block": "s.max_stories_per_block",
-			"pause_seconds":         "s.pause_seconds",
-			"created_at":            "s.created_at",
-			"updated_at":            "s.updated_at",
-		},
-	}
-
-	var stations []models.Station
-	utils.ModernListWithQuery(c, h.stationSvc.DB(), config, &stations)
+	h.stationSvc.ListWithContext(c)
 }
 
 // GetStation returns a single radio station by ID with all configuration details.
 // Requires 'stations' read permission. Returns 404 if station doesn't exist.
 func (h *Handlers) GetStation(c *gin.Context) {
-	var station models.Station
-	utils.GenericGetByID(c, h.stationSvc.DB(), "stations", "Station", &station)
+	h.stationSvc.GetByIDWithContext(c)
 }
 
 // CreateStation creates a new radio station with broadcast configuration settings.
@@ -66,7 +42,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 // Validates station existence and name uniqueness (excluding current station).
 // Requires 'stations' write permission. Returns 404 if station doesn't exist, 409 for name conflicts.
 func (h *Handlers) UpdateStation(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -96,7 +72,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 // Checks for associated station-voices and other references before deletion.
 // Requires 'stations' write permission. Returns 409 Conflict if dependencies exist, 404 if not found.
 func (h *Handlers) DeleteStation(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

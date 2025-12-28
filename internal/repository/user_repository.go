@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (r *userRepository) GetByUsername(ctx context.Context, username string) (*m
 	var user models.User
 	err := q.GetContext(ctx, &user, "SELECT * FROM users WHERE username = ?", username)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)
@@ -151,15 +152,7 @@ func (r *userRepository) Update(ctx context.Context, id int64, updates *UserUpda
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // IsUsernameTaken checks if username is in use.
@@ -219,15 +212,7 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // DeleteSessions removes all sessions for a user.

@@ -133,16 +133,9 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		return nil, err
 	}
 
-	// Create a database adapter for Casbin
-	adapter := NewCasbinAdapter(s.db)
-
-	enforcer, err := casbin.NewEnforcer(m, adapter)
+	// Create enforcer with in-memory policy storage (no adapter needed)
+	enforcer, err := casbin.NewEnforcer(m)
 	if err != nil {
-		return nil, err
-	}
-
-	// Load initial policies
-	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
 
@@ -288,7 +281,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		session := s.sessions.Get(c)
 
 		// Check if user is authenticated (type-safe)
-		userID, ok := GetSessionUserID(session)
+		userID, ok := SessionUserID(session)
 		if !ok {
 			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
@@ -329,7 +322,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 // RequirePermission returns middleware that enforces role-based access control.
 func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, roleOk := GetUserRole(c)
+		role, roleOk := UserRole(c)
 		if !roleOk {
 			logger.Error("RequirePermission: user role not found in context")
 			utils.ProblemAuthentication(c, "Authentication required")
@@ -440,7 +433,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	// Verify state (type-safe)
 	state := c.Query("state")
-	savedStateStr, ok := GetSessionOAuthState(session)
+	savedStateStr, ok := SessionOAuthState(session)
 	if !ok || state != savedStateStr {
 		return fmt.Errorf("invalid state")
 	}
@@ -584,8 +577,8 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 	return nil
 }
 
-// GetSession retrieves the current session for the request context.
-func (s *Service) GetSession(c *gin.Context) Session {
+// Session retrieves the current session for the request context.
+func (s *Service) Session(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 

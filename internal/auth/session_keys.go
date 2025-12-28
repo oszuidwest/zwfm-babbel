@@ -36,9 +36,9 @@ func SetSessionAuth(session Session, data SessionData) {
 	session.Set(string(SessKeyAuthMethod), data.AuthMethod)
 }
 
-// GetSessionUserID retrieves the user ID from session in a type-safe manner.
+// SessionUserID retrieves the user ID from session in a type-safe manner.
 // Handles both int and int64 stored values for backwards compatibility.
-func GetSessionUserID(session Session) (int64, bool) {
+func SessionUserID(session Session) (int64, bool) {
 	val := session.Get(string(SessKeyUserID))
 	if val == nil {
 		return 0, false
@@ -53,8 +53,8 @@ func GetSessionUserID(session Session) (int64, bool) {
 	}
 }
 
-// GetSessionString retrieves a string value from session by key.
-func GetSessionString(session Session, key SessionKey) (string, bool) {
+// SessionString retrieves a string value from session by key.
+func SessionString(session Session, key SessionKey) (string, bool) {
 	val := session.Get(string(key))
 	if val == nil {
 		return "", false
@@ -65,14 +65,14 @@ func GetSessionString(session Session, key SessionKey) (string, bool) {
 	return "", false
 }
 
-// GetSessionOAuthState retrieves the OAuth state token from session.
-func GetSessionOAuthState(session Session) (string, bool) {
-	return GetSessionString(session, SessKeyOAuthState)
+// SessionOAuthState retrieves the OAuth state token from session.
+func SessionOAuthState(session Session) (string, bool) {
+	return SessionString(session, SessKeyOAuthState)
 }
 
-// GetSessionFrontendURL retrieves the frontend URL from session.
-func GetSessionFrontendURL(session Session) (string, bool) {
-	return GetSessionString(session, SessKeyFrontendURL)
+// SessionFrontendURL retrieves the frontend URL from session.
+func SessionFrontendURL(session Session) (string, bool) {
+	return SessionString(session, SessKeyFrontendURL)
 }
 
 // SetSessionOAuthState stores the OAuth state token in session.

@@ -4,6 +4,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -60,7 +61,7 @@ func (r *BaseRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE id = ?", r.tableName)
 
 	if err := q.GetContext(ctx, &result, query, id); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, ParseDBError(err)
@@ -83,20 +84,6 @@ func (r *BaseRepository[T]) Exists(ctx context.Context, id int64) (bool, error) 
 	return exists, nil
 }
 
-// Count returns the total number of records.
-func (r *BaseRepository[T]) Count(ctx context.Context) (int64, error) {
-	q := r.getQueryable(ctx)
-
-	var count int64
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s", r.tableName)
-
-	if err := q.GetContext(ctx, &count, query); err != nil {
-		return 0, ParseDBError(err)
-	}
-
-	return count, nil
-}
-
 // Delete performs a hard delete of a record by ID.
 func (r *BaseRepository[T]) Delete(ctx context.Context, id int64) error {
 	q := r.getQueryable(ctx)
@@ -107,15 +94,7 @@ func (r *BaseRepository[T]) Delete(ctx context.Context, id int64) error {
 		return ParseDBError(err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return ParseDBError(err)
-	}
-	if rowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return checkRowsAffected(result)
 }
 
 // ExistsBy checks if any record matches the given condition.
@@ -133,19 +112,17 @@ func (r *BaseRepository[T]) ExistsBy(ctx context.Context, condition string, args
 	return exists, nil
 }
 
-// CountBy counts records matching a condition.
-// The condition should be a valid SQL WHERE clause fragment.
-func (r *BaseRepository[T]) CountBy(ctx context.Context, condition string, args ...any) (int, error) {
-	q := r.getQueryable(ctx)
-
-	var count int
-	query := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", r.tableName, condition)
-
-	if err := q.GetContext(ctx, &count, query, args...); err != nil {
-		return 0, ParseDBError(err)
+// checkRowsAffected verifies that at least one row was affected by an operation.
+// Returns ErrNotFound if no rows were affected, or wraps any error from RowsAffected().
+func checkRowsAffected(result sql.Result) error {
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return ParseDBError(err)
 	}
-
-	return count, nil
+	if rowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // addFieldUpdate adds a field to the update query if the pointer is non-nil.

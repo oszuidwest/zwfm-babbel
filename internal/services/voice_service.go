@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // VoiceService handles voice-related business logic
@@ -35,19 +37,19 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if taken {
-		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
+		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
 	}
 
 	// Create voice
 	voice, err := s.repo.Create(ctx, name)
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, name)
+			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return voice, nil
@@ -60,20 +62,20 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	// Check if voice exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+			return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 		if taken {
-			return fmt.Errorf("%s: %w: voice name '%s'", op, ErrDuplicate, *req.Name)
+			return fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, *req.Name)
 		}
 	}
 
@@ -86,9 +88,9 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	err = s.repo.Update(ctx, id, updates)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
@@ -101,34 +103,74 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	// Check if voice exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if hasDeps {
-		return fmt.Errorf("%s: %w: voice is used by stories or stations", op, ErrDependencyExists)
+		return fmt.Errorf("%s: %w: voice is used by stories or stations", op, apperrors.ErrDependencyExists)
 	}
 
 	// Delete voice
 	err = s.repo.Delete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
 }
 
-// DB returns the underlying database for ModernListWithQuery.
-func (s *VoiceService) DB() *sqlx.DB {
-	return s.repo.DB()
+// GetByIDWithContext retrieves a voice by ID and writes the JSON response.
+func (s *VoiceService) GetByIDWithContext(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	voice, err := s.repo.GetByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			utils.ProblemNotFound(c, "Voice")
+			return
+		}
+		utils.ProblemInternalServer(c, "Failed to retrieve voice")
+		return
+	}
+
+	c.JSON(200, voice)
+}
+
+// ListWithContext handles paginated list requests with query parameters.
+// Encapsulates query configuration and writes JSON response directly.
+func (s *VoiceService) ListWithContext(c *gin.Context) {
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery:    "SELECT v.* FROM voices v",
+			CountQuery:   "SELECT COUNT(*) FROM voices v",
+			DefaultOrder: "v.name ASC",
+		},
+		SearchFields:      []string{"v.name"},
+		TableAlias:        "v",
+		DefaultFields:     "v.*",
+		DisableSoftDelete: true,
+		FieldMapping: map[string]string{
+			"id":         "v.id",
+			"name":       "v.name",
+			"created_at": "v.created_at",
+			"updated_at": "v.updated_at",
+		},
+	}
+
+	var voices []models.Voice
+	utils.ModernListWithQuery(c, s.repo.DB(), config, &voices)
 }

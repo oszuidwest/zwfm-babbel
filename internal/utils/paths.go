@@ -12,29 +12,31 @@ import (
 
 const defaultAudioOutputPath = "audio/output"
 
-// GetStoryFilename returns the standardized filename for a story audio file.
-func GetStoryFilename(storyID int64) string {
+// StoryFilename returns the standardized filename for a story audio file.
+func StoryFilename(storyID int64) string {
 	return fmt.Sprintf("story_%d.wav", storyID)
 }
 
-// GetJingleFilename returns the standardized filename for a station-voice jingle file.
-func GetJingleFilename(stationID, voiceID int64) string {
+// JingleFilename returns the standardized filename for a station-voice jingle file.
+func JingleFilename(stationID, voiceID int64) string {
 	return fmt.Sprintf("station_%d_voice_%d_jingle.wav", stationID, voiceID)
 }
 
-// GetBulletinFilename returns the timestamped filename for a bulletin output file.
-func GetBulletinFilename(stationID int64, timestamp time.Time) string {
+// BulletinFilename returns the timestamped filename for a bulletin output file.
+func BulletinFilename(stationID int64, timestamp time.Time) string {
 	return fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405"))
 }
 
 // GenerateBulletinPaths returns both absolute and relative paths for a bulletin.
 // Returns (absolutePath, relativePath) where absolutePath includes the full system path
 // and relativePath is relative to the upload directory.
+// Precondition: config must not be nil (programming error if violated).
 func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp time.Time) (string, string) {
 	if config == nil {
-		panic("paths: config is nil")
+		logger.Error("GenerateBulletinPaths called with nil config - this is a programming error")
+		return "", ""
 	}
-	filename := GetBulletinFilename(stationID, timestamp)
+	filename := BulletinFilename(stationID, timestamp)
 
 	// Generate absolute path for file creation
 	absolutePath := filepath.Join(config.Audio.OutputPath, filename)
@@ -50,26 +52,32 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 	return absolutePath, relativePath
 }
 
-// GetStoryPath returns the absolute filesystem path for a story audio file.
-func GetStoryPath(config *config.Config, storyID int64) string {
+// StoryPath returns the absolute filesystem path for a story audio file.
+// Precondition: config must not be nil (programming error if violated).
+func StoryPath(config *config.Config, storyID int64) string {
 	if config == nil {
-		panic("paths: config is nil")
+		logger.Error("StoryPath called with nil config - this is a programming error")
+		return ""
 	}
-	return filepath.Join(config.Audio.ProcessedPath, GetStoryFilename(storyID))
+	return filepath.Join(config.Audio.ProcessedPath, StoryFilename(storyID))
 }
 
-// GetJinglePath returns the absolute filesystem path for a jingle file.
-func GetJinglePath(config *config.Config, stationID, voiceID int64) string {
+// JinglePath returns the absolute filesystem path for a jingle file.
+// Precondition: config must not be nil (programming error if violated).
+func JinglePath(config *config.Config, stationID, voiceID int64) string {
 	if config == nil {
-		panic("paths: config is nil")
+		logger.Error("JinglePath called with nil config - this is a programming error")
+		return ""
 	}
-	return filepath.Join(config.Audio.ProcessedPath, GetJingleFilename(stationID, voiceID))
+	return filepath.Join(config.Audio.ProcessedPath, JingleFilename(stationID, voiceID))
 }
 
-// GetTempBulletinDir returns a temporary directory path for bulletin creation.
-func GetTempBulletinDir(config *config.Config, uuid string) string {
+// TempBulletinDir returns a temporary directory path for bulletin creation.
+// Precondition: config must not be nil (programming error if violated).
+func TempBulletinDir(config *config.Config, uuid string) string {
 	if config == nil {
-		panic("paths: config is nil")
+		logger.Error("TempBulletinDir called with nil config - this is a programming error")
+		return ""
 	}
 	return filepath.Join(config.Audio.TempPath, uuid)
 }

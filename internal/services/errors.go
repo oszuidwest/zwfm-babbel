@@ -1,36 +1,76 @@
-// Package services provides domain services for the Babbel API.
-// Services encapsulate business logic and data access, keeping handlers thin.
+// Package services provides business logic for the Babbel application.
 package services
 
-import "errors"
+import (
+	"errors"
+	"fmt"
 
-// Sentinel errors for service layer operations.
-// Use errors.Is() to check for these errors and wrap with context using fmt.Errorf("%w", err).
-var (
-	// ErrNotFound indicates the requested resource does not exist.
-	ErrNotFound = errors.New("resource not found")
-
-	// ErrDuplicate indicates a unique constraint violation.
-	ErrDuplicate = errors.New("duplicate resource")
-
-	// ErrDependencyExists indicates the resource cannot be deleted due to dependencies.
-	ErrDependencyExists = errors.New("resource has dependencies")
-
-	// ErrInvalidInput indicates validation failure on input data.
-	ErrInvalidInput = errors.New("invalid input")
-
-	// ErrNoStoriesAvailable indicates no stories match the bulletin criteria.
-	ErrNoStoriesAvailable = errors.New("no stories available for requested criteria")
-
-	// ErrAudioProcessingFailed indicates FFmpeg or audio service failure.
-	ErrAudioProcessingFailed = errors.New("audio processing failed")
-
-	// ErrDatabaseError indicates an unexpected database error.
-	ErrDatabaseError = errors.New("database operation failed")
-
-	// ErrUnauthorized indicates the user is not authenticated.
-	ErrUnauthorized = errors.New("authentication required")
-
-	// ErrForbidden indicates the user lacks permission for the operation.
-	ErrForbidden = errors.New("permission denied")
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
+
+// MapRepoError translates repository errors to application-level errors.
+// It preserves the operation context and maps common repository errors to their
+// corresponding application error types.
+func MapRepoError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, repository.ErrNotFound) {
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+	}
+
+	if errors.Is(err, repository.ErrDuplicateKey) {
+		return fmt.Errorf("%s: %w", op, apperrors.ErrDuplicate)
+	}
+
+	if errors.Is(err, repository.ErrForeignKeyViolation) {
+		return fmt.Errorf("%s: %w", op, apperrors.ErrDependencyExists)
+	}
+
+	return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+}
+
+// MapRepoErrorWithContext translates repository errors with additional context.
+// Use this when you need to include extra information like the resource name or ID.
+func MapRepoErrorWithContext(op string, err error, context string) error {
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(err, repository.ErrNotFound) {
+		return fmt.Errorf("%s: %w: %s", op, apperrors.ErrNotFound, context)
+	}
+
+	if errors.Is(err, repository.ErrDuplicateKey) {
+		return fmt.Errorf("%s: %w: %s", op, apperrors.ErrDuplicate, context)
+	}
+
+	if errors.Is(err, repository.ErrForeignKeyViolation) {
+		return fmt.Errorf("%s: %w: %s", op, apperrors.ErrDependencyExists, context)
+	}
+
+	return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+}
+
+// WrapDBError wraps database errors without mapping, preserving the original error.
+// Use this when you want to add context but let the caller handle the mapping.
+func WrapDBError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+}
+
+// MustExist is a helper that checks an existence query result and returns
+// appropriate errors for the exists/err combination.
+func MustExist(op string, exists bool, err error) error {
+	if err != nil {
+		return WrapDBError(op, err)
+	}
+	if !exists {
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+	}
+	return nil
+}

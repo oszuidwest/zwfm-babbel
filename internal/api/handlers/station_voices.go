@@ -39,50 +39,12 @@ func StationVoiceAudioURL(stationVoiceID int64, hasJingle bool) *string {
 // Supports advanced filtering, sorting, field selection, and full-text search.
 // Search functionality covers station names and voice names for easy discovery.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
-	// Configure modern query with field mappings and search fields
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, 
-			            sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name 
-			            FROM station_voices sv 
-			            JOIN stations s ON sv.station_id = s.id 
-			            JOIN voices v ON sv.voice_id = v.id`,
-			CountQuery:   "SELECT COUNT(*) FROM station_voices sv JOIN stations s ON sv.station_id = s.id JOIN voices v ON sv.voice_id = v.id",
-			DefaultOrder: "sv.id DESC",
-			PostProcessor: func(result any) {
-				// Add audio URLs to response
-				if stationVoices, ok := result.(*[]StationVoiceResponse); ok {
-					for i := range *stationVoices {
-						hasJingle := (*stationVoices)[i].AudioFile != ""
-						(*stationVoices)[i].AudioURL = StationVoiceAudioURL((*stationVoices)[i].ID, hasJingle)
-					}
-				}
-			},
-		},
-		SearchFields:      []string{"s.name", "v.name"},
-		TableAlias:        "sv",
-		DefaultFields:     "sv.id, sv.station_id, sv.voice_id, sv.audio_file, sv.mix_point, sv.created_at, sv.updated_at, s.name as station_name, v.name as voice_name",
-		DisableSoftDelete: true, // Station-voices table doesn't have deleted_at column
-		FieldMapping: map[string]string{
-			"id":           "sv.id",
-			"station_id":   "sv.station_id",
-			"voice_id":     "sv.voice_id",
-			"audio_file":   "sv.audio_file",
-			"mix_point":    "sv.mix_point",
-			"created_at":   "sv.created_at",
-			"updated_at":   "sv.updated_at",
-			"station_name": "s.name",
-			"voice_name":   "v.name",
-		},
-	}
-
-	var stationVoices []StationVoiceResponse
-	utils.ModernListWithQuery(c, h.stationVoiceSvc.DB(), config, &stationVoices)
+	h.stationVoiceSvc.ListWithContext(c)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID
 func (h *Handlers) GetStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -268,7 +230,7 @@ func buildStationVoiceResponse(sv *models.StationVoice) StationVoiceResponse {
 
 // UpdateStationVoice updates an existing station-voice relationship
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -305,7 +267,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file
 func (h *Handlers) DeleteStationVoice(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}

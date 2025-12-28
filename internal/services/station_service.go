@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jmoiron/sqlx"
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // StationService handles station-related business logic
@@ -37,19 +39,19 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if taken {
-		return nil, fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, name)
+		return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
 	}
 
 	// Create station
 	station, err := s.repo.Create(ctx, name, maxStories, pauseSeconds)
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, name)
+			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return station, nil
@@ -62,20 +64,20 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	// Check if station exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+			return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 		if taken {
-			return fmt.Errorf("%s: %w: station name '%s'", op, ErrDuplicate, *req.Name)
+			return fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, *req.Name)
 		}
 	}
 
@@ -90,9 +92,9 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	err = s.repo.Update(ctx, id, updates)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
@@ -105,34 +107,76 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 	// Check if station exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 	}
 
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 	if hasDeps {
-		return fmt.Errorf("%s: %w: station has associated voices", op, ErrDependencyExists)
+		return fmt.Errorf("%s: %w: station has associated voices", op, apperrors.ErrDependencyExists)
 	}
 
 	// Delete station
 	err = s.repo.Delete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, ErrNotFound)
+			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, ErrDatabaseError, err)
+		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
 	return nil
 }
 
-// DB returns the underlying database for ModernListWithQuery.
-func (s *StationService) DB() *sqlx.DB {
-	return s.repo.DB()
+// GetByIDWithContext retrieves a station by ID and writes the JSON response.
+func (s *StationService) GetByIDWithContext(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	station, err := s.repo.GetByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			utils.ProblemNotFound(c, "Station")
+			return
+		}
+		utils.ProblemInternalServer(c, "Failed to retrieve station")
+		return
+	}
+
+	c.JSON(200, station)
+}
+
+// ListWithContext handles paginated list requests with query parameters.
+// Encapsulates query configuration and writes JSON response directly.
+func (s *StationService) ListWithContext(c *gin.Context) {
+	config := utils.EnhancedQueryConfig{
+		QueryConfig: utils.QueryConfig{
+			BaseQuery:    "SELECT s.* FROM stations s",
+			CountQuery:   "SELECT COUNT(*) FROM stations s",
+			DefaultOrder: "s.name ASC",
+		},
+		SearchFields:      []string{"s.name"},
+		TableAlias:        "s",
+		DefaultFields:     "s.*",
+		DisableSoftDelete: true,
+		FieldMapping: map[string]string{
+			"id":                    "s.id",
+			"name":                  "s.name",
+			"max_stories_per_block": "s.max_stories_per_block",
+			"pause_seconds":         "s.pause_seconds",
+			"created_at":            "s.created_at",
+			"updated_at":            "s.updated_at",
+		},
+	}
+
+	var stations []models.Station
+	utils.ModernListWithQuery(c, s.repo.DB(), config, &stations)
 }

@@ -45,15 +45,43 @@ func SetupRouter(db *sqlx.DB, cfg *config.Config) (*gin.Engine, error) {
 	audioSvc := audio.NewService(cfg)
 
 	// Create domain services with repositories
-	bulletinSvc := services.NewBulletinService(txManager, bulletinRepo, stationRepo, storyRepo, audioSvc, cfg)
-	storySvc := services.NewStoryService(storyRepo, voiceRepo, audioSvc, cfg)
+	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
+		TxManager:    txManager,
+		BulletinRepo: bulletinRepo,
+		StationRepo:  stationRepo,
+		StoryRepo:    storyRepo,
+		AudioSvc:     audioSvc,
+		Config:       cfg,
+	})
+	storySvc := services.NewStoryService(services.StoryServiceDeps{
+		StoryRepo: storyRepo,
+		VoiceRepo: voiceRepo,
+		AudioSvc:  audioSvc,
+		Config:    cfg,
+	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
 	userSvc := services.NewUserService(userRepo)
-	stationVoiceSvc := services.NewStationVoiceService(stationVoiceRepo, stationRepo, voiceRepo, audioSvc, cfg)
+	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
+		StationVoiceRepo: stationVoiceRepo,
+		StationRepo:      stationRepo,
+		VoiceRepo:        voiceRepo,
+		AudioSvc:         audioSvc,
+		Config:           cfg,
+	})
 
 	// Create handlers with services and audio repository
-	h := handlers.NewHandlers(audioRepo, audioSvc, cfg, bulletinSvc, storySvc, stationSvc, voiceSvc, userSvc, stationVoiceSvc)
+	h := handlers.NewHandlers(handlers.HandlersDeps{
+		AudioRepo:       audioRepo,
+		AudioSvc:        audioSvc,
+		Config:          cfg,
+		BulletinSvc:     bulletinSvc,
+		StorySvc:        storySvc,
+		StationSvc:      stationSvc,
+		VoiceSvc:        voiceSvc,
+		UserSvc:         userSvc,
+		StationVoiceSvc: stationVoiceSvc,
+	})
 
 	// Create auth configuration
 	authConfig := &auth.Config{

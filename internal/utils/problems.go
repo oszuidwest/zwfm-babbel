@@ -51,7 +51,6 @@ const (
 	ProblemTypeInsufficientPermissions = "https://babbel.api/problems/insufficient-permissions"
 	ProblemTypeInternalServerError     = "https://babbel.api/problems/internal-server-error"
 	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
-	ProblemTypeDependencyConstraint    = "https://babbel.api/problems/dependency-constraint"
 )
 
 // NewProblemDetail creates a new RFC 9457 compliant problem detail response.

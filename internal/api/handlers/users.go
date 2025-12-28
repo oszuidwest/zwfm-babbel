@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -30,43 +31,12 @@ type UserResponse struct {
 
 // ListUsers returns a paginated list of users with modern query parameter support
 func (h *Handlers) ListUsers(c *gin.Context) {
-	// Configure modern query with field mappings and search fields
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
-			            login_count, failed_login_attempts, locked_until, password_changed_at,
-			            metadata, created_at, updated_at FROM users`,
-			CountQuery:   "SELECT COUNT(*) FROM users",
-			DefaultOrder: "username ASC",
-		},
-		SearchFields:  []string{"username", "full_name", "email"},
-		TableAlias:    "",
-		DefaultFields: "*",
-		FieldMapping: map[string]string{
-			"id":                    "id",
-			"username":              "username",
-			"full_name":             "full_name",
-			"email":                 "email",
-			"role":                  "role",
-			"suspended_at":          "suspended_at",
-			"last_login_at":         "last_login_at",
-			"login_count":           "login_count",
-			"failed_login_attempts": "failed_login_attempts",
-			"locked_until":          "locked_until",
-			"password_changed_at":   "password_changed_at",
-			"metadata":              "metadata",
-			"created_at":            "created_at",
-			"updated_at":            "updated_at",
-		},
-	}
-
-	var users []UserResponse
-	utils.ModernListWithQuery(c, h.userSvc.DB(), config, &users)
+	h.userSvc.ListWithContext(c)
 }
 
 // GetUser returns a single user by ID
 func (h *Handlers) GetUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -124,7 +94,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 
 // UpdateUser updates an existing user's information
 func (h *Handlers) UpdateUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -156,7 +126,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 
 // DeleteUser permanently deletes a user account
 func (h *Handlers) DeleteUser(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
@@ -165,7 +135,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
 		// Special handling for last admin constraint
-		if errors.Is(err, services.ErrInvalidInput) {
+		if errors.Is(err, apperrors.ErrInvalidInput) {
 			// Check if this is the last admin error
 			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
 			return
@@ -179,7 +149,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 
 // UpdateUserStatus handles user suspension and restoration
 func (h *Handlers) UpdateUserStatus(c *gin.Context) {
-	id, ok := utils.GetIDParam(c)
+	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
