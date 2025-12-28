@@ -14,79 +14,22 @@ import (
 // Use Clear* flags to explicitly set a field to NULL.
 type UserUpdate struct {
 	// Regular fields (nil = skip, non-nil = set value)
-	Username            *string    `db:"username"`
-	FullName            *string    `db:"full_name"`
-	Email               *string    `db:"email"`
-	PasswordHash        *string    `db:"password_hash"`
-	Role                *string    `db:"role"`
-	LastLoginAt         *time.Time `db:"last_login_at"`
-	LoginCount          *int       `db:"login_count"`
-	FailedLoginAttempts *int       `db:"failed_login_attempts"`
-	LockedUntil         *time.Time `db:"locked_until"`
-	PasswordChangedAt   *time.Time `db:"password_changed_at"`
-	Metadata            *string    `db:"metadata"`
+	Username            *string
+	FullName            *string
+	Email               *string
+	PasswordHash        *string
+	Role                *string
+	LastLoginAt         *time.Time
+	LoginCount          *int
+	FailedLoginAttempts *int
+	LockedUntil         *time.Time
+	PasswordChangedAt   *time.Time
+	Metadata            *string
 
 	// Explicit NULL setting flags (takes precedence over pointer values)
 	ClearEmail       bool
 	ClearLockedUntil bool
 	ClearMetadata    bool
-}
-
-// buildUserUpdateMap converts UserUpdate to a map for GORM's Updates method.
-// Handles both regular pointer fields and explicit NULL clearing flags.
-func buildUserUpdateMap(u *UserUpdate) map[string]any {
-	if u == nil {
-		return nil
-	}
-
-	m := make(map[string]any)
-
-	// Handle regular pointer fields
-	if u.Username != nil {
-		m["username"] = *u.Username
-	}
-	if u.FullName != nil {
-		m["full_name"] = *u.FullName
-	}
-	if u.PasswordHash != nil {
-		m["password_hash"] = *u.PasswordHash
-	}
-	if u.Role != nil {
-		m["role"] = *u.Role
-	}
-	if u.LastLoginAt != nil {
-		m["last_login_at"] = *u.LastLoginAt
-	}
-	if u.LoginCount != nil {
-		m["login_count"] = *u.LoginCount
-	}
-	if u.FailedLoginAttempts != nil {
-		m["failed_login_attempts"] = *u.FailedLoginAttempts
-	}
-	if u.PasswordChangedAt != nil {
-		m["password_changed_at"] = *u.PasswordChangedAt
-	}
-
-	// Handle nullable fields with Clear* flags (NULL takes precedence)
-	if u.ClearEmail {
-		m["email"] = nil
-	} else if u.Email != nil {
-		m["email"] = *u.Email
-	}
-
-	if u.ClearLockedUntil {
-		m["locked_until"] = nil
-	} else if u.LockedUntil != nil {
-		m["locked_until"] = *u.LockedUntil
-	}
-
-	if u.ClearMetadata {
-		m["metadata"] = nil
-	} else if u.Metadata != nil {
-		m["metadata"] = *u.Metadata
-	}
-
-	return m
 }
 
 // UserRepository defines the interface for user data access.
@@ -143,7 +86,8 @@ func (r *userRepository) Create(ctx context.Context, username, fullName string, 
 // GetByUsername retrieves a user by username.
 func (r *userRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
 	var user models.User
-	err := r.db.WithContext(ctx).Where("username = ?", username).First(&user).Error
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).Where("username = ?", username).First(&user).Error
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
@@ -157,7 +101,54 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 		return nil
 	}
 
-	updateMap := buildUserUpdateMap(u)
+	// Build update map for fields that need special handling (Clear* flags)
+	updateMap := make(map[string]any)
+
+	// Regular pointer fields - GORM handles these directly
+	if u.Username != nil {
+		updateMap["username"] = *u.Username
+	}
+	if u.FullName != nil {
+		updateMap["full_name"] = *u.FullName
+	}
+	if u.PasswordHash != nil {
+		updateMap["password_hash"] = *u.PasswordHash
+	}
+	if u.Role != nil {
+		updateMap["role"] = *u.Role
+	}
+	if u.LastLoginAt != nil {
+		updateMap["last_login_at"] = *u.LastLoginAt
+	}
+	if u.LoginCount != nil {
+		updateMap["login_count"] = *u.LoginCount
+	}
+	if u.FailedLoginAttempts != nil {
+		updateMap["failed_login_attempts"] = *u.FailedLoginAttempts
+	}
+	if u.PasswordChangedAt != nil {
+		updateMap["password_changed_at"] = *u.PasswordChangedAt
+	}
+
+	// Handle nullable fields with Clear* flags (NULL takes precedence)
+	if u.ClearEmail {
+		updateMap["email"] = nil
+	} else if u.Email != nil {
+		updateMap["email"] = *u.Email
+	}
+
+	if u.ClearLockedUntil {
+		updateMap["locked_until"] = nil
+	} else if u.LockedUntil != nil {
+		updateMap["locked_until"] = *u.LockedUntil
+	}
+
+	if u.ClearMetadata {
+		updateMap["metadata"] = nil
+	} else if u.Metadata != nil {
+		updateMap["metadata"] = *u.Metadata
+	}
+
 	if len(updateMap) == 0 {
 		return nil
 	}
@@ -187,7 +178,8 @@ func (r *userRepository) IsEmailTaken(ctx context.Context, email string, exclude
 // CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
 func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
 	var count int64
-	err := r.db.WithContext(ctx).
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).
 		Model(&models.User{}).
 		Where("suspended_at IS NULL").
 		Where("role = ?", models.RoleAdmin).

@@ -2,6 +2,8 @@
 package repository
 
 import (
+	"strings"
+
 	"gorm.io/gorm"
 )
 
@@ -81,16 +83,16 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		query = NewListQuery()
 	}
 
-	// Apply search
+	// Apply search - use string join for proper OR grouping
 	if query.Search != "" && len(searchFields) > 0 {
 		searchPattern := "%" + query.Search + "%"
+		conditions := make([]string, len(searchFields))
+		args := make([]any, len(searchFields))
 		for i, field := range searchFields {
-			if i == 0 {
-				db = db.Where(field+" LIKE ?", searchPattern)
-			} else {
-				db = db.Or(field+" LIKE ?", searchPattern)
-			}
+			conditions[i] = field + " LIKE ?"
+			args[i] = searchPattern
 		}
+		db = db.Where(strings.Join(conditions, " OR "), args...)
 	}
 
 	// Apply filters

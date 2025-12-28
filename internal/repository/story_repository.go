@@ -309,18 +309,21 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	return stories, nil
 }
 
+// weekdayColumns maps time.Weekday to the corresponding story column name.
+// Package-level variable to avoid allocation on every GetStoriesForBulletin call.
+var weekdayColumns = map[time.Weekday]string{
+	time.Monday:    "s.monday",
+	time.Tuesday:   "s.tuesday",
+	time.Wednesday: "s.wednesday",
+	time.Thursday:  "s.thursday",
+	time.Friday:    "s.friday",
+	time.Saturday:  "s.saturday",
+	time.Sunday:    "s.sunday",
+}
+
 // getWeekdayColumn returns the column name for the given weekday.
 func getWeekdayColumn(weekday time.Weekday) string {
-	days := map[time.Weekday]string{
-		time.Monday:    "s.monday",
-		time.Tuesday:   "s.tuesday",
-		time.Wednesday: "s.wednesday",
-		time.Thursday:  "s.thursday",
-		time.Friday:    "s.friday",
-		time.Saturday:  "s.saturday",
-		time.Sunday:    "s.sunday",
-	}
-	if col, ok := days[weekday]; ok {
+	if col, ok := weekdayColumns[weekday]; ok {
 		return col
 	}
 	return "s.monday" // Default fallback
