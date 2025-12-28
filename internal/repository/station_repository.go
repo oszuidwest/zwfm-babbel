@@ -3,11 +3,10 @@ package repository
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"errors"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"gorm.io/gorm"
 )
 
 // StationUpdate contains optional fields for updating a station.
@@ -30,41 +29,42 @@ type StationRepository interface {
 	Exists(ctx context.Context, id int64) (bool, error)
 	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
 	HasDependencies(ctx context.Context, id int64) (bool, error)
-
-	// DB returns the underlying database for ModernListWithQuery
-	DB() *sqlx.DB
 }
 
-// stationRepository implements StationRepository.
+// stationRepository implements StationRepository using GORM.
 type stationRepository struct {
-	*BaseRepository[models.Station]
+	*GormRepository[models.Station]
 }
 
 // NewStationRepository creates a new station repository.
-func NewStationRepository(db *sqlx.DB) StationRepository {
+func NewStationRepository(db *gorm.DB) StationRepository {
 	return &stationRepository{
-		BaseRepository: NewBaseRepository[models.Station](db, "stations"),
+		GormRepository: NewGormRepository[models.Station](db),
 	}
 }
 
 // Create inserts a new station and returns the created record.
 func (r *stationRepository) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
-	q := r.getQueryable(ctx)
-
-	result, err := q.ExecContext(ctx,
-		"INSERT INTO stations (name, max_stories_per_block, pause_seconds) VALUES (?, ?, ?)",
-		name, maxStories, pauseSeconds,
-	)
-	if err != nil {
-		return nil, ParseDBError(err)
+	station := &models.Station{
+		Name:               name,
+		MaxStoriesPerBlock: maxStories,
+		PauseSeconds:       pauseSeconds,
 	}
 
-	id, err := result.LastInsertId()
+	err := r.GormRepository.db.WithContext(ctx).Create(station).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to get last insert id: %w", err)
+		if IsDuplicateKeyError(err) {
+			return nil, ErrDuplicateKey
+		}
+		return nil, err
 	}
 
-	return r.GetByID(ctx, id)
+	return station, nil
+}
+
+// GetByID retrieves a station by its ID.
+func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Station, error) {
+	return r.GormRepository.GetByID(ctx, id)
 }
 
 // Update updates an existing station with type-safe fields.
@@ -73,51 +73,84 @@ func (r *stationRepository) Update(ctx context.Context, id int64, updates *Stati
 		return nil
 	}
 
-	q := r.getQueryable(ctx)
+	// Build the update map with only non-nil fields
+	updateMap := make(map[string]any)
 
-	setClauses := make([]string, 0, 3)
-	args := make([]any, 0, 3)
+	if updates.Name != nil {
+		updateMap["name"] = *updates.Name
+	}
+	if updates.MaxStoriesPerBlock != nil {
+		updateMap["max_stories_per_block"] = *updates.MaxStoriesPerBlock
+	}
+	if updates.PauseSeconds != nil {
+		updateMap["pause_seconds"] = *updates.PauseSeconds
+	}
 
-	addFieldUpdate(&setClauses, &args, "name", updates.Name)
-	addFieldUpdate(&setClauses, &args, "max_stories_per_block", updates.MaxStoriesPerBlock)
-	addFieldUpdate(&setClauses, &args, "pause_seconds", updates.PauseSeconds)
-
-	if len(setClauses) == 0 {
+	if len(updateMap) == 0 {
 		return nil
 	}
 
-	query := fmt.Sprintf("UPDATE stations SET %s WHERE id = ?", strings.Join(setClauses, ", "))
-	args = append(args, id)
+	result := r.GormRepository.db.WithContext(ctx).
+		Model(&models.Station{}).
+		Where("id = ?", id).
+		Updates(updateMap)
 
-	result, err := q.ExecContext(ctx, query, args...)
-	if err != nil {
-		return ParseDBError(err)
+	if result.Error != nil {
+		if IsDuplicateKeyError(result.Error) {
+			return ErrDuplicateKey
+		}
+		return result.Error
 	}
 
-	return checkRowsAffected(result)
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// Delete removes a station by its ID.
+func (r *stationRepository) Delete(ctx context.Context, id int64) error {
+	return r.GormRepository.Delete(ctx, id)
+}
+
+// Exists checks if a station with the given ID exists.
+func (r *stationRepository) Exists(ctx context.Context, id int64) (bool, error) {
+	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken checks if a station name is already in use.
 func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
-	condition := "name = ?"
-	args := []any{name}
+	var count int64
+	query := r.GormRepository.db.WithContext(ctx).
+		Model(&models.Station{}).
+		Where("name = ?", name)
 
 	if excludeID != nil {
-		condition += " AND id != ?"
-		args = append(args, *excludeID)
+		query = query.Where("id != ?", *excludeID)
 	}
 
-	return r.ExistsBy(ctx, condition, args...)
+	err := query.Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
 
 // HasDependencies checks if station has any station_voices relationships.
 func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
-	q := r.getQueryable(ctx)
+	var count int64
+	err := r.GormRepository.db.WithContext(ctx).
+		Model(&models.StationVoice{}).
+		Where("station_id = ?", id).
+		Count(&count).Error
 
-	var count int
-	err := q.GetContext(ctx, &count, "SELECT COUNT(*) FROM station_voices WHERE station_id = ?", id)
 	if err != nil {
-		return false, ParseDBError(err)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, err
 	}
 
 	return count > 0, nil

@@ -14,17 +14,20 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 // UserService handles user-related business logic
 type UserService struct {
-	repo repository.UserRepository
+	repo   repository.UserRepository
+	gormDB *gorm.DB
 }
 
 // NewUserService creates a new user service instance
-func NewUserService(repo repository.UserRepository) *UserService {
+func NewUserService(repo repository.UserRepository, gormDB *gorm.DB) *UserService {
 	return &UserService{
-		repo: repo,
+		repo:   repo,
+		gormDB: gormDB,
 	}
 }
 
@@ -380,36 +383,20 @@ type UserListItem struct {
 // ListWithContext handles paginated list requests with query parameters.
 // Encapsulates query configuration and writes JSON response directly.
 func (s *UserService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT id, username, full_name, email, role, suspended_at, last_login_at,
-			            login_count, failed_login_attempts, locked_until, password_changed_at,
-			            metadata, created_at, updated_at FROM users`,
-			CountQuery:   "SELECT COUNT(*) FROM users",
-			DefaultOrder: "username ASC",
-		},
-		SearchFields:      []string{"username", "full_name", "email"},
-		TableAlias:        "",
-		DefaultFields:     "*",
-		DisableSoftDelete: true,
+	config := utils.GormListConfig{
+		SearchFields: []string{"username", "display_name"},
 		FieldMapping: map[string]string{
-			"id":                    "id",
-			"username":              "username",
-			"full_name":             "full_name",
-			"email":                 "email",
-			"role":                  "role",
-			"suspended_at":          "suspended_at",
-			"last_login_at":         "last_login_at",
-			"login_count":           "login_count",
-			"failed_login_attempts": "failed_login_attempts",
-			"locked_until":          "locked_until",
-			"password_changed_at":   "password_changed_at",
-			"metadata":              "metadata",
-			"created_at":            "created_at",
-			"updated_at":            "updated_at",
+			"id":           "id",
+			"username":     "username",
+			"display_name": "display_name",
+			"role":         "role",
+			"auth_type":    "auth_type",
+			"is_suspended": "is_suspended",
+			"created_at":   "created_at",
+			"updated_at":   "updated_at",
 		},
+		DefaultSort: "username ASC",
+		SoftDelete:  true, // Users have soft delete
 	}
-
-	var users []UserListItem
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &users)
+	utils.GormListWithQuery[models.User](c, s.gormDB, config)
 }

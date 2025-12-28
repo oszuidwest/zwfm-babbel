@@ -11,17 +11,20 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"gorm.io/gorm"
 )
 
 // StationService handles station-related business logic
 type StationService struct {
-	repo repository.StationRepository
+	repo   repository.StationRepository
+	gormDB *gorm.DB
 }
 
 // NewStationService creates a new station service instance
-func NewStationService(repo repository.StationRepository) *StationService {
+func NewStationService(repo repository.StationRepository, gormDB *gorm.DB) *StationService {
 	return &StationService{
-		repo: repo,
+		repo:   repo,
+		gormDB: gormDB,
 	}
 }
 
@@ -157,26 +160,18 @@ func (s *StationService) GetByIDWithContext(c *gin.Context) {
 // ListWithContext handles paginated list requests with query parameters.
 // Encapsulates query configuration and writes JSON response directly.
 func (s *StationService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery:    "SELECT s.* FROM stations s",
-			CountQuery:   "SELECT COUNT(*) FROM stations s",
-			DefaultOrder: "s.name ASC",
-		},
-		SearchFields:      []string{"s.name"},
-		TableAlias:        "s",
-		DefaultFields:     "s.*",
-		DisableSoftDelete: true,
+	config := utils.GormListConfig{
+		SearchFields: []string{"name"},
 		FieldMapping: map[string]string{
-			"id":                    "s.id",
-			"name":                  "s.name",
-			"max_stories_per_block": "s.max_stories_per_block",
-			"pause_seconds":         "s.pause_seconds",
-			"created_at":            "s.created_at",
-			"updated_at":            "s.updated_at",
+			"id":                    "id",
+			"name":                  "name",
+			"max_stories_per_block": "max_stories_per_block",
+			"pause_seconds":         "pause_seconds",
+			"created_at":            "created_at",
+			"updated_at":            "updated_at",
 		},
+		DefaultSort: "name ASC",
+		SoftDelete:  false,
 	}
-
-	var stations []models.Station
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &stations)
+	utils.GormListWithQuery[models.Station](c, s.gormDB, config)
 }

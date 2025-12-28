@@ -11,17 +11,20 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"gorm.io/gorm"
 )
 
 // VoiceService handles voice-related business logic
 type VoiceService struct {
-	repo repository.VoiceRepository
+	repo   repository.VoiceRepository
+	gormDB *gorm.DB
 }
 
 // NewVoiceService creates a new voice service instance
-func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
+func NewVoiceService(repo repository.VoiceRepository, gormDB *gorm.DB) *VoiceService {
 	return &VoiceService{
-		repo: repo,
+		repo:   repo,
+		gormDB: gormDB,
 	}
 }
 
@@ -153,24 +156,16 @@ func (s *VoiceService) GetByIDWithContext(c *gin.Context) {
 // ListWithContext handles paginated list requests with query parameters.
 // Encapsulates query configuration and writes JSON response directly.
 func (s *VoiceService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery:    "SELECT v.* FROM voices v",
-			CountQuery:   "SELECT COUNT(*) FROM voices v",
-			DefaultOrder: "v.name ASC",
-		},
-		SearchFields:      []string{"v.name"},
-		TableAlias:        "v",
-		DefaultFields:     "v.*",
-		DisableSoftDelete: true,
+	config := utils.GormListConfig{
+		SearchFields: []string{"name"},
 		FieldMapping: map[string]string{
-			"id":         "v.id",
-			"name":       "v.name",
-			"created_at": "v.created_at",
-			"updated_at": "v.updated_at",
+			"id":         "id",
+			"name":       "name",
+			"created_at": "created_at",
+			"updated_at": "updated_at",
 		},
+		DefaultSort: "name ASC",
+		SoftDelete:  false,
 	}
-
-	var voices []models.Voice
-	utils.ModernListWithQuery(c, s.repo.DB(), config, &voices)
+	utils.GormListWithQuery[models.Voice](c, s.gormDB, config)
 }

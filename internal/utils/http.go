@@ -19,6 +19,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // IDParam extracts and validates the ID parameter from the request URL.
@@ -62,6 +63,36 @@ func ValidateStoryExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 func ValidateBulletinExists(c *gin.Context, db *sqlx.DB, id int64) bool {
 	exists, err := Bulletins.Exists(c.Request.Context(), db, id)
 	if err != nil || !exists {
+		ProblemNotFound(c, "Bulletin")
+		return false
+	}
+	return true
+}
+
+// GormValidateStationExists checks if a station exists by ID using GORM.
+func GormValidateStationExists(c *gin.Context, db *gorm.DB, id int64) bool {
+	var count int64
+	if err := db.Model(&models.Station{}).Where("id = ?", id).Count(&count).Error; err != nil || count == 0 {
+		ProblemNotFound(c, "Station")
+		return false
+	}
+	return true
+}
+
+// GormValidateStoryExists checks if a story exists by ID using GORM.
+func GormValidateStoryExists(c *gin.Context, db *gorm.DB, id int64) bool {
+	var count int64
+	if err := db.Model(&models.Story{}).Where("id = ?", id).Count(&count).Error; err != nil || count == 0 {
+		ProblemNotFound(c, "Story")
+		return false
+	}
+	return true
+}
+
+// GormValidateBulletinExists checks if a bulletin exists by ID using GORM.
+func GormValidateBulletinExists(c *gin.Context, db *gorm.DB, id int64) bool {
+	var count int64
+	if err := db.Model(&models.Bulletin{}).Where("id = ?", id).Count(&count).Error; err != nil || count == 0 {
 		ProblemNotFound(c, "Bulletin")
 		return false
 	}

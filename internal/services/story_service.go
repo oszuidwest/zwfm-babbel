@@ -17,6 +17,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // StoryServiceDeps contains all dependencies for StoryService.
@@ -25,6 +26,7 @@ type StoryServiceDeps struct {
 	VoiceRepo repository.VoiceRepository
 	AudioSvc  *audio.Service
 	Config    *config.Config
+	GormDB    *gorm.DB
 }
 
 // StoryService handles business logic for news story operations.
@@ -33,6 +35,7 @@ type StoryService struct {
 	voiceRepo repository.VoiceRepository
 	audioSvc  *audio.Service
 	config    *config.Config
+	gormDB    *gorm.DB
 }
 
 // NewStoryService creates a new story service instance.
@@ -42,6 +45,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		voiceRepo: deps.VoiceRepo,
 		audioSvc:  deps.AudioSvc,
 		config:    deps.Config,
+		gormDB:    deps.GormDB,
 	}
 }
 
@@ -496,49 +500,22 @@ func weekdaysFromItem(item *StoryListItem) map[string]bool {
 // ListWithContext handles paginated list requests with query parameters.
 // Encapsulates query configuration and writes JSON response directly.
 func (s *StoryService) ListWithContext(c *gin.Context) {
-	config := utils.EnhancedQueryConfig{
-		QueryConfig: utils.QueryConfig{
-			BaseQuery: `SELECT s.*, COALESCE(v.name, '') as voice_name
-			            FROM stories s
-			            LEFT JOIN voices v ON s.voice_id = v.id`,
-			CountQuery:   "SELECT COUNT(*) FROM stories s LEFT JOIN voices v ON s.voice_id = v.id",
-			DefaultOrder: "s.created_at DESC",
-			PostProcessor: func(result any) {
-				if stories, ok := result.(*[]StoryListItem); ok {
-					for i := range *stories {
-						hasAudio := (*stories)[i].AudioFile != ""
-						(*stories)[i].AudioURL = storyAudioURL((*stories)[i].ID, hasAudio)
-						(*stories)[i].Weekdays = weekdaysFromItem(&(*stories)[i])
-					}
-				}
-			},
-		},
-		SearchFields:  []string{"s.title", "s.text", "v.name"},
-		TableAlias:    "s",
-		DefaultFields: "s.*, COALESCE(v.name, '') as voice_name",
+	config := utils.GormListConfig{
+		SearchFields: []string{"title", "text"},
 		FieldMapping: map[string]string{
-			"id":         "s.id",
-			"title":      "s.title",
-			"text":       "s.text",
-			"voice_id":   "s.voice_id",
-			"voice_name": "COALESCE(v.name, '')",
-			"status":     "s.status",
-			"start_date": "s.start_date",
-			"end_date":   "s.end_date",
-			"created_at": "s.created_at",
-			"updated_at": "s.updated_at",
-			"deleted_at": "s.deleted_at",
-			"audio_file": "s.audio_file",
-			"monday":     "s.monday",
-			"tuesday":    "s.tuesday",
-			"wednesday":  "s.wednesday",
-			"thursday":   "s.thursday",
-			"friday":     "s.friday",
-			"saturday":   "s.saturday",
-			"sunday":     "s.sunday",
+			"id":               "id",
+			"title":            "title",
+			"text":             "text",
+			"voice_id":         "voice_id",
+			"status":           "status",
+			"start_date":       "start_date",
+			"end_date":         "end_date",
+			"duration_seconds": "duration_seconds",
+			"created_at":       "created_at",
+			"updated_at":       "updated_at",
 		},
+		DefaultSort: "created_at DESC",
+		SoftDelete:  true, // Stories have soft delete
 	}
-
-	var stories []StoryListItem
-	utils.ModernListWithQuery(c, s.storyRepo.DB(), config, &stories)
+	utils.GormListWithQuery[models.Story](c, s.gormDB, config)
 }

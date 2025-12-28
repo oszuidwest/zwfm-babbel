@@ -51,6 +51,12 @@ func StoryAudioURL(storyID int64, hasAudio bool) *string {
 
 // modelStoryToResponse converts a models.Story to StoryResponse with computed fields
 func modelStoryToResponse(story *models.Story) StoryResponse {
+	// Convert gorm.DeletedAt to *time.Time for response
+	var deletedAt *time.Time
+	if story.DeletedAt.Valid {
+		deletedAt = &story.DeletedAt.Time
+	}
+
 	response := StoryResponse{
 		ID:              story.ID,
 		Title:           story.Title,
@@ -69,7 +75,7 @@ func modelStoryToResponse(story *models.Story) StoryResponse {
 		Saturday:        story.Saturday,
 		Sunday:          story.Sunday,
 		Metadata:        story.Metadata,
-		DeletedAt:       story.DeletedAt,
+		DeletedAt:       deletedAt,
 		CreatedAt:       story.CreatedAt,
 		UpdatedAt:       story.UpdatedAt,
 		VoiceName:       story.VoiceName,

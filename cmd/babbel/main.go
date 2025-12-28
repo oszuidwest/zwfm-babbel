@@ -45,7 +45,12 @@ func main() {
 	}
 	defer closeDatabase(db)
 
-	router, err := api.SetupRouter(db, cfg)
+	gormDB, err := database.NewGormDB(cfg)
+	if err != nil {
+		logger.Fatal("Failed to connect to database with GORM: %v", err)
+	}
+
+	router, err := api.SetupRouter(db, gormDB, cfg)
 	if err != nil {
 		logger.Fatal("Failed to setup router: %v", err)
 	}
