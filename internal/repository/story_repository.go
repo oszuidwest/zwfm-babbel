@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -282,6 +283,8 @@ type BulletinStoryData struct {
 
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation.
 // Returns stories with station-specific mix point data needed for audio processing.
+// Stories are shuffled in-application using Go's rand.Shuffle for better performance
+// than database RAND() on large result sets.
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
@@ -290,8 +293,11 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 
 	// Build the query with proper joins to get mix_point from station_voices.
 	// Using Model() ensures GORM's soft delete filtering is applied automatically.
+	// Preload Voice to prevent N+1 queries when voice data is accessed.
+	// Use deterministic ordering; randomization happens in-application.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
+		Preload("Voice").
 		Select("stories.*, sv.mix_point").
 		Joins("JOIN voices v ON stories.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).
@@ -300,12 +306,22 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.start_date <= ?", date).
 		Where("stories.end_date >= ?", date).
 		Where(weekdayColumn+" = ?", true).
-		Order("RAND()").
-		Limit(limit).
+		Order("stories.id ASC").
 		Find(&stories).Error
 
 	if err != nil {
 		return nil, ParseDBError(err)
+	}
+
+	// Shuffle stories in-application for better performance than SQL RAND().
+	// This is more efficient for large result sets.
+	rand.Shuffle(len(stories), func(i, j int) {
+		stories[i], stories[j] = stories[j], stories[i]
+	})
+
+	// Apply limit after shuffling
+	if limit > 0 && len(stories) > limit {
+		stories = stories[:limit]
 	}
 
 	return stories, nil
