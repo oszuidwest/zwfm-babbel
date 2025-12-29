@@ -122,7 +122,7 @@ make docker             # Build Docker image
 
 # Testing
 make test               # Run Go unit tests  
-make test-all           # Run full integration test suite (66 tests)
+make test-all           # Run full integration test suite (76 tests)
 npm test                # Run Node.js integration tests
 
 # Code Quality
@@ -139,12 +139,15 @@ make db-reset           # Reset database with migrations
 cmd/babbel/             # Application entry point
 internal/
   api/                  # HTTP handlers and routing
+  apperrors/            # Typed application errors
   audio/                # FFmpeg audio processing
   auth/                 # Authentication and authorization
   config/               # Configuration management
   database/             # Database connection
   models/               # Data models
-  scheduler/            # Background tasks
+  repository/           # Data access layer (GORM)
+  services/             # Business logic layer
+  utils/                # Shared utilities
 tests/                  # Integration test suite
 migrations/             # Database migrations
 openapi.yaml           # API specification
@@ -154,7 +157,7 @@ CLAUDE.md              # AI assistant instructions
 ## Tech Stack
 
 - **Backend**: Go 1.24+ with Gin web framework
-- **Database**: MySQL 9.1 with sqlx for type-safe queries
+- **Database**: MySQL 8.4 with GORM ORM
 - **Audio**: FFmpeg for audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
 - **Testing**: Comprehensive Node.js integration test suite
@@ -165,7 +168,7 @@ CLAUDE.md              # AI assistant instructions
 
 The project includes a comprehensive test suite:
 - **Unit tests**: Go tests for individual components
-- **Integration tests**: 66 Node.js tests covering all endpoints
+- **Integration tests**: 76 Node.js tests covering all endpoints
 - **Test categories**: Authentication, permissions, stations, voices, stories, bulletins, users
 - **Coverage**: All major API workflows and edge cases
 

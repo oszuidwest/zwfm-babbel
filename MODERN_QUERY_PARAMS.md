@@ -168,18 +168,14 @@ GET /api/v1/voices?search=john&fields=id,name
 
 ## Response Format
 
-All endpoints return paginated responses with metadata:
+All endpoints return paginated responses with metadata at the root level:
 
 ```json
 {
   "data": [...],
-  "pagination": {
-    "total": 150,
-    "limit": 20,
-    "offset": 40,
-    "has_next": true,
-    "has_previous": true
-  }
+  "total": 150,
+  "limit": 20,
+  "offset": 40
 }
 ```
 
@@ -200,7 +196,9 @@ GET /api/v1/stories?fields=id,title,created_at
       "created_at": "2024-01-01T10:00:00Z"
     }
   ],
-  "pagination": {...}
+  "total": 1,
+  "limit": 20,
+  "offset": 0
 }
 ```
 
