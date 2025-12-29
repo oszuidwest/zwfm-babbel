@@ -36,8 +36,12 @@ class StoriesTests extends BaseTest {
     
     /**
      * Helper function to create a story and track its ID
+     * @param {string} title - Story title
+     * @param {string} text - Story text content
+     * @param {number|null} voiceId - Optional voice ID
+     * @param {object} weekdays - Optional weekdays map, defaults to all days enabled
      */
-    async createStory(title, text, voiceId) {
+    async createStory(title, text, voiceId, weekdays = null) {
         const storyData = {
             title,
             text,
@@ -45,6 +49,15 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
+            weekdays: weekdays || {
+                sunday: true,
+                monday: true,
+                tuesday: true,
+                wednesday: true,
+                thursday: true,
+                friday: true,
+                saturday: true
+            }
         };
 
         const response = await this.apiCall('POST', '/stories', storyData);
@@ -276,9 +289,44 @@ class StoriesTests extends BaseTest {
         };
 
         const weekdayResponse = await this.apiCall('PUT', `/stories/${storyId}`, weekdayData);
-        
+
         if (this.assertions.checkResponse(weekdayResponse, 200, 'Update weekdays')) {
             this.printSuccess('Story weekday schedule updated');
+
+            // Verify the weekdays were actually saved correctly
+            const verifyResponse = await this.apiCall('GET', `/stories/${storyId}`);
+            if (this.assertions.checkResponse(verifyResponse, 200, 'Verify weekdays update')) {
+                const savedWeekdays = verifyResponse.data.weekdays;
+                if (savedWeekdays) {
+                    const expectedActive = ['monday', 'wednesday', 'friday'];
+                    const expectedInactive = ['tuesday', 'thursday', 'saturday', 'sunday'];
+
+                    let allCorrect = true;
+                    for (const day of expectedActive) {
+                        if (!savedWeekdays[day]) {
+                            this.printError(`Expected ${day} to be true but got ${savedWeekdays[day]}`);
+                            allCorrect = false;
+                        }
+                    }
+                    for (const day of expectedInactive) {
+                        if (savedWeekdays[day]) {
+                            this.printError(`Expected ${day} to be false but got ${savedWeekdays[day]}`);
+                            allCorrect = false;
+                        }
+                    }
+
+                    if (allCorrect) {
+                        this.printSuccess('Weekdays verified: Mon/Wed/Fri active, others inactive');
+                    } else {
+                        return false;
+                    }
+                } else {
+                    this.printError('Weekdays field missing from response');
+                    return false;
+                }
+            } else {
+                return false;
+            }
         } else {
             return false;
         }
@@ -437,6 +485,15 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
+            weekdays: {
+                sunday: true,
+                monday: false,
+                tuesday: false,
+                wednesday: false,
+                thursday: false,
+                friday: false,
+                saturday: true
+            }
         };
 
         const weekendResponse = await this.apiCall('POST', '/stories', weekendData);

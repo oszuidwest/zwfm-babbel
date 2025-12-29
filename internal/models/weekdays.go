@@ -2,6 +2,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -116,4 +118,51 @@ func (w Weekdays) Count() int {
 		}
 	}
 	return count
+}
+
+// MarshalJSON implements json.Marshaler to serialize Weekdays as a map.
+// This ensures API responses return {"monday": true, ...} format instead of an integer.
+func (w Weekdays) MarshalJSON() ([]byte, error) {
+	return json.Marshal(w.ToMap())
+}
+
+// UnmarshalJSON implements json.Unmarshaler to deserialize Weekdays from a map.
+// Accepts both map format {"monday": true} and integer format for backward compatibility.
+func (w *Weekdays) UnmarshalJSON(data []byte) error {
+	// First try to parse as a map (preferred format)
+	var m map[string]bool
+	if err := json.Unmarshal(data, &m); err == nil {
+		*w = WeekdaysFromMap(m)
+		return nil
+	}
+
+	// Fallback: try to parse as an integer (backward compatibility)
+	var n uint8
+	if err := json.Unmarshal(data, &n); err == nil {
+		*w = Weekdays(n)
+		return nil
+	}
+
+	return fmt.Errorf("weekdays must be a map of day names to booleans or an integer")
+}
+
+// validWeekdayKeys contains all valid lowercase weekday key names.
+var validWeekdayKeys = map[string]bool{
+	"sunday": true, "monday": true, "tuesday": true, "wednesday": true,
+	"thursday": true, "friday": true, "saturday": true,
+}
+
+// ValidateWeekdayKeys checks that all keys in the map are valid weekday names.
+// Returns an error listing invalid keys, or nil if all keys are valid.
+func ValidateWeekdayKeys(m map[string]bool) error {
+	var invalidKeys []string
+	for key := range m {
+		if !validWeekdayKeys[key] {
+			invalidKeys = append(invalidKeys, key)
+		}
+	}
+	if len(invalidKeys) > 0 {
+		return fmt.Errorf("invalid weekday keys: %v", invalidKeys)
+	}
+	return nil
 }

@@ -98,6 +98,13 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
 	}
 
+	// Validate weekday keys if provided
+	if len(req.Weekdays) > 0 {
+		if err := models.ValidateWeekdayKeys(req.Weekdays); err != nil {
+			return nil, fmt.Errorf("%w: %s", apperrors.ErrInvalidInput, err.Error())
+		}
+	}
+
 	// Convert weekday map to bitmask
 	weekdays := models.WeekdaysFromMap(req.Weekdays)
 
@@ -131,6 +138,31 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		return nil, err
 	}
 
+	// For partial date updates, validate against existing story dates
+	// XOR: exactly one date is provided (not both, not neither)
+	if (startDate != nil) != (endDate != nil) {
+		existing, err := s.storyRepo.GetByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			}
+			return nil, fmt.Errorf("%w: failed to fetch story for date validation", apperrors.ErrDatabaseError)
+		}
+
+		effectiveStart := existing.StartDate
+		effectiveEnd := existing.EndDate
+		if startDate != nil {
+			effectiveStart = *startDate
+		}
+		if endDate != nil {
+			effectiveEnd = *endDate
+		}
+
+		if effectiveEnd.Before(effectiveStart) {
+			return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+		}
+	}
+
 	// Build type-safe update struct with validated data
 	updates, err := s.buildUpdateStruct(ctx, req, startDate, endDate)
 	if err != nil {
@@ -155,6 +187,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 }
 
 // parseDateUpdates parses and validates start and end dates from update request.
+// Also validates weekday keys if present.
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
 	var startDate, endDate *time.Time
 
@@ -178,6 +211,13 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	if startDate != nil && endDate != nil {
 		if endDate.Before(*startDate) {
 			return nil, nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+		}
+	}
+
+	// Validate weekday keys if provided
+	if len(req.Weekdays) > 0 {
+		if err := models.ValidateWeekdayKeys(req.Weekdays); err != nil {
+			return nil, nil, fmt.Errorf("%w: %s", apperrors.ErrInvalidInput, err.Error())
 		}
 	}
 

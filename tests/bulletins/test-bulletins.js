@@ -136,14 +136,22 @@ class BulletinsTests extends BaseTest {
             return null;
         }
         
-        // Set weekday flags
+        // Set weekday flags - initialize all days to false first
         const weekdayFlags = {
+            sunday: false,
+            monday: false,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: false
         };
 
         const days = weekdays.split(',');
         days.forEach(day => {
-            if (weekdayFlags.hasOwnProperty(day.trim())) {
-                weekdayFlags[day.trim()] = true;
+            const trimmed = day.trim().toLowerCase();
+            if (weekdayFlags.hasOwnProperty(trimmed)) {
+                weekdayFlags[trimmed] = true;
             }
         });
 
@@ -160,7 +168,7 @@ class BulletinsTests extends BaseTest {
             status: 'active',
             start_date: startDate,
             end_date: endDate,
-            ...weekdayFlags
+            weekdays: weekdayFlags
         };
 
         const createResponse = await this.apiCall('POST', '/stories', jsonBody);
