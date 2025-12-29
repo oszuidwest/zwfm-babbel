@@ -1125,9 +1125,12 @@ Use date range filters to find stories active on specific dates:
 - `filter[end_date][gte]=2024-06-15` - End date after or on date
 
 ## Weekday Filtering
-Filter by specific weekdays:
-- `filter[monday]=1` - Stories scheduled for Monday
-- `filter[friday]=1` - Stories scheduled for Friday
+The weekdays field is a bitmask integer (0-127). Each day is a power of 2:
+- Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64
+- Common values: 127 (all days), 62 (Mon-Fri), 65 (weekend)
+Filter examples:
+- `filter[weekdays]=62` - Stories scheduled for weekdays only
+- `filter[weekdays]=127` - Stories scheduled for all days
 
 ## Voice Filtering
 - `filter[voice_id]=5` - Stories with specific voice
@@ -1136,7 +1139,7 @@ Filter by specific weekdays:
 
 ## Examples
 - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
-- Monday stories with voice: `?filter[monday]=1&filter[voice_id][ne]=null`
+- Weekday stories with voice: `?filter[weekdays]=62&filter[voice_id][ne]=null`
 - Search with sorting: `?search=breaking&sort=-created_at`
 
 

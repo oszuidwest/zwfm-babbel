@@ -52,7 +52,7 @@ type CreateStoryRequest struct {
 	Status    string
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
-	Weekdays  map[string]bool
+	Weekdays  models.Weekdays
 	Metadata  *datatypes.JSONMap
 }
 
@@ -64,7 +64,7 @@ type UpdateStoryRequest struct {
 	Status    *string
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
-	Weekdays  map[string]bool
+	Weekdays  *models.Weekdays
 	Metadata  *datatypes.JSONMap
 }
 
@@ -98,9 +98,6 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
 	}
 
-	// Extract weekday booleans from map
-	monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-
 	// Create story data
 	data := &repository.StoryCreateData{
 		Title:     req.Title,
@@ -109,13 +106,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		Status:    req.Status,
 		StartDate: startDate,
 		EndDate:   endDate,
-		Monday:    monday,
-		Tuesday:   tuesday,
-		Wednesday: wednesday,
-		Thursday:  thursday,
-		Friday:    friday,
-		Saturday:  saturday,
-		Sunday:    sunday,
+		Weekdays:  req.Weekdays,
 		Metadata:  req.Metadata,
 	}
 
@@ -135,6 +126,31 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	startDate, endDate, err := s.parseDateUpdates(req)
 	if err != nil {
 		return nil, err
+	}
+
+	// For partial date updates, validate against existing story dates
+	// XOR: exactly one date is provided (not both, not neither)
+	if (startDate != nil) != (endDate != nil) {
+		existing, err := s.storyRepo.GetByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, repository.ErrNotFound) {
+				return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			}
+			return nil, fmt.Errorf("%w: failed to fetch story for date validation", apperrors.ErrDatabaseError)
+		}
+
+		effectiveStart := existing.StartDate
+		effectiveEnd := existing.EndDate
+		if startDate != nil {
+			effectiveStart = *startDate
+		}
+		if endDate != nil {
+			effectiveEnd = *endDate
+		}
+
+		if effectiveEnd.Before(effectiveStart) {
+			return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+		}
 	}
 
 	// Build type-safe update struct with validated data
@@ -233,15 +249,8 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	}
 
 	// Apply weekdays updates
-	if len(req.Weekdays) > 0 {
-		monday, tuesday, wednesday, thursday, friday, saturday, sunday := s.extractWeekdays(req.Weekdays)
-		updates.Monday = &monday
-		updates.Tuesday = &tuesday
-		updates.Wednesday = &wednesday
-		updates.Thursday = &thursday
-		updates.Friday = &friday
-		updates.Saturday = &saturday
-		updates.Sunday = &sunday
+	if req.Weekdays != nil {
+		updates.Weekdays = req.Weekdays
 		hasUpdates = true
 	}
 
@@ -336,23 +345,6 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 
 	logger.Info("Processed audio for story %d: %s (%.2fs)", storyID, filename, duration)
 	return nil
-}
-
-// extractWeekdays converts a weekday map to individual boolean values.
-func (s *StoryService) extractWeekdays(weekdays map[string]bool) (monday, tuesday, wednesday, thursday, friday, saturday, sunday bool) {
-	if len(weekdays) == 0 {
-		return false, false, false, false, false, false, false
-	}
-
-	monday = weekdays["monday"]
-	tuesday = weekdays["tuesday"]
-	wednesday = weekdays["wednesday"]
-	thursday = weekdays["thursday"]
-	friday = weekdays["friday"]
-	saturday = weekdays["saturday"]
-	sunday = weekdays["sunday"]
-
-	return
 }
 
 // UpdateStatus changes a story's status to draft, active, or expired.

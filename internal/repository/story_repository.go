@@ -19,13 +19,7 @@ type StoryUpdate struct {
 	Status          *string            `gorm:"column:status"`
 	StartDate       *time.Time         `gorm:"column:start_date"`
 	EndDate         *time.Time         `gorm:"column:end_date"`
-	Monday          *bool              `gorm:"column:monday"`
-	Tuesday         *bool              `gorm:"column:tuesday"`
-	Wednesday       *bool              `gorm:"column:wednesday"`
-	Thursday        *bool              `gorm:"column:thursday"`
-	Friday          *bool              `gorm:"column:friday"`
-	Saturday        *bool              `gorm:"column:saturday"`
-	Sunday          *bool              `gorm:"column:sunday"`
+	Weekdays        *models.Weekdays   `gorm:"column:weekdays"`
 	Metadata        *datatypes.JSONMap `gorm:"column:metadata"`
 	AudioFile       *string            `gorm:"column:audio_file"`
 	DurationSeconds *float64           `gorm:"column:duration_seconds"`
@@ -47,13 +41,7 @@ type StoryCreateData struct {
 	Status    string
 	StartDate time.Time
 	EndDate   time.Time
-	Monday    bool
-	Tuesday   bool
-	Wednesday bool
-	Thursday  bool
-	Friday    bool
-	Saturday  bool
-	Sunday    bool
+	Weekdays  models.Weekdays
 	Metadata  *datatypes.JSONMap
 }
 
@@ -105,13 +93,7 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Status:    models.StoryStatus(data.Status),
 		StartDate: data.StartDate,
 		EndDate:   data.EndDate,
-		Monday:    data.Monday,
-		Tuesday:   data.Tuesday,
-		Wednesday: data.Wednesday,
-		Thursday:  data.Thursday,
-		Friday:    data.Friday,
-		Saturday:  data.Saturday,
-		Sunday:    data.Sunday,
+		Weekdays:  data.Weekdays,
 		Metadata:  data.Metadata,
 	}
 
@@ -270,8 +252,9 @@ type BulletinStoryData struct {
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
-	// Get the weekday column name
-	weekdayColumn := getWeekdayColumn(date.Weekday())
+	// Calculate bitmask for the current weekday (Sunday=1, Monday=2, etc.)
+	// time.Weekday is always in range [0,6], safe to convert to uint8
+	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
 	// Build the query with proper joins to get mix_point from station_voices.
 	// Using Model() ensures GORM's soft delete filtering is applied automatically.
@@ -285,7 +268,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.audio_file != ''").
 		Where("stories.start_date <= ?", date).
 		Where("stories.end_date >= ?", date).
-		Where(weekdayColumn+" = ?", true).
+		Where("stories.weekdays & ? > 0", weekdayBit).
 		Order("RAND()").
 		Limit(limit).
 		Find(&stories).Error
@@ -295,23 +278,4 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	}
 
 	return stories, nil
-}
-
-// weekdayColumns maps time.Weekday to the corresponding story column name.
-var weekdayColumns = map[time.Weekday]string{
-	time.Monday:    "stories.monday",
-	time.Tuesday:   "stories.tuesday",
-	time.Wednesday: "stories.wednesday",
-	time.Thursday:  "stories.thursday",
-	time.Friday:    "stories.friday",
-	time.Saturday:  "stories.saturday",
-	time.Sunday:    "stories.sunday",
-}
-
-// getWeekdayColumn returns the column name for the given weekday.
-func getWeekdayColumn(weekday time.Weekday) string {
-	if col, ok := weekdayColumns[weekday]; ok {
-		return col
-	}
-	return "stories.monday" // Default fallback
 }
