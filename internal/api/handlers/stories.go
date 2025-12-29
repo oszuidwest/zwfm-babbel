@@ -2,97 +2,13 @@
 package handlers
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"gorm.io/datatypes"
 )
-
-// StoryResponse represents the response format for news stories.
-type StoryResponse struct {
-	ID              int64              `json:"id" db:"id"`
-	Title           string             `json:"title" db:"title"`
-	Text            string             `json:"text" db:"text"`
-	VoiceID         *int64             `json:"voice_id" db:"voice_id"`
-	AudioFile       string             `json:"-" db:"audio_file"`
-	DurationSeconds *float64           `json:"duration_seconds" db:"duration_seconds"`
-	Status          string             `json:"status" db:"status"`
-	StartDate       time.Time          `json:"start_date" db:"start_date"`
-	EndDate         time.Time          `json:"end_date" db:"end_date"`
-	Monday          bool               `json:"-" db:"monday"`
-	Tuesday         bool               `json:"-" db:"tuesday"`
-	Wednesday       bool               `json:"-" db:"wednesday"`
-	Thursday        bool               `json:"-" db:"thursday"`
-	Friday          bool               `json:"-" db:"friday"`
-	Saturday        bool               `json:"-" db:"saturday"`
-	Sunday          bool               `json:"-" db:"sunday"`
-	Metadata        *datatypes.JSONMap `json:"metadata,omitempty" db:"metadata"`
-	DeletedAt       *time.Time         `json:"deleted_at" db:"deleted_at"`
-	CreatedAt       time.Time          `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at" db:"updated_at"`
-	VoiceName       string             `json:"voice_name" db:"voice_name"`
-	AudioURL        *string            `json:"audio_url,omitempty"`
-	Weekdays        map[string]bool    `json:"weekdays,omitempty"`
-}
-
-// StoryAudioURL returns the API URL for downloading a story's audio file, or nil if no audio.
-func StoryAudioURL(storyID int64, hasAudio bool) *string {
-	if !hasAudio {
-		return nil
-	}
-	url := fmt.Sprintf("/stories/%d/audio", storyID)
-	return &url
-}
-
-// modelStoryToResponse converts a models.Story to StoryResponse with computed fields
-func modelStoryToResponse(story *models.Story) StoryResponse {
-	// Convert gorm.DeletedAt to *time.Time for response
-	var deletedAt *time.Time
-	if story.DeletedAt.Valid {
-		deletedAt = &story.DeletedAt.Time
-	}
-
-	// Get voice name from preloaded relation
-	voiceName := ""
-	if story.Voice != nil {
-		voiceName = story.Voice.Name
-	}
-
-	response := StoryResponse{
-		ID:              story.ID,
-		Title:           story.Title,
-		Text:            story.Text,
-		VoiceID:         story.VoiceID,
-		AudioFile:       story.AudioFile,
-		DurationSeconds: story.DurationSeconds,
-		Status:          story.Status.String(),
-		StartDate:       story.StartDate,
-		EndDate:         story.EndDate,
-		Monday:          story.Monday,
-		Tuesday:         story.Tuesday,
-		Wednesday:       story.Wednesday,
-		Thursday:        story.Thursday,
-		Friday:          story.Friday,
-		Saturday:        story.Saturday,
-		Sunday:          story.Sunday,
-		Metadata:        story.Metadata,
-		DeletedAt:       deletedAt,
-		CreatedAt:       story.CreatedAt,
-		UpdatedAt:       story.UpdatedAt,
-		VoiceName:       voiceName,
-	}
-
-	// Add computed fields
-	hasAudio := story.AudioFile != ""
-	response.AudioURL = StoryAudioURL(story.ID, hasAudio)
-	response.Weekdays = story.WeekdaysMap()
-
-	return response
-}
 
 // ListStories returns a paginated list of stories with modern query parameter support
 func (h *Handlers) ListStories(c *gin.Context) {
@@ -113,13 +29,8 @@ func (h *Handlers) ListStories(c *gin.Context) {
 		return
 	}
 
-	// Convert stories to response format
-	responses := make([]StoryResponse, len(result.Data))
-	for i := range result.Data {
-		responses[i] = modelStoryToResponse(&result.Data[i])
-	}
-
-	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
+	// Return stories directly - AfterFind hook populates computed fields
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // GetStory returns a single story by ID
@@ -135,8 +46,8 @@ func (h *Handlers) GetStory(c *gin.Context) {
 		return
 	}
 
-	response := modelStoryToResponse(story)
-	utils.Success(c, response)
+	// Return story directly - AfterFind hook populates computed fields
+	utils.Success(c, story)
 }
 
 // CreateStory creates a new story (JSON API only)

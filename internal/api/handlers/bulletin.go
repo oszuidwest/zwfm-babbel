@@ -10,15 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
-
-// BulletinAudioURL returns the API URL for downloading a bulletin's audio file.
-func BulletinAudioURL(bulletinID int64) string {
-	return fmt.Sprintf("/bulletins/%d/audio", bulletinID)
-}
 
 // BulletinRequest represents the request parameters for bulletin generation.
 type BulletinRequest struct {
@@ -116,9 +110,8 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 		return true
 	}
 
-	// Return existing bulletin metadata
-	response := h.bulletinToResponse(existingBulletin)
-	utils.Success(c, response)
+	// Return existing bulletin metadata - AfterFind hook populates computed fields
+	utils.Success(c, existingBulletin)
 	return true
 }
 
@@ -198,38 +191,13 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, params.Limit, params.Offset)
 }
 
-// bulletinToResponse creates a consistent response format for bulletin endpoints
-func (h *Handlers) bulletinToResponse(bulletin *models.Bulletin) BulletinResponse {
-	bulletinURL := BulletinAudioURL(bulletin.ID)
-
-	// Get station name from preloaded relation
-	stationName := ""
-	if bulletin.Station != nil {
-		stationName = bulletin.Station.Name
-	}
-
-	return BulletinResponse{
-		ID:          bulletin.ID,
-		StationID:   bulletin.StationID,
-		StationName: stationName,
-		AudioURL:    bulletinURL,
-		Filename:    bulletin.Filename,
-		CreatedAt:   bulletin.CreatedAt,
-		Duration:    bulletin.DurationSeconds,
-		FileSize:    bulletin.FileSize,
-		StoryCount:  bulletin.StoryCount,
-	}
-}
-
-// bulletinInfoToResponse creates response from BulletinInfo
+// bulletinInfoToResponse creates response from BulletinInfo (used for newly created bulletins)
 func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
-	bulletinURL := BulletinAudioURL(info.ID)
-
 	return BulletinResponse{
 		ID:          info.ID,
 		StationID:   info.Station.ID,
 		StationName: info.Station.Name,
-		AudioURL:    bulletinURL,
+		AudioURL:    fmt.Sprintf("/bulletins/%d/audio", info.ID),
 		Filename:    filepath.Base(info.BulletinPath),
 		CreatedAt:   info.CreatedAt,
 		Duration:    info.Duration,
@@ -269,8 +237,8 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		c.Header("X-Cache", "HIT")
 		c.Header("Age", fmt.Sprintf("%d", age))
 
-		response := h.bulletinToResponse(bulletin)
-		utils.Success(c, response)
+		// Return directly - AfterFind hook populates computed fields
+		utils.Success(c, bulletin)
 		return
 	}
 
@@ -281,13 +249,8 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	// Transform bulletins to responses
-	responses := make([]BulletinResponse, len(result.Data))
-	for i, bulletin := range result.Data {
-		responses[i] = h.bulletinToResponse(&bulletin)
-	}
-
-	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
+	// Return directly - AfterFind hook populates computed fields
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support
@@ -309,13 +272,8 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		return
 	}
 
-	// Transform bulletins to responses
-	responses := make([]BulletinResponse, len(result.Data))
-	for i, bulletin := range result.Data {
-		responses[i] = h.bulletinToResponse(&bulletin)
-	}
-
-	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
+	// Return directly - AfterFind hook populates computed fields
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
@@ -343,13 +301,8 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	// Transform bulletins to responses
-	responses := make([]BulletinResponse, len(result.Data))
-	for i, bulletin := range result.Data {
-		responses[i] = h.bulletinToResponse(&bulletin)
-	}
-
-	utils.PaginatedResponse(c, responses, result.Total, result.Limit, result.Offset)
+	// Return directly - AfterFind hook populates computed fields
+	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
 // GetBulletinAudio serves the audio file for a specific bulletin.
