@@ -63,7 +63,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, station.ID, "Station created successfully")
+	utils.CreatedWithLocation(c, station.ID, "/api/v1/stations", "Station created successfully")
 }
 
 // UpdateStation updates an existing radio station.

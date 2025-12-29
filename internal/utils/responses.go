@@ -2,6 +2,7 @@
 package utils
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -55,11 +56,15 @@ func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int)
 	})
 }
 
-// CreatedWithID responds with HTTP 201 Created status including the new resource ID.
-func CreatedWithID(c *gin.Context, id int64, message string) {
+// CreatedWithLocation responds with HTTP 201 Created status including the new resource ID
+// and sets the Location header per RFC 7231.
+// The resourcePath should be the base path (e.g., "/api/v1/stations"), the ID will be appended.
+func CreatedWithLocation(c *gin.Context, id int64, resourcePath, message string) {
 	if c == nil {
 		return
 	}
+	location := fmt.Sprintf("%s/%d", resourcePath, id)
+	c.Header("Location", location)
 	c.JSON(http.StatusCreated, IDMessageResponse{
 		ID:      id,
 		Message: message,
@@ -121,10 +126,12 @@ func ProblemDuplicate(c *gin.Context, resource string) {
 }
 
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
+// Per RFC 7235, includes WWW-Authenticate header.
 func ProblemAuthentication(c *gin.Context, detail string) {
 	if c == nil {
 		return
 	}
+	c.Header("WWW-Authenticate", `Session realm="Babbel API"`)
 	problem := NewAuthenticationProblem(detail, c.Request.URL.Path)
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)

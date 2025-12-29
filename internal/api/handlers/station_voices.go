@@ -69,7 +69,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, stationVoice.ID, "Station-voice relationship created successfully")
+	utils.CreatedWithLocation(c, stationVoice.ID, "/api/v1/station-voices", "Station-voice relationship created successfully")
 }
 
 // hasStationVoiceFieldUpdates reports whether the request contains any field updates.

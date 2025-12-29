@@ -109,7 +109,7 @@ class BulletinsTests extends BaseTest {
         // Clean up temp file
         fs.unlinkSync(jingleFile);
 
-        if (uploadResponse.status !== 200) {
+        if (uploadResponse.status !== 201) {
             return null;
         }
 
@@ -178,7 +178,7 @@ class BulletinsTests extends BaseTest {
         // Clean up temp file
         fs.unlinkSync(audioFile);
 
-        if (uploadResponse.status !== 200) {
+        if (uploadResponse.status !== 201) {
             return null;
         }
 

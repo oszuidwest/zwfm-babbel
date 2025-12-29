@@ -209,7 +209,7 @@ class StationVoicesTests extends BaseTest {
         this.printInfo('Step 2: Uploading jingle file separately...');
         const jingleUploadResponse = await this.uploadFile(`/station-voices/${svId}/audio`, {}, testAudio, 'jingle');
 
-        if (jingleUploadResponse.status !== 200) {
+        if (jingleUploadResponse.status !== 201) {
             this.printError(`Failed to upload jingle (HTTP: ${jingleUploadResponse.status})`);
             this.printError(`Response: ${JSON.stringify(jingleUploadResponse.data)}`);
             return false;
