@@ -2718,15 +2718,15 @@ components:
         ## Problem Types
         The following problem type URIs are used:
         - `https://babbel.api/problems/validation-error` - 422 validation errors
-        - `https://babbel.api/problems/not-found` - 404 resource not found
-        - `https://babbel.api/problems/duplicate` - 409 duplicate resource
+        - `https://babbel.api/problems/resource-not-found` - 404 resource not found
+        - `https://babbel.api/problems/duplicate-resource` - 409 duplicate resource
         - `https://babbel.api/problems/dependency-constraint` - 409 resource has dependencies that prevent deletion
         - `https://babbel.api/problems/admin-constraint` - 409 cannot delete last admin user
         - `https://babbel.api/problems/data-too-long` - 422 data exceeds maximum allowed length
         - `https://babbel.api/problems/no-stories` - 422 no stories available for bulletin generation
-        - `https://babbel.api/problems/unauthorized` - 401 authentication required
-        - `https://babbel.api/problems/forbidden` - 403 insufficient permissions
-        - `https://babbel.api/problems/internal-error` - 500 internal server error
+        - `https://babbel.api/problems/authentication-required` - 401 authentication required
+        - `https://babbel.api/problems/insufficient-permissions` - 403 insufficient permissions
+        - `https://babbel.api/problems/internal-server-error` - 500 internal server error
       required:
         - type
         - title
