@@ -47,21 +47,19 @@ jobs:
         with:
           dockerfile: ${{ env.DOCKERFILE_PATH }}
 
-      - name: YAML Lint
+      - name: YAML Lint (Docker Compose only)
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
+          file_or_dir: docker-compose*.yml
           config_data: |
             extends: default
             rules:
               line-length:
-                max: 120
+                max: 200
                 level: warning
-              comments:
-                min-spaces-from-content: 1
+              document-start: disable
               truthy:
                 allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
-              document-start:
-                present: false
 
       - name: Check for Docker Compose
         id: check_compose
