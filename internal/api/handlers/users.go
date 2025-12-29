@@ -73,7 +73,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, user.ID, "User created successfully")
+	utils.CreatedWithLocation(c, user.ID, "/api/v1/users", "User created successfully")
 }
 
 // UpdateUser updates an existing user's information

@@ -89,7 +89,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, story.ID, "Story created successfully")
+	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
 }
 
 // hasStoryFieldUpdates reports whether any story fields need updating.

@@ -1113,7 +1113,7 @@ class StoriesTests extends BaseTest {
         this.printInfo('Step 2: Uploading audio file separately...');
         const audioUploadResponse = await this.uploadFile(`/stories/${storyId}/audio`, {}, testAudio, 'audio');
 
-        if (audioUploadResponse.status !== 200) {
+        if (audioUploadResponse.status !== 201) {
             this.printError(`Failed to upload audio (HTTP: ${audioUploadResponse.status})`);
             this.printError(`Response: ${JSON.stringify(audioUploadResponse.data)}`);
             fs.unlinkSync(testAudio);

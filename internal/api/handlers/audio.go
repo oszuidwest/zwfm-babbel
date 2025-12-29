@@ -89,7 +89,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		return
 	}
 
-	utils.SuccessWithMessage(c, "Audio uploaded successfully")
+	utils.CreatedWithMessage(c, "Audio uploaded successfully")
 }
 
 // UploadStationVoiceAudio handles jingle file upload for a station-voice relationship
@@ -123,5 +123,5 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 		return
 	}
 
-	utils.SuccessWithMessage(c, "Jingle uploaded successfully")
+	utils.CreatedWithMessage(c, "Jingle uploaded successfully")
 }

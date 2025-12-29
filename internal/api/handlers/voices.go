@@ -49,7 +49,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 		return
 	}
 
-	utils.CreatedWithID(c, voice.ID, "Voice created successfully")
+	utils.CreatedWithLocation(c, voice.ID, "/api/v1/voices", "Voice created successfully")
 }
 
 // UpdateVoice updates an existing newsreader voice.

@@ -137,6 +137,9 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	// Session middleware - must be first
 	r.Use(authService.SessionMiddleware())
 
+	// Security headers middleware - before CORS
+	r.Use(securityHeaders(cfg))
+
 	// CORS middleware
 	r.Use(corsMiddleware(cfg))
 
@@ -244,6 +247,25 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	})
 
 	return r, nil
+}
+
+// securityHeaders adds OWASP-recommended security headers to all responses.
+func securityHeaders(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Core security headers (always applied)
+		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
+		c.Writer.Header().Set("X-Frame-Options", "DENY")
+		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
+		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+
+		// HSTS header - only for production or HTTPS requests
+		if cfg.Environment == "production" || c.Request.TLS != nil {
+			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		c.Next()
+	}
 }
 
 // corsMiddleware creates a CORS middleware for the configured allowed origins.
