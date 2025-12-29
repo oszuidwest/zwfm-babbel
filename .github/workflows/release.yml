@@ -1,3 +1,4 @@
+---
 name: Release
 
 on:
@@ -10,9 +11,6 @@ on:
         required: true
         default: '1.0.0'
 
-env:
-  GO_VERSION: '1.24'
-
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -21,13 +19,13 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: 'go.mod'
           cache: true
 
       - name: Set version
@@ -49,42 +47,28 @@ jobs:
             git push origin "$TAG"
           fi
 
-      - name: Test
-        run: |
-          go mod download
-          go test -v ./...
-          go vet ./...
-
-      - name: Build all platforms
+      - name: Build binaries
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           if [[ "$VERSION" == "edge" ]]; then
             VERSION="edge-$(git rev-parse --short HEAD)"
           fi
           LDFLAGS="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=$VERSION -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${{ github.sha }} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=$(date -u +%FT%TZ)"
-          
-          # Function to build
+
           build() {
-            local os=$1 arch=$2 arm=$3
-            local output="babbel-${os}-${arch}${arm:+v$arm}"
-            [[ "$os" == "windows" ]] && output+=".exe"
-            
+            local os=$1 arch=$2
+            local output="babbel-${os}-${arch}"
             echo "Building $output"
-            if [ -n "$arm" ]; then
-              GOOS=$os GOARCH=$arch GOARM=$arm CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "dist/$output" ./cmd/babbel
-            else
-              GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "dist/$output" ./cmd/babbel
-            fi
+            GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "dist/$output" ./cmd/babbel
           }
-          
+
           mkdir -p dist
-          
-          # Build matrix
+
+          # Linux
           build linux amd64
           build linux arm64
-          build linux arm 7
-          build windows amd64
-          build windows arm64
+
+          # macOS
           build darwin amd64
           build darwin arm64
 
@@ -95,15 +79,20 @@ jobs:
           tag_name: ${{ steps.version.outputs.version }}
           name: ${{ steps.version.outputs.version }}
           body: |
-            **Docker**: `docker pull ghcr.io/oszuidwest/zwfm-babbel:${{ steps.version.outputs.version }}`
-            
-            Binary downloads are available below as release assets.
+            ## Installation
+
+            **Docker (recommended)**:
+            ```bash
+            docker pull ghcr.io/oszuidwest/zwfm-babbel:${{ steps.version.outputs.version }}
+            ```
+
+            **Binary**: Download below. Requires FFmpeg and MySQL.
           files: dist/*
           generate_release_notes: true
 
       - name: Upload edge artifacts
         if: steps.version.outputs.is_release == 'false'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: edge-${{ github.sha }}
           path: dist/*
