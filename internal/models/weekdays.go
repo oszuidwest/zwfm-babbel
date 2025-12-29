@@ -97,6 +97,9 @@ func (w *Weekdays) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &n); err != nil {
 		return fmt.Errorf("weekdays must be an integer (0-127): %w", err)
 	}
+	if n > 127 {
+		return fmt.Errorf("weekdays must be 0-127, got %d", n)
+	}
 	*w = Weekdays(n)
 	return nil
 }
