@@ -646,21 +646,17 @@ class ValidationTester extends BaseTest {
         }
 
         // Test story creation without audio (pure JSON API - audio is separate endpoint)
-        const noFileResponse = await this.apiCall('POST', '/stories', {
+        const storyData = {
             title: "No File Test",
             text: "Test content",
-            voice_id: voiceId,
             status: 'active',
             start_date: '2024-01-01',
-            end_date: '2024-12-31',
-            monday: true,
-            tuesday: false,
-            wednesday: false,
-            thursday: false,
-            friday: false,
-            saturday: false,
-            sunday: false
-        });
+            end_date: '2024-12-31'
+        };
+        if (voiceId) {
+            storyData.voice_id = parseInt(voiceId, 10);
+        }
+        const noFileResponse = await this.apiCall('POST', '/stories', storyData);
 
         let passed = 0;
         if (noFileResponse.status === 201) {

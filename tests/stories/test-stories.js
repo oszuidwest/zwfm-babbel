@@ -264,6 +264,15 @@ class StoriesTests extends BaseTest {
         // Test updating weekday schedule
         this.printInfo('Updating story weekday schedule...');
         const weekdayData = {
+            weekdays: {
+                monday: true,
+                tuesday: false,
+                wednesday: true,
+                thursday: false,
+                friday: true,
+                saturday: false,
+                sunday: false
+            }
         };
 
         const weekdayResponse = await this.apiCall('PUT', `/stories/${storyId}`, weekdayData);
