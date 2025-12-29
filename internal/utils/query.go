@@ -201,6 +201,9 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"ne": func(value string) FilterOperation {
 		return FilterOperation{Operator: "!=", Value: value}
 	},
+	"bit": func(value string) FilterOperation {
+		return FilterOperation{Operator: "BIT", Value: value}
+	},
 	"": func(value string) FilterOperation {
 		return FilterOperation{Operator: "=", Value: value}
 	},
@@ -396,6 +399,8 @@ func ParseListQuery(c *gin.Context) *repository.ListQuery {
 		case "IN":
 			condition.Operator = repository.FilterIn
 			condition.Value = filter.Values
+		case "BIT":
+			condition.Operator = repository.FilterBitwiseAnd
 		default:
 			condition.Operator = repository.FilterEquals
 		}

@@ -37,6 +37,7 @@ const (
 	FilterLessOrEq    FilterOperator = "lte"
 	FilterLike        FilterOperator = "like"
 	FilterIn          FilterOperator = "in"
+	FilterBitwiseAnd  FilterOperator = "bit"
 )
 
 // FilterCondition represents a single filter condition.
@@ -155,6 +156,7 @@ var operatorFormats = map[FilterOperator]string{
 	FilterLessThan:    "%s < ?",
 	FilterLessOrEq:    "%s <= ?",
 	FilterIn:          "%s IN ?",
+	FilterBitwiseAnd:  "(%s & ?) != 0",
 }
 
 // applyFilterCondition applies a single filter condition to the query.
