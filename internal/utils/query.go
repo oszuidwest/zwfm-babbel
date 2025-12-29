@@ -3,6 +3,7 @@ package utils
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -201,6 +202,13 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"ne": func(value string) FilterOperation {
 		return FilterOperation{Operator: "!=", Value: value}
 	},
+	"band": func(value string) FilterOperation {
+		val, err := strconv.ParseUint(value, 10, 8)
+		if err != nil {
+			return FilterOperation{} // Invalid input, skip filter
+		}
+		return FilterOperation{Operator: "BAND", Value: uint8(val)}
+	},
 	"": func(value string) FilterOperation {
 		return FilterOperation{Operator: "=", Value: value}
 	},
@@ -347,6 +355,12 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 // ParseListQuery parses HTTP query parameters into a repository.ListQuery.
 func ParseListQuery(c *gin.Context) *repository.ListQuery {
 	params := ParseQueryParams(c)
+	return QueryParamsToListQuery(params)
+}
+
+// QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
+// This is the single source of truth for filter operator mapping.
+func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
 	if params == nil {
 		return repository.NewListQuery()
 	}
@@ -370,7 +384,7 @@ func ParseListQuery(c *gin.Context) *repository.ListQuery {
 		})
 	}
 
-	// Convert filters
+	// Convert filters - operator mapping is centralized here
 	for field, filter := range params.Filters {
 		condition := repository.FilterCondition{
 			Field: field,
@@ -396,6 +410,8 @@ func ParseListQuery(c *gin.Context) *repository.ListQuery {
 		case "IN":
 			condition.Operator = repository.FilterIn
 			condition.Value = filter.Values
+		case "BAND":
+			condition.Operator = repository.FilterBitwiseAnd
 		default:
 			condition.Operator = repository.FilterEquals
 		}

@@ -42,6 +42,18 @@ GET /api/v1/stories?filter[voice_id][in]=1,2,3
 GET /api/v1/stories?filter[title][like]=%news%
 ```
 
+#### Bitwise Filtering (Bitmask Fields)
+```http
+# Bitwise AND for bitmask fields like weekdays
+# Returns records where (field & value) != 0
+GET /api/v1/stories?filter[weekdays][band]=2      # Stories that play on Monday
+GET /api/v1/stories?filter[weekdays][band]=64     # Stories that play on Saturday
+GET /api/v1/stories?filter[weekdays][band]=65     # Stories that play on weekend (Sat=64 + Sun=1)
+```
+
+The `band` (bitwise AND) operator is restricted to specific fields for security:
+- `weekdays` - Story scheduling bitmask (Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64)
+
 > **Note:** The `between` and `ilike` operators are not yet implemented. Use `gte` and `lte` for range queries, and `like` for pattern matching.
 
 ### 2. Sorting

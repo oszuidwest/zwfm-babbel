@@ -219,6 +219,7 @@ var storyFieldMapping = FieldMapping{
 	"start_date":       "start_date",
 	"end_date":         "end_date",
 	"duration_seconds": "duration_seconds",
+	"weekdays":         "weekdays",
 	"created_at":       "created_at",
 	"updated_at":       "updated_at",
 	"deleted_at":       "deleted_at",

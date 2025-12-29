@@ -37,6 +37,7 @@ const (
 	FilterLessOrEq    FilterOperator = "lte"
 	FilterLike        FilterOperator = "like"
 	FilterIn          FilterOperator = "in"
+	FilterBitwiseAnd  FilterOperator = "band"
 )
 
 // FilterCondition represents a single filter condition.
@@ -146,6 +147,11 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}, nil
 }
 
+// bitwiseAllowedFields restricts bitwise operators to specific fields for security.
+var bitwiseAllowedFields = map[string]bool{
+	"weekdays": true,
+}
+
 // operatorFormats maps filter operators to their SQL format strings.
 var operatorFormats = map[FilterOperator]string{
 	FilterEquals:      "%s = ?",
@@ -155,6 +161,7 @@ var operatorFormats = map[FilterOperator]string{
 	FilterLessThan:    "%s < ?",
 	FilterLessOrEq:    "%s <= ?",
 	FilterIn:          "%s IN ?",
+	FilterBitwiseAnd:  "(%s & ?) != 0",
 }
 
 // applyFilterCondition applies a single filter condition to the query.
@@ -162,6 +169,11 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	// Validate field name to prevent SQL injection
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
+		return db
+	}
+
+	// Restrict bitwise operators to allowed fields only
+	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
 		return db
 	}
 
