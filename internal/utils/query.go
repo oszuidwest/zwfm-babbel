@@ -3,6 +3,7 @@ package utils
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -201,8 +202,12 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"ne": func(value string) FilterOperation {
 		return FilterOperation{Operator: "!=", Value: value}
 	},
-	"bit": func(value string) FilterOperation {
-		return FilterOperation{Operator: "BIT", Value: value}
+	"band": func(value string) FilterOperation {
+		val, err := strconv.ParseUint(value, 10, 8)
+		if err != nil {
+			return FilterOperation{} // Invalid input, skip filter
+		}
+		return FilterOperation{Operator: "BAND", Value: uint8(val)}
 	},
 	"": func(value string) FilterOperation {
 		return FilterOperation{Operator: "=", Value: value}
@@ -399,7 +404,7 @@ func ParseListQuery(c *gin.Context) *repository.ListQuery {
 		case "IN":
 			condition.Operator = repository.FilterIn
 			condition.Value = filter.Values
-		case "BIT":
+		case "BAND":
 			condition.Operator = repository.FilterBitwiseAnd
 		default:
 			condition.Operator = repository.FilterEquals
