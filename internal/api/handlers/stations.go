@@ -47,7 +47,7 @@ func (h *Handlers) GetStation(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, station)
+	utils.Success(c, station)
 }
 
 // CreateStation creates a new radio station.
