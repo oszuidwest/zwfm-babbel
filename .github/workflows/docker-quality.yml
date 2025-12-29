@@ -57,7 +57,8 @@ jobs:
               line-length:
                 max: 200
                 level: warning
-              document-start: disable
+              document-start:
+                present: true
               truthy:
                 allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
 
