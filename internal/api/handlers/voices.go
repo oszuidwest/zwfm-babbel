@@ -2,8 +2,6 @@
 package handlers
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -35,7 +33,7 @@ func (h *Handlers) GetVoice(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, voice)
+	utils.Success(c, voice)
 }
 
 // CreateVoice creates a new newsreader voice.

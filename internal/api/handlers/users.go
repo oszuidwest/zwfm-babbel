@@ -3,32 +3,12 @@ package handlers
 
 import (
 	"errors"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
-	"gorm.io/datatypes"
 )
-
-// UserResponse represents the user data returned by the API.
-type UserResponse struct {
-	ID                  int64              `json:"id" db:"id"`
-	Username            string             `json:"username" db:"username"`
-	FullName            *string            `json:"full_name" db:"full_name"`
-	Email               *string            `json:"email" db:"email"`
-	Role                string             `json:"role" db:"role"`
-	SuspendedAt         *time.Time         `json:"suspended_at" db:"suspended_at"`
-	LastLoginAt         *time.Time         `json:"last_login_at" db:"last_login_at"`
-	LoginCount          int                `json:"login_count" db:"login_count"`
-	FailedLoginAttempts int                `json:"failed_login_attempts" db:"failed_login_attempts"`
-	LockedUntil         *time.Time         `json:"locked_until" db:"locked_until"`
-	PasswordChangedAt   *time.Time         `json:"password_changed_at" db:"password_changed_at"`
-	Metadata            *datatypes.JSONMap `json:"metadata,omitempty" db:"metadata"`
-	CreatedAt           time.Time          `json:"created_at" db:"created_at"`
-	UpdatedAt           time.Time          `json:"updated_at" db:"updated_at"`
-}
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
@@ -57,39 +37,20 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
-// GetUser returns a single user by ID
+// GetUser returns a single user by ID.
 func (h *Handlers) GetUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Get user via service
 	user, err := h.userSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return
 	}
 
-	// Convert to response format using safe pointer conversion
-	response := UserResponse{
-		ID:                  user.ID,
-		Username:            user.Username,
-		FullName:            stringToPtr(user.FullName),
-		Email:               user.Email,
-		Role:                string(user.Role),
-		SuspendedAt:         user.SuspendedAt,
-		LastLoginAt:         user.LastLoginAt,
-		LoginCount:          user.LoginCount,
-		FailedLoginAttempts: user.FailedLoginAttempts,
-		LockedUntil:         user.LockedUntil,
-		PasswordChangedAt:   user.PasswordChangedAt,
-		Metadata:            user.Metadata,
-		CreatedAt:           user.CreatedAt,
-		UpdatedAt:           user.UpdatedAt,
-	}
-
-	utils.Success(c, response)
+	utils.Success(c, user)
 }
 
 // CreateUser creates a new user account
