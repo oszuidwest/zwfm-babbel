@@ -1,8 +1,6 @@
 module github.com/oszuidwest/zwfm-babbel
 
-go 1.24.0
-
-toolchain go1.24.5
+go 1.25
 
 require (
 	github.com/caarlos0/env/v11 v11.3.1
@@ -25,9 +23,10 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.9.1 // indirect
-	github.com/bytedance/sonic v1.14.0 // indirect
-	github.com/bytedance/sonic/loader v0.3.0 // indirect
-	github.com/casbin/govaluate v1.9.0 // indirect
+	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic v1.14.2 // indirect
+	github.com/bytedance/sonic/loader v0.4.0 // indirect
+	github.com/casbin/govaluate v1.10.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
@@ -36,7 +35,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/goccy/go-yaml v1.18.0 // indirect
+	github.com/goccy/go-yaml v1.19.1 // indirect
 	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/sessions v1.4.0 // indirect
@@ -53,13 +52,13 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/quasoft/memstore v0.0.0-20191010062613-2bce066d2b0b // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.57.0 // indirect
+	github.com/quic-go/quic-go v0.58.0 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/ugorji/go/codec v1.3.0 // indirect
-	golang.org/x/arch v0.20.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
+	github.com/ugorji/go/codec v1.3.1 // indirect
+	golang.org/x/arch v0.23.0 // indirect
+	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
