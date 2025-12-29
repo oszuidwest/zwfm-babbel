@@ -11,6 +11,12 @@ import (
 // The bitmask uses Go's time.Weekday values where Sunday=0, Monday=1, etc.
 // Each day is represented by 2^weekday: Sunday=1, Monday=2, Tuesday=4, Wednesday=8,
 // Thursday=16, Friday=32, Saturday=64.
+//
+// Common values:
+//   - 127 = All days (1+2+4+8+16+32+64)
+//   - 62  = Weekdays Mon-Fri (2+4+8+16+32)
+//   - 65  = Weekend Sat+Sun (1+64)
+//   - 0   = No days
 type Weekdays uint8
 
 // Weekday bitmask constants for each day.
@@ -58,46 +64,6 @@ func (w Weekdays) Toggle(day time.Weekday) Weekdays {
 	return w ^ (1 << day)
 }
 
-// ToMap returns the weekdays as a map for JSON serialization compatibility.
-func (w Weekdays) ToMap() map[string]bool {
-	return map[string]bool{
-		"sunday":    w.IsActive(time.Sunday),
-		"monday":    w.IsActive(time.Monday),
-		"tuesday":   w.IsActive(time.Tuesday),
-		"wednesday": w.IsActive(time.Wednesday),
-		"thursday":  w.IsActive(time.Thursday),
-		"friday":    w.IsActive(time.Friday),
-		"saturday":  w.IsActive(time.Saturday),
-	}
-}
-
-// FromMap creates a Weekdays from a map of day names to booleans.
-func WeekdaysFromMap(m map[string]bool) Weekdays {
-	var w Weekdays
-	if m["sunday"] {
-		w = w.With(time.Sunday)
-	}
-	if m["monday"] {
-		w = w.With(time.Monday)
-	}
-	if m["tuesday"] {
-		w = w.With(time.Tuesday)
-	}
-	if m["wednesday"] {
-		w = w.With(time.Wednesday)
-	}
-	if m["thursday"] {
-		w = w.With(time.Thursday)
-	}
-	if m["friday"] {
-		w = w.With(time.Friday)
-	}
-	if m["saturday"] {
-		w = w.With(time.Saturday)
-	}
-	return w
-}
-
 // ActiveDays returns a slice of time.Weekday values for all active days.
 func (w Weekdays) ActiveDays() []time.Weekday {
 	var days []time.Weekday
@@ -120,49 +86,17 @@ func (w Weekdays) Count() int {
 	return count
 }
 
-// MarshalJSON implements json.Marshaler to serialize Weekdays as a map.
-// This ensures API responses return {"monday": true, ...} format instead of an integer.
+// MarshalJSON implements json.Marshaler to serialize Weekdays as an integer.
 func (w Weekdays) MarshalJSON() ([]byte, error) {
-	return json.Marshal(w.ToMap())
+	return json.Marshal(uint8(w))
 }
 
-// UnmarshalJSON implements json.Unmarshaler to deserialize Weekdays from a map.
-// Accepts both map format {"monday": true} and integer format for backward compatibility.
+// UnmarshalJSON implements json.Unmarshaler to deserialize Weekdays from an integer.
 func (w *Weekdays) UnmarshalJSON(data []byte) error {
-	// First try to parse as a map (preferred format)
-	var m map[string]bool
-	if err := json.Unmarshal(data, &m); err == nil {
-		*w = WeekdaysFromMap(m)
-		return nil
-	}
-
-	// Fallback: try to parse as an integer (backward compatibility)
 	var n uint8
-	if err := json.Unmarshal(data, &n); err == nil {
-		*w = Weekdays(n)
-		return nil
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("weekdays must be an integer (0-127): %w", err)
 	}
-
-	return fmt.Errorf("weekdays must be a map of day names to booleans or an integer")
-}
-
-// validWeekdayKeys contains all valid lowercase weekday key names.
-var validWeekdayKeys = map[string]bool{
-	"sunday": true, "monday": true, "tuesday": true, "wednesday": true,
-	"thursday": true, "friday": true, "saturday": true,
-}
-
-// ValidateWeekdayKeys checks that all keys in the map are valid weekday names.
-// Returns an error listing invalid keys, or nil if all keys are valid.
-func ValidateWeekdayKeys(m map[string]bool) error {
-	var invalidKeys []string
-	for key := range m {
-		if !validWeekdayKeys[key] {
-			invalidKeys = append(invalidKeys, key)
-		}
-	}
-	if len(invalidKeys) > 0 {
-		return fmt.Errorf("invalid weekday keys: %v", invalidKeys)
-	}
+	*w = Weekdays(n)
 	return nil
 }

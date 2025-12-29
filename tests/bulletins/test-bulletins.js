@@ -118,12 +118,17 @@ class BulletinsTests extends BaseTest {
     
     /**
      * Helper function to create a test story with audio
+     * @param {string} title - Story title
+     * @param {string} text - Story text content
+     * @param {number} voiceId - Voice ID
+     * @param {number} weekdays - Weekdays bitmask (0-127), defaults to 127 (all days)
+     *                           Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
      */
-    async createTestStoryWithAudio(title, text, voiceId, weekdays = 'monday,tuesday,wednesday,thursday,friday') {
+    async createTestStoryWithAudio(title, text, voiceId, weekdays = 127) {
         // Create a simple test audio file
         const audioFile = `/tmp/test_story_audio_${Date.now()}.wav`;
         const fs = require('fs');
-        
+
         try {
             const { execSync } = require('child_process');
             execSync(`ffmpeg -f lavfi -i "sine=frequency=220:duration=3" -ar 44100 -ac 2 -f wav "${audioFile}" -y 2>/dev/null`, { stdio: 'ignore' });
@@ -135,25 +140,6 @@ class BulletinsTests extends BaseTest {
             this.printWarning('ffmpeg not available, cannot create test audio');
             return null;
         }
-        
-        // Set weekday flags - initialize all days to false first
-        const weekdayFlags = {
-            sunday: false,
-            monday: false,
-            tuesday: false,
-            wednesday: false,
-            thursday: false,
-            friday: false,
-            saturday: false
-        };
-
-        const days = weekdays.split(',');
-        days.forEach(day => {
-            const trimmed = day.trim().toLowerCase();
-            if (weekdayFlags.hasOwnProperty(trimmed)) {
-                weekdayFlags[trimmed] = true;
-            }
-        });
 
         // Use date range that includes today
         const today = new Date();
@@ -168,7 +154,7 @@ class BulletinsTests extends BaseTest {
             status: 'active',
             start_date: startDate,
             end_date: endDate,
-            weekdays: weekdayFlags
+            weekdays: weekdays
         };
 
         const createResponse = await this.apiCall('POST', '/stories', jsonBody);
@@ -235,9 +221,9 @@ class BulletinsTests extends BaseTest {
         this.printSuccess('Created station-voice relationships with jingles');
         
         // Create test stories with audio - include all days to ensure stories are available
-        const story1Id = await this.createTestStoryWithAudio('Breaking News Bulletin Test', 'This is a test breaking news story for bulletin generation.', voice1Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
-        const story2Id = await this.createTestStoryWithAudio('Weather Update Bulletin Test', 'Test weather forecast for bulletin generation.', voice2Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
-        const story3Id = await this.createTestStoryWithAudio('Traffic Report Bulletin Test', 'Traffic update for bulletin generation testing.', voice1Id, 'monday,tuesday,wednesday,thursday,friday,saturday,sunday');
+        const story1Id = await this.createTestStoryWithAudio('Breaking News Bulletin Test', 'This is a test breaking news story for bulletin generation.', voice1Id);
+        const story2Id = await this.createTestStoryWithAudio('Weather Update Bulletin Test', 'Test weather forecast for bulletin generation.', voice2Id);
+        const story3Id = await this.createTestStoryWithAudio('Traffic Report Bulletin Test', 'Traffic update for bulletin generation testing.', voice1Id);
         
         if (!story1Id || !story2Id || !story3Id) {
             this.printError('Failed to create test stories');
@@ -532,10 +518,9 @@ class BulletinsTests extends BaseTest {
         const createdStoryIds = [];
         for (let i = 0; i < storyTitles.length; i++) {
             const storyId = await this.createTestStoryWithAudio(
-                storyTitles[i], 
-                `Test story content for ${storyTitles[i]}`, 
-                testVoiceId,
-                'monday,tuesday,wednesday,thursday,friday,saturday,sunday'
+                storyTitles[i],
+                `Test story content for ${storyTitles[i]}`,
+                testVoiceId
             );
             if (storyId) {
                 createdStoryIds.push(storyId);
@@ -1196,10 +1181,9 @@ class BulletinsTests extends BaseTest {
         const createdStoryIds = [];
         for (let i = 0; i < storyTitles.length; i++) {
             const storyId = await this.createTestStoryWithAudio(
-                storyTitles[i], 
-                `Test story content for ${storyTitles[i]} with detailed information`, 
-                testVoiceId,
-                'monday,tuesday,wednesday,thursday,friday,saturday,sunday'
+                storyTitles[i],
+                `Test story content for ${storyTitles[i]} with detailed information`,
+                testVoiceId
             );
             if (storyId) {
                 createdStoryIds.push(storyId);

@@ -52,7 +52,7 @@ type CreateStoryRequest struct {
 	Status    string
 	StartDate string // Date in YYYY-MM-DD format
 	EndDate   string // Date in YYYY-MM-DD format
-	Weekdays  map[string]bool
+	Weekdays  models.Weekdays
 	Metadata  *datatypes.JSONMap
 }
 
@@ -64,7 +64,7 @@ type UpdateStoryRequest struct {
 	Status    *string
 	StartDate *string // Date in YYYY-MM-DD format
 	EndDate   *string // Date in YYYY-MM-DD format
-	Weekdays  map[string]bool
+	Weekdays  *models.Weekdays
 	Metadata  *datatypes.JSONMap
 }
 
@@ -98,16 +98,6 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
 	}
 
-	// Validate weekday keys if provided
-	if len(req.Weekdays) > 0 {
-		if err := models.ValidateWeekdayKeys(req.Weekdays); err != nil {
-			return nil, fmt.Errorf("%w: %s", apperrors.ErrInvalidInput, err.Error())
-		}
-	}
-
-	// Convert weekday map to bitmask
-	weekdays := models.WeekdaysFromMap(req.Weekdays)
-
 	// Create story data
 	data := &repository.StoryCreateData{
 		Title:     req.Title,
@@ -116,7 +106,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		Status:    req.Status,
 		StartDate: startDate,
 		EndDate:   endDate,
-		Weekdays:  weekdays,
+		Weekdays:  req.Weekdays,
 		Metadata:  req.Metadata,
 	}
 
@@ -187,7 +177,6 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 }
 
 // parseDateUpdates parses and validates start and end dates from update request.
-// Also validates weekday keys if present.
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
 	var startDate, endDate *time.Time
 
@@ -211,13 +200,6 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	if startDate != nil && endDate != nil {
 		if endDate.Before(*startDate) {
 			return nil, nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
-		}
-	}
-
-	// Validate weekday keys if provided
-	if len(req.Weekdays) > 0 {
-		if err := models.ValidateWeekdayKeys(req.Weekdays); err != nil {
-			return nil, nil, fmt.Errorf("%w: %s", apperrors.ErrInvalidInput, err.Error())
 		}
 	}
 
@@ -267,9 +249,8 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	}
 
 	// Apply weekdays updates
-	if len(req.Weekdays) > 0 {
-		weekdays := models.WeekdaysFromMap(req.Weekdays)
-		updates.Weekdays = &weekdays
+	if req.Weekdays != nil {
+		updates.Weekdays = req.Weekdays
 		hasUpdates = true
 	}
 

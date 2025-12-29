@@ -66,8 +66,8 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 
 	// Use provided weekdays or default to all days enabled
 	weekdays := req.Weekdays
-	if len(weekdays) == 0 {
-		weekdays = models.WeekdaysAll.ToMap()
+	if weekdays == 0 {
+		weekdays = models.WeekdaysAll
 	}
 
 	// Create service request
@@ -93,14 +93,14 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 }
 
 // hasStoryFieldUpdates reports whether any story fields need updating.
-func hasStoryFieldUpdates(req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
+func hasStoryFieldUpdates(req *utils.StoryUpdateRequest) bool {
 	return req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		len(weekdays) > 0 || req.Metadata != nil
+		req.Weekdays != nil || req.Metadata != nil
 }
 
 // applyStoryFieldUpdates applies field updates via service
-func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest, weekdays map[string]bool) bool {
+func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest) bool {
 	svcReq := &services.UpdateStoryRequest{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -108,7 +108,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 		Status:    req.Status,
 		StartDate: req.StartDate,
 		EndDate:   req.EndDate,
-		Weekdays:  weekdays,
+		Weekdays:  req.Weekdays,
 		Metadata:  req.Metadata,
 	}
 
@@ -140,14 +140,8 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Use weekdays directly from request (empty map means no weekday update)
-	weekdays := req.Weekdays
-
-	// Determine if there are field updates
-	hasFieldUpdate := hasStoryFieldUpdates(&req, weekdays)
-
 	// Validate update request - at least one field must be updated
-	if !hasFieldUpdate {
+	if !hasStoryFieldUpdates(&req) {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
@@ -156,7 +150,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	// Apply field updates
-	if !h.applyStoryFieldUpdates(c, id, &req, weekdays) {
+	if !h.applyStoryFieldUpdates(c, id, &req) {
 		return
 	}
 

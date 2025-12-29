@@ -199,7 +199,7 @@ type StoryCreateRequest struct {
 	Status    string             `json:"status" binding:"omitempty,story_status"`
 	StartDate string             `json:"start_date" binding:"required,dateformat"`
 	EndDate   string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays  map[string]bool    `json:"weekdays"` // Bitmask as map for API compatibility
+	Weekdays  models.Weekdays    `json:"weekdays"` // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
@@ -211,7 +211,7 @@ type StoryUpdateRequest struct {
 	Status    *string            `json:"status" binding:"omitempty,story_status"`
 	StartDate *string            `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string            `json:"end_date" binding:"omitempty,dateformat"`
-	Weekdays  map[string]bool    `json:"weekdays"` // Bitmask as map for API compatibility
+	Weekdays  *models.Weekdays   `json:"weekdays"` // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 

@@ -39,9 +39,9 @@ class StoriesTests extends BaseTest {
      * @param {string} title - Story title
      * @param {string} text - Story text content
      * @param {number|null} voiceId - Optional voice ID
-     * @param {object} weekdays - Optional weekdays map, defaults to all days enabled
+     * @param {number} weekdays - Weekdays bitmask (0-127), defaults to 127 (all days)
      */
-    async createStory(title, text, voiceId, weekdays = null) {
+    async createStory(title, text, voiceId, weekdays = 127) {
         const storyData = {
             title,
             text,
@@ -49,15 +49,7 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            weekdays: weekdays || {
-                sunday: true,
-                monday: true,
-                tuesday: true,
-                wednesday: true,
-                thursday: true,
-                friday: true,
-                saturday: true
-            }
+            weekdays: weekdays
         };
 
         const response = await this.apiCall('POST', '/stories', storyData);
@@ -275,18 +267,9 @@ class StoriesTests extends BaseTest {
         }
         
         // Test updating weekday schedule
-        this.printInfo('Updating story weekday schedule...');
-        const weekdayData = {
-            weekdays: {
-                monday: true,
-                tuesday: false,
-                wednesday: true,
-                thursday: false,
-                friday: true,
-                saturday: false,
-                sunday: false
-            }
-        };
+        // Update to Mon/Wed/Fri only: Mon=2, Wed=8, Fri=32 = 42
+        this.printInfo('Updating story weekday schedule to Mon/Wed/Fri (bitmask: 42)...');
+        const weekdayData = { weekdays: 42 };
 
         const weekdayResponse = await this.apiCall('PUT', `/stories/${storyId}`, weekdayData);
 
@@ -297,31 +280,10 @@ class StoriesTests extends BaseTest {
             const verifyResponse = await this.apiCall('GET', `/stories/${storyId}`);
             if (this.assertions.checkResponse(verifyResponse, 200, 'Verify weekdays update')) {
                 const savedWeekdays = verifyResponse.data.weekdays;
-                if (savedWeekdays) {
-                    const expectedActive = ['monday', 'wednesday', 'friday'];
-                    const expectedInactive = ['tuesday', 'thursday', 'saturday', 'sunday'];
-
-                    let allCorrect = true;
-                    for (const day of expectedActive) {
-                        if (!savedWeekdays[day]) {
-                            this.printError(`Expected ${day} to be true but got ${savedWeekdays[day]}`);
-                            allCorrect = false;
-                        }
-                    }
-                    for (const day of expectedInactive) {
-                        if (savedWeekdays[day]) {
-                            this.printError(`Expected ${day} to be false but got ${savedWeekdays[day]}`);
-                            allCorrect = false;
-                        }
-                    }
-
-                    if (allCorrect) {
-                        this.printSuccess('Weekdays verified: Mon/Wed/Fri active, others inactive');
-                    } else {
-                        return false;
-                    }
+                if (savedWeekdays === 42) {
+                    this.printSuccess('Weekdays verified: Mon/Wed/Fri active (bitmask: 42)');
                 } else {
-                    this.printError('Weekdays field missing from response');
+                    this.printError(`Expected weekdays=42 but got ${savedWeekdays}`);
                     return false;
                 }
             } else {
@@ -476,8 +438,8 @@ class StoriesTests extends BaseTest {
             return false;
         }
         
-        // Test creating a weekend-only story
-        this.printInfo('Creating weekend-only story...');
+        // Test creating a weekend-only story (Sun=1 + Sat=64 = 65)
+        this.printInfo('Creating weekend-only story (bitmask: 65)...');
         const weekendData = {
             title: 'Weekend Story',
             text: 'This story only plays on weekends.',
@@ -485,15 +447,7 @@ class StoriesTests extends BaseTest {
             status: 'active',
             start_date: '2024-01-01',
             end_date: '2024-12-31',
-            weekdays: {
-                sunday: true,
-                monday: false,
-                tuesday: false,
-                wednesday: false,
-                thursday: false,
-                friday: false,
-                saturday: true
-            }
+            weekdays: 65
         };
 
         const weekendResponse = await this.apiCall('POST', '/stories', weekendData);
@@ -512,9 +466,9 @@ class StoriesTests extends BaseTest {
         // Test modern date filtering for active stories
         this.printInfo('Testing modern date filtering for active stories...');
         
-        // Test modern filter for a Saturday date (should find weekend story)
+        // Test modern filter for weekend stories (weekdays=65 = Sat+Sun)
         const saturdayDate = '2024-06-15'; // This is a Saturday
-        const saturdayResponse = await this.apiCall('GET', `/stories?filter%5Bstart_date%5D%5Blte%5D=${saturdayDate}&filter%5Bend_date%5D%5Bgte%5D=${saturdayDate}&filter%5Bsaturday%5D=1`);
+        const saturdayResponse = await this.apiCall('GET', `/stories?filter%5Bstart_date%5D%5Blte%5D=${saturdayDate}&filter%5Bend_date%5D%5Bgte%5D=${saturdayDate}&filter%5Bweekdays%5D=65`);
         
         if (this.assertions.checkResponse(saturdayResponse, 200, 'Filter by Saturday date')) {
             const stories = saturdayResponse.data.data || [];
@@ -570,7 +524,7 @@ class StoriesTests extends BaseTest {
         
         // Test multiple filters combined
         this.printInfo('Testing multiple filters combined...');
-        const multiFilterResponse = await this.apiCall('GET', `/stories?filter%5Bvoice_id%5D=${voice1}&filter%5Bstatus%5D=active&filter%5Bmonday%5D=1`);
+        const multiFilterResponse = await this.apiCall('GET', `/stories?filter%5Bvoice_id%5D=${voice1}&filter%5Bstatus%5D=active&filter%5Bweekdays%5D=127`);
         if (this.assertions.checkResponse(multiFilterResponse, 200, 'Multiple filters')) {
             this.printSuccess('Multiple filter conditions work together');
         } else {
