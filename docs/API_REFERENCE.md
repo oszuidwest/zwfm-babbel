@@ -478,7 +478,7 @@ Radio station management
 
 
 
-**Response:** `200` - Station updated
+**Response:** `200` - Station updated successfully
 
 
 
@@ -691,7 +691,7 @@ Voice/presenter management
 
 
 
-**Response:** `200` - Voice updated
+**Response:** `200` - Voice updated successfully
 
 
 
@@ -1066,7 +1066,7 @@ This endpoint can be used to:
 
 
 
-**Response:** `200` - Story state updated successfully (status change or restore)
+**Response:** `200` - Story state updated successfully (status change or restore). Returns the updated story.
 
 
 
@@ -1314,7 +1314,7 @@ Use this endpoint when you only want to change suspension status without providi
 
 
 
-**Response:** `200` - User state updated successfully
+**Response:** `200` - User state updated successfully. Returns the updated user.
 
 
 
@@ -1347,7 +1347,7 @@ Can also suspend/restore users by setting the suspended field to true/false.
 
 
 
-**Response:** `200` - User updated
+**Response:** `200` - User updated successfully
 
 
 

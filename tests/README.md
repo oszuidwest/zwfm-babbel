@@ -175,16 +175,16 @@ docker-compose exec mysql mysql -u babbel -pbabbel -e "SHOW DATABASES;"
 ## Test Results
 
 Current test coverage:
-- **Authentication**: 7 tests
-- **Permissions**: 5 tests  
-- **Stations**: 6 tests
-- **Voices**: 5 tests
-- **Station-Voices**: 6 tests
-- **Stories**: 8 tests
-- **Bulletins**: 8 tests
+- **Authentication**: 6 tests
+- **Permissions**: 4 tests
+- **Stations**: 7 tests
+- **Voices**: 6 tests
+- **Station-Voices**: 7 tests
+- **Stories**: 10 tests
+- **Bulletins**: 11 tests
 - **Users**: 19 tests
-- **Validation**: 2 tests
-- **Total**: 70 tests across all suites
+- **Validation**: 6 tests
+- **Total**: 76 tests across all suites
 
 ## Contributing
 
