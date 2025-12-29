@@ -169,7 +169,7 @@ CLAUDE.md              # AI assistant instructions
 
 The project includes a comprehensive test suite:
 - **Unit tests**: Go tests for individual components
-- **Integration tests**: 70 Node.js tests covering all endpoints
+- **Integration tests**: 76 Node.js tests covering all endpoints
 - **Test categories**: Authentication, permissions, stations, voices, stories, bulletins, users
 - **Coverage**: All major API workflows and edge cases
 

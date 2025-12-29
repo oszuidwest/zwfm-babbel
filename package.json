@@ -1,6 +1,6 @@
 {
   "name": "babbel-api",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "HTTP API for generating audio news bulletins for radio automation systems",
   "main": "babbel",
   "scripts": {

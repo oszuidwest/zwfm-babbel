@@ -4,7 +4,7 @@ info:
   description: |
     HTTP API for generating audio news bulletins. Combines news stories with station-specific jingles using FFmpeg.
 
-    ## Breaking Changes (v2.0)
+    ## API Design Notes
 
     **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
     - Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
@@ -42,7 +42,7 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
-  version: 2.0.0
+  version: 1.0.0
       - "Station-specific voice jingles with mix points"
       - "Local and OAuth/OIDC authentication"
       - "Role-based access control (admin, editor, viewer)"
