@@ -34,7 +34,7 @@ First release of the rebuilt Babbel API system for generating audio news bulleti
 - FFmpeg for audio processing
 - Docker and Docker Compose support
 - OpenAPI 3.0.3 specification
-- Node.js integration test suite (70 tests)
+- Node.js integration test suite (76 tests)
 - GitHub Actions CI/CD pipeline
 
 #### Documentation

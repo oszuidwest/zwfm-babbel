@@ -53,18 +53,18 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	return voice, nil
 }
 
-// Update updates an existing voice's name.
-func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) error {
+// Update updates an existing voice's name and returns the updated voice.
+func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) (*models.Voice, error) {
 	const op = "VoiceService.Update"
 
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 		if taken {
-			return fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, *req.Name)
+			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, *req.Name)
 		}
 	}
 
@@ -76,12 +76,12 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	// Update voice
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // Delete deletes a voice after checking for dependencies.

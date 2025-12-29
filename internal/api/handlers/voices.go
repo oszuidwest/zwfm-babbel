@@ -69,13 +69,12 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		Name: &req.Name,
 	}
 
-	err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)
+	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)
 	if err != nil {
 		handleServiceError(c, err, "Voice")
 		return
 	}
-
-	utils.SuccessWithMessage(c, "Voice updated successfully")
+	utils.Success(c, updated)
 }
 
 // DeleteVoice removes a newsreader voice.

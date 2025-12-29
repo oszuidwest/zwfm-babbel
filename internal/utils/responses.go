@@ -79,14 +79,6 @@ func CreatedWithMessage(c *gin.Context, message string) {
 	c.JSON(http.StatusCreated, MessageResponse{Message: message})
 }
 
-// SuccessWithMessage responds with HTTP 200 OK status and a success message.
-func SuccessWithMessage(c *gin.Context, message string) {
-	if c == nil {
-		return
-	}
-	c.JSON(http.StatusOK, MessageResponse{Message: message})
-}
-
 // RFC 9457 Problem Details compatible error response functions.
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.

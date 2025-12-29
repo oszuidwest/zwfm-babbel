@@ -99,8 +99,8 @@ func hasStoryFieldUpdates(req *utils.StoryUpdateRequest) bool {
 		req.Weekdays != nil || req.Metadata != nil
 }
 
-// applyStoryFieldUpdates applies field updates via service
-func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest) bool {
+// applyStoryFieldUpdates applies field updates via service and returns the updated story.
+func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest) (*models.Story, bool) {
 	svcReq := &services.UpdateStoryRequest{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -112,13 +112,13 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 		Metadata:  req.Metadata,
 	}
 
-	_, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
+	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
-		return false
+		return nil, false
 	}
 
-	return true
+	return updated, true
 }
 
 // UpdateStory updates an existing story (JSON API only)
@@ -149,12 +149,12 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Apply field updates
-	if !h.applyStoryFieldUpdates(c, id, &req) {
+	// Apply field updates and return updated story
+	updated, ok := h.applyStoryFieldUpdates(c, id, &req)
+	if !ok {
 		return
 	}
-
-	utils.SuccessWithMessage(c, "Story updated successfully")
+	utils.Success(c, updated)
 }
 
 // DeleteStory soft deletes a story.
@@ -205,7 +205,12 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 				handleServiceError(c, err, "Story")
 				return
 			}
-			utils.SuccessWithMessage(c, "Story restored")
+			restored, err := h.storySvc.GetByID(c.Request.Context(), id)
+			if err != nil {
+				handleServiceError(c, err, "Story")
+				return
+			}
+			utils.Success(c, restored)
 			return
 		}
 		// Soft delete story (set deleted_at to NOW())
@@ -219,11 +224,12 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	// Handle status update
 	if req.Status != nil {
-		if err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status); err != nil {
+		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
+		if err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
-		utils.SuccessWithMessage(c, "Story status updated")
+		utils.Success(c, updated)
 	}
 }
 

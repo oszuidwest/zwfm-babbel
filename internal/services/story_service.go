@@ -348,23 +348,24 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 }
 
 // UpdateStatus changes a story's status to draft, active, or expired.
-func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) error {
+// Returns the updated story.
+func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) (*models.Story, error) {
 	// Validate status
 	storyStatus := models.StoryStatus(status)
 	if !storyStatus.IsValid() {
-		return fmt.Errorf("%w: status must be one of: draft, active, expired", apperrors.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: status must be one of: draft, active, expired", apperrors.ErrInvalidInput)
 	}
 
 	err := s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
 		}
 		logger.Error("Database error updating story status %d: %v", id, err)
-		return fmt.Errorf("%w: failed to update story status", apperrors.ErrDatabaseError)
+		return nil, fmt.Errorf("%w: failed to update story status", apperrors.ErrDatabaseError)
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // handleDatabaseError converts database errors to service-level errors.

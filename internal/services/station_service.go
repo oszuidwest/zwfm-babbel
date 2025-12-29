@@ -55,18 +55,18 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	return station, nil
 }
 
-// Update updates an existing station's configuration.
-func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) error {
+// Update updates an existing station's configuration and returns the updated station.
+func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) (*models.Station, error) {
 	const op = "StationService.Update"
 
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 		}
 		if taken {
-			return fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, *req.Name)
+			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, *req.Name)
 		}
 	}
 
@@ -80,12 +80,12 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	// Update station
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // Exists reports whether a station with the given ID exists.

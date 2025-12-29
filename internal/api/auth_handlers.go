@@ -80,7 +80,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?error="+url.QueryEscape(err.Error()))
+		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(err.Error()))
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		logger.Error("Failed to save session after cleanup: %v", err)
 	}
 
-	c.Redirect(http.StatusTemporaryRedirect, frontendURL+"?login=success")
+	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
 }
 
 // Logout securely destroys the current user session and clears all session data.

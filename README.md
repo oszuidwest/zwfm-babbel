@@ -122,7 +122,7 @@ make docker             # Build Docker image
 
 # Testing
 make test               # Run Go unit tests  
-make test-all           # Run full integration test suite (70 tests)
+make test-all           # Run full integration test suite (76 tests)
 npm test                # Run Node.js integration tests
 
 # Code Quality

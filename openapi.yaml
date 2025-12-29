@@ -451,19 +451,11 @@ paths:
               $ref: '#/components/schemas/StationInput'
       responses:
         '200':
-          description: Station updated
+          description: Station updated successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-              examples:
-                updated_station:
-                  summary: Station updated successfully
-                  value:
-                    message: "Station updated successfully"
+                $ref: '#/components/schemas/Station'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -654,19 +646,11 @@ paths:
                   maxLength: 255
       responses:
         '200':
-          description: Voice updated
+          description: Voice updated successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-              examples:
-                updated_voice:
-                  summary: Voice updated successfully
-                  value:
-                    message: "Voice updated successfully"
+                $ref: '#/components/schemas/Voice'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -1001,15 +985,11 @@ paths:
                     deleted_at: ""
       responses:
         '200':
-          description: Story state updated successfully (status change or restore)
+          description: Story state updated successfully (status change or restore). Returns the updated story.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "Story status updated successfully"
+                $ref: '#/components/schemas/Story'
         '204':
           description: Story soft-deleted successfully (when deleted_at is set to a non-empty value)
         '400':
@@ -1228,19 +1208,11 @@ paths:
               $ref: '#/components/schemas/UserInput'
       responses:
         '200':
-          description: User updated
+          description: User updated successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-              examples:
-                updated_user:
-                  summary: User updated successfully
-                  value:
-                    message: "User updated successfully"
+                $ref: '#/components/schemas/User'
         '404':
           $ref: '#/components/responses/NotFound'
     delete:
@@ -1287,21 +1259,15 @@ paths:
                 action: "suspend"
       responses:
         '200':
-          description: User state updated successfully
+          description: User state updated successfully. Returns the updated user.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "User suspended successfully"
+                $ref: '#/components/schemas/User'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
-
-
 
   /bulletins:
     get:
