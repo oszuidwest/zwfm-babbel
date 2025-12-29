@@ -237,7 +237,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 
 	// Health check (typed response for compile-time safety)
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, handlers.HealthResponse{
+		utils.Success(c, handlers.HealthResponse{
 			Status:  "ok",
 			Service: "babbel-api",
 		})

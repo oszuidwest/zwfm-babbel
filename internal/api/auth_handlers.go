@@ -52,7 +52,7 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, utils.MessageResponse{Message: "Login successful"})
+	utils.CreatedWithMessage(c, "Login successful")
 }
 
 // StartOAuthFlow initiates OAuth/OIDC authentication by redirecting to the provider.
@@ -135,5 +135,5 @@ func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 		response.OAuthURL = "/api/v1/auth/oauth"
 	}
 
-	c.JSON(http.StatusOK, response)
+	utils.Success(c, response)
 }
