@@ -122,7 +122,7 @@ make docker             # Build Docker image
 
 # Testing
 make test               # Run Go unit tests  
-make test-all           # Run full integration test suite (76 tests)
+make test-all           # Run full integration test suite (70 tests)
 npm test                # Run Node.js integration tests
 
 # Code Quality
@@ -146,6 +146,7 @@ internal/
   database/             # Database connection
   models/               # Data models
   repository/           # Data access layer (GORM)
+  scheduler/            # Background tasks
   services/             # Business logic layer
   utils/                # Shared utilities
 tests/                  # Integration test suite
@@ -168,7 +169,7 @@ CLAUDE.md              # AI assistant instructions
 
 The project includes a comprehensive test suite:
 - **Unit tests**: Go tests for individual components
-- **Integration tests**: 76 Node.js tests covering all endpoints
+- **Integration tests**: 70 Node.js tests covering all endpoints
 - **Test categories**: Authentication, permissions, stations, voices, stories, bulletins, users
 - **Coverage**: All major API workflows and edge cases
 

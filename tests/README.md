@@ -86,7 +86,7 @@ tests/
 - ✅ **Cookie Management**: Session persistence across tests
 - ✅ **Colored Output**: Clear test results with color coding
 - ✅ **Auto Cleanup**: Resources cleaned up automatically
-- ✅ **66 Total Tests**: Complete migration from bash with enhancements
+- ✅ **70 Total Tests**: Complete migration from bash with enhancements
 
 ## 📊 Test Coverage
 
@@ -184,7 +184,7 @@ Current test coverage:
 - **Bulletins**: 8 tests
 - **Users**: 19 tests
 - **Validation**: 2 tests
-- **Total**: 66 tests across all suites
+- **Total**: 70 tests across all suites
 
 ## Contributing
 
