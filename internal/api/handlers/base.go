@@ -4,7 +4,6 @@ package handlers
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -107,64 +106,9 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 }
 
 // convertToListQuery converts utils.QueryParams to repository.ListQuery.
+// Delegates to utils.QueryParamsToListQuery to avoid code duplication.
 func convertToListQuery(params *utils.QueryParams) *repository.ListQuery {
-	if params == nil {
-		return repository.NewListQuery()
-	}
-
-	query := &repository.ListQuery{
-		Limit:  params.Limit,
-		Offset: params.Offset,
-		Search: params.Search,
-		Status: params.Status,
-	}
-
-	// Convert sort fields
-	for _, sf := range params.Sort {
-		direction := repository.SortAsc
-		if strings.ToLower(sf.Direction) == "desc" {
-			direction = repository.SortDesc
-		}
-		query.Sort = append(query.Sort, repository.SortField{
-			Field:     sf.Field,
-			Direction: direction,
-		})
-	}
-
-	// Convert filters
-	for field, filter := range params.Filters {
-		condition := repository.FilterCondition{
-			Field: field,
-			Value: filter.Value,
-		}
-
-		// Map operator strings to repository.FilterOperator
-		switch filter.Operator {
-		case "=":
-			condition.Operator = repository.FilterEquals
-		case "!=":
-			condition.Operator = repository.FilterNotEquals
-		case ">":
-			condition.Operator = repository.FilterGreaterThan
-		case ">=":
-			condition.Operator = repository.FilterGreaterOrEq
-		case "<":
-			condition.Operator = repository.FilterLessThan
-		case "<=":
-			condition.Operator = repository.FilterLessOrEq
-		case "LIKE":
-			condition.Operator = repository.FilterLike
-		case "IN":
-			condition.Operator = repository.FilterIn
-			condition.Value = filter.Values
-		default:
-			condition.Operator = repository.FilterEquals
-		}
-
-		query.Filters = append(query.Filters, condition)
-	}
-
-	return query
+	return utils.QueryParamsToListQuery(params)
 }
 
 // filterFields filters struct fields based on requested field names.

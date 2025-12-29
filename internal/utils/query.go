@@ -355,6 +355,12 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 // ParseListQuery parses HTTP query parameters into a repository.ListQuery.
 func ParseListQuery(c *gin.Context) *repository.ListQuery {
 	params := ParseQueryParams(c)
+	return QueryParamsToListQuery(params)
+}
+
+// QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
+// This is the single source of truth for filter operator mapping.
+func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
 	if params == nil {
 		return repository.NewListQuery()
 	}
@@ -378,7 +384,7 @@ func ParseListQuery(c *gin.Context) *repository.ListQuery {
 		})
 	}
 
-	// Convert filters
+	// Convert filters - operator mapping is centralized here
 	for field, filter := range params.Filters {
 		condition := repository.FilterCondition{
 			Field: field,
