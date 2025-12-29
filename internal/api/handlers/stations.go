@@ -85,13 +85,12 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 		PauseSeconds:       &req.PauseSeconds,
 	}
 
-	err := h.stationSvc.Update(c.Request.Context(), id, updateReq)
+	updated, err := h.stationSvc.Update(c.Request.Context(), id, updateReq)
 	if err != nil {
 		handleServiceError(c, err, "Station")
 		return
 	}
-
-	utils.SuccessWithMessage(c, "Station updated successfully")
+	utils.Success(c, updated)
 }
 
 // DeleteStation removes a radio station.

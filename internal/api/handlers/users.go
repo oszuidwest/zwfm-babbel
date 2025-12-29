@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -100,12 +101,12 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	// Update user via service
-	if err := h.userSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
+	updated, err := h.userSvc.Update(c.Request.Context(), id, serviceReq)
+	if err != nil {
 		handleServiceError(c, err, "User")
 		return
 	}
-
-	utils.SuccessWithMessage(c, "User updated successfully")
+	utils.Success(c, updated)
 }
 
 // DeleteUser permanently deletes a user account
@@ -145,17 +146,17 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 		return
 	}
 
+	var updated *models.User
 	var err error
 	if req.Action == "suspend" {
-		err = h.userSvc.Suspend(c.Request.Context(), id)
+		updated, err = h.userSvc.Suspend(c.Request.Context(), id)
 	} else {
-		err = h.userSvc.Unsuspend(c.Request.Context(), id)
+		updated, err = h.userSvc.Unsuspend(c.Request.Context(), id)
 	}
 
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return
 	}
-
-	utils.SuccessWithMessage(c, "User status updated successfully")
+	utils.Success(c, updated)
 }

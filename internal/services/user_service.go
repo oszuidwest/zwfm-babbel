@@ -202,46 +202,46 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates
 	return nil
 }
 
-// Update updates an existing user's information.
-func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) error {
+// Update updates an existing user's information and returns the updated user.
+func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
 	const op = "UserService.Update"
 
 	updates := &repository.UserUpdate{}
 
 	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	if err := s.applyEmailUpdate(ctx, updates, req.Email, id); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	if err := s.applyPasswordUpdate(updates, req.Password); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 	s.applyFullNameUpdate(updates, req.FullName)
 	s.applyMetadataUpdate(updates, req.Metadata)
 
 	// Handle suspended separately
 	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	// Check if we have any updates
 	hasUpdates := hasFieldUpdates(updates)
 	if !hasUpdates && req.Suspended == nil {
-		return fmt.Errorf("%s: %w: no fields to update", op, apperrors.ErrInvalidInput)
+		return nil, fmt.Errorf("%s: %w: no fields to update", op, apperrors.ErrInvalidInput)
 	}
 
 	// Apply field updates
 	if hasUpdates {
 		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
-			return fmt.Errorf("%s: %w", op, err)
+			return nil, fmt.Errorf("%s: %w", op, err)
 		}
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // GetByID retrieves a user by their ID.
@@ -301,33 +301,35 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 }
 
 // Suspend prevents a user from logging in by marking their account as suspended.
-func (s *UserService) Suspend(ctx context.Context, id int64) error {
+// Returns the updated user.
+func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, error) {
 	const op = "UserService.Suspend"
 
 	err := s.repo.SetSuspended(ctx, id, true)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // Unsuspend reactivates a suspended user account, allowing them to log in again.
-func (s *UserService) Unsuspend(ctx context.Context, id int64) error {
+// Returns the updated user.
+func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, error) {
 	const op = "UserService.Unsuspend"
 
 	err := s.repo.SetSuspended(ctx, id, false)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
 		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // isValidRole reports whether the given role is valid.
