@@ -561,6 +561,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -768,6 +769,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -963,6 +965,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -1128,8 +1131,14 @@ Use date range filters to find stories active on specific dates:
 The weekdays field is a bitmask integer (0-127). Each day is a power of 2:
 - Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64
 - Common values: 127 (all days), 62 (Mon-Fri), 65 (weekend)
-Filter examples:
-- `filter[weekdays]=62` - Stories scheduled for weekdays only
+
+Use the `band` operator for bitwise AND filtering (returns stories where field & value != 0):
+- `filter[weekdays][band]=2` - Stories that play on Monday
+- `filter[weekdays][band]=64` - Stories that play on Saturday
+- `filter[weekdays][band]=65` - Stories that play on weekend (Sat=64 + Sun=1)
+
+Use exact equality for specific schedule:
+- `filter[weekdays]=62` - Stories scheduled for Mon-Fri only
 - `filter[weekdays]=127` - Stories scheduled for all days
 
 ## Voice Filtering
@@ -1139,7 +1148,8 @@ Filter examples:
 
 ## Examples
 - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
-- Weekday stories with voice: `?filter[weekdays]=62&filter[voice_id][ne]=null`
+- Stories that play on Monday: `?filter[weekdays][band]=2`
+- Weekend stories with voice: `?filter[weekdays][band]=65&filter[voice_id][ne]=null`
 - Search with sorting: `?search=breaking&sort=-created_at`
 
 
@@ -1179,6 +1189,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -1400,6 +1411,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -1548,6 +1560,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -1648,6 +1661,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -1752,6 +1766,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
@@ -2058,6 +2073,7 @@ Supported operators:
 - `like` - pattern matching
 - `in` - comma-separated values
 - `null` - is/isn't null
+- `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
 **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
  |
