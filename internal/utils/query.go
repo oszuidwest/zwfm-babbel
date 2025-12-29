@@ -324,9 +324,14 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 		field := valueType.Field(i)
 		jsonTag := field.Tag.Get("json")
 
-		// Parse JSON tag
+		// Skip fields explicitly excluded from JSON serialization
+		if jsonTag == "-" {
+			continue
+		}
+
+		// Parse JSON tag to get field name
 		fieldName := field.Name
-		if jsonTag != "" && jsonTag != "-" {
+		if jsonTag != "" {
 			fieldName, _, _ = strings.Cut(jsonTag, ",")
 		}
 

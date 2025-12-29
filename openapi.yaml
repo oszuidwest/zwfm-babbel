@@ -2607,9 +2607,6 @@ components:
           nullable: true
         login_count:
           type: integer
-        failed_login_attempts:
-          type: integer
-          description: Number of consecutive failed login attempts
         locked_until:
           type: string
           format: date-time

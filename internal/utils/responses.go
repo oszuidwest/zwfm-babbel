@@ -66,6 +66,14 @@ func CreatedWithID(c *gin.Context, id int64, message string) {
 	})
 }
 
+// CreatedWithMessage responds with HTTP 201 Created status and a success message.
+func CreatedWithMessage(c *gin.Context, message string) {
+	if c == nil {
+		return
+	}
+	c.JSON(http.StatusCreated, MessageResponse{Message: message})
+}
+
 // SuccessWithMessage responds with HTTP 200 OK status and a success message.
 func SuccessWithMessage(c *gin.Context, message string) {
 	if c == nil {
