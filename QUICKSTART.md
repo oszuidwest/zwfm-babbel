@@ -112,26 +112,25 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/voices \
 ## Step 7: Upload First Story
 
 ```bash
-# Create test audio file (optional - story can be created without audio)
+# Create test audio file
 ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ac 1 -ar 48000 test.wav
 
-# Upload story with weekday scheduling
-# Note: Each weekday must be a separate form field with string value "true" or "false"
+# Create story with JSON (weekdays is a bitmask: 127 = all days, 62 = Mon-Fri, 65 = Sat+Sun)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories \
-  -F "title=Test Story" \
-  -F "text=This is my first news story" \
-  -F "voice_id=1" \
-  -F "monday=true" \
-  -F "tuesday=true" \
-  -F "wednesday=true" \
-  -F "thursday=true" \
-  -F "friday=true" \
-  -F "saturday=false" \
-  -F "sunday=false" \
-  -F "start_date=2025-01-01" \
-  -F "end_date=2025-12-31" \
-  -F "status=active" \
-  -F "audio=@test.wav"
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Test Story",
+    "text": "This is my first news story",
+    "voice_id": 1,
+    "weekdays": 62,
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "status": "active"
+  }'
+
+# Upload audio separately (replace 1 with the story ID from previous response)
+curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/audio \
+  -F "file=@test.wav"
 ```
 
 ## Step 8: Generate Bulletin
@@ -264,12 +263,18 @@ curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking%20news
 ### Station-Voice Relationships
 
 ```bash
-# Assign voice to station with jingle (multipart/form-data for file upload)
+# Create station-voice relationship with JSON
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices \
-  -F "station_id=1" \
-  -F "voice_id=1" \
-  -F "mix_point=2.5" \
-  -F "jingle=@station_jingle.wav"
+  -H "Content-Type: application/json" \
+  -d '{
+    "station_id": 1,
+    "voice_id": 1,
+    "mix_point": 2.5
+  }'
+
+# Upload jingle audio separately (replace 1 with the station-voice ID from previous response)
+curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices/1/audio \
+  -F "file=@station_jingle.wav"
 ```
 
 ### User Management
