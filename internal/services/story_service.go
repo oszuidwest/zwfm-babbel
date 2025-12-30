@@ -4,7 +4,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"time"
 
@@ -74,28 +73,28 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	if req.VoiceID != nil {
 		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
 		if err != nil {
-			return nil, fmt.Errorf("%w: failed to validate voice", apperrors.ErrDatabaseError)
+			return nil, apperrors.Database("Story", "query", err)
 		}
 		if !exists {
-			return nil, fmt.Errorf("%w: voice with id %d not found", apperrors.ErrNotFound, *req.VoiceID)
+			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
 		}
 	}
 
 	// Parse and validate start date (using local timezone for consistent date handling)
 	startDate, err := time.ParseInLocation("2006-01-02", req.StartDate, time.Local)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("Story", "start_date", "invalid format, must be YYYY-MM-DD")
 	}
 
 	// Parse and validate end date (using local timezone for consistent date handling)
 	endDate, err := time.ParseInLocation("2006-01-02", req.EndDate, time.Local)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("Story", "end_date", "invalid format, must be YYYY-MM-DD")
 	}
 
 	// Validate date range
 	if endDate.Before(startDate) {
-		return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 	}
 
 	// Create story data
@@ -113,8 +112,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	// Create story via repository
 	story, err := s.storyRepo.Create(ctx, data)
 	if err != nil {
-		logger.Error("Database error creating story: %v", err)
-		return nil, s.handleDatabaseError(err)
+		return nil, apperrors.TranslateRepoError("Story", apperrors.OpCreate, err)
 	}
 
 	return story, nil
@@ -134,9 +132,9 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		existing, err := s.storyRepo.GetByID(ctx, id)
 		if err != nil {
 			if errors.Is(err, repository.ErrNotFound) {
-				return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+				return nil, apperrors.NotFoundWithID("Story", id)
 			}
-			return nil, fmt.Errorf("%w: failed to fetch story for date validation", apperrors.ErrDatabaseError)
+			return nil, apperrors.Database("Story", "query", err)
 		}
 
 		effectiveStart := existing.StartDate
@@ -149,7 +147,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		}
 
 		if effectiveEnd.Before(effectiveStart) {
-			return nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+			return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 		}
 	}
 
@@ -160,16 +158,15 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	}
 
 	if updates == nil {
-		return nil, fmt.Errorf("%w: no fields to update", apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("Story", "", "no fields to update")
 	}
 
 	// Execute update
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("Story", id)
 		}
-		logger.Error("Database error updating story: %v", err)
-		return nil, s.handleDatabaseError(err)
+		return nil, apperrors.TranslateRepoError("Story", apperrors.OpUpdate, err)
 	}
 
 	// Fetch and return the updated story
@@ -183,7 +180,7 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	if req.StartDate != nil {
 		parsed, err := time.ParseInLocation("2006-01-02", *req.StartDate, time.Local)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
+			return nil, nil, apperrors.Validation("Story", "start_date", "invalid format, must be YYYY-MM-DD")
 		}
 		startDate = &parsed
 	}
@@ -191,7 +188,7 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	if req.EndDate != nil {
 		parsed, err := time.ParseInLocation("2006-01-02", *req.EndDate, time.Local)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
+			return nil, nil, apperrors.Validation("Story", "end_date", "invalid format, must be YYYY-MM-DD")
 		}
 		endDate = &parsed
 	}
@@ -199,7 +196,7 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	// Validate date range if both dates provided
 	if startDate != nil && endDate != nil {
 		if endDate.Before(*startDate) {
-			return nil, nil, fmt.Errorf("%w: end date cannot be before start date", apperrors.ErrInvalidInput)
+			return nil, nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 		}
 	}
 
@@ -229,10 +226,10 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	if req.VoiceID != nil {
 		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
 		if err != nil {
-			return nil, fmt.Errorf("%w: failed to validate voice", apperrors.ErrDatabaseError)
+			return nil, apperrors.Database("Story", "query", err)
 		}
 		if !exists {
-			return nil, fmt.Errorf("%w: voice with id %d not found", apperrors.ErrNotFound, *req.VoiceID)
+			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
 		}
 		updates.VoiceID = req.VoiceID
 		hasUpdates = true
@@ -272,10 +269,9 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	story, err := s.storyRepo.GetByIDWithVoice(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("Story", id)
 		}
-		logger.Error("Database error fetching story %d: %v", id, err)
-		return nil, fmt.Errorf("%w: failed to fetch story", apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("Story", "query", err)
 	}
 
 	return story, nil
@@ -285,7 +281,7 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("%w: failed to check story existence: %w", apperrors.ErrDatabaseError, err)
+		return false, apperrors.Database("Story", "query", err)
 	}
 	return exists, nil
 }
@@ -295,10 +291,9 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	err := s.storyRepo.SoftDelete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return apperrors.NotFoundWithID("Story", id)
 		}
-		logger.Error("Database error deleting story %d: %v", id, err)
-		return fmt.Errorf("%w: failed to delete story", apperrors.ErrDatabaseError)
+		return apperrors.Database("Story", "delete", err)
 	}
 
 	return nil
@@ -309,10 +304,9 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	err := s.storyRepo.Restore(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return apperrors.NotFoundWithID("Story", id)
 		}
-		logger.Error("Database error restoring story %d: %v", id, err)
-		return fmt.Errorf("%w: failed to restore story", apperrors.ErrDatabaseError)
+		return apperrors.Database("Story", "update", err)
 	}
 
 	return nil
@@ -324,8 +318,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	outputPath := utils.StoryPath(s.config, storyID)
 	filename, duration, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 1)
 	if err != nil {
-		logger.Error("Failed to process story audio for story %d: %v", storyID, err)
-		return fmt.Errorf("%w: audio conversion failed", apperrors.ErrAudioProcessingFailed)
+		return apperrors.Audio("Story", "convert", err)
 	}
 
 	// Update database with filename and duration
@@ -337,10 +330,9 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 			logger.Error("Failed to remove audio file after database error: %v", rmErr)
 		}
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, storyID)
+			return apperrors.NotFoundWithID("Story", storyID)
 		}
-		logger.Error("Failed to update story %d audio reference: %v", storyID, err)
-		return fmt.Errorf("%w: failed to update audio reference", apperrors.ErrDatabaseError)
+		return apperrors.Database("Story", "update", err)
 	}
 
 	logger.Info("Processed audio for story %d: %s (%.2fs)", storyID, filename, duration)
@@ -353,49 +345,25 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string
 	// Validate status
 	storyStatus := models.StoryStatus(status)
 	if !storyStatus.IsValid() {
-		return nil, fmt.Errorf("%w: status must be one of: draft, active, expired", apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("Story", "status", "must be one of: draft, active, expired")
 	}
 
 	err := s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: story with id %d", apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("Story", id)
 		}
-		logger.Error("Database error updating story status %d: %v", id, err)
-		return nil, fmt.Errorf("%w: failed to update story status", apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("Story", "update", err)
 	}
 
 	return s.GetByID(ctx, id)
-}
-
-// handleDatabaseError converts database errors to service-level errors.
-func (s *StoryService) handleDatabaseError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	if errors.Is(err, repository.ErrNotFound) {
-		return apperrors.ErrNotFound
-	}
-	if errors.Is(err, repository.ErrDuplicateKey) {
-		return fmt.Errorf("%w: story already exists", apperrors.ErrDuplicate)
-	}
-	if errors.Is(err, repository.ErrForeignKeyViolation) {
-		return fmt.Errorf("%w: invalid reference to related resource", apperrors.ErrInvalidInput)
-	}
-	if errors.Is(err, repository.ErrDataTooLong) {
-		return fmt.Errorf("%w: one or more fields exceed maximum length", apperrors.ErrDataTooLong)
-	}
-
-	return fmt.Errorf("%w: database operation failed", apperrors.ErrDatabaseError)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.
 func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
 	result, err := s.storyRepo.List(ctx, query)
 	if err != nil {
-		logger.Error("Database error listing stories: %v", err)
-		return nil, fmt.Errorf("%w: failed to list stories", apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("Story", "query", err)
 	}
 	return result, nil
 }

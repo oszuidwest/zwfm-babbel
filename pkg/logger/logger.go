@@ -66,3 +66,13 @@ func Warn(message string, args ...any) {
 // Sync flushes any buffered log entries.
 // This is a no-op for slog but kept for API compatibility.
 func Sync() {}
+
+// WithFields returns a new logger with the given fields added to its context.
+// The returned logger can be used for structured logging with additional context.
+func WithFields(fields map[string]any) *slog.Logger {
+	args := make([]any, 0, len(fields)*2)
+	for k, v := range fields {
+		args = append(args, k, v)
+	}
+	return logger.With(args...)
+}

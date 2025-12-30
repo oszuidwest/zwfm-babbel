@@ -120,8 +120,8 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
 		// Special handling for last admin constraint
-		if errors.Is(err, apperrors.ErrInvalidInput) {
-			// Check if this is the last admin error
+		var validationErr *apperrors.ValidationError
+		if errors.As(err, &validationErr) && validationErr.Message == "cannot delete last admin" {
 			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
 			return
 		}

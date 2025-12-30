@@ -64,46 +64,43 @@ type UpdateStationVoiceRequest struct {
 
 // Create creates a new station-voice relationship.
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
-	const op = "StationVoiceService.Create"
-
 	var result *models.StationVoice
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// Validate station exists
 		exists, err := s.stationRepo.Exists(txCtx, req.StationID)
 		if err != nil {
-			return fmt.Errorf("%s: %w: failed to validate station", op, apperrors.ErrDatabaseError)
+			return apperrors.Database("StationVoice", "query", err)
 		}
 		if !exists {
-			return fmt.Errorf("%s: %w: station with id %d not found", op, apperrors.ErrNotFound, req.StationID)
+			return apperrors.NotFoundWithID("Station", req.StationID)
 		}
 
 		// Validate voice exists
 		exists, err = s.voiceRepo.Exists(txCtx, req.VoiceID)
 		if err != nil {
-			return fmt.Errorf("%s: %w: failed to validate voice", op, apperrors.ErrDatabaseError)
+			return apperrors.Database("StationVoice", "query", err)
 		}
 		if !exists {
-			return fmt.Errorf("%s: %w: voice with id %d not found", op, apperrors.ErrNotFound, req.VoiceID)
+			return apperrors.NotFoundWithID("Voice", req.VoiceID)
 		}
 
 		// Check uniqueness of station-voice combination
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(txCtx, req.StationID, req.VoiceID, nil)
 		if err != nil {
-			return fmt.Errorf("%s: %w: failed to check uniqueness", op, apperrors.ErrDatabaseError)
+			return apperrors.Database("StationVoice", "query", err)
 		}
 		if taken {
-			return fmt.Errorf("%s: %w: station-voice combination (station_id=%d, voice_id=%d)", op, apperrors.ErrDuplicate, req.StationID, req.VoiceID)
+			return apperrors.Duplicate("StationVoice", "station_id/voice_id", fmt.Sprintf("%d/%d", req.StationID, req.VoiceID))
 		}
 
 		// Create station-voice relationship
 		stationVoice, err := s.stationVoiceRepo.Create(txCtx, req.StationID, req.VoiceID, req.MixPoint)
 		if err != nil {
 			if errors.Is(err, repository.ErrDuplicateKey) {
-				return fmt.Errorf("%s: %w: station-voice combination already exists", op, apperrors.ErrDuplicate)
+				return apperrors.Duplicate("StationVoice", "combination", "")
 			}
-			logger.Error("Database error creating station-voice: %v", err)
-			return fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
+			return apperrors.Database("StationVoice", "create", err)
 		}
 
 		result = stationVoice
@@ -119,20 +116,18 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 
 // Update updates an existing station-voice relationship.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
-	const op = "StationVoiceService.Update"
-
 	// Verify station-voice exists and get current values
 	current, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("StationVoice", id)
 		}
-		return nil, fmt.Errorf("%s: %w: failed to fetch station-voice", op, apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("StationVoice", "query", err)
 	}
 
 	// Validate update request
 	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, err
 	}
 
 	// Build updates struct
@@ -144,16 +139,15 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 
 	// Validate at least one field is being updated
 	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
-		return nil, fmt.Errorf("%s: %w: no fields to update", op, apperrors.ErrInvalidInput)
+		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
 	}
 
 	// Apply updates
 	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("StationVoice", id)
 		}
-		logger.Error("Database error updating station-voice %d: %v", id, err)
-		return nil, fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("StationVoice", "update", err)
 	}
 
 	// Fetch and return the updated station-voice relationship
@@ -166,14 +160,14 @@ func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stati
 		return nil
 	}
 	if *stationID <= 0 {
-		return fmt.Errorf("%w: station_id must be positive", apperrors.ErrInvalidInput)
+		return apperrors.Validation("StationVoice", "station_id", "must be positive")
 	}
 	exists, err := s.stationRepo.Exists(ctx, *stationID)
 	if err != nil {
-		return fmt.Errorf("%w: failed to validate station", apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "query", err)
 	}
 	if !exists {
-		return fmt.Errorf("%w: station with id %d not found", apperrors.ErrNotFound, *stationID)
+		return apperrors.NotFoundWithID("Station", *stationID)
 	}
 	return nil
 }
@@ -184,14 +178,14 @@ func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID
 		return nil
 	}
 	if *voiceID <= 0 {
-		return fmt.Errorf("%w: voice_id must be positive", apperrors.ErrInvalidInput)
+		return apperrors.Validation("StationVoice", "voice_id", "must be positive")
 	}
 	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
 	if err != nil {
-		return fmt.Errorf("%w: failed to validate voice", apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "query", err)
 	}
 	if !exists {
-		return fmt.Errorf("%w: voice with id %d not found", apperrors.ErrNotFound, *voiceID)
+		return apperrors.NotFoundWithID("Voice", *voiceID)
 	}
 	return nil
 }
@@ -202,7 +196,7 @@ func (s *StationVoiceService) validateMixPointUpdate(mixPoint *float64) error {
 		return nil
 	}
 	if *mixPoint < 0 || *mixPoint > 300 {
-		return fmt.Errorf("%w: mix_point must be between 0 and 300 seconds", apperrors.ErrInvalidInput)
+		return apperrors.Validation("StationVoice", "mix_point", "must be between 0 and 300 seconds")
 	}
 	return nil
 }
@@ -231,10 +225,10 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 		}
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, finalStationID, finalVoiceID, &id)
 		if err != nil {
-			return fmt.Errorf("%w: failed to check uniqueness", apperrors.ErrDatabaseError)
+			return apperrors.Database("StationVoice", "query", err)
 		}
 		if taken {
-			return fmt.Errorf("%w: station-voice combination (station_id=%d, voice_id=%d)", apperrors.ErrDuplicate, finalStationID, finalVoiceID)
+			return apperrors.Duplicate("StationVoice", "station_id/voice_id", fmt.Sprintf("%d/%d", finalStationID, finalVoiceID))
 		}
 	}
 	return nil
@@ -242,15 +236,12 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 
 // GetByID retrieves a station-voice relationship by its ID.
 func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
-	const op = "StationVoiceService.GetByID"
-
 	stationVoice, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, id)
+			return nil, apperrors.NotFoundWithID("StationVoice", id)
 		}
-		logger.Error("Database error fetching station-voice %d: %v", id, err)
-		return nil, fmt.Errorf("%s: %w: failed to fetch station-voice", op, apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("StationVoice", "query", err)
 	}
 
 	return stationVoice, nil
@@ -258,26 +249,22 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 
 // Delete removes a station-voice relationship and its associated jingle file.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	const op = "StationVoiceService.Delete"
-
 	// Get jingle file and station/voice IDs before deletion
 	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, id)
+			return apperrors.NotFoundWithID("StationVoice", id)
 		}
-		logger.Error("Database error fetching station-voice %d for deletion: %v", id, err)
-		return fmt.Errorf("%s: %w: failed to fetch station-voice", op, apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "query", err)
 	}
 
 	// Delete from database
 	err = s.stationVoiceRepo.Delete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, id)
+			return apperrors.NotFoundWithID("StationVoice", id)
 		}
-		logger.Error("Database error deleting station-voice %d: %v", id, err)
-		return fmt.Errorf("%s: %w: failed to delete station-voice", op, apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "delete", err)
 	}
 
 	// Clean up jingle file if it exists
@@ -296,24 +283,20 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 
 // ProcessJingle converts an uploaded audio file and associates it with a station-voice relationship.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
-	const op = "StationVoiceService.ProcessJingle"
-
 	// Get station and voice IDs for the relationship
 	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, stationVoiceID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w: station-voice relationship with id %d", op, apperrors.ErrNotFound, stationVoiceID)
+			return apperrors.NotFoundWithID("StationVoice", stationVoiceID)
 		}
-		logger.Error("Database error fetching station-voice %d for jingle processing: %v", stationVoiceID, err)
-		return fmt.Errorf("%s: %w: failed to fetch station-voice", op, apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "query", err)
 	}
 
 	// Process jingle with audio service (convert to WAV 48kHz stereo)
 	outputPath := utils.JinglePath(s.config, stationID, voiceID)
 	filename, _, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 2)
 	if err != nil {
-		logger.Error("Failed to process jingle audio for station-voice %d: %v", stationVoiceID, err)
-		return fmt.Errorf("%s: %w: jingle conversion failed", op, apperrors.ErrAudioProcessingFailed)
+		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
 	// Update database with jingle filename only (not full path)
@@ -324,8 +307,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove jingle file after database error: %v", rmErr)
 		}
-		logger.Error("Failed to update station-voice %d jingle reference: %v", stationVoiceID, err)
-		return fmt.Errorf("%s: %w: failed to update jingle reference", op, apperrors.ErrDatabaseError)
+		return apperrors.Database("StationVoice", "update", err)
 	}
 
 	logger.Info("Processed jingle for station-voice %d: %s", stationVoiceID, filename)
@@ -334,12 +316,9 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 
 // List retrieves a paginated list of station-voice relationships.
 func (s *StationVoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.StationVoice], error) {
-	const op = "StationVoiceService.List"
-
 	result, err := s.stationVoiceRepo.List(ctx, query)
 	if err != nil {
-		logger.Error("Database error listing station-voices: %v", err)
-		return nil, fmt.Errorf("%s: %w", op, apperrors.ErrDatabaseError)
+		return nil, apperrors.Database("StationVoice", "query", err)
 	}
 
 	return result, nil

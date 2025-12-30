@@ -2,28 +2,49 @@ package apperrors
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// TranslateRepoError converts repository errors to domain errors with operation context.
-// Returns nil if err is nil. The operation name is prefixed to provide call-site context.
-func TranslateRepoError(op string, err error) error {
+// Operation represents the type of database operation for FK disambiguation.
+type Operation int
+
+const (
+	OpQuery Operation = iota
+	OpCreate
+	OpUpdate
+	OpDelete
+)
+
+func (o Operation) String() string {
+	return [...]string{"query", "create", "update", "delete"}[o]
+}
+
+// TranslateRepoError converts repository errors to typed domain errors.
+// The resource name and operation provide context for error handling.
+// Returns nil if err is nil.
+func TranslateRepoError(resource string, op Operation, err error) error {
 	if err == nil {
 		return nil
 	}
 
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
-		return fmt.Errorf("%s: %w", op, ErrNotFound)
+		return NotFoundWithCause(resource, err)
+
 	case errors.Is(err, repository.ErrDuplicateKey):
-		return fmt.Errorf("%s: %w", op, ErrDuplicate)
+		return DuplicateWithCause(resource, "", "", err)
+
 	case errors.Is(err, repository.ErrForeignKeyViolation):
-		return fmt.Errorf("%s: %w", op, ErrDependencyExists)
+		if op == OpDelete {
+			return DependencyWithCause(resource, "related resources", err)
+		}
+		return ValidationWithCause(resource, "reference", "references non-existent resource", err)
+
 	case errors.Is(err, repository.ErrDataTooLong):
-		return fmt.Errorf("%s: %w", op, ErrDataTooLong)
+		return ValidationWithCause(resource, "field", "exceeds maximum length", err)
+
 	default:
-		return fmt.Errorf("%s: %w", op, ErrDatabaseError)
+		return Database(resource, op.String(), err)
 	}
 }

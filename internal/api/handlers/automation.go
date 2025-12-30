@@ -160,7 +160,8 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 	if req.maxAgeSeconds > 0 {
 		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
-		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		var notFoundErr *apperrors.NotFoundError
+		if err != nil && !errors.As(err, &notFoundErr) {
 			// Database error (not "not found") - fail fast
 			logger.Error("Automation: failed to check existing bulletin: %v", err)
 			utils.ProblemInternalServer(c, "Failed to check existing bulletin")

@@ -29,6 +29,12 @@ type ProblemDetail struct {
 	// Timestamp is the time when the problem occurred in ISO 8601 format.
 	Timestamp string `json:"timestamp"`
 
+	// Code is a machine-readable error code in "resource.error" format (e.g., "station.not_found").
+	Code string `json:"code,omitempty"`
+
+	// Hint provides a user-friendly suggestion for resolving the error.
+	Hint string `json:"hint,omitempty"`
+
 	// Errors contains validation errors for 422 responses.
 	Errors []ValidationError `json:"errors,omitempty"`
 
@@ -85,17 +91,6 @@ func NewNotFoundProblem(resource, instance string) *ProblemDetail {
 		"Resource Not Found",
 		404,
 		fmt.Sprintf("%s not found", resource),
-		instance,
-	)
-}
-
-// NewDuplicateProblem creates a 409 response for resource conflicts.
-func NewDuplicateProblem(resource, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeDuplicateResource,
-		"Duplicate Resource",
-		409,
-		fmt.Sprintf("%s already exists", resource),
 		instance,
 	)
 }

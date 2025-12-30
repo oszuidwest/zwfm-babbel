@@ -3,8 +3,6 @@ package services
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -32,24 +30,19 @@ type UpdateStationRequest struct {
 
 // Create creates a new station with the given parameters.
 func (s *StationService) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
-	const op = "StationService.Create"
-
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError(op, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 	if taken {
-		return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
+		return nil, apperrors.Duplicate("Station", "name", name)
 	}
 
 	// Create station
 	station, err := s.repo.Create(ctx, name, maxStories, pauseSeconds)
 	if err != nil {
-		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
-		}
-		return nil, apperrors.TranslateRepoError(op, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpCreate, err)
 	}
 
 	return station, nil
@@ -57,16 +50,14 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 
 // Update updates an existing station's configuration and returns the updated station.
 func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) (*models.Station, error) {
-	const op = "StationService.Update"
-
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return nil, apperrors.TranslateRepoError(op, err)
+			return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 		}
 		if taken {
-			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, *req.Name)
+			return nil, apperrors.Duplicate("Station", "name", *req.Name)
 		}
 	}
 
@@ -79,7 +70,7 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 
 	// Update station
 	if err := s.repo.Update(ctx, id, updates); err != nil {
-		return nil, apperrors.TranslateRepoError(op, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -87,39 +78,36 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 
 // Exists reports whether a station with the given ID exists.
 func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
-	const op = "StationService.Exists"
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return false, apperrors.TranslateRepoError(op, err)
+		return false, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 	return exists, nil
 }
 
 // Delete deletes a station after checking for dependencies.
 func (s *StationService) Delete(ctx context.Context, id int64) error {
-	const op = "StationService.Delete"
-
 	// Check if station exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return apperrors.TranslateRepoError(op, err)
+		return apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+		return apperrors.NotFoundWithID("Station", id)
 	}
 
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return apperrors.TranslateRepoError(op, err)
+		return apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 	if hasDeps {
-		return fmt.Errorf("%s: %w: station has associated voices", op, apperrors.ErrDependencyExists)
+		return apperrors.Dependency("Station", "station_voices")
 	}
 
 	// Delete station
 	if err := s.repo.Delete(ctx, id); err != nil {
-		return apperrors.TranslateRepoError(op, err)
+		return apperrors.TranslateRepoError("Station", apperrors.OpDelete, err)
 	}
 
 	return nil
@@ -127,11 +115,9 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 
 // GetByID retrieves a station by ID.
 func (s *StationService) GetByID(ctx context.Context, id int64) (*models.Station, error) {
-	const op = "StationService.GetByID"
-
 	station, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError(op, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	return station, nil
@@ -139,11 +125,9 @@ func (s *StationService) GetByID(ctx context.Context, id int64) (*models.Station
 
 // List returns a paginated list of stations.
 func (s *StationService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Station], error) {
-	const op = "StationService.List"
-
 	result, err := s.repo.List(ctx, query)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError(op, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	return result, nil

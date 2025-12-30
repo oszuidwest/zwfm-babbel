@@ -70,14 +70,6 @@ func TestProblemDetailHelpers(t *testing.T) {
 			expectedStatus: 404,
 		},
 		{
-			name: "Duplicate",
-			constructor: func() *ProblemDetail {
-				return NewDuplicateProblem("Username", "/api/v1/users")
-			},
-			expectedType:   ProblemTypeDuplicateResource,
-			expectedStatus: 409,
-		},
-		{
 			name: "Authentication",
 			constructor: func() *ProblemDetail {
 				return NewAuthenticationProblem("Invalid credentials", "/api/v1/auth/login")
