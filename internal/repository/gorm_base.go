@@ -79,18 +79,18 @@ func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value 
 	return count > 0, nil
 }
 
-// ApplySoftDeleteFilter applies soft delete filtering to a query based on status.
-// - "active" (default): only non-deleted records (GORM default behavior)
-// - "deleted": only soft-deleted records
-// - "all": include all records regardless of deletion status
-func ApplySoftDeleteFilter(db *gorm.DB, status string) *gorm.DB {
-	switch status {
-	case "deleted":
+// ApplySoftDeleteFilter applies soft delete filtering to a query based on the trashed parameter.
+// - "" (default): only non-deleted records (GORM default behavior)
+// - "only": only soft-deleted records
+// - "with": include all records regardless of deletion status
+func ApplySoftDeleteFilter(db *gorm.DB, trashed string) *gorm.DB {
+	switch trashed {
+	case "only":
 		return db.Unscoped().Where("deleted_at IS NOT NULL")
-	case "all":
+	case "with":
 		return db.Unscoped()
 	default:
-		return db // "active" - use GORM's default soft delete filtering
+		return db // empty - use GORM's default soft delete filtering
 	}
 }
 

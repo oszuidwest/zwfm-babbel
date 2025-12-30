@@ -40,13 +40,14 @@ class StoriesTests extends BaseTest {
      * @param {string} text - Story text content
      * @param {number|null} voiceId - Optional voice ID
      * @param {number} weekdays - Weekdays bitmask (0-127), defaults to 127 (all days)
+     * @param {string} status - Story status (active, draft, expired), defaults to 'active'
      */
-    async createStory(title, text, voiceId, weekdays = 127) {
+    async createStory(title, text, voiceId, weekdays = 127, status = 'active') {
         const storyData = {
             title,
             text,
             voice_id: voiceId ? parseInt(voiceId, 10) : null,
-            status: 'active',
+            status: status,
             start_date: '2024-01-01',
             end_date: '2024-12-31',
             weekdays: weekdays
@@ -208,16 +209,42 @@ class StoriesTests extends BaseTest {
             return false;
         }
         
-        // Test filtering by status
-        this.printInfo('Testing filter by status...');
-        const statusResponse = await this.apiCall('GET', '/stories?status=active');
-        
+        // Test filtering by status field - create stories with different statuses
+        this.printInfo('Testing filter by status field...');
+
+        // Create a draft story and an active story for this test
+        const draftStoryId = await this.createStory('Draft Story', 'Draft content', voiceId, 127, 'draft');
+        const activeStoryId = await this.createStory('Active Story', 'Active content', voiceId, 127, 'active');
+
+        if (!draftStoryId || !activeStoryId) {
+            this.printError('Failed to create test stories for status filtering');
+            return false;
+        }
+
+        // Query for only active stories
+        const statusResponse = await this.apiCall('GET', '/stories?filter%5Bstatus%5D=active');
+
         if (this.assertions.checkResponse(statusResponse, 200, 'Filter by status')) {
-            this.printSuccess('Filtering by status works');
+            const stories = statusResponse.data.data || [];
+
+            // Verify all returned stories have status 'active'
+            const allActive = stories.every(story => story.status === 'active');
+            const containsDraft = stories.some(story => String(story.id) === String(draftStoryId));
+
+            if (allActive && !containsDraft) {
+                this.printSuccess('Status filtering correctly returns only active stories');
+            } else if (containsDraft) {
+                this.printError('Status filtering returned draft story - filter not working!');
+                return false;
+            } else if (!allActive) {
+                const nonActiveStatuses = stories.filter(s => s.status !== 'active').map(s => s.status);
+                this.printError(`Status filtering returned non-active stories: ${nonActiveStatuses.join(', ')}`);
+                return false;
+            }
         } else {
             return false;
         }
-        
+
         return true;
     }
     
@@ -351,17 +378,55 @@ class StoriesTests extends BaseTest {
         // Test soft delete (default)
         this.printInfo('Soft deleting story...');
         const deleteResponse = await this.apiCall('DELETE', `/stories/${storyId}`);
-        
+
         if (this.assertions.checkResponse(deleteResponse, 204, 'Delete story')) {
             this.printSuccess('Story soft deleted successfully');
-            
-            // Verify story is soft deleted
+
+            // Verify story is soft deleted (not visible in default query)
             const getResponse = await this.apiCall('GET', `/stories/${storyId}`);
-            
+
             if (getResponse.status === 404) {
                 this.printSuccess('Soft deleted story returns 404');
             } else {
                 this.printInfo('Soft deleted story still accessible (soft delete behavior)');
+            }
+
+            // Test trashed=only parameter - should show only deleted stories
+            this.printInfo('Testing trashed=only parameter...');
+            const deletedOnlyResponse = await this.apiCall('GET', '/stories?trashed=only');
+
+            if (this.assertions.checkResponse(deletedOnlyResponse, 200, 'Query deleted stories')) {
+                const deletedStories = deletedOnlyResponse.data.data || [];
+                // Use == for comparison since storyId is string but s.id is number
+                const foundDeleted = deletedStories.some(s => String(s.id) === String(storyId));
+
+                if (foundDeleted) {
+                    this.printSuccess('trashed=only correctly returns soft-deleted stories');
+                } else {
+                    this.printError('trashed=only did not return the soft-deleted story');
+                    return false;
+                }
+            } else {
+                return false;
+            }
+
+            // Test trashed=with parameter - should show all stories including deleted
+            this.printInfo('Testing trashed=with parameter...');
+            const allStoriesResponse = await this.apiCall('GET', '/stories?trashed=with');
+
+            if (this.assertions.checkResponse(allStoriesResponse, 200, 'Query all stories')) {
+                const allStories = allStoriesResponse.data.data || [];
+                // Use == for comparison since storyId is string but s.id is number
+                const foundInAll = allStories.some(s => String(s.id) === String(storyId));
+
+                if (foundInAll) {
+                    this.printSuccess('trashed=with correctly includes soft-deleted stories');
+                } else {
+                    this.printError('trashed=with did not include the soft-deleted story');
+                    return false;
+                }
+            } else {
+                return false;
             }
         } else {
             return false;

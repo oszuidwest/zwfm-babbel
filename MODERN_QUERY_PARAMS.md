@@ -9,8 +9,8 @@ The query parameter system provides:
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
-- **Status filtering**: `?status=all|active|deleted|suspended`
-- **Status filters**: `?filter[status]=active|inactive|draft`
+- **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records
+- **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
 ## Modern Query Parameter Formats
 
@@ -99,17 +99,26 @@ GET /api/v1/users?search=john.doe@example.com
 GET /api/v1/stations?search=radio
 ```
 
-### 5. Status Filtering
+### 5. Soft-Delete Filtering
+
+The `trashed` parameter controls visibility of soft-deleted records:
 
 ```http
-# Status filtering
-GET /api/v1/stories?status=all          # All records
-GET /api/v1/stories?status=active       # Only active records
-GET /api/v1/stories?status=deleted      # Only deleted records
-GET /api/v1/stories?status=draft        # Only drafts
+# Soft-delete filtering (controls deleted_at column)
+GET /api/v1/stories                     # Only non-deleted records (default)
+GET /api/v1/stories?trashed=only        # Only soft-deleted records
+GET /api/v1/stories?trashed=with        # All records including deleted
 
-GET /api/v1/users?status=all            # All users
-GET /api/v1/users?status=suspended      # Only suspended users
+GET /api/v1/users?trashed=with          # All users including deleted
+GET /api/v1/users?trashed=only          # Only deleted users
+```
+
+To filter by the `status` field (e.g., draft/active/expired), use `filter[status]`:
+
+```http
+# Status field filtering (filters by status column value)
+GET /api/v1/stories?filter[status]=active    # Only stories with status='active'
+GET /api/v1/stories?filter[status]=draft     # Only draft stories
 ```
 
 ### 6. Common Filter Patterns
@@ -125,7 +134,7 @@ GET /api/v1/stories?filter[end_date][gte]=2024-06-15
 GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
 ```
 
-> **Note:** The `null` operator is not yet implemented. Use the `status` parameter or explicit field filters instead.
+> **Note:** The `null` operator is not yet implemented. Use explicit field filters instead.
 
 ### 7. Pagination
 
