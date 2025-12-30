@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -192,7 +191,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 // serveBulletinAudio sends the bulletin WAV file as response.
 // Returns an error if the file cannot be served (error response already sent to client).
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, cached bool) error {
-	filePath := filepath.Join(h.config.Audio.OutputPath, audioFile)
+	filePath := utils.BulletinPath(h.config, audioFile)
 
 	// Verify file exists before serving (consistent RFC 9457 error handling)
 	if _, err := os.Stat(filePath); err != nil {

@@ -12,12 +12,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// BulletinRequest represents the request parameters for bulletin generation.
-type BulletinRequest struct {
-	StationID int64  `json:"station_id" binding:"required"`
-	Date      string `json:"date"`
-}
-
 // GenerateBulletin generates a news bulletin for a station.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)

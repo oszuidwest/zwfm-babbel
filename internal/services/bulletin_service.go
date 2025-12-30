@@ -103,14 +103,8 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
 	// Create bulletin using the generated absolute path
-	createdPath, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath)
-	if err != nil {
+	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
-	}
-
-	// Verify the paths match (should always be true with unified function)
-	if createdPath != bulletinPath {
-		logger.Warn("Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
 	}
 
 	return bulletinPath, nil
