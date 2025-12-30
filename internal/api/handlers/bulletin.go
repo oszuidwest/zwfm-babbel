@@ -90,12 +90,7 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 		return false
 	}
 
-	// Calculate age of the cached bulletin
-	age := int(time.Since(existingBulletin.CreatedAt).Seconds())
-
-	// Set standard cache headers
-	c.Header("X-Cache", "HIT")
-	c.Header("Age", fmt.Sprintf("%d", age))
+	setCacheHeaders(c, existingBulletin.CreatedAt, true)
 
 	if download {
 		serveAudioFile(c, utils.BulletinPath(h.config, existingBulletin.AudioFile), existingBulletin.Filename, true)
@@ -109,9 +104,7 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 
 // serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
 func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, download bool) {
-	// Set cache headers for fresh content
-	c.Header("X-Cache", "MISS")
-	c.Header("Age", "0")
+	setCacheHeaders(c, time.Time{}, false)
 
 	if download {
 		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, false)
@@ -120,6 +113,17 @@ func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, d
 
 	// Return bulletin directly - AfterFind hook populates computed fields
 	utils.Success(c, bulletin)
+}
+
+// setCacheHeaders sets standardized cache response headers.
+func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
+	if hit {
+		c.Header("X-Cache", "HIT")
+		c.Header("Age", fmt.Sprintf("%d", int(time.Since(createdAt).Seconds())))
+	} else {
+		c.Header("X-Cache", "MISS")
+		c.Header("Age", "0")
+	}
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
@@ -191,10 +195,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			return
 		}
 
-		// Set cache headers indicating this is existing content
-		age := int(time.Since(bulletin.CreatedAt).Seconds())
-		c.Header("X-Cache", "HIT")
-		c.Header("Age", fmt.Sprintf("%d", age))
+		setCacheHeaders(c, bulletin.CreatedAt, true)
 
 		// Return directly - AfterFind hook populates computed fields
 		utils.Success(c, bulletin)

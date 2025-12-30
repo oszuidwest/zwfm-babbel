@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -205,12 +204,8 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		return err
 	}
 
-	// Set headers
-	c.Header("Content-Type", "audio/wav")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", audioFile))
+	// Automation endpoint doesn't cache
 	c.Header("Cache-Control", "no-store")
-	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
-
-	c.File(filePath)
+	serveAudioFile(c, filePath, audioFile, cached)
 	return nil
 }
