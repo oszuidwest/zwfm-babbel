@@ -39,8 +39,8 @@ type Story struct {
 	Text string `gorm:"type:text" json:"text"`
 	// VoiceID is the voice used for text-to-speech generation.
 	VoiceID *int64 `gorm:"index" json:"voice_id"`
-	// AudioFile is the path to the generated audio file.
-	AudioFile string `gorm:"size:500" json:"-"`
+	// AudioFile is the filename of the generated audio file (empty if no audio).
+	AudioFile string `gorm:"size:500" json:"audio_file"`
 	// DurationSeconds is the length of the audio in seconds.
 	DurationSeconds *float64 `json:"duration_seconds"`
 	// Status is the story lifecycle state: draft, active, or expired.
@@ -64,8 +64,8 @@ type Story struct {
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 
 	// Computed fields (populated by AfterFind hook, not stored in DB)
-	VoiceName string  `gorm:"-" json:"voice_name,omitempty"`
-	AudioURL  *string `gorm:"-" json:"audio_url,omitempty"`
+	VoiceName string `gorm:"-" json:"voice_name,omitempty"`
+	AudioURL  string `gorm:"-" json:"audio_url"`
 }
 
 // AfterFind populates computed fields from preloaded relations.
@@ -75,11 +75,8 @@ func (s *Story) AfterFind(_ *gorm.DB) error {
 		s.VoiceName = s.Voice.Name
 	}
 
-	// Generate audio URL if audio file exists
-	if s.AudioFile != "" {
-		url := fmt.Sprintf("/stories/%d/audio", s.ID)
-		s.AudioURL = &url
-	}
+	// Always generate audio URL (endpoint exists, may return 404 if no file)
+	s.AudioURL = fmt.Sprintf("/stories/%d/audio", s.ID)
 
 	return nil
 }
@@ -113,8 +110,8 @@ type StationVoice struct {
 	StationID int64 `gorm:"not null;uniqueIndex:idx_station_voice" json:"station_id"`
 	// VoiceID is the associated voice's identifier.
 	VoiceID int64 `gorm:"not null;uniqueIndex:idx_station_voice" json:"voice_id"`
-	// AudioFile is the path to the station-specific jingle audio file.
-	AudioFile string `gorm:"size:500" json:"-"`
+	// AudioFile is the filename of the station-specific jingle audio file (empty if no audio).
+	AudioFile string `gorm:"size:500" json:"audio_file"`
 	// MixPoint is the time offset (in seconds) where story audio is mixed into the jingle.
 	MixPoint float64 `gorm:"not null;default:0" json:"mix_point"`
 	// CreatedAt is when the station voice was created.
@@ -127,9 +124,9 @@ type StationVoice struct {
 	Voice   *Voice   `gorm:"foreignKey:VoiceID" json:"-"`
 
 	// Computed fields (populated by AfterFind hook, not stored in DB)
-	StationName string  `gorm:"-" json:"station_name,omitempty"`
-	VoiceName   string  `gorm:"-" json:"voice_name,omitempty"`
-	AudioURL    *string `gorm:"-" json:"audio_url,omitempty"`
+	StationName string `gorm:"-" json:"station_name,omitempty"`
+	VoiceName   string `gorm:"-" json:"voice_name,omitempty"`
+	AudioURL    string `gorm:"-" json:"audio_url"`
 }
 
 // AfterFind populates computed fields from preloaded relations.
@@ -144,11 +141,8 @@ func (sv *StationVoice) AfterFind(_ *gorm.DB) error {
 		sv.VoiceName = sv.Voice.Name
 	}
 
-	// Generate audio URL if audio file exists
-	if sv.AudioFile != "" {
-		url := fmt.Sprintf("/station-voices/%d/audio", sv.ID)
-		sv.AudioURL = &url
-	}
+	// Always generate audio URL (endpoint exists, may return 404 if no file)
+	sv.AudioURL = fmt.Sprintf("/station-voices/%d/audio", sv.ID)
 
 	return nil
 }

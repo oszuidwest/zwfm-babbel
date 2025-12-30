@@ -162,9 +162,14 @@ class StoriesTests extends BaseTest {
             return false;
         }
         
-        await this.createStory('List Story 1', 'Content 1', voiceId);
+        const storyId = await this.createStory('List Story 1', 'Content 1', voiceId);
         await this.createStory('List Story 2', 'Content 2', voiceId);
         await this.createStory('List Story 3', 'Content 3', voiceId);
+
+        if (!storyId) {
+            this.printError('Failed to create test stories');
+            return false;
+        }
         
         // Test basic listing
         this.printInfo('Testing basic story listing...');
@@ -209,6 +214,53 @@ class StoriesTests extends BaseTest {
             return false;
         }
         
+        // Test audio_file and audio_url fields in response
+        this.printInfo('Testing audio_file and audio_url fields in response...');
+        const singleStoryResponse = await this.apiCall('GET', `/stories/${storyId}`);
+        if (this.assertions.checkResponse(singleStoryResponse, 200, 'Get single story for audio fields check')) {
+            const story = singleStoryResponse.data;
+
+            // audio_url should always be present (even without audio file)
+            if (story.hasOwnProperty('audio_url') && typeof story.audio_url === 'string') {
+                this.printSuccess('audio_url field is present and always populated');
+            } else {
+                this.printError('audio_url field is missing or not a string');
+                return false;
+            }
+
+            // audio_file should be present (empty string when no audio)
+            if (story.hasOwnProperty('audio_file')) {
+                if (story.audio_file === '') {
+                    this.printSuccess('audio_file field is present (empty for story without audio)');
+                } else {
+                    this.printInfo(`audio_file field has value: ${story.audio_file}`);
+                }
+            } else {
+                this.printError('audio_file field is missing from response');
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Test filtering for stories WITHOUT audio (filter[audio_url]=)
+        this.printInfo('Testing filter for stories without audio (filter[audio_url]=)...');
+        const noAudioResponse = await this.apiCall('GET', '/stories?filter%5Baudio_url%5D=');
+        if (this.assertions.checkResponse(noAudioResponse, 200, 'Filter stories without audio')) {
+            const stories = noAudioResponse.data.data || [];
+            // All returned stories should have empty audio_file
+            const allWithoutAudio = stories.every(s => s.audio_file === '');
+            if (allWithoutAudio) {
+                this.printSuccess(`Audio filter (no audio) works correctly (${stories.length} stories without audio)`);
+            } else {
+                const withAudio = stories.filter(s => s.audio_file !== '');
+                this.printError(`Audio filter returned ${withAudio.length} stories WITH audio - filter not working`);
+                return false;
+            }
+        } else {
+            return false;
+        }
+
         // Test filtering by status field - create stories with different statuses
         this.printInfo('Testing filter by status field...');
 
@@ -1444,6 +1496,48 @@ class StoriesTests extends BaseTest {
                     }
                 } else {
                     this.printError(`Audio download failed (HTTP: ${downloadResponse})`);
+                    fs.unlinkSync(testAudio);
+                    return false;
+                }
+
+                // Test filtering for stories WITH audio (filter[audio_url][ne]=)
+                this.printInfo('Testing filter for stories with audio (filter[audio_url][ne]=)...');
+                const withAudioResponse = await this.apiCall('GET', '/stories?filter%5Baudio_url%5D%5Bne%5D=');
+                if (this.assertions.checkResponse(withAudioResponse, 200, 'Filter stories with audio')) {
+                    const stories = withAudioResponse.data.data || [];
+                    // All returned stories should have non-empty audio_file
+                    const allWithAudio = stories.every(s => s.audio_file !== '');
+                    // Our uploaded story should be in the results
+                    const containsOurStory = stories.some(s => String(s.id) === String(storyId));
+
+                    if (allWithAudio && containsOurStory) {
+                        this.printSuccess(`Audio filter (with audio) works correctly (${stories.length} stories with audio, includes our story)`);
+                    } else if (!allWithAudio) {
+                        const withoutAudio = stories.filter(s => s.audio_file === '');
+                        this.printError(`Audio filter returned ${withoutAudio.length} stories WITHOUT audio - filter not working`);
+                        fs.unlinkSync(testAudio);
+                        return false;
+                    } else {
+                        this.printWarning('Our story not in results, but filter seems to work');
+                    }
+                } else {
+                    fs.unlinkSync(testAudio);
+                    return false;
+                }
+
+                // Verify audio_file field contains the filename after upload
+                this.printInfo('Verifying audio_file field after upload...');
+                const verifyResponse = await this.apiCall('GET', `/stories/${storyId}`);
+                if (this.assertions.checkResponse(verifyResponse, 200, 'Verify audio_file after upload')) {
+                    const story = verifyResponse.data;
+                    if (story.audio_file && story.audio_file !== '') {
+                        this.printSuccess(`audio_file field contains filename: ${story.audio_file}`);
+                    } else {
+                        this.printError('audio_file field is empty after upload');
+                        fs.unlinkSync(testAudio);
+                        return false;
+                    }
+                } else {
                     fs.unlinkSync(testAudio);
                     return false;
                 }

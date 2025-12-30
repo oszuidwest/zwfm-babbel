@@ -705,6 +705,16 @@ paths:
         - `filter[voice_id][ne]=null` - Stories with any voice assigned
         - `filter[voice_id][null]=true` - Stories without voice
 
+        ## Audio Filtering
+        Filter stories by audio presence using the `audio_url` field:
+        - `filter[audio_url]=` - Stories WITHOUT audio (empty value)
+        - `filter[audio_url][ne]=` - Stories WITH audio (not empty)
+
+        Use cases:
+        - Quality control: Find stories missing audio before publication
+        - Bulk TTS: Identify stories that need text-to-speech generation
+        - Dashboard: Sort by audio presence with `sort=audio_url:asc`
+
         ## Examples
         - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
         - Stories that play on Monday: `?filter[weekdays][band]=2`
@@ -1804,13 +1814,16 @@ paths:
         - `id` - Station-voice relationship ID
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_file` - Audio filename
+        - `audio_url` - Filter by audio presence (maps to audio_file column)
         - `mix_point` - Mix point in seconds
         - `created_at` - Creation timestamp
         - `updated_at` - Last update timestamp
-        - `station_name` - Station name (from join)
-        - `voice_name` - Voice name (from join)
-        
+
+        ## Audio Filtering
+        Filter station-voices by jingle audio presence:
+        - `filter[audio_url]=` - Station-voices WITHOUT jingle audio
+        - `filter[audio_url][ne]=` - Station-voices WITH jingle audio
+
         ## Sort Fields
         Available sort fields:
         - `id` - Relationship ID (default: descending)
@@ -2318,10 +2331,12 @@ components:
           format: int64
           description: Voice ID
           x-foreign-key: voices.id
+        audio_file:
+          type: string
+          description: Filename of jingle audio file (empty string if no audio uploaded)
         audio_url:
           type: string
-          nullable: true
-          description: API URL to download the audio file
+          description: API URL to download the jingle audio file (always present, may return 404 if no file exists)
         mix_point:
           type: number
           format: float
@@ -2406,10 +2421,12 @@ components:
         voice_name:
           type: string
           description: Name of the assigned voice (from JOIN query)
+        audio_file:
+          type: string
+          description: Filename of audio file (empty string if no audio uploaded)
         audio_url:
           type: string
-          nullable: true
-          description: API URL to download the audio file
+          description: API URL to download the audio file (always present, may return 404 if no file exists)
         duration_seconds:
           type: number
           format: float
