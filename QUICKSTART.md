@@ -247,8 +247,8 @@ Images are automatically built for:
 ### Working with Stories
 
 ```bash
-# List active stories for today
-curl -b cookies.txt "http://localhost:8080/api/v1/stories?status=active"
+# List active stories (default, excludes soft-deleted)
+curl -b cookies.txt "http://localhost:8080/api/v1/stories"
 
 # Filter stories by voice
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[voice_id]=1"

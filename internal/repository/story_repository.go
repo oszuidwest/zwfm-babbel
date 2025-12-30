@@ -229,7 +229,7 @@ var storyFieldMapping = FieldMapping{
 var storySearchFields = []string{"title", "text"}
 
 // List retrieves stories with filtering, sorting, and pagination.
-// Supports soft delete filtering via Status field: "active", "deleted", or "all".
+// Supports soft delete filtering via Trashed field: "", "only", or "with".
 func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
 	if query == nil {
 		query = NewListQuery()
@@ -237,7 +237,7 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 
 	// Build base query with voice preload and soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
-	db = ApplySoftDeleteFilter(db, query.Status)
+	db = ApplySoftDeleteFilter(db, query.Trashed)
 
 	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
 }

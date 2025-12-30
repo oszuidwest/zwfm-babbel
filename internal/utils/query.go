@@ -25,8 +25,8 @@ type QueryParams struct {
 	// Filtering
 	Filters map[string]FilterOperation `json:"filters"`
 
-	// Status filtering
-	Status string `json:"status"`
+	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
+	Trashed string `json:"trashed"`
 
 	// Search
 	Search string `json:"search"`
@@ -73,8 +73,8 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 		params.Filters = filters
 	}
 
-	// Parse status
-	params.Status = c.Query("status")
+	// Parse trashed (soft-delete filter): "only", "with", or empty
+	params.Trashed = c.Query("trashed")
 
 	// Parse search
 	params.Search = c.Query("search")
@@ -366,10 +366,10 @@ func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
 	}
 
 	query := &repository.ListQuery{
-		Limit:  params.Limit,
-		Offset: params.Offset,
-		Search: params.Search,
-		Status: params.Status,
+		Limit:   params.Limit,
+		Offset:  params.Offset,
+		Search:  params.Search,
+		Trashed: params.Trashed,
 	}
 
 	// Convert sort fields

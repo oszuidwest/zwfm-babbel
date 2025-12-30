@@ -54,8 +54,8 @@ type ListQuery struct {
 	Sort    []SortField
 	Filters []FilterCondition
 	Search  string
-	// Status filter for soft-delete support: "active", "deleted", "all"
-	Status string
+	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
+	Trashed string
 }
 
 // ListResult contains paginated results.
@@ -71,7 +71,7 @@ func NewListQuery() *ListQuery {
 	return &ListQuery{
 		Limit:  20,
 		Offset: 0,
-		Status: "active",
+		// Trashed defaults to empty string (show only active/non-deleted)
 	}
 }
 

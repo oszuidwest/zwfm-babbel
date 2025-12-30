@@ -718,7 +718,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/trashed'
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
@@ -944,8 +944,8 @@ paths:
     delete:
       summary: Delete story (soft delete)
       description: |
-        Performs a soft delete by setting deleted_at timestamp. 
-        The story will no longer appear in listings unless include_deleted=true is specified.
+        Performs a soft delete by setting deleted_at timestamp.
+        The story will no longer appear in listings unless trashed=with is specified.
         Story data and audio files are preserved for potential restoration.
       tags:
         - Stories
@@ -1130,7 +1130,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/status'
+        - $ref: '#/components/parameters/trashed'
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
@@ -2139,18 +2139,17 @@ components:
         Search term for full-text search across relevant fields.
         Searches in names, titles, text content depending on resource.
       example: "news update"
-    status:
-      name: status
+    trashed:
+      name: trashed
       in: query
       schema:
         type: string
-        enum: [all, active, deleted]
-        default: active
+        enum: [only, with]
       description: |
-        Filter by resource status:
-        - `active` - only active/non-deleted resources (default)
-        - `deleted` - only soft-deleted resources
-        - `all` - include both active and deleted resources
+        Filter soft-deleted records:
+        - (omitted) - only non-deleted records (default)
+        - `only` - only soft-deleted records
+        - `with` - all records including deleted
     filter:
       name: filter
       in: query
