@@ -179,14 +179,21 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	// Generate new bulletin
 	logger.Info("Automation: generating new bulletin for station %d (max_age=%ds)", req.stationID, req.maxAgeSeconds)
 
-	bulletinInfo, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
+	bulletinID, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+
+	// Fetch the created bulletin to get the audio file path
+	bulletin, err := h.bulletinSvc.GetByID(ctx, bulletinID)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
 	// Serve newly generated bulletin
-	_ = h.serveBulletinAudio(c, filepath.Base(bulletinInfo.BulletinPath), false)
+	_ = h.serveBulletinAudio(c, bulletin.AudioFile, false)
 }
 
 // serveBulletinAudio sends the bulletin WAV file as response.

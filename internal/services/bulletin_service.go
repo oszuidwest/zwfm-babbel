@@ -48,39 +48,29 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 	}
 }
 
-// BulletinInfo contains metadata about a generated bulletin.
-type BulletinInfo struct {
-	ID           int64
-	Station      models.Station
-	Stories      []repository.BulletinStoryData
-	BulletinPath string
-	Duration     float64
-	FileSize     int64
-	CreatedAt    time.Time
-}
-
 // Create generates a new bulletin for the specified station and date.
-func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*BulletinInfo, error) {
+// Returns the bulletin ID on success.
+func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (int64, error) {
 	// Validate station exists and fetch details
 	station, err := s.validateAndFetchStation(ctx, stationID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	// Get stories for the date
 	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if len(stories) == 0 {
-		return nil, apperrors.NoStories(stationID)
+		return 0, apperrors.NoStories(stationID)
 	}
 
 	// Generate audio file
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	// Get file metadata
@@ -90,18 +80,10 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	// Persist bulletin to database using transaction
 	bulletinID, err := s.saveBulletinToDatabase(ctx, stationID, bulletinPath, totalDuration, fileSize, stories)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return &BulletinInfo{
-		ID:           bulletinID,
-		Station:      *station,
-		Stories:      stories,
-		BulletinPath: bulletinPath,
-		Duration:     totalDuration,
-		FileSize:     fileSize,
-		CreatedAt:    time.Now(),
-	}, nil
+	return bulletinID, nil
 }
 
 // validateAndFetchStation validates that a station exists and returns its details.
@@ -261,6 +243,15 @@ func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 		return false, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return exists, nil
+}
+
+// GetByID retrieves a bulletin by its ID.
+func (s *BulletinService) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
+	bulletin, err := s.bulletinRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
+	}
+	return bulletin, nil
 }
 
 // GetBulletinStories retrieves stories included in a specific bulletin with pagination.

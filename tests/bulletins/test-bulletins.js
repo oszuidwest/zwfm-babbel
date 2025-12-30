@@ -376,7 +376,69 @@ class BulletinsTests extends BaseTest {
         
         return true;
     }
-    
+
+    /**
+     * Test getting a single bulletin by ID
+     */
+    async testGetBulletinById() {
+        this.printSection('Testing GET /bulletins/:id Endpoint');
+
+        // First, get a bulletin ID from the list
+        this.printInfo('Getting a bulletin ID for single retrieval test...');
+        const listResponse = await this.apiCall('GET', '/bulletins?limit=1');
+
+        if (!this.assertions.checkResponse(listResponse, 200, 'List bulletins to get ID')) {
+            return false;
+        }
+
+        if (!listResponse.data.data || listResponse.data.data.length === 0) {
+            this.printWarning('No bulletins available for single retrieval test');
+            return true; // Skip test if no bulletins exist
+        }
+
+        const bulletinId = listResponse.data.data[0].id;
+
+        // Test retrieving single bulletin by ID
+        this.printInfo(`Testing GET /bulletins/${bulletinId}...`);
+        const response = await this.apiCall('GET', `/bulletins/${bulletinId}`);
+
+        if (this.assertions.checkResponse(response, 200, 'Get bulletin by ID')) {
+            const bulletin = response.data;
+
+            // Verify required fields are present
+            const requiredFields = ['id', 'station_id', 'station_name', 'audio_url', 'filename', 'created_at', 'duration_seconds', 'file_size', 'story_count'];
+            const missingFields = requiredFields.filter(field => !(field in bulletin));
+
+            if (missingFields.length > 0) {
+                this.printError(`Missing fields in bulletin response: ${missingFields.join(', ')}`);
+                return false;
+            }
+
+            // Verify the ID matches
+            if (bulletin.id !== bulletinId) {
+                this.printError(`Bulletin ID mismatch: expected ${bulletinId}, got ${bulletin.id}`);
+                return false;
+            }
+
+            this.printSuccess(`GET /bulletins/${bulletinId} returned correct bulletin with all required fields`);
+        } else {
+            return false;
+        }
+
+        // Test 404 for non-existent bulletin
+        this.printInfo('Testing GET /bulletins/:id with non-existent ID...');
+        const notFoundResponse = await this.apiCall('GET', '/bulletins/999999999');
+
+        if (notFoundResponse.status === 404) {
+            this.printSuccess('GET /bulletins/:id returns 404 for non-existent bulletin');
+        } else {
+            this.printError(`Expected 404 for non-existent bulletin, got ${notFoundResponse.status}`);
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Test bulletin audio download
      */
@@ -1794,6 +1856,7 @@ class BulletinsTests extends BaseTest {
         const tests = [
             'testBulletinGeneration',
             'testBulletinRetrieval',
+            'testGetBulletinById',
             'testBulletinAudioDownload',
             'testStationBulletinEndpoints',
             'testStationBulletinsModernQuery',

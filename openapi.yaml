@@ -1519,6 +1519,44 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /bulletins/{id}:
+    get:
+      summary: Get bulletin by ID
+      description: |
+        Returns a single bulletin by its ID.
+
+        The response includes computed fields:
+        - `station_name` - Name of the associated station
+        - `audio_url` - URL to download the bulletin audio file
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Bulletin details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulletinResponse'
+              example:
+                id: 150
+                station_id: 1
+                station_name: "Radio Station 1"
+                filename: "bulletin_1_20240120_140500.wav"
+                audio_url: "/bulletins/150/audio"
+                duration_seconds: 185.4
+                file_size: 2965440
+                story_count: 4
+                created_at: "2024-01-20T14:05:00Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /stations/{id}/bulletins:
     get:
