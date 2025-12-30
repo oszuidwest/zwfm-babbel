@@ -253,12 +253,12 @@ type BulletinStoryData struct {
 // Returns stories with station-specific mix point data needed for audio processing.
 //
 // Fair rotation algorithm ensures all stories get equal airtime:
-//  1. Stories not yet used TODAY (UTC) for this station get highest priority
+//  1. Stories not yet used TODAY for this station get highest priority
 //  2. Within unused stories, newer stories (by start_date) come first
 //  3. If all stories were used today, least-recently-used ones are selected
 //  4. RAND() as final tiebreaker for variety
 //
-// The rotation resets daily at midnight UTC and is isolated per station.
+// The rotation resets daily at local midnight and is isolated per station.
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
@@ -271,7 +271,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 
 	// Subquery to find when each story was last used in a bulletin for this station today.
-	// Limited to 50 most recent bulletins for performance (supports ~48 bulletins/day).
+	// Returns NULL if story hasn't been used today, otherwise the most recent usage timestamp.
 	lastUsedSubquery := `(
 		SELECT MAX(b.created_at)
 		FROM bulletin_stories bs
@@ -279,14 +279,16 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		WHERE bs.story_id = stories.id
 		  AND b.station_id = ?
 		  AND b.created_at >= ?
-		LIMIT 50
 	)`
 
 	// Build the query with fair rotation ordering:
-	// 1. last_used_today IS NULL DESC  → unused stories first
-	// 2. stories.start_date DESC       → newer stories preferred within unused
-	// 3. last_used_today ASC           → least-recently-used as fallback
-	// 4. RAND()                         → variety within equal priority
+	// 1. last_used_today IS NULL DESC     → unused stories first
+	// 2. CASE for unused: start_date DESC → newer stories preferred (only for unused)
+	// 3. last_used_today ASC              → least-recently-used (only for used stories)
+	// 4. RAND()                           → variety within equal priority
+	//
+	// The CASE expression ensures start_date sorting only applies to unused stories,
+	// while used stories are sorted by their last usage timestamp.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
 		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).
@@ -297,7 +299,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.start_date <= ?", date).
 		Where("stories.end_date >= ?", date).
 		Where("stories.weekdays & ? > 0", weekdayBit).
-		Order("last_used_today IS NULL DESC, stories.start_date DESC, last_used_today ASC, RAND()").
+		Order("last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
 		Limit(limit).
 		Find(&stories).Error
 
