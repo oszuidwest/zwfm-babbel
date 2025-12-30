@@ -376,7 +376,234 @@ class BulletinsTests extends BaseTest {
         
         return true;
     }
-    
+
+    /**
+     * Test getting a single bulletin by ID
+     */
+    async testGetBulletinById() {
+        this.printSection('Testing GET /bulletins/:id Endpoint');
+
+        // First, get a bulletin ID from the list
+        this.printInfo('Getting a bulletin ID for single retrieval test...');
+        const listResponse = await this.apiCall('GET', '/bulletins?limit=1');
+
+        if (!this.assertions.checkResponse(listResponse, 200, 'List bulletins to get ID')) {
+            return false;
+        }
+
+        if (!listResponse.data.data || listResponse.data.data.length === 0) {
+            this.printWarning('No bulletins available for single retrieval test');
+            return true; // Skip test if no bulletins exist
+        }
+
+        const bulletinId = listResponse.data.data[0].id;
+
+        // Test retrieving single bulletin by ID
+        this.printInfo(`Testing GET /bulletins/${bulletinId}...`);
+        const response = await this.apiCall('GET', `/bulletins/${bulletinId}`);
+
+        if (this.assertions.checkResponse(response, 200, 'Get bulletin by ID')) {
+            const bulletin = response.data;
+
+            // Verify required fields are present
+            const requiredFields = ['id', 'station_id', 'station_name', 'audio_url', 'filename', 'created_at', 'duration_seconds', 'file_size', 'story_count'];
+            const missingFields = requiredFields.filter(field => !(field in bulletin));
+
+            if (missingFields.length > 0) {
+                this.printError(`Missing fields in bulletin response: ${missingFields.join(', ')}`);
+                return false;
+            }
+
+            // Verify the ID matches
+            if (bulletin.id !== bulletinId) {
+                this.printError(`Bulletin ID mismatch: expected ${bulletinId}, got ${bulletin.id}`);
+                return false;
+            }
+
+            this.printSuccess(`GET /bulletins/${bulletinId} returned correct bulletin with all required fields`);
+        } else {
+            return false;
+        }
+
+        // Test 404 for non-existent bulletin
+        this.printInfo('Testing GET /bulletins/:id with non-existent ID...');
+        const notFoundResponse = await this.apiCall('GET', '/bulletins/999999999');
+
+        if (notFoundResponse.status === 404) {
+            this.printSuccess('GET /bulletins/:id returns 404 for non-existent bulletin');
+        } else {
+            this.printError(`Expected 404 for non-existent bulletin, got ${notFoundResponse.status}`);
+            return false;
+        }
+
+        // Test invalid ID formats - should return 400 Bad Request
+        this.printInfo('Testing GET /bulletins/:id with invalid ID formats...');
+
+        const invalidIdTests = [
+            { id: 'abc', description: 'non-numeric string' },
+            { id: '-1', description: 'negative number' },
+            { id: '0', description: 'zero' },
+            { id: '12.5', description: 'decimal number' }
+        ];
+
+        for (const test of invalidIdTests) {
+            const invalidResponse = await this.apiCall('GET', `/bulletins/${test.id}`);
+            if (invalidResponse.status === 400) {
+                this.printSuccess(`Invalid ID (${test.description}) correctly returns 400`);
+            } else if (invalidResponse.status === 404) {
+                // Some invalid formats might be caught by router as 404
+                this.printSuccess(`Invalid ID (${test.description}) returns 404 (route not matched)`);
+            } else {
+                this.printError(`Invalid ID (${test.description}) returned unexpected status: ${invalidResponse.status}`);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Test field types in bulletin response
+     */
+    async testBulletinFieldTypes() {
+        this.printSection('Testing Bulletin Response Field Types');
+
+        // Get a bulletin for field type validation
+        this.printInfo('Getting a bulletin for field type validation...');
+        const listResponse = await this.apiCall('GET', '/bulletins?limit=1');
+
+        if (!this.assertions.checkResponse(listResponse, 200, 'List bulletins for field type test')) {
+            return false;
+        }
+
+        if (!listResponse.data.data || listResponse.data.data.length === 0) {
+            this.printWarning('No bulletins available for field type validation test');
+            return true;
+        }
+
+        const bulletinId = listResponse.data.data[0].id;
+        const response = await this.apiCall('GET', `/bulletins/${bulletinId}`);
+
+        if (!this.assertions.checkResponse(response, 200, 'Get bulletin for field type validation')) {
+            return false;
+        }
+
+        const bulletin = response.data;
+        let allValid = true;
+
+        // Define expected field types
+        const fieldTypes = {
+            id: 'number',
+            station_id: 'number',
+            station_name: 'string',
+            audio_url: 'string',
+            filename: 'string',
+            created_at: 'string',
+            duration_seconds: 'number',
+            file_size: 'number',
+            story_count: 'number'
+        };
+
+        // Validate each field type
+        for (const [field, expectedType] of Object.entries(fieldTypes)) {
+            if (!(field in bulletin)) {
+                this.printError(`Missing required field: ${field}`);
+                allValid = false;
+                continue;
+            }
+
+            const actualType = typeof bulletin[field];
+            if (actualType !== expectedType) {
+                this.printError(`Field '${field}' has wrong type: expected ${expectedType}, got ${actualType}`);
+                allValid = false;
+            }
+        }
+
+        if (allValid) {
+            this.printSuccess('All required fields have correct types');
+        }
+
+        // Validate numeric constraints
+        if (bulletin.id <= 0) {
+            this.printError('id should be a positive integer');
+            allValid = false;
+        } else {
+            this.printSuccess('id is a positive integer');
+        }
+
+        if (bulletin.station_id <= 0) {
+            this.printError('station_id should be a positive integer');
+            allValid = false;
+        } else {
+            this.printSuccess('station_id is a positive integer');
+        }
+
+        if (bulletin.duration_seconds < 0) {
+            this.printError('duration_seconds should be non-negative');
+            allValid = false;
+        } else {
+            this.printSuccess('duration_seconds is non-negative');
+        }
+
+        if (bulletin.file_size < 0) {
+            this.printError('file_size should be non-negative');
+            allValid = false;
+        } else {
+            this.printSuccess('file_size is non-negative');
+        }
+
+        if (bulletin.story_count < 0) {
+            this.printError('story_count should be non-negative');
+            allValid = false;
+        } else {
+            this.printSuccess('story_count is non-negative');
+        }
+
+        // Validate string formats
+        if (!bulletin.audio_url || bulletin.audio_url.trim() === '') {
+            this.printError('audio_url should be a non-empty string');
+            allValid = false;
+        } else if (!bulletin.audio_url.includes('/bulletins/') || !bulletin.audio_url.includes('/audio')) {
+            this.printError('audio_url should contain valid bulletin audio path');
+            allValid = false;
+        } else {
+            this.printSuccess('audio_url has valid format');
+        }
+
+        if (!bulletin.station_name || bulletin.station_name.trim() === '') {
+            this.printError('station_name should be a non-empty string');
+            allValid = false;
+        } else {
+            this.printSuccess('station_name is a non-empty string');
+        }
+
+        if (!bulletin.filename || bulletin.filename.trim() === '') {
+            this.printError('filename should be a non-empty string');
+            allValid = false;
+        } else {
+            this.printSuccess('filename is a non-empty string');
+        }
+
+        // Validate created_at is a valid ISO date string
+        const createdAt = new Date(bulletin.created_at);
+        if (isNaN(createdAt.getTime())) {
+            this.printError('created_at should be a valid ISO date string');
+            allValid = false;
+        } else {
+            this.printSuccess('created_at is a valid ISO date string');
+        }
+
+        // Verify response is NOT wrapped in a data object (single resource vs list)
+        if (response.data.data !== undefined) {
+            this.printError('Single bulletin response should not be wrapped in data object');
+            allValid = false;
+        } else {
+            this.printSuccess('Single bulletin response is not wrapped (correct format)');
+        }
+
+        return allValid;
+    }
+
     /**
      * Test bulletin audio download
      */
@@ -1794,6 +2021,8 @@ class BulletinsTests extends BaseTest {
         const tests = [
             'testBulletinGeneration',
             'testBulletinRetrieval',
+            'testGetBulletinById',
+            'testBulletinFieldTypes',
             'testBulletinAudioDownload',
             'testStationBulletinEndpoints',
             'testStationBulletinsModernQuery',

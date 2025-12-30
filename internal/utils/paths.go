@@ -75,3 +75,12 @@ func TempBulletinDir(config *config.Config, uuid string) string {
 	}
 	return filepath.Join(config.Audio.TempPath, uuid)
 }
+
+// BulletinPath returns the absolute filesystem path for a bulletin audio file.
+func BulletinPath(config *config.Config, filename string) string {
+	if config == nil {
+		logger.Error("BulletinPath called with nil config - this is a programming error")
+		return ""
+	}
+	return filepath.Join(config.Audio.OutputPath, filename)
+}

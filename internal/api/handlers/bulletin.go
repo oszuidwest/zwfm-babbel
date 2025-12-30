@@ -3,20 +3,14 @@ package handlers
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
-
-// BulletinRequest represents the request parameters for bulletin generation.
-type BulletinRequest struct {
-	StationID int64  `json:"station_id" binding:"required"`
-	Date      string `json:"date"`
-}
 
 // GenerateBulletin generates a news bulletin for a station.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
@@ -59,14 +53,14 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	}
 
 	// Generate new bulletin using service
-	bulletinInfo, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
+	bulletin, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
-		handleServiceError(c, err, "Station")
+		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
 	// Serve newly generated bulletin
-	h.serveNewBulletin(c, bulletinInfo, download)
+	h.serveNewBulletin(c, bulletin, download)
 }
 
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
@@ -96,15 +90,10 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 		return false
 	}
 
-	// Calculate age of the cached bulletin
-	age := int(time.Since(existingBulletin.CreatedAt).Seconds())
-
-	// Set standard cache headers
-	c.Header("X-Cache", "HIT")
-	c.Header("Age", fmt.Sprintf("%d", age))
+	setCacheHeaders(c, existingBulletin.CreatedAt, true)
 
 	if download {
-		serveAudioFile(c, filepath.Join("audio/output", existingBulletin.AudioFile), existingBulletin.Filename, true)
+		serveAudioFile(c, utils.BulletinPath(h.config, existingBulletin.AudioFile), existingBulletin.Filename, true)
 		return true
 	}
 
@@ -114,22 +103,27 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 }
 
 // serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
-func (h *Handlers) serveNewBulletin(c *gin.Context, bulletinInfo *services.BulletinInfo, download bool) {
-	// Set cache headers for fresh content
-	c.Header("X-Cache", "MISS")
-	c.Header("Age", "0")
+func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, download bool) {
+	setCacheHeaders(c, time.Time{}, false)
 
 	if download {
-		c.Header("X-Bulletin-Cached", "false")
-		c.Header("X-Bulletin-Duration", fmt.Sprintf("%.2f", bulletinInfo.Duration))
-		c.Header("X-Bulletin-Stories", fmt.Sprintf("%d", len(bulletinInfo.Stories)))
-		serveAudioFile(c, bulletinInfo.BulletinPath, filepath.Base(bulletinInfo.BulletinPath), false)
+		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, false)
 		return
 	}
 
-	// Build response without story list
-	response := h.bulletinInfoToResponse(bulletinInfo)
-	utils.Success(c, response)
+	// Return bulletin directly - AfterFind hook populates computed fields
+	utils.Success(c, bulletin)
+}
+
+// setCacheHeaders sets standardized cache response headers.
+func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
+	if hit {
+		c.Header("X-Cache", "HIT")
+		c.Header("Age", fmt.Sprintf("%d", int(time.Since(createdAt).Seconds())))
+	} else {
+		c.Header("X-Cache", "MISS")
+		c.Header("Age", "0")
+	}
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
@@ -175,21 +169,6 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, params.Limit, params.Offset)
 }
 
-// bulletinInfoToResponse creates response from BulletinInfo (used for newly created bulletins)
-func (h *Handlers) bulletinInfoToResponse(info *services.BulletinInfo) BulletinResponse {
-	return BulletinResponse{
-		ID:          info.ID,
-		StationID:   info.Station.ID,
-		StationName: info.Station.Name,
-		AudioURL:    fmt.Sprintf("/bulletins/%d/audio", info.ID),
-		Filename:    filepath.Base(info.BulletinPath),
-		CreatedAt:   info.CreatedAt,
-		Duration:    info.Duration,
-		FileSize:    info.FileSize,
-		StoryCount:  len(info.Stories),
-	}
-}
-
 // GetStationBulletins returns bulletins for a specific station with pagination and filtering
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
@@ -216,10 +195,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 			return
 		}
 
-		// Set cache headers indicating this is existing content
-		age := int(time.Since(bulletin.CreatedAt).Seconds())
-		c.Header("X-Cache", "HIT")
-		c.Header("Age", fmt.Sprintf("%d", age))
+		setCacheHeaders(c, bulletin.CreatedAt, true)
 
 		// Return directly - AfterFind hook populates computed fields
 		utils.Success(c, bulletin)
@@ -258,6 +234,23 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 
 	// Return directly - AfterFind hook populates computed fields
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+}
+
+// GetBulletin returns a single bulletin by ID.
+func (h *Handlers) GetBulletin(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	bulletin, err := h.bulletinSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
+	}
+
+	// Return directly - AfterFind hook populates computed fields
+	utils.Success(c, bulletin)
 }
 
 // GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.

@@ -5,9 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -179,20 +177,20 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	// Generate new bulletin
 	logger.Info("Automation: generating new bulletin for station %d (max_age=%ds)", req.stationID, req.maxAgeSeconds)
 
-	bulletinInfo, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
+	bulletin, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
 	// Serve newly generated bulletin
-	_ = h.serveBulletinAudio(c, filepath.Base(bulletinInfo.BulletinPath), false)
+	_ = h.serveBulletinAudio(c, bulletin.AudioFile, false)
 }
 
 // serveBulletinAudio sends the bulletin WAV file as response.
 // Returns an error if the file cannot be served (error response already sent to client).
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, cached bool) error {
-	filePath := filepath.Join(h.config.Audio.OutputPath, audioFile)
+	filePath := utils.BulletinPath(h.config, audioFile)
 
 	// Verify file exists before serving (consistent RFC 9457 error handling)
 	if _, err := os.Stat(filePath); err != nil {
@@ -206,12 +204,8 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		return err
 	}
 
-	// Set headers
-	c.Header("Content-Type", "audio/wav")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", audioFile))
+	// Automation endpoint doesn't cache
 	c.Header("Cache-Control", "no-store")
-	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
-
-	c.File(filePath)
+	serveAudioFile(c, filePath, audioFile, cached)
 	return nil
 }

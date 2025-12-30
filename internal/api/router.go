@@ -235,6 +235,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 
 			// Bulletin routes - RESTful (no verbs in URLs)
 			protected.GET("/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.ListBulletins)
+			protected.GET("/bulletins/:id", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.GetBulletin)
 			protected.POST("/stations/:id/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionGenerate), h.GenerateBulletin) // Create bulletin
 			protected.GET("/stations/:id/bulletins", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.GetStationBulletins)   // List station bulletins
 			protected.GET("/bulletins/:id/audio", authService.RequirePermission(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)

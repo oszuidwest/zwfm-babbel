@@ -1592,6 +1592,42 @@ Supported operators:
 
 ---
 
+#### Get bulletin by ID
+
+`GET /bulletins/{id}`
+
+Returns a single bulletin by its ID.
+
+The response includes computed fields:
+- `station_name` - Name of the associated station
+- `audio_url` - URL to download the bulletin audio file
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Resource ID |
+
+
+
+
+
+**Response:** `200` - Bulletin details
+
+
+
+**Error Responses:**
+
+- `401`: Error
+- `403`: Error
+- `404`: Error
+- `500`: Error
+
+
+---
+
 #### List bulletins
 
 `GET /bulletins`

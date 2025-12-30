@@ -48,23 +48,13 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 	}
 }
 
-// BulletinInfo contains metadata about a generated bulletin.
-type BulletinInfo struct {
-	ID           int64
-	Station      models.Station
-	Stories      []repository.BulletinStoryData
-	BulletinPath string
-	Duration     float64
-	FileSize     int64
-	CreatedAt    time.Time
-}
-
 // Create generates a new bulletin for the specified station and date.
-func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*BulletinInfo, error) {
-	// Validate station exists and fetch details
-	station, err := s.validateAndFetchStation(ctx, stationID)
+// Returns the created bulletin with all computed fields populated.
+func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
+	// Fetch station details
+	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	// Get stories for the date
@@ -84,7 +74,10 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	// Get file metadata
-	fileSize := s.getFileSize(bulletinPath)
+	var fileSize int64
+	if fi, err := os.Stat(bulletinPath); err == nil {
+		fileSize = fi.Size()
+	}
 	totalDuration := s.calculateBulletinDuration(station, stories)
 
 	// Persist bulletin to database using transaction
@@ -93,24 +86,8 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		return nil, err
 	}
 
-	return &BulletinInfo{
-		ID:           bulletinID,
-		Station:      *station,
-		Stories:      stories,
-		BulletinPath: bulletinPath,
-		Duration:     totalDuration,
-		FileSize:     fileSize,
-		CreatedAt:    time.Now(),
-	}, nil
-}
-
-// validateAndFetchStation validates that a station exists and returns its details.
-func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int64) (*models.Station, error) {
-	station, err := s.stationRepo.GetByID(ctx, stationID)
-	if err != nil {
-		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
-	}
-	return station, nil
+	// Fetch the created bulletin with Station preloaded for computed fields
+	return s.GetByID(ctx, bulletinID)
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
@@ -120,26 +97,11 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
 	// Create bulletin using the generated absolute path
-	createdPath, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath)
-	if err != nil {
+	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
 	}
 
-	// Verify the paths match (should always be true with unified function)
-	if createdPath != bulletinPath {
-		logger.Warn("Path mismatch - created: %s, expected: %s", createdPath, bulletinPath)
-	}
-
 	return bulletinPath, nil
-}
-
-// getFileSize safely retrieves the file size, returning 0 if stat fails.
-func (s *BulletinService) getFileSize(path string) int64 {
-	fileInfo, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return fileInfo.Size()
 }
 
 // calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
@@ -261,6 +223,15 @@ func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 		return false, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return exists, nil
+}
+
+// GetByID retrieves a bulletin by its ID.
+func (s *BulletinService) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
+	bulletin, err := s.bulletinRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
+	}
+	return bulletin, nil
 }
 
 // GetBulletinStories retrieves stories included in a specific bulletin with pagination.
