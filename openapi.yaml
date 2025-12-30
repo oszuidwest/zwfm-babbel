@@ -2331,10 +2331,12 @@ components:
           format: int64
           description: Voice ID
           x-foreign-key: voices.id
+        audio_file:
+          type: string
+          description: Filename of jingle audio file (empty string if no audio uploaded)
         audio_url:
           type: string
-          nullable: true
-          description: API URL to download the audio file
+          description: API URL to download the jingle audio file (always present, may return 404 if no file exists)
         mix_point:
           type: number
           format: float
@@ -2419,10 +2421,12 @@ components:
         voice_name:
           type: string
           description: Name of the assigned voice (from JOIN query)
+        audio_file:
+          type: string
+          description: Filename of audio file (empty string if no audio uploaded)
         audio_url:
           type: string
-          nullable: true
-          description: API URL to download the audio file
+          description: API URL to download the audio file (always present, may return 404 if no file exists)
         duration_seconds:
           type: number
           format: float

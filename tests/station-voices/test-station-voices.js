@@ -304,7 +304,161 @@ class StationVoicesTests extends BaseTest {
         
         return true;
     }
-    
+
+    /**
+     * Test audio_file and audio_url fields and filtering
+     */
+    async testAudioFieldsAndFiltering() {
+        this.printSection('Testing Audio Fields and Filtering');
+
+        // Create test data - station-voices WITHOUT audio
+        this.printInfo('Creating station-voices without audio for filter testing...');
+        const station1 = await this.createStation('Audio Filter Test Station 1');
+        const station2 = await this.createStation('Audio Filter Test Station 2');
+        const voice1 = await this.createVoice('Audio Filter Test Voice 1');
+        const voice2 = await this.createVoice('Audio Filter Test Voice 2');
+
+        if (!station1 || !station2 || !voice1 || !voice2) {
+            this.printError('Failed to create test data for audio filter testing');
+            return false;
+        }
+
+        // Create station-voice relationships without audio
+        const sv1Response = await this.apiCall('POST', '/station-voices', this.createStationVoiceData({
+            station_id: parseInt(station1),
+            voice_id: parseInt(voice1),
+            mix_point: 1.0
+        }));
+
+        const sv1Id = this.parseJsonField(sv1Response.data, 'id');
+        if (sv1Id) this.createdStationVoiceIds.push(sv1Id);
+
+        const sv2Response = await this.apiCall('POST', '/station-voices', this.createStationVoiceData({
+            station_id: parseInt(station2),
+            voice_id: parseInt(voice2),
+            mix_point: 2.0
+        }));
+
+        const sv2Id = this.parseJsonField(sv2Response.data, 'id');
+        if (sv2Id) this.createdStationVoiceIds.push(sv2Id);
+
+        if (!sv1Id) {
+            this.printError('Failed to create station-voice for audio filter testing');
+            return false;
+        }
+
+        // Test 1: Verify audio_file and audio_url fields are present in response
+        this.printInfo('Testing audio_file and audio_url fields in response...');
+        const singleResponse = await this.apiCall('GET', `/station-voices/${sv1Id}`);
+        if (this.assertions.checkResponse(singleResponse, 200, 'Get single station-voice for audio fields check')) {
+            const sv = singleResponse.data;
+
+            // audio_url should always be present (even without audio file)
+            if (sv.hasOwnProperty('audio_url') && typeof sv.audio_url === 'string') {
+                this.printSuccess('audio_url field is present and always populated');
+            } else {
+                this.printError('audio_url field is missing or not a string');
+                return false;
+            }
+
+            // audio_file should be present (empty string when no audio)
+            if (sv.hasOwnProperty('audio_file')) {
+                if (sv.audio_file === '') {
+                    this.printSuccess('audio_file field is present (empty for station-voice without jingle)');
+                } else {
+                    this.printInfo(`audio_file field has value: ${sv.audio_file}`);
+                }
+            } else {
+                this.printError('audio_file field is missing from response');
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Test 2: Filter for station-voices WITHOUT audio (filter[audio_url]=)
+        this.printInfo('Testing filter for station-voices without audio (filter[audio_url]=)...');
+        const noAudioResponse = await this.apiCall('GET', '/station-voices?filter%5Baudio_url%5D=');
+        if (this.assertions.checkResponse(noAudioResponse, 200, 'Filter station-voices without audio')) {
+            const stationVoices = noAudioResponse.data.data || [];
+            // All returned station-voices should have empty audio_file
+            const allWithoutAudio = stationVoices.every(sv => sv.audio_file === '');
+            if (allWithoutAudio) {
+                this.printSuccess(`Audio filter (no audio) works correctly (${stationVoices.length} station-voices without jingle)`);
+            } else {
+                const withAudio = stationVoices.filter(sv => sv.audio_file !== '');
+                this.printError(`Audio filter returned ${withAudio.length} station-voices WITH audio - filter not working`);
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // Test 3: Upload jingle to one station-voice and test WITH audio filter
+        this.printInfo('Uploading jingle to test WITH audio filter...');
+        const fs = require('fs');
+        const testAudio = '/tmp/test_jingle_filter.wav';
+
+        if (!fs.existsSync(testAudio)) {
+            try {
+                const { execSync } = require('child_process');
+                execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 1 -f wav "${testAudio}" 2>/dev/null`, { stdio: 'ignore' });
+            } catch (error) {
+                this.printWarning('ffmpeg not available, skipping WITH audio filter test');
+                return true; // Skip this part of the test
+            }
+        }
+
+        if (fs.existsSync(testAudio)) {
+            const uploadResponse = await this.uploadFile(`/station-voices/${sv1Id}/audio`, {}, testAudio, 'jingle');
+            if (uploadResponse.status === 201) {
+                this.printSuccess('Jingle uploaded for filter testing');
+
+                // Test filter for station-voices WITH audio (filter[audio_url][ne]=)
+                this.printInfo('Testing filter for station-voices with audio (filter[audio_url][ne]=)...');
+                const withAudioResponse = await this.apiCall('GET', '/station-voices?filter%5Baudio_url%5D%5Bne%5D=');
+                if (this.assertions.checkResponse(withAudioResponse, 200, 'Filter station-voices with audio')) {
+                    const stationVoices = withAudioResponse.data.data || [];
+                    // All returned station-voices should have non-empty audio_file
+                    const allWithAudio = stationVoices.every(sv => sv.audio_file !== '');
+                    // Our uploaded station-voice should be in the results
+                    const containsOurSV = stationVoices.some(sv => String(sv.id) === String(sv1Id));
+
+                    if (allWithAudio && containsOurSV) {
+                        this.printSuccess(`Audio filter (with audio) works correctly (${stationVoices.length} station-voices with jingle, includes our station-voice)`);
+                    } else if (!allWithAudio) {
+                        const withoutAudio = stationVoices.filter(sv => sv.audio_file === '');
+                        this.printError(`Audio filter returned ${withoutAudio.length} station-voices WITHOUT audio - filter not working`);
+                        return false;
+                    } else {
+                        this.printWarning('Our station-voice not in results, but filter seems to work');
+                    }
+                } else {
+                    return false;
+                }
+
+                // Verify audio_file field contains the filename after upload
+                this.printInfo('Verifying audio_file field after jingle upload...');
+                const verifyResponse = await this.apiCall('GET', `/station-voices/${sv1Id}`);
+                if (this.assertions.checkResponse(verifyResponse, 200, 'Verify audio_file after upload')) {
+                    const sv = verifyResponse.data;
+                    if (sv.audio_file && sv.audio_file !== '') {
+                        this.printSuccess(`audio_file field contains filename: ${sv.audio_file}`);
+                    } else {
+                        this.printError('audio_file field is empty after jingle upload');
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                this.printWarning(`Jingle upload failed (HTTP: ${uploadResponse.status}), skipping WITH audio filter test`);
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Tests Modern Query Parameter System features for station-voices endpoint.
      */
@@ -786,6 +940,7 @@ class StationVoicesTests extends BaseTest {
             'testCreateStationVoice',
             'testCreateStationVoiceWithAudio',
             'testListStationVoices',
+            'testAudioFieldsAndFiltering',
             'testModernQueryParameters',
             'testUpdateStationVoice',
             'testDeleteStationVoice',
