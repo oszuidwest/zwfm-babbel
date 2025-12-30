@@ -110,11 +110,6 @@ paths:
                     example: babbel-api
 
   /public/stations/{id}/bulletin.wav:
-    servers:
-      - url: http://localhost:8080
-        description: Development server (public endpoints)
-      - url: https://your-api-server.com
-        description: Production server (public endpoints)
     get:
       summary: Get bulletin audio for radio automation
       description: |
