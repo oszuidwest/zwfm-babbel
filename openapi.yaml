@@ -196,7 +196,7 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/ProblemDetails'
               example:
                 type: "https://babbel.api/problems/authentication-required"
                 title: "Authentication Required"
@@ -207,19 +207,19 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/ProblemDetails'
         '422':
           description: Invalid parameters
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/ProblemDetails'
         '500':
           description: Bulletin generation failed or timed out
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetail'
+                $ref: '#/components/schemas/ProblemDetails'
 
   /auth/config:
     get:
