@@ -59,14 +59,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	}
 
 	// Generate new bulletin using service
-	bulletinID, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
-	if err != nil {
-		handleServiceError(c, err, "Station")
-		return
-	}
-
-	// Fetch the created bulletin to get complete data with computed fields
-	bulletin, err := h.bulletinSvc.GetByID(c.Request.Context(), bulletinID)
+	bulletin, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return

@@ -49,28 +49,28 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 }
 
 // Create generates a new bulletin for the specified station and date.
-// Returns the bulletin ID on success.
-func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (int64, error) {
+// Returns the created bulletin with all computed fields populated.
+func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
 	// Validate station exists and fetch details
 	station, err := s.validateAndFetchStation(ctx, stationID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Get stories for the date
 	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if len(stories) == 0 {
-		return 0, apperrors.NoStories(stationID)
+		return nil, apperrors.NoStories(stationID)
 	}
 
 	// Generate audio file
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	// Get file metadata
@@ -80,10 +80,11 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	// Persist bulletin to database using transaction
 	bulletinID, err := s.saveBulletinToDatabase(ctx, stationID, bulletinPath, totalDuration, fileSize, stories)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	return bulletinID, nil
+	// Fetch the created bulletin with Station preloaded for computed fields
+	return s.GetByID(ctx, bulletinID)
 }
 
 // validateAndFetchStation validates that a station exists and returns its details.
