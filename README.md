@@ -44,6 +44,68 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 4. **Generate**: API creates bulletins with appropriate jingles
 5. **Broadcast**: Automation systems fetch bulletins via HTTP
 
+## Fair Story Rotation
+
+Babbel uses a smart rotation system to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
+
+### How it works
+
+When generating a bulletin, stories are selected in this priority order:
+
+1. **Fresh stories first** - Stories that haven't been used yet today always get priority
+2. **Newest content preferred** - Among fresh stories, the most recent ones (by start date) are selected first
+3. **Least-recently-used fallback** - If all stories have already aired today, the ones that aired longest ago are chosen
+4. **Random tiebreaker** - When stories have equal priority, random selection adds variety
+
+### Key characteristics
+
+- **Daily reset** - The rotation resets at midnight (server's local timezone). Every day starts fresh.
+- **Per-station isolation** - Each station has its own rotation. A story airing on Station A doesn't affect its priority for Station B.
+- **Automatic balancing** - No manual intervention needed. The system naturally distributes airtime across all available stories.
+
+### Example
+
+Scenario: 13 stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
+
+The algorithm tracks when each story was last used (`MAX(created_at)`) and prioritizes:
+1. Unused stories (NULL timestamp) first
+2. Then oldest-used stories
+3. Random selection within equal-priority groups
+
+| Time | Pool state | Selected | Reason |
+|------|------------|----------|--------|
+| 07:30 | All 13 unused | 3, 2, 11, 6 | RAND() picks 4 from 13 unused |
+| 08:30 | 9 unused | 8, 10, 4, 12 | RAND() picks 4 from 9 unused |
+| 09:30 | 5 unused (1,5,7,9,13) | 9, 13, 5, 1 | RAND() picks 4 from 5 unused |
+| 10:30 | 1 unused (7) | 7, 11, 6, 3 | 7 (last unused) + RAND() picks 3 from {2,3,6,11} at 07:30 |
+| 11:30 | Oldest: 2 at 07:30 | 2, 12, 4, 8 | 2 (oldest) + RAND() picks 3 from {4,8,10,12} at 08:30 |
+| 12:30 | Oldest: 10 at 08:30 | 10, 1, 13, 5 | 10 (oldest) + RAND() picks 3 from {1,5,9,13} at 09:30 |
+| 13:30 | Oldest: 9 at 09:30 | 9, 6, 7, 11 | 9 (oldest) + RAND() picks 3 from {3,6,7,11} at 10:30 |
+| 14:30 | Oldest: 3 at 10:30 | 3, 4, 2, 12 | 3 (oldest) + RAND() picks 3 from {2,4,8,12} at 11:30 |
+| 15:30 | Oldest: 8 at 11:30 | 8, 13, 10, 1 | 8 (oldest) + RAND() picks 3 from {1,5,10,13} at 12:30 |
+| 16:30 | Oldest: 5 at 12:30 | 5, 11, 9, 6 | 5 (oldest) + RAND() picks 3 from {6,7,9,11} at 13:30 |
+| 17:30 | Oldest: 7 at 13:30 | 7, 2, 4, 12 | 7 (oldest) + RAND() picks 3 from {2,3,4,12} at 14:30 |
+| 18:30 | Oldest: 3 at 14:30 | 3, 13, 8, 1 | 3 (oldest) + RAND() picks 3 from {1,8,10,13} at 15:30 |
+
+**Daily totals per story:**
+| Story | Times aired | Bulletins |
+|-------|-------------|-----------|
+| 1 | 4× | 09:30, 12:30, 15:30, 18:30 |
+| 2 | 4× | 07:30, 11:30, 14:30, 17:30 |
+| 3 | 4× | 07:30, 10:30, 14:30, 18:30 |
+| 4 | 4× | 08:30, 11:30, 14:30, 17:30 |
+| 5 | 3× | 09:30, 12:30, 16:30 |
+| 6 | 4× | 07:30, 10:30, 13:30, 16:30 |
+| 7 | 3× | 10:30, 13:30, 17:30 |
+| 8 | 4× | 08:30, 11:30, 15:30, 18:30 |
+| 9 | 3× | 09:30, 13:30, 16:30 |
+| 10 | 3× | 08:30, 12:30, 15:30 |
+| 11 | 4× | 07:30, 10:30, 13:30, 16:30 |
+| 12 | 4× | 08:30, 11:30, 14:30, 17:30 |
+| 13 | 4× | 09:30, 12:30, 15:30, 18:30 |
+
+All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations - actual selections differ each day but distribution stays fair.
+
 ## Radio Automation Integration
 
 Automation systems can fetch the latest bulletin directly:

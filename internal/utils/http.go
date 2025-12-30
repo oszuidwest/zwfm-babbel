@@ -43,12 +43,13 @@ func Pagination(c *gin.Context) (limit, offset int) {
 }
 
 // ValidateDateRange parses start and end date strings and validates the range.
+// Uses local timezone for consistent date handling across the application.
 func ValidateDateRange(startStr, endStr string) (time.Time, time.Time, error) {
-	start, err := time.Parse("2006-01-02", startStr)
+	start, err := time.ParseInLocation("2006-01-02", startStr, time.Local)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid start_date: %w", err)
 	}
-	end, err := time.Parse("2006-01-02", endStr)
+	end, err := time.ParseInLocation("2006-01-02", endStr, time.Local)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date: %w", err)
 	}

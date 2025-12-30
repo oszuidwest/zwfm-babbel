@@ -86,7 +86,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 			result.IsEmpty = true
 			return result, true
 		}
-		t, err := time.Parse("2006-01-02", dateStr)
+		t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 		if err != nil {
 			result.FailValidation = true
 			return result, true
@@ -101,7 +101,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 				result.IsEmpty = true
 				return result, true
 			}
-			t, err := time.Parse("2006-01-02", dateStr)
+			t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 			if err != nil {
 				result.FailValidation = true
 				return result, true
@@ -151,6 +151,6 @@ func dateFormatValidator(fl validator.FieldLevel) bool {
 		return true // Empty strings are valid for optional fields
 	}
 
-	_, err := time.Parse("2006-01-02", dateStr)
+	_, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 	return err == nil
 }

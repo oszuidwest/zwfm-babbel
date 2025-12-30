@@ -618,6 +618,14 @@ class StoriesTests extends BaseTest {
         }
 
         // Helper to create story with current date range
+        // Note: Format dates as strings to avoid timezone conversion issues
+        const formatDate = (date) => {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        };
+
         const createBitmaskStory = async (title, text, weekdays) => {
             const today = new Date();
             const startDate = new Date(today);
@@ -630,8 +638,8 @@ class StoriesTests extends BaseTest {
                 text,
                 voice_id: voiceId ? parseInt(voiceId, 10) : null,
                 status: 'active',
-                start_date: startDate.toISOString().split('T')[0],
-                end_date: endDate.toISOString().split('T')[0],
+                start_date: formatDate(startDate),
+                end_date: formatDate(endDate),
                 weekdays: weekdays
             };
 
