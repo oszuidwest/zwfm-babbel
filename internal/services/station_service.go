@@ -37,7 +37,7 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 	if taken {
 		return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
@@ -49,7 +49,7 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 		if errors.Is(err, repository.ErrDuplicateKey) {
 			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, name)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return station, nil
@@ -63,7 +63,7 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+			return nil, apperrors.TranslateRepoError(op, err)
 		}
 		if taken {
 			return nil, fmt.Errorf("%s: %w: station name '%s'", op, apperrors.ErrDuplicate, *req.Name)
@@ -79,10 +79,7 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 
 	// Update station
 	if err := s.repo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -90,9 +87,10 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 
 // Exists reports whether a station with the given ID exists.
 func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
+	const op = "StationService.Exists"
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("%w: failed to check station existence: %v", apperrors.ErrDatabaseError, err)
+		return false, apperrors.TranslateRepoError(op, err)
 	}
 	return exists, nil
 }
@@ -104,7 +102,7 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 	// Check if station exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError(op, err)
 	}
 	if !exists {
 		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
@@ -113,19 +111,15 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError(op, err)
 	}
 	if hasDeps {
 		return fmt.Errorf("%s: %w: station has associated voices", op, apperrors.ErrDependencyExists)
 	}
 
 	// Delete station
-	err = s.repo.Delete(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return apperrors.TranslateRepoError(op, err)
 	}
 
 	return nil
@@ -137,10 +131,7 @@ func (s *StationService) GetByID(ctx context.Context, id int64) (*models.Station
 
 	station, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return station, nil
@@ -152,7 +143,7 @@ func (s *StationService) List(ctx context.Context, query *repository.ListQuery) 
 
 	result, err := s.repo.List(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return result, nil

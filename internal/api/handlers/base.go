@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -60,6 +61,9 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
 func handleServiceError(c *gin.Context, err error, resource string) {
 	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		logger.Error("Request timeout for %s: %v", resource, err)
+		utils.ProblemInternalServer(c, fmt.Sprintf("%s operation timed out", resource))
 	case errors.Is(err, apperrors.ErrNotFound):
 		utils.ProblemNotFound(c, resource)
 	case errors.Is(err, apperrors.ErrDuplicate):

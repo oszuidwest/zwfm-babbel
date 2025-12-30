@@ -35,7 +35,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 	if taken {
 		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
@@ -47,7 +47,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 		if errors.Is(err, repository.ErrDuplicateKey) {
 			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
 		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return voice, nil
@@ -61,7 +61,7 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+			return nil, apperrors.TranslateRepoError(op, err)
 		}
 		if taken {
 			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, *req.Name)
@@ -75,10 +75,7 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 
 	// Update voice
 	if err := s.repo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -91,7 +88,7 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	// Check if voice exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError(op, err)
 	}
 	if !exists {
 		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
@@ -100,19 +97,15 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError(op, err)
 	}
 	if hasDeps {
 		return fmt.Errorf("%s: %w: voice is used by stories or stations", op, apperrors.ErrDependencyExists)
 	}
 
 	// Delete voice
-	err = s.repo.Delete(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return apperrors.TranslateRepoError(op, err)
 	}
 
 	return nil
@@ -124,10 +117,7 @@ func (s *VoiceService) GetByID(ctx context.Context, id int64) (*models.Voice, er
 
 	voice, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return voice, nil
@@ -139,7 +129,7 @@ func (s *VoiceService) List(ctx context.Context, query *repository.ListQuery) (*
 
 	result, err := s.repo.List(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError(op, err)
 	}
 
 	return result, nil

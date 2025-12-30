@@ -180,7 +180,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 
 	bulletinInfo, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
 	if err != nil {
-		h.handleGenerationError(c, err)
+		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
@@ -213,21 +213,4 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 
 	c.File(filePath)
 	return nil
-}
-
-// handleGenerationError maps generation errors to appropriate HTTP responses.
-func (h *AutomationHandler) handleGenerationError(c *gin.Context, err error) {
-	switch {
-	case errors.Is(err, context.DeadlineExceeded):
-		utils.ProblemInternalServer(c, "Bulletin generation timed out")
-	case errors.Is(err, apperrors.ErrNotFound):
-		utils.ProblemNotFound(c, "Station")
-	case errors.Is(err, apperrors.ErrNoStoriesAvailable):
-		utils.ProblemNotFound(c, "No stories available for bulletin generation")
-	case errors.Is(err, apperrors.ErrAudioProcessingFailed):
-		utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
-	default:
-		logger.Error("Automation: bulletin generation failed: %v", err)
-		utils.ProblemInternalServer(c, "Failed to generate bulletin")
-	}
 }

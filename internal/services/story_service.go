@@ -285,7 +285,7 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("%w: failed to check story existence: %v", apperrors.ErrDatabaseError, err)
+		return false, fmt.Errorf("%w: failed to check story existence: %w", apperrors.ErrDatabaseError, err)
 	}
 	return exists, nil
 }
