@@ -146,12 +146,9 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	// CORS middleware
 	r.Use(corsMiddleware(cfg))
 
-	// Public routes for radio automation systems (no auth middleware)
-	// These endpoints use API key authentication via query parameter
+	// Public routes bypass session auth; handlers validate API keys directly.
 	public := r.Group("/public")
 	{
-		// Public bulletin access for radio automation systems
-		// GET /public/stations/:id/bulletin.wav?key=xxx&max_age=3600
 		public.GET("/stations/:id/bulletin.wav", automationHandler.GetPublicBulletin)
 	}
 

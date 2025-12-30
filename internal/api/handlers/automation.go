@@ -26,7 +26,7 @@ type AutomationHandler struct {
 	stationSvc  *services.StationService
 	config      *config.Config
 
-	// stationLocks provides per-station mutex to prevent concurrent bulletin generation
+	// stationLocks provides per-station mutex to prevent concurrent bulletin generation.
 	stationLocks   map[int64]*sync.Mutex
 	stationLocksMu sync.Mutex
 }
