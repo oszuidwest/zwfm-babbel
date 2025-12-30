@@ -75,6 +75,9 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		StationVoiceSvc: stationVoiceSvc,
 	})
 
+	// Create automation handler for public bulletin access
+	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
+
 	// Create auth configuration
 	authConfig := &auth.Config{
 		Method: cfg.Auth.Method,
@@ -142,6 +145,15 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 
 	// CORS middleware
 	r.Use(corsMiddleware(cfg))
+
+	// Public routes for radio automation systems (no auth middleware)
+	// These endpoints use API key authentication via query parameter
+	public := r.Group("/public")
+	{
+		// Public bulletin access for radio automation systems
+		// GET /public/stations/:id/bulletin.wav?key=xxx&max_age=3600
+		public.GET("/stations/:id/bulletin.wav", automationHandler.GetPublicBulletin)
+	}
 
 	// API v1 routes
 	v1 := r.Group("/api/v1")

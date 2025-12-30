@@ -21,10 +21,21 @@ type Config struct {
 	Auth AuthConfig
 	// Audio holds audio processing and file storage paths.
 	Audio AudioConfig
+	// Automation holds radio automation integration configuration.
+	Automation AutomationConfig
 	// LogLevel sets the logging verbosity level (0-5, default: 4).
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
 	Environment Environment `env:"ENV" envDefault:"development"`
+}
+
+// AutomationConfig holds configuration for radio automation system integration.
+type AutomationConfig struct {
+	// Key is the API key for public bulletin access by automation systems.
+	// If empty, the public bulletin endpoint is disabled (returns 404).
+	Key string `env:"AUTOMATION_KEY"`
+	// GenerationTimeout is the maximum time allowed for bulletin generation (default: 120s).
+	GenerationTimeout time.Duration `env:"AUTOMATION_TIMEOUT" envDefault:"120s"`
 }
 
 // ServerConfig holds HTTP server and CORS configuration.
