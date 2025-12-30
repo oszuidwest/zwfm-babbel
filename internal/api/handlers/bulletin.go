@@ -2,14 +2,12 @@
 package handlers
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -63,7 +61,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	// Generate new bulletin using service
 	bulletinInfo, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
-		h.handleBulletinCreationError(c, err)
+		handleServiceError(c, err, "Station")
 		return
 	}
 
@@ -142,20 +140,6 @@ func serveAudioFile(c *gin.Context, filePath, filename string, cached bool) {
 	c.Header("Content-Type", "audio/wav")
 	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
 	c.File(filePath)
-}
-
-// handleBulletinCreationError maps bulletin service errors to appropriate HTTP responses.
-func (h *Handlers) handleBulletinCreationError(c *gin.Context, err error) {
-	switch {
-	case errors.Is(err, apperrors.ErrNotFound):
-		utils.ProblemNotFound(c, "Station")
-	case errors.Is(err, apperrors.ErrNoStoriesAvailable):
-		utils.ProblemNotFound(c, "No stories available for the specified date")
-	case errors.Is(err, apperrors.ErrAudioProcessingFailed):
-		utils.ProblemInternalServer(c, "Failed to generate bulletin audio")
-	default:
-		utils.ProblemInternalServer(c, "Failed to generate bulletin")
-	}
 }
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.

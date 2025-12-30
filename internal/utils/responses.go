@@ -105,18 +105,6 @@ func ProblemNotFound(c *gin.Context, resource string) {
 	SendProblem(c, problem)
 }
 
-// ProblemDuplicate responds with HTTP 409 Conflict.
-func ProblemDuplicate(c *gin.Context, resource string) {
-	if c == nil {
-		return
-	}
-	problem := NewDuplicateProblem(resource, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
-}
-
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
 // Per RFC 7235, includes WWW-Authenticate header.
 func ProblemAuthentication(c *gin.Context, detail string) {
@@ -161,6 +149,27 @@ func ProblemCustom(c *gin.Context, problemType, title string, status int, detail
 		return
 	}
 	problem := NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path)
+	if traceID := getTraceID(c); traceID != "" {
+		problem.WithTraceID(traceID)
+	}
+	SendProblem(c, problem)
+}
+
+// ProblemExtended responds with an RFC 9457 problem including code and hint fields.
+// This is used by handleServiceError for typed error responses.
+func ProblemExtended(c *gin.Context, status int, detail, code, hint string) {
+	if c == nil {
+		return
+	}
+	problem := NewProblemDetail(
+		"https://babbel.api/problems/"+code,
+		http.StatusText(status),
+		status,
+		detail,
+		c.Request.URL.Path,
+	)
+	problem.Code = code
+	problem.Hint = hint
 	if traceID := getTraceID(c); traceID != "" {
 		problem.WithTraceID(traceID)
 	}

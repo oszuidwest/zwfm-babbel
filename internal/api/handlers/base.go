@@ -2,8 +2,11 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -58,41 +61,128 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-func handleServiceError(c *gin.Context, err error, resource string) {
+// Uses type-safe error checking with errors.As() for concrete error types.
+func handleServiceError(c *gin.Context, err error, fallbackResource string) {
+	// Type-safe error checking with concrete types
+	var notFound *apperrors.NotFoundError
+	var duplicate *apperrors.DuplicateError
+	var dependency *apperrors.DependencyError
+	var validation *apperrors.ValidationError
+	var dbError *apperrors.DatabaseError
+	var audioError *apperrors.AudioError
+	var noStories *apperrors.NoStoriesError
+
 	switch {
-	case errors.Is(err, apperrors.ErrNotFound):
-		utils.ProblemNotFound(c, resource)
-	case errors.Is(err, apperrors.ErrDuplicate):
-		utils.ProblemDuplicate(c, resource)
-	case errors.Is(err, apperrors.ErrDependencyExists):
-		utils.ProblemCustom(c, "https://babbel.api/problems/dependency-constraint", "Dependency Constraint", 409, fmt.Sprintf("Cannot delete %s: it has dependencies", resource))
-	case errors.Is(err, apperrors.ErrInvalidInput):
-		utils.ProblemBadRequest(c, extractErrorMessage(err))
-	case errors.Is(err, apperrors.ErrDataTooLong):
-		utils.ProblemCustom(c, "https://babbel.api/problems/data-too-long", "Data Too Long", 422, extractErrorMessage(err))
-	case errors.Is(err, apperrors.ErrNoStoriesAvailable):
-		utils.ProblemCustom(c, "https://babbel.api/problems/no-stories", "No Stories Available", 422, "No active stories available")
-	case errors.Is(err, apperrors.ErrAudioProcessingFailed):
-		logger.Error("Audio processing failed: %v", err)
-		utils.ProblemInternalServer(c, "Audio processing failed")
-	case errors.Is(err, apperrors.ErrDatabaseError):
-		logger.Error("Database error: %v", err)
-		utils.ProblemInternalServer(c, "Internal error")
+	// Context timeout (check first as it's a special case)
+	case errors.Is(err, context.DeadlineExceeded):
+		logger.Error("Request timeout: %v", err)
+		utils.ProblemExtended(c, http.StatusGatewayTimeout,
+			fmt.Sprintf("%s operation timed out", fallbackResource),
+			"internal.timeout",
+			"The request took too long. Please try again.",
+		)
+
+	// NotFoundError - resource does not exist
+	case errors.As(err, &notFound):
+		logError(notFound.Resource, "not_found", err)
+		utils.ProblemExtended(c, http.StatusNotFound,
+			notFound.Error(),
+			strings.ToLower(notFound.Resource)+".not_found",
+			"Check that the ID exists and you have access",
+		)
+
+	// DuplicateError - unique constraint violation
+	case errors.As(err, &duplicate):
+		logError(duplicate.Resource, "duplicate", err)
+		hint := "Use a different value"
+		if duplicate.Field != "" {
+			hint = fmt.Sprintf("Use a different %s or update the existing %s",
+				duplicate.Field, strings.ToLower(duplicate.Resource))
+		}
+		utils.ProblemExtended(c, http.StatusConflict,
+			duplicate.Error(),
+			strings.ToLower(duplicate.Resource)+".duplicate",
+			hint,
+		)
+
+	// DependencyError - cannot delete due to dependencies
+	case errors.As(err, &dependency):
+		logError(dependency.Resource, "has_dependencies", err)
+		utils.ProblemExtended(c, http.StatusConflict,
+			dependency.Error(),
+			strings.ToLower(dependency.Resource)+".has_dependencies",
+			fmt.Sprintf("Delete or reassign the associated %s first", dependency.Dependency),
+		)
+
+	// ValidationError - input validation failed
+	case errors.As(err, &validation):
+		logError(validation.Resource, "validation_failed", err)
+		hint := "Check your input and try again"
+		if validation.Field != "" {
+			hint = fmt.Sprintf("Check the %s field", validation.Field)
+		}
+		utils.ProblemExtended(c, http.StatusBadRequest,
+			validation.Error(),
+			strings.ToLower(validation.Resource)+".validation_failed",
+			hint,
+		)
+
+	// NoStoriesError - no stories available for bulletin
+	case errors.As(err, &noStories):
+		logError("bulletin", "no_stories", err)
+		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+			noStories.Error(),
+			"bulletin.no_stories",
+			"Add active stories with audio before generating a bulletin",
+		)
+
+	// AudioError - audio processing failed (internal)
+	case errors.As(err, &audioError):
+		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
+		utils.ProblemExtended(c, http.StatusInternalServerError,
+			"Audio processing failed",
+			"audio.processing_failed",
+			"Check the audio file format and try again",
+		)
+
+	// DatabaseError - unexpected database error (internal)
+	case errors.As(err, &dbError):
+		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
+		utils.ProblemExtended(c, http.StatusInternalServerError,
+			"An internal error occurred",
+			"internal.database_error",
+			"Please try again later",
+		)
+
+	// Unknown error - fallback
 	default:
-		logger.Error("Unhandled error for %s: %v", resource, err)
-		utils.ProblemInternalServer(c, fmt.Sprintf("Failed to process %s", resource))
+		logger.Error("Unhandled error for %s: %v", fallbackResource, err)
+		utils.ProblemExtended(c, http.StatusInternalServerError,
+			fmt.Sprintf("Failed to process %s", fallbackResource),
+			"internal.unknown_error",
+			"Please try again later or contact support",
+		)
 	}
 }
 
-// extractErrorMessage extracts a user-safe message from wrapped errors.
-func extractErrorMessage(err error) string {
-	if err == nil {
-		return "Invalid input"
+// logError logs an error with structured fields for filtering.
+func logError(resource, errorType string, err error) {
+	logger.WithFields(map[string]any{
+		"resource":   resource,
+		"error_type": errorType,
+	}).Error(err.Error())
+}
+
+// logErrorWithCause logs an error with the underlying cause for internal errors.
+func logErrorWithCause(resource, errorType string, err error, cause error) {
+	fields := map[string]any{
+		"resource":   resource,
+		"error_type": errorType,
 	}
-	msg := err.Error()
-	// The error message format is typically "context: sentinel: details"
-	// We want to show meaningful details to the user
-	return msg
+	if cause != nil {
+		fields["cause"] = cause.Error()
+	}
+	logger.WithFields(fields).Error(err.Error())
 }
 
 // deferCleanup returns a function suitable for use with defer that logs cleanup errors.

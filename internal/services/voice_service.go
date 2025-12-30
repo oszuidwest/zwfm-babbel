@@ -3,8 +3,6 @@ package services
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -30,24 +28,19 @@ type UpdateVoiceRequest struct {
 
 // Create creates a new voice with the given name.
 func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, error) {
-	const op = "VoiceService.Create"
-
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 	}
 	if taken {
-		return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
+		return nil, apperrors.Duplicate("Voice", "name", name)
 	}
 
 	// Create voice
 	voice, err := s.repo.Create(ctx, name)
 	if err != nil {
-		if errors.Is(err, repository.ErrDuplicateKey) {
-			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, name)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpCreate, err)
 	}
 
 	return voice, nil
@@ -55,16 +48,14 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 
 // Update updates an existing voice's name and returns the updated voice.
 func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) (*models.Voice, error) {
-	const op = "VoiceService.Update"
-
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+			return nil, apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 		}
 		if taken {
-			return nil, fmt.Errorf("%s: %w: voice name '%s'", op, apperrors.ErrDuplicate, *req.Name)
+			return nil, apperrors.Duplicate("Voice", "name", *req.Name)
 		}
 	}
 
@@ -75,10 +66,7 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 
 	// Update voice
 	if err := s.repo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -86,33 +74,27 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 
 // Delete deletes a voice after checking for dependencies.
 func (s *VoiceService) Delete(ctx context.Context, id int64) error {
-	const op = "VoiceService.Delete"
-
 	// Check if voice exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 	}
 	if !exists {
-		return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
+		return apperrors.NotFoundWithID("Voice", id)
 	}
 
 	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 	}
 	if hasDeps {
-		return fmt.Errorf("%s: %w: voice is used by stories or stations", op, apperrors.ErrDependencyExists)
+		return apperrors.Dependency("Voice", "stories or station_voices")
 	}
 
 	// Delete voice
-	err = s.repo.Delete(ctx, id)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return apperrors.TranslateRepoError("Voice", apperrors.OpDelete, err)
 	}
 
 	return nil
@@ -120,14 +102,9 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 
 // GetByID retrieves a voice by ID.
 func (s *VoiceService) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
-	const op = "VoiceService.GetByID"
-
 	voice, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%s: %w", op, apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 	}
 
 	return voice, nil
@@ -135,11 +112,9 @@ func (s *VoiceService) GetByID(ctx context.Context, id int64) (*models.Voice, er
 
 // List retrieves a paginated list of voices.
 func (s *VoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Voice], error) {
-	const op = "VoiceService.List"
-
 	result, err := s.repo.List(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w: %v", op, apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
 	}
 
 	return result, nil

@@ -3,8 +3,6 @@ package services
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -76,7 +74,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	if len(stories) == 0 {
-		return nil, apperrors.ErrNoStoriesAvailable
+		return nil, apperrors.NoStories(stationID)
 	}
 
 	// Generate audio file
@@ -110,10 +108,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int64) (*models.Station, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: station not found", apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%w: failed to fetch station: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 	return station, nil
 }
@@ -127,7 +122,7 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 	// Create bulletin using the generated absolute path
 	createdPath, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", apperrors.ErrAudioProcessingFailed, err)
+		return "", apperrors.Audio("Bulletin", "generate", err)
 	}
 
 	// Verify the paths match (should always be true with unified function)
@@ -181,7 +176,7 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 		filename := filepath.Base(bulletinPath)
 		id, err := s.bulletinRepo.Create(txCtx, stationID, filename, filename, duration, fileSize, len(stories))
 		if err != nil {
-			return fmt.Errorf("failed to save bulletin: %v", err)
+			return err
 		}
 		bulletinID = id
 
@@ -192,14 +187,14 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 		}
 
 		if err := s.bulletinRepo.LinkStories(txCtx, bulletinID, storyIDs); err != nil {
-			return fmt.Errorf("failed to link stories: %v", err)
+			return err
 		}
 
 		return nil
 	})
 
 	if err != nil {
-		return 0, fmt.Errorf("%w: %v", apperrors.ErrDatabaseError, err)
+		return 0, apperrors.Database("Bulletin", "create", err)
 	}
 
 	return bulletinID, nil
@@ -210,10 +205,7 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error) {
 	bulletin, err := s.bulletinRepo.GetLatest(ctx, stationID, maxAge)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, fmt.Errorf("%w: no bulletin found for station", apperrors.ErrNotFound)
-		}
-		return nil, fmt.Errorf("%w: failed to fetch bulletin: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 
 	return bulletin, nil
@@ -225,7 +217,7 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to fetch stories: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 
 	// Debug logging for story selection (fair rotation transparency)
@@ -248,7 +240,7 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 	}
 	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("%w: invalid date format (expected YYYY-MM-DD)", apperrors.ErrInvalidInput)
+		return time.Time{}, apperrors.Validation("Bulletin", "date", "invalid date format (expected YYYY-MM-DD)")
 	}
 	return parsedDate, nil
 }
@@ -257,7 +249,7 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.List(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to list bulletins: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return result, nil
 }
@@ -266,7 +258,7 @@ func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery)
 func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.bulletinRepo.Exists(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("%w: failed to check bulletin existence: %v", apperrors.ErrDatabaseError, err)
+		return false, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return exists, nil
 }
@@ -275,7 +267,7 @@ func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error) {
 	stories, total, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID, limit, offset)
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w: failed to get bulletin stories: %v", apperrors.ErrDatabaseError, err)
+		return nil, 0, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return stories, total, nil
 }
@@ -284,7 +276,7 @@ func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int
 func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.GetStationBulletins(ctx, stationID, query)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to get station bulletins: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return result, nil
 }
@@ -293,7 +285,7 @@ func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int
 func (s *BulletinService) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.GetStoryBulletinHistory(ctx, storyID, query)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to get story bulletin history: %v", apperrors.ErrDatabaseError, err)
+		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
 	}
 	return result, nil
 }
