@@ -51,10 +51,10 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 // Create generates a new bulletin for the specified station and date.
 // Returns the created bulletin with all computed fields populated.
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
-	// Validate station exists and fetch details
-	station, err := s.validateAndFetchStation(ctx, stationID)
+	// Fetch station details
+	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		return nil, err
+		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	// Get stories for the date
@@ -74,7 +74,10 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	// Get file metadata
-	fileSize := s.getFileSize(bulletinPath)
+	var fileSize int64
+	if fi, err := os.Stat(bulletinPath); err == nil {
+		fileSize = fi.Size()
+	}
 	totalDuration := s.calculateBulletinDuration(station, stories)
 
 	// Persist bulletin to database using transaction
@@ -85,15 +88,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 
 	// Fetch the created bulletin with Station preloaded for computed fields
 	return s.GetByID(ctx, bulletinID)
-}
-
-// validateAndFetchStation validates that a station exists and returns its details.
-func (s *BulletinService) validateAndFetchStation(ctx context.Context, stationID int64) (*models.Station, error) {
-	station, err := s.stationRepo.GetByID(ctx, stationID)
-	if err != nil {
-		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
-	}
-	return station, nil
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
@@ -108,15 +102,6 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 	}
 
 	return bulletinPath, nil
-}
-
-// getFileSize safely retrieves the file size, returning 0 if stat fails.
-func (s *BulletinService) getFileSize(path string) int64 {
-	fileInfo, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return fileInfo.Size()
 }
 
 // calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
