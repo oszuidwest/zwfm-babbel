@@ -215,6 +215,7 @@ var storyFieldMapping = FieldMapping{
 	"title":            "title",
 	"text":             "text",
 	"voice_id":         "voice_id",
+	"audio_url":        "audio_file", // Maps API field to DB column for filtering
 	"status":           "status",
 	"start_date":       "start_date",
 	"end_date":         "end_date",

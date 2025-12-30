@@ -54,6 +54,26 @@ GET /api/v1/stories?filter[weekdays][band]=65     # Stories that play on weekend
 The `band` (bitwise AND) operator is restricted to specific fields for security:
 - `weekdays` - Story scheduling bitmask (Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64)
 
+#### Audio Presence Filtering
+```http
+# Stories WITHOUT audio (for bulk TTS generation, quality control)
+GET /api/v1/stories?filter[audio_url]=
+
+# Stories WITH audio
+GET /api/v1/stories?filter[audio_url][ne]=
+
+# Station-voices WITHOUT jingle audio
+GET /api/v1/station-voices?filter[audio_url]=
+
+# Station-voices WITH jingle audio
+GET /api/v1/station-voices?filter[audio_url][ne]=
+
+# Combined: active stories without audio, sorted by creation date
+GET /api/v1/stories?filter[status]=active&filter[audio_url]=&sort=-created_at
+```
+
+The `audio_url` filter maps to the internal `audio_file` database column. An empty value (`=`) matches records without audio, while `[ne]=` (not equals empty) matches records with audio.
+
 > **Note:** The `between` and `ilike` operators are not yet implemented. Use `gte` and `lte` for range queries, and `like` for pattern matching.
 
 ### 2. Sorting
