@@ -62,7 +62,8 @@ func (r *bulletinRepository) Create(ctx context.Context, stationID int64, filena
 func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
 	var bulletin models.Bulletin
 
-	err := r.db.WithContext(ctx).
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).
 		Joins("Station").
 		First(&bulletin, id).Error
 
