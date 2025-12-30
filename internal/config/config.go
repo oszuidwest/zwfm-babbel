@@ -11,105 +11,115 @@ import (
 	"github.com/caarlos0/env/v11"
 )
 
-// Config holds all application configuration loaded from environment variables.
+// Config contains all application settings loaded from environment variables.
 type Config struct {
-	// Server holds HTTP server and CORS configuration.
+	// Server configures HTTP server and CORS settings.
 	Server ServerConfig
-	// Database holds database connection settings.
+	// Database configures database connection settings.
 	Database DatabaseConfig `envPrefix:"DB_"`
-	// Auth holds authentication and session configuration.
+	// Auth configures authentication and session settings.
 	Auth AuthConfig
-	// Audio holds audio processing and file storage paths.
+	// Audio configures audio processing and file storage paths.
 	Audio AudioConfig
+	// Automation configures radio automation integration.
+	Automation AutomationConfig
 	// LogLevel sets the logging verbosity level (0-5, default: 4).
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
 	Environment Environment `env:"ENV" envDefault:"development"`
 }
 
-// ServerConfig holds HTTP server and CORS configuration.
+// AutomationConfig defines settings for radio automation system integration.
+type AutomationConfig struct {
+	// Key authenticates automation system requests. Empty disables the endpoint.
+	Key string `env:"AUTOMATION_KEY"`
+	// GenerationTimeout limits bulletin generation duration (default: 120s).
+	GenerationTimeout time.Duration `env:"AUTOMATION_TIMEOUT" envDefault:"120s"`
+}
+
+// ServerConfig defines HTTP server and CORS settings.
 type ServerConfig struct {
-	// Address is the HTTP server listen address (default: ":8080").
+	// Address specifies the HTTP server listen address (default: ":8080").
 	Address string `env:"SERVER_ADDRESS" envDefault:":8080"`
-	// AllowedOrigins is a comma-separated list of CORS allowed origins.
+	// AllowedOrigins lists CORS-permitted origins as comma-separated values.
 	AllowedOrigins string `env:"ALLOWED_ORIGINS"`
 }
 
-// DatabaseConfig holds MySQL database connection parameters.
+// DatabaseConfig defines MySQL database connection parameters.
 type DatabaseConfig struct {
-	// Host is the MySQL server hostname or IP address.
+	// Host specifies the MySQL server hostname or IP address.
 	Host string `env:"HOST" envDefault:"localhost"`
-	// Port is the MySQL server port number (default: 3306).
+	// Port specifies the MySQL server port number (default: 3306).
 	Port int `env:"PORT" envDefault:"3306"`
-	// User is the MySQL database username.
+	// User specifies the MySQL database username.
 	User string `env:"USER" envDefault:"babbel"`
-	// Password is the MySQL database password.
+	// Password specifies the MySQL database password.
 	Password string `env:"PASSWORD" envDefault:"babbel"`
-	// Database is the MySQL database name.
+	// Database specifies the MySQL database name.
 	Database string `env:"NAME" envDefault:"babbel"`
-	// MigrationsPath is the filesystem path to database migration files.
+	// MigrationsPath specifies the filesystem path to migration files.
 	MigrationsPath string `env:"-"`
-	// MaxOpenConns is the maximum number of open connections to the database.
+	// MaxOpenConns limits open database connections (default: 25).
 	MaxOpenConns int `env:"MAX_OPEN_CONNS" envDefault:"25"`
-	// MaxIdleConns is the maximum number of idle connections to the database.
+	// MaxIdleConns limits idle database connections (default: 5).
 	MaxIdleConns int `env:"MAX_IDLE_CONNS" envDefault:"5"`
-	// ConnMaxLifetime is the maximum lifetime of a database connection.
+	// ConnMaxLifetime limits database connection lifetime (default: 5m).
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"5m"`
 }
 
-// LocalAuthConfig holds password policy and lockout configuration for local authentication.
+// LocalAuthConfig defines password policy and lockout rules for local authentication.
 type LocalAuthConfig struct {
-	// MinPasswordLength is the minimum required password length (default: 8).
+	// MinPasswordLength sets the minimum required password length (default: 8).
 	MinPasswordLength int `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
-	// RequireUppercase requires at least one uppercase letter in passwords (default: true).
+	// RequireUppercase enforces uppercase letter requirement (default: true).
 	RequireUppercase bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
-	// RequireLowercase requires at least one lowercase letter in passwords (default: true).
+	// RequireLowercase enforces lowercase letter requirement (default: true).
 	RequireLowercase bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
-	// RequireNumber requires at least one number in passwords (default: true).
+	// RequireNumber enforces numeric character requirement (default: true).
 	RequireNumber bool `env:"REQUIRE_NUMBER" envDefault:"true"`
-	// RequireSpecialChar requires at least one special character in passwords (default: false).
+	// RequireSpecialChar enforces special character requirement (default: false).
 	RequireSpecialChar bool `env:"REQUIRE_SPECIAL" envDefault:"false"`
-	// MaxLoginAttempts is the maximum number of failed login attempts before lockout (default: 5).
+	// MaxLoginAttempts limits failed attempts before lockout (default: 5).
 	MaxLoginAttempts int `env:"MAX_LOGIN_ATTEMPTS" envDefault:"5"`
-	// LockoutDurationMinutes is the account lockout duration in minutes (default: 15).
+	// LockoutDurationMinutes sets account lockout duration (default: 15).
 	LockoutDurationMinutes int `env:"LOCKOUT_MINUTES" envDefault:"15"`
 }
 
-// AuthConfig holds authentication and session configuration.
+// AuthConfig defines authentication and session settings.
 type AuthConfig struct {
 	// Method specifies the authentication method (local, oidc, or both).
 	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
-	// SessionSecret is the secret key for session encryption (min 32 characters).
+	// SessionSecret provides the key for session encryption (min 32 characters).
 	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
-	// CookieDomain is the domain scope for session cookies.
+	// CookieDomain sets the domain scope for session cookies.
 	CookieDomain string `env:"COOKIE_DOMAIN"`
-	// CookieSameSite controls the SameSite attribute for session cookies (strict, lax, or none).
+	// CookieSameSite controls the SameSite cookie attribute (strict, lax, or none).
 	CookieSameSite CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
-	// OIDCProviderURL is the OpenID Connect provider's base URL.
+	// OIDCProviderURL specifies the OpenID Connect provider's base URL.
 	OIDCProviderURL string `env:"OIDC_PROVIDER_URL"`
-	// OIDCClientID is the OAuth/OIDC client identifier.
+	// OIDCClientID specifies the OAuth/OIDC client identifier.
 	OIDCClientID string `env:"OIDC_CLIENT_ID"`
-	// OIDCClientSecret is the OAuth/OIDC client secret.
+	// OIDCClientSecret specifies the OAuth/OIDC client secret.
 	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
-	// OIDCRedirectURL is the OAuth callback URL for this application.
+	// OIDCRedirectURL specifies the OAuth callback URL for this application.
 	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
-	// Local holds local authentication password policy and lockout configuration.
+	// Local configures password policy and lockout rules.
 	Local LocalAuthConfig `envPrefix:"AUTH_"`
 }
 
-// AudioConfig holds audio processing and file storage configuration.
+// AudioConfig defines audio processing and file storage settings.
 type AudioConfig struct {
-	// FFmpegPath is the path to the FFmpeg binary executable.
+	// FFmpegPath specifies the path to the FFmpeg binary.
 	FFmpegPath string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
-	// FFprobePath is the path to the FFprobe binary executable.
+	// FFprobePath specifies the path to the FFprobe binary.
 	FFprobePath string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
-	// ProcessedPath is the directory for processed audio files.
+	// ProcessedPath specifies the directory for processed audio files.
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
-	// OutputPath is the directory for generated bulletin output files.
+	// OutputPath specifies the directory for generated bulletin files.
 	OutputPath string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	// TempPath is the directory for temporary audio processing files.
+	// TempPath specifies the directory for temporary audio files.
 	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	// AppRoot is the application root directory path.
+	// AppRoot specifies the application root directory path.
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
 }
 

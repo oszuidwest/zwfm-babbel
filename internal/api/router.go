@@ -75,6 +75,9 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		StationVoiceSvc: stationVoiceSvc,
 	})
 
+	// Create automation handler for public bulletin access
+	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
+
 	// Create auth configuration
 	authConfig := &auth.Config{
 		Method: cfg.Auth.Method,
@@ -142,6 +145,12 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 
 	// CORS middleware
 	r.Use(corsMiddleware(cfg))
+
+	// Public routes bypass session auth; handlers validate API keys directly.
+	public := r.Group("/public")
+	{
+		public.GET("/stations/:id/bulletin.wav", automationHandler.GetPublicBulletin)
+	}
 
 	// API v1 routes
 	v1 := r.Group("/api/v1")

@@ -81,6 +81,8 @@ tags:
     description: Audio bulletin generation
   - name: Station-Voices
     description: Station-specific voice jingle management
+  - name: Automation
+    description: Public endpoints for radio automation systems (mAirList, RadioDJ, etc.)
 
 security:
   - cookieAuth: []
@@ -106,6 +108,118 @@ paths:
                   service:
                     type: string
                     example: babbel-api
+
+  /public/stations/{id}/bulletin.wav:
+    servers:
+      - url: http://localhost:8080
+        description: Development server (public endpoints)
+      - url: https://your-api-server.com
+        description: Production server (public endpoints)
+    get:
+      summary: Get bulletin audio for radio automation
+      description: |
+        Public endpoint for radio automation systems to fetch the latest bulletin audio.
+
+        **Authentication**: Requires API key via `key` query parameter.
+        Configure via `BABBEL_AUTOMATION_KEY` environment variable.
+
+        **Behavior**:
+        - If `max_age > 0`: Returns cached bulletin if younger than max_age, otherwise generates new
+        - If `max_age = 0`: Always generates a fresh bulletin
+        - If endpoint is disabled (no API key configured): Returns 404
+
+        **Concurrency**: Only one bulletin can be generated per station at a time.
+        Concurrent requests for the same station will queue.
+
+        **Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
+        system that supports HTTP audio fetching.
+      operationId: getPublicBulletin
+      tags:
+        - Automation
+      security:
+        - automationApiKey: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Station ID
+          schema:
+            type: integer
+            minimum: 1
+          example: 1
+        - name: key
+          in: query
+          required: true
+          description: Automation API key (configured via BABBEL_AUTOMATION_KEY)
+          schema:
+            type: string
+          example: "your-secure-api-key"
+        - name: max_age
+          in: query
+          required: true
+          description: |
+            Maximum age of cached bulletin in seconds.
+            - Use `0` to always generate a fresh bulletin
+            - Use `3600` for bulletins up to 1 hour old
+          schema:
+            type: integer
+            minimum: 0
+          example: 3600
+      responses:
+        '200':
+          description: Bulletin WAV audio file
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                example: audio/wav
+            Content-Disposition:
+              schema:
+                type: string
+                example: 'attachment; filename="bulletin_1_20240115_143000.wav"'
+            Cache-Control:
+              schema:
+                type: string
+                example: no-store
+            X-Bulletin-Cached:
+              schema:
+                type: string
+                enum: ['true', 'false']
+                description: Whether this bulletin was served from cache
+          content:
+            audio/wav:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Invalid or missing API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/authentication-required"
+                title: "Authentication Required"
+                status: 401
+                detail: "API key required"
+        '404':
+          description: Station not found, endpoint disabled, or no stories available
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          description: Invalid parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Bulletin generation failed or timed out
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
 
   /auth/config:
     get:
@@ -2084,6 +2198,13 @@ components:
       in: cookie
       name: babbel_session
       description: Session-based authentication using secure cookies
+    automationApiKey:
+      type: apiKey
+      in: query
+      name: key
+      description: |
+        API key for radio automation systems. Configure via BABBEL_AUTOMATION_KEY environment variable.
+        The endpoint returns 404 if not configured (disabled by default).
 
   parameters:
     id:
