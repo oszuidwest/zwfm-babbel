@@ -3,8 +3,10 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -53,6 +55,64 @@ func (h *AutomationHandler) getStationLock(stationID int64) *sync.Mutex {
 	return lock
 }
 
+// bulletinRequest holds validated request parameters for public bulletin endpoint.
+type bulletinRequest struct {
+	stationID     int64
+	maxAgeSeconds int64
+}
+
+// validateBulletinRequest validates and parses request parameters.
+// Returns nil if validation fails (error response already sent).
+func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinRequest {
+	// Check if automation endpoint is enabled (stealth 404 if disabled)
+	if h.config.Automation.Key == "" {
+		utils.ProblemNotFound(c, "Endpoint")
+		return nil
+	}
+
+	// Validate API key using constant-time comparison to prevent timing attacks
+	providedKey := c.Query("key")
+	if providedKey == "" {
+		utils.ProblemAuthentication(c, "API key required")
+		return nil
+	}
+	if subtle.ConstantTimeCompare([]byte(providedKey), []byte(h.config.Automation.Key)) != 1 {
+		utils.ProblemAuthentication(c, "Invalid API key")
+		return nil
+	}
+
+	// Parse station ID
+	stationIDStr := c.Param("id")
+	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
+	if err != nil || stationID <= 0 {
+		utils.ProblemValidationError(c, "Invalid station ID", []utils.ValidationError{{
+			Field:   "id",
+			Message: "Station ID must be a positive integer",
+		}})
+		return nil
+	}
+
+	// Parse max_age (required)
+	maxAgeStr := c.Query("max_age")
+	if maxAgeStr == "" {
+		utils.ProblemValidationError(c, "Missing required parameter", []utils.ValidationError{{
+			Field:   "max_age",
+			Message: "max_age parameter is required (seconds)",
+		}})
+		return nil
+	}
+	maxAgeSeconds, err := strconv.ParseInt(maxAgeStr, 10, 64)
+	if err != nil || maxAgeSeconds < 0 {
+		utils.ProblemValidationError(c, "Invalid parameter", []utils.ValidationError{{
+			Field:   "max_age",
+			Message: "max_age must be a non-negative integer (seconds)",
+		}})
+		return nil
+	}
+
+	return &bulletinRequest{stationID: stationID, maxAgeSeconds: maxAgeSeconds}
+}
+
 // GetPublicBulletin serves bulletin audio for radio automation systems.
 // This endpoint is public but requires a valid API key.
 //
@@ -70,55 +130,15 @@ func (h *AutomationHandler) getStationLock(stationID int64) *sync.Mutex {
 //   - 404 Not Found: Station not found, no stories available, or endpoint disabled
 //   - 500 Internal Server Error: Generation failed
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
-	// Check if automation endpoint is enabled
-	if h.config.Automation.Key == "" {
-		c.Status(404)
-		return
-	}
-
-	// Validate API key
-	providedKey := c.Query("key")
-	if providedKey == "" {
-		utils.ProblemAuthentication(c, "API key required")
-		return
-	}
-	if providedKey != h.config.Automation.Key {
-		utils.ProblemAuthentication(c, "Invalid API key")
-		return
-	}
-
-	// Parse station ID
-	stationIDStr := c.Param("id")
-	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
-	if err != nil || stationID <= 0 {
-		utils.ProblemValidationError(c, "Invalid station ID", []utils.ValidationError{{
-			Field:   "id",
-			Message: "Station ID must be a positive integer",
-		}})
-		return
-	}
-
-	// Parse max_age (required)
-	maxAgeStr := c.Query("max_age")
-	if maxAgeStr == "" {
-		utils.ProblemValidationError(c, "Missing required parameter", []utils.ValidationError{{
-			Field:   "max_age",
-			Message: "max_age parameter is required (seconds)",
-		}})
-		return
-	}
-	maxAgeSeconds, err := strconv.ParseInt(maxAgeStr, 10, 64)
-	if err != nil || maxAgeSeconds < 0 {
-		utils.ProblemValidationError(c, "Invalid parameter", []utils.ValidationError{{
-			Field:   "max_age",
-			Message: "max_age must be a non-negative integer (seconds)",
-		}})
+	req := h.validateBulletinRequest(c)
+	if req == nil {
 		return
 	}
 
 	// Check if station exists
-	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
+	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
+		logger.Error("Automation: failed to check station existence: %v", err)
 		utils.ProblemInternalServer(c, "Failed to check station")
 		return
 	}
@@ -128,7 +148,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	}
 
 	// Acquire per-station lock to prevent concurrent generation
-	lock := h.getStationLock(stationID)
+	lock := h.getStationLock(req.stationID)
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -137,32 +157,53 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	defer cancel()
 
 	// Check if we have a recent enough bulletin
-	maxAge := time.Duration(maxAgeSeconds) * time.Second
-	if maxAgeSeconds > 0 {
-		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
-		if err == nil && existingBulletin != nil {
+	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
+	if req.maxAgeSeconds > 0 {
+		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
+		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			// Database error (not "not found") - fail fast
+			logger.Error("Automation: failed to check existing bulletin: %v", err)
+			utils.ProblemInternalServer(c, "Failed to check existing bulletin")
+			return
+		}
+		if existingBulletin != nil {
 			// Serve cached bulletin
-			h.serveBulletinAudio(c, existingBulletin.AudioFile, true)
+			if err := h.serveBulletinAudio(c, existingBulletin.AudioFile, true); err != nil {
+				return // Error already handled in serveBulletinAudio
+			}
 			return
 		}
 	}
 
 	// Generate new bulletin
-	logger.Info("Automation: generating new bulletin for station %d (max_age=%ds)", stationID, maxAgeSeconds)
+	logger.Info("Automation: generating new bulletin for station %d (max_age=%ds)", req.stationID, req.maxAgeSeconds)
 
-	bulletinInfo, err := h.bulletinSvc.Create(ctx, stationID, time.Now())
+	bulletinInfo, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
 	if err != nil {
 		h.handleGenerationError(c, err)
 		return
 	}
 
 	// Serve newly generated bulletin
-	h.serveBulletinAudio(c, filepath.Base(bulletinInfo.BulletinPath), false)
+	_ = h.serveBulletinAudio(c, filepath.Base(bulletinInfo.BulletinPath), false)
 }
 
 // serveBulletinAudio sends the bulletin WAV file as response.
-func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, cached bool) {
+// Returns an error if the file cannot be served (error response already sent to client).
+func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, cached bool) error {
 	filePath := filepath.Join(h.config.Audio.OutputPath, audioFile)
+
+	// Verify file exists before serving (consistent RFC 9457 error handling)
+	if _, err := os.Stat(filePath); err != nil {
+		if os.IsNotExist(err) {
+			logger.Error("Automation: audio file not found: %s", filePath)
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			logger.Error("Automation: failed to access audio file: %v", err)
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
+		return err
+	}
 
 	// Set headers
 	c.Header("Content-Type", "audio/wav")
@@ -171,6 +212,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
 
 	c.File(filePath)
+	return nil
 }
 
 // handleGenerationError maps generation errors to appropriate HTTP responses.
