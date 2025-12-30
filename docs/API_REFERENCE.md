@@ -134,7 +134,7 @@ List endpoints support advanced querying:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `include_deleted` | boolean | Include soft-deleted records |
+| `trashed` | string | Soft-delete filter: `only` (deleted only), `with` (include deleted) |
 | `include_suspended` | boolean | Include suspended users |
 | `download` | boolean | Force file download with appropriate headers |
 | `force` | boolean | Force regeneration of cached resources |
@@ -990,8 +990,8 @@ Supported operators:
 
 `DELETE /stories/{id}`
 
-Performs a soft delete by setting deleted_at timestamp. 
-The story will no longer appear in listings unless include_deleted=true is specified.
+Performs a soft delete by setting deleted_at timestamp.
+The story will no longer appear in listings unless trashed=with is specified.
 Story data and audio files are preserved for potential restoration.
 
 
@@ -1171,10 +1171,10 @@ Use dot notation for nested fields.
 | `search` | query | string | No | Search term for full-text search across relevant fields.
 Searches in names, titles, text content depending on resource.
  |
-| `status` | query | string | No | Filter by resource status:
-- `active` - only active/non-deleted resources (default)
-- `deleted` - only soft-deleted resources
-- `all` - include both active and deleted resources
+| `trashed` | query | string | No | Filter soft-deleted records:
+- (omitted) - only non-deleted records (default)
+- `only` - only soft-deleted records
+- `with` - all records including deleted
  |
 | `filter` | query | object | No | Advanced filtering using field-based operators.
 
@@ -1393,10 +1393,10 @@ Use dot notation for nested fields.
 | `search` | query | string | No | Search term for full-text search across relevant fields.
 Searches in names, titles, text content depending on resource.
  |
-| `status` | query | string | No | Filter by resource status:
-- `active` - only active/non-deleted resources (default)
-- `deleted` - only soft-deleted resources
-- `all` - include both active and deleted resources
+| `trashed` | query | string | No | Filter soft-deleted records:
+- (omitted) - only non-deleted records (default)
+- `only` - only soft-deleted records
+- `with` - all records including deleted
  |
 | `filter` | query | object | No | Advanced filtering using field-based operators.
 

@@ -161,8 +161,8 @@ GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2,3
 ### Users API
 
 ```http
-# Role and status filtering
-GET /api/v1/users?filter[role]=editor&status=all&search=john&sort=username
+# Role filtering with soft-deleted users
+GET /api/v1/users?filter[role]=editor&trashed=with&search=john&sort=username
 
 # Date range queries
 GET /api/v1/users?filter[last_login_at][gte]=2024-01-01&filter[login_count][gt]=10
@@ -317,8 +317,8 @@ GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_file][ne]=&
 
 ### Admin Dashboard
 ```http
-# Full featured admin query with search and filters
-GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&status=all&sort=-created_at
+# Full featured admin query with search and filters (including deleted)
+GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&trashed=with&sort=-created_at
 ```
 
 ### Data Export

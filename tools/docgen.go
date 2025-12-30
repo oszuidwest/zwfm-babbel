@@ -159,7 +159,7 @@ List endpoints support advanced querying:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ` + "`include_deleted`" + ` | boolean | Include soft-deleted records |
+| ` + "`trashed`" + ` | string | Soft-delete filter: ` + "`only`" + ` (deleted only), ` + "`with`" + ` (include deleted) |
 | ` + "`include_suspended`" + ` | boolean | Include suspended users |
 | ` + "`download`" + ` | boolean | Force file download with appropriate headers |
 | ` + "`force`" + ` | boolean | Force regeneration of cached resources |
