@@ -239,7 +239,7 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 		return true // Skip validation if either date is missing
 	}
 
-	startDate, err := time.Parse("2006-01-02", *startDateStr)
+	startDate, err := time.ParseInLocation("2006-01-02", *startDateStr, time.Local)
 	if err != nil {
 		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
 			{Field: "start_date", Message: "Invalid start date format"},
@@ -247,7 +247,7 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 		return false
 	}
 
-	endDate, err := time.Parse("2006-01-02", *endDateStr)
+	endDate, err := time.ParseInLocation("2006-01-02", *endDateStr, time.Local)
 	if err != nil {
 		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
 			{Field: "end_date", Message: "Invalid end date format"},

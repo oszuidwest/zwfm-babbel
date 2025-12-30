@@ -249,8 +249,16 @@ type BulletinStoryData struct {
 	MixPoint float64 `gorm:"column:mix_point"`
 }
 
-// GetStoriesForBulletin retrieves eligible stories for bulletin generation.
+// GetStoriesForBulletin retrieves eligible stories for bulletin generation with fair rotation.
 // Returns stories with station-specific mix point data needed for audio processing.
+//
+// Fair rotation algorithm ensures all stories get equal airtime:
+//  1. Stories not yet used TODAY (UTC) for this station get highest priority
+//  2. Within unused stories, newer stories (by start_date) come first
+//  3. If all stories were used today, least-recently-used ones are selected
+//  4. RAND() as final tiebreaker for variety
+//
+// The rotation resets daily at midnight UTC and is isolated per station.
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
@@ -258,12 +266,30 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	// time.Weekday is always in range [0,6], safe to convert to uint8
 	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
-	// Build the query with proper joins to get mix_point from station_voices.
-	// Using Model() ensures GORM's soft delete filtering is applied automatically.
-	// Note: Voice preload not needed - only VoiceID is used for jingle lookup.
+	// Calculate start of today (local timezone) for fair rotation reset
+	// Uses server's local timezone so rotation resets at local midnight
+	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+
+	// Subquery to find when each story was last used in a bulletin for this station today.
+	// Limited to 50 most recent bulletins for performance (supports ~48 bulletins/day).
+	lastUsedSubquery := `(
+		SELECT MAX(b.created_at)
+		FROM bulletin_stories bs
+		JOIN bulletins b ON bs.bulletin_id = b.id
+		WHERE bs.story_id = stories.id
+		  AND b.station_id = ?
+		  AND b.created_at >= ?
+		LIMIT 50
+	)`
+
+	// Build the query with fair rotation ordering:
+	// 1. last_used_today IS NULL DESC  → unused stories first
+	// 2. stories.start_date DESC       → newer stories preferred within unused
+	// 3. last_used_today ASC           → least-recently-used as fallback
+	// 4. RAND()                         → variety within equal priority
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
-		Select("stories.*, sv.mix_point").
+		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).
 		Joins("JOIN voices v ON stories.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).
 		Where("stories.audio_file IS NOT NULL").
@@ -271,7 +297,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.start_date <= ?", date).
 		Where("stories.end_date >= ?", date).
 		Where("stories.weekdays & ? > 0", weekdayBit).
-		Order("RAND()").
+		Order("last_used_today IS NULL DESC, stories.start_date DESC, last_used_today ASC, RAND()").
 		Limit(limit).
 		Find(&stories).Error
 

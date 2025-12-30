@@ -142,9 +142,12 @@ class BulletinsTests extends BaseTest {
         }
 
         // Use date range that includes today
+        // Note: Construct dates as strings to avoid timezone conversion issues
+        // (toISOString converts to UTC which can shift the date by a day)
         const today = new Date();
-        const startDate = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0]; // Jan 1 of current year
-        const endDate = new Date(today.getFullYear(), 11, 31).toISOString().split('T')[0]; // Dec 31 of current year
+        const year = today.getFullYear();
+        const startDate = `${year}-01-01`;
+        const endDate = `${year + 1}-01-31`; // Next year to ensure stories don't expire mid-day
 
         // Step 1: Create story with JSON
         const jsonBody = {

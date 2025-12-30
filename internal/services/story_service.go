@@ -81,14 +81,14 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		}
 	}
 
-	// Parse and validate start date
-	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	// Parse and validate start date (using local timezone for consistent date handling)
+	startDate, err := time.ParseInLocation("2006-01-02", req.StartDate, time.Local)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
 	}
 
-	// Parse and validate end date
-	endDate, err := time.Parse("2006-01-02", req.EndDate)
+	// Parse and validate end date (using local timezone for consistent date handling)
+	endDate, err := time.ParseInLocation("2006-01-02", req.EndDate, time.Local)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
 	}
@@ -181,7 +181,7 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	var startDate, endDate *time.Time
 
 	if req.StartDate != nil {
-		parsed, err := time.Parse("2006-01-02", *req.StartDate)
+		parsed, err := time.ParseInLocation("2006-01-02", *req.StartDate, time.Local)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: invalid start_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
 		}
@@ -189,7 +189,7 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	}
 
 	if req.EndDate != nil {
-		parsed, err := time.Parse("2006-01-02", *req.EndDate)
+		parsed, err := time.ParseInLocation("2006-01-02", *req.EndDate, time.Local)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: invalid end_date format, must be YYYY-MM-DD", apperrors.ErrInvalidInput)
 		}

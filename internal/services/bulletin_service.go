@@ -221,21 +221,32 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
+// Uses fair rotation to ensure all stories get equal airtime throughout the day.
 func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to fetch stories: %v", apperrors.ErrDatabaseError, err)
 	}
 
+	// Debug logging for story selection (fair rotation transparency)
+	if len(stories) > 0 {
+		storyIDs := make([]int64, len(stories))
+		for i, story := range stories {
+			storyIDs[i] = story.ID
+		}
+		logger.Debug("Fair rotation selected %d stories for station %d: IDs=%v", len(stories), stationID, storyIDs)
+	}
+
 	return stories, nil
 }
 
 // ParseTargetDate parses a date string in YYYY-MM-DD format or returns the current date if empty.
+// Uses local timezone to ensure consistent date handling across the application.
 func ParseTargetDate(dateStr string) (time.Time, error) {
 	if dateStr == "" {
 		return time.Now(), nil
 	}
-	parsedDate, err := time.Parse("2006-01-02", dateStr)
+	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("%w: invalid date format (expected YYYY-MM-DD)", apperrors.ErrInvalidInput)
 	}
