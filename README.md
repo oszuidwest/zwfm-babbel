@@ -67,9 +67,9 @@ When generating a bulletin, stories are selected in this priority order:
 
 Scenario: 13 stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
 
-The algorithm tracks when each story was last used (`MAX(created_at)`) and prioritizes:
-1. Unused stories (NULL timestamp) first
-2. Then oldest-used stories
+The algorithm tracks when each story was last included in a bulletin (via `MAX(bulletins.created_at)`) and prioritizes:
+1. Unused stories (NULL timestamp) first, with newer `start_date` preferred
+2. Then oldest-used stories (aired longest ago)
 3. Random selection within equal-priority groups
 
 | Time | Pool state | Selected | Reason |
