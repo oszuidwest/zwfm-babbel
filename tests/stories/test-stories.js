@@ -162,9 +162,14 @@ class StoriesTests extends BaseTest {
             return false;
         }
         
-        await this.createStory('List Story 1', 'Content 1', voiceId);
+        const storyId = await this.createStory('List Story 1', 'Content 1', voiceId);
         await this.createStory('List Story 2', 'Content 2', voiceId);
         await this.createStory('List Story 3', 'Content 3', voiceId);
+
+        if (!storyId) {
+            this.printError('Failed to create test stories');
+            return false;
+        }
         
         // Test basic listing
         this.printInfo('Testing basic story listing...');
