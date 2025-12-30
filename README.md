@@ -108,12 +108,34 @@ All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() en
 
 ## Radio Automation Integration
 
-Automation systems can fetch the latest bulletin directly:
+### Public Endpoint (Recommended)
+
+For unattended automation systems, use the public endpoint with API key authentication:
+
+```
+GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
+```
+
+**Setup:**
+1. Generate a secure key: `openssl rand -hex 32`
+2. Set `BABBEL_AUTOMATION_KEY` in your environment
+3. Configure your automation system to fetch the URL
+
+**Parameters:**
+- `key` - Your API key (required)
+- `max_age` - Maximum bulletin age in seconds. Use `0` for always fresh, `3600` for up to 1 hour old
+
+**Features:**
+- No session/cookie authentication needed
+- Auto-generates new bulletin if cached one is too old
+- Returns 404 if endpoint is disabled (no key configured)
+
+### Authenticated Endpoint
+
+For systems that support session authentication:
 ```
 GET /api/v1/stations/{station_id}/bulletins?latest=true
 ```
-
-Returns a WAV file ready for broadcast. Most automation systems can schedule HTTP audio downloads.
 
 ### Compatible Systems
 
