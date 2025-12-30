@@ -62,6 +62,7 @@ Cross-Origin Resource Sharing (CORS) is configurable:
    - [Users](#users)
    - [Bulletin](#bulletin)
    - [Station-Voices](#station-voices)
+   - [Automation](#automation)
 
 
 ---
@@ -2130,6 +2131,63 @@ Create station-voice relationship with JSON body. Jingle audio file must be uplo
 - `409`: Error
 - `422`: Error
 - `500`: Error
+
+
+---
+
+
+### Automation
+
+Public endpoints for radio automation systems (mAirList, RadioDJ, etc.)
+
+
+#### Get bulletin audio for radio automation
+
+`GET /public/stations/{id}/bulletin.wav`
+
+Public endpoint for radio automation systems to fetch the latest bulletin audio.
+
+**Authentication**: Requires API key via `key` query parameter.
+Configure via `BABBEL_AUTOMATION_KEY` environment variable.
+
+**Behavior**:
+- If `max_age > 0`: Returns cached bulletin if younger than max_age, otherwise generates new
+- If `max_age = 0`: Always generates a fresh bulletin
+- If endpoint is disabled (no API key configured): Returns 404
+
+**Concurrency**: Only one bulletin can be generated per station at a time.
+Concurrent requests for the same station will queue.
+
+**Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
+system that supports HTTP audio fetching.
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Station ID |
+| `key` | query | string | Yes | Automation API key (configured via BABBEL_AUTOMATION_KEY) |
+| `max_age` | query | integer | Yes | Maximum age of cached bulletin in seconds.
+- Use `0` to always generate a fresh bulletin
+- Use `3600` for bulletins up to 1 hour old
+ |
+
+
+
+
+
+**Response:** `200` - Bulletin WAV audio file
+
+
+
+**Error Responses:**
+
+- `401`: Invalid or missing API key
+- `404`: Station not found, endpoint disabled, or no stories available
+- `422`: Invalid parameters
+- `500`: Bulletin generation failed or timed out
 
 
 ---
