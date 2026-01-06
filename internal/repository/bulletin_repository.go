@@ -81,14 +81,14 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 
 	query := r.db.WithContext(ctx).
 		Joins("Station").
-		Where("station_id = ?", stationID)
+		Where("bulletins.station_id = ?", stationID)
 
 	if maxAge != nil {
 		minTime := time.Now().Add(-*maxAge)
-		query = query.Where("created_at >= ?", minTime)
+		query = query.Where("bulletins.created_at >= ?", minTime)
 	}
 
-	err := query.Order("created_at DESC").
+	err := query.Order("bulletins.created_at DESC").
 		First(&bulletin).Error
 
 	if err != nil {
@@ -143,7 +143,7 @@ func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListR
 		Model(&models.Bulletin{}).
 		Joins("Station")
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }
 
 // Exists reports whether a bulletin with the given ID exists.
@@ -191,9 +191,9 @@ func (r *bulletinRepository) GetStationBulletins(ctx context.Context, stationID 
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Joins("Station").
-		Where("station_id = ?", stationID)
+		Where("bulletins.station_id = ?", stationID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
@@ -204,5 +204,5 @@ func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyI
 		Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
 		Where("bulletin_stories.story_id = ?", storyID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
 }
