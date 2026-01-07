@@ -270,6 +270,10 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	// Uses server's local timezone so rotation resets at local midnight
 	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 
+	// Format date as YYYY-MM-DD string for comparison with DATE columns
+	// This avoids timezone conversion issues when comparing with MySQL DATE fields
+	dateStr := date.Format("2006-01-02")
+
 	// Subquery to find when each story was last used in a bulletin for this station today.
 	// Returns NULL if story hasn't been used today, otherwise the most recent usage timestamp.
 	lastUsedSubquery := `(
@@ -296,8 +300,8 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).
 		Where("stories.audio_file IS NOT NULL").
 		Where("stories.audio_file != ''").
-		Where("stories.start_date <= ?", date).
-		Where("stories.end_date >= ?", date).
+		Where("stories.start_date <= ?", dateStr).
+		Where("stories.end_date >= ?", dateStr).
 		Where("stories.weekdays & ? > 0", weekdayBit).
 		Order("last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
 		Limit(limit).

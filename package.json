@@ -12,6 +12,7 @@
     "test:station-voices": "FORCE_COLOR=1 node tests/run-all.js station-voices",
     "test:stories": "FORCE_COLOR=1 node tests/run-all.js stories",
     "test:bulletins": "FORCE_COLOR=1 node tests/run-all.js bulletins",
+    "test:automation": "FORCE_COLOR=1 node tests/run-all.js automation",
     "test:users": "FORCE_COLOR=1 node tests/run-all.js users",
     "test:validation": "FORCE_COLOR=1 node tests/run-all.js validation",
     "test:quick": "FORCE_COLOR=1 node tests/run-all.js --quick",
