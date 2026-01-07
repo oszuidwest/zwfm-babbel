@@ -124,6 +124,7 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 	args = append(args,
 		"-filter_complex", strings.Join(filters, ";"),
 		"-map", "[out]",
+		"-ac", "2",
 		"-y", outputPath)
 
 	return args, filters
