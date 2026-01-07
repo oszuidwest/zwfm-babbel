@@ -99,7 +99,7 @@ var stationSearchFields = []string{"name"}
 // List retrieves a paginated list of stations with filtering, sorting, and search.
 func (r *stationRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error) {
 	db := r.db.WithContext(ctx).Model(&models.Station{})
-	return ApplyListQuery[models.Station](db, query, stationFieldMapping, stationSearchFields, "name ASC")
+	return ApplyListQuery[models.Station](db, query, stationFieldMapping, stationSearchFields, "name ASC", "stations")
 }
 
 // Exists reports whether a station with the given ID exists.

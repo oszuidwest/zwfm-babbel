@@ -177,5 +177,5 @@ func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*L
 		Joins("Station").
 		Joins("Voice")
 
-	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "station_voices.id ASC")
+	return ApplyListQuery[models.StationVoice](db, query, stationVoiceFieldMapping, nil, "id ASC", "station_voices")
 }

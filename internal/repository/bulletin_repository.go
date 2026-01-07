@@ -143,7 +143,7 @@ func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListR
 		Model(&models.Bulletin{}).
 		Joins("Station")
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC", "bulletins")
 }
 
 // Exists reports whether a bulletin with the given ID exists.
@@ -193,7 +193,7 @@ func (r *bulletinRepository) GetStationBulletins(ctx context.Context, stationID 
 		Joins("Station").
 		Where("bulletins.station_id = ?", stationID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC", "bulletins")
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
@@ -204,5 +204,5 @@ func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyI
 		Joins("JOIN bulletin_stories ON bulletins.id = bulletin_stories.bulletin_id").
 		Where("bulletin_stories.story_id = ?", storyID)
 
-	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "bulletins.created_at DESC")
+	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, "created_at DESC", "bulletins")
 }

@@ -240,7 +240,7 @@ func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
-	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC")
+	return ApplyListQuery[models.Story](db, query, storyFieldMapping, storySearchFields, "created_at DESC", "stories")
 }
 
 // BulletinStoryData contains story data with station-specific mix point for audio processing.

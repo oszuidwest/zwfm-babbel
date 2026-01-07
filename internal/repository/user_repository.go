@@ -181,7 +181,7 @@ func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 	db := r.db.WithContext(ctx).Model(&models.User{})
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
-	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, "username ASC")
+	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, "username ASC", "users")
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
