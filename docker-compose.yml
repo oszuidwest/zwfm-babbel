@@ -33,10 +33,12 @@ services:
       BABBEL_ENV: development
       BABBEL_FFMPEG_PATH: "ffmpeg"
       # CORS is disabled by default. Enable for web frontend development:
-      BABBEL_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173,https://babbel.zuidwest.cloud"
+      BABBEL_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173"
       # Cookie configuration (empty = default single domain cookies)
       BABBEL_COOKIE_DOMAIN: ""
       BABBEL_COOKIE_SAMESITE: "lax"
+      # Radio automation API key (leave empty to disable public endpoint)
+      BABBEL_AUTOMATION_KEY: "test-automation-key-for-integration-tests"
       TZ: Europe/Amsterdam
     ports:
       - "8080:8080"
