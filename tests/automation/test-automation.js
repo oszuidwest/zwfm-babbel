@@ -488,7 +488,22 @@ class AutomationTests extends BaseTest {
             return false;
         }
         this.printSuccess('First request succeeded');
-        const size1 = response1.data.length;
+
+        // Verify X-Bulletin-Cached header indicates fresh bulletin
+        const cached1 = response1.headers['x-bulletin-cached'];
+        if (cached1 !== 'false') {
+            this.printError(`Expected X-Bulletin-Cached: false, got: ${cached1}`);
+            return false;
+        }
+        this.printSuccess('X-Bulletin-Cached: false (new bulletin)');
+
+        // Get bulletin ID from header
+        const bulletinId1 = response1.headers['x-bulletin-id'];
+        if (!bulletinId1) {
+            this.printError('Missing X-Bulletin-Id header');
+            return false;
+        }
+        this.printSuccess(`X-Bulletin-Id: ${bulletinId1}`);
 
         // Second request with high max_age - should return cached bulletin
         this.printInfo('Second request (max_age=3600, should use cache)...');
@@ -501,17 +516,164 @@ class AutomationTests extends BaseTest {
             this.printError(`Second request failed: ${response2.status}`);
             return false;
         }
-        this.printSuccess('Second request succeeded (cached)');
-        const size2 = response2.data.length;
+        this.printSuccess('Second request succeeded');
 
-        // The sizes should be identical for cached response
-        if (size1 === size2) {
-            this.printSuccess(`Both responses have same size (${size1} bytes) - caching works`);
-        } else {
-            this.printWarning(`Response sizes differ (${size1} vs ${size2})`);
+        // Verify X-Bulletin-Cached header indicates cached bulletin
+        const cached2 = response2.headers['x-bulletin-cached'];
+        if (cached2 !== 'true') {
+            this.printError(`Expected X-Bulletin-Cached: true, got: ${cached2}`);
+            return false;
         }
+        this.printSuccess('X-Bulletin-Cached: true (cached bulletin)');
+
+        // Verify same bulletin ID was returned
+        const bulletinId2 = response2.headers['x-bulletin-id'];
+        if (bulletinId1 !== bulletinId2) {
+            this.printError(`Bulletin ID mismatch: ${bulletinId1} vs ${bulletinId2}`);
+            return false;
+        }
+        this.printSuccess(`Same bulletin returned (ID: ${bulletinId1}) - caching verified`);
 
         return true;
+    }
+
+    /**
+     * Test single-day story scheduling (timezone regression test).
+     * This test verifies the DATE comparison fix by creating a story that is
+     * only valid today. Before the fix, stories would incorrectly appear
+     * "expired" shortly after midnight due to timezone conversion issues.
+     */
+    async testSingleDayStoryScheduling() {
+        this.printSection('Testing Single-Day Story Scheduling (Timezone Regression)');
+
+        // Create complete test setup
+        this.printInfo('Setting up test data with single-day date range...');
+
+        const stationId = await this.createTestStation('Timezone Test Station', 3, 2.0);
+        if (!stationId) {
+            this.printError('Failed to create test station');
+            return false;
+        }
+
+        const voiceId = await this.createTestVoice('Timezone Test Voice');
+        if (!voiceId) {
+            this.printError('Failed to create test voice');
+            return false;
+        }
+
+        const svId = await this.createStationVoiceWithJingle(stationId, voiceId);
+        if (!svId) {
+            this.printError('Failed to create station-voice');
+            return false;
+        }
+
+        // Create story valid ONLY today - this would fail with the old DATE comparison bug
+        const storyId = await this.createSingleDayStoryWithAudio(
+            'Timezone Test Story',
+            'Story for testing single-day DATE comparison fix.',
+            voiceId
+        );
+        if (!storyId) {
+            this.printError('Failed to create single-day test story');
+            return false;
+        }
+        this.printSuccess('Created story with single-day date range (today only)');
+
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Request bulletin - should succeed if DATE comparison is working correctly
+        this.printInfo('Requesting bulletin with single-day story...');
+        const response = await this.publicBulletinRequest(stationId, {
+            key: this.automationKey,
+            max_age: '0'
+        });
+
+        if (response.status === 200) {
+            this.printSuccess('Bulletin generated successfully with single-day story');
+            this.printSuccess('DATE comparison fix verified - story was not incorrectly expired');
+            return true;
+        } else if (response.status === 422) {
+            // This would indicate the story was incorrectly marked as expired
+            this.printError('Story appears expired - DATE comparison bug may have regressed');
+            return false;
+        } else {
+            let errorMsg = '';
+            try {
+                const errorData = JSON.parse(response.data.toString());
+                errorMsg = errorData.title || errorData.detail || '';
+            } catch (e) {
+                errorMsg = response.data.toString().substring(0, 200);
+            }
+            this.printError(`Unexpected status ${response.status}: ${errorMsg}`);
+            return false;
+        }
+    }
+
+    /**
+     * Helper function to create a test story with audio valid only for today.
+     * This tests the DATE column comparison fix for timezone issues.
+     */
+    async createSingleDayStoryWithAudio(title, body, voiceId) {
+        const audioFile = `/tmp/test_story_timezone_${Date.now()}.wav`;
+
+        try {
+            const { execSync } = require('child_process');
+            execSync(`ffmpeg -f lavfi -i "sine=frequency=330:duration=3" -ar 44100 -ac 2 -f wav "${audioFile}" -y 2>/dev/null`, { stdio: 'ignore' });
+            if (!fsSync.existsSync(audioFile)) {
+                this.printWarning('Could not create test audio file');
+                return null;
+            }
+        } catch (error) {
+            this.printWarning('ffmpeg not available, cannot create audio');
+            return null;
+        }
+
+        // Use TODAY only - this is the critical test case for the timezone fix
+        // Format as YYYY-MM-DD in local timezone
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+
+        this.printInfo(`Story date range: ${todayStr} to ${todayStr} (single day)`);
+
+        // Step 1: Create story with JSON (no audio)
+        const jsonBody = {
+            title: `${title}_${Date.now()}`,
+            text: body,
+            voice_id: parseInt(voiceId, 10),
+            status: 'active',
+            start_date: todayStr,
+            end_date: todayStr,  // Same as start_date - valid only today
+            weekdays: 127
+        };
+
+        const createResponse = await this.apiCall('POST', '/stories', jsonBody);
+
+        if (createResponse.status !== 201) {
+            fsSync.unlinkSync(audioFile);
+            return null;
+        }
+
+        const storyId = this.parseJsonField(createResponse.data, 'id');
+        if (!storyId) {
+            fsSync.unlinkSync(audioFile);
+            return null;
+        }
+
+        this.createdStoryIds.push(storyId);
+
+        // Step 2: Upload audio separately
+        const uploadResponse = await this.uploadFile(`/stories/${storyId}/audio`, {}, audioFile, 'audio');
+
+        fsSync.unlinkSync(audioFile);
+
+        if (uploadResponse.status !== 201) {
+            return null;
+        }
+
+        return storyId;
     }
 
     /**
@@ -597,7 +759,8 @@ class AutomationTests extends BaseTest {
             'testNonExistentStation',
             'testStationNoStories',
             'testSuccessfulBulletinGeneration',
-            'testBulletinCaching'
+            'testBulletinCaching',
+            'testSingleDayStoryScheduling'
         ];
 
         for (const test of tests) {
