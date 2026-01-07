@@ -113,5 +113,5 @@ var voiceSearchFields = []string{"name"}
 // List retrieves a paginated list of voices with filtering, sorting, and search.
 func (r *voiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error) {
 	db := r.db.WithContext(ctx).Model(&models.Voice{})
-	return ApplyListQuery[models.Voice](db, query, voiceFieldMapping, voiceSearchFields, "name ASC", "voices")
+	return ApplyListQuery[models.Voice](db, query, voiceFieldMapping, voiceSearchFields, []SortField{{Field: "name", Direction: SortAsc}})
 }

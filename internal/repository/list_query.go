@@ -75,40 +75,13 @@ func NewListQuery() *ListQuery {
 	}
 }
 
-// prefixSortColumns adds table prefix to columns in a sort string that don't already have a prefix.
-// E.g., prefixSortColumns("created_at DESC, id ASC", "bulletins") returns "bulletins.created_at DESC, bulletins.id ASC"
-func prefixSortColumns(sortStr, tableName string) string {
-	if tableName == "" || sortStr == "" {
-		return sortStr
-	}
-
-	// Split by comma for multiple sort fields
-	parts := strings.Split(sortStr, ",")
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		// Split into column and direction (e.g., "created_at DESC" -> ["created_at", "DESC"])
-		tokens := strings.Fields(part)
-		if len(tokens) >= 1 {
-			column := tokens[0]
-			// Only prefix if column doesn't already have a table prefix
-			if !strings.Contains(column, ".") {
-				tokens[0] = tableName + "." + column
-			}
-			parts[i] = strings.Join(tokens, " ")
-		}
-	}
-
-	return strings.Join(parts, ", ")
-}
-
 // ApplyListQuery applies pagination, filtering, sorting, and search to a GORM query.
 // Returns a ListResult with the data and pagination info.
 // The fieldMapping is used to validate and map field names to prevent SQL injection.
 // searchFields are the database columns to search in when query.Search is set.
-// defaultSort is used when no sort fields are provided (e.g., "created_at DESC").
-// tableName is the primary table name used to prefix columns in defaultSort to avoid
-// ambiguous column errors when JOINs are used (e.g., "bulletins", "stories").
-func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort string, tableName string) (*ListResult[T], error) {
+// defaultSort specifies the default sort order when no user-provided sort fields are given.
+// It uses the same SortField type as user sorts and is validated against fieldMapping.
+func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort []SortField) (*ListResult[T], error) {
 	if query == nil {
 		query = NewListQuery()
 	}
@@ -136,21 +109,21 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		return nil, err
 	}
 
-	// Apply sorting
-	if len(query.Sort) > 0 {
-		for _, sf := range query.Sort {
-			dbField, ok := fieldMapping[sf.Field]
-			if !ok {
-				continue
-			}
-			direction := "ASC"
-			if sf.Direction == SortDesc {
-				direction = "DESC"
-			}
-			db = db.Order(dbField + " " + direction)
+	// Apply sorting - use user-provided sort or fall back to default
+	sortFields := query.Sort
+	if len(sortFields) == 0 {
+		sortFields = defaultSort
+	}
+	for _, sf := range sortFields {
+		dbField, ok := fieldMapping[sf.Field]
+		if !ok {
+			continue
 		}
-	} else if defaultSort != "" {
-		db = db.Order(prefixSortColumns(defaultSort, tableName))
+		direction := "ASC"
+		if sf.Direction == SortDesc {
+			direction = "DESC"
+		}
+		db = db.Order(dbField + " " + direction)
 	}
 
 	// Apply pagination
