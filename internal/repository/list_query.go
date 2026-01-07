@@ -79,8 +79,9 @@ func NewListQuery() *ListQuery {
 // Returns a ListResult with the data and pagination info.
 // The fieldMapping is used to validate and map field names to prevent SQL injection.
 // searchFields are the database columns to search in when query.Search is set.
-// defaultSort is used when no sort fields are provided (e.g., "name ASC").
-func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort string) (*ListResult[T], error) {
+// defaultSort specifies the default sort order when no user-provided sort fields are given.
+// It uses the same SortField type as user sorts and is validated against fieldMapping.
+func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort []SortField) (*ListResult[T], error) {
 	if query == nil {
 		query = NewListQuery()
 	}
@@ -108,21 +109,21 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		return nil, err
 	}
 
-	// Apply sorting
-	if len(query.Sort) > 0 {
-		for _, sf := range query.Sort {
-			dbField, ok := fieldMapping[sf.Field]
-			if !ok {
-				continue
-			}
-			direction := "ASC"
-			if sf.Direction == SortDesc {
-				direction = "DESC"
-			}
-			db = db.Order(dbField + " " + direction)
+	// Apply sorting - use user-provided sort or fall back to default
+	sortFields := query.Sort
+	if len(sortFields) == 0 {
+		sortFields = defaultSort
+	}
+	for _, sf := range sortFields {
+		dbField, ok := fieldMapping[sf.Field]
+		if !ok {
+			continue
 		}
-	} else if defaultSort != "" {
-		db = db.Order(defaultSort)
+		direction := "ASC"
+		if sf.Direction == SortDesc {
+			direction = "DESC"
+		}
+		db = db.Order(dbField + " " + direction)
 	}
 
 	// Apply pagination
