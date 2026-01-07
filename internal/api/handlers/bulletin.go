@@ -93,7 +93,7 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 	setCacheHeaders(c, existingBulletin.CreatedAt, true)
 
 	if download {
-		serveAudioFile(c, utils.BulletinPath(h.config, existingBulletin.AudioFile), existingBulletin.Filename, true)
+		serveAudioFile(c, utils.BulletinPath(h.config, existingBulletin.AudioFile), existingBulletin.Filename, existingBulletin.ID, true)
 		return true
 	}
 
@@ -107,7 +107,7 @@ func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, d
 	setCacheHeaders(c, time.Time{}, false)
 
 	if download {
-		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, false)
+		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, bulletin.ID, false)
 		return
 	}
 
@@ -127,11 +127,12 @@ func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
-func serveAudioFile(c *gin.Context, filePath, filename string, cached bool) {
+func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) {
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	c.Header("Content-Type", "audio/wav")
+	c.Header("X-Bulletin-Id", fmt.Sprintf("%d", bulletinID))
 	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
 	c.File(filePath)
 }

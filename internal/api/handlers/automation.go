@@ -167,7 +167,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		}
 		if existingBulletin != nil {
 			// Serve cached bulletin
-			if err := h.serveBulletinAudio(c, existingBulletin.AudioFile, true); err != nil {
+			if err := h.serveBulletinAudio(c, existingBulletin.AudioFile, existingBulletin.ID, true); err != nil {
 				return // Error already handled in serveBulletinAudio
 			}
 			return
@@ -184,12 +184,12 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	}
 
 	// Serve newly generated bulletin
-	_ = h.serveBulletinAudio(c, bulletin.AudioFile, false)
+	_ = h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, false)
 }
 
 // serveBulletinAudio sends the bulletin WAV file as response.
 // Returns an error if the file cannot be served (error response already sent to client).
-func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, cached bool) error {
+func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) error {
 	filePath := utils.BulletinPath(h.config, audioFile)
 
 	// Verify file exists before serving (consistent RFC 9457 error handling)
@@ -206,6 +206,6 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 
 	// Automation endpoint doesn't cache
 	c.Header("Cache-Control", "no-store")
-	serveAudioFile(c, filePath, audioFile, cached)
+	serveAudioFile(c, filePath, audioFile, bulletinID, cached)
 	return nil
 }
