@@ -78,117 +78,127 @@ describe('Voices', () => {
       }
     });
 
-    test('search parameter filters results', async () => {
-      const response = await global.api.apiCall('GET', '/voices?search=Voice');
-
+    const runQuery = async (path) => {
+      const response = await global.api.apiCall('GET', path);
       expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      const voiceMatches = results.filter(v => v.name && v.name.includes('Voice'));
-      expect(voiceMatches.length).toBeGreaterThan(0);
-    });
+      return response;
+    };
 
-    test('filter by exact ID returns single voice', async () => {
-      const response = await global.api.apiCall('GET', `/voices?filter[id]=${queryTestIds[0]}`);
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      const exactMatches = results.filter(v => v.id == queryTestIds[0]);
-      expect(exactMatches.length).toBe(1);
-    });
-
-    test('filter with in operator returns multiple voices', async () => {
-      const ids = queryTestIds.slice(0, 3).join(',');
-      const response = await global.api.apiCall('GET', `/voices?filter[id][in]=${ids}`);
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      const inMatches = results.filter(v => queryTestIds.slice(0, 3).includes(String(v.id)));
-      expect(inMatches.length).toBe(3);
-    });
-
-    test('sort ascending by name', async () => {
-      const response = await global.api.apiCall('GET', '/voices?sort=name');
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      if (results.length > 1) {
-        const isSorted = results.every((v, i) =>
-          i === 0 || (v.name && results[i - 1].name && v.name >= results[i - 1].name)
-        );
-        expect(isSorted).toBe(true);
+    const queryCases = [
+      {
+        name: 'search parameter filters results',
+        path: '/voices?search=Voice',
+        assert: (response) => {
+          const results = response.data.data || [];
+          const voiceMatches = results.filter(v => v.name && v.name.includes('Voice'));
+          expect(voiceMatches.length).toBeGreaterThan(0);
+        }
+      },
+      {
+        name: 'filter by exact ID returns single voice',
+        path: () => `/voices?filter[id]=${queryTestIds[0]}`,
+        assert: (response) => {
+          const results = response.data.data || [];
+          const exactMatches = results.filter(v => v.id == queryTestIds[0]);
+          expect(exactMatches.length).toBe(1);
+        }
+      },
+      {
+        name: 'filter with in operator returns multiple voices',
+        path: () => {
+          const ids = queryTestIds.slice(0, 3).join(',');
+          return `/voices?filter[id][in]=${ids}`;
+        },
+        assert: (response) => {
+          const results = response.data.data || [];
+          const inMatches = results.filter(v => queryTestIds.slice(0, 3).includes(String(v.id)));
+          expect(inMatches.length).toBe(3);
+        }
+      },
+      {
+        name: 'sort ascending by name',
+        path: '/voices?sort=name',
+        assert: (response) => {
+          const results = response.data.data || [];
+          if (results.length > 1) {
+            const isSorted = results.every((v, i) =>
+              i === 0 || (v.name && results[i - 1].name && v.name >= results[i - 1].name)
+            );
+            expect(isSorted).toBe(true);
+          }
+        }
+      },
+      {
+        name: 'sort descending by name',
+        path: '/voices?sort=-name',
+        assert: (response) => {
+          const results = response.data.data || [];
+          if (results.length > 1) {
+            const isSorted = results.every((v, i) =>
+              i === 0 || (v.name && results[i - 1].name && v.name <= results[i - 1].name)
+            );
+            expect(isSorted).toBe(true);
+          }
+        }
+      },
+      {
+        name: 'sort by created_at descending accepted',
+        path: '/voices?sort=-created_at'
+      },
+      {
+        name: 'multiple sort fields accepted',
+        path: '/voices?sort=name,-created_at'
+      },
+      {
+        name: 'field selection includes requested fields',
+        path: '/voices?fields=id,name',
+        assert: (response) => {
+          const results = response.data.data || [];
+          if (results.length > 0) {
+            const firstVoice = results[0];
+            expect(firstVoice).toHaveProperty('id');
+            expect(firstVoice).toHaveProperty('name');
+          }
+        }
+      },
+      {
+        name: 'field selection with timestamps includes timestamps',
+        path: '/voices?fields=id,name,created_at,updated_at',
+        assert: (response) => {
+          const results = response.data.data || [];
+          if (results.length > 0) {
+            const firstVoice = results[0];
+            expect(firstVoice).toHaveProperty('created_at');
+            expect(firstVoice).toHaveProperty('updated_at');
+          }
+        }
+      },
+      {
+        name: 'pagination with limit and offset',
+        path: '/voices?limit=2&offset=1',
+        assert: (response) => {
+          const results = response.data.data || [];
+          expect(results.length).toBeLessThanOrEqual(2);
+        }
+      },
+      {
+        name: 'complex combined query accepted',
+        path: () => {
+          const ids = queryTestIds.slice(2, 5).join(',');
+          return `/voices?search=Voice&filter[id][in]=${ids}&sort=-name&fields=id,name&limit=10`;
+        }
+      },
+      {
+        name: 'filter with not operator is accepted',
+        path: () => `/voices?filter[id][not]=${queryTestIds[0]}`
       }
-    });
+    ];
 
-    test('sort descending by name', async () => {
-      const response = await global.api.apiCall('GET', '/voices?sort=-name');
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      if (results.length > 1) {
-        const isSorted = results.every((v, i) =>
-          i === 0 || (v.name && results[i - 1].name && v.name <= results[i - 1].name)
-        );
-        expect(isSorted).toBe(true);
+    test.each(queryCases)('$name', async ({ path, assert }) => {
+      const response = await runQuery(typeof path === 'function' ? path() : path);
+      if (assert) {
+        await assert(response);
       }
-    });
-
-    test('sort by created_at descending accepted', async () => {
-      const response = await global.api.apiCall('GET', '/voices?sort=-created_at');
-
-      expect(response.status).toBe(200);
-    });
-
-    test('multiple sort fields accepted', async () => {
-      const response = await global.api.apiCall('GET', '/voices?sort=name,-created_at');
-
-      expect(response.status).toBe(200);
-    });
-
-    test('field selection includes requested fields', async () => {
-      const response = await global.api.apiCall('GET', '/voices?fields=id,name');
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      if (results.length > 0) {
-        const firstVoice = results[0];
-        expect(firstVoice).toHaveProperty('id');
-        expect(firstVoice).toHaveProperty('name');
-        // Note: API may include additional fields like timestamps
-      }
-    });
-
-    test('field selection with timestamps includes timestamps', async () => {
-      const response = await global.api.apiCall('GET', '/voices?fields=id,name,created_at,updated_at');
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      if (results.length > 0) {
-        const firstVoice = results[0];
-        expect(firstVoice).toHaveProperty('created_at');
-        expect(firstVoice).toHaveProperty('updated_at');
-      }
-    });
-
-    test('pagination with limit and offset', async () => {
-      const response = await global.api.apiCall('GET', '/voices?limit=2&offset=1');
-
-      expect(response.status).toBe(200);
-      const results = response.data.data || [];
-      expect(results.length).toBeLessThanOrEqual(2);
-    });
-
-    test('complex combined query accepted', async () => {
-      const ids = queryTestIds.slice(2, 5).join(',');
-      const response = await global.api.apiCall('GET', `/voices?search=Voice&filter[id][in]=${ids}&sort=-name&fields=id,name&limit=10`);
-
-      expect(response.status).toBe(200);
-    });
-
-    test('filter with not operator is accepted', async () => {
-      const response = await global.api.apiCall('GET', `/voices?filter[id][not]=${queryTestIds[0]}`);
-
-      // API accepts the not filter - behavior may vary
-      expect(response.status).toBe(200);
     });
   });
 
@@ -257,15 +267,14 @@ describe('Voices', () => {
     let voiceData;
 
     beforeAll(async () => {
-      // Create station for target_stations
-      const stationResponse = await global.api.apiCall('POST', '/stations', {
-        name: `VoiceTestStation_${Date.now()}`,
-        max_stories_per_block: 4,
-        pause_seconds: 2.0
-      });
-      expect(stationResponse.status).toBe(201);
-      stationId = global.api.parseJsonField(stationResponse.data, 'id');
-      global.resources.track('stations', stationId);
+      const station = await global.helpers.createStation(
+        global.resources,
+        'VoiceTestStation',
+        4,
+        2.0
+      );
+      expect(station).not.toBeNull();
+      stationId = station.id;
 
       // Create voice
       voiceData = await createVoice('Story Test Voice');
