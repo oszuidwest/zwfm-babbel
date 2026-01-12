@@ -4,48 +4,51 @@
  */
 
 const fs = require('fs');
+const bulletinsSchema = require('../lib/schemas/bulletins.schema');
+const { generateQueryTests } = require('../lib/generators');
 
 describe('Bulletins', () => {
-  // Helpers
-  const createStation = async (name) => {
-    const result = await global.helpers.createStation(global.resources, name);
-    return result ? result.id : null;
-  };
-
-  const createVoice = async (name) => {
-    const result = await global.helpers.createVoice(global.resources, name);
-    return result ? result.id : null;
-  };
-
-  const createStationVoiceWithJingle = async (stationId, voiceId, mixPoint = 3.0) => {
-    const result = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId, mixPoint);
-    return result ? result.id : null;
-  };
-
-  const createStoryWithAudio = async (title, text, voiceId, targetStations) => {
-    const result = await global.helpers.createStoryWithAudio(global.resources, {
-      title: `${title}_${Date.now()}`,
-      text,
-      voice_id: voiceId,
+  // Setup function - generates a bulletin for query tests
+  const setupQueryTestData = async () => {
+    const station = await global.helpers.createStation(global.resources, 'QueryBulletinStation');
+    const voice = await global.helpers.createVoice(global.resources, 'QueryBulletinVoice');
+    await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+    await global.helpers.createStoryWithAudio(global.resources, {
+      title: `QueryBulletinStory_${Date.now()}`,
+      text: 'Query test story',
+      voice_id: voice.id,
       weekdays: 127,
       status: 'active'
-    }, targetStations);
-    return result ? result.id : null;
+    }, [parseInt(station.id, 10)]);
+
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+    return response.status === 200 && response.data.id ? [response.data.id] : [];
   };
 
+  // Generate query parameter tests
+  generateQueryTests(bulletinsSchema, setupQueryTestData);
+
+  // === BUSINESS LOGIC TESTS ===
+
   describe('Bulletin Generation', () => {
-    let stationId, voice1Id, voice2Id;
+    let stationId, voiceId;
 
     beforeAll(async () => {
-      stationId = await createStation('Bulletin Test Station');
-      voice1Id = await createVoice('Bulletin Voice 1');
-      voice2Id = await createVoice('Bulletin Voice 2');
+      const station = await global.helpers.createStation(global.resources, 'BulletinGenStation');
+      const voice = await global.helpers.createVoice(global.resources, 'BulletinGenVoice');
+      stationId = station.id;
+      voiceId = voice.id;
 
-      await createStationVoiceWithJingle(stationId, voice1Id, 3.0);
-      await createStationVoiceWithJingle(stationId, voice2Id, 2.5);
-
-      await createStoryWithAudio('Breaking News', 'Breaking news content', voice1Id, [stationId]);
-      await createStoryWithAudio('Weather Update', 'Weather forecast', voice2Id, [stationId]);
+      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId, 3.0);
+      await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BulletinGenStory_${Date.now()}`,
+        text: 'Bulletin generation test story',
+        voice_id: voiceId,
+        weekdays: 127,
+        status: 'active'
+      }, [parseInt(stationId, 10)]);
 
       await new Promise(resolve => setTimeout(resolve, 3000));
     });
@@ -70,23 +73,6 @@ describe('Bulletins', () => {
   });
 
   describe('Bulletin Retrieval', () => {
-    test('lists all bulletins', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins');
-
-      expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('data');
-      expect(Array.isArray(response.data.data)).toBe(true);
-    });
-
-    test('pagination works', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?limit=2&offset=0');
-
-      expect(response.status).toBe(200);
-      expect(response.data.data.length).toBeLessThanOrEqual(2);
-    });
-  });
-
-  describe('Get Bulletin By ID', () => {
     test('retrieves single bulletin', async () => {
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
@@ -101,13 +87,10 @@ describe('Bulletins', () => {
 
     test('returns 404 for non-existent bulletin', async () => {
       const response = await global.api.apiCall('GET', '/bulletins/999999999');
-
       expect(response.status).toBe(404);
     });
-  });
 
-  describe('Bulletin Field Types', () => {
-    test('has correct field types', async () => {
+    test('bulletin has correct field types', async () => {
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (listResponse.data.data.length > 0) {
@@ -121,8 +104,6 @@ describe('Bulletins', () => {
         expect(typeof bulletin.audio_url).toBe('string');
         expect(typeof bulletin.filename).toBe('string');
         expect(typeof bulletin.duration_seconds).toBe('number');
-        expect(typeof bulletin.file_size).toBe('number');
-        expect(typeof bulletin.story_count).toBe('number');
       }
     });
   });
@@ -151,22 +132,29 @@ describe('Bulletins', () => {
     let stationId;
 
     beforeAll(async () => {
-      stationId = await createStation('Station Bulletin Test');
-      const voiceId = await createVoice('Station Bulletin Voice');
-      await createStationVoiceWithJingle(stationId, voiceId);
-      await createStoryWithAudio('Station Story', 'Content', voiceId, [stationId]);
+      const station = await global.helpers.createStation(global.resources, 'StationBulletinEndpoint');
+      const voice = await global.helpers.createVoice(global.resources, 'StationBulletinVoice');
+      stationId = station.id;
+
+      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voice.id);
+      await global.helpers.createStoryWithAudio(global.resources, {
+        title: `StationBulletinStory_${Date.now()}`,
+        text: 'Station endpoint test story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active'
+      }, [parseInt(stationId, 10)]);
+
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
 
     test('generates station-specific bulletin', async () => {
       const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
-
       expect(response.status).toBe(200);
     });
 
     test('lists station bulletins', async () => {
       const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins`);
-
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
     });
@@ -175,46 +163,12 @@ describe('Bulletins', () => {
   describe('Bulletin Error Cases', () => {
     test('non-existent station returns 404', async () => {
       const response = await global.api.apiCall('POST', '/stations/99999/bulletins', {});
-
       expect(response.status).toBe(404);
     });
 
     test('non-existent bulletin audio returns 404', async () => {
       const response = await global.api.apiCall('GET', '/bulletins/99999/audio');
-
       expect(response.status).toBe(404);
-    });
-  });
-
-  describe('Modern Query Parameters', () => {
-    test('search by filename', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?search=bulletin');
-
-      expect(response.status).toBe(200);
-    });
-
-    test('field selection', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?fields=id,filename,station_name&limit=3');
-
-      expect(response.status).toBe(200);
-      if (response.data.data.length > 0) {
-        const first = response.data.data[0];
-        expect(first).toHaveProperty('id');
-        expect(first).toHaveProperty('filename');
-        expect(first).toHaveProperty('station_name');
-      }
-    });
-
-    test('sort descending', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?sort=-created_at&limit=5');
-
-      expect(response.status).toBe(200);
-    });
-
-    test('filter by duration', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?filter[duration_seconds][gte]=0');
-
-      expect(response.status).toBe(200);
     });
   });
 
@@ -235,8 +189,7 @@ describe('Bulletins', () => {
       const today = new Date().toISOString().split('T')[0];
       const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const response = await global.api.apiCall('GET', `/bulletins?filter%5Bcreated_at%5D%5Bgte%5D=${yesterday}&filter%5Bcreated_at%5D%5Blte%5D=${today}`);
-
+      const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${yesterday}&filter[created_at][lte]=${today}`);
       expect(response.status).toBe(200);
     });
   });
