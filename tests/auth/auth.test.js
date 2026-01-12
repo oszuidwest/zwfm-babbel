@@ -1,6 +1,10 @@
 /**
  * Babbel authentication tests.
  * Tests basic authentication functionality including login, logout, and session management.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 describe('Authentication', () => {
@@ -15,12 +19,14 @@ describe('Authentication', () => {
   });
 
   describe('Auth Configuration', () => {
-    test('auth config endpoint is publicly accessible', async () => {
+    test('when fetching auth config, then publicly accessible', async () => {
+      // Act
       const response = await global.api.http({
         method: 'get',
         url: `${global.api.apiUrl}/auth/config`
       });
 
+      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('methods');
       expect(Array.isArray(response.data.methods)).toBe(true);
@@ -29,42 +35,52 @@ describe('Authentication', () => {
   });
 
   describe('Login Failures', () => {
-    test('rejects invalid username', async () => {
+    test('when username invalid, then returns 401', async () => {
+      // Act
       const response = await global.api.apiCall('POST', '/sessions', {
         username: 'nonexistent',
         password: 'password'
       });
 
+      // Assert
       expect(response.status).toBe(401);
     });
 
-    test('rejects invalid password', async () => {
+    test('when password invalid, then returns 401', async () => {
+      // Act
       const response = await global.api.apiCall('POST', '/sessions', {
         username: 'admin',
         password: 'wrongpassword'
       });
 
+      // Assert
       expect(response.status).toBe(401);
     });
 
-    test('rejects empty credentials', async () => {
+    test('when credentials empty, then returns error', async () => {
+      // Act
       const response = await global.api.apiCall('POST', '/sessions', {});
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
   });
 
   describe('Successful Login', () => {
-    test('admin login succeeds and creates active session', async () => {
+    test('when admin logs in, then session created', async () => {
+      // Act
       const loginResponse = await global.api.apiLogin('admin', 'admin');
 
+      // Assert
       expect(loginResponse.status).toBe(201);
       expect(await global.api.isSessionActive()).toBe(true);
     });
 
-    test('session contains correct user information', async () => {
+    test('when session active, then contains user info', async () => {
+      // Act
       const sessionInfo = await global.api.getCurrentSession();
 
+      // Assert
       expect(sessionInfo).not.toBeNull();
       expect(sessionInfo.username).toBe('admin');
       expect(sessionInfo.role).toBe('admin');
@@ -76,25 +92,32 @@ describe('Authentication', () => {
       await global.api.apiLogin('admin', 'admin');
     });
 
-    test('can retrieve current session', async () => {
+    test('when fetching session, then returns current user', async () => {
+      // Act
       const sessionInfo = await global.api.getCurrentSession();
 
+      // Assert
       expect(sessionInfo).not.toBeNull();
       expect(sessionInfo).toHaveProperty('username');
     });
 
-    test('logout destroys session', async () => {
+    test('when logging out, then session destroyed', async () => {
+      // Act
       const logoutResponse = await global.api.apiLogout();
 
+      // Assert
       expect(logoutResponse.status).toBe(204);
       expect(await global.api.isSessionActive()).toBe(false);
     });
 
-    test('protected endpoint rejects after logout', async () => {
+    test('when accessing protected endpoint after logout, then rejected', async () => {
+      // Arrange
       await global.api.apiLogout();
 
+      // Act
       const response = await global.api.apiCall('GET', '/sessions/current');
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
   });
@@ -113,10 +136,12 @@ describe('Authentication', () => {
     ];
 
     test.each(protectedEndpoints)(
-      'rejects unauthorized access to $method $endpoint',
+      'when unauthorized accessing $method $endpoint, then rejected',
       async ({ method, endpoint }) => {
+        // Act
         const response = await global.api.apiCall(method, endpoint);
 
+        // Assert
         expect(response.status).toBeHttpError();
       }
     );
@@ -127,7 +152,8 @@ describe('Authentication', () => {
       await global.api.clearCookies();
     });
 
-    test('rejects invalid session token', async () => {
+    test('when session token invalid, then rejected', async () => {
+      // Act
       const response = await global.api.http({
         method: 'get',
         url: `${global.api.apiUrl}/sessions/current`,
@@ -136,10 +162,12 @@ describe('Authentication', () => {
         }
       });
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
 
-    test('rejects malformed session token', async () => {
+    test('when session token malformed, then rejected', async () => {
+      // Act
       const response = await global.api.http({
         method: 'get',
         url: `${global.api.apiUrl}/sessions/current`,
@@ -148,6 +176,7 @@ describe('Authentication', () => {
         }
       });
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
   });

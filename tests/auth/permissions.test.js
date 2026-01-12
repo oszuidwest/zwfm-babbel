@@ -1,6 +1,10 @@
 /**
  * Babbel permissions tests.
  * Tests role-based access control (RBAC) functionality across different user roles.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 describe('Permissions', () => {
@@ -59,8 +63,11 @@ describe('Permissions', () => {
       await restoreAdmin();
     });
 
-    test('admin can create users', async () => {
+    test('when admin creates user, then succeeds', async () => {
+      // Arrange
       const uniqueUsername = `testadminuser${Date.now()}`;
+
+      // Act
       const response = await global.api.apiCall('POST', '/users', {
         username: uniqueUsername,
         full_name: 'Test Admin User',
@@ -68,30 +75,39 @@ describe('Permissions', () => {
         role: 'editor'
       });
 
+      // Assert
       expect([201, 409]).toContain(response.status);
 
+      // Cleanup
       if (response.status === 201) {
         const userId = global.api.parseJsonField(response.data, 'id');
         if (userId) createdUserIds.push(userId);
       }
     });
 
-    test('admin can list users', async () => {
+    test('when admin lists users, then returns list', async () => {
+      // Arrange: Admin session from beforeAll
+
+      // Act
       const response = await global.api.apiCall('GET', '/users');
 
+      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
     });
 
-    test('admin can update users', async () => {
+    test('when admin updates user, then succeeds', async () => {
+      // Arrange
       const userId = await createUser(`updatetest${Date.now()}`, 'Update Test', 'testpass123', 'viewer');
       expect(userId).not.toBeNull();
 
+      // Act
       const response = await global.api.apiCall('PUT', `/users/${userId}`, {
         full_name: 'Updated Test User',
         role: 'viewer'
       });
 
+      // Assert
       expect(response.status).toBe(200);
     });
   });
@@ -100,13 +116,13 @@ describe('Permissions', () => {
     let editorUsername;
 
     beforeAll(async () => {
+      // Arrange: Create editor and switch session
       await restoreAdmin();
 
       editorUsername = `testeditor${Date.now()}`;
       const editorId = await createUser(editorUsername, 'Test Editor', 'testpass123', 'editor');
       expect(editorId).not.toBeNull();
 
-      // Switch to editor
       const switched = await switchToUser(editorUsername, 'testpass123');
       expect(switched).toBe(true);
     });
@@ -117,42 +133,60 @@ describe('Permissions', () => {
 
     const readEndpoints = ['/stations', '/voices', '/stories', '/bulletins'];
 
-    test.each(readEndpoints)('editor can read %s', async (endpoint) => {
+    test.each(readEndpoints)('when editor reads %s, then succeeds', async (endpoint) => {
+      // Arrange: Editor session from beforeAll
+
+      // Act
       const response = await global.api.apiCall('GET', endpoint);
 
+      // Assert
       expect(response.status).toBe(200);
     });
 
-    test('editor can create stations', async () => {
-      const response = await global.api.apiCall('POST', '/stations', {
+    test('when editor creates station, then succeeds', async () => {
+      // Arrange
+      const stationData = {
         name: `Editor Test Station ${Date.now()}`,
         max_stories_per_block: 5,
         pause_seconds: 2.0
-      });
+      };
 
+      // Act
+      const response = await global.api.apiCall('POST', '/stations', stationData);
+
+      // Assert
       expect(response.status).toBe(201);
 
-      // Track for cleanup
+      // Cleanup
       if (response.status === 201) {
         const id = global.api.parseJsonField(response.data, 'id');
         if (id) global.resources.track('stations', id);
       }
     });
 
-    test('editor cannot create users', async () => {
-      const response = await global.api.apiCall('POST', '/users', {
+    test('when editor creates user, then forbidden', async () => {
+      // Arrange
+      const userData = {
         username: 'unauthorized',
         full_name: 'Unauthorized User',
         password: 'test',
         role: 'viewer'
-      });
+      };
 
+      // Act
+      const response = await global.api.apiCall('POST', '/users', userData);
+
+      // Assert
       expect(response.status).toBeHttpError();
     });
 
-    test('editor cannot delete users', async () => {
+    test('when editor deletes user, then forbidden', async () => {
+      // Arrange: Editor session from beforeAll (no delete permission)
+
+      // Act
       const response = await global.api.apiCall('DELETE', '/users/1');
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
   });
@@ -161,13 +195,13 @@ describe('Permissions', () => {
     let viewerUsername;
 
     beforeAll(async () => {
+      // Arrange: Create viewer and switch session
       await restoreAdmin();
 
       viewerUsername = `testviewer${Date.now()}`;
       const viewerId = await createUser(viewerUsername, 'Test Viewer', 'testpass123', 'viewer');
       expect(viewerId).not.toBeNull();
 
-      // Switch to viewer
       const switched = await switchToUser(viewerUsername, 'testpass123');
       expect(switched).toBe(true);
     });
@@ -178,43 +212,64 @@ describe('Permissions', () => {
 
     const readEndpoints = ['/stations', '/voices', '/stories', '/bulletins'];
 
-    test.each(readEndpoints)('viewer can read %s', async (endpoint) => {
+    test.each(readEndpoints)('when viewer reads %s, then succeeds', async (endpoint) => {
+      // Arrange: Viewer session from beforeAll
+
+      // Act
       const response = await global.api.apiCall('GET', endpoint);
 
+      // Assert
       expect(response.status).toBe(200);
     });
 
-    test('viewer cannot create stations', async () => {
-      const response = await global.api.apiCall('POST', '/stations', {
+    test('when viewer creates station, then forbidden', async () => {
+      // Arrange
+      const stationData = {
         name: 'Viewer Test Station',
         max_stories_per_block: 5,
         pause_seconds: 2.0
-      });
+      };
 
+      // Act
+      const response = await global.api.apiCall('POST', '/stations', stationData);
+
+      // Assert
       expect(response.status).toBeHttpError();
     });
 
-    test('viewer cannot create voices', async () => {
-      const response = await global.api.apiCall('POST', '/voices', {
-        name: 'Viewer Test Voice'
-      });
+    test('when viewer creates voice, then forbidden', async () => {
+      // Arrange
+      const voiceData = { name: 'Viewer Test Voice' };
 
+      // Act
+      const response = await global.api.apiCall('POST', '/voices', voiceData);
+
+      // Assert
       expect(response.status).toBeHttpError();
     });
 
-    test('viewer cannot create stories', async () => {
-      const response = await global.api.apiCall('POST', '/stories', {
+    test('when viewer creates story, then forbidden', async () => {
+      // Arrange
+      const storyData = {
         title: 'Viewer Test Story',
         content: 'Test',
         voice_id: 1
-      });
+      };
 
+      // Act
+      const response = await global.api.apiCall('POST', '/stories', storyData);
+
+      // Assert
       expect(response.status).toBeHttpError();
     });
 
-    test('viewer cannot list users', async () => {
+    test('when viewer lists users, then forbidden', async () => {
+      // Arrange: Viewer session from beforeAll (no user access)
+
+      // Act
       const response = await global.api.apiCall('GET', '/users');
 
+      // Assert
       expect(response.status).toBeHttpError();
     });
   });
@@ -223,6 +278,7 @@ describe('Permissions', () => {
     let suspendedUsername;
 
     beforeAll(async () => {
+      // Arrange: Create and suspend a user
       await restoreAdmin();
 
       suspendedUsername = `suspendeduser${Date.now()}`;
@@ -234,12 +290,16 @@ describe('Permissions', () => {
       expect(response.status).toBe(204);
     });
 
-    test('suspended user cannot login', async () => {
+    test('when suspended user logs in, then rejected', async () => {
+      // Arrange: Suspended user created in beforeAll
+
+      // Act
       const response = await global.api.apiCall('POST', '/sessions', {
         username: suspendedUsername,
         password: 'testpass123'
       });
 
+      // Assert
       expect(response.status).toBe(401);
     });
   });

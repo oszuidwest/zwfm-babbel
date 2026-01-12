@@ -1,6 +1,10 @@
 /**
  * Babbel automation endpoint tests.
  * Tests the public automation endpoint for radio automation systems.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 describe('Automation', () => {
@@ -58,81 +62,99 @@ describe('Automation', () => {
   };
 
   describe('API Key Validation', () => {
-    test('missing API key returns 401', async () => {
+    test('when API key missing, then returns 401', async () => {
+      // Act
       const response = await publicBulletinRequest(1, { max_age: '3600' });
 
+      // Assert
       expect(response.status).toBe(401);
     });
 
-    test('invalid API key returns 401', async () => {
+    test('when API key invalid, then returns 401', async () => {
+      // Act
       const response = await publicBulletinRequest(1, {
         key: 'wrong-key',
         max_age: '3600'
       });
 
+      // Assert
       expect(response.status).toBe(401);
     });
   });
 
   describe('Parameter Validation', () => {
-    test('missing max_age returns 422', async () => {
+    test('when max_age missing, then returns 422', async () => {
+      // Act
       const response = await publicBulletinRequest(1, {
         key: automationKey
       });
 
+      // Assert
       expect(response.status).toBe(422);
     });
 
-    test('invalid max_age returns 422', async () => {
+    test('when max_age invalid, then returns 422', async () => {
+      // Act
       const response = await publicBulletinRequest(1, {
         key: automationKey,
         max_age: 'invalid'
       });
 
+      // Assert
       expect(response.status).toBe(422);
     });
 
-    test('negative max_age returns 422', async () => {
+    test('when max_age negative, then returns 422', async () => {
+      // Act
       const response = await publicBulletinRequest(1, {
         key: automationKey,
         max_age: '-100'
       });
 
+      // Assert
       expect(response.status).toBe(422);
     });
 
-    test('invalid station ID returns 422', async () => {
+    test('when station ID invalid, then returns 422', async () => {
+      // Arrange
       const url = `${publicBase}/public/stations/invalid/bulletin.wav?key=${automationKey}&max_age=3600`;
 
+      // Act
       const response = await global.api.http({
         method: 'get',
         url: url,
         validateStatus: () => true
       });
 
+      // Assert
       expect(response.status).toBe(422);
     });
   });
 
   describe('Station Validation', () => {
-    test('non-existent station returns 404', async () => {
+    test('when station non-existent, then returns 404', async () => {
+      // Act
       const response = await publicBulletinRequest(999999, {
         key: automationKey,
         max_age: '3600'
       });
 
+      // Assert
       expect(response.status).toBe(404);
     });
 
-    test('station with no stories returns 422', async () => {
+    test('when station has no stories, then returns 422', async () => {
+      // Arrange
       const stationId = await createStation('Empty Automation Station');
       expect(stationId).not.toBeNull();
 
+      // Act
       const response = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
+      // Assert
       expect(response.status).toBe(422);
     });
   });
@@ -141,6 +163,7 @@ describe('Automation', () => {
     let stationId, voiceId;
 
     beforeAll(async () => {
+      // Arrange: Create full station setup
       stationId = await createStation('Automation Test Station');
       voiceId = await createVoice('Automation Test Voice');
 
@@ -159,12 +182,16 @@ describe('Automation', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
 
-    test('returns audio with correct content-type', async () => {
+    test('when requesting bulletin, then returns audio', async () => {
+      // Arrange: Uses station setup from beforeAll
+
+      // Act
       const response = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
+      // Assert
       expect(response.status).toBe(200);
       expect(response.contentType).toContain('audio/wav');
       expect(response.data.length).toBeGreaterThan(1000);
@@ -175,6 +202,7 @@ describe('Automation', () => {
     let stationId;
 
     beforeAll(async () => {
+      // Arrange: Create station with story
       stationId = await createStation('Caching Test Station');
       const voiceId = await createVoice('Caching Test Voice');
 
@@ -192,19 +220,23 @@ describe('Automation', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
 
-    test('first request generates new bulletin', async () => {
+    test('when first request, then generates new bulletin', async () => {
+      // Arrange: Uses station setup from beforeAll
+
+      // Act
       const response = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
+      // Assert
       expect(response.status).toBe(200);
       expect(response.headers['x-bulletin-cached']).toBe('false');
       expect(response.headers['x-bulletin-id']).toBeDefined();
     });
 
-    test('subsequent request returns cached bulletin', async () => {
-      // First request generates new bulletin
+    test('when subsequent request, then returns cached', async () => {
+      // Arrange: First request generates new bulletin
       const response1 = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
@@ -212,15 +244,15 @@ describe('Automation', () => {
       expect(response1.status).toBe(200);
       expect(response1.headers['x-bulletin-id']).toBeDefined();
 
-      // Second request with high max_age should use cache
+      // Act: Second request with high max_age should use cache
       const response2 = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '3600'
       });
 
+      // Assert
       expect(response2.status).toBe(200);
       expect(response2.headers['x-bulletin-cached']).toBe('true');
-      // Cache may return any recent bulletin for this station
       expect(response2.headers['x-bulletin-id']).toBeDefined();
     });
   });
@@ -229,6 +261,7 @@ describe('Automation', () => {
     let stationId, voiceId;
 
     beforeAll(async () => {
+      // Arrange: Create station and voice
       stationId = await createStation('Timezone Test Station');
       voiceId = await createVoice('Timezone Test Voice');
 
@@ -236,14 +269,14 @@ describe('Automation', () => {
       expect(svId).not.toBeNull();
     });
 
-    test('single-day story scheduling works correctly', async () => {
+    test('when single-day story, then scheduling works correctly', async () => {
       // Skip if ffmpeg not available
       if (!global.helpers.isFFmpegAvailable()) {
         console.log('Skipping timezone test - ffmpeg not available');
         return;
       }
 
-      // Create test audio
+      // Arrange: Create test audio
       const audioFile = `/tmp/test_story_timezone_${Date.now()}.wav`;
       const audioCreated = global.helpers.createTestAudioFile(audioFile, 3, 330);
 
@@ -259,14 +292,14 @@ describe('Automation', () => {
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      // Create story with JSON
+      // Create story valid only today
       const storyResponse = await global.api.apiCall('POST', '/stories', {
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
         voice_id: parseInt(voiceId, 10),
         status: 'active',
         start_date: todayStr,
-        end_date: todayStr, // Same as start - valid only today
+        end_date: todayStr,
         weekdays: 127,
         target_stations: [parseInt(stationId, 10)]
       });
@@ -284,17 +317,18 @@ describe('Automation', () => {
       );
       expect(uploadResponse.status).toBe(201);
 
+      // Cleanup
       global.helpers.cleanupTempFile(audioFile);
 
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Request bulletin
+      // Act
       const response = await publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      // Should succeed - story should not be incorrectly marked as expired
+      // Assert: Story should not be incorrectly marked as expired
       expect(response.status).toBe(200);
     });
   });

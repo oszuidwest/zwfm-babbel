@@ -1,6 +1,11 @@
 /**
  * QueryTestGenerator - Generates query parameter tests for API resources.
  * Covers: search, sort, filter (exact, in, not, gte, lte, between), pagination, field selection.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
+ * - Test independence via beforeAll setup
  */
 
 /**
@@ -27,14 +32,22 @@ function generateQueryTests(schema, setupFn = null) {
     // === SEARCH TESTS ===
     if (query.searchFields?.length > 0) {
       describe('Search', () => {
-        test('search parameter returns 200', async () => {
+        test('when searching, then returns 200', async () => {
+          // Act
           const response = await global.api.apiCall('GET', `${endpoint}?search=test`);
+
+          // Assert
           expect(response.status).toBe(200);
           expect(response.data).toHaveProperty('data');
         });
 
-        test('empty search returns all results', async () => {
+        test('when search empty, then returns all', async () => {
+          // Arrange: (none - empty search parameter)
+
+          // Act
           const response = await global.api.apiCall('GET', `${endpoint}?search=`);
+
+          // Assert
           expect(response.status).toBe(200);
         });
       });
@@ -44,10 +57,12 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
-          test(`sorts ascending by ${field}`, async () => {
+          test(`when sorting asc by ${field}, then ordered correctly`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?sort=${field}`);
-            expect(response.status).toBe(200);
 
+            // Assert
+            expect(response.status).toBe(200);
             const results = response.data.data || [];
             if (results.length > 1) {
               const isSorted = results.every((item, i) => {
@@ -62,10 +77,12 @@ function generateQueryTests(schema, setupFn = null) {
             }
           });
 
-          test(`sorts descending by ${field}`, async () => {
+          test(`when sorting desc by ${field}, then ordered correctly`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?sort=-${field}`);
-            expect(response.status).toBe(200);
 
+            // Assert
+            expect(response.status).toBe(200);
             const results = response.data.data || [];
             if (results.length > 1) {
               const isSorted = results.every((item, i) => {
@@ -82,17 +99,27 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         if (query.sortableFields.length >= 2) {
-          test('accepts multiple sort fields', async () => {
+          test('when sorting by multiple fields, then accepted', async () => {
+            // Arrange
             const fields = query.sortableFields.slice(0, 2);
+
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?sort=${fields.join(',')}`);
+
+            // Assert
             expect(response.status).toBe(200);
           });
 
-          test('accepts mixed sort directions', async () => {
+          test('when sorting with mixed directions, then accepted', async () => {
+            // Arrange: (none - inline sort parameters)
+
+            // Act
             const response = await global.api.apiCall(
               'GET',
               `${endpoint}?sort=${query.sortableFields[0]},-${query.sortableFields[1]}`
             );
+
+            // Assert
             expect(response.status).toBe(200);
           });
         }
@@ -104,18 +131,31 @@ function generateQueryTests(schema, setupFn = null) {
       describe('Filtering', () => {
         // Basic filter operations for all fields
         query.filterableFields.forEach(field => {
-          test(`filters by ${field} with exact match`, async () => {
+          test(`when filtering ${field} exact, then matches`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}]=1`);
+
+            // Assert
             expect(response.status).toBe(200);
           });
 
-          test(`filters by ${field} with in operator`, async () => {
+          test(`when filtering ${field} with in, then matches`, async () => {
+            // Arrange: (none - inline filter values)
+
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][in]=1,2,3`);
+
+            // Assert
             expect(response.status).toBe(200);
           });
 
-          test(`filters by ${field} with not operator`, async () => {
+          test(`when filtering ${field} with not, then excludes`, async () => {
+            // Arrange: (none - inline filter value)
+
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][not]=999999`);
+
+            // Assert
             expect(response.status).toBe(200);
           });
         });
@@ -126,10 +166,12 @@ function generateQueryTests(schema, setupFn = null) {
         );
 
         numericFields.forEach(field => {
-          test(`filters by ${field} with gte operator`, async () => {
+          test(`when filtering ${field} with gte, then filters correctly`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][gte]=1`);
-            expect(response.status).toBe(200);
 
+            // Assert
+            expect(response.status).toBe(200);
             const results = response.data.data || [];
             results.forEach(item => {
               if (item[field] !== null && item[field] !== undefined) {
@@ -138,15 +180,20 @@ function generateQueryTests(schema, setupFn = null) {
             });
           });
 
-          test(`filters by ${field} with lte operator`, async () => {
+          test(`when filtering ${field} with lte, then filters correctly`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][lte]=999999`);
+
+            // Assert
             expect(response.status).toBe(200);
           });
 
-          test(`filters by ${field} with between operator`, async () => {
+          test(`when filtering ${field} with between, then filters range`, async () => {
+            // Act
             const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][between]=1,999999`);
-            expect(response.status).toBe(200);
 
+            // Assert
+            expect(response.status).toBe(200);
             const results = response.data.data || [];
             results.forEach(item => {
               if (item[field] !== null && item[field] !== undefined) {
@@ -159,13 +206,18 @@ function generateQueryTests(schema, setupFn = null) {
 
         // Test combining multiple filters
         if (query.filterableFields.length >= 2) {
-          test('accepts multiple filters combined', async () => {
+          test('when combining multiple filters, then accepted', async () => {
+            // Arrange
             const f1 = query.filterableFields[0];
             const f2 = query.filterableFields[1];
+
+            // Act
             const response = await global.api.apiCall(
               'GET',
               `${endpoint}?filter[${f1}][gte]=1&filter[${f2}][not]=999999`
             );
+
+            // Assert
             expect(response.status).toBe(200);
           });
         }
@@ -174,29 +226,41 @@ function generateQueryTests(schema, setupFn = null) {
 
     // === PAGINATION TESTS ===
     describe('Pagination', () => {
-      test('pagination with limit', async () => {
+      test('when paginating with limit, then respects limit', async () => {
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?limit=2`);
+
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data.data.length).toBeLessThanOrEqual(2);
       });
 
-      test('pagination with limit and offset', async () => {
+      test('when paginating with offset, then skips records', async () => {
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?limit=2&offset=1`);
+
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data.data.length).toBeLessThanOrEqual(2);
         expect(response.data).toHaveProperty('offset', 1);
       });
 
-      test('response includes pagination metadata', async () => {
+      test('when paginating, then includes metadata', async () => {
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?limit=5`);
+
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data).toHaveProperty('total');
         expect(response.data).toHaveProperty('limit');
         expect(response.data).toHaveProperty('offset');
       });
 
-      test('large offset returns empty data array', async () => {
+      test('when offset exceeds data, then returns empty array', async () => {
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?limit=10&offset=999999`);
+
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data.data).toEqual([]);
       });
@@ -205,14 +269,18 @@ function generateQueryTests(schema, setupFn = null) {
     // === FIELD SELECTION TESTS ===
     if (query.selectableFields?.length > 0) {
       describe('Field Selection', () => {
-        test('returns only requested fields', async () => {
+        test('when selecting fields, then returns only those', async () => {
+          // Arrange
           const requestedFields = ['id', query.selectableFields[1]].filter(Boolean);
+
+          // Act
           const response = await global.api.apiCall(
             'GET',
             `${endpoint}?fields=${requestedFields.join(',')}`
           );
-          expect(response.status).toBe(200);
 
+          // Assert
+          expect(response.status).toBe(200);
           const results = response.data.data || [];
           if (results.length > 0) {
             requestedFields.forEach(field => {
@@ -230,17 +298,19 @@ function generateQueryTests(schema, setupFn = null) {
           }
         });
 
-        test('field selection with timestamps', async () => {
-          // Only include updated_at if it's in selectableFields
+        test('when selecting timestamps, then includes them', async () => {
+          // Arrange
           const hasUpdatedAt = query.selectableFields?.includes('updated_at');
           const fields = hasUpdatedAt ? 'id,created_at,updated_at' : 'id,created_at';
 
+          // Act
           const response = await global.api.apiCall(
             'GET',
             `${endpoint}?fields=${fields}`
           );
-          expect(response.status).toBe(200);
 
+          // Assert
+          expect(response.status).toBe(200);
           const results = response.data.data || [];
           if (results.length > 0) {
             expect(results[0]).toHaveProperty('id');
@@ -251,10 +321,12 @@ function generateQueryTests(schema, setupFn = null) {
           }
         });
 
-        test('selecting single field works', async () => {
+        test('when selecting single field, then works', async () => {
+          // Act
           const response = await global.api.apiCall('GET', `${endpoint}?fields=id`);
-          expect(response.status).toBe(200);
 
+          // Assert
+          expect(response.status).toBe(200);
           const results = response.data.data || [];
           if (results.length > 0) {
             expect(results[0]).toHaveProperty('id');
@@ -265,9 +337,9 @@ function generateQueryTests(schema, setupFn = null) {
 
     // === COMBINED QUERY TESTS ===
     describe('Combined Queries', () => {
-      test('complex combined query accepted', async () => {
+      test('when combining all query types, then accepted', async () => {
+        // Arrange
         const params = new URLSearchParams();
-
         if (query.searchFields?.length > 0) {
           params.append('search', 'test');
         }
@@ -282,13 +354,16 @@ function generateQueryTests(schema, setupFn = null) {
         }
         params.append('limit', '10');
 
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?${params}`);
+
+        // Assert
         expect(response.status).toBe(200);
       });
 
-      test('search + sort + pagination combined', async () => {
+      test('when combining search sort pagination, then works', async () => {
+        // Arrange
         const params = new URLSearchParams();
-
         if (query.searchFields?.length > 0) {
           params.append('search', 'a');
         }
@@ -298,7 +373,10 @@ function generateQueryTests(schema, setupFn = null) {
         params.append('limit', '5');
         params.append('offset', '0');
 
+        // Act
         const response = await global.api.apiCall('GET', `${endpoint}?${params}`);
+
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data.data.length).toBeLessThanOrEqual(5);
       });

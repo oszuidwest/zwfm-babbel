@@ -1,6 +1,10 @@
 /**
  * Babbel voices tests.
  * Tests voice management functionality including CRUD operations, queries, and validation.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 const voicesSchema = require('../lib/schemas/voices.schema');
@@ -20,7 +24,7 @@ describe('Voices', () => {
     let voiceId;
 
     beforeAll(async () => {
-      // Create station for story target
+      // Arrange: Create station and voice for dependency testing
       const station = await global.helpers.createStation(
         global.resources,
         'VoiceTestStation',
@@ -30,14 +34,13 @@ describe('Voices', () => {
       expect(station).not.toBeNull();
       stationId = station.id;
 
-      // Create voice to test with
       const voice = await global.helpers.createVoice(global.resources, 'AssociatedVoice');
       expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 
-    test('voice deletion behavior with associated stories', async () => {
-      // Create story with voice
+    test('when deleting voice with stories, then protected or cascades', async () => {
+      // Arrange: Create story with voice dependency
       const storyData = {
         title: 'Voice Association Test Story',
         text: 'Test content for voice association.',
@@ -55,12 +58,14 @@ describe('Voices', () => {
       const storyId = global.api.parseJsonField(storyResponse.data, 'id');
       global.resources.track('stories', storyId);
 
-      // Try to delete the voice - should fail with 409 (protected) or succeed with cascade
+      // Act
       const deleteResponse = await global.api.apiCall('DELETE', `/voices/${voiceId}`);
+
+      // Assert: Should either protect (409) or cascade delete (204)
       expect([204, 409]).toContain(deleteResponse.status);
 
+      // Cleanup: Untrack if deleted
       if (deleteResponse.status === 204) {
-        // Voice was deleted, untrack it
         global.resources.untrack('voices', voiceId);
       }
     });

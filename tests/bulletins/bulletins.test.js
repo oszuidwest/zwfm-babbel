@@ -1,6 +1,10 @@
 /**
  * Babbel bulletins tests.
  * Tests bulletin generation and audio handling functionality.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 const fs = require('fs');
@@ -36,6 +40,7 @@ describe('Bulletins', () => {
     let stationId, voiceId;
 
     beforeAll(async () => {
+      // Arrange: Create dependencies for bulletin generation
       const station = await global.helpers.createStation(global.resources, 'BulletinGenStation');
       const voice = await global.helpers.createVoice(global.resources, 'BulletinGenVoice');
       stationId = station.id;
@@ -53,9 +58,13 @@ describe('Bulletins', () => {
       await new Promise(resolve => setTimeout(resolve, 3000));
     });
 
-    test('generates bulletin successfully', async () => {
+    test('when generating bulletin, then returns complete data', async () => {
+      // Arrange: Uses station setup from beforeAll
+
+      // Act
       const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
 
+      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('id');
       expect(response.data).toHaveProperty('audio_url');
@@ -64,40 +73,55 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test('generates bulletin with specific date', async () => {
+    test('when generating with specific date, then succeeds', async () => {
+      // Arrange
       const today = new Date().toISOString().split('T')[0];
+
+      // Act
       const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, { date: today });
 
+      // Assert
       expect(response.status).toBe(200);
     });
   });
 
   describe('Bulletin Retrieval', () => {
-    test('retrieves single bulletin', async () => {
+    test('when fetching single bulletin, then returns data', async () => {
+      // Arrange
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (listResponse.data.data.length > 0) {
         const bulletinId = listResponse.data.data[0].id;
+
+        // Act
         const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
 
+        // Assert
         expect(response.status).toBe(200);
         expect(response.data.id).toBe(bulletinId);
       }
     });
 
-    test('returns 404 for non-existent bulletin', async () => {
+    test('when fetching non-existent bulletin, then returns 404', async () => {
+      // Act
       const response = await global.api.apiCall('GET', '/bulletins/999999999');
+
+      // Assert
       expect(response.status).toBe(404);
     });
 
-    test('bulletin has correct field types', async () => {
+    test('when fetching bulletin, then has correct field types', async () => {
+      // Arrange
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (listResponse.data.data.length > 0) {
         const bulletinId = listResponse.data.data[0].id;
+
+        // Act
         const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
         const bulletin = response.data;
 
+        // Assert
         expect(typeof bulletin.id).toBe('number');
         expect(typeof bulletin.station_id).toBe('number');
         expect(typeof bulletin.station_name).toBe('string');
@@ -109,19 +133,24 @@ describe('Bulletins', () => {
   });
 
   describe('Bulletin Audio Download', () => {
-    test('downloads audio file', async () => {
+    test('when downloading audio, then file is valid', async () => {
+      // Arrange
       const response = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (response.data.data.length > 0) {
         const bulletinId = response.data.data[0].id;
         const downloadPath = '/tmp/test_bulletin_download.wav';
 
+        // Act
         const downloadResponse = await global.api.downloadFile(`/bulletins/${bulletinId}/audio`, downloadPath);
 
+        // Assert
         if (downloadResponse === 200) {
           expect(fs.existsSync(downloadPath)).toBe(true);
           const stats = fs.statSync(downloadPath);
           expect(stats.size).toBeGreaterThan(1000);
+
+          // Cleanup
           fs.unlinkSync(downloadPath);
         }
       }
@@ -132,6 +161,7 @@ describe('Bulletins', () => {
     let stationId;
 
     beforeAll(async () => {
+      // Arrange: Create station with full setup
       const station = await global.helpers.createStation(global.resources, 'StationBulletinEndpoint');
       const voice = await global.helpers.createVoice(global.resources, 'StationBulletinVoice');
       stationId = station.id;
@@ -148,34 +178,52 @@ describe('Bulletins', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
 
-    test('generates station-specific bulletin', async () => {
+    test('when generating station bulletin, then succeeds', async () => {
+      // Arrange: Uses station setup from beforeAll
+
+      // Act
       const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+
+      // Assert
       expect(response.status).toBe(200);
     });
 
-    test('lists station bulletins', async () => {
+    test('when listing station bulletins, then returns data', async () => {
+      // Arrange: Uses station setup from beforeAll
+
+      // Act
       const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins`);
+
+      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
     });
   });
 
   describe('Bulletin Error Cases', () => {
-    test('non-existent station returns 404', async () => {
+    test('when station non-existent, then returns 404', async () => {
+      // Act
       const response = await global.api.apiCall('POST', '/stations/99999/bulletins', {});
+
+      // Assert
       expect(response.status).toBe(404);
     });
 
-    test('non-existent bulletin audio returns 404', async () => {
+    test('when bulletin audio non-existent, then returns 404', async () => {
+      // Act
       const response = await global.api.apiCall('GET', '/bulletins/99999/audio');
+
+      // Assert
       expect(response.status).toBe(404);
     });
   });
 
   describe('Bulletin History', () => {
-    test('lists history sorted by date', async () => {
+    test('when listing with sort, then ordered by date', async () => {
+      // Act
       const response = await global.api.apiCall('GET', '/bulletins?sort=-created_at');
 
+      // Assert
       expect(response.status).toBe(200);
       const bulletins = response.data.data || [];
       if (bulletins.length > 1) {
@@ -185,11 +233,15 @@ describe('Bulletins', () => {
       }
     });
 
-    test('date range filtering', async () => {
+    test('when filtering by date range, then returns matching', async () => {
+      // Arrange
       const today = new Date().toISOString().split('T')[0];
       const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+      // Act
       const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${yesterday}&filter[created_at][lte]=${today}`);
+
+      // Assert
       expect(response.status).toBe(200);
     });
   });
