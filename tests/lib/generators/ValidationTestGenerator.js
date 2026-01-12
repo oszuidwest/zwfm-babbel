@@ -1,13 +1,19 @@
 /**
  * ValidationTestGenerator - Generates field validation tests for API resources.
  * Covers: required fields, type validation, boundaries, unique constraints.
+ *
+ * Follows Jest best practices:
+ * - AAA pattern (Arrange, Act, Assert)
+ * - "when...then" naming convention
  */
 
 /**
  * Generates validation tests based on resource schema.
  * @param {Object} schema - Resource schema with validation configuration
+ * @param {Function} [setupFn] - Optional async function to create dependencies, returns object to merge with createValidData.
+ *                               Called fresh for tests that create resources (important for unique constraint resources).
  */
-function generateValidationTests(schema) {
+function generateValidationTests(schema, setupFn = null) {
   const { endpoint, name, namePlural, createValidData, validation } = schema;
 
   if (!validation?.fields) {
@@ -17,28 +23,67 @@ function generateValidationTests(schema) {
   const { fields } = validation;
 
   describe(`${name} Validation`, () => {
+    // For validation tests that expect rejection (422), we can reuse dependencies
+    // For tests that create resources (201), we need fresh dependencies
+    let sharedDependencyData = {};
+
+    // Helper to create data with shared dependencies (for rejection tests)
+    const createDataWithSharedDeps = (suffix) => ({
+      ...createValidData(suffix),
+      ...sharedDependencyData
+    });
+
+    // Helper to create data with fresh dependencies (for creation tests)
+    const createDataWithFreshDeps = async (suffix) => {
+      const deps = setupFn ? await setupFn() : {};
+      return {
+        ...createValidData(suffix),
+        ...deps
+      };
+    };
+
+    beforeAll(async () => {
+      // Setup shared dependencies for rejection tests
+      if (setupFn) {
+        sharedDependencyData = await setupFn();
+      }
+    });
+
     // === REQUIRED FIELD TESTS ===
     describe('Required Fields', () => {
-      test('rejects empty data', async () => {
+      test('when data empty, then returns 422', async () => {
+        // Arrange: (none - empty payload to trigger validation)
+
+        // Act
         const response = await global.api.apiCall('POST', endpoint, {});
+
+        // Assert
         expect(response.status).toBe(422);
       });
 
       Object.entries(fields).forEach(([fieldName, rules]) => {
         if (rules.required) {
-          test(`rejects missing ${fieldName}`, async () => {
-            const data = createValidData(`missing-${fieldName}`);
+          test(`when ${fieldName} missing, then returns 422`, async () => {
+            // Arrange
+            const data = createDataWithSharedDeps(`missing-${fieldName}`);
             delete data[fieldName];
 
+            // Act
             const response = await global.api.apiCall('POST', endpoint, data);
+
+            // Assert
             expect(response.status).toBe(422);
           });
 
-          test(`rejects null ${fieldName}`, async () => {
-            const data = createValidData(`null-${fieldName}`);
+          test(`when ${fieldName} null, then returns 422`, async () => {
+            // Arrange
+            const data = createDataWithSharedDeps(`null-${fieldName}`);
             data[fieldName] = null;
 
+            // Act
             const response = await global.api.apiCall('POST', endpoint, data);
+
+            // Assert
             expect(response.status).toBe(422);
           });
         }
@@ -52,51 +97,71 @@ function generateValidationTests(schema) {
       describe('String Field Validation', () => {
         stringFields.forEach(([fieldName, rules]) => {
           if (rules.required) {
-            test(`rejects empty string ${fieldName}`, async () => {
-              const data = createValidData(`empty-${fieldName}`);
+            test(`when ${fieldName} empty string, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`empty-${fieldName}`);
               data[fieldName] = '';
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
           if (rules.rejectWhitespaceOnly) {
-            test(`rejects whitespace-only ${fieldName}`, async () => {
-              const data = createValidData(`whitespace-${fieldName}`);
+            test(`when ${fieldName} whitespace-only, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`whitespace-${fieldName}`);
               data[fieldName] = '   ';
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
           if (rules.maxLength) {
-            test(`rejects ${fieldName} exceeding max length (${rules.maxLength})`, async () => {
-              const data = createValidData(`maxlen-${fieldName}`);
+            test(`when ${fieldName} exceeds max length, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`maxlen-${fieldName}`);
               data[fieldName] = 'A'.repeat(rules.maxLength + 50);
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
           if (rules.minLength && rules.minLength > 1) {
-            test(`rejects ${fieldName} below min length (${rules.minLength})`, async () => {
-              const data = createValidData(`minlen-${fieldName}`);
+            test(`when ${fieldName} below min length, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`minlen-${fieldName}`);
               data[fieldName] = 'A'.repeat(rules.minLength - 1);
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
           if (rules.pattern) {
-            test(`rejects ${fieldName} not matching pattern`, async () => {
-              const data = createValidData(`pattern-${fieldName}`);
+            test(`when ${fieldName} invalid pattern, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`pattern-${fieldName}`);
               data[fieldName] = '!!!invalid!!!';
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
@@ -112,60 +177,84 @@ function generateValidationTests(schema) {
     if (numericFields.length > 0) {
       describe('Numeric Field Validation', () => {
         numericFields.forEach(([fieldName, rules]) => {
-          test(`rejects string ${fieldName}`, async () => {
-            const data = createValidData(`string-${fieldName}`);
+          test(`when ${fieldName} is string, then returns 422`, async () => {
+            // Arrange
+            const data = createDataWithSharedDeps(`string-${fieldName}`);
             data[fieldName] = 'invalid';
 
+            // Act
             const response = await global.api.apiCall('POST', endpoint, data);
+
+            // Assert
             expect(response.status).toBe(422);
           });
 
           if (rules.min !== undefined) {
-            test(`rejects ${fieldName} below minimum (${rules.min})`, async () => {
-              const data = createValidData(`min-${fieldName}`);
+            test(`when ${fieldName} below minimum, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`min-${fieldName}`);
               data[fieldName] = rules.min - 1;
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
 
             if (rules.min > 0) {
-              test(`rejects negative ${fieldName}`, async () => {
-                const data = createValidData(`neg-${fieldName}`);
+              test(`when ${fieldName} negative, then returns 422`, async () => {
+                // Arrange
+                const data = createDataWithSharedDeps(`neg-${fieldName}`);
                 data[fieldName] = -1;
 
+                // Act
                 const response = await global.api.apiCall('POST', endpoint, data);
+
+                // Assert
                 expect(response.status).toBe(422);
               });
             }
 
             if (rules.min >= 1) {
-              test(`rejects zero ${fieldName}`, async () => {
-                const data = createValidData(`zero-${fieldName}`);
+              test(`when ${fieldName} zero, then returns 422`, async () => {
+                // Arrange
+                const data = createDataWithSharedDeps(`zero-${fieldName}`);
                 data[fieldName] = 0;
 
+                // Act
                 const response = await global.api.apiCall('POST', endpoint, data);
+
+                // Assert
                 expect(response.status).toBe(422);
               });
             }
           }
 
           if (rules.max !== undefined) {
-            test(`rejects ${fieldName} above maximum (${rules.max})`, async () => {
-              const data = createValidData(`max-${fieldName}`);
+            test(`when ${fieldName} above maximum, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`max-${fieldName}`);
               data[fieldName] = rules.max + 1000;
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
           if (rules.type === 'integer') {
-            test(`rejects float ${fieldName}`, async () => {
-              const data = createValidData(`float-${fieldName}`);
+            test(`when ${fieldName} is float, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`float-${fieldName}`);
               data[fieldName] = 5.5;
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
@@ -179,23 +268,31 @@ function generateValidationTests(schema) {
     if (enumFields.length > 0) {
       describe('Enum Field Validation', () => {
         enumFields.forEach(([fieldName, rules]) => {
-          test(`rejects invalid ${fieldName} value`, async () => {
-            const data = createValidData(`invalid-enum-${fieldName}`);
+          test(`when ${fieldName} invalid enum, then returns 422`, async () => {
+            // Arrange
+            const data = createDataWithSharedDeps(`invalid-enum-${fieldName}`);
             data[fieldName] = 'definitely_not_a_valid_enum_value';
 
+            // Act
             const response = await global.api.apiCall('POST', endpoint, data);
+
+            // Assert
             expect(response.status).toBe(422);
           });
 
           if (rules.enum.length > 0) {
-            test(`accepts valid ${fieldName} value: ${rules.enum[0]}`, async () => {
-              const data = createValidData(`valid-enum-${fieldName}`);
+            test(`when ${fieldName} valid enum, then accepted`, async () => {
+              // Arrange: Use fresh dependencies since this creates a resource
+              const data = await createDataWithFreshDeps(`valid-enum-${fieldName}`);
               data[fieldName] = rules.enum[0];
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect([201, 200]).toContain(response.status);
 
-              // Cleanup if created
+              // Cleanup
               if (response.status === 201 && response.data?.id) {
                 global.resources.track(namePlural, response.data.id);
               }
@@ -211,29 +308,31 @@ function generateValidationTests(schema) {
     if (uniqueFields.length > 0) {
       describe('Unique Constraints', () => {
         uniqueFields.forEach(([fieldName, rules]) => {
-          test(`rejects duplicate ${fieldName}`, async () => {
-            // Use alphanumeric-only values to support fields with pattern restrictions
+          test(`when ${fieldName} duplicate, then returns 409`, async () => {
+            // Arrange: Create unique value with fresh dependencies
             const uniqueValue = `unique${Date.now()}${process.pid}`;
-            const data = createValidData(uniqueValue);
-
-            // Ensure the unique field has the unique value
+            const data = await createDataWithFreshDeps(uniqueValue);
             if (rules.type === 'string') {
               data[fieldName] = uniqueValue;
             }
 
-            // Create first
+            // Act: Create first resource
             const first = await global.api.apiCall('POST', endpoint, data);
-            expect(first.status).toBe(201);
 
+            // Assert first creation succeeds
+            expect(first.status).toBe(201);
             if (first.data?.id) {
               global.resources.track(namePlural, first.data.id);
             }
 
-            // Try duplicate with same unique field value
-            const duplicateData = createValidData(`dup${uniqueValue}`);
+            // Arrange: Prepare duplicate with fresh dependencies but same unique field
+            const duplicateData = await createDataWithFreshDeps(`dup${uniqueValue}`);
             duplicateData[fieldName] = data[fieldName];
 
+            // Act: Try to create duplicate
             const duplicate = await global.api.apiCall('POST', endpoint, duplicateData);
+
+            // Assert
             expect(duplicate.status).toBe(409);
           });
         });
@@ -247,20 +346,28 @@ function generateValidationTests(schema) {
       describe('Array Field Validation', () => {
         arrayFields.forEach(([fieldName, rules]) => {
           if (rules.required) {
-            test(`rejects empty array ${fieldName}`, async () => {
-              const data = createValidData(`empty-array-${fieldName}`);
+            test(`when ${fieldName} empty array, then returns 422`, async () => {
+              // Arrange
+              const data = createDataWithSharedDeps(`empty-array-${fieldName}`);
               data[fieldName] = [];
 
+              // Act
               const response = await global.api.apiCall('POST', endpoint, data);
+
+              // Assert
               expect(response.status).toBe(422);
             });
           }
 
-          test(`rejects non-array ${fieldName}`, async () => {
-            const data = createValidData(`non-array-${fieldName}`);
+          test(`when ${fieldName} not array, then returns 422`, async () => {
+            // Arrange
+            const data = createDataWithSharedDeps(`non-array-${fieldName}`);
             data[fieldName] = 'not an array';
 
+            // Act
             const response = await global.api.apiCall('POST', endpoint, data);
+
+            // Assert
             expect(response.status).toBe(422);
           });
         });
@@ -269,9 +376,13 @@ function generateValidationTests(schema) {
 
     // === RFC 9457 ERROR FORMAT TESTS ===
     describe('Error Response Format', () => {
-      test('validation errors follow RFC 9457 format', async () => {
+      test('when validation fails, then error follows RFC 9457', async () => {
+        // Arrange: (none - empty payload to trigger validation error)
+
+        // Act
         const response = await global.api.apiCall('POST', endpoint, {});
 
+        // Assert
         expect(response.status).toBe(422);
         expect(response.data).toHaveProperty('type');
         expect(response.data).toHaveProperty('title');
