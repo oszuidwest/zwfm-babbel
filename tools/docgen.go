@@ -63,7 +63,7 @@ type Parameter struct {
 	Example     interface{}            `yaml:"example"`
 }
 
-// EndpointInfo holds structured endpoint information for better organization
+// EndpointInfo holds structured endpoint information for better organization.
 type EndpointInfo struct {
 	Method    string
 	Path      string

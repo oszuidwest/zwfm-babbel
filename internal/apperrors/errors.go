@@ -3,7 +3,7 @@ package apperrors
 
 import "fmt"
 
-// ============ NOT FOUND ============
+// NotFoundError section.
 
 // NotFoundError indicates the requested resource does not exist.
 type NotFoundError struct {
@@ -31,7 +31,7 @@ func NotFoundWithCause(resource string, cause error) *NotFoundError {
 	return &NotFoundError{Resource: resource, cause: cause}
 }
 
-// ============ DUPLICATE ============
+// DuplicateError section.
 
 // DuplicateError indicates a unique constraint violation.
 type DuplicateError struct {
@@ -63,7 +63,7 @@ func DuplicateWithCause(resource, field, value string, cause error) *DuplicateEr
 	return &DuplicateError{Resource: resource, Field: field, Value: value, cause: cause}
 }
 
-// ============ DEPENDENCY ============
+// DependencyError section.
 
 // DependencyError indicates the resource cannot be deleted due to dependencies.
 type DependencyError struct {
@@ -88,7 +88,7 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
 
-// ============ VALIDATION ============
+// ValidationError section.
 
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
@@ -117,7 +117,7 @@ func ValidationWithCause(resource, field, message string, cause error) *Validati
 	return &ValidationError{Resource: resource, Field: field, Message: message, cause: cause}
 }
 
-// ============ DATABASE ============
+// DatabaseError section.
 
 // DatabaseError indicates an unexpected database error (internal).
 type DatabaseError struct {
@@ -137,7 +137,7 @@ func Database(resource, operation string, cause error) *DatabaseError {
 	return &DatabaseError{Resource: resource, Operation: operation, cause: cause}
 }
 
-// ============ AUDIO ============
+// AudioError section.
 
 // AudioError indicates audio processing failure.
 type AudioError struct {
@@ -157,7 +157,7 @@ func Audio(resource, operation string, cause error) *AudioError {
 	return &AudioError{Resource: resource, Operation: operation, cause: cause}
 }
 
-// ============ NO STORIES ============
+// NoStoriesError section.
 
 // NoStoriesError indicates no stories are available for bulletin generation.
 type NoStoriesError struct {

@@ -1,4 +1,3 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 // Story query constants for common JOIN operations.
