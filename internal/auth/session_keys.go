@@ -1,4 +1,3 @@
-// Package auth provides authentication and authorization services.
 package auth
 
 // SessionKey is a typed key for session values to prevent typos and enable refactoring.
@@ -6,17 +5,17 @@ type SessionKey string
 
 // Session keys for storing authentication data in sessions.
 const (
-	// SessKeyUserID stores the authenticated user's ID
+	// SessKeyUserID stores the authenticated user's ID.
 	SessKeyUserID SessionKey = "user_id"
-	// SessKeyUsername stores the authenticated user's username
+	// SessKeyUsername stores the authenticated user's username.
 	SessKeyUsername SessionKey = "username"
-	// SessKeyRole stores the authenticated user's role
+	// SessKeyRole stores the authenticated user's role.
 	SessKeyRole SessionKey = "role"
-	// SessKeyAuthMethod stores the authentication method used (local/oidc)
+	// SessKeyAuthMethod stores the authentication method used (local/oidc).
 	SessKeyAuthMethod SessionKey = "auth_method"
-	// SessKeyOAuthState stores the OAuth CSRF state token
+	// SessKeyOAuthState stores the OAuth CSRF state token.
 	SessKeyOAuthState SessionKey = "oauth_state"
-	// SessKeyFrontendURL stores the frontend URL for OAuth redirects
+	// SessKeyFrontendURL stores the frontend URL for OAuth redirects.
 	SessKeyFrontendURL SessionKey = "frontend_url"
 )
 

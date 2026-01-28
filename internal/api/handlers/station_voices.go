@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -30,7 +29,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
-// GetStationVoice returns a single station-voice relationship by ID
+// GetStationVoice returns a single station-voice relationship by ID.
 func (h *Handlers) GetStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -47,7 +46,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 	utils.Success(c, stationVoice)
 }
 
-// CreateStationVoice creates a new station-voice relationship (JSON API only)
+// CreateStationVoice creates a new station-voice relationship (JSON API only).
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	var req utils.StationVoiceRequest
 
@@ -77,7 +76,7 @@ func hasStationVoiceFieldUpdates(req *utils.StationVoiceUpdateRequest) bool {
 	return req.StationID != nil || req.VoiceID != nil || req.MixPoint != nil
 }
 
-// updateStationVoiceFields updates the station-voice relationship fields via service
+// updateStationVoiceFields updates the station-voice relationship fields via service.
 func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *utils.StationVoiceUpdateRequest) bool {
 	serviceReq := &services.UpdateStationVoiceRequest{
 		StationID: req.StationID,
@@ -92,7 +91,7 @@ func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *utils
 	return true
 }
 
-// UpdateStationVoice updates an existing station-voice relationship
+// UpdateStationVoice updates an existing station-voice relationship.
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -129,7 +128,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	utils.Success(c, updatedRecord)
 }
 
-// DeleteStationVoice deletes a station-voice relationship and associated jingle file
+// DeleteStationVoice deletes a station-voice relationship and associated jingle file.
 func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

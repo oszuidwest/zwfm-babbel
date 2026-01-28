@@ -1,4 +1,3 @@
-// Package auth provides authentication and authorization services.
 package auth
 
 import "github.com/gin-gonic/gin"
@@ -8,13 +7,13 @@ type ContextKey string
 
 // Context keys for storing user information in request context.
 const (
-	// CtxKeyUserID is the context key for authenticated user ID
+	// CtxKeyUserID is the context key for authenticated user ID.
 	CtxKeyUserID ContextKey = "user_id"
-	// CtxKeyUsername is the context key for authenticated username
+	// CtxKeyUsername is the context key for authenticated username.
 	CtxKeyUsername ContextKey = "username"
-	// CtxKeyUserRole is the context key for authenticated user's role
+	// CtxKeyUserRole is the context key for authenticated user's role.
 	CtxKeyUserRole ContextKey = "user_role"
-	// CtxKeyAuthMethod is the context key for authentication method used
+	// CtxKeyAuthMethod is the context key for authentication method used.
 	CtxKeyAuthMethod ContextKey = "auth_method"
 )
 

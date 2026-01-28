@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -10,7 +9,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStories returns a paginated list of stories with modern query parameter support
+// ListStories returns a paginated list of stories with modern query parameter support.
 func (h *Handlers) ListStories(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)
@@ -33,7 +32,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
-// GetStory returns a single story by ID
+// GetStory returns a single story by ID.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -50,7 +49,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory creates a new story (JSON API only)
+// CreateStory creates a new story (JSON API only).
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
@@ -121,7 +120,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 	return updated, true
 }
 
-// UpdateStory updates an existing story (JSON API only)
+// UpdateStory updates an existing story (JSON API only).
 func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Get ID param
 	id, ok := utils.IDParam(c)
@@ -172,7 +171,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus updates a story's status or handles soft delete/restore operations
+// UpdateStoryStatus updates a story's status or handles soft delete/restore operations.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

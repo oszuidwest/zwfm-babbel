@@ -1,4 +1,3 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -121,7 +120,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 }
 
 // dateAfterValidator validates that a date field is after another date field in the same struct.
-// Usage: `validate:"dateafter=StartDate"`
+// Usage: `validate:"dateafter=StartDate"`.
 func dateAfterValidator(fl validator.FieldLevel) bool {
 	compareField := fl.Parent().FieldByName(fl.Param())
 	if !compareField.IsValid() {
