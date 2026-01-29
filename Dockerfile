@@ -26,7 +26,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:3.23
 
 # Install FFmpeg and timezone data, upgrade to get security patches
-RUN apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata
+# Update package index first to ensure we get the latest security fixes (e.g., libpng)
+RUN apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
 
 # Create app user
 RUN addgroup -g 1001 -S app \
