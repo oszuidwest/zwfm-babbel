@@ -251,6 +251,13 @@ type BulletinStoryData struct {
 // GetStoriesForBulletin retrieves eligible stories for bulletin generation with fair rotation.
 // Returns stories with station-specific mix point data needed for audio processing.
 //
+// Stories must meet ALL criteria to be eligible:
+//   - Status is 'active' (excludes 'draft' and 'expired')
+//   - Has audio file uploaded
+//   - Has voice assigned with station-voice relationship
+//   - Current date is within start_date and end_date range
+//   - Current weekday matches the story's weekday schedule
+//
 // Fair rotation algorithm ensures all stories get equal airtime:
 //  1. Stories not yet used TODAY for this station get highest priority
 //  2. Within unused stories, newer stories (by start_date) come first
@@ -297,6 +304,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).
 		Joins("JOIN voices v ON stories.voice_id = v.id").
 		Joins("JOIN station_voices sv ON sv.station_id = ? AND sv.voice_id = stories.voice_id", stationID).
+		Where("stories.status = ?", models.StoryStatusActive).
 		Where("stories.audio_file IS NOT NULL").
 		Where("stories.audio_file != ''").
 		Where("stories.start_date <= ?", dateStr).

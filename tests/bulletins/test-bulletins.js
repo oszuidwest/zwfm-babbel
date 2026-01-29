@@ -2011,13 +2011,205 @@ class BulletinsTests extends BaseTest {
     }
     
     /**
+     * Test that only active stories are included in bulletins
+     * Stories with status 'expired' or 'draft' should be excluded even if dates are valid
+     */
+    async testBulletinExcludesNonActiveStories() {
+        this.printSection('Testing Bulletin Excludes Non-Active Stories');
+
+        // Setup: Create station with voice
+        this.printInfo('Setting up test data...');
+        const stationId = await this.createTestStation('Status Filter Test Station', 10, 1.0);
+        if (!stationId) {
+            this.printError('Failed to create test station');
+            return false;
+        }
+
+        const voiceId = await this.createTestVoice('Status Filter Voice');
+        if (!voiceId) {
+            this.printError('Failed to create test voice');
+            return false;
+        }
+
+        const svId = await this.createStationVoiceWithJingle(stationId, voiceId, 2.0);
+        if (!svId) {
+            this.printError('Failed to create station-voice relationship');
+            return false;
+        }
+        // Create an ACTIVE story (should be included)
+        this.printInfo('Creating active story...');
+        const activeStoryId = await this.createTestStoryWithAudio(
+            'Active Story For Filter Test',
+            'This story should be included in the bulletin.',
+            voiceId
+        );
+        if (!activeStoryId) {
+            this.printError('Failed to create active story');
+            return false;
+        }
+        this.printSuccess(`Created active story (ID: ${activeStoryId})`);
+
+        // Create an EXPIRED story with valid dates (should be excluded)
+        this.printInfo('Creating expired story with valid dates...');
+        const fs = require('fs');
+        const audioFile = `/tmp/test_expired_story_${Date.now()}.wav`;
+
+        try {
+            const { execSync } = require('child_process');
+            execSync(`ffmpeg -f lavfi -i "sine=frequency=330:duration=3" -ar 44100 -ac 2 -f wav "${audioFile}" -y 2>/dev/null`, { stdio: 'ignore' });
+        } catch (error) {
+            this.printWarning('ffmpeg not available, skipping expired story test');
+            return true;
+        }
+
+        // Create story with status='expired' but valid date range
+        const today = new Date();
+        const year = today.getFullYear();
+        const startDate = `${year}-01-01`;
+        const endDate = `${year + 1}-12-31`;
+
+        const expiredStoryJson = {
+            title: 'Expired Story For Filter Test',
+            text: 'This story should NOT be included because status is expired.',
+            voice_id: parseInt(voiceId, 10),
+            status: 'expired',  // Key: status is expired but dates are valid
+            start_date: startDate,
+            end_date: endDate,
+            weekdays: 127  // All days
+        };
+
+        const expiredCreateResponse = await this.apiCall('POST', '/stories', expiredStoryJson);
+        if (expiredCreateResponse.status !== 201) {
+            fs.unlinkSync(audioFile);
+            this.printError('Failed to create expired story');
+            return false;
+        }
+
+        const expiredStoryId = this.parseJsonField(expiredCreateResponse.data, 'id');
+        this.createdStoryIds.push(expiredStoryId);
+
+        // Upload audio for expired story
+        const uploadResponse = await this.uploadFile(`/stories/${expiredStoryId}/audio`, {}, audioFile, 'audio');
+        fs.unlinkSync(audioFile);
+
+        if (uploadResponse.status !== 201) {
+            this.printError('Failed to upload audio for expired story');
+            return false;
+        }
+        this.printSuccess(`Created expired story with valid dates (ID: ${expiredStoryId})`);
+
+        // Create a DRAFT story with valid dates (should also be excluded)
+        this.printInfo('Creating draft story with valid dates...');
+        const draftAudioFile = `/tmp/test_draft_story_${Date.now()}.wav`;
+
+        try {
+            const { execSync } = require('child_process');
+            execSync(`ffmpeg -f lavfi -i "sine=frequency=440:duration=3" -ar 44100 -ac 2 -f wav "${draftAudioFile}" -y 2>/dev/null`, { stdio: 'ignore' });
+        } catch (error) {
+            this.printWarning('ffmpeg not available for draft story');
+        }
+
+        const draftStoryJson = {
+            title: 'Draft Story For Filter Test',
+            text: 'This story should NOT be included because status is draft.',
+            voice_id: parseInt(voiceId, 10),
+            status: 'draft',  // Key: status is draft but dates are valid
+            start_date: startDate,
+            end_date: endDate,
+            weekdays: 127
+        };
+
+        const draftCreateResponse = await this.apiCall('POST', '/stories', draftStoryJson);
+        let draftStoryId = null;
+        if (draftCreateResponse.status === 201) {
+            draftStoryId = this.parseJsonField(draftCreateResponse.data, 'id');
+            this.createdStoryIds.push(draftStoryId);
+
+            // Upload audio for draft story
+            if (fs.existsSync(draftAudioFile)) {
+                await this.uploadFile(`/stories/${draftStoryId}/audio`, {}, draftAudioFile, 'audio');
+                fs.unlinkSync(draftAudioFile);
+            }
+            this.printSuccess(`Created draft story with valid dates (ID: ${draftStoryId})`);
+        } else if (fs.existsSync(draftAudioFile)) {
+            fs.unlinkSync(draftAudioFile);
+        }
+
+        // Wait for audio processing
+        this.printInfo('Waiting for audio processing...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Generate bulletin
+        this.printInfo('Generating bulletin...');
+        const bulletinResponse = await this.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+
+        if (bulletinResponse.status !== 200) {
+            this.printError(`Bulletin generation failed: ${bulletinResponse.status}`);
+            return false;
+        }
+
+        const bulletinId = this.parseJsonField(bulletinResponse.data, 'id');
+        this.createdBulletinIds.push(bulletinId);
+        const storyCount = this.parseJsonField(bulletinResponse.data, 'story_count');
+
+        this.printInfo(`Bulletin generated with ${storyCount} stories`);
+
+        // Fetch bulletin stories to verify
+        const storiesResponse = await this.apiCall('GET', `/bulletins/${bulletinId}/stories`);
+
+        if (storiesResponse.status !== 200) {
+            this.printError('Failed to fetch bulletin stories');
+            return false;
+        }
+
+        const bulletinStories = storiesResponse.data.data || [];
+        // The story_id field contains the actual story ID, not id (which is the bulletin_story junction ID)
+        const storyIds = bulletinStories.map(s => parseInt(s.story_id || s.id, 10));
+
+        // Verify: Only active story should be included
+        // Convert to int for comparison since API may return string IDs
+        const activeIncluded = storyIds.includes(parseInt(activeStoryId, 10));
+        const expiredIncluded = storyIds.includes(parseInt(expiredStoryId, 10));
+
+        if (!activeIncluded) {
+            this.printError(`Active story (ID: ${activeStoryId}) was NOT included in bulletin - this is wrong!`);
+            return false;
+        }
+        this.printSuccess(`Active story (ID: ${activeStoryId}) correctly included`);
+
+        if (expiredIncluded) {
+            this.printError(`Expired story (ID: ${expiredStoryId}) WAS included in bulletin - this should be excluded!`);
+            return false;
+        }
+        this.printSuccess(`Expired story (ID: ${expiredStoryId}) correctly excluded`);
+
+        // Verify draft story is excluded (if it was created successfully)
+        if (draftStoryId !== null) {
+            const draftIncluded = storyIds.includes(parseInt(draftStoryId, 10));
+            if (draftIncluded) {
+                this.printError(`Draft story (ID: ${draftStoryId}) WAS included in bulletin - this should be excluded!`);
+                return false;
+            }
+            this.printSuccess(`Draft story (ID: ${draftStoryId}) correctly excluded`);
+        }
+
+        // Verify story count is exactly 1 (only the active story)
+        if (parseInt(storyCount, 10) !== 1) {
+            this.printWarning(`Expected 1 story in bulletin, got ${storyCount}`);
+        }
+
+        this.printSuccess('Bulletin correctly excludes non-active stories!');
+        return true;
+    }
+
+    /**
      * Main test runner
      */
     async run() {
         this.printHeader('Bulletin Tests');
-        
+
         await this.setup();
-        
+
         const tests = [
             'testBulletinGeneration',
             'testBulletinRetrieval',
@@ -2031,7 +2223,8 @@ class BulletinsTests extends BaseTest {
             'testBulletinErrorCases',
             'testBulletinMetadata',
             'testBulletinStoriesModernQuery',
-            'testModernQueryParameters'
+            'testModernQueryParameters',
+            'testBulletinExcludesNonActiveStories'
         ];
         
         let failed = 0;
