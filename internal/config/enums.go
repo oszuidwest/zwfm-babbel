@@ -7,11 +7,11 @@ type AuthMethod string
 
 // Authentication methods supported by the application.
 const (
-	// AuthMethodLocal enables username/password authentication
+	// AuthMethodLocal enables username/password authentication.
 	AuthMethodLocal AuthMethod = "local"
-	// AuthMethodOIDC enables OAuth/OIDC authentication
+	// AuthMethodOIDC enables OAuth/OIDC authentication.
 	AuthMethodOIDC AuthMethod = "oidc"
-	// AuthMethodBoth enables both local and OIDC authentication
+	// AuthMethodBoth enables both local and OIDC authentication.
 	AuthMethodBoth AuthMethod = "both"
 )
 

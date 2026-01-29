@@ -298,21 +298,22 @@ func formatValidationMessage(field, tag, param string) string {
 
 // convertValidationErrors converts Go validator errors into structured error messages.
 func convertValidationErrors(err error) []ValidationError {
-	var errors []ValidationError
+	var validationErrs []ValidationError
 
-	if validationErrors, ok := err.(validator.ValidationErrors); ok {
+	var validationErrors validator.ValidationErrors
+	if errors.As(err, &validationErrors) {
 		for _, e := range validationErrors {
-			errors = append(errors, ValidationError{
+			validationErrs = append(validationErrs, ValidationError{
 				Field:   e.Field(),
 				Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 			})
 		}
 	} else {
-		errors = append(errors, ValidationError{
+		validationErrs = append(validationErrs, ValidationError{
 			Field:   "request",
 			Message: "Invalid request format",
 		})
 	}
 
-	return errors
+	return validationErrs
 }

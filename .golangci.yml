@@ -22,6 +22,12 @@ linters:
     - unconvert
     - unparam
     - whitespace
+    # Added linters
+    - godot
+    - godoclint
+    - dupword
+    - errorlint
+    - nilerr
   settings:
     gocyclo:
       min-complexity: 15
@@ -30,3 +36,5 @@ linters:
       rules:
         - name: var-naming
           disabled: true
+    godot:
+      scope: toplevel

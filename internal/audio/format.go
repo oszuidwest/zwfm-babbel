@@ -5,9 +5,9 @@ type SampleRate int
 
 // Sample rates for audio processing.
 const (
-	// SampleRate44100 represents CD-quality audio at 44.1 kHz
+	// SampleRate44100 represents CD-quality audio at 44.1 kHz.
 	SampleRate44100 SampleRate = 44100
-	// SampleRate48000 represents professional audio at 48 kHz
+	// SampleRate48000 represents professional audio at 48 kHz.
 	SampleRate48000 SampleRate = 48000
 )
 
@@ -16,9 +16,9 @@ type ChannelCount int
 
 // Channel configurations.
 const (
-	// Mono represents single-channel audio
+	// Mono represents single-channel audio.
 	Mono ChannelCount = 1
-	// Stereo represents dual-channel audio
+	// Stereo represents dual-channel audio.
 	Stereo ChannelCount = 2
 )
 
@@ -27,11 +27,11 @@ type Codec string
 
 // Audio codecs for encoding.
 const (
-	// CodecPCM16LE is 16-bit signed little-endian PCM
+	// CodecPCM16LE is 16-bit signed little-endian PCM.
 	CodecPCM16LE Codec = "pcm_s16le"
-	// CodecPCM24LE is 24-bit signed little-endian PCM
+	// CodecPCM24LE is 24-bit signed little-endian PCM.
 	CodecPCM24LE Codec = "pcm_s24le"
-	// CodecFLAC is Free Lossless Audio Codec
+	// CodecFLAC is Free Lossless Audio Codec.
 	CodecFLAC Codec = "flac"
 )
 

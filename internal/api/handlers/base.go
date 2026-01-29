@@ -186,7 +186,7 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 }
 
 // deferCleanup returns a function suitable for use with defer that logs cleanup errors.
-// Usage: defer deferCleanup(cleanup, "audio file")()
+// Usage: defer deferCleanup(cleanup, "audio file")().
 func deferCleanup(cleanup func() error, resourceType string) func() {
 	return func() {
 		if err := cleanup(); err != nil {

@@ -1,4 +1,3 @@
-// Package models defines the data models for the Babbel API.
 package models
 
 import (

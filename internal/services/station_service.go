@@ -1,4 +1,3 @@
-// Package services provides business logic services for the Babbel API.
 package services
 
 import (
