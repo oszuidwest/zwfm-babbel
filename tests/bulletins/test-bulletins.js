@@ -2120,8 +2120,9 @@ class BulletinsTests extends BaseTest {
         };
 
         const draftCreateResponse = await this.apiCall('POST', '/stories', draftStoryJson);
+        let draftStoryId = null;
         if (draftCreateResponse.status === 201) {
-            const draftStoryId = this.parseJsonField(draftCreateResponse.data, 'id');
+            draftStoryId = this.parseJsonField(draftCreateResponse.data, 'id');
             this.createdStoryIds.push(draftStoryId);
 
             // Upload audio for draft story
@@ -2181,6 +2182,16 @@ class BulletinsTests extends BaseTest {
             return false;
         }
         this.printSuccess(`Expired story (ID: ${expiredStoryId}) correctly excluded`);
+
+        // Verify draft story is excluded (if it was created successfully)
+        if (draftStoryId !== null) {
+            const draftIncluded = storyIds.includes(parseInt(draftStoryId, 10));
+            if (draftIncluded) {
+                this.printError(`Draft story (ID: ${draftStoryId}) WAS included in bulletin - this should be excluded!`);
+                return false;
+            }
+            this.printSuccess(`Draft story (ID: ${draftStoryId}) correctly excluded`);
+        }
 
         // Verify story count is exactly 1 (only the active story)
         if (parseInt(storyCount, 10) !== 1) {
