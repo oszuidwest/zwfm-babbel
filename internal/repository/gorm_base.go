@@ -1,4 +1,3 @@
-// Package repository provides data access abstractions for the Babbel application.
 package repository
 
 import (
@@ -82,7 +81,7 @@ func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value 
 // ApplySoftDeleteFilter applies soft delete filtering to a query based on the trashed parameter.
 // - "" (default): only non-deleted records (GORM default behavior)
 // - "only": only soft-deleted records
-// - "with": include all records regardless of deletion status
+// - "with": include all records regardless of deletion status.
 func ApplySoftDeleteFilter(db *gorm.DB, trashed string) *gorm.DB {
 	switch trashed {
 	case "only":

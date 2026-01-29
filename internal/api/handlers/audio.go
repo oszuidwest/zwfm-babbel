@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -58,7 +57,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	c.File(audioPath)
 }
 
-// UploadStoryAudio handles audio file upload for a story
+// UploadStoryAudio handles audio file upload for a story.
 func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -92,7 +91,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	utils.CreatedWithMessage(c, "Audio uploaded successfully")
 }
 
-// UploadStationVoiceAudio handles jingle file upload for a station-voice relationship
+// UploadStationVoiceAudio handles jingle file upload for a station-voice relationship.
 func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

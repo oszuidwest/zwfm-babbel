@@ -1,4 +1,3 @@
-// Package auth provides authentication and authorization services for the Babbel API.
 package auth
 
 import (
@@ -58,7 +57,7 @@ func (s *GinSessionStore) Get(c *gin.Context) Session {
 	}
 }
 
-// ginSession implements Session interface
+// ginSession implements Session interface.
 type ginSession struct {
 	session sessions.Session
 	ctx     *gin.Context
