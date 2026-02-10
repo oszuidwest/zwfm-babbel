@@ -93,7 +93,7 @@ type Voice struct {
 	// Name is the voice's display name.
 	Name string `gorm:"size:255;not null;uniqueIndex" json:"name"`
 	// ElevenLabsVoiceID is the ElevenLabs voice identifier for TTS generation.
-	ElevenLabsVoiceID *string `gorm:"size:255" json:"elevenlabs_voice_id,omitempty"`
+	ElevenLabsVoiceID *string `gorm:"column:elevenlabs_voice_id;size:255" json:"elevenlabs_voice_id,omitempty"`
 	// CreatedAt is when the voice was created.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the voice was last modified.
