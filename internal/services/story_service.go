@@ -4,7 +4,9 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -12,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
@@ -22,6 +25,7 @@ type StoryServiceDeps struct {
 	StoryRepo repository.StoryRepository
 	VoiceRepo repository.VoiceRepository
 	AudioSvc  *audio.Service
+	TTSSvc    *tts.Service
 	Config    *config.Config
 }
 
@@ -30,6 +34,7 @@ type StoryService struct {
 	storyRepo repository.StoryRepository
 	voiceRepo repository.VoiceRepository
 	audioSvc  *audio.Service
+	ttsSvc    *tts.Service
 	config    *config.Config
 }
 
@@ -39,6 +44,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		storyRepo: deps.StoryRepo,
 		voiceRepo: deps.VoiceRepo,
 		audioSvc:  deps.AudioSvc,
+		ttsSvc:    deps.TTSSvc,
 		config:    deps.Config,
 	}
 }
@@ -366,4 +372,51 @@ func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*
 		return nil, apperrors.Database("Story", "query", err)
 	}
 	return result, nil
+}
+
+// GenerateTTS generates audio for a story using text-to-speech.
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
+	// Fetch story with voice
+	story, err := s.storyRepo.GetByID(ctx, storyID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return apperrors.NotFoundWithID("Story", storyID)
+		}
+		return apperrors.Database("Story", "query", err)
+	}
+
+	// Validate story has text
+	if story.Text == "" {
+		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
+	}
+
+	// Validate story has a voice assigned
+	if story.VoiceID == nil {
+		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
+	}
+
+	// Validate voice has ElevenLabs ID
+	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	}
+
+	// Generate speech via TTS service
+	audioData, err := s.ttsSvc.GenerateSpeech(ctx, story.Text, *story.Voice.ElevenLabsVoiceID)
+	if err != nil {
+		return apperrors.Audio("Story", "tts_generate", err)
+	}
+
+	// Write MP3 to temp file
+	tempPath := filepath.Join(os.TempDir(), fmt.Sprintf("tts_story_%d.mp3", storyID))
+	if err := os.WriteFile(tempPath, audioData, 0600); err != nil {
+		return apperrors.Audio("Story", "tts_write_temp", err)
+	}
+	defer func() {
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove TTS temp file %s: %v", tempPath, err)
+		}
+	}()
+
+	// Process through standard audio pipeline (converts to mono WAV 48kHz)
+	return s.ProcessAudio(ctx, storyID, tempPath)
 }

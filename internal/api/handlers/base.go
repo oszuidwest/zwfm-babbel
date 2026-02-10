@@ -29,6 +29,7 @@ type HandlersDeps struct {
 	VoiceSvc        *services.VoiceService
 	UserSvc         *services.UserService
 	StationVoiceSvc *services.StationVoiceService
+	TTSEnabled      bool
 }
 
 // Handlers contains all the dependencies needed by the API handlers.
@@ -43,6 +44,7 @@ type Handlers struct {
 	voiceSvc        *services.VoiceService
 	userSvc         *services.UserService
 	stationVoiceSvc *services.StationVoiceService
+	ttsEnabled      bool
 }
 
 // NewHandlers creates a new Handlers instance with all required dependencies.
@@ -57,6 +59,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 		voiceSvc:        deps.VoiceSvc,
 		userSvc:         deps.UserSvc,
 		stationVoiceSvc: deps.StationVoiceSvc,
+		ttsEnabled:      deps.TTSEnabled,
 	}
 }
 

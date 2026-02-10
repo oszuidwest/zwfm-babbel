@@ -42,7 +42,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 		return
 	}
 
-	voice, err := h.voiceSvc.Create(c.Request.Context(), req.Name)
+	voice, err := h.voiceSvc.Create(c.Request.Context(), req.Name, req.ElevenLabsVoiceID)
 	if err != nil {
 		handleServiceError(c, err, "Voice")
 		return
@@ -65,7 +65,8 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 
 	// Convert to service update request
 	updateReq := &services.UpdateVoiceRequest{
-		Name: &req.Name,
+		Name:              &req.Name,
+		ElevenLabsVoiceID: req.ElevenLabsVoiceID,
 	}
 
 	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)

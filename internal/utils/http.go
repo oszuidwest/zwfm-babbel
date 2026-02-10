@@ -154,7 +154,8 @@ type StationRequest struct {
 
 // VoiceRequest represents the request for creating and updating voices.
 type VoiceRequest struct {
-	Name string `json:"name" binding:"required,notblank,max=255"`
+	Name              string  `json:"name" binding:"required,notblank,max=255"`
+	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id" binding:"omitempty,max=255"`
 }
 
 // StationVoiceRequest represents the request for creating station-voice relationships.

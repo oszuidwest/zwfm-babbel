@@ -232,6 +232,27 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 }
 
+// GenerateStoryTTS generates audio for a story using text-to-speech.
+func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
+	if !h.ttsEnabled {
+		utils.ProblemExtended(c, 501, "Text-to-speech is not configured", "tts.not_configured",
+			"Set BABBEL_ELEVENLABS_API_KEY to enable TTS")
+		return
+	}
+
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id); err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	utils.CreatedWithMessage(c, "TTS audio generated successfully")
+}
+
 // validateDateRange reports whether the date range is valid.
 func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *string) bool {
 	if startDateStr == nil || endDateStr == nil {
