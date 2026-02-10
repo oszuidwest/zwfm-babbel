@@ -428,5 +428,10 @@ func writeTempFile(data []byte, pattern string) (string, error) {
 		return "", err
 	}
 
-	return path, f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, nil
 }
