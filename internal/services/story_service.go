@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -406,16 +405,25 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 		return apperrors.Audio("Story", "tts_generate", err)
 	}
 
-	// Write MP3 to temp file
-	tempPath := filepath.Join(os.TempDir(), fmt.Sprintf("tts_story_%d.mp3", storyID))
-	if err := os.WriteFile(tempPath, audioData, 0600); err != nil {
+	// Write MP3 to unique temp file (avoids collisions on concurrent requests)
+	tempFile, err := os.CreateTemp("", fmt.Sprintf("tts_story_%d_*.mp3", storyID))
+	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
+	tempPath := tempFile.Name()
 	defer func() {
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
 			logger.Warn("Failed to remove TTS temp file %s: %v", tempPath, err)
 		}
 	}()
+
+	if _, err := tempFile.Write(audioData); err != nil {
+		_ = tempFile.Close()
+		return apperrors.Audio("Story", "tts_write_temp", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		return apperrors.Audio("Story", "tts_write_temp", err)
+	}
 
 	// Process through standard audio pipeline (converts to mono WAV 48kHz)
 	return s.ProcessAudio(ctx, storyID, tempPath)
