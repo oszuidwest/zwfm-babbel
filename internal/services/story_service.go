@@ -375,7 +375,6 @@ func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*
 
 // GenerateTTS generates audio for a story using text-to-speech.
 func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
-	// Fetch story with voice
 	story, err := s.storyRepo.GetByID(ctx, storyID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -384,17 +383,13 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 		return apperrors.Database("Story", "query", err)
 	}
 
-	// Validate story has text
+	// Validate TTS prerequisites
 	if story.Text == "" {
 		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
 	}
-
-	// Validate story has a voice assigned
 	if story.VoiceID == nil {
 		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
 	}
-
-	// Validate voice has ElevenLabs ID
 	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
 		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
 	}
@@ -405,26 +400,33 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 		return apperrors.Audio("Story", "tts_generate", err)
 	}
 
-	// Write MP3 to unique temp file (avoids collisions on concurrent requests)
-	tempFile, err := os.CreateTemp("", fmt.Sprintf("tts_story_%d_*.mp3", storyID))
+	// Write to temp file for processing through the standard audio pipeline
+	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.mp3", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
-	tempPath := tempFile.Name()
 	defer func() {
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
 			logger.Warn("Failed to remove TTS temp file %s: %v", tempPath, err)
 		}
 	}()
 
-	if _, err := tempFile.Write(audioData); err != nil {
-		_ = tempFile.Close()
-		return apperrors.Audio("Story", "tts_write_temp", err)
-	}
-	if err := tempFile.Close(); err != nil {
-		return apperrors.Audio("Story", "tts_write_temp", err)
+	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+// writeTempFile creates a temporary file with the given data and pattern, returning its path.
+func writeTempFile(data []byte, pattern string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
 	}
 
-	// Process through standard audio pipeline (converts to mono WAV 48kHz)
-	return s.ProcessAudio(ctx, storyID, tempPath)
+	path := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
+
+	return path, f.Close()
 }
