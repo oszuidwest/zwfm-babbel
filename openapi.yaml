@@ -7,9 +7,9 @@ info:
     ## API Design Notes
 
     **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
-    - Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+    - Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
     - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
-    - StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+    - StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
     - Metadata: Returned as native JSON object instead of escaped string
 
@@ -692,6 +692,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
+                  pattern: '\S'
                 elevenlabs_voice_id:
                   type: string
                   maxLength: 255
@@ -753,16 +754,18 @@ paths:
           application/json:
             schema:
               type: object
+              minProperties: 1
               properties:
                 name:
                   type: string
                   minLength: 1
                   maxLength: 255
+                  pattern: '\S'
                 elevenlabs_voice_id:
                   type: string
                   maxLength: 255
                   nullable: true
-                  description: ElevenLabs voice identifier for TTS generation (set to null to clear)
+                  description: ElevenLabs voice identifier for TTS generation (set to null or empty string to clear)
       responses:
         '200':
           description: Voice updated successfully
@@ -996,7 +999,7 @@ paths:
                   format: binary
                   description: Audio file (WAV, MP3, or other supported formats)
       responses:
-        '200':
+        '201':
           description: Audio uploaded successfully
           content:
             application/json:
@@ -1409,7 +1412,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserInput'
+              $ref: '#/components/schemas/UserUpdate'
       responses:
         '200':
           description: User updated successfully
@@ -2219,7 +2222,7 @@ paths:
                   format: binary
                   description: Jingle audio file
       responses:
-        '200':
+        '201':
           description: Jingle uploaded successfully
           content:
             application/json:
@@ -2512,6 +2515,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
           description: Unique station name (must be unique across all stations)
           x-unique: true
         max_stories_per_block:
@@ -2603,9 +2607,11 @@ components:
       properties:
         station_id:
           type: integer
+          minimum: 1
           description: Station ID
         voice_id:
           type: integer
+          minimum: 1
           description: Voice ID
         mix_point:
           type: number
@@ -2617,22 +2623,29 @@ components:
 
     StationVoiceUpdate:
       type: object
+      minProperties: 1
       description: |
         Station-voice relationship update schema for JSON API.
-        All fields are optional - only provided fields will be updated.
+        All fields are optional - only provided fields will be updated. Null is treated as omit.
+        At least one non-null field must be provided.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       properties:
         station_id:
           type: integer
+          minimum: 1
+          nullable: true
           description: New station ID (optional)
         voice_id:
           type: integer
+          minimum: 1
+          nullable: true
           description: New voice ID (optional)
         mix_point:
           type: number
           format: float
           minimum: 0
           maximum: 300
+          nullable: true
           description: Mix point in seconds (0-300)
 
     Story:
@@ -2717,13 +2730,16 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
           description: Story title
         text:
           type: string
           minLength: 1
+          pattern: '\S'
           description: Story text content
         voice_id:
           type: integer
+          minimum: 1
           nullable: true
           description: Optional voice ID. Stories without a voice will not be included in bulletin generation
         status:
@@ -2759,40 +2775,51 @@ components:
 
     StoryUpdate:
       type: object
+      minProperties: 1
       description: |
         Story update schema for JSON API.
-        All fields are optional - only provided fields will be updated.
+        All fields are optional - only provided fields will be updated. Null is treated as omit.
+        At least one non-null field must be provided.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       properties:
         title:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
+          nullable: true
           description: Story title
         text:
           type: string
           minLength: 1
+          pattern: '\S'
+          nullable: true
           description: Story text content
         voice_id:
           type: integer
+          minimum: 1
           nullable: true
-          description: Optional voice ID. Stories without a voice will not be included in bulletin generation
+          description: Voice ID. Omit or set to null to keep current value unchanged
         status:
           type: string
           enum: [draft, active, expired]
+          nullable: true
           description: Story status
         start_date:
           type: string
           format: date
+          nullable: true
           description: Start date in YYYY-MM-DD format
         end_date:
           type: string
           format: date
+          nullable: true
           description: End date in YYYY-MM-DD format
         weekdays:
           type: integer
           minimum: 0
           maximum: 127
+          nullable: true
           description: |
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
@@ -2800,6 +2827,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          nullable: true
           description: Optional JSON metadata object for story-specific settings
           example:
             priority: "medium"
@@ -2879,6 +2907,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
         password:
           type: string
           writeOnly: true
@@ -2890,6 +2919,7 @@ components:
           format: email
           maxLength: 255
           nullable: true
+          description: Omit or set to null to create user without email
         role:
           type: string
           enum: [admin, editor, viewer]
@@ -2902,9 +2932,45 @@ components:
           type: object
           additionalProperties: true
           description: JSON metadata object for user-specific settings (optional)
+
+    UserUpdate:
+      type: object
+      description: All fields are optional — only provided fields will be updated. Null is treated as omit. At least one non-null field must be provided.
+      minProperties: 1
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9]+$'
+          description: Unique username (alphanumeric only)
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '\S'
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          maxLength: 255
+          description: New password
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          nullable: true
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
         suspended:
           type: boolean
-          description: Set to true to suspend user, false to restore (optional, only for PUT /users/{id})
+          nullable: true
+          description: Set to true to suspend user, false to restore
 
     BulletinResponse:
       type: object
