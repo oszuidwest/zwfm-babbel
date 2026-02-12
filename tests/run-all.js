@@ -22,14 +22,14 @@ class TestOrchestrator {
         // Configuration for available test suites.
         this.availableSuites = [
             'auth', 'permissions', 'stations',
-            'voices', 'station-voices', 'stories',
+            'voices', 'station-voices', 'stories', 'tts',
             'bulletins', 'automation', 'users', 'validation'
         ];
 
         // Execution order ensures dependencies are met.
         this.testOrder = [
             'auth', 'permissions', 'stations',
-            'voices', 'station-voices', 'stories',
+            'voices', 'station-voices', 'stories', 'tts',
             'bulletins', 'automation', 'users', 'validation'
         ];
 
@@ -41,6 +41,7 @@ class TestOrchestrator {
             'voices': './voices/test-voices.js',
             'station-voices': './station-voices/test-station-voices.js',
             'stories': './stories/test-stories.js',
+            'tts': './tts/test-tts.js',
             'bulletins': './bulletins/test-bulletins.js',
             'automation': './automation/test-automation.js',
             'users': './users/test-users.js',

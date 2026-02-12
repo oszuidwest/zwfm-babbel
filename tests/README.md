@@ -37,6 +37,7 @@ npm run test:permissions   # Permission/RBAC tests
 npm run test:stations      # Station CRUD tests
 npm run test:voices        # Voice management tests
 npm run test:stories       # Story tests with file uploads
+npm run test:tts           # Text-to-speech endpoint tests
 npm run test:bulletins     # Bulletin generation tests
 npm run test:users         # User management tests
 npm run test:validation    # Comprehensive validation tests
@@ -70,6 +71,8 @@ tests/
 │   └── test-station-voices.js # Station-voice relationship tests
 ├── stories/
 │   └── test-stories.js     # Story tests with file uploads
+├── tts/
+│   └── test-tts.js         # Text-to-speech endpoint tests
 ├── bulletins/
 │   └── test-bulletins.js   # Bulletin generation tests
 ├── users/
@@ -86,7 +89,7 @@ tests/
 - ✅ **Cookie Management**: Session persistence across tests
 - ✅ **Colored Output**: Clear test results with color coding
 - ✅ **Auto Cleanup**: Resources cleaned up automatically
-- ✅ **70 Total Tests**: Complete migration from bash with enhancements
+- ✅ **83 Total Tests**: Complete migration from bash with enhancements
 
 ## 📊 Test Coverage
 
@@ -181,10 +184,11 @@ Current test coverage:
 - **Voices**: 6 tests
 - **Station-Voices**: 7 tests
 - **Stories**: 10 tests
+- **TTS**: 7 tests
 - **Bulletins**: 11 tests
 - **Users**: 19 tests
 - **Validation**: 6 tests
-- **Total**: 76 tests across all suites
+- **Total**: 83 tests across all suites
 
 ## Contributing
 
