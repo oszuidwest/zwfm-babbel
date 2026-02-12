@@ -27,7 +27,7 @@ func BuildUpdateMap(update any) map[string]any {
 	result := make(map[string]any)
 
 	v := reflect.ValueOf(update)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return result
 		}
@@ -100,7 +100,7 @@ func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFi
 	}
 
 	// Handle pointer fields - only include if non-nil
-	if fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() {
+	if fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil() {
 		return col, fieldVal.Elem().Interface(), true
 	}
 
@@ -127,10 +127,10 @@ func getColumnName(fieldType reflect.StructField) string {
 
 // extractColumnFromTag extracts the column name from a GORM tag like `gorm:"column:voice_id"`.
 func extractColumnFromTag(tag string) string {
-	for _, part := range strings.Split(tag, ";") {
+	for part := range strings.SplitSeq(tag, ";") {
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "column:") {
-			return strings.TrimPrefix(part, "column:")
+		if after, ok := strings.CutPrefix(part, "column:"); ok {
+			return after
 		}
 	}
 	return ""

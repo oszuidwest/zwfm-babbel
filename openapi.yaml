@@ -692,6 +692,11 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
+                elevenlabs_voice_id:
+                  type: string
+                  maxLength: 255
+                  nullable: true
+                  description: ElevenLabs voice identifier for TTS generation
       responses:
         '201':
           description: Voice created
@@ -753,6 +758,11 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
+                elevenlabs_voice_id:
+                  type: string
+                  maxLength: 255
+                  nullable: true
+                  description: ElevenLabs voice identifier for TTS generation (set to null to clear)
       responses:
         '200':
           description: Voice updated successfully
@@ -1002,6 +1012,74 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
+  /stories/{id}/tts:
+    post:
+      summary: Generate story audio via text-to-speech
+      description: |
+        Generates audio for a story using the ElevenLabs text-to-speech API.
+        Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
+        The generated audio replaces any existing audio file for the story.
+
+        **Prerequisites:**
+        - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
+        - Story must have non-empty `text`
+        - Story must have a `voice_id` assigned
+        - The assigned voice must have an `elevenlabs_voice_id` configured
+
+        **Audio pipeline:** ElevenLabs returns MP3 → converted to 48kHz mono WAV → stored as story audio.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true"]
+          description: Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio.
+      responses:
+        '201':
+          description: TTS audio generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "TTS audio generated successfully"
+        '400':
+          description: |
+            Validation error. Possible causes:
+            - Story has no text
+            - Story has no voice assigned
+            - Voice has no ElevenLabs voice ID configured
+            - Story already has audio (use ?force=true to overwrite)
+            - ElevenLabs voice ID not found
+            - ElevenLabs API key is invalid
+            - ElevenLabs rate limit exceeded
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '501':
+          description: TTS is not configured on the server
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/tts.not_configured"
+                title: "Not Implemented"
+                status: 501
+                detail: "Text-to-speech is not configured"
+                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
 
   /stories/{id}:
     get:
@@ -2459,6 +2537,11 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        elevenlabs_voice_id:
+          type: string
+          maxLength: 255
+          nullable: true
+          description: ElevenLabs voice identifier for TTS generation (null if not configured)
         created_at:
           type: string
           format: date-time

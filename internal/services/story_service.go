@@ -8,6 +8,8 @@ import (
 	"os"
 	"time"
 
+	"net/http"
+
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -374,7 +376,8 @@ func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*
 }
 
 // GenerateTTS generates audio for a story using text-to-speech.
-func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
+// If the story already has audio, pass force=true to overwrite it.
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
 	story, err := s.storyRepo.GetByID(ctx, storyID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -384,6 +387,9 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 	}
 
 	// Validate TTS prerequisites
+	if story.AudioFile != "" && !force {
+		return apperrors.Validation("Story", "audio_file", "story already has audio — use ?force=true to overwrite")
+	}
 	if story.Text == "" {
 		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
 	}
@@ -397,7 +403,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 	// Generate speech via TTS service
 	audioData, err := s.ttsSvc.GenerateSpeech(ctx, story.Text, *story.Voice.ElevenLabsVoiceID)
 	if err != nil {
-		return apperrors.Audio("Story", "tts_generate", err)
+		return translateTTSError(err)
 	}
 
 	// Write to temp file for processing through the standard audio pipeline
@@ -412,6 +418,21 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64) error {
 	}()
 
 	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+// translateTTSError maps TTS service errors to domain errors with specific messages.
+func translateTTSError(err error) error {
+	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
+		switch apiErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return apperrors.Validation("TTS", "api_key", apiErr.Error())
+		case http.StatusNotFound:
+			return apperrors.Validation("Voice", "elevenlabs_voice_id", apiErr.Error())
+		case http.StatusTooManyRequests:
+			return apperrors.Validation("TTS", "rate_limit", apiErr.Error())
+		}
+	}
+	return apperrors.Audio("Story", "tts_generate", err)
 }
 
 // writeTempFile creates a temporary file with the given data and pattern, returning its path.

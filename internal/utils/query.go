@@ -277,7 +277,7 @@ func FilterStructFields(data any, fields []string) any {
 		return data
 	}
 
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return data
 		}
@@ -310,7 +310,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 		return result
 	}
 
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return result
 		}

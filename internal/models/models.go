@@ -58,7 +58,7 @@ type Story struct {
 	// UpdatedAt is when the story was last modified.
 	UpdatedAt time.Time `json:"updated_at"`
 	// DeletedAt is when the story was soft-deleted, if applicable.
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// Relations
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
@@ -166,7 +166,7 @@ type User struct {
 	// SuspendedAt is the timestamp when the account was suspended.
 	SuspendedAt *time.Time `json:"suspended_at,omitempty"`
 	// DeletedAt is the soft delete timestamp.
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 	// LastLoginAt is the timestamp of the most recent login.
 	LastLoginAt *time.Time `json:"last_login_at"`
 	// LoginCount is the total number of successful logins.

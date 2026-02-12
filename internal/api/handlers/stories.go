@@ -234,6 +234,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 }
 
 // GenerateStoryTTS generates audio for a story using text-to-speech.
+// Pass ?force=true to overwrite existing audio.
 func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 	if !h.ttsEnabled {
 		utils.ProblemExtended(c, http.StatusNotImplemented, "Text-to-speech is not configured", "tts.not_configured",
@@ -246,7 +247,9 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 		return
 	}
 
-	if err := h.storySvc.GenerateTTS(c.Request.Context(), id); err != nil {
+	force := c.Query("force") == "true"
+
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}

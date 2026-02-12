@@ -12,6 +12,29 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
+// APIError represents an error response from the ElevenLabs API with the HTTP status code preserved.
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	switch e.StatusCode {
+	case http.StatusUnauthorized:
+		return "ElevenLabs API key is invalid or expired"
+	case http.StatusForbidden:
+		return "ElevenLabs API key does not have access to this resource"
+	case http.StatusNotFound:
+		return "ElevenLabs voice ID not found — check the voice configuration"
+	case http.StatusTooManyRequests:
+		return "ElevenLabs API rate limit or quota exceeded — try again later"
+	case http.StatusUnprocessableEntity:
+		return fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
+	default:
+		return fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
+	}
+}
+
 // Service handles text-to-speech generation via the ElevenLabs API.
 type Service struct {
 	apiKey string
@@ -69,7 +92,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("TTS API returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
 	audio, err := io.ReadAll(resp.Body)
