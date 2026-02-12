@@ -152,10 +152,17 @@ type StationRequest struct {
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
-// VoiceRequest represents the request for creating and updating voices.
+// VoiceRequest represents the request for creating voices.
 type VoiceRequest struct {
 	Name              string  `json:"name" binding:"required,notblank,max=255"`
 	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id" binding:"omitempty,max=255"`
+}
+
+// VoiceUpdateRequest represents the request for updating voices.
+// Name is optional (omit to skip), ElevenLabsVoiceID supports null-to-clear via Optional.
+type VoiceUpdateRequest struct {
+	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
+	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
 }
 
 // StationVoiceRequest represents the request for creating station-voice relationships.
