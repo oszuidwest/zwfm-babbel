@@ -61,38 +61,26 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// Uses type-safe error checking with errors.As() for concrete error types.
+// Uses type-safe error checking with errors.AsType for concrete error types.
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
-	// Type-safe error checking with concrete types
-	var notFound *apperrors.NotFoundError
-	var duplicate *apperrors.DuplicateError
-	var dependency *apperrors.DependencyError
-	var validation *apperrors.ValidationError
-	var dbError *apperrors.DatabaseError
-	var audioError *apperrors.AudioError
-	var noStories *apperrors.NoStoriesError
-
-	switch {
 	// Context timeout (check first as it's a special case)
-	case errors.Is(err, context.DeadlineExceeded):
+	if errors.Is(err, context.DeadlineExceeded) {
 		logger.Error("Request timeout: %v", err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
 			"internal.timeout",
 			"The request took too long. Please try again.",
 		)
-
-	// NotFoundError - resource does not exist
-	case errors.As(err, &notFound):
+	} else if notFound, ok := errors.AsType[*apperrors.NotFoundError](err); ok {
+		// NotFoundError - resource does not exist
 		logError(notFound.Resource, "not_found", err)
 		utils.ProblemExtended(c, http.StatusNotFound,
 			notFound.Error(),
 			strings.ToLower(notFound.Resource)+".not_found",
 			"Check that the ID exists and you have access",
 		)
-
-	// DuplicateError - unique constraint violation
-	case errors.As(err, &duplicate):
+	} else if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
+		// DuplicateError - unique constraint violation
 		logError(duplicate.Resource, "duplicate", err)
 		hint := "Use a different value"
 		if duplicate.Field != "" {
@@ -104,18 +92,16 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(duplicate.Resource)+".duplicate",
 			hint,
 		)
-
-	// DependencyError - cannot delete due to dependencies
-	case errors.As(err, &dependency):
+	} else if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
+		// DependencyError - cannot delete due to dependencies
 		logError(dependency.Resource, "has_dependencies", err)
 		utils.ProblemExtended(c, http.StatusConflict,
 			dependency.Error(),
 			strings.ToLower(dependency.Resource)+".has_dependencies",
 			fmt.Sprintf("Delete or reassign the associated %s first", dependency.Dependency),
 		)
-
-	// ValidationError - input validation failed
-	case errors.As(err, &validation):
+	} else if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
+		// ValidationError - input validation failed
 		logError(validation.Resource, "validation_failed", err)
 		hint := "Check your input and try again"
 		if validation.Field != "" {
@@ -126,36 +112,32 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(validation.Resource)+".validation_failed",
 			hint,
 		)
-
-	// NoStoriesError - no stories available for bulletin
-	case errors.As(err, &noStories):
+	} else if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
+		// NoStoriesError - no stories available for bulletin
 		logError("bulletin", "no_stories", err)
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
 			noStories.Error(),
 			"bulletin.no_stories",
 			"Add active stories with audio before generating a bulletin",
 		)
-
-	// AudioError - audio processing failed (internal)
-	case errors.As(err, &audioError):
+	} else if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		// AudioError - audio processing failed (internal)
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			"audio.processing_failed",
 			"Check the audio file format and try again",
 		)
-
-	// DatabaseError - unexpected database error (internal)
-	case errors.As(err, &dbError):
+	} else if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
+		// DatabaseError - unexpected database error (internal)
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
 			"Please try again later",
 		)
-
-	// Unknown error - fallback
-	default:
+	} else {
+		// Unknown error - fallback
 		logger.Error("Unhandled error for %s: %v", fallbackResource, err)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			fmt.Sprintf("Failed to process %s", fallbackResource),

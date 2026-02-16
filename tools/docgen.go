@@ -30,9 +30,9 @@ type OpenAPISpec struct {
 	} `yaml:"servers"`
 	Paths      map[string]map[string]Operation `yaml:"paths"`
 	Components struct {
-		Schemas         map[string]interface{} `yaml:"schemas"`
-		SecuritySchemes map[string]interface{} `yaml:"securitySchemes"`
-		Parameters      map[string]Parameter   `yaml:"parameters"`
+		Schemas         map[string]any       `yaml:"schemas"`
+		SecuritySchemes map[string]any       `yaml:"securitySchemes"`
+		Parameters      map[string]Parameter `yaml:"parameters"`
 	} `yaml:"components"`
 	Tags []struct {
 		Name        string `yaml:"name"`
@@ -42,25 +42,25 @@ type OpenAPISpec struct {
 
 // Operation represents an OpenAPI operation definition with its metadata and parameters.
 type Operation struct {
-	Summary     string                 `yaml:"summary"`
-	Description string                 `yaml:"description"`
-	Tags        []string               `yaml:"tags"`
-	Parameters  []Parameter            `yaml:"parameters"`
-	RequestBody map[string]interface{} `yaml:"requestBody"`
-	Responses   map[string]interface{} `yaml:"responses"`
-	Security    []map[string][]string  `yaml:"security"`
-	OperationID string                 `yaml:"operationId"`
+	Summary     string                `yaml:"summary"`
+	Description string                `yaml:"description"`
+	Tags        []string              `yaml:"tags"`
+	Parameters  []Parameter           `yaml:"parameters"`
+	RequestBody map[string]any        `yaml:"requestBody"`
+	Responses   map[string]any        `yaml:"responses"`
+	Security    []map[string][]string `yaml:"security"`
+	OperationID string                `yaml:"operationId"`
 }
 
 // Parameter represents an OpenAPI parameter definition with validation schema.
 type Parameter struct {
-	Name        string                 `yaml:"name"`
-	In          string                 `yaml:"in"`
-	Required    bool                   `yaml:"required"`
-	Description string                 `yaml:"description"`
-	Schema      map[string]interface{} `yaml:"schema"`
-	Ref         string                 `yaml:"$ref"`
-	Example     interface{}            `yaml:"example"`
+	Name        string         `yaml:"name"`
+	In          string         `yaml:"in"`
+	Required    bool           `yaml:"required"`
+	Description string         `yaml:"description"`
+	Schema      map[string]any `yaml:"schema"`
+	Ref         string         `yaml:"$ref"`
+	Example     any            `yaml:"example"`
 }
 
 // EndpointInfo holds structured endpoint information for better organization.
@@ -328,9 +328,9 @@ func main() {
 
 // resolveParameters resolves $ref parameters from the components section.
 func resolveParameters(params []Parameter, components struct {
-	Schemas         map[string]interface{} `yaml:"schemas"`
-	SecuritySchemes map[string]interface{} `yaml:"securitySchemes"`
-	Parameters      map[string]Parameter   `yaml:"parameters"`
+	Schemas         map[string]any       `yaml:"schemas"`
+	SecuritySchemes map[string]any       `yaml:"securitySchemes"`
+	Parameters      map[string]Parameter `yaml:"parameters"`
 }) []Parameter {
 	resolvedParams := make([]Parameter, 0, len(params))
 	for _, param := range params {
@@ -404,8 +404,8 @@ func getParameterType(param Parameter) string {
 }
 
 // formatRequestBodyInfo extracts and formats request body information including content type and description.
-func formatRequestBodyInfo(rb map[string]interface{}) string {
-	if content, ok := rb["content"].(map[string]interface{}); ok {
+func formatRequestBodyInfo(rb map[string]any) string {
+	if content, ok := rb["content"].(map[string]any); ok {
 		contentTypes := slices.Collect(maps.Keys(content))
 
 		// Get description if available
@@ -422,7 +422,7 @@ func formatRequestBodyInfo(rb map[string]interface{}) string {
 }
 
 // checkHasSuccessResponse determines if the responses map contains any success status codes (200, 201, 204).
-func checkHasSuccessResponse(responses map[string]interface{}) bool {
+func checkHasSuccessResponse(responses map[string]any) bool {
 	for code := range responses {
 		if code == "200" || code == "201" || code == "204" {
 			return true
@@ -432,11 +432,11 @@ func checkHasSuccessResponse(responses map[string]interface{}) bool {
 }
 
 // extractSuccessResponse finds and formats the first success response (200, 201, or 204) from the responses map.
-func extractSuccessResponse(responses map[string]interface{}) string {
+func extractSuccessResponse(responses map[string]any) string {
 	codes := []string{"200", "201", "204"}
 	for _, code := range codes {
 		if resp, ok := responses[code]; ok {
-			if respMap, ok := resp.(map[string]interface{}); ok {
+			if respMap, ok := resp.(map[string]any); ok {
 				if desc, ok := respMap["description"].(string); ok {
 					return fmt.Sprintf("`%s` - %s", code, desc)
 				}
@@ -448,7 +448,7 @@ func extractSuccessResponse(responses map[string]interface{}) string {
 }
 
 // checkHasErrorResponses determines if the responses map contains any error status codes (non-2xx).
-func checkHasErrorResponses(responses map[string]interface{}) bool {
+func checkHasErrorResponses(responses map[string]any) bool {
 	for code := range responses {
 		if code != "200" && code != "201" && code != "204" {
 			return true
@@ -463,8 +463,8 @@ func isHTTPErrorCode(code string) bool {
 }
 
 // extractResponseDescription retrieves the description field from a response object, defaulting to "Error".
-func extractResponseDescription(response interface{}) string {
-	if respMap, ok := response.(map[string]interface{}); ok {
+func extractResponseDescription(response any) string {
+	if respMap, ok := response.(map[string]any); ok {
 		if desc, ok := respMap["description"].(string); ok {
 			return desc
 		}

@@ -37,8 +37,7 @@ func ParseDBError(err error) error {
 	}
 
 	// Handle MySQL-specific errors via type assertion (more robust)
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch mysqlErr.Number {
 		case 1062: // ER_DUP_ENTRY
 			logger.Debug("MySQL duplicate key: %v", err)

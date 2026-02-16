@@ -300,8 +300,7 @@ func formatValidationMessage(field, tag, param string) string {
 func convertValidationErrors(err error) []ValidationError {
 	var validationErrs []ValidationError
 
-	var validationErrors validator.ValidationErrors
-	if errors.As(err, &validationErrors) {
+	if validationErrors, ok := errors.AsType[validator.ValidationErrors](err); ok {
 		for _, e := range validationErrors {
 			validationErrs = append(validationErrs, ValidationError{
 				Field:   e.Field(),

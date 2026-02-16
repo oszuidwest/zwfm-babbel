@@ -70,7 +70,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 	}
 
 	switch {
-	case field.Type() == reflect.TypeOf(time.Time{}):
+	case field.Type() == reflect.TypeFor[time.Time]():
 		timeVal, ok := field.Interface().(time.Time)
 		if !ok {
 			result.FailValidation = true
@@ -93,7 +93,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 		result.Time = t
 		return result, true
 
-	case field.Kind() == reflect.Ptr && !field.IsNil():
+	case field.Kind() == reflect.Pointer && !field.IsNil():
 		if field.Elem().Kind() == reflect.String {
 			dateStr := field.Elem().String()
 			if dateStr == "" {
@@ -110,7 +110,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 		}
 		return result, false // Unknown pointer type, skip
 
-	case field.Kind() == reflect.Ptr && field.IsNil():
+	case field.Kind() == reflect.Pointer && field.IsNil():
 		result.IsEmpty = true
 		return result, true
 
