@@ -27,7 +27,7 @@ func BuildUpdateMap(update any) map[string]any {
 	result := make(map[string]any)
 
 	v := reflect.ValueOf(update)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return result
 		}
@@ -37,12 +37,11 @@ func BuildUpdateMap(update any) map[string]any {
 		return result
 	}
 
-	t := v.Type()
-	clearFields := collectClearFields(v, t)
+	clearFields := collectClearFields(v)
 
 	// Process all fields
-	for i := range v.NumField() {
-		col, val, ok := processField(v.Field(i), t.Field(i), clearFields)
+	for fieldType, fieldVal := range v.Fields() {
+		col, val, ok := processField(fieldVal, fieldType, clearFields)
 		if ok {
 			result[col] = val
 		}
@@ -54,18 +53,17 @@ func BuildUpdateMap(update any) map[string]any {
 // collectClearFields scans struct for Clear* bool fields set to true.
 // Returns a map of target field names that should be set to NULL.
 // For example, ClearVoiceID=true results in map["VoiceID"]=true.
-func collectClearFields(v reflect.Value, t reflect.Type) map[string]bool {
+func collectClearFields(v reflect.Value) map[string]bool {
 	clearFields := make(map[string]bool)
 
-	for i := range v.NumField() {
-		field := t.Field(i)
+	for field, fieldVal := range v.Fields() {
 		if !strings.HasPrefix(field.Name, "Clear") {
 			continue
 		}
 		if field.Type.Kind() != reflect.Bool {
 			continue
 		}
-		if !v.Field(i).Bool() {
+		if !fieldVal.Bool() {
 			continue
 		}
 		// ClearVoiceID -> VoiceID
@@ -100,7 +98,7 @@ func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFi
 	}
 
 	// Handle pointer fields - only include if non-nil
-	if fieldVal.Kind() == reflect.Ptr && !fieldVal.IsNil() {
+	if fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil() {
 		return col, fieldVal.Elem().Interface(), true
 	}
 
@@ -127,10 +125,10 @@ func getColumnName(fieldType reflect.StructField) string {
 
 // extractColumnFromTag extracts the column name from a GORM tag like `gorm:"column:voice_id"`.
 func extractColumnFromTag(tag string) string {
-	for _, part := range strings.Split(tag, ";") {
+	for part := range strings.SplitSeq(tag, ";") {
 		part = strings.TrimSpace(part)
-		if strings.HasPrefix(part, "column:") {
-			return strings.TrimPrefix(part, "column:")
+		if after, ok := strings.CutPrefix(part, "column:"); ok {
+			return after
 		}
 	}
 	return ""
