@@ -106,6 +106,15 @@ The algorithm tracks when each story was last included in a bulletin (via `MAX(b
 
 All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations - actual selections differ each day but distribution stays fair.
 
+## Bulletin File Cleanup
+
+Bulletin WAV files (~15MB each) can accumulate quickly. A background service automatically purges old files while preserving database records as an audit trail.
+
+- Runs daily, deleting bulletin audio files older than the retention period
+- Always keeps the latest bulletin per station available for serving
+- Removes orphaned files that have no matching database record
+- Configure retention via `BABBEL_BULLETIN_RETENTION` (default: `168h` / 7 days)
+
 ## Radio Automation Integration
 
 ### Public Endpoint (Recommended)
