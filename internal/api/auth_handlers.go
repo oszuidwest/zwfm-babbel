@@ -39,7 +39,7 @@ func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.
 func (h *AuthHandlers) Login(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
-		Password string `json:"password" binding:"required"`
+		Password string `json:"password" binding:"required"` //nolint:gosec // G117: intentional field for auth credentials
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
