@@ -2782,6 +2782,11 @@ components:
         updated_at:
           type: string
           format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft delete timestamp (present when querying with ?trashed=only or ?trashed=with)
 
     UserInput:
       type: object
@@ -2920,6 +2925,14 @@ components:
           format: date-time
           description: ISO 8601 timestamp when the error occurred
           example: "2024-01-20T14:05:00Z"
+        code:
+          type: string
+          description: Machine-readable error code in "resource.error" format
+          example: "station.not_found"
+        hint:
+          type: string
+          description: User-friendly suggestion for resolving the error
+          example: "Check the resource ID and try again"
         trace_id:
           type: string
           description: Optional trace ID for debugging
