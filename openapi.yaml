@@ -2359,7 +2359,7 @@ components:
                 in:
                   type: string
                   description: Comma-separated list of values
-                null:
+                'null':
                   type: boolean
                   description: Is null (true) or not null (false)
                 band:
