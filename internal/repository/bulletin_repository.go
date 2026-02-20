@@ -24,6 +24,11 @@ type BulletinRepository interface {
 
 	// Story linking
 	LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error
+
+	// Cleanup operations
+	GetExpiredBulletins(ctx context.Context, cutoff time.Time) ([]models.Bulletin, error)
+	MarkFilePurged(ctx context.Context, id int64) error
+	GetAllAudioFiles(ctx context.Context) ([]string, error)
 }
 
 // bulletinRepository implements BulletinRepository using GORM.
@@ -80,7 +85,8 @@ func (r *bulletinRepository) GetLatest(ctx context.Context, stationID int64, max
 
 	query := r.db.WithContext(ctx).
 		Joins("Station").
-		Where("bulletins.station_id = ?", stationID)
+		Where("bulletins.station_id = ?", stationID).
+		Where("bulletins.file_purged_at IS NULL")
 
 	if maxAge != nil {
 		minTime := time.Now().Add(-*maxAge)
@@ -130,6 +136,7 @@ var bulletinFieldMapping = FieldMapping{
 	"duration_seconds": "bulletins.duration_seconds",
 	"file_size":        "bulletins.file_size",
 	"story_count":      "bulletins.story_count",
+	"file_purged_at":   "bulletins.file_purged_at",
 	"created_at":       "bulletins.created_at",
 }
 
@@ -204,4 +211,58 @@ func (r *bulletinRepository) GetStoryBulletinHistory(ctx context.Context, storyI
 		Where("bulletin_stories.story_id = ?", storyID)
 
 	return ApplyListQuery[models.Bulletin](db, query, bulletinFieldMapping, bulletinSearchFields, []SortField{{Field: "created_at", Direction: SortDesc}})
+}
+
+// GetExpiredBulletins returns bulletins older than cutoff whose files haven't been purged yet,
+// excluding the latest unpurged bulletin per station (to always keep at least one available).
+func (r *bulletinRepository) GetExpiredBulletins(ctx context.Context, cutoff time.Time) ([]models.Bulletin, error) {
+	var bulletins []models.Bulletin
+
+	err := r.db.WithContext(ctx).
+		Where("created_at < ?", cutoff).
+		Where("file_purged_at IS NULL").
+		Where("id NOT IN (?)",
+			r.db.Model(&models.Bulletin{}).
+				Select("MAX(id)").
+				Where("file_purged_at IS NULL").
+				Group("station_id"),
+		).
+		Find(&bulletins).Error
+
+	if err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return bulletins, nil
+}
+
+// MarkFilePurged sets file_purged_at to the current time for the given bulletin.
+func (r *bulletinRepository) MarkFilePurged(ctx context.Context, id int64) error {
+	err := r.db.WithContext(ctx).
+		Model(&models.Bulletin{}).
+		Where("id = ?", id).
+		Update("file_purged_at", time.Now()).Error
+
+	if err != nil {
+		return ParseDBError(err)
+	}
+
+	return nil
+}
+
+// GetAllAudioFiles returns audio_file filenames for bulletins whose files have not been purged.
+func (r *bulletinRepository) GetAllAudioFiles(ctx context.Context) ([]string, error) {
+	var files []string
+
+	err := r.db.WithContext(ctx).
+		Model(&models.Bulletin{}).
+		Where("audio_file != ''").
+		Where("file_purged_at IS NULL").
+		Pluck("audio_file", &files).Error
+
+	if err != nil {
+		return nil, ParseDBError(err)
+	}
+
+	return files, nil
 }

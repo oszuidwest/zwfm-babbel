@@ -56,9 +56,13 @@ func main() {
 	expirationService := scheduler.NewStoryExpirationService(db)
 	expirationService.Start()
 
+	cleanupService := scheduler.NewBulletinCleanupService(db, cfg)
+	cleanupService.Start()
+
 	waitForShutdown()
 
 	logger.Info("Shutting down server...")
+	cleanupService.Stop()
 	expirationService.Stop()
 	shutdownServer(srv)
 	logger.Info("Server exited")
