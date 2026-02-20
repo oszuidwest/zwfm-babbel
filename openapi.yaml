@@ -1145,11 +1145,12 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Bulletin creation timestamp
         - `station_name` - Station name (from join)
         - `story_order` - Order of story in bulletin
         - `included_at` - When story was included in bulletin
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1159,11 +1160,12 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Bulletin creation timestamp
         - `station_name` - Station name
         - `story_order` - Story order in bulletin
         - `included_at` - Inclusion timestamp (default: descending)
-        
+
         ## Examples
         - Search by bulletin filename: `?search=bulletin_2024`
         - Filter by station: `?filter[station_id]=1`
@@ -1415,10 +1417,11 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `metadata` - JSON metadata
         - `created_at` - Creation timestamp
         - `station_name` - Station name (from join)
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1428,9 +1431,10 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
         - `station_name` - Station name
-        
+
         ## Notes
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
         
@@ -1579,9 +1583,10 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Creation timestamp
         - `station_name` - Station name (from join)
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1590,9 +1595,10 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
         - `station_name` - Station name
-        
+
         ## Special Parameters
         - `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
         - `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
@@ -2859,6 +2865,11 @@ components:
         story_count:
           type: integer
           description: Number of stories included in the bulletin
+        file_purged_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the audio file was cleaned up (null means file still exists)
 
     ProblemDetails:
       type: object
