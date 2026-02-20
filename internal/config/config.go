@@ -121,6 +121,8 @@ type AudioConfig struct {
 	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
 	// AppRoot specifies the application root directory path.
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
+	// BulletinRetention is how long bulletin audio files are kept before cleanup (default: 7 days).
+	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
 }
 
 // Load reads configuration from environment variables.
