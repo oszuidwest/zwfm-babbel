@@ -191,7 +191,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	filePath := utils.BulletinPath(h.config, audioFile)
 
 	// Verify file exists before serving (consistent RFC 9457 error handling)
-	if _, err := os.Stat(filePath); err != nil {
+	if _, err := os.Stat(filePath); err != nil { //nolint:gosec // G703: audioFile from DB is system-generated bulletin_{id}_{timestamp}.wav
 		if os.IsNotExist(err) {
 			logger.Error("Automation: audio file not found: %s", filePath)
 			utils.ProblemNotFound(c, "Audio file")

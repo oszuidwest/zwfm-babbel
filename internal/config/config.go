@@ -54,7 +54,7 @@ type DatabaseConfig struct {
 	// User specifies the MySQL database username.
 	User string `env:"USER" envDefault:"babbel"`
 	// Password specifies the MySQL database password.
-	Password string `env:"PASSWORD" envDefault:"babbel"`
+	Password string `env:"PASSWORD" envDefault:"babbel"` //nolint:gosec // G117: env config, no JSON serialization
 	// Database specifies the MySQL database name.
 	Database string `env:"NAME" envDefault:"babbel"`
 	// MigrationsPath specifies the filesystem path to migration files.
@@ -90,7 +90,7 @@ type AuthConfig struct {
 	// Method specifies the authentication method (local, oidc, or both).
 	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
 	// SessionSecret provides the key for session encryption (min 32 characters).
-	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
+	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"` //nolint:gosec // G117: env config, no JSON serialization
 	// CookieDomain sets the domain scope for session cookies.
 	CookieDomain string `env:"COOKIE_DOMAIN"`
 	// CookieSameSite controls the SameSite cookie attribute (strict, lax, or none).
