@@ -30,7 +30,7 @@ type UpdateUserRequest struct {
 	Username  string
 	FullName  string
 	Email     *string
-	Password  string //nolint:gosec // G117: internal service struct, no JSON tag
+	Password  string //nolint:gosec // G117: intentional field for auth credentials
 	Role      string
 	Metadata  *datatypes.JSONMap
 	Suspended *bool

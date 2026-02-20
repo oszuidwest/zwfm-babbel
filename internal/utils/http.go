@@ -130,7 +130,8 @@ func SanitizeFilename(filename string) string {
 
 // saveFileToPath saves an uploaded multipart file to the specified path.
 func saveFileToPath(file multipart.File, dst string) error {
-	out, err := os.Create(dst) //nolint:gosec // G304,G703: dst is UUID-based temp path from ValidateAndSaveAudioFile
+	// #nosec G304 - dst is sanitized temp path from ValidateAndSaveAudioFile
+	out, err := os.Create(dst) //nolint:gosec // G703: dst is a sanitized temp path from ValidateAndSaveAudioFile
 	if err != nil {
 		return err
 	}
@@ -174,7 +175,7 @@ type StationVoiceUpdateRequest struct {
 type UserCreateRequest struct {
 	Username string             `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string             `json:"full_name" binding:"required,notblank,max=255"`
-	Password string             `json:"password" binding:"required,min=8,max=128"` //nolint:gosec // G117: input-only, struct never serialized
+	Password string             `json:"password" binding:"required,min=8,max=128"` //nolint:gosec // G117: intentional field for auth credentials
 	Email    *string            `json:"email" binding:"omitempty,email,max=255"`
 	Role     string             `json:"role" binding:"required,oneof=admin editor viewer"`
 	Metadata *datatypes.JSONMap `json:"metadata,omitempty"`
@@ -185,7 +186,7 @@ type UserUpdateRequest struct {
 	Username  string             `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  string             `json:"full_name" binding:"omitempty,notblank,max=255"`
 	Email     *string            `json:"email" binding:"omitempty,email,max=255"`
-	Password  string             `json:"password" binding:"omitempty,min=8,max=255"` //nolint:gosec // G117: input-only, struct never serialized
+	Password  string             `json:"password" binding:"omitempty,min=8,max=255"` //nolint:gosec // G117: intentional field for auth credentials
 	Role      string             `json:"role" binding:"omitempty,oneof=admin editor viewer"`
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 	Suspended *bool              `json:"suspended" binding:"omitempty"`

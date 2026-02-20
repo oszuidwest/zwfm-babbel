@@ -31,7 +31,7 @@ type OIDCConfig struct {
 
 	// OAuth2 client credentials
 	ClientID     string
-	ClientSecret string //nolint:gosec // G117: internal config struct, never JSON serialized
+	ClientSecret string //nolint:gosec // G117: intentional field for auth credentials
 
 	// Redirect URL after authentication
 	RedirectURL string
