@@ -11,7 +11,8 @@ class ResourceManager {
         'stories',        // References voices, stations (via story_stations)
         'stationVoices',  // References voices, stations
         'voices',         // No dependencies on other tracked resources
-        'stations'        // Base resource, deleted last
+        'stations',       // Base resource
+        'users'           // Independent (casbin rules cascade on delete)
     ];
 
     /**
@@ -22,7 +23,8 @@ class ResourceManager {
         stories: '/stories',
         stationVoices: '/station-voices',
         voices: '/voices',
-        stations: '/stations'
+        stations: '/stations',
+        users: '/users'
     };
 
     constructor(apiHelper) {
@@ -32,13 +34,14 @@ class ResourceManager {
             voices: new Set(),
             stationVoices: new Set(),
             stories: new Set(),
-            bulletins: new Set()
+            bulletins: new Set(),
+            users: new Set()
         };
     }
 
     /**
      * Tracks a resource for cleanup.
-     * @param {string} type - Resource type (stations, voices, stories, stationVoices, bulletins).
+     * @param {string} type - Resource type (stations, voices, stories, stationVoices, bulletins, users).
      * @param {string|number} id - Resource ID.
      */
     track(type, id) {
