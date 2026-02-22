@@ -58,3 +58,4 @@ coverage/
 CLAUDE.md
 main
 docgen
+/.cache
