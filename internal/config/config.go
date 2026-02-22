@@ -112,7 +112,7 @@ type AuthConfig struct {
 // TTSConfig defines text-to-speech integration settings for ElevenLabs.
 type TTSConfig struct {
 	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
-	APIKey string `env:"API_KEY"`
+	APIKey string `env:"API_KEY"` //nolint:gosec // G117: This is a config field, not a hardcoded secret
 	// Model specifies the ElevenLabs model to use (default: eleven_multilingual_v2).
 	Model string `env:"MODEL" envDefault:"eleven_multilingual_v2"`
 	// RequestTimeout limits TTS API request duration (default: 60s).

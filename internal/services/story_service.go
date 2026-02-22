@@ -445,12 +445,12 @@ func writeTempFile(data []byte, pattern string) (string, error) {
 	path := f.Name()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
-		_ = os.Remove(path)
+		_ = os.Remove(path) //nolint:gosec // G703: path is from os.CreateTemp, not user input
 		return "", err
 	}
 
 	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
+		_ = os.Remove(path) //nolint:gosec // G703: path is from os.CreateTemp, not user input
 		return "", err
 	}
 
