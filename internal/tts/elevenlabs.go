@@ -12,6 +12,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
+const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
+
 // APIError represents an error response from the ElevenLabs API with the HTTP status code preserved.
 type APIError struct {
 	StatusCode int
@@ -84,7 +86,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "audio/mpeg")
 
-	//nolint:gosec // G704: voiceID is from database (trusted), not user input
+	//nolint:gosec // G704: voiceID is validated on input (notblank, max=255) and stored in DB
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("TTS API request failed: %w", err)
@@ -96,9 +98,13 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
 	}
 
-	audio, err := io.ReadAll(resp.Body)
+	limitedReader := io.LimitReader(resp.Body, maxAudioResponseBytes+1)
+	audio, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read TTS response: %w", err)
+	}
+	if int64(len(audio)) > maxAudioResponseBytes {
+		return nil, fmt.Errorf("TTS response exceeded maximum allowed size of %d bytes", maxAudioResponseBytes)
 	}
 
 	return audio, nil
