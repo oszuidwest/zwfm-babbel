@@ -23,6 +23,8 @@ type Config struct {
 	Audio AudioConfig
 	// Automation configures radio automation integration.
 	Automation AutomationConfig
+	// TTS configures text-to-speech integration with ElevenLabs.
+	TTS TTSConfig `envPrefix:"ELEVENLABS_"`
 	// LogLevel sets the logging verbosity level (0-5, default: 4).
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
@@ -54,7 +56,7 @@ type DatabaseConfig struct {
 	// User specifies the MySQL database username.
 	User string `env:"USER" envDefault:"babbel"`
 	// Password specifies the MySQL database password.
-	Password string `env:"PASSWORD" envDefault:"babbel"`
+	Password string `env:"PASSWORD" envDefault:"babbel"` //nolint:gosec // G117: intentional field for auth credentials
 	// Database specifies the MySQL database name.
 	Database string `env:"NAME" envDefault:"babbel"`
 	// MigrationsPath specifies the filesystem path to migration files.
@@ -90,7 +92,7 @@ type AuthConfig struct {
 	// Method specifies the authentication method (local, oidc, or both).
 	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
 	// SessionSecret provides the key for session encryption (min 32 characters).
-	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
+	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"` //nolint:gosec // G117: intentional field for auth credentials
 	// CookieDomain sets the domain scope for session cookies.
 	CookieDomain string `env:"COOKIE_DOMAIN"`
 	// CookieSameSite controls the SameSite cookie attribute (strict, lax, or none).
@@ -107,6 +109,16 @@ type AuthConfig struct {
 	Local LocalAuthConfig `envPrefix:"AUTH_"`
 }
 
+// TTSConfig defines text-to-speech integration settings for ElevenLabs.
+type TTSConfig struct {
+	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
+	APIKey string `env:"API_KEY"` //nolint:gosec // G117: This is a config field, not a hardcoded secret
+	// Model specifies the ElevenLabs model to use (default: eleven_multilingual_v2).
+	Model string `env:"MODEL" envDefault:"eleven_multilingual_v2"`
+	// RequestTimeout limits TTS API request duration (default: 60s).
+	RequestTimeout time.Duration `env:"TIMEOUT" envDefault:"60s"`
+}
+
 // AudioConfig defines audio processing and file storage settings.
 type AudioConfig struct {
 	// FFmpegPath specifies the path to the FFmpeg binary.
@@ -121,6 +133,8 @@ type AudioConfig struct {
 	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
 	// AppRoot specifies the application root directory path.
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
+	// BulletinRetention is how long bulletin audio files are kept before cleanup (default: 7 days).
+	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
 }
 
 // Load reads configuration from environment variables.

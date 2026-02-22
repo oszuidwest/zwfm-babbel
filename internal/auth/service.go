@@ -684,7 +684,7 @@ func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 	}
 
 	// Parse the provided URL to extract the origin
-	for _, origin := range strings.Split(s.config.AllowedOrigins, ",") {
+	for origin := range strings.SplitSeq(s.config.AllowedOrigins, ",") {
 		origin = strings.TrimSpace(origin)
 		if origin == "" {
 			continue

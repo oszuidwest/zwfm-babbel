@@ -1,4 +1,3 @@
-// Package auth provides authentication and authorization services for the Babbel API.
 package auth
 
 import (
@@ -32,7 +31,7 @@ type OIDCConfig struct {
 
 	// OAuth2 client credentials
 	ClientID     string
-	ClientSecret string
+	ClientSecret string //nolint:gosec // G117: intentional field for auth credentials
 
 	// Redirect URL after authentication
 	RedirectURL string

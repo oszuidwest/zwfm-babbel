@@ -131,7 +131,7 @@ func SanitizeFilename(filename string) string {
 // saveFileToPath saves an uploaded multipart file to the specified path.
 func saveFileToPath(file multipart.File, dst string) error {
 	// #nosec G304 - dst is sanitized temp path from ValidateAndSaveAudioFile
-	out, err := os.Create(dst)
+	out, err := os.Create(dst) //nolint:gosec // G703: dst is a sanitized temp path from ValidateAndSaveAudioFile
 	if err != nil {
 		return err
 	}
@@ -152,9 +152,17 @@ type StationRequest struct {
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
-// VoiceRequest represents the request for creating and updating voices.
+// VoiceRequest represents the request for creating voices.
 type VoiceRequest struct {
-	Name string `json:"name" binding:"required,notblank,max=255"`
+	Name              string  `json:"name" binding:"required,notblank,max=255"`
+	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
+}
+
+// VoiceUpdateRequest represents the request for updating voices.
+// Name is optional (omit to skip), ElevenLabsVoiceID supports null-to-clear via Optional.
+type VoiceUpdateRequest struct {
+	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
+	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
 }
 
 // StationVoiceRequest represents the request for creating station-voice relationships.
@@ -175,7 +183,7 @@ type StationVoiceUpdateRequest struct {
 type UserCreateRequest struct {
 	Username string             `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string             `json:"full_name" binding:"required,notblank,max=255"`
-	Password string             `json:"password" binding:"required,min=8,max=128"`
+	Password string             `json:"password" binding:"required,min=8,max=128"` //nolint:gosec // G117: intentional field for auth credentials
 	Email    *string            `json:"email" binding:"omitempty,email,max=255"`
 	Role     string             `json:"role" binding:"required,oneof=admin editor viewer"`
 	Metadata *datatypes.JSONMap `json:"metadata,omitempty"`
@@ -186,7 +194,7 @@ type UserUpdateRequest struct {
 	Username  string             `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  string             `json:"full_name" binding:"omitempty,notblank,max=255"`
 	Email     *string            `json:"email" binding:"omitempty,email,max=255"`
-	Password  string             `json:"password" binding:"omitempty,min=8,max=255"`
+	Password  string             `json:"password" binding:"omitempty,min=8,max=255"` //nolint:gosec // G117: intentional field for auth credentials
 	Role      string             `json:"role" binding:"omitempty,oneof=admin editor viewer"`
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 	Suspended *bool              `json:"suspended" binding:"omitempty"`
@@ -298,21 +306,21 @@ func formatValidationMessage(field, tag, param string) string {
 
 // convertValidationErrors converts Go validator errors into structured error messages.
 func convertValidationErrors(err error) []ValidationError {
-	var errors []ValidationError
+	var validationErrs []ValidationError
 
-	if validationErrors, ok := err.(validator.ValidationErrors); ok {
+	if validationErrors, ok := errors.AsType[validator.ValidationErrors](err); ok {
 		for _, e := range validationErrors {
-			errors = append(errors, ValidationError{
+			validationErrs = append(validationErrs, ValidationError{
 				Field:   e.Field(),
 				Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 			})
 		}
 	} else {
-		errors = append(errors, ValidationError{
+		validationErrs = append(validationErrs, ValidationError{
 			Field:   "request",
 			Message: "Invalid request format",
 		})
 	}
 
-	return errors
+	return validationErrs
 }

@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -170,7 +169,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, params.Limit, params.Offset)
 }
 
-// GetStationBulletins returns bulletins for a specific station with pagination and filtering
+// GetStationBulletins returns bulletins for a specific station with pagination and filtering.
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
@@ -214,7 +213,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
-// ListBulletins returns a paginated list of bulletins with modern query parameter support
+// ListBulletins returns a paginated list of bulletins with modern query parameter support.
 func (h *Handlers) ListBulletins(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)

@@ -1,4 +1,3 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -48,7 +47,7 @@ type ValidationError struct {
 	Message string `json:"message"`
 }
 
-// Problem type URIs for common error types
+// Problem type URIs for common error types.
 const (
 	ProblemTypeValidationError         = "https://babbel.api/problems/validation-error"
 	ProblemTypeResourceNotFound        = "https://babbel.api/problems/resource-not-found"

@@ -1,4 +1,3 @@
-// Package services provides business logic services for the Babbel API.
 package services
 
 import (
@@ -31,7 +30,7 @@ type UpdateUserRequest struct {
 	Username  string
 	FullName  string
 	Email     *string
-	Password  string
+	Password  string //nolint:gosec // G117: intentional field for auth credentials
 	Role      string
 	Metadata  *datatypes.JSONMap
 	Suspended *bool

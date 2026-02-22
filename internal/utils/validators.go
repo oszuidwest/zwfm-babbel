@@ -1,4 +1,3 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -16,6 +15,15 @@ import (
 // Panics if validator registration fails, as this is a critical configuration error.
 func InitializeValidators() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		// Register Optional[string] so binding tags (omitempty, max, notblank) work on the
+		// inner string value. Returns "" for absent/null, letting omitempty skip validation.
+		v.RegisterCustomTypeFunc(func(field reflect.Value) any {
+			if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
+				return *opt.Value
+			}
+			return ""
+		}, Optional[string]{})
+
 		// Register notblank validator - ensures string is not empty or whitespace-only
 		if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
@@ -71,7 +79,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 	}
 
 	switch {
-	case field.Type() == reflect.TypeOf(time.Time{}):
+	case field.Type() == reflect.TypeFor[time.Time]():
 		timeVal, ok := field.Interface().(time.Time)
 		if !ok {
 			result.FailValidation = true
@@ -94,7 +102,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 		result.Time = t
 		return result, true
 
-	case field.Kind() == reflect.Ptr && !field.IsNil():
+	case field.Kind() == reflect.Pointer && !field.IsNil():
 		if field.Elem().Kind() == reflect.String {
 			dateStr := field.Elem().String()
 			if dateStr == "" {
@@ -111,7 +119,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 		}
 		return result, false // Unknown pointer type, skip
 
-	case field.Kind() == reflect.Ptr && field.IsNil():
+	case field.Kind() == reflect.Pointer && field.IsNil():
 		result.IsEmpty = true
 		return result, true
 
@@ -121,7 +129,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 }
 
 // dateAfterValidator validates that a date field is after another date field in the same struct.
-// Usage: `validate:"dateafter=StartDate"`
+// Usage: `validate:"dateafter=StartDate"`.
 func dateAfterValidator(fl validator.FieldLevel) bool {
 	compareField := fl.Parent().FieldByName(fl.Param())
 	if !compareField.IsValid() {

@@ -1,0 +1,1 @@
+ALTER TABLE voices ADD COLUMN IF NOT EXISTS elevenlabs_voice_id VARCHAR(255) NULL AFTER name;

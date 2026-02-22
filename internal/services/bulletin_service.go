@@ -1,4 +1,3 @@
-// Package services provides domain services for the Babbel API.
 package services
 
 import (

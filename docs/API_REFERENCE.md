@@ -5,9 +5,9 @@ HTTP API for generating audio news bulletins. Combines news stories with station
 ## API Design Notes
 
 **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
-- Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+- Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
 - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
-- StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+- StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
 - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
 - Metadata: Returned as native JSON object instead of escaped string
 
@@ -871,7 +871,7 @@ Audio duration is automatically calculated and stored.
 
 
 
-**Response:** `200` - Audio uploaded successfully
+**Response:** `201` - Audio uploaded successfully
 
 
 
@@ -906,6 +906,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `created_at` - Bulletin creation timestamp
 - `station_name` - Station name (from join)
 - `story_order` - Order of story in bulletin
@@ -920,6 +921,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Bulletin creation timestamp
 - `station_name` - Station name
 - `story_order` - Story order in bulletin
@@ -983,6 +985,57 @@ Supported operators:
 
 - `404`: Error
 - `500`: Error
+
+
+---
+
+#### Generate story audio via text-to-speech
+
+`POST /stories/{id}/tts`
+
+Generates audio for a story using the ElevenLabs text-to-speech API.
+Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
+The generated audio replaces any existing audio file for the story.
+
+**Prerequisites:**
+- TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
+- Story must have non-empty `text`
+- Story must have a `voice_id` assigned
+- The assigned voice must have an `elevenlabs_voice_id` configured
+
+**Audio pipeline:** ElevenLabs returns MP3 → converted to 48kHz mono WAV → stored as story audio.
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Resource ID |
+| `force` | query | string | No | Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio. |
+
+
+
+
+
+**Response:** `201` - TTS audio generated successfully
+
+
+
+**Error Responses:**
+
+- `400`: Validation error. Possible causes:
+- Story has no text
+- Story has no voice assigned
+- Voice has no ElevenLabs voice ID configured
+- Story already has audio (use ?force=true to overwrite)
+- ElevenLabs voice ID not found
+- ElevenLabs API key is invalid
+- ElevenLabs rate limit exceeded
+
+- `404`: Error
+- `500`: Error
+- `501`: TTS is not configured on the server
 
 
 ---
@@ -1648,6 +1701,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `metadata` - JSON metadata
 - `created_at` - Creation timestamp
 - `station_name` - Station name (from join)
@@ -1661,6 +1715,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Creation timestamp (default: descending)
 - `station_name` - Station name
 
@@ -1751,6 +1806,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `created_at` - Creation timestamp
 - `station_name` - Station name (from join)
 
@@ -1762,6 +1818,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Creation timestamp (default: descending)
 - `station_name` - Station name
 
@@ -1938,7 +1995,7 @@ Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 fo
 
 
 
-**Response:** `200` - Jingle uploaded successfully
+**Response:** `201` - Jingle uploaded successfully
 
 
 

@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -158,8 +157,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 	if req.maxAgeSeconds > 0 {
 		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
-		var notFoundErr *apperrors.NotFoundError
-		if err != nil && !errors.As(err, &notFoundErr) {
+		if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
 			// Database error (not "not found") - fail fast
 			logger.Error("Automation: failed to check existing bulletin: %v", err)
 			utils.ProblemInternalServer(c, "Failed to check existing bulletin")
@@ -193,7 +191,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	filePath := utils.BulletinPath(h.config, audioFile)
 
 	// Verify file exists before serving (consistent RFC 9457 error handling)
-	if _, err := os.Stat(filePath); err != nil {
+	if _, err := os.Stat(filePath); err != nil { //nolint:gosec // G703: path is constructed from config root via utils.BulletinPath
 		if os.IsNotExist(err) {
 			logger.Error("Automation: audio file not found: %s", filePath)
 			utils.ProblemNotFound(c, "Audio file")

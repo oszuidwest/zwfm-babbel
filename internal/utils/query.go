@@ -1,4 +1,3 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
 package utils
 
 import (
@@ -278,7 +277,7 @@ func FilterStructFields(data any, fields []string) any {
 		return data
 	}
 
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return data
 		}
@@ -311,7 +310,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 		return result
 	}
 
-	if value.Kind() == reflect.Ptr {
+	if value.Kind() == reflect.Pointer {
 		if value.IsNil() {
 			return result
 		}
@@ -327,9 +326,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 		fieldSet[field] = true
 	}
 
-	valueType := value.Type()
-	for i := 0; i < value.NumField(); i++ {
-		field := valueType.Field(i)
+	for field, fieldVal := range value.Fields() {
 		jsonTag := field.Tag.Get("json")
 
 		// Skip fields explicitly excluded from JSON serialization
@@ -345,7 +342,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 
 		// Include field if it's in the requested fields
 		if fieldSet[fieldName] {
-			result[fieldName] = value.Field(i).Interface()
+			result[fieldName] = fieldVal.Interface()
 		}
 	}
 

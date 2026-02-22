@@ -1,7 +1,7 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +10,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStories returns a paginated list of stories with modern query parameter support
+// ListStories returns a paginated list of stories with modern query parameter support.
 func (h *Handlers) ListStories(c *gin.Context) {
 	// Parse query parameters
 	params := utils.ParseQueryParams(c)
@@ -33,7 +33,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
 }
 
-// GetStory returns a single story by ID
+// GetStory returns a single story by ID.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -50,7 +50,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory creates a new story (JSON API only)
+// CreateStory creates a new story (JSON API only).
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
@@ -121,7 +121,7 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 	return updated, true
 }
 
-// UpdateStory updates an existing story (JSON API only)
+// UpdateStory updates an existing story (JSON API only).
 func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Get ID param
 	id, ok := utils.IDParam(c)
@@ -172,7 +172,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus updates a story's status or handles soft delete/restore operations
+// UpdateStoryStatus updates a story's status or handles soft delete/restore operations.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -231,6 +231,30 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		}
 		utils.Success(c, updated)
 	}
+}
+
+// GenerateStoryTTS generates audio for a story using text-to-speech.
+// Pass ?force=true to overwrite existing audio.
+func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
+	if !h.ttsEnabled {
+		utils.ProblemExtended(c, http.StatusNotImplemented, "Text-to-speech is not configured", "tts.not_configured",
+			"Set BABBEL_ELEVENLABS_API_KEY to enable TTS")
+		return
+	}
+
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	force := c.Query("force") == "true"
+
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force); err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	utils.CreatedWithMessage(c, "TTS audio generated successfully")
 }
 
 // validateDateRange reports whether the date range is valid.

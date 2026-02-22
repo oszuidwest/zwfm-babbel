@@ -58,7 +58,7 @@ type Story struct {
 	// UpdatedAt is when the story was last modified.
 	UpdatedAt time.Time `json:"updated_at"`
 	// DeletedAt is when the story was soft-deleted, if applicable.
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	// Relations
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
@@ -92,6 +92,8 @@ type Voice struct {
 	ID int64 `gorm:"primaryKey;autoIncrement" json:"id"`
 	// Name is the voice's display name.
 	Name string `gorm:"size:255;not null;uniqueIndex" json:"name"`
+	// ElevenLabsVoiceID is the ElevenLabs voice identifier for TTS generation.
+	ElevenLabsVoiceID *string `gorm:"column:elevenlabs_voice_id;size:255" json:"elevenlabs_voice_id,omitempty"`
 	// CreatedAt is when the voice was created.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is when the voice was last modified.
@@ -164,7 +166,7 @@ type User struct {
 	// SuspendedAt is the timestamp when the account was suspended.
 	SuspendedAt *time.Time `json:"suspended_at,omitempty"`
 	// DeletedAt is the soft delete timestamp.
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 	// LastLoginAt is the timestamp of the most recent login.
 	LastLoginAt *time.Time `json:"last_login_at"`
 	// LoginCount is the total number of successful logins.
@@ -218,7 +220,7 @@ type Bulletin struct {
 	StationID int64 `gorm:"not null;index" json:"station_id"`
 	// Filename is the user-facing filename for the bulletin.
 	Filename string `gorm:"size:255;not null" json:"filename"`
-	// AudioFile is the internal file system path to the generated audio file.
+	// AudioFile is the filename (not a full path) of the generated audio file, stored in the output directory.
 	AudioFile string `gorm:"size:500" json:"-"`
 	// DurationSeconds is the total duration of the bulletin in seconds.
 	DurationSeconds float64 `gorm:"not null;default:0" json:"duration_seconds"`
@@ -226,6 +228,8 @@ type Bulletin struct {
 	FileSize int64 `gorm:"not null;default:0" json:"file_size"`
 	// StoryCount is the number of stories included in this bulletin.
 	StoryCount int `gorm:"not null;default:0" json:"story_count"`
+	// FilePurgedAt is when the audio file was cleaned up (nil means file still exists).
+	FilePurgedAt *time.Time `gorm:"index" json:"file_purged_at,omitempty"`
 	// Metadata stores additional custom data as JSON.
 	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	// CreatedAt is when the bulletin was generated.
@@ -247,8 +251,10 @@ func (b *Bulletin) AfterFind(_ *gorm.DB) error {
 		b.StationName = b.Station.Name
 	}
 
-	// Generate audio URL
-	b.AudioURL = fmt.Sprintf("/bulletins/%d/audio", b.ID)
+	// Only generate audio URL if the file hasn't been purged
+	if b.FilePurgedAt == nil {
+		b.AudioURL = fmt.Sprintf("/bulletins/%d/audio", b.ID)
+	}
 
 	return nil
 }

@@ -7,9 +7,9 @@ info:
     ## API Design Notes
 
     **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
-    - Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+    - Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
     - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
-    - StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+    - StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
     - Metadata: Returned as native JSON object instead of escaped string
 
@@ -692,6 +692,12 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
+                  pattern: '\S'
+                elevenlabs_voice_id:
+                  type: string
+                  maxLength: 255
+                  nullable: true
+                  description: ElevenLabs voice identifier for TTS generation
       responses:
         '201':
           description: Voice created
@@ -748,11 +754,18 @@ paths:
           application/json:
             schema:
               type: object
+              minProperties: 1
               properties:
                 name:
                   type: string
                   minLength: 1
                   maxLength: 255
+                  pattern: '\S'
+                elevenlabs_voice_id:
+                  type: string
+                  maxLength: 255
+                  nullable: true
+                  description: ElevenLabs voice identifier for TTS generation (set to null or empty string to clear)
       responses:
         '200':
           description: Voice updated successfully
@@ -986,7 +999,7 @@ paths:
                   format: binary
                   description: Audio file (WAV, MP3, or other supported formats)
       responses:
-        '200':
+        '201':
           description: Audio uploaded successfully
           content:
             application/json:
@@ -1002,6 +1015,74 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
+  /stories/{id}/tts:
+    post:
+      summary: Generate story audio via text-to-speech
+      description: |
+        Generates audio for a story using the ElevenLabs text-to-speech API.
+        Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
+        The generated audio replaces any existing audio file for the story.
+
+        **Prerequisites:**
+        - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
+        - Story must have non-empty `text`
+        - Story must have a `voice_id` assigned
+        - The assigned voice must have an `elevenlabs_voice_id` configured
+
+        **Audio pipeline:** ElevenLabs returns MP3 → converted to 48kHz mono WAV → stored as story audio.
+      tags:
+        - Stories
+      parameters:
+        - $ref: '#/components/parameters/id'
+        - name: force
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["true"]
+          description: Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio.
+      responses:
+        '201':
+          description: TTS audio generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "TTS audio generated successfully"
+        '400':
+          description: |
+            Validation error. Possible causes:
+            - Story has no text
+            - Story has no voice assigned
+            - Voice has no ElevenLabs voice ID configured
+            - Story already has audio (use ?force=true to overwrite)
+            - ElevenLabs voice ID not found
+            - ElevenLabs API key is invalid
+            - ElevenLabs rate limit exceeded
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '501':
+          description: TTS is not configured on the server
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/tts.not_configured"
+                title: "Not Implemented"
+                status: 501
+                detail: "Text-to-speech is not configured"
+                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
 
   /stories/{id}:
     get:
@@ -1145,11 +1226,12 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Bulletin creation timestamp
         - `station_name` - Station name (from join)
         - `story_order` - Order of story in bulletin
         - `included_at` - When story was included in bulletin
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1159,11 +1241,12 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Bulletin creation timestamp
         - `station_name` - Station name
         - `story_order` - Story order in bulletin
         - `included_at` - Inclusion timestamp (default: descending)
-        
+
         ## Examples
         - Search by bulletin filename: `?search=bulletin_2024`
         - Filter by station: `?filter[station_id]=1`
@@ -1331,7 +1414,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserInput'
+              $ref: '#/components/schemas/UserUpdate'
       responses:
         '200':
           description: User updated successfully
@@ -1415,10 +1498,11 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `metadata` - JSON metadata
         - `created_at` - Creation timestamp
         - `station_name` - Station name (from join)
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1428,9 +1512,10 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
         - `station_name` - Station name
-        
+
         ## Notes
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
         
@@ -1579,9 +1664,10 @@ paths:
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
+        - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Creation timestamp
         - `station_name` - Station name (from join)
-        
+
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
@@ -1590,9 +1676,10 @@ paths:
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
+        - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
         - `station_name` - Station name
-        
+
         ## Special Parameters
         - `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
         - `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
@@ -2026,7 +2113,7 @@ paths:
                         station_name: "Radio Station 1"
                         voice_name: "Mike Davis"
                         mix_point: 3.0
-                        audio_url: null
+                        audio_url: "/station-voices/2/audio"
                         created_at: "2024-01-16T14:20:00Z"
                         updated_at: "2024-01-16T14:20:00Z"
                     total: 2
@@ -2141,7 +2228,7 @@ paths:
                   format: binary
                   description: Jingle audio file
       responses:
-        '200':
+        '201':
           description: Jingle uploaded successfully
           content:
             application/json:
@@ -2353,7 +2440,7 @@ components:
                 in:
                   type: string
                   description: Comma-separated list of values
-                null:
+                'null':
                   type: boolean
                   description: Is null (true) or not null (false)
                 band:
@@ -2434,6 +2521,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
           description: Unique station name (must be unique across all stations)
           x-unique: true
         max_stories_per_block:
@@ -2459,6 +2547,11 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        elevenlabs_voice_id:
+          type: string
+          maxLength: 255
+          nullable: true
+          description: ElevenLabs voice identifier for TTS generation (null if not configured)
         created_at:
           type: string
           format: date-time
@@ -2520,9 +2613,11 @@ components:
       properties:
         station_id:
           type: integer
+          minimum: 1
           description: Station ID
         voice_id:
           type: integer
+          minimum: 1
           description: Voice ID
         mix_point:
           type: number
@@ -2534,22 +2629,29 @@ components:
 
     StationVoiceUpdate:
       type: object
+      minProperties: 1
       description: |
         Station-voice relationship update schema for JSON API.
-        All fields are optional - only provided fields will be updated.
+        All fields are optional - only provided fields will be updated. Null is treated as omit.
+        At least one non-null field must be provided.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       properties:
         station_id:
           type: integer
+          minimum: 1
+          nullable: true
           description: New station ID (optional)
         voice_id:
           type: integer
+          minimum: 1
+          nullable: true
           description: New voice ID (optional)
         mix_point:
           type: number
           format: float
           minimum: 0
           maximum: 300
+          nullable: true
           description: Mix point in seconds (0-300)
 
     Story:
@@ -2634,13 +2736,16 @@ components:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
           description: Story title
         text:
           type: string
           minLength: 1
+          pattern: '\S'
           description: Story text content
         voice_id:
           type: integer
+          minimum: 1
           nullable: true
           description: Optional voice ID. Stories without a voice will not be included in bulletin generation
         status:
@@ -2676,40 +2781,51 @@ components:
 
     StoryUpdate:
       type: object
+      minProperties: 1
       description: |
         Story update schema for JSON API.
-        All fields are optional - only provided fields will be updated.
+        All fields are optional - only provided fields will be updated. Null is treated as omit.
+        At least one non-null field must be provided.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       properties:
         title:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
+          nullable: true
           description: Story title
         text:
           type: string
           minLength: 1
+          pattern: '\S'
+          nullable: true
           description: Story text content
         voice_id:
           type: integer
+          minimum: 1
           nullable: true
-          description: Optional voice ID. Stories without a voice will not be included in bulletin generation
+          description: Voice ID. Omit or set to null to keep current value unchanged
         status:
           type: string
           enum: [draft, active, expired]
+          nullable: true
           description: Story status
         start_date:
           type: string
           format: date
+          nullable: true
           description: Start date in YYYY-MM-DD format
         end_date:
           type: string
           format: date
+          nullable: true
           description: End date in YYYY-MM-DD format
         weekdays:
           type: integer
           minimum: 0
           maximum: 127
+          nullable: true
           description: |
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
@@ -2717,6 +2833,7 @@ components:
         metadata:
           type: object
           additionalProperties: true
+          nullable: true
           description: Optional JSON metadata object for story-specific settings
           example:
             priority: "medium"
@@ -2776,6 +2893,11 @@ components:
         updated_at:
           type: string
           format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Soft delete timestamp (present when querying with ?trashed=only or ?trashed=with)
 
     UserInput:
       type: object
@@ -2796,6 +2918,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
         password:
           type: string
           writeOnly: true
@@ -2807,6 +2930,7 @@ components:
           format: email
           maxLength: 255
           nullable: true
+          description: Omit or set to null to create user without email
         role:
           type: string
           enum: [admin, editor, viewer]
@@ -2819,9 +2943,45 @@ components:
           type: object
           additionalProperties: true
           description: JSON metadata object for user-specific settings (optional)
+
+    UserUpdate:
+      type: object
+      description: All fields are optional — only provided fields will be updated. Null is treated as omit. At least one non-null field must be provided.
+      minProperties: 1
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 100
+          pattern: '^[a-zA-Z0-9]+$'
+          description: Unique username (alphanumeric only)
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '\S'
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+          maxLength: 255
+          description: New password
+        email:
+          type: string
+          format: email
+          maxLength: 255
+          nullable: true
+        role:
+          type: string
+          enum: [admin, editor, viewer]
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
         suspended:
           type: boolean
-          description: Set to true to suspend user, false to restore (optional, only for PUT /users/{id})
+          nullable: true
+          description: Set to true to suspend user, false to restore
 
     BulletinResponse:
       type: object
@@ -2859,6 +3019,11 @@ components:
         story_count:
           type: integer
           description: Number of stories included in the bulletin
+        file_purged_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the audio file was cleaned up (null means file still exists)
 
     ProblemDetails:
       type: object
@@ -2866,17 +3031,27 @@ components:
         RFC 9457 Problem Details for HTTP APIs.
 
         ## Problem Types
-        The following problem type URIs are used:
-        - `https://babbel.api/problems/validation-error` - 422 validation errors
-        - `https://babbel.api/problems/resource-not-found` - 404 resource not found
-        - `https://babbel.api/problems/duplicate-resource` - 409 duplicate resource
-        - `https://babbel.api/problems/dependency-constraint` - 409 resource has dependencies that prevent deletion
-        - `https://babbel.api/problems/admin-constraint` - 409 cannot delete last admin user
-        - `https://babbel.api/problems/data-too-long` - 422 data exceeds maximum allowed length
-        - `https://babbel.api/problems/no-stories` - 422 no stories available for bulletin generation
+
+        Generic problem type URIs (fixed):
+        - `https://babbel.api/problems/validation-error` - 422 request body validation errors
+        - `https://babbel.api/problems/resource-not-found` - 404 resource not found (generic)
+        - `https://babbel.api/problems/bad-request` - 400 malformed request
         - `https://babbel.api/problems/authentication-required` - 401 authentication required
         - `https://babbel.api/problems/insufficient-permissions` - 403 insufficient permissions
+        - `https://babbel.api/problems/admin-constraint` - 409 cannot delete last admin user
         - `https://babbel.api/problems/internal-server-error` - 500 internal server error
+
+        Resource-specific problem type URIs follow the pattern
+        `https://babbel.api/problems/{resource}.{error_type}` where the `code` field
+        contains the `{resource}.{error_type}` value. Examples:
+        - `{resource}.not_found` - 404 typed resource not found
+        - `{resource}.duplicate` - 409 unique constraint violation
+        - `{resource}.has_dependencies` - 409 cannot delete, has dependent resources
+        - `{resource}.validation_failed` - 400 field-level validation error
+        - `bulletin.no_stories` - 422 no active stories for bulletin generation
+        - `audio.processing_failed` - 500 FFmpeg processing error
+        - `internal.database_error` - 500 unexpected database error
+        - `internal.timeout` - 500 operation timed out
       required:
         - type
         - title
@@ -2909,6 +3084,14 @@ components:
           format: date-time
           description: ISO 8601 timestamp when the error occurred
           example: "2024-01-20T14:05:00Z"
+        code:
+          type: string
+          description: Machine-readable error code in "resource.error" format
+          example: "station.not_found"
+        hint:
+          type: string
+          description: User-friendly suggestion for resolving the error
+          example: "Check the resource ID and try again"
         trace_id:
           type: string
           description: Optional trace ID for debugging

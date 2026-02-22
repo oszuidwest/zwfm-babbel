@@ -19,6 +19,7 @@ Babbel is a headless API-only system designed for integration with newsroom work
 - **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification
 - **Multi-station support** - Manage multiple radio stations with individual configurations
 - **Voice management** - Multiple newsreaders with station-specific jingles
+- **Text-to-speech** - ElevenLabs integration for automated story audio generation
 - **Story scheduling** - Date ranges and weekday-specific scheduling
 - **Bulletin generation** - Automated audio mixing with intelligent caching
 - **Direct audio URLs** - Radio automation systems can fetch bulletins directly
@@ -38,9 +39,9 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 ## Newsroom Workflow
 
-1. **Setup**: Configure your stations and newsreaders
+1. **Setup**: Configure your stations and newsreaders (optionally link ElevenLabs voice IDs)
 2. **Upload jingles**: Add station-specific intro/outro jingles
-3. **Create stories**: Upload or POST news items with scheduling info
+3. **Create stories**: Upload audio or use text-to-speech to generate it
 4. **Generate**: API creates bulletins with appropriate jingles
 5. **Broadcast**: Automation systems fetch bulletins via HTTP
 
@@ -105,6 +106,15 @@ The algorithm tracks when each story was last included in a bulletin (via `MAX(b
 | 13 | 4× | 09:30, 12:30, 15:30, 18:30 |
 
 All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations - actual selections differ each day but distribution stays fair.
+
+## Bulletin File Cleanup
+
+Bulletin WAV files (~15MB each) can accumulate quickly. A background service automatically purges old files while preserving database records as an audit trail.
+
+- Runs daily, deleting bulletin audio files older than the retention period
+- Always keeps the latest bulletin per station available for serving
+- Removes orphaned files that have no matching database record
+- Configure retention via `BABBEL_BULLETIN_RETENTION` (default: `168h` / 7 days)
 
 ## Radio Automation Integration
 
@@ -177,6 +187,7 @@ PUT    /api/v1/stations/{id}         # Update station
 GET    /api/v1/stories               # List stories (with filters)
 POST   /api/v1/stories               # Create story (with audio)
 GET    /api/v1/stories/{id}/audio    # Download story audio
+POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
 
 # Bulletin Generation
 POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
@@ -205,8 +216,7 @@ make run                # Run development server
 make docker             # Build Docker image
 
 # Testing
-make test               # Run Go unit tests  
-make test-all           # Run full integration test suite (76 tests)
+make test-all           # Run full integration test suite (83 tests)
 npm test                # Run Node.js integration tests
 
 # Code Quality
@@ -232,6 +242,7 @@ internal/
   repository/           # Data access layer (GORM)
   scheduler/            # Background tasks
   services/             # Business logic layer
+  tts/                  # ElevenLabs text-to-speech integration
   utils/                # Shared utilities
 tests/                  # Integration test suite
 migrations/             # Database migrations
@@ -241,7 +252,7 @@ CLAUDE.md              # AI assistant instructions
 
 ## Tech Stack
 
-- **Backend**: Go 1.24+ with Gin web framework
+- **Backend**: Go 1.26+ with Gin web framework
 - **Database**: MySQL 8.4 with GORM ORM
 - **Audio**: FFmpeg for audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
@@ -252,9 +263,8 @@ CLAUDE.md              # AI assistant instructions
 ## Testing
 
 The project includes a comprehensive test suite:
-- **Unit tests**: Go tests for individual components
-- **Integration tests**: 76 Node.js tests covering all endpoints
-- **Test categories**: Authentication, permissions, stations, voices, stories, bulletins, users
+- **Integration tests**: 83 Node.js tests covering all endpoints
+- **Test categories**: Authentication, permissions, stations, voices, stories, TTS, bulletins, users, validation
 - **Coverage**: All major API workflows and edge cases
 
 Run tests with:

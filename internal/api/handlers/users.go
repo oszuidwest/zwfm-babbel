@@ -1,4 +1,3 @@
-// Package handlers provides HTTP request handlers for all API endpoints.
 package handlers
 
 import (
@@ -54,7 +53,7 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	utils.Success(c, user)
 }
 
-// CreateUser creates a new user account
+// CreateUser creates a new user account.
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req utils.UserCreateRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -77,7 +76,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	utils.CreatedWithLocation(c, user.ID, "/api/v1/users", "User created successfully")
 }
 
-// UpdateUser updates an existing user's information
+// UpdateUser updates an existing user's information.
 func (h *Handlers) UpdateUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -109,7 +108,7 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-// DeleteUser permanently deletes a user account
+// DeleteUser permanently deletes a user account.
 func (h *Handlers) DeleteUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -120,8 +119,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
 		// Special handling for last admin constraint
-		var validationErr *apperrors.ValidationError
-		if errors.As(err, &validationErr) && validationErr.Message == "cannot delete last admin" {
+		if validationErr, ok := errors.AsType[*apperrors.ValidationError](err); ok && validationErr.Message == "cannot delete last admin" {
 			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
 			return
 		}
@@ -132,7 +130,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateUserStatus handles user suspension and restoration
+// UpdateUserStatus handles user suspension and restoration.
 func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

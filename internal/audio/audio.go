@@ -125,6 +125,7 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 		"-filter_complex", strings.Join(filters, ";"),
 		"-map", "[out]",
 		"-ac", "2",
+		"-ar", "48000",
 		"-y", outputPath)
 
 	return args, filters
@@ -195,7 +196,9 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 		// File exists, add jingle to mix
 		args = append(args, "-i", jinglePath)
 		jingleIndex := len(stories)
-		filters = append(filters, fmt.Sprintf("[messages][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
+		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
+		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
+		filters = append(filters, fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
 	}
 
 	return args, filters
