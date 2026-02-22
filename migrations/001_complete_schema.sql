@@ -60,10 +60,12 @@ CREATE TABLE bulletins (
     duration_seconds DECIMAL(8,2) DEFAULT 0,
     file_size BIGINT DEFAULT 0,
     story_count INT DEFAULT 0,
+    file_purged_at DATETIME NULL,
     metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (station_id) REFERENCES stations(id),
-    INDEX idx_station_created (station_id, created_at DESC)
+    INDEX idx_station_created (station_id, created_at DESC),
+    INDEX idx_bulletins_file_purged_at (file_purged_at)
 );
 
 -- Create bulletin_stories junction table

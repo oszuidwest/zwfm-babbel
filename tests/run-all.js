@@ -23,14 +23,14 @@ class TestOrchestrator {
         this.availableSuites = [
             'auth', 'permissions', 'stations',
             'voices', 'station-voices', 'stories', 'tts',
-            'bulletins', 'automation', 'users', 'validation'
+            'bulletins', 'bulletin-cleanup', 'automation', 'users', 'validation'
         ];
 
         // Execution order ensures dependencies are met.
         this.testOrder = [
             'auth', 'permissions', 'stations',
             'voices', 'station-voices', 'stories', 'tts',
-            'bulletins', 'automation', 'users', 'validation'
+            'bulletins', 'bulletin-cleanup', 'automation', 'users', 'validation'
         ];
 
         // Mapping of suite names to their script paths.
@@ -43,6 +43,7 @@ class TestOrchestrator {
             'stories': './stories/test-stories.js',
             'tts': './tts/test-tts.js',
             'bulletins': './bulletins/test-bulletins.js',
+            'bulletin-cleanup': './bulletins/test-bulletin-cleanup.js',
             'automation': './automation/test-automation.js',
             'users': './users/test-users.js',
             'validation': './validation/validation-tests.js'

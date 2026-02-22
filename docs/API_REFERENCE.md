@@ -5,9 +5,9 @@ HTTP API for generating audio news bulletins. Combines news stories with station
 ## API Design Notes
 
 **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
-- Story create/update: Use `POST /stories` and `PATCH /stories/{id}` with JSON body
+- Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
 - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
-- StationVoice create/update: Use `POST /station-voices` and `PATCH /station-voices/{id}` with JSON body
+- StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
 - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
 - Metadata: Returned as native JSON object instead of escaped string
 
@@ -906,6 +906,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `created_at` - Bulletin creation timestamp
 - `station_name` - Station name (from join)
 - `story_order` - Order of story in bulletin
@@ -920,6 +921,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Bulletin creation timestamp
 - `station_name` - Station name
 - `story_order` - Story order in bulletin
@@ -1648,6 +1650,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `metadata` - JSON metadata
 - `created_at` - Creation timestamp
 - `station_name` - Station name (from join)
@@ -1661,6 +1664,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Creation timestamp (default: descending)
 - `station_name` - Station name
 
@@ -1751,6 +1755,7 @@ Available filter fields:
 - `duration_seconds` - Duration in seconds
 - `file_size` - File size in bytes
 - `story_count` - Number of stories in bulletin
+- `file_purged_at` - When audio file was cleaned up (null = file exists)
 - `created_at` - Creation timestamp
 - `station_name` - Station name (from join)
 
@@ -1762,6 +1767,7 @@ Available sort fields:
 - `duration_seconds` - Duration
 - `file_size` - File size
 - `story_count` - Number of stories
+- `file_purged_at` - File cleanup timestamp
 - `created_at` - Creation timestamp (default: descending)
 - `station_name` - Station name
 

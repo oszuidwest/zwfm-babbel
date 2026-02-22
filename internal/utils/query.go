@@ -326,9 +326,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 		fieldSet[field] = true
 	}
 
-	valueType := value.Type()
-	for i := 0; i < value.NumField(); i++ {
-		field := valueType.Field(i)
+	for field, fieldVal := range value.Fields() {
 		jsonTag := field.Tag.Get("json")
 
 		// Skip fields explicitly excluded from JSON serialization
@@ -344,7 +342,7 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 
 		// Include field if it's in the requested fields
 		if fieldSet[fieldName] {
-			result[fieldName] = value.Field(i).Interface()
+			result[fieldName] = fieldVal.Interface()
 		}
 	}
 

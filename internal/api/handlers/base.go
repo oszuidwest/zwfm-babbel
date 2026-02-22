@@ -64,7 +64,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// Uses errors.AsType for type-safe, generic error matching.
+// Uses type-safe error checking with errors.AsType for concrete error types.
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Context timeout (check first as it's a special case)
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -75,6 +75,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"The request took too long. Please try again.",
 		)
 	} else if notFound, ok := errors.AsType[*apperrors.NotFoundError](err); ok {
+		// NotFoundError - resource does not exist
 		logError(notFound.Resource, "not_found", err)
 		utils.ProblemExtended(c, http.StatusNotFound,
 			notFound.Error(),
@@ -82,6 +83,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"Check that the ID exists and you have access",
 		)
 	} else if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
+		// DuplicateError - unique constraint violation
 		logError(duplicate.Resource, "duplicate", err)
 		hint := "Use a different value"
 		if duplicate.Field != "" {
@@ -94,6 +96,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			hint,
 		)
 	} else if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
+		// DependencyError - cannot delete due to dependencies
 		logError(dependency.Resource, "has_dependencies", err)
 		utils.ProblemExtended(c, http.StatusConflict,
 			dependency.Error(),
@@ -101,6 +104,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			fmt.Sprintf("Delete or reassign the associated %s first", dependency.Dependency),
 		)
 	} else if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
+		// ValidationError - input validation failed
 		logError(validation.Resource, "validation_failed", err)
 		hint := "Check your input and try again"
 		if validation.Field != "" {
@@ -112,6 +116,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			hint,
 		)
 	} else if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
+		// NoStoriesError - no stories available for bulletin
 		logError("bulletin", "no_stories", err)
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
 			noStories.Error(),
@@ -119,6 +124,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"Add active stories with audio before generating a bulletin",
 		)
 	} else if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		// AudioError - audio processing failed (internal)
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
@@ -126,6 +132,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"Check the audio file format and try again",
 		)
 	} else if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
+		// DatabaseError - unexpected database error (internal)
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
@@ -133,6 +140,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"Please try again later",
 		)
 	} else {
+		// Unknown error - fallback
 		logger.Error("Unhandled error for %s: %v", fallbackResource, err)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			fmt.Sprintf("Failed to process %s", fallbackResource),
