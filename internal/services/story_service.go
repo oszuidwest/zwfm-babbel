@@ -430,6 +430,8 @@ func translateTTSError(err error) error {
 			return apperrors.Validation("Voice", "elevenlabs_voice_id", apiErr.Error())
 		case http.StatusTooManyRequests:
 			return apperrors.Validation("TTS", "rate_limit", apiErr.Error())
+		case http.StatusUnprocessableEntity:
+			return apperrors.Validation("TTS", "request", apiErr.Error())
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)
