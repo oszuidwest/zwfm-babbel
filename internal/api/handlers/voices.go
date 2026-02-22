@@ -42,7 +42,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 		return
 	}
 
-	voice, err := h.voiceSvc.Create(c.Request.Context(), req.Name)
+	voice, err := h.voiceSvc.Create(c.Request.Context(), req.Name, req.ElevenLabsVoiceID)
 	if err != nil {
 		handleServiceError(c, err, "Voice")
 		return
@@ -58,14 +58,29 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	var req utils.VoiceRequest
+	var req utils.VoiceUpdateRequest
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Convert to service update request
+	// Require at least one field
+	if req.Name == nil && !req.ElevenLabsVoiceID.Set {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "request",
+			Message: "At least one field must be provided",
+		}})
+		return
+	}
+
+	// Convert to service update request, translating Optional to Clear* flag.
+	// Empty string is treated as clearing (same as null) — a blank voice ID is unusable.
 	updateReq := &services.UpdateVoiceRequest{
-		Name: &req.Name,
+		Name: req.Name,
+	}
+	if req.ElevenLabsVoiceID.HasValue() && *req.ElevenLabsVoiceID.Value != "" {
+		updateReq.ElevenLabsVoiceID = req.ElevenLabsVoiceID.Value
+	} else if req.ElevenLabsVoiceID.Set {
+		updateReq.ClearElevenLabsVoiceID = true
 	}
 
 	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)

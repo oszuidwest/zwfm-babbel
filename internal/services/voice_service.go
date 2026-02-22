@@ -22,11 +22,13 @@ func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
 
 // UpdateVoiceRequest contains the data needed to update an existing voice.
 type UpdateVoiceRequest struct {
-	Name *string `json:"name"`
+	Name                   *string `json:"name"`
+	ElevenLabsVoiceID      *string `json:"elevenlabs_voice_id"`
+	ClearElevenLabsVoiceID bool    `json:"clear_elevenlabs_voice_id"`
 }
 
-// Create creates a new voice with the given name.
-func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, error) {
+// Create creates a new voice with the given name and optional ElevenLabs voice ID.
+func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
@@ -37,7 +39,7 @@ func (s *VoiceService) Create(ctx context.Context, name string) (*models.Voice, 
 	}
 
 	// Create voice
-	voice, err := s.repo.Create(ctx, name)
+	voice, err := s.repo.Create(ctx, name, elevenLabsVoiceID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpCreate, err)
 	}
@@ -60,7 +62,9 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 
 	// Build type-safe update struct
 	updates := &repository.VoiceUpdate{
-		Name: req.Name,
+		Name:                   req.Name,
+		ElevenLabsVoiceID:      req.ElevenLabsVoiceID,
+		ClearElevenLabsVoiceID: req.ClearElevenLabsVoiceID,
 	}
 
 	// Update voice

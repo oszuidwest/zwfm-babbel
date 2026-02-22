@@ -871,7 +871,7 @@ Audio duration is automatically calculated and stored.
 
 
 
-**Response:** `200` - Audio uploaded successfully
+**Response:** `201` - Audio uploaded successfully
 
 
 
@@ -985,6 +985,57 @@ Supported operators:
 
 - `404`: Error
 - `500`: Error
+
+
+---
+
+#### Generate story audio via text-to-speech
+
+`POST /stories/{id}/tts`
+
+Generates audio for a story using the ElevenLabs text-to-speech API.
+Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
+The generated audio replaces any existing audio file for the story.
+
+**Prerequisites:**
+- TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
+- Story must have non-empty `text`
+- Story must have a `voice_id` assigned
+- The assigned voice must have an `elevenlabs_voice_id` configured
+
+**Audio pipeline:** ElevenLabs returns MP3 → converted to 48kHz mono WAV → stored as story audio.
+
+
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+|------|-----|------|----------|-------------|
+| `id` | path | integer | Yes | Resource ID |
+| `force` | query | string | No | Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio. |
+
+
+
+
+
+**Response:** `201` - TTS audio generated successfully
+
+
+
+**Error Responses:**
+
+- `400`: Validation error. Possible causes:
+- Story has no text
+- Story has no voice assigned
+- Voice has no ElevenLabs voice ID configured
+- Story already has audio (use ?force=true to overwrite)
+- ElevenLabs voice ID not found
+- ElevenLabs API key is invalid
+- ElevenLabs rate limit exceeded
+
+- `404`: Error
+- `500`: Error
+- `501`: TTS is not configured on the server
 
 
 ---
@@ -1944,7 +1995,7 @@ Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 fo
 
 
 
-**Response:** `200` - Jingle uploaded successfully
+**Response:** `201` - Jingle uploaded successfully
 
 
 

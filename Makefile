@@ -130,7 +130,7 @@ docker-logs:
 
 install-tools:
 	@echo "Installing Go tools..."
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest || echo "Failed to install golangci-lint"
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest || echo "Failed to install golangci-lint"
 	@go install golang.org/x/tools/cmd/deadcode@latest || echo "Failed to install deadcode"
 	@go install honnef.co/go/tools/cmd/staticcheck@latest || echo "Failed to install staticcheck"
 	@echo "✅ Tool installation complete (docs tools use npx automatically)"

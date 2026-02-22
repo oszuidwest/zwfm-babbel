@@ -14,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
+	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"gorm.io/gorm"
 )
@@ -35,6 +36,9 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	// Create audio service
 	audioSvc := audio.NewService(cfg)
 
+	// Create TTS service (nil if not configured)
+	ttsSvc := tts.NewService(&cfg.TTS)
+
 	// Create domain services with repositories
 	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
 		TxManager:    txManager,
@@ -48,6 +52,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		StoryRepo: storyRepo,
 		VoiceRepo: voiceRepo,
 		AudioSvc:  audioSvc,
+		TTSSvc:    ttsSvc,
 		Config:    cfg,
 	})
 	stationSvc := services.NewStationService(stationRepo)
@@ -73,6 +78,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		VoiceSvc:        voiceSvc,
 		UserSvc:         userSvc,
 		StationVoiceSvc: stationVoiceSvc,
+		TTSEnabled:      ttsSvc != nil,
 	})
 
 	// Create automation handler for public bulletin access
@@ -200,6 +206,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 				})
 			})
 			protected.POST("/stories/:id/audio", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UploadStoryAudio)
+			protected.POST("/stories/:id/tts", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.GenerateStoryTTS)
 			protected.POST("/stories", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.CreateStory)
 			protected.PUT("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.UpdateStory)
 			protected.DELETE("/stories/:id", authService.RequirePermission(auth.ResourceStories, auth.ActionWrite), h.DeleteStory)

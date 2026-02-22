@@ -15,6 +15,15 @@ import (
 // Panics if validator registration fails, as this is a critical configuration error.
 func InitializeValidators() {
 	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		// Register Optional[string] so binding tags (omitempty, max, notblank) work on the
+		// inner string value. Returns "" for absent/null, letting omitempty skip validation.
+		v.RegisterCustomTypeFunc(func(field reflect.Value) any {
+			if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
+				return *opt.Value
+			}
+			return ""
+		}, Optional[string]{})
+
 		// Register notblank validator - ensures string is not empty or whitespace-only
 		if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
 			panic(fmt.Sprintf("Failed to register notblank validator: %v", err))

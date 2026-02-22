@@ -4,6 +4,8 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
@@ -22,6 +25,7 @@ type StoryServiceDeps struct {
 	StoryRepo repository.StoryRepository
 	VoiceRepo repository.VoiceRepository
 	AudioSvc  *audio.Service
+	TTSSvc    *tts.Service
 	Config    *config.Config
 }
 
@@ -30,6 +34,7 @@ type StoryService struct {
 	storyRepo repository.StoryRepository
 	voiceRepo repository.VoiceRepository
 	audioSvc  *audio.Service
+	ttsSvc    *tts.Service
 	config    *config.Config
 }
 
@@ -39,6 +44,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		storyRepo: deps.StoryRepo,
 		voiceRepo: deps.VoiceRepo,
 		audioSvc:  deps.AudioSvc,
+		ttsSvc:    deps.TTSSvc,
 		config:    deps.Config,
 	}
 }
@@ -366,4 +372,88 @@ func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*
 		return nil, apperrors.Database("Story", "query", err)
 	}
 	return result, nil
+}
+
+// GenerateTTS generates audio for a story using text-to-speech.
+// If the story already has audio, pass force=true to overwrite it.
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
+	story, err := s.storyRepo.GetByID(ctx, storyID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return apperrors.NotFoundWithID("Story", storyID)
+		}
+		return apperrors.Database("Story", "query", err)
+	}
+
+	// Validate TTS prerequisites
+	if story.AudioFile != "" && !force {
+		return apperrors.Validation("Story", "audio_file", "story already has audio — use ?force=true to overwrite")
+	}
+	if story.Text == "" {
+		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
+	}
+	if story.VoiceID == nil {
+		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
+	}
+	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	}
+
+	// Generate speech via TTS service
+	audioData, err := s.ttsSvc.GenerateSpeech(ctx, story.Text, *story.Voice.ElevenLabsVoiceID)
+	if err != nil {
+		return translateTTSError(err)
+	}
+
+	// Write to temp file for processing through the standard audio pipeline
+	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.mp3", storyID))
+	if err != nil {
+		return apperrors.Audio("Story", "tts_write_temp", err)
+	}
+	defer func() {
+		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
+			logger.Warn("Failed to remove TTS temp file %s: %v", tempPath, err)
+		}
+	}()
+
+	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+// translateTTSError maps TTS service errors to domain errors with specific messages.
+func translateTTSError(err error) error {
+	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
+		switch apiErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return apperrors.Validation("TTS", "api_key", apiErr.Error())
+		case http.StatusNotFound:
+			return apperrors.Validation("Voice", "elevenlabs_voice_id", apiErr.Error())
+		case http.StatusTooManyRequests:
+			return apperrors.Validation("TTS", "rate_limit", apiErr.Error())
+		case http.StatusUnprocessableEntity:
+			return apperrors.Validation("TTS", "request", apiErr.Error())
+		}
+	}
+	return apperrors.Audio("Story", "tts_generate", err)
+}
+
+// writeTempFile creates a temporary file with the given data and pattern, returning its path.
+func writeTempFile(data []byte, pattern string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+
+	path := f.Name()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path) //nolint:gosec // G703: path is from os.CreateTemp, not user input
+		return "", err
+	}
+
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path) //nolint:gosec // G703: path is from os.CreateTemp, not user input
+		return "", err
+	}
+
+	return path, nil
 }

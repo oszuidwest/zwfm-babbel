@@ -10,13 +10,15 @@ import (
 // VoiceUpdate contains optional fields for updating a voice.
 // Nil pointer fields are not updated.
 type VoiceUpdate struct {
-	Name *string `gorm:"column:name"`
+	Name                   *string `gorm:"column:name"`
+	ElevenLabsVoiceID      *string `gorm:"column:elevenlabs_voice_id"`
+	ClearElevenLabsVoiceID bool    `gorm:"-"`
 }
 
 // VoiceRepository defines the interface for voice data access.
 type VoiceRepository interface {
 	// CRUD operations
-	Create(ctx context.Context, name string) (*models.Voice, error)
+	Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error)
 	GetByID(ctx context.Context, id int64) (*models.Voice, error)
 	Update(ctx context.Context, id int64, updates *VoiceUpdate) error
 	Delete(ctx context.Context, id int64) error
@@ -43,9 +45,10 @@ func NewVoiceRepository(db *gorm.DB) VoiceRepository {
 }
 
 // Create inserts a new voice and returns the created record.
-func (r *voiceRepository) Create(ctx context.Context, name string) (*models.Voice, error) {
+func (r *voiceRepository) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
 	voice := &models.Voice{
-		Name: name,
+		Name:              name,
+		ElevenLabsVoiceID: elevenLabsVoiceID,
 	}
 
 	db := DBFromContext(ctx, r.db)
@@ -100,10 +103,11 @@ func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, 
 
 // voiceFieldMapping maps API field names to database columns for voices.
 var voiceFieldMapping = FieldMapping{
-	"id":         "id",
-	"name":       "name",
-	"created_at": "created_at",
-	"updated_at": "updated_at",
+	"id":                  "id",
+	"name":                "name",
+	"elevenlabs_voice_id": "elevenlabs_voice_id",
+	"created_at":          "created_at",
+	"updated_at":          "updated_at",
 }
 
 // voiceSearchFields defines which fields are searchable for voices.

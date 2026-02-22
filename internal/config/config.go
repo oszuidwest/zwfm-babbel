@@ -23,6 +23,8 @@ type Config struct {
 	Audio AudioConfig
 	// Automation configures radio automation integration.
 	Automation AutomationConfig
+	// TTS configures text-to-speech integration with ElevenLabs.
+	TTS TTSConfig `envPrefix:"ELEVENLABS_"`
 	// LogLevel sets the logging verbosity level (0-5, default: 4).
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
@@ -105,6 +107,16 @@ type AuthConfig struct {
 	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
 	// Local configures password policy and lockout rules.
 	Local LocalAuthConfig `envPrefix:"AUTH_"`
+}
+
+// TTSConfig defines text-to-speech integration settings for ElevenLabs.
+type TTSConfig struct {
+	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
+	APIKey string `env:"API_KEY"` //nolint:gosec // G117: This is a config field, not a hardcoded secret
+	// Model specifies the ElevenLabs model to use (default: eleven_multilingual_v2).
+	Model string `env:"MODEL" envDefault:"eleven_multilingual_v2"`
+	// RequestTimeout limits TTS API request duration (default: 60s).
+	RequestTimeout time.Duration `env:"TIMEOUT" envDefault:"60s"`
 }
 
 // AudioConfig defines audio processing and file storage settings.
