@@ -11,26 +11,6 @@ describe('Automation', () => {
   const automationKey = 'test-automation-key-for-integration-tests';
   const publicBase = process.env.API_BASE || 'http://localhost:8080';
 
-  // Helper to make public bulletin request
-  const publicBulletinRequest = async (stationId, queryParams = {}) => {
-    const params = new URLSearchParams(queryParams);
-    const url = `${publicBase}/public/stations/${stationId}/bulletin.wav?${params.toString()}`;
-
-    const response = await global.api.http({
-      method: 'get',
-      url: url,
-      responseType: 'arraybuffer',
-      validateStatus: () => true
-    });
-
-    return {
-      status: response.status,
-      data: response.data,
-      headers: response.headers,
-      contentType: response.headers['content-type']
-    };
-  };
-
   // Helper to create station
   const createStation = async (name) => {
     const result = await global.helpers.createStation(global.resources, name);
@@ -64,7 +44,7 @@ describe('Automation', () => {
   describe('API Key Validation', () => {
     test('when API key missing, then returns 401', async () => {
       // Act
-      const response = await publicBulletinRequest(1, { max_age: '3600' });
+      const response = await global.helpers.publicBulletinRequest(1, { max_age: '3600' });
 
       // Assert
       expect(response.status).toBe(401);
@@ -72,7 +52,7 @@ describe('Automation', () => {
 
     test('when API key invalid, then returns 401', async () => {
       // Act
-      const response = await publicBulletinRequest(1, {
+      const response = await global.helpers.publicBulletinRequest(1, {
         key: 'wrong-key',
         max_age: '3600'
       });
@@ -85,7 +65,7 @@ describe('Automation', () => {
   describe('Parameter Validation', () => {
     test('when max_age missing, then returns 422', async () => {
       // Act
-      const response = await publicBulletinRequest(1, {
+      const response = await global.helpers.publicBulletinRequest(1, {
         key: automationKey
       });
 
@@ -95,7 +75,7 @@ describe('Automation', () => {
 
     test('when max_age invalid, then returns 422', async () => {
       // Act
-      const response = await publicBulletinRequest(1, {
+      const response = await global.helpers.publicBulletinRequest(1, {
         key: automationKey,
         max_age: 'invalid'
       });
@@ -106,7 +86,7 @@ describe('Automation', () => {
 
     test('when max_age negative, then returns 422', async () => {
       // Act
-      const response = await publicBulletinRequest(1, {
+      const response = await global.helpers.publicBulletinRequest(1, {
         key: automationKey,
         max_age: '-100'
       });
@@ -134,7 +114,7 @@ describe('Automation', () => {
   describe('Station Validation', () => {
     test('when station non-existent, then returns 404', async () => {
       // Act
-      const response = await publicBulletinRequest(999999, {
+      const response = await global.helpers.publicBulletinRequest(999999, {
         key: automationKey,
         max_age: '3600'
       });
@@ -149,7 +129,7 @@ describe('Automation', () => {
       expect(stationId).not.toBeNull();
 
       // Act
-      const response = await publicBulletinRequest(stationId, {
+      const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
@@ -186,7 +166,7 @@ describe('Automation', () => {
       // Arrange: Uses station setup from beforeAll
 
       // Act
-      const response = await publicBulletinRequest(stationId, {
+      const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
@@ -224,7 +204,7 @@ describe('Automation', () => {
       // Arrange: Uses station setup from beforeAll
 
       // Act
-      const response = await publicBulletinRequest(stationId, {
+      const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
@@ -237,7 +217,7 @@ describe('Automation', () => {
 
     test('when subsequent request, then returns cached', async () => {
       // Arrange: First request generates new bulletin
-      const response1 = await publicBulletinRequest(stationId, {
+      const response1 = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
@@ -245,7 +225,7 @@ describe('Automation', () => {
       expect(response1.headers['x-bulletin-id']).toBeDefined();
 
       // Act: Second request with high max_age should use cache
-      const response2 = await publicBulletinRequest(stationId, {
+      const response2 = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '3600'
       });
@@ -323,7 +303,7 @@ describe('Automation', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Act
-      const response = await publicBulletinRequest(stationId, {
+      const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });

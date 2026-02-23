@@ -8,9 +8,6 @@
  * - "when...then" naming convention
  */
 
-const { execSync } = require('child_process');
-const fsSync = require('fs');
-
 // ID that should never exist in any realistic database
 const NONEXISTENT_STORY_ID = 2147483647;
 
@@ -23,61 +20,40 @@ describe('TTS', () => {
   // Shared test station (stories require target_stations)
   let testStationId = null;
 
-  // Helper to create a voice via direct API call (supports elevenlabs_voice_id)
+  // Helper to create a voice with optional ElevenLabs voice ID
   const createVoice = async (baseName, elevenLabsVoiceId = null) => {
-    const uniqueName = `${baseName}_${Date.now()}_${process.pid}`;
-    const payload = { name: uniqueName };
+    const payload = { name: global.helpers.uniqueName(baseName) };
     if (elevenLabsVoiceId) {
       payload.elevenlabs_voice_id = elevenLabsVoiceId;
     }
 
     const response = await global.api.apiCall('POST', '/voices', payload);
-    if (response.status === 201) {
-      const id = global.api.parseJsonField(response.data, 'id');
-      if (id) {
-        global.resources.track('voices', id);
-        return id;
-      }
-    }
-    return null;
+    if (response.status !== 201) return null;
+
+    const id = global.api.parseJsonField(response.data, 'id');
+    if (!id) return null;
+
+    global.resources.track('voices', id);
+    return id;
   };
 
   // Helper to create a story (without audio) tracked for cleanup
   const createStory = async (title, text, voiceId = null) => {
-    const storyData = {
-      title: `${title}_${Date.now()}`,
+    const result = await global.helpers.createStory(global.resources, {
+      title,
       text,
-      voice_id: voiceId ? parseInt(voiceId, 10) : null,
+      voice_id: voiceId,
       status: 'active',
-      start_date: '2024-01-01',
-      end_date: '2030-12-31',
-      weekdays: 127,
-      target_stations: [parseInt(testStationId, 10)]
-    };
+      weekdays: 127
+    }, [parseInt(testStationId, 10)]);
 
-    const response = await global.api.apiCall('POST', '/stories', storyData);
-    if (response.status === 201) {
-      const id = global.api.parseJsonField(response.data, 'id');
-      if (id) {
-        global.resources.track('stories', id);
-        return id;
-      }
-    }
-    return null;
+    return result ? result.id : null;
   };
 
   // Helper to upload a short silent audio file to a story
   const uploadTestAudio = async (storyId) => {
     const audioPath = `/tmp/tts_test_audio_${Date.now()}.wav`;
-    try {
-      execSync(
-        `ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -f wav "${audioPath}" -y 2>/dev/null`,
-        { stdio: 'ignore' }
-      );
-      if (!fsSync.existsSync(audioPath)) return false;
-    } catch {
-      return false;
-    }
+    if (!global.helpers.createTestAudioFile(audioPath, 1)) return false;
 
     try {
       const response = await global.api.uploadFile(

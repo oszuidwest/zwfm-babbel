@@ -14,7 +14,6 @@ const path = require('path');
 
 describe('Bulletin Cleanup', () => {
   const automationKey = 'test-automation-key-for-integration-tests';
-  const publicBase = process.env.API_BASE || 'http://localhost:8080';
 
   // MySQL connection defaults (matching docker-compose)
   const mysqlUser = process.env.MYSQL_USER || 'babbel';
@@ -54,26 +53,6 @@ describe('Bulletin Cleanup', () => {
         }
       }
     }
-  };
-
-  // Helper to make public bulletin request
-  const publicBulletinRequest = async (stationId, queryParams = {}) => {
-    const params = new URLSearchParams(queryParams);
-    const url = `${publicBase}/public/stations/${stationId}/bulletin.wav?${params.toString()}`;
-
-    const response = await global.api.http({
-      method: 'get',
-      url: url,
-      responseType: 'arraybuffer',
-      validateStatus: () => true
-    });
-
-    return {
-      status: response.status,
-      data: response.data,
-      headers: response.headers,
-      contentType: response.headers['content-type']
-    };
   };
 
   beforeAll(async () => {
@@ -229,7 +208,7 @@ describe('Bulletin Cleanup', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Generate initial bulletin via automation
-      const initialResponse = await publicBulletinRequest(station.id, {
+      const initialResponse = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '0'
       });
@@ -240,7 +219,7 @@ describe('Bulletin Cleanup', () => {
       markBulletinPurged(initialBulletinId);
 
       // Act: request again - should generate fresh since no unpurged bulletins exist
-      const afterPurgeResponse = await publicBulletinRequest(station.id, {
+      const afterPurgeResponse = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '3600'
       });

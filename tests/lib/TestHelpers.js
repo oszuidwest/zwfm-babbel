@@ -282,6 +282,36 @@ class TestHelpers {
         // Jingle upload is optional - station-voice is still valid without it
         return stationVoice;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Public Endpoint Helpers
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Makes a public bulletin request (bypasses authentication).
+     * @param {string|number} stationId - Station ID.
+     * @param {Object} queryParams - Query parameters (key, max_age, etc.).
+     * @returns {Promise<{status: number, data: *, headers: Object, contentType: string}>}
+     */
+    async publicBulletinRequest(stationId, queryParams = {}) {
+        const params = new URLSearchParams(queryParams);
+        const publicBase = process.env.API_BASE || 'http://localhost:8080';
+        const url = `${publicBase}/public/stations/${stationId}/bulletin.wav?${params.toString()}`;
+
+        const response = await this.api.http({
+            method: 'get',
+            url: url,
+            responseType: 'arraybuffer',
+            validateStatus: () => true
+        });
+
+        return {
+            status: response.status,
+            data: response.data,
+            headers: response.headers,
+            contentType: response.headers['content-type']
+        };
+    }
 }
 
 module.exports = TestHelpers;
