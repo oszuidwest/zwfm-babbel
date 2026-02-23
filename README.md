@@ -216,8 +216,8 @@ make run                # Run development server
 make docker             # Build Docker image
 
 # Testing
-make test-all           # Run full integration test suite (83 tests)
-npm test                # Run Node.js integration tests
+make test-all           # Run full integration test suite
+npm test                # Run Jest integration tests
 
 # Code Quality
 make lint               # Run Go linters
@@ -256,16 +256,16 @@ CLAUDE.md              # AI assistant instructions
 - **Database**: MySQL 8.4 with GORM ORM
 - **Audio**: FFmpeg for audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
-- **Testing**: Comprehensive Node.js integration test suite
+- **Testing**: Jest integration test suite (508 tests)
 - **Deployment**: Docker and Docker Compose
 - **Documentation**: OpenAPI 3.0.3 specification
 
 ## Testing
 
-The project includes a comprehensive test suite:
-- **Integration tests**: 83 Node.js tests covering all endpoints
-- **Test categories**: Authentication, permissions, stations, voices, stories, TTS, bulletins, users, validation
-- **Coverage**: All major API workflows and edge cases
+The project includes a comprehensive Jest integration test suite (508 tests):
+- **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, bulletins, bulletin cleanup, automation, users, validation
+- **Test generators**: Declarative schema-driven generators for CRUD, query, and validation tests
+- **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security
 
 Run tests with:
 ```bash
