@@ -19,7 +19,7 @@
     "test:users": "jest --config tests/jest.config.js --testPathPatterns=users/users",
     "test:validation": "jest --config tests/jest.config.js --testPathPatterns=validation/validation",
     "test:quick": "JEST_SKIP_DOCKER=true jest --config tests/jest.config.js",
-    "test:no-docker": "npm run test:quick"
+    "test:no-docker": "npm run test:quick --"
   },
   "devDependencies": {
     "axios": "^1.6.0",
