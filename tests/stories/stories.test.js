@@ -22,7 +22,7 @@ describe('Stories', () => {
       voice_id: voice.id,
       weekdays,
       status
-    }, [parseInt(station.id, 10)]);
+    }, [station.id]);
 
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
@@ -63,7 +63,7 @@ describe('Stories', () => {
         voice_id: voiceId,
         weekdays: 127,
         status: 'active'
-      }, [parseInt(stationId, 10)]);
+      }, [stationId]);
       storyId = story.id;
     });
 
@@ -162,12 +162,12 @@ describe('Stories', () => {
       const storyData = {
         title: `Future Story ${Date.now()}`,
         text: 'Scheduled for future',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         start_date: '2030-01-01',
         end_date: '2030-12-31',
         weekdays: 127,
-        target_stations: [parseInt(stationId, 10)]
+        target_stations: [stationId]
       };
 
       // Act
@@ -185,12 +185,12 @@ describe('Stories', () => {
       const storyData = {
         title: `Weekend Story ${Date.now()}`,
         text: 'Weekend only',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         start_date: '2024-01-01',
         end_date: '2024-12-31',
         weekdays: 65,
-        target_stations: [parseInt(stationId, 10)]
+        target_stations: [stationId]
       };
 
       // Act
@@ -237,12 +237,12 @@ describe('Stories', () => {
       const storyData = {
         title: `Multi-Target ${Date.now()}`,
         text: 'Targets multiple stations',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         start_date: '2024-01-01',
         end_date: '2024-12-31',
         weekdays: 127,
-        target_stations: [parseInt(station1Id, 10), parseInt(station2Id, 10)]
+        target_stations: [station1Id, station2Id]
       };
 
       // Act
@@ -258,8 +258,8 @@ describe('Stories', () => {
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       if (getResponse.data.target_stations) {
-        expect(getResponse.data.target_stations).toContain(parseInt(station1Id, 10));
-        expect(getResponse.data.target_stations).toContain(parseInt(station2Id, 10));
+        expect(getResponse.data.target_stations).toContain(station1Id);
+        expect(getResponse.data.target_stations).toContain(station2Id);
       }
     });
 
@@ -268,7 +268,7 @@ describe('Stories', () => {
       const storyData = {
         title: 'No Targets',
         text: 'Missing target stations',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         weekdays: 127
       };
@@ -285,7 +285,7 @@ describe('Stories', () => {
       const storyData = {
         title: 'Empty Targets',
         text: 'Empty array',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         weekdays: 127,
         target_stations: []
@@ -303,7 +303,7 @@ describe('Stories', () => {
       const storyData = {
         title: 'Invalid Station',
         text: 'Non-existent station',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         weekdays: 127,
         target_stations: [999999]
@@ -370,12 +370,12 @@ describe('Stories', () => {
       const storyData = {
         title: `Metadata Story ${Date.now()}`,
         text: 'Story with metadata',
-        voice_id: parseInt(voice.id, 10),
+        voice_id: voice.id,
         status: 'active',
         weekdays: 127,
         start_date: '2024-01-01',
         end_date: '2024-12-31',
-        target_stations: [parseInt(station.id, 10)],
+        target_stations: [station.id],
         metadata: { source: 'test', priority: 'high' }
       };
 

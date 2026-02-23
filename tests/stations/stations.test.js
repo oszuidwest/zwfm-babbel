@@ -42,8 +42,8 @@ describe('Stations', () => {
     test('when deleting station with station-voices, then protected or cascades', async () => {
       // Arrange: Create station-voice relationship
       const svResponse = await global.api.apiCall('POST', '/station-voices', {
-        station_id: parseInt(stationId, 10),
-        voice_id: parseInt(voiceId, 10),
+        station_id: stationId,
+        voice_id: voiceId,
         mix_point: 3.0
       });
       expect(svResponse.status).toBe(201);

@@ -49,7 +49,7 @@ describe('TTS', () => {
       voice_id: voiceId,
       status: 'active',
       weekdays: 127
-    }, [parseInt(testStationId, 10)]);
+    }, [testStationId]);
 
     return result ? result.id : null;
   };
