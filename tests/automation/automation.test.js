@@ -132,8 +132,7 @@ describe('Automation', () => {
       }, [stationId]);
       expect(story).not.toBeNull();
 
-      // Wait for processing
-      await global.helpers.sleep(2000);
+      await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when requesting bulletin, then returns audio', async () => {
@@ -173,7 +172,7 @@ describe('Automation', () => {
       }, [stationId]);
       expect(story).not.toBeNull();
 
-      await global.helpers.sleep(2000);
+      await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when first request, then generates new bulletin', async () => {
@@ -251,12 +250,12 @@ describe('Automation', () => {
       const storyResponse = await global.api.apiCall('POST', '/stories', {
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         start_date: todayStr,
         end_date: todayStr,
         weekdays: 127,
-        target_stations: [parseInt(stationId, 10)]
+        target_stations: [stationId]
       });
 
       expect(storyResponse.status).toBe(201);
@@ -274,7 +273,7 @@ describe('Automation', () => {
       // Cleanup
       global.helpers.cleanupTempFile(audioFile);
 
-      await global.helpers.sleep(2000);
+      await global.helpers.waitForStoryAudio(storyResponse.data.id);
 
       // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {

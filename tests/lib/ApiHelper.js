@@ -7,7 +7,6 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { CookieJar } = require('tough-cookie');
 const { wrapper } = require('axios-cookiejar-support');
-const fs = require('fs').promises;
 const fsSync = require('fs');
 const path = require('path');
 
@@ -16,7 +15,6 @@ class ApiHelper {
     this.apiBase = process.env.API_BASE || 'http://localhost:8080';
     this.apiUrl = `${this.apiBase}/api/v1`;
     this.audioDir = path.join(__dirname, '../../audio');
-    this.cookieFile = path.join(__dirname, '../test_cookies.txt');
 
     // Initialize cookie jar and HTTP client
     this.cookieJar = new CookieJar();
@@ -31,63 +29,10 @@ class ApiHelper {
     this.defaultAdminPassword = 'admin';
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Cookie Management
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Loads cookies from file to maintain session persistence.
-   */
-  async loadCookies() {
-    try {
-      if (fsSync.existsSync(this.cookieFile)) {
-        const cookieData = await fs.readFile(this.cookieFile, 'utf8');
-        const lines = cookieData.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('#') || !line.trim()) continue;
-          const parts = line.split('\t');
-          if (parts.length >= 7) {
-            const [domain, flag, path, secure, expiration, name, value] = parts;
-            await this.cookieJar.setCookie(`${name}=${value}`, this.apiBase);
-          }
-        }
-      }
-    } catch (error) {
-      // Ignore cookie loading errors, start fresh
-    }
-  }
-
-  /**
-   * Saves cookies to file for persistence.
-   */
-  async saveCookies() {
-    try {
-      const cookies = await this.cookieJar.getCookies(this.apiBase);
-      const cookieStrings = cookies.map(cookie => {
-        const domain = cookie.domain || 'localhost';
-        const flag = 'TRUE';
-        const path = cookie.path || '/';
-        const secure = cookie.secure ? 'TRUE' : 'FALSE';
-        const expiration = cookie.expires ? Math.floor(cookie.expires.getTime() / 1000) : '0';
-        return `${domain}\t${flag}\t${path}\t${secure}\t${expiration}\t${cookie.key}\t${cookie.value}`;
-      });
-
-      const header = '# Netscape HTTP Cookie File\n# Session cookies for Babbel API tests\n';
-      await fs.writeFile(this.cookieFile, header + cookieStrings.join('\n') + '\n');
-    } catch (error) {
-      // Ignore cookie saving errors
-    }
-  }
-
   /**
    * Clears all cookies and reinitializes the HTTP client.
    */
-  async clearCookies() {
-    try {
-      await fs.unlink(this.cookieFile);
-    } catch (error) {
-      // File doesn't exist, which is acceptable
-    }
+  clearCookies() {
     this.cookieJar = new CookieJar();
     this.http = wrapper(axios.create({
       jar: this.cookieJar,
@@ -239,7 +184,7 @@ class ApiHelper {
     username = username || this.defaultAdminUsername;
     password = password || this.defaultAdminPassword;
 
-    await this.clearCookies();
+    this.clearCookies();
 
     return this.apiCall('POST', '/sessions', { username, password });
   }
@@ -250,7 +195,7 @@ class ApiHelper {
    */
   async apiLogout() {
     const response = await this.apiCall('DELETE', '/sessions/current');
-    await this.clearCookies();
+    this.clearCookies();
     return response;
   }
 

@@ -52,22 +52,22 @@ describe('Permissions', () => {
     });
 
     test('when admin creates user, then succeeds', async () => {
-      // Arrange
+      // Arrange: valid payload (same structure as editor/viewer tests to prove RBAC)
       const uniqueUsername = `testadminuser${Date.now()}`;
 
       // Act
       const response = await global.api.apiCall('POST', '/users', {
         username: uniqueUsername,
         full_name: 'Test Admin User',
-        password: 'testpass123',
+        password: 'TestPass123!',
         role: 'editor'
       });
 
       // Assert
-      expect([201, 409]).toContain(response.status);
+      expect(response.status).toBe(201);
 
       // Cleanup
-      if (response.status === 201 && response.data?.id) {
+      if (response.data?.id) {
         global.resources.track('users', response.data.id);
       }
     });
@@ -151,11 +151,11 @@ describe('Permissions', () => {
     });
 
     test('when editor creates user, then forbidden', async () => {
-      // Arrange
+      // Arrange: valid payload ensures 403 is from RBAC, not validation
       const userData = {
-        username: 'unauthorized',
-        full_name: 'Unauthorized User',
-        password: 'test',
+        username: `editortest${Date.now()}`,
+        full_name: 'Editor Test User',
+        password: 'TestPass123!',
         role: 'viewer'
       };
 
@@ -163,7 +163,7 @@ describe('Permissions', () => {
       const response = await global.api.apiCall('POST', '/users', userData);
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
 
     test('when editor deletes user, then forbidden', async () => {
@@ -173,7 +173,7 @@ describe('Permissions', () => {
       const response = await global.api.apiCall('DELETE', '/users/1');
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
   });
 
@@ -209,9 +209,9 @@ describe('Permissions', () => {
     });
 
     test('when viewer creates station, then forbidden', async () => {
-      // Arrange
+      // Arrange: valid payload ensures 403 is from RBAC, not validation
       const stationData = {
-        name: 'Viewer Test Station',
+        name: `ViewerStation_${Date.now()}`,
         max_stories_per_block: 5,
         pause_seconds: 2.0
       };
@@ -220,33 +220,36 @@ describe('Permissions', () => {
       const response = await global.api.apiCall('POST', '/stations', stationData);
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
 
     test('when viewer creates voice, then forbidden', async () => {
-      // Arrange
-      const voiceData = { name: 'Viewer Test Voice' };
+      // Arrange: valid payload ensures 403 is from RBAC, not validation
+      const voiceData = { name: `ViewerVoice_${Date.now()}` };
 
       // Act
       const response = await global.api.apiCall('POST', '/voices', voiceData);
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
 
     test('when viewer creates story, then forbidden', async () => {
-      // Arrange
+      // Arrange: valid payload ensures 403 is from RBAC, not validation
+      const today = new Date().toISOString().split('T')[0];
+      const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const storyData = {
         title: 'Viewer Test Story',
-        content: 'Test',
-        voice_id: 1
+        text: 'Valid story content for RBAC test.',
+        start_date: today,
+        end_date: nextYear
       };
 
       // Act
       const response = await global.api.apiCall('POST', '/stories', storyData);
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
 
     test('when viewer lists users, then forbidden', async () => {
@@ -256,7 +259,7 @@ describe('Permissions', () => {
       const response = await global.api.apiCall('GET', '/users');
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(403);
     });
   });
 

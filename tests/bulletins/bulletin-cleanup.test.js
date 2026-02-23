@@ -79,8 +79,8 @@ describe('Bulletin Cleanup', () => {
     }, [parseInt(testStationId, 10)]);
     expect(story).not.toBeNull();
 
-    // Wait for audio processing
-    await global.helpers.sleep(3000);
+    // Wait for audio to be available
+    await global.helpers.waitForStoryAudio(story.id);
 
     // Generate first bulletin
     const bulletin1 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
@@ -208,7 +208,7 @@ describe('Bulletin Cleanup', () => {
       }, [parseInt(station.id, 10)]);
       expect(story).not.toBeNull();
 
-      await global.helpers.sleep(2000);
+      await global.helpers.waitForStoryAudio(story.id);
 
       // Generate initial bulletin via automation
       const initialResponse = await global.helpers.publicBulletinRequest(station.id, {

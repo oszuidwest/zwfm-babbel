@@ -62,7 +62,7 @@ describe('Authentication', () => {
       const response = await global.api.apiCall('POST', '/sessions', {});
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(401);
     });
   });
 
@@ -118,7 +118,7 @@ describe('Authentication', () => {
       const response = await global.api.apiCall('GET', '/sessions/current');
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(401);
     });
   });
 
@@ -142,14 +142,14 @@ describe('Authentication', () => {
         const response = await global.api.apiCall(method, endpoint);
 
         // Assert
-        expect(response.status).toBeHttpError();
+        expect(response.status).toBe(401);
       }
     );
   });
 
   describe('Invalid Session Token', () => {
     beforeAll(async () => {
-      await global.api.clearCookies();
+      global.api.clearCookies();
     });
 
     test('when session token invalid, then rejected', async () => {
@@ -163,7 +163,7 @@ describe('Authentication', () => {
       });
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(401);
     });
 
     test('when session token malformed, then rejected', async () => {
@@ -177,7 +177,7 @@ describe('Authentication', () => {
       });
 
       // Assert
-      expect(response.status).toBeHttpError();
+      expect(response.status).toBe(401);
     });
   });
 });

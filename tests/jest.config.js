@@ -28,11 +28,8 @@ module.exports = {
   // Verbose output for debugging
   verbose: true,
 
-  // Force exit after tests complete
+  // Force exit after tests complete (required for integration tests with DB connections)
   forceExit: true,
-
-  // Detect open handles (useful for debugging hanging tests)
-  detectOpenHandles: true,
 
   // Transform (none needed for pure Node.js)
   transform: {}

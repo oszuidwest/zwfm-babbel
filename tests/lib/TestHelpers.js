@@ -26,6 +26,26 @@ class TestHelpers {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
+  /**
+   * Polls a story endpoint until audio_url is available.
+   * Replaces magic sleep() calls after audio upload.
+   * @param {number} storyId - Story ID to check.
+   * @param {number} timeoutMs - Max wait time (default: 10000).
+   * @param {number} intervalMs - Poll interval (default: 500).
+   * @returns {Promise<boolean>} True if audio became available within timeout.
+   */
+  async waitForStoryAudio(storyId, timeoutMs = 10000, intervalMs = 500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const response = await this.api.apiCall('GET', `/stories/${storyId}`);
+      if (response.status === 200 && response.data.audio_url) {
+        return true;
+      }
+      await this.sleep(intervalMs);
+    }
+    return false;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // FFmpeg Utilities
   // ═══════════════════════════════════════════════════════════════════════════
