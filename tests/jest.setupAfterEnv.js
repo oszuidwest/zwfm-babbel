@@ -31,7 +31,7 @@ beforeAll(async () => {
     const isActive = await apiHelper.isSessionActive();
     if (!isActive) {
       const loginResponse = await apiHelper.apiLogin();
-      if (loginResponse.status !== 200) {
+      if (loginResponse.status < 200 || loginResponse.status > 299) {
         console.warn(`Warning: Could not establish admin session (HTTP ${loginResponse.status})`);
       }
     }
