@@ -60,7 +60,7 @@ tests/
 │   ├── load-fixtures.js      # Script to load test data
 │   └── README.md             # Fixture documentation
 ├── lib/
-│   ├── ApiHelper.js          # HTTP client with cookie persistence
+│   ├── ApiHelper.js          # HTTP client with shared cookie-jar sessions
 │   ├── ResourceManager.js    # FK-ordered resource tracking and cleanup
 │   ├── TestHelpers.js        # Test data creation utilities
 │   ├── generators/           # Declarative test generators
@@ -126,18 +126,18 @@ Resources with full generator coverage: stations, voices, users, station-voices.
 
 | Suite | Tests | Type |
 |-------|-------|------|
-| auth | 17 | Manual (domain-specific) |
-| permissions | 15 | Manual (RBAC-specific) |
-| stations | 45 | Full (CRUD + Query + Validation) |
-| voices | 43 | Full (CRUD + Query + Validation) |
+| auth | 16 | Manual (domain-specific) |
+| permissions | 19 | Manual (RBAC-specific) |
+| stations | 86 | Full (CRUD + Query + Validation) |
+| voices | 56 | Full (CRUD + Query + Validation) |
 | station-voices | 88 | Full (CRUD + Query + Validation) |
-| stories | 35 | Partial (Query) + manual |
+| stories | 70 | Partial (Query) + manual |
 | tts | 7 | Manual (TTS validation chain) |
-| bulletins | 15 | Partial (Query) + manual |
+| bulletins | 42 | Partial (Query) + manual |
 | bulletin-cleanup | 7 | Manual (purge behavior) |
 | automation | 12 | Manual (public endpoint) |
-| users | 44 | Full (CRUD + Query + Validation) |
-| validation | 10 | Manual (security tests) |
+| users | 87 | Full (CRUD + Query + Validation) |
+| validation | 18 | Manual (security tests) |
 | **Total** | **508** | |
 
 ### Coverage Areas
