@@ -15,9 +15,9 @@ make test-all
 npm test
 
 # Run specific test suite
-npm test:auth
-npm test:stations
-npm test:voices
+npm run test:auth
+npm run test:stations
+npm run test:voices
 # etc.
 ```
 

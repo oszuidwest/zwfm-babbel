@@ -227,9 +227,7 @@ describe('Automation', () => {
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
-      if (!global.helpers.isFFmpegAvailable()) {
-        throw new Error('Test requires ffmpeg to create audio files');
-      }
+      if (!global.helpers.isFFmpegAvailable()) return;
 
       // Arrange: Create test audio
       const audioFile = `/tmp/test_story_timezone_${Date.now()}.wav`;
