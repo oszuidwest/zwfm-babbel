@@ -48,8 +48,7 @@ describe('Stations', () => {
       });
       expect(svResponse.status).toBe(201);
 
-      const svId = global.api.parseJsonField(svResponse.data, 'id');
-      global.resources.track('stationVoices', svId);
+      global.resources.track('stationVoices', svResponse.data.id);
 
       // Act
       const deleteResponse = await global.api.apiCall('DELETE', `/stations/${stationId}`);

@@ -189,11 +189,14 @@ function generateCrudTests(schema, setupFn = null) {
     // === UPDATE TESTS ===
     if (updateData) {
       describe('Update', () => {
+        // Generate fresh update data shared between the "update" and "persisted" tests
+        const updatePayload = updateData();
+
         test('when updating with valid data, then returns 200', async () => {
           // Arrange: Use shared resource from beforeAll
 
           // Act
-          const response = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updateData);
+          const response = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updatePayload);
 
           // Assert
           expect(response.status).toBe(200);
@@ -207,8 +210,8 @@ function generateCrudTests(schema, setupFn = null) {
 
           // Assert
           expect(response.status).toBe(200);
-          const firstKey = Object.keys(updateData)[0];
-          expect(response.data[firstKey]).toEqual(updateData[firstKey]);
+          const firstKey = Object.keys(updatePayload)[0];
+          expect(response.data[firstKey]).toEqual(updatePayload[firstKey]);
         });
 
         test('when updating, then updated_at changes', async () => {
@@ -217,10 +220,10 @@ function generateCrudTests(schema, setupFn = null) {
           const beforeTimestamp = new Date(beforeResponse.data.updated_at).getTime();
 
           // Wait for MySQL timestamp precision (1-second)
-          await new Promise(resolve => setTimeout(resolve, 1100));
+          await global.helpers.sleep(1100);
 
           // Act: Update with fresh data (only non-foreign-key fields)
-          await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updateData);
+          await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updateData());
 
           // Assert
           const afterResponse = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}`);
@@ -231,7 +234,7 @@ function generateCrudTests(schema, setupFn = null) {
         test('when updating non-existent ID, then returns 404', async () => {
           // Arrange: Use data without potentially conflicting unique fields
           // to avoid 409 before 404 (uniqueness checked before existence)
-          const safeUpdateData = { ...updateData };
+          const safeUpdateData = { ...updateData() };
           // If there's a name field, make it unique to avoid conflicts
           if (safeUpdateData.name) {
             safeUpdateData.name = `NonExistent_${Date.now()}_${Math.random().toString(36).slice(2)}`;

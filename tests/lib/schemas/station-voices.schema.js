@@ -14,9 +14,9 @@ module.exports = {
     // station_id and voice_id must be added by test setup
   }),
 
-  updateData: {
+  updateData: () => ({
     mix_point: 5.0
-  },
+  }),
 
   query: {
     searchFields: [],
@@ -47,12 +47,5 @@ module.exports = {
         max: 60
       }
     }
-  },
-
-  // Helper to create complete station-voice data with dependencies
-  createValidDataWithDeps: (stationId, voiceId, mixPoint = 3.0) => ({
-    station_id: parseInt(stationId, 10),
-    voice_id: parseInt(voiceId, 10),
-    mix_point: parseFloat(mixPoint)
-  })
+  }
 };

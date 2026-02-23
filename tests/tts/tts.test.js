@@ -28,13 +28,10 @@ describe('TTS', () => {
     }
 
     const response = await global.api.apiCall('POST', '/voices', payload);
-    if (response.status !== 201) return null;
+    if (response.status !== 201 || !response.data?.id) return null;
 
-    const id = global.api.parseJsonField(response.data, 'id');
-    if (!id) return null;
-
-    global.resources.track('voices', id);
-    return id;
+    global.resources.track('voices', response.data.id);
+    return response.data.id;
   };
 
   // Helper to create a story (without audio) tracked for cleanup

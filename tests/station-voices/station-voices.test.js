@@ -7,8 +7,6 @@
  * - "when...then" naming convention
  */
 
-const fs = require('fs');
-const { execSync } = require('child_process');
 const stationVoicesSchema = require('../lib/schemas/station-voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
@@ -84,21 +82,16 @@ describe('Station-Voices', () => {
   describe('Station-Voice Audio', () => {
     const testAudio = '/tmp/test_jingle.wav';
 
-    beforeAll(async () => {
-      // Arrange: Create test audio file if ffmpeg available
-      if (!fs.existsSync(testAudio)) {
-        try {
-          execSync(`ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 1 -f wav "${testAudio}" 2>/dev/null`, { stdio: 'ignore' });
-        } catch {
-          // ffmpeg not available
-        }
+    beforeAll(() => {
+      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
+        console.log('Could not create test audio file (ffmpeg unavailable or failed)');
       }
     });
 
     test('when uploading jingle, then attached', async () => {
-      // Skip if ffmpeg not available
-      if (!fs.existsSync(testAudio)) {
-        console.log('Skipping audio test - ffmpeg not available');
+      // Skip if test audio file was not created
+      if (!require('fs').existsSync(testAudio)) {
+        console.log('Skipping audio test - test audio file not available');
         return;
       }
 

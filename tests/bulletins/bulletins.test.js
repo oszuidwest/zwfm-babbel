@@ -25,7 +25,7 @@ describe('Bulletins', () => {
       status: 'active'
     }, [parseInt(station.id, 10)]);
 
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await global.helpers.sleep(2000);
 
     const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
     return response.status === 200 && response.data.id ? [response.data.id] : [];
@@ -55,7 +55,7 @@ describe('Bulletins', () => {
         status: 'active'
       }, [parseInt(stationId, 10)]);
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await global.helpers.sleep(3000);
     });
 
     test('when generating bulletin, then returns complete data', async () => {
@@ -175,7 +175,7 @@ describe('Bulletins', () => {
         status: 'active'
       }, [parseInt(stationId, 10)]);
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await global.helpers.sleep(2000);
     });
 
     test('when generating station bulletin, then succeeds', async () => {

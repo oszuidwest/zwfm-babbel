@@ -109,8 +109,6 @@ class ApiHelper {
    * @returns {Promise<Object>} Response object with status, data, and headers
    */
   async apiCall(method, endpoint, data = null, options = {}) {
-    await this.loadCookies();
-
     const config = {
       method: method.toLowerCase(),
       url: `${this.apiUrl}${endpoint}`,
@@ -128,7 +126,6 @@ class ApiHelper {
     }
 
     const response = await this.http(config);
-    await this.saveCookies();
 
     return {
       status: response.status,
@@ -147,8 +144,6 @@ class ApiHelper {
    * @returns {Promise<Object>} Response object with status, data, and headers
    */
   async uploadFile(endpoint, formFields, filePath = null, fileFieldName = 'file', method = 'POST') {
-    await this.loadCookies();
-
     const form = new FormData();
 
     // Add regular form fields
@@ -171,8 +166,6 @@ class ApiHelper {
       }
     });
 
-    await this.saveCookies();
-
     return {
       status: response.status,
       data: response.data,
@@ -190,8 +183,6 @@ class ApiHelper {
    * @returns {Promise<number>} HTTP status code
    */
   async downloadFile(endpoint, outputPath, method = 'GET', data = null, headers = {}) {
-    await this.loadCookies();
-
     const config = {
       method: method.toLowerCase(),
       url: `${this.apiUrl}${endpoint}`,
@@ -222,38 +213,6 @@ class ApiHelper {
     return response.status;
   }
 
-  /**
-   * Makes API call with FormData for file uploads.
-   * @param {string} method - HTTP method
-   * @param {string} endpoint - API endpoint path
-   * @param {FormData} formData - FormData object
-   * @param {Object} options - Additional options (optional)
-   * @returns {Promise<Object>} Response object with status, data, and headers
-   */
-  async apiCallFormData(method, endpoint, formData, options = {}) {
-    await this.loadCookies();
-
-    const config = {
-      method: method.toLowerCase(),
-      url: `${this.apiUrl}${endpoint}`,
-      data: formData,
-      headers: {
-        ...formData.getHeaders(),
-        ...options.headers
-      },
-      ...options
-    };
-
-    const response = await this.http(config);
-    await this.saveCookies();
-
-    return {
-      status: response.status,
-      data: response.data,
-      headers: response.headers
-    };
-  }
-
   // ═══════════════════════════════════════════════════════════════════════════
   // Authentication Methods
   // ═══════════════════════════════════════════════════════════════════════════
@@ -270,12 +229,7 @@ class ApiHelper {
 
     await this.clearCookies();
 
-    const response = await this.apiCall('POST', '/sessions', {
-      username,
-      password
-    });
-
-    return response;
+    return this.apiCall('POST', '/sessions', { username, password });
   }
 
   /**
@@ -315,99 +269,6 @@ class ApiHelper {
     return session !== null;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Utility Methods
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Extracts error message from RFC 9457 Problem Details response.
-   * @param {Object} responseData - Response data object
-   * @returns {string} Extracted error message or empty string
-   */
-  extractErrorMessage(responseData) {
-    if (!responseData || typeof responseData !== 'object') {
-      return '';
-    }
-
-    if (responseData.title) {
-      const title = responseData.title;
-      const detail = responseData.detail;
-      if (detail) {
-        return `${title}: ${detail}`;
-      }
-      return title;
-    }
-
-    return '';
-  }
-
-  /**
-   * Parses a specific field from JSON response data.
-   * @param {Object} data - JSON data object
-   * @param {string} field - Field name to extract
-   * @returns {string} Field value as string or empty string
-   */
-  parseJsonField(data, field) {
-    if (!data || typeof data !== 'object') {
-      return '';
-    }
-
-    const value = data[field];
-    return value !== undefined && value !== null ? String(value) : '';
-  }
-
-  /**
-   * Parses a nested JSON field using dot notation.
-   * @param {Object} data - JSON data object
-   * @param {string} fieldPath - Dot-notation path (e.g., 'data.0.id')
-   * @returns {string} Field value as string or empty string
-   */
-  parseJsonNested(data, fieldPath) {
-    if (!data || typeof data !== 'object') {
-      return '';
-    }
-
-    try {
-      const keys = fieldPath.split('.');
-      let current = data;
-
-      for (const key of keys) {
-        if (/^\d+$/.test(key)) {
-          current = current[parseInt(key)];
-        } else {
-          current = current[key];
-        }
-
-        if (current === undefined || current === null) {
-          return '';
-        }
-      }
-
-      return typeof current === 'object' ? '' : String(current);
-    } catch (error) {
-      return '';
-    }
-  }
-
-  /**
-   * Waits for a file to exist with timeout.
-   * @param {string} filePath - Path to file to wait for
-   * @param {number} timeout - Timeout in seconds (default: 10)
-   * @returns {Promise<boolean>} True if file exists within timeout
-   */
-  async waitForFile(filePath, timeout = 10) {
-    const startTime = Date.now();
-    const timeoutMs = timeout * 1000;
-
-    while (Date.now() - startTime < timeoutMs) {
-      if (fsSync.existsSync(filePath)) {
-        return true;
-      }
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-
-    return false;
-  }
 }
 
 module.exports = ApiHelper;

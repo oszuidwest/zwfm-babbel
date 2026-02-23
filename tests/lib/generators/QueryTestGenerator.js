@@ -21,11 +21,9 @@ function generateQueryTests(schema, setupFn = null) {
   }
 
   describe(`${name} Query Parameters`, () => {
-    let testIds = [];
-
     beforeAll(async () => {
       if (setupFn) {
-        testIds = await setupFn();
+        await setupFn();
       }
     });
 

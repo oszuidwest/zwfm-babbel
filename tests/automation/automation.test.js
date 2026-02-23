@@ -9,37 +9,6 @@
 
 describe('Automation', () => {
   const automationKey = 'test-automation-key-for-integration-tests';
-  const publicBase = process.env.API_BASE || 'http://localhost:8080';
-
-  // Helper to create station
-  const createStation = async (name) => {
-    const result = await global.helpers.createStation(global.resources, name);
-    return result ? result.id : null;
-  };
-
-  // Helper to create voice
-  const createVoice = async (name) => {
-    const result = await global.helpers.createVoice(global.resources, name);
-    return result ? result.id : null;
-  };
-
-  // Helper to create station-voice with jingle
-  const createStationVoiceWithJingle = async (stationId, voiceId) => {
-    const result = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
-    return result ? result.id : null;
-  };
-
-  // Helper to create story with audio
-  const createStoryWithAudio = async (title, text, voiceId, targetStations) => {
-    const result = await global.helpers.createStoryWithAudio(global.resources, {
-      title: `${title}_${Date.now()}`,
-      text,
-      voice_id: voiceId,
-      weekdays: 127,
-      status: 'active'
-    }, targetStations);
-    return result ? result.id : null;
-  };
 
   describe('API Key Validation', () => {
     test('when API key missing, then returns 401', async () => {
@@ -97,7 +66,7 @@ describe('Automation', () => {
 
     test('when station ID invalid, then returns 422', async () => {
       // Arrange
-      const url = `${publicBase}/public/stations/invalid/bulletin.wav?key=${automationKey}&max_age=3600`;
+      const url = `${global.api.apiBase}/public/stations/invalid/bulletin.wav?key=${automationKey}&max_age=3600`;
 
       // Act
       const response = await global.api.http({
@@ -125,11 +94,11 @@ describe('Automation', () => {
 
     test('when station has no stories, then returns 422', async () => {
       // Arrange
-      const stationId = await createStation('Empty Automation Station');
-      expect(stationId).not.toBeNull();
+      const station = await global.helpers.createStation(global.resources, 'Empty Automation Station');
+      expect(station).not.toBeNull();
 
       // Act
-      const response = await global.helpers.publicBulletinRequest(stationId, {
+      const response = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '0'
       });
@@ -144,22 +113,25 @@ describe('Automation', () => {
 
     beforeAll(async () => {
       // Arrange: Create full station setup
-      stationId = await createStation('Automation Test Station');
-      voiceId = await createVoice('Automation Test Voice');
+      const station = await global.helpers.createStation(global.resources, 'Automation Test Station');
+      const voice = await global.helpers.createVoice(global.resources, 'Automation Test Voice');
+      stationId = station.id;
+      voiceId = voice.id;
 
-      const svId = await createStationVoiceWithJingle(stationId, voiceId);
-      expect(svId).not.toBeNull();
+      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
+      expect(sv).not.toBeNull();
 
-      const storyId = await createStoryWithAudio(
-        'Automation Test Story',
-        'This is a test story for automation endpoint testing.',
-        voiceId,
-        [stationId]
-      );
-      expect(storyId).not.toBeNull();
+      const story = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `Automation Test Story_${Date.now()}`,
+        text: 'This is a test story for automation endpoint testing.',
+        voice_id: voiceId,
+        weekdays: 127,
+        status: 'active'
+      }, [stationId]);
+      expect(story).not.toBeNull();
 
       // Wait for processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await global.helpers.sleep(2000);
     });
 
     test('when requesting bulletin, then returns audio', async () => {
@@ -183,21 +155,23 @@ describe('Automation', () => {
 
     beforeAll(async () => {
       // Arrange: Create station with story
-      stationId = await createStation('Caching Test Station');
-      const voiceId = await createVoice('Caching Test Voice');
+      const station = await global.helpers.createStation(global.resources, 'Caching Test Station');
+      const voice = await global.helpers.createVoice(global.resources, 'Caching Test Voice');
+      stationId = station.id;
 
-      const svId = await createStationVoiceWithJingle(stationId, voiceId);
-      expect(svId).not.toBeNull();
+      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id);
+      expect(sv).not.toBeNull();
 
-      const storyId = await createStoryWithAudio(
-        'Caching Test Story',
-        'Story for testing caching behavior.',
-        voiceId,
-        [stationId]
-      );
-      expect(storyId).not.toBeNull();
+      const story = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `Caching Test Story_${Date.now()}`,
+        text: 'Story for testing caching behavior.',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active'
+      }, [stationId]);
+      expect(story).not.toBeNull();
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await global.helpers.sleep(2000);
     });
 
     test('when first request, then generates new bulletin', async () => {
@@ -242,11 +216,13 @@ describe('Automation', () => {
 
     beforeAll(async () => {
       // Arrange: Create station and voice
-      stationId = await createStation('Timezone Test Station');
-      voiceId = await createVoice('Timezone Test Voice');
+      const station = await global.helpers.createStation(global.resources, 'Timezone Test Station');
+      const voice = await global.helpers.createVoice(global.resources, 'Timezone Test Voice');
+      stationId = station.id;
+      voiceId = voice.id;
 
-      const svId = await createStationVoiceWithJingle(stationId, voiceId);
-      expect(svId).not.toBeNull();
+      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
+      expect(sv).not.toBeNull();
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
@@ -285,12 +261,11 @@ describe('Automation', () => {
       });
 
       expect(storyResponse.status).toBe(201);
-      const storyId = global.api.parseJsonField(storyResponse.data, 'id');
-      global.resources.track('stories', storyId);
+      global.resources.track('stories', storyResponse.data.id);
 
       // Upload audio
       const uploadResponse = await global.api.uploadFile(
-        `/stories/${storyId}/audio`,
+        `/stories/${storyResponse.data.id}/audio`,
         {},
         audioFile,
         'audio'
@@ -300,7 +275,7 @@ describe('Automation', () => {
       // Cleanup
       global.helpers.cleanupTempFile(audioFile);
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await global.helpers.sleep(2000);
 
       // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {

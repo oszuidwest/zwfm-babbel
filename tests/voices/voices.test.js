@@ -55,8 +55,7 @@ describe('Voices', () => {
       const storyResponse = await global.api.apiCall('POST', '/stories', storyData);
       expect(storyResponse.status).toBe(201);
 
-      const storyId = global.api.parseJsonField(storyResponse.data, 'id');
-      global.resources.track('stories', storyId);
+      global.resources.track('stories', storyResponse.data.id);
 
       // Act
       const deleteResponse = await global.api.apiCall('DELETE', `/voices/${voiceId}`);

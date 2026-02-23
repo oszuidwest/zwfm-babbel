@@ -11,15 +11,6 @@
  */
 
 describe('Security Validation', () => {
-  // Track created resources for cleanup
-  const createdStationIds = [];
-
-  afterAll(async () => {
-    for (const id of createdStationIds) {
-      try { await global.api.apiCall('DELETE', `/stations/${id}`); } catch {}
-    }
-  });
-
   describe('SQL Injection Prevention', () => {
     const sqlPayloads = [
       "'; DROP TABLE users; --",
@@ -45,9 +36,8 @@ describe('Security Validation', () => {
       expect([201, 409, 422]).toContain(response.status);
 
       // Cleanup
-      if (response.status === 201) {
-        const stationId = global.api.parseJsonField(response.data, 'id');
-        if (stationId) createdStationIds.push(stationId);
+      if (response.status === 201 && response.data?.id) {
+        global.resources.track('stations', response.data.id);
       }
     });
   });
@@ -76,9 +66,8 @@ describe('Security Validation', () => {
       expect([201, 409, 422]).toContain(response.status);
 
       // Cleanup
-      if (response.status === 201) {
-        const stationId = global.api.parseJsonField(response.data, 'id');
-        if (stationId) createdStationIds.push(stationId);
+      if (response.status === 201 && response.data?.id) {
+        global.resources.track('stations', response.data.id);
       }
     });
   });
@@ -106,9 +95,8 @@ describe('Security Validation', () => {
       expect([201, 409, 422]).toContain(response.status);
 
       // Cleanup
-      if (response.status === 201) {
-        const stationId = global.api.parseJsonField(response.data, 'id');
-        if (stationId) createdStationIds.push(stationId);
+      if (response.status === 201 && response.data?.id) {
+        global.resources.track('stations', response.data.id);
       }
     });
   });

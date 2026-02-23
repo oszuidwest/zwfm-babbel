@@ -21,11 +21,11 @@ module.exports = {
     // voice_id and target_stations must be added by test setup
   }),
 
-  updateData: {
+  updateData: () => ({
     title: `Updated Story ${Date.now()}`,
     text: 'Updated story content.',
     status: 'active'
-  },
+  }),
 
   query: {
     searchFields: ['title', 'text'],
@@ -83,17 +83,5 @@ module.exports = {
         required: false
       }
     }
-  },
-
-  // Helper to create complete story data with dependencies
-  createValidDataWithDeps: (voiceId, stationIds, suffix = '') => ({
-    title: `Test Story ${suffix || Date.now()}_${process.pid}`,
-    text: 'This is test story content for automated testing.',
-    voice_id: parseInt(voiceId, 10),
-    target_stations: stationIds.map(id => parseInt(id, 10)),
-    status: 'active',
-    weekdays: 127,
-    start_date: new Date().toISOString().split('T')[0],
-    end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  })
+  }
 };

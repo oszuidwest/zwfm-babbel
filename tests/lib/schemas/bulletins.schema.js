@@ -25,11 +25,5 @@ module.exports = {
   excludeOnFieldSelect: ['audio_file'],
 
   // Bulletins don't have direct creation validation - they're generated
-  validation: null,
-
-  // Station endpoint for bulletin generation
-  generateEndpoint: (stationId) => `/stations/${stationId}/bulletins`,
-
-  // Query for latest bulletin
-  latestEndpoint: (stationId) => `/stations/${stationId}/bulletins?latest=true`
+  validation: null
 };

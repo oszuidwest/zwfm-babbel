@@ -11,9 +11,9 @@ module.exports = {
     name: `Test Voice ${suffix || Date.now()}_${process.pid}`
   }),
 
-  updateData: {
+  updateData: () => ({
     name: `Updated Voice ${Date.now()}`
-  },
+  }),
 
   query: {
     searchFields: ['name'],

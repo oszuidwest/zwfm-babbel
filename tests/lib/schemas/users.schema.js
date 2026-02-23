@@ -14,10 +14,10 @@ module.exports = {
     role: 'viewer'
   }),
 
-  updateData: {
+  updateData: () => ({
     full_name: 'Updated User Name',
     role: 'editor'
-  },
+  }),
 
   query: {
     searchFields: ['username', 'full_name'],

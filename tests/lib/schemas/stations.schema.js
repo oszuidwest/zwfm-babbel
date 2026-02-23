@@ -16,11 +16,11 @@ module.exports = {
   }),
 
   // Data for update tests
-  updateData: {
+  updateData: () => ({
     name: `Updated Station ${Date.now()}`,
     max_stories_per_block: 7,
     pause_seconds: 3.0
-  },
+  }),
 
   // Query parameter configuration
   query: {

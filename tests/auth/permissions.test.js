@@ -8,9 +8,6 @@
  */
 
 describe('Permissions', () => {
-  // Track created users for cleanup
-  const createdUserIds = [];
-
   // Helper to create a user
   const createUser = async (username, fullName, password, role) => {
     const response = await global.api.apiCall('POST', '/users', {
@@ -20,18 +17,15 @@ describe('Permissions', () => {
       role
     });
 
-    if (response.status === 201) {
-      const userId = global.api.parseJsonField(response.data, 'id');
-      if (userId) {
-        createdUserIds.push(userId);
-        return userId;
-      }
+    if (response.status === 201 && response.data?.id) {
+      global.resources.track('users', response.data.id);
+      return response.data.id;
     } else if (response.status === 409) {
       // User already exists, find it
       const userResponse = await global.api.apiCall('GET', '/users');
       if (userResponse.status === 200 && userResponse.data.data) {
         const user = userResponse.data.data.find(u => u.username === username);
-        if (user) return String(user.id);
+        if (user) return user.id;
       }
     }
     return null;
@@ -49,13 +43,7 @@ describe('Permissions', () => {
   };
 
   afterAll(async () => {
-    // Ensure admin session for cleanup
     await restoreAdmin();
-
-    // Delete created users
-    for (const userId of createdUserIds) {
-      await global.api.apiCall('DELETE', `/users/${userId}`);
-    }
   });
 
   describe('Admin Permissions', () => {
@@ -79,9 +67,8 @@ describe('Permissions', () => {
       expect([201, 409]).toContain(response.status);
 
       // Cleanup
-      if (response.status === 201) {
-        const userId = global.api.parseJsonField(response.data, 'id');
-        if (userId) createdUserIds.push(userId);
+      if (response.status === 201 && response.data?.id) {
+        global.resources.track('users', response.data.id);
       }
     });
 
@@ -158,9 +145,8 @@ describe('Permissions', () => {
       expect(response.status).toBe(201);
 
       // Cleanup
-      if (response.status === 201) {
-        const id = global.api.parseJsonField(response.data, 'id');
-        if (id) global.resources.track('stations', id);
+      if (response.status === 201 && response.data?.id) {
+        global.resources.track('stations', response.data.id);
       }
     });
 

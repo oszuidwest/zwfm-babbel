@@ -77,21 +77,21 @@ describe('Bulletin Cleanup', () => {
     expect(story).not.toBeNull();
 
     // Wait for audio processing
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await global.helpers.sleep(3000);
 
     // Generate first bulletin
     const bulletin1 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
     expect(bulletin1.status).toBe(200);
-    purgedBulletinId = global.api.parseJsonField(bulletin1.data, 'id');
+    purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
 
     // Small delay for different timestamps
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await global.helpers.sleep(1000);
 
     // Generate second bulletin
     const bulletin2 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
     expect(bulletin2.status).toBe(200);
-    unpurgedBulletinId = global.api.parseJsonField(bulletin2.data, 'id');
+    unpurgedBulletinId = bulletin2.data.id;
     global.resources.track('bulletins', unpurgedBulletinId);
 
     // Mark the first (older) bulletin as purged
@@ -165,7 +165,7 @@ describe('Bulletin Cleanup', () => {
       // Arrange: generate a third bulletin and purge it (making it the newest)
       const thirdResponse = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
       expect(thirdResponse.status).toBe(200);
-      const thirdBulletinId = global.api.parseJsonField(thirdResponse.data, 'id');
+      const thirdBulletinId = thirdResponse.data.id;
       global.resources.track('bulletins', thirdBulletinId);
 
       markBulletinPurged(thirdBulletinId);
@@ -205,7 +205,7 @@ describe('Bulletin Cleanup', () => {
       }, [parseInt(station.id, 10)]);
       expect(story).not.toBeNull();
 
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await global.helpers.sleep(2000);
 
       // Generate initial bulletin via automation
       const initialResponse = await global.helpers.publicBulletinRequest(station.id, {
