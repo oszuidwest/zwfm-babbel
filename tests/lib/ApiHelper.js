@@ -237,13 +237,8 @@ class ApiHelper {
    * @returns {Promise<Object>} Response object with status
    */
   async apiLogout() {
-    if (!fsSync.existsSync(this.cookieFile)) {
-      return { status: 204, data: null };
-    }
-
     const response = await this.apiCall('DELETE', '/sessions/current');
     await this.clearCookies();
-
     return response;
   }
 
