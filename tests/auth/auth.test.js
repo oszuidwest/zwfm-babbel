@@ -57,12 +57,12 @@ describe('Authentication', () => {
       expect(response.status).toBe(401);
     });
 
-    test('when credentials empty, then returns error', async () => {
-      // Act
+    test('when credentials empty, then returns 400', async () => {
+      // Act — empty body hits binding:"required" validation before auth check
       const response = await global.api.apiCall('POST', '/sessions', {});
 
       // Assert
-      expect(response.status).toBe(401);
+      expect(response.status).toBe(400);
     });
   });
 
