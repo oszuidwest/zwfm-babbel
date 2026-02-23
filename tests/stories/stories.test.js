@@ -331,10 +331,8 @@ describe('Stories', () => {
     });
 
     test('when uploading audio, then attached to story', async () => {
-      // Skip if test audio file was not created
       if (!require('fs').existsSync(testAudio)) {
-        console.log('Skipping audio test - test audio file not available');
-        return;
+        throw new Error('Test requires ffmpeg to create audio files');
       }
 
       // Arrange

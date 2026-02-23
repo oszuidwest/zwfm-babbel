@@ -5,6 +5,9 @@ const { execSync } = require('child_process');
 const fsSync = require('fs');
 
 class TestHelpers {
+  /** Automation key matching docker-compose BABBEL_AUTOMATION_KEY */
+  static AUTOMATION_KEY = 'test-automation-key-for-integration-tests';
+
   constructor(apiHelper) {
     this.api = apiHelper;
     this._ffmpegAvailable = null;

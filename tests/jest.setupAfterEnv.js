@@ -32,7 +32,7 @@ beforeAll(async () => {
     if (!isActive) {
       const loginResponse = await apiHelper.apiLogin();
       if (loginResponse.status < 200 || loginResponse.status > 299) {
-        console.warn(`Warning: Could not establish admin session (HTTP ${loginResponse.status})`);
+        throw new Error(`Could not establish admin session (HTTP ${loginResponse.status}). Is the API running?`);
       }
     }
   }

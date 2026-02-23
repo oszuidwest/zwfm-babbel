@@ -34,9 +34,6 @@ module.exports = {
   // Detect open handles (useful for debugging hanging tests)
   detectOpenHandles: true,
 
-  // Module paths
-  moduleDirectories: ['node_modules', 'lib'],
-
   // Transform (none needed for pure Node.js)
   transform: {}
 };

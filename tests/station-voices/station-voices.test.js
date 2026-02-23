@@ -81,18 +81,22 @@ describe('Station-Voices', () => {
 
   describe('Station-Voice Audio', () => {
     const testAudio = '/tmp/test_jingle.wav';
+    let audioAvailable = false;
 
     beforeAll(() => {
-      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
-        console.log('Could not create test audio file (ffmpeg unavailable or failed)');
+      audioAvailable = global.helpers.createTestAudioFile(testAudio, 1);
+      if (!audioAvailable) {
+        console.warn('Audio tests will be skipped (ffmpeg not available)');
       }
     });
 
+    afterAll(() => {
+      global.helpers.cleanupTempFile(testAudio);
+    });
+
     test('when uploading jingle, then attached', async () => {
-      // Skip if test audio file was not created
-      if (!require('fs').existsSync(testAudio)) {
-        console.log('Skipping audio test - test audio file not available');
-        return;
+      if (!audioAvailable) {
+        throw new Error('Test requires ffmpeg to create audio files');
       }
 
       // Arrange

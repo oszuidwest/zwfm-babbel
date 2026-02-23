@@ -66,7 +66,7 @@ module.exports = {
       status: {
         type: 'string',
         required: false,
-        enum: ['active', 'inactive', 'deleted']
+        enum: ['draft', 'active', 'expired']
       },
       weekdays: {
         type: 'integer',

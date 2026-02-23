@@ -26,7 +26,13 @@ async function waitForApi(maxRetries = 30, retryDelay = 2000) {
 async function globalSetup() {
   // Check for quick mode (skip Docker)
   if (process.env.JEST_SKIP_DOCKER === 'true') {
-    console.log('\nSkipping Docker setup (JEST_SKIP_DOCKER=true)\n');
+    console.log('\nSkipping Docker setup (JEST_SKIP_DOCKER=true)');
+    console.log('Checking API readiness...');
+    try {
+      await waitForApi(5, 1000);
+    } catch {
+      throw new Error('API is not reachable. Start the API before running with JEST_SKIP_DOCKER=true');
+    }
     return;
   }
 

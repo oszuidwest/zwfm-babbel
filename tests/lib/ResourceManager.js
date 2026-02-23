@@ -8,7 +8,7 @@ class ResourceManager {
    */
   static CLEANUP_ORDER = [
     'bulletins',      // References stories
-    'stories',        // References voices, stations (via story_stations)
+    'stories',        // References voices; stations linked via target_stations field
     'stationVoices',  // References voices, stations
     'voices',         // No dependencies on other tracked resources
     'stations',       // Base resource
@@ -46,6 +46,7 @@ class ResourceManager {
    */
   track(type, id) {
     if (!this.tracked[type]) {
+      console.warn(`ResourceManager: unknown resource type '${type}' (known: ${Object.keys(this.tracked).join(', ')})`);
       return;
     }
     this.tracked[type].add(String(id));

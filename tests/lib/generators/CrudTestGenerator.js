@@ -41,12 +41,13 @@ function generateCrudTests(schema, setupFn = null) {
       // Act: Create the resource
       const response = await global.api.apiCall('POST', endpoint, data);
 
-      // Store for dependent tests
-      if (response.status === 201 && response.data?.id) {
-        sharedResource.id = response.data.id;
-        sharedResource.data = data;
-        global.resources.track(namePlural, sharedResource.id);
+      // Store for dependent tests - fail fast if creation fails
+      if (response.status !== 201 || !response.data?.id) {
+        throw new Error(`Failed to create shared ${name} in beforeAll (HTTP ${response.status}): ${JSON.stringify(response.data)}`);
       }
+      sharedResource.id = response.data.id;
+      sharedResource.data = data;
+      global.resources.track(namePlural, sharedResource.id);
     });
 
     // === CREATE TESTS ===

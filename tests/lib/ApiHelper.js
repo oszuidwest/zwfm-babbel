@@ -115,7 +115,7 @@ class ApiHelper {
       ...options
     };
 
-    if (data && !config.data && !config.formData) {
+    if (data && !config.data) {
       if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'DELETE') {
         config.headers = {
           'Content-Type': 'application/json',
@@ -152,7 +152,10 @@ class ApiHelper {
     }
 
     // Add file if provided
-    if (filePath && fsSync.existsSync(filePath)) {
+    if (filePath) {
+      if (!fsSync.existsSync(filePath)) {
+        throw new Error(`Upload file not found: ${filePath}`);
+      }
       const fileStream = fsSync.createReadStream(filePath);
       form.append(fileFieldName, fileStream);
     }
@@ -205,9 +208,18 @@ class ApiHelper {
       response.data.pipe(writer);
 
       return new Promise((resolve, reject) => {
+        response.data.on('error', (err) => {
+          writer.destroy();
+          reject(err);
+        });
         writer.on('finish', () => resolve(response.status));
         writer.on('error', reject);
       });
+    }
+
+    // Drain unused stream to prevent resource leaks
+    if (response.data && typeof response.data.resume === 'function') {
+      response.data.resume();
     }
 
     return response.status;

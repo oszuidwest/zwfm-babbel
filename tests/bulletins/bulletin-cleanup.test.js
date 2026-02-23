@@ -12,13 +12,16 @@ const { execSync } = require('child_process');
 const fsSync = require('fs');
 const path = require('path');
 
+const TestHelpers = require('../lib/TestHelpers');
+
 describe('Bulletin Cleanup', () => {
-  const automationKey = 'test-automation-key-for-integration-tests';
+  const automationKey = TestHelpers.AUTOMATION_KEY;
 
   // MySQL connection defaults (matching docker-compose)
   const mysqlUser = process.env.MYSQL_USER || 'babbel';
   const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
   const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
+  const mysqlContainer = process.env.MYSQL_CONTAINER || 'babbel-mysql';
   const audioDir = path.join(__dirname, '../../audio');
 
   // Test state set during beforeAll
@@ -28,7 +31,7 @@ describe('Bulletin Cleanup', () => {
 
   // Execute SQL against the Docker MySQL container
   const execSQL = (sql) => {
-    const cmd = `docker exec -i babbel-mysql mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${sql}"`;
+    const cmd = `docker exec -i ${mysqlContainer} mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${sql}"`;
     return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
   };
 

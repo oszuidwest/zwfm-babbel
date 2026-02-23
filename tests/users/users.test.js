@@ -82,7 +82,7 @@ describe('Users', () => {
         const roleChangeResponse = await global.api.apiCall('PUT', `/users/${lastAdmin.id}`, {
           role: 'editor'
         });
-        expect([403, 422, 200]).toContain(roleChangeResponse.status);
+        expect([403, 422]).toContain(roleChangeResponse.status);
       } else if (adminUsers.length > 1) {
         // Act & Assert: Non-last admin can be deleted
         const createResponse = await global.api.apiCall('POST', '/users', {

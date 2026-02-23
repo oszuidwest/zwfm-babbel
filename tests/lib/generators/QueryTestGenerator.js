@@ -160,7 +160,7 @@ function generateQueryTests(schema, setupFn = null) {
 
         // Numeric operators for numeric fields
         const numericFields = query.filterableFields.filter(f =>
-          query.numericFields?.includes(f) || ['id'].includes(f)
+          query.numericFields?.includes(f)
         );
 
         numericFields.forEach(field => {

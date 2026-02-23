@@ -87,10 +87,7 @@ describe('TTS', () => {
 
   describe('TTS Disabled', () => {
     test('when TTS not configured, then returns 501', async () => {
-      if (ttsEnabled) {
-        console.log('Skipping: TTS is enabled on this server');
-        return;
-      }
+      if (ttsEnabled) return; // This test only applies when TTS is disabled
 
       // Act
       const response = await global.api.apiCall('POST', `/stories/${NONEXISTENT_STORY_ID}/tts`);
@@ -101,13 +98,14 @@ describe('TTS', () => {
     });
   });
 
-  describe('Validation Chain', () => {
-    test('when story not found, then returns 404', async () => {
+  describe('Validation Chain (requires TTS)', () => {
+    beforeEach(() => {
       if (!ttsEnabled) {
-        console.log('Skipping: TTS is disabled');
-        return;
+        throw new Error('TTS is not enabled on this server - enable BABBEL_ELEVENLABS_API_KEY to run these tests');
       }
+    });
 
+    test('when story not found, then returns 404', async () => {
       // Act
       const response = await global.api.apiCall('POST', `/stories/${NONEXISTENT_STORY_ID}/tts`);
 
@@ -117,11 +115,6 @@ describe('TTS', () => {
     });
 
     test('when story has no voice, then returns 400', async () => {
-      if (!ttsEnabled) {
-        console.log('Skipping: TTS is disabled');
-        return;
-      }
-
       // Arrange
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
       expect(storyId).not.toBeNull();
@@ -135,11 +128,6 @@ describe('TTS', () => {
     });
 
     test('when voice has no ElevenLabs ID, then returns 400', async () => {
-      if (!ttsEnabled) {
-        console.log('Skipping: TTS is disabled');
-        return;
-      }
-
       // Arrange: voice without elevenlabs_voice_id
       const voiceId = await createVoice('TTS No EL Voice');
       expect(voiceId).not.toBeNull();
@@ -156,14 +144,8 @@ describe('TTS', () => {
     });
 
     test('when story already has audio without force, then returns 400', async () => {
-      if (!ttsEnabled) {
-        console.log('Skipping: TTS is disabled');
-        return;
-      }
-
       if (!global.helpers.isFFmpegAvailable()) {
-        console.log('Skipping: ffmpeg not available');
-        return;
+        throw new Error('Test requires ffmpeg to create audio files');
       }
 
       // Arrange: voice with dummy elevenlabs ID (won't actually call ElevenLabs)
@@ -186,21 +168,19 @@ describe('TTS', () => {
     });
   });
 
-  describe('Real API', () => {
-    test('when force overwrite with real API, then returns 201', async () => {
+  describe('Real API (requires TTS + BABBEL_TEST_TTS_REAL_API=true)', () => {
+    beforeEach(() => {
       if (!ttsEnabled || !ttsRealApi) {
-        console.log('Skipping: Requires TTS enabled + BABBEL_TEST_TTS_REAL_API=true');
-        return;
+        throw new Error('Requires TTS enabled + BABBEL_TEST_TTS_REAL_API=true');
       }
-
       if (!realElevenLabsVoiceId) {
-        console.log('Skipping: BABBEL_TEST_ELEVENLABS_VOICE_ID not set');
-        return;
+        throw new Error('BABBEL_TEST_ELEVENLABS_VOICE_ID not set');
       }
+    });
 
+    test('when force overwrite with real API, then returns 201', async () => {
       if (!global.helpers.isFFmpegAvailable()) {
-        console.log('Skipping: ffmpeg not available');
-        return;
+        throw new Error('Test requires ffmpeg to create audio files');
       }
 
       // Arrange
@@ -225,16 +205,6 @@ describe('TTS', () => {
     });
 
     test('when generating TTS for story without audio, then returns 201', async () => {
-      if (!ttsEnabled || !ttsRealApi) {
-        console.log('Skipping: Requires TTS enabled + BABBEL_TEST_TTS_REAL_API=true');
-        return;
-      }
-
-      if (!realElevenLabsVoiceId) {
-        console.log('Skipping: BABBEL_TEST_ELEVENLABS_VOICE_ID not set');
-        return;
-      }
-
       // Arrange
       const voiceId = await createVoice('TTS Happy Path Voice', realElevenLabsVoiceId);
       expect(voiceId).not.toBeNull();

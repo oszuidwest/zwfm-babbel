@@ -7,8 +7,10 @@
  * - "when...then" naming convention
  */
 
+const TestHelpers = require('../lib/TestHelpers');
+
 describe('Automation', () => {
-  const automationKey = 'test-automation-key-for-integration-tests';
+  const automationKey = TestHelpers.AUTOMATION_KEY;
 
   describe('API Key Validation', () => {
     test('when API key missing, then returns 401', async () => {
@@ -226,10 +228,8 @@ describe('Automation', () => {
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
-      // Skip if ffmpeg not available
       if (!global.helpers.isFFmpegAvailable()) {
-        console.log('Skipping timezone test - ffmpeg not available');
-        return;
+        throw new Error('Test requires ffmpeg to create audio files');
       }
 
       // Arrange: Create test audio
@@ -237,8 +237,7 @@ describe('Automation', () => {
       const audioCreated = global.helpers.createTestAudioFile(audioFile, 3, 330);
 
       if (!audioCreated) {
-        console.log('Skipping timezone test - could not create audio');
-        return;
+        throw new Error('Failed to create test audio file');
       }
 
       // Use today only
