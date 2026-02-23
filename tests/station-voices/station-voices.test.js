@@ -16,8 +16,8 @@ describe('Station-Voices', () => {
     const station = await global.helpers.createStation(global.resources, `SVDep_${Date.now()}`);
     const voice = await global.helpers.createVoice(global.resources, `SVDep_${Date.now()}`);
     return {
-      station_id: parseInt(station.id, 10),
-      voice_id: parseInt(voice.id, 10)
+      station_id: station.id,
+      voice_id: voice.id
     };
   };
 
@@ -35,8 +35,8 @@ describe('Station-Voices', () => {
       const voice = await global.helpers.createVoice(global.resources, data.voice);
 
       const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: parseInt(station.id, 10),
-        voice_id: parseInt(voice.id, 10),
+        station_id: station.id,
+        voice_id: voice.id,
         mix_point: data.mix
       });
 
@@ -62,8 +62,8 @@ describe('Station-Voices', () => {
       const station = await global.helpers.createStation(global.resources, 'DupStation');
       const voice = await global.helpers.createVoice(global.resources, 'DupVoice');
       const data = {
-        station_id: parseInt(station.id, 10),
-        voice_id: parseInt(voice.id, 10),
+        station_id: station.id,
+        voice_id: voice.id,
         mix_point: 2.5
       };
 
@@ -101,8 +101,8 @@ describe('Station-Voices', () => {
       const station = await global.helpers.createStation(global.resources, 'AudioTestStation');
       const voice = await global.helpers.createVoice(global.resources, 'AudioTestVoice');
       const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: parseInt(station.id, 10),
-        voice_id: parseInt(voice.id, 10),
+        station_id: station.id,
+        voice_id: voice.id,
         mix_point: 1.5
       });
       expect(response.status).toBe(201);
@@ -125,8 +125,8 @@ describe('Station-Voices', () => {
       const station = await global.helpers.createStation(global.resources, 'AudioFieldsStation');
       const voice = await global.helpers.createVoice(global.resources, 'AudioFieldsVoice');
       const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: parseInt(station.id, 10),
-        voice_id: parseInt(voice.id, 10),
+        station_id: station.id,
+        voice_id: voice.id,
         mix_point: 2.0
       });
       expect(response.status).toBe(201);
@@ -151,7 +151,7 @@ describe('Station-Voices', () => {
       // Act
       const response = await global.api.apiCall('POST', '/station-voices', {
         station_id: 999999,
-        voice_id: parseInt(voice.id, 10),
+        voice_id: voice.id,
         mix_point: 2.0
       });
 
@@ -165,7 +165,7 @@ describe('Station-Voices', () => {
 
       // Act
       const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: parseInt(station.id, 10),
+        station_id: station.id,
         voice_id: 999999,
         mix_point: 2.0
       });

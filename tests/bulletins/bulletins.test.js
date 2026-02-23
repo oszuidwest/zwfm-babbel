@@ -23,7 +23,7 @@ describe('Bulletins', () => {
       voice_id: voice.id,
       weekdays: 127,
       status: 'active'
-    }, [parseInt(station.id, 10)]);
+    }, [station.id]);
 
     if (story) await global.helpers.waitForStoryAudio(story.id);
 
@@ -53,7 +53,7 @@ describe('Bulletins', () => {
         voice_id: voiceId,
         weekdays: 127,
         status: 'active'
-      }, [parseInt(stationId, 10)]);
+      }, [stationId]);
 
       if (story) await global.helpers.waitForStoryAudio(story.id);
     });
@@ -173,7 +173,7 @@ describe('Bulletins', () => {
         voice_id: voice.id,
         weekdays: 127,
         status: 'active'
-      }, [parseInt(stationId, 10)]);
+      }, [stationId]);
 
       if (story) await global.helpers.waitForStoryAudio(story.id);
     });

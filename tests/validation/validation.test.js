@@ -118,8 +118,8 @@ describe('Story Date Validation', () => {
     const storyData = {
       title: `DateTest ${Date.now()}`,
       text: 'Test content',
-      voice_id: parseInt(voiceId, 10),
-      target_stations: [parseInt(stationId, 10)],
+      voice_id: voiceId,
+      target_stations: [stationId],
       start_date: 'invalid-date',
       status: 'active',
       weekdays: 127
@@ -137,8 +137,8 @@ describe('Story Date Validation', () => {
     const storyData = {
       title: `DateTest ${Date.now()}`,
       text: 'Test content',
-      voice_id: parseInt(voiceId, 10),
-      target_stations: [parseInt(stationId, 10)],
+      voice_id: voiceId,
+      target_stations: [stationId],
       end_date: 'invalid-date',
       status: 'active',
       weekdays: 127
@@ -156,8 +156,8 @@ describe('Story Date Validation', () => {
     const storyData = {
       title: `DateTest ${Date.now()}`,
       text: 'Test content',
-      voice_id: parseInt(voiceId, 10),
-      target_stations: [parseInt(stationId, 10)],
+      voice_id: voiceId,
+      target_stations: [stationId],
       start_date: '2024-12-31',
       end_date: '2024-01-01',
       status: 'active',

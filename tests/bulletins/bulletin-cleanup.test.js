@@ -76,7 +76,7 @@ describe('Bulletin Cleanup', () => {
       voice_id: voice.id,
       weekdays: 127,
       status: 'active'
-    }, [parseInt(testStationId, 10)]);
+    }, [testStationId]);
     expect(story).not.toBeNull();
 
     // Wait for audio to be available
@@ -133,7 +133,7 @@ describe('Bulletin Cleanup', () => {
       // Assert
       expect(response.status).toBe(200);
       const bulletin = response.data;
-      expect(bulletin.id).toBe(parseInt(purgedBulletinId, 10));
+      expect(bulletin.id).toBe(purgedBulletinId);
       expect(bulletin.station_id).toBeDefined();
       expect(bulletin.filename).toBeTruthy();
       expect(bulletin.duration_seconds).toBeDefined();
@@ -205,7 +205,7 @@ describe('Bulletin Cleanup', () => {
         voice_id: voice.id,
         weekdays: 127,
         status: 'active'
-      }, [parseInt(station.id, 10)]);
+      }, [station.id]);
       expect(story).not.toBeNull();
 
       await global.helpers.waitForStoryAudio(story.id);

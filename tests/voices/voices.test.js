@@ -44,12 +44,12 @@ describe('Voices', () => {
       const storyData = {
         title: 'Voice Association Test Story',
         text: 'Test content for voice association.',
-        voice_id: parseInt(voiceId, 10),
+        voice_id: voiceId,
         status: 'active',
         start_date: new Date().toISOString().split('T')[0],
         end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         weekdays: 127,
-        target_stations: [parseInt(stationId, 10)]
+        target_stations: [stationId]
       };
 
       const storyResponse = await global.api.apiCall('POST', '/stories', storyData);
