@@ -170,8 +170,9 @@ MYSQL_DATABASE=babbel
 JEST_SKIP_DOCKER=true            # Skip Docker setup/teardown
 JEST_STOP_DOCKER=true            # Stop containers after tests
 
-# TTS Testing (optional, for real ElevenLabs API tests)
-BABBEL_TEST_TTS_REAL_API=true
+# TTS Testing
+BABBEL_TEST_TTS_ENABLED=true             # Enable TTS validation chain tests
+BABBEL_TEST_TTS_REAL_API=true            # Enable real ElevenLabs API tests
 BABBEL_TEST_ELEVENLABS_VOICE_ID=your-voice-id
 ```
 
