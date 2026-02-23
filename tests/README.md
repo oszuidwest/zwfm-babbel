@@ -1,6 +1,6 @@
 # Babbel API Test Suite
 
-Comprehensive Node.js test suite for the Babbel API, providing full coverage of all endpoints and functionality.
+Comprehensive Jest-based integration test suite for the Babbel API, providing full coverage of all endpoints and functionality.
 
 ## Quick Start
 
@@ -8,198 +8,185 @@ Comprehensive Node.js test suite for the Babbel API, providing full coverage of 
 # Install dependencies
 npm install
 
-# Optional: Load test fixtures for richer test data
-node fixtures/load-fixtures.js
+# Run all tests (starts Docker, runs tests, cleans up)
+npm test
 
-# Run all tests
-node run-all.js
+# Run tests without Docker setup (containers already running)
+npm run test:quick
 
 # Run specific test suite
-node auth/test-auth.js
-node stations/test-stations.js
+npm run test:stations
+npm run test:tts
 
-# Run multiple suites
-node run-all.js auth stations
-
-# Skip Docker/DB setup (quick mode)
-node run-all.js --quick
+# Run with Jest options
+npm run test:quick -- --verbose
 ```
 
 ## Usage
 
 ```bash
-# Run all tests
+# Full test suite with Docker orchestration
 npm test
 
-# Run specific test suite
+# Individual suites (requires running containers)
 npm run test:auth          # Authentication tests
 npm run test:permissions   # Permission/RBAC tests
 npm run test:stations      # Station CRUD tests
 npm run test:voices        # Voice management tests
+npm run test:station-voices # Station-voice relationship tests
 npm run test:stories       # Story tests with file uploads
 npm run test:tts           # Text-to-speech endpoint tests
 npm run test:bulletins     # Bulletin generation tests
+npm run test:cleanup       # Bulletin file cleanup tests
+npm run test:automation    # Public automation endpoint tests
 npm run test:users         # User management tests
-npm run test:validation    # Comprehensive validation tests
+npm run test:validation    # Input validation and security tests
 
-# Command line options
-node run-all.js --help
-node run-all.js auth stations  # Run specific suites
+# Skip Docker setup (alias for test:quick)
+npm run test:no-docker
 ```
 
 ## Test Structure
 
 ```
 tests/
-├── run-all.js              # Main test orchestrator
-├── fixtures/               # Test data fixtures
-│   ├── test-data.sql       # SQL with test users, stations, voices, stories
-│   ├── load-fixtures.js    # Script to load test data
-│   └── README.md           # Fixture documentation
+├── jest.config.js            # Jest configuration (sequential, 60s timeout)
+├── jest.testSequencer.js     # Enforces test execution order
+├── jest.globalSetup.js       # Docker orchestration (start containers)
+├── jest.globalTeardown.js    # Cleanup (cookies, optional Docker stop)
+├── jest.setupAfterEnv.js     # Per-file setup (auth, globals, custom matchers)
+├── fixtures/                 # Test data fixtures
+│   ├── test-data.sql         # SQL with test users, stations, voices, stories
+│   ├── load-fixtures.js      # Script to load test data
+│   └── README.md             # Fixture documentation
 ├── lib/
-│   ├── BaseTest.js         # Base class with common functionality
-│   ├── assertions.js       # Assertion utilities
-│   └── docker-utils.js     # Docker management utilities
+│   ├── ApiHelper.js          # HTTP client with shared cookie-jar sessions
+│   ├── ResourceManager.js    # FK-ordered resource tracking and cleanup
+│   ├── TestHelpers.js        # Test data creation utilities
+│   ├── generators/           # Declarative test generators
+│   │   ├── CrudTestGenerator.js       # CRUD operation tests
+│   │   ├── QueryTestGenerator.js      # Query parameter tests
+│   │   ├── ValidationTestGenerator.js # Field validation tests
+│   │   └── index.js
+│   └── schemas/              # Resource definitions for generators
+│       ├── stations.schema.js
+│       ├── voices.schema.js
+│       ├── users.schema.js
+│       ├── stories.schema.js
+│       ├── station-voices.schema.js
+│       └── bulletins.schema.js
 ├── auth/
-│   ├── test-auth.js        # Authentication tests
-│   └── test-permissions.js # Permission/RBAC tests
+│   ├── auth.test.js          # Authentication tests
+│   └── permissions.test.js   # Permission/RBAC tests
 ├── stations/
-│   └── test-stations.js    # Station CRUD tests
+│   └── stations.test.js      # Station CRUD and query tests
 ├── voices/
-│   └── test-voices.js      # Voice management tests
+│   └── voices.test.js        # Voice management tests
 ├── station-voices/
-│   └── test-station-voices.js # Station-voice relationship tests
+│   └── station-voices.test.js # Station-voice relationship tests
 ├── stories/
-│   └── test-stories.js     # Story tests with file uploads
+│   └── stories.test.js       # Story tests with file uploads
 ├── tts/
-│   └── test-tts.js         # Text-to-speech endpoint tests
+│   └── tts.test.js           # Text-to-speech endpoint tests
 ├── bulletins/
-│   └── test-bulletins.js   # Bulletin generation tests
+│   ├── bulletins.test.js     # Bulletin generation tests
+│   └── bulletin-cleanup.test.js # Purged bulletin behavior tests
+├── automation/
+│   └── automation.test.js    # Public automation endpoint tests
 ├── users/
-│   └── test-users.js       # User management tests
+│   └── users.test.js         # User management tests
 └── validation/
-    └── validation-tests.js # Comprehensive validation tests
+    └── validation.test.js    # Input validation and security tests
 ```
 
-## Test Framework Features
+## Test Execution Order
 
-- ✅ **Native JSON Handling**: Full JSON parsing and validation
-- ✅ **Cross-Platform**: Works on Windows, macOS, and Linux
-- ✅ **Async/Await**: Modern JavaScript patterns
-- ✅ **Cookie Management**: Session persistence across tests
-- ✅ **Colored Output**: Clear test results with color coding
-- ✅ **Auto Cleanup**: Resources cleaned up automatically
-- ✅ **83 Total Tests**: Complete migration from bash with enhancements
+Tests run sequentially (`maxWorkers: 1`) in dependency order enforced by a custom sequencer:
 
-## 📊 Test Coverage
+```
+auth → permissions → stations → voices → station-voices → stories →
+tts → bulletins → bulletin-cleanup → automation → users → validation
+```
 
-### Authentication & Authorization
-- ✅ Login/logout functionality
-- ✅ Session management and persistence
-- ✅ Role-based access control (admin, editor, viewer)
-- ✅ Permission inheritance and restrictions
+Later tests depend on data created by earlier ones. Individual suites can be run in isolation when Docker is already running.
 
-### CRUD Operations
-- ✅ **Stations**: Create, read, update, delete, search, pagination
-- ✅ **Voices**: Full CRUD with soft delete support
-- ✅ **Stories**: File uploads, scheduling, weekday selection
-- ✅ **Users**: Management, suspension, role changes
-- ✅ **Bulletins**: Generation, caching, audio processing
+## Test Generators
 
-### Validation Testing
-- ✅ Required field validation
-- ✅ Data type validation
-- ✅ Boundary testing (min/max values)
-- ✅ Pattern validation (emails, usernames)
-- ✅ Unique constraint testing
-- ✅ SQL injection prevention
-- ✅ XSS sanitization
-- ✅ Path traversal protection
-- ✅ Business rule validation
+Three generators produce standardized tests from declarative schema configurations:
 
-### File Handling
-- ✅ Multipart form data uploads
-- ✅ Audio file validation (WAV format)
-- ✅ Jingle file management
-- ✅ File download verification
+| Generator | Purpose | Tests Generated |
+|-----------|---------|-----------------|
+| `CrudTestGenerator` | Create, Read, Update, Delete operations | ~14 per resource |
+| `QueryTestGenerator` | Search, sort, filter, pagination, field selection | ~25 per resource |
+| `ValidationTestGenerator` | Required fields, type validation, boundaries, unique constraints | ~15 per resource |
 
-## 🔧 Environment Variables
+Resources with full generator coverage: stations, voices, users, station-voices. Stories and bulletins use partial generator coverage plus manual business logic tests.
+
+## Test Coverage
+
+| Suite | Tests | Type |
+|-------|-------|------|
+| auth | 16 | Manual (domain-specific) |
+| permissions | 19 | Manual (RBAC-specific) |
+| stations | 86 | Full (CRUD + Query + Validation) |
+| voices | 56 | Full (CRUD + Query + Validation) |
+| station-voices | 88 | Full (CRUD + Query + Validation) |
+| stories | 70 | Partial (Query) + manual |
+| tts | 7 | Manual (TTS validation chain) |
+| bulletins | 42 | Partial (Query) + manual |
+| bulletin-cleanup | 7 | Manual (purge behavior) |
+| automation | 12 | Manual (public endpoint) |
+| users | 87 | Full (CRUD + Query + Validation) |
+| validation | 18 | Manual (security tests) |
+| **Total** | **508** | |
+
+### Coverage Areas
+
+- Authentication and session management
+- Role-based access control (admin, editor, viewer)
+- CRUD operations for all resources
+- Modern query parameters (search, sort, filter, pagination, field selection)
+- File uploads (stories, jingles) and audio processing
+- Text-to-speech generation via ElevenLabs
+- Bulletin generation and caching
+- Bulletin file cleanup and purge behavior
+- Public automation endpoint
+- Input validation and boundary testing
+- SQL injection, XSS, and path traversal prevention
+- RFC 9457 error response format compliance
+
+## Environment Variables
 
 ```bash
 # API Configuration
 API_BASE=http://localhost:8080    # API base URL
 
-# MySQL Configuration
+# MySQL Configuration (matching docker-compose defaults)
 MYSQL_USER=babbel
 MYSQL_PASSWORD=babbel
 MYSQL_DATABASE=babbel
 
-# Docker Configuration
-DOCKER_COMPOSE_FILE=docker-compose.yml
+# Docker Control
+JEST_SKIP_DOCKER=true            # Skip Docker setup/teardown
+JEST_STOP_DOCKER=true            # Stop containers after tests
+
+# TTS Testing
+BABBEL_TEST_TTS_ENABLED=true             # Enable TTS validation chain tests
+BABBEL_TEST_TTS_REAL_API=true            # Enable real ElevenLabs API tests
+BABBEL_TEST_ELEVENLABS_VOICE_ID=your-voice-id
 ```
-
-## Cookie Management
-
-Tests use Netscape cookie format (compatible with curl):
-```
-# Netscape HTTP Cookie File
-localhost	TRUE	/	FALSE	1755352032	babbel_session	<session-token>
-```
-
-Cookie file location: `test_cookies.txt`
-
-## Troubleshooting
-
-### Tests failing with 401 Unauthorized
-```bash
-# Run auth tests first to establish session
-node auth/test-auth.js
-```
-
-### Docker connection issues
-```bash
-# Check container status
-docker-compose ps
-
-# Rebuild if needed
-docker-compose down -v
-docker-compose up -d
-```
-
-### Database connection errors
-```bash
-# Check MySQL is ready
-docker-compose logs mysql
-
-# Verify database exists
-docker-compose exec mysql mysql -u babbel -pbabbel -e "SHOW DATABASES;"
-```
-
-## Test Results
-
-Current test coverage:
-- **Authentication**: 6 tests
-- **Permissions**: 4 tests
-- **Stations**: 7 tests
-- **Voices**: 6 tests
-- **Station-Voices**: 7 tests
-- **Stories**: 10 tests
-- **TTS**: 7 tests
-- **Bulletins**: 11 tests
-- **Users**: 19 tests
-- **Validation**: 6 tests
-- **Total**: 83 tests across all suites
 
 ## Contributing
 
 When adding new tests:
 
-1. Extend `BaseTest` class for consistency
-2. Use `async/await` patterns
-3. Follow naming convention: `testFeatureName()`
-4. Add to appropriate test suite
-5. Update `run-all.js` if adding new suite
-6. Ensure cleanup of created test data
+1. Create a `.test.js` file following the AAA pattern (Arrange, Act, Assert)
+2. Use `when...then` test naming convention
+3. Use `global.api`, `global.helpers`, and `global.resources` for shared functionality
+4. Track created resources with `global.resources.track()` for automatic cleanup
+5. For new resources, create a schema in `tests/lib/schemas/` and use generators
+6. Add the test file to `jest.testSequencer.js` in the correct position
+7. Add an npm script in `package.json`
 
 ## License
 

@@ -1,0 +1,125 @@
+// Resource manager for Babbel API tests.
+// Handles tracking and cleanup of test resources in the correct order.
+
+class ResourceManager {
+  /**
+   * Cleanup order based on foreign key constraints.
+   * Resources that reference other resources must be deleted first.
+   */
+  static CLEANUP_ORDER = [
+    'bulletins',      // References stories
+    'stories',        // References voices; stations linked via target_stations field
+    'stationVoices',  // References voices, stations
+    'voices',         // No dependencies on other tracked resources
+    'stations',       // Base resource
+    'users'           // Independent (casbin rules cascade on delete)
+  ];
+
+  /**
+   * Maps resource type to API endpoint.
+   */
+  static ENDPOINTS = {
+    bulletins: '/bulletins',
+    stories: '/stories',
+    stationVoices: '/station-voices',
+    voices: '/voices',
+    stations: '/stations',
+    users: '/users'
+  };
+
+  constructor(apiHelper) {
+    this.api = apiHelper;
+    this.tracked = {
+      stations: new Set(),
+      voices: new Set(),
+      stationVoices: new Set(),
+      stories: new Set(),
+      bulletins: new Set(),
+      users: new Set()
+    };
+  }
+
+  /**
+   * Tracks a resource for cleanup.
+   * @param {string} type - Resource type (stations, voices, stories, stationVoices, bulletins, users).
+   * @param {string|number} id - Resource ID.
+   */
+  track(type, id) {
+    if (!this.tracked[type]) {
+      console.warn(`ResourceManager: unknown resource type '${type}' (known: ${Object.keys(this.tracked).join(', ')})`);
+      return;
+    }
+    this.tracked[type].add(String(id));
+  }
+
+  /**
+   * Cleans up all tracked resources in the correct order.
+   * @returns {Promise<{deleted: number, failed: number}>} Cleanup statistics.
+   */
+  async cleanupAll() {
+    let deleted = 0;
+    let failed = 0;
+
+    for (const type of ResourceManager.CLEANUP_ORDER) {
+      const result = await this.cleanupType(type);
+      deleted += result.deleted;
+      failed += result.failed;
+    }
+
+    return { deleted, failed };
+  }
+
+  /**
+   * Cleans up all resources of a specific type.
+   * @param {string} type - Resource type to clean up.
+   * @returns {Promise<{deleted: number, failed: number}>} Cleanup statistics.
+   */
+  async cleanupType(type) {
+    const ids = this.tracked[type];
+    if (!ids || ids.size === 0) {
+      return { deleted: 0, failed: 0 };
+    }
+
+    const endpoint = ResourceManager.ENDPOINTS[type];
+    if (!endpoint) {
+      return { deleted: 0, failed: ids.size };
+    }
+
+    let deleted = 0;
+    let failed = 0;
+
+    for (const id of ids) {
+      try {
+        const response = await this.api.apiCall('DELETE', `${endpoint}/${id}`);
+
+        if (response.status === 204 || response.status === 200 || response.status === 404) {
+          // 404 means already deleted, consider it a success
+          deleted++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
+        failed++;
+        // Ignore cleanup errors but count them
+      }
+    }
+
+    // Clear tracked IDs after cleanup
+    this.tracked[type].clear();
+
+    return { deleted, failed };
+  }
+
+  /**
+   * Removes a specific ID from tracking (e.g., after manual deletion in test).
+   * @param {string} type - Resource type.
+   * @param {string|number} id - Resource ID.
+   */
+  untrack(type, id) {
+    if (this.tracked[type]) {
+      this.tracked[type].delete(String(id));
+    }
+  }
+}
+
+module.exports = ResourceManager;
