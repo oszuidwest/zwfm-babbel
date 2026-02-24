@@ -27,12 +27,14 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format.
+// ConvertToWAV converts uploaded audio files to standardized WAV format with EBU R128 loudness normalization.
 func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
-	// Convert to WAV 48kHz with specified channel count
+	// Convert to WAV 48kHz with specified channel count and EBU R128 s2 loudness normalization
+	// loudnorm filter: I=-16 (integrated loudness per R128 s2 streaming), TP=-1 (true peak), LRA=11 (loudness range)
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
 		"-i", inputPath,
+		"-af", "loudnorm=I=-16:TP=-1:LRA=11",
 		"-ar", "48000",
 		"-ac", fmt.Sprintf("%d", channelCount),
 		"-acodec", "pcm_s16le",
@@ -120,6 +122,9 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 	// Step 3: Add the bed/jingle if available
 	args, filters = s.addJingleMix(args, filters, station, stories)
 
+	// Step 4: Apply EBU R128 s2 loudness normalization to final mix
+	filters = append(filters, "[mixed]loudnorm=I=-16:TP=-1:LRA=11[out]")
+
 	// Final FFmpeg command arguments
 	args = append(args,
 		"-filter_complex", strings.Join(filters, ";"),
@@ -169,6 +174,7 @@ func (s *Service) addMixPointDelay(filters []string, stories []repository.Bullet
 }
 
 // addJingleMix adds the bed/jingle and mixes it with the message timeline.
+// Outputs to [mixed] which is then normalized by the loudnorm filter.
 func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []repository.BulletinStoryData) ([]string, []string) {
 	if len(stories) == 0 {
 		return args, filters
@@ -177,7 +183,7 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 	// Check if voice ID is available for jingle lookup
 	if stories[0].VoiceID == nil {
 		logger.Debug("First story has no voice ID, generating bulletin without bed")
-		filters = append(filters, "[messages]anull[out]")
+		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
 	}
 
@@ -191,14 +197,14 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 		} else {
 			logger.Debug("Jingle file not found at %s, generating bulletin without bed", jinglePath)
 		}
-		filters = append(filters, "[messages]anull[out]")
+		filters = append(filters, "[messages]anull[mixed]")
 	} else {
 		// File exists, add jingle to mix
 		args = append(args, "-i", jinglePath)
 		jingleIndex := len(stories)
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
-		filters = append(filters, fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[out]", jingleIndex))
+		filters = append(filters, fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
 	}
 
 	return args, filters

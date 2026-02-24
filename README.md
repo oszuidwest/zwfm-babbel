@@ -4,30 +4,24 @@ Headless REST API for generating audio news bulletins. Combines news stories wit
 
 ## Overview
 
-Babbel is a headless API-only system designed for integration with newsroom workflows and radio automation systems. It provides a comprehensive REST API for managing news bulletin generation for radio stations. It supports station-specific audio branding.
-
-**Key Design Principles:**
-- API-first architecture - no built-in UI
-- Multi-station support with individual branding
-- RFC 9457 Problem Details error handling
-- Session-based and OAuth authentication
-- Role-based access control (RBAC)
+Babbel is designed for integration with newsroom workflows and radio automation systems. It provides a REST API for managing news bulletin generation for radio stations with station-specific audio branding.
 
 ## Features
 
 ### Core Functionality
-- **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification
+- **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification in `openapi.yaml`
 - **Multi-station support** - Manage multiple radio stations with individual configurations
 - **Voice management** - Multiple newsreaders with station-specific jingles
 - **Text-to-speech** - ElevenLabs integration for automated story audio generation
 - **Story scheduling** - Date ranges and weekday-specific scheduling
-- **Bulletin generation** - Automated audio mixing with intelligent caching
+- **Bulletin generation** - Automated audio mixing with caching
 - **Direct audio URLs** - Radio automation systems can fetch bulletins directly
 
 ### Technical Features
 - **Authentication** - Local auth with bcrypt or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta)
 - **Authorization** - Role-based access control with Casbin (admin, editor, viewer roles)
 - **Audio processing** - FFmpeg-based mixing with configurable mix points
+- **Loudness normalization** - EBU R128 s2 compliant (-16 LUFS) for consistent volume
 - **Error handling** - RFC 9457 Problem Details for consistent error responses
 - **Soft delete** - Stories and users support soft deletion with restoration
 - **Session management** - Secure encrypted cookie sessions
@@ -47,7 +41,7 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 ## Fair Story Rotation
 
-Babbel uses a smart rotation system to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
+Babbel uses a rotation algorithm to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
 
 ### How it works
 
@@ -62,16 +56,11 @@ When generating a bulletin, stories are selected in this priority order:
 
 - **Daily reset** - The rotation resets at midnight (server's local timezone). Every day starts fresh.
 - **Per-station isolation** - Each station has its own rotation. A story airing on Station A doesn't affect its priority for Station B.
-- **Automatic balancing** - No manual intervention needed. The system naturally distributes airtime across all available stories.
+- **Automatic balancing** - No manual intervention needed. The system distributes airtime across all available stories.
 
 ### Example
 
 Scenario: 13 stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
-
-The algorithm tracks when each story was last included in a bulletin (via `MAX(bulletins.created_at)`) and prioritizes:
-1. Unused stories (NULL timestamp) first, with newer `start_date` preferred
-2. Then oldest-used stories (aired longest ago)
-3. Random selection within equal-priority groups
 
 | Time | Pool state | Selected | Reason |
 |------|------------|----------|--------|
@@ -105,7 +94,7 @@ The algorithm tracks when each story was last included in a bulletin (via `MAX(b
 | 12 | 4× | 08:30, 11:30, 14:30, 17:30 |
 | 13 | 4× | 09:30, 12:30, 15:30, 18:30 |
 
-All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations - actual selections differ each day but distribution stays fair.
+All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations.
 
 ## Bulletin File Cleanup
 
@@ -115,6 +104,22 @@ Bulletin WAV files (~15MB each) can accumulate quickly. A background service aut
 - Always keeps the latest bulletin per station available for serving
 - Removes orphaned files that have no matching database record
 - Configure retention via `BABBEL_BULLETIN_RETENTION` (default: `168h` / 7 days)
+
+## Loudness Normalization
+
+All audio is normalized using [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) via FFmpeg's `loudnorm` filter:
+
+| Parameter | Value |
+|-----------|-------|
+| Integrated Loudness | -16 LUFS |
+| True Peak | -1 dBTP |
+| Loudness Range | 11 LU |
+
+Normalization is applied to:
+- Story audio (during upload/TTS processing)
+- Final bulletin mix (after combining stories with jingle)
+
+The -16 LUFS target (rather than the traditional -23 LUFS) prevents radio automation systems from incorrectly triggering mix points due to low audio levels
 
 ## Radio Automation Integration
 
@@ -165,7 +170,6 @@ GET /api/v1/stations/{station_id}/bulletins?latest=true
 
 ## API Documentation
 
-- **OpenAPI Specification**: Complete OpenAPI 3.0.3 spec in `openapi.yaml`
 - **Base URL**: `/api/v1/`
 - **Authentication**: Session cookies or OAuth2
 - **Content Types**: `application/json` for most endpoints, `multipart/form-data` for file uploads
@@ -215,10 +219,6 @@ make build              # Build Go binary
 make run                # Run development server
 make docker             # Build Docker image
 
-# Testing
-make test-all           # Run full integration test suite
-npm test                # Run Jest integration tests
-
 # Code Quality
 make lint               # Run Go linters
 make quality            # Advanced static analysis
@@ -256,9 +256,8 @@ CLAUDE.md              # AI assistant instructions
 - **Database**: MySQL 8.4 with GORM ORM
 - **Audio**: FFmpeg for audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
-- **Testing**: Jest integration test suite (508 tests)
+- **Testing**: Jest integration test suite
 - **Deployment**: Docker and Docker Compose
-- **Documentation**: OpenAPI 3.0.3 specification
 
 ## Testing
 
