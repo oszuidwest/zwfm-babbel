@@ -27,12 +27,14 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format.
+// ConvertToWAV converts uploaded audio files to standardized WAV format with EBU R128 loudness normalization.
 func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
-	// Convert to WAV 48kHz with specified channel count
+	// Convert to WAV 48kHz with specified channel count and EBU R128 s2 loudness normalization
+	// loudnorm filter: I=-16 (integrated loudness per R128 s2 streaming), TP=-1 (true peak), LRA=11 (loudness range)
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
 		"-i", inputPath,
+		"-af", "loudnorm=I=-16:TP=-1:LRA=11",
 		"-ar", "48000",
 		"-ac", fmt.Sprintf("%d", channelCount),
 		"-acodec", "pcm_s16le",
