@@ -4,19 +4,12 @@ Headless REST API for generating audio news bulletins. Combines news stories wit
 
 ## Overview
 
-Babbel is a headless API-only system designed for integration with newsroom workflows and radio automation systems. It provides a comprehensive REST API for managing news bulletin generation for radio stations. It supports station-specific audio branding.
-
-**Key Design Principles:**
-- API-first architecture - no built-in UI
-- Multi-station support with individual branding
-- RFC 9457 Problem Details error handling
-- Session-based and OAuth authentication
-- Role-based access control (RBAC)
+Babbel is designed for integration with newsroom workflows and radio automation systems. It provides a REST API for managing news bulletin generation for radio stations with station-specific audio branding.
 
 ## Features
 
 ### Core Functionality
-- **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification
+- **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification in `openapi.yaml`
 - **Multi-station support** - Manage multiple radio stations with individual configurations
 - **Voice management** - Multiple newsreaders with station-specific jingles
 - **Text-to-speech** - ElevenLabs integration for automated story audio generation
@@ -68,11 +61,6 @@ When generating a bulletin, stories are selected in this priority order:
 ### Example
 
 Scenario: 13 stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
-
-The algorithm tracks when each story was last included in a bulletin (via `MAX(bulletins.created_at)`) and prioritizes:
-1. Unused stories (NULL timestamp) first, with newer `start_date` preferred
-2. Then oldest-used stories (aired longest ago)
-3. Random selection within equal-priority groups
 
 | Time | Pool state | Selected | Reason |
 |------|------------|----------|--------|
@@ -182,7 +170,6 @@ GET /api/v1/stations/{station_id}/bulletins?latest=true
 
 ## API Documentation
 
-- **OpenAPI Specification**: Complete OpenAPI 3.0.3 spec in `openapi.yaml`
 - **Base URL**: `/api/v1/`
 - **Authentication**: Session cookies or OAuth2
 - **Content Types**: `application/json` for most endpoints, `multipart/form-data` for file uploads
@@ -232,10 +219,6 @@ make build              # Build Go binary
 make run                # Run development server
 make docker             # Build Docker image
 
-# Testing
-make test-all           # Run full integration test suite
-npm test                # Run Jest integration tests
-
 # Code Quality
 make lint               # Run Go linters
 make quality            # Advanced static analysis
@@ -273,9 +256,8 @@ CLAUDE.md              # AI assistant instructions
 - **Database**: MySQL 8.4 with GORM ORM
 - **Audio**: FFmpeg for audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
-- **Testing**: Jest integration test suite (508 tests)
+- **Testing**: Jest integration test suite
 - **Deployment**: Docker and Docker Compose
-- **Documentation**: OpenAPI 3.0.3 specification
 
 ## Testing
 
