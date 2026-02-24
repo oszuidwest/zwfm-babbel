@@ -28,6 +28,7 @@ Babbel is a headless API-only system designed for integration with newsroom work
 - **Authentication** - Local auth with bcrypt or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta)
 - **Authorization** - Role-based access control with Casbin (admin, editor, viewer roles)
 - **Audio processing** - FFmpeg-based mixing with configurable mix points
+- **Loudness normalization** - EBU R128 s2 compliant (-16 LUFS) for consistent volume
 - **Error handling** - RFC 9457 Problem Details for consistent error responses
 - **Soft delete** - Stories and users support soft deletion with restoration
 - **Session management** - Secure encrypted cookie sessions
@@ -115,6 +116,22 @@ Bulletin WAV files (~15MB each) can accumulate quickly. A background service aut
 - Always keeps the latest bulletin per station available for serving
 - Removes orphaned files that have no matching database record
 - Configure retention via `BABBEL_BULLETIN_RETENTION` (default: `168h` / 7 days)
+
+## Loudness Normalization
+
+All audio is normalized using [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) via FFmpeg's `loudnorm` filter:
+
+| Parameter | Value |
+|-----------|-------|
+| Integrated Loudness | -16 LUFS |
+| True Peak | -1 dBTP |
+| Loudness Range | 11 LU |
+
+Normalization is applied to:
+- Story audio (during upload/TTS processing)
+- Final bulletin mix (after combining stories with jingle)
+
+The -16 LUFS target (rather than the traditional -23 LUFS) prevents radio automation systems from incorrectly triggering mix points due to low audio levels
 
 ## Radio Automation Integration
 
