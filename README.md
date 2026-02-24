@@ -21,7 +21,7 @@ Babbel is a headless API-only system designed for integration with newsroom work
 - **Voice management** - Multiple newsreaders with station-specific jingles
 - **Text-to-speech** - ElevenLabs integration for automated story audio generation
 - **Story scheduling** - Date ranges and weekday-specific scheduling
-- **Bulletin generation** - Automated audio mixing with intelligent caching
+- **Bulletin generation** - Automated audio mixing with caching
 - **Direct audio URLs** - Radio automation systems can fetch bulletins directly
 
 ### Technical Features
@@ -48,7 +48,7 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 ## Fair Story Rotation
 
-Babbel uses a smart rotation system to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
+Babbel uses a rotation algorithm to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
 
 ### How it works
 
@@ -63,7 +63,7 @@ When generating a bulletin, stories are selected in this priority order:
 
 - **Daily reset** - The rotation resets at midnight (server's local timezone). Every day starts fresh.
 - **Per-station isolation** - Each station has its own rotation. A story airing on Station A doesn't affect its priority for Station B.
-- **Automatic balancing** - No manual intervention needed. The system naturally distributes airtime across all available stories.
+- **Automatic balancing** - No manual intervention needed. The system distributes airtime across all available stories.
 
 ### Example
 
@@ -106,7 +106,7 @@ The algorithm tracks when each story was last included in a bulletin (via `MAX(b
 | 12 | 4× | 08:30, 11:30, 14:30, 17:30 |
 | 13 | 4× | 09:30, 12:30, 15:30, 18:30 |
 
-All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations - actual selections differ each day but distribution stays fair.
+All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations.
 
 ## Bulletin File Cleanup
 
