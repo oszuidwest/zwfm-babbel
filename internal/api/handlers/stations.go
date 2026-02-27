@@ -27,7 +27,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 	// Apply field filtering if requested
 	var responseData any = result.Data
 	if len(params.Fields) > 0 {
-		responseData = filterFields(result.Data, params.Fields)
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
 	}
 
 	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
