@@ -16,7 +16,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 	}
 
 	// Convert utils.QueryParams to repository.ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	result, err := h.stationSvc.List(c.Request.Context(), query)
 	if err != nil {

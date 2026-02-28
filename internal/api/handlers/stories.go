@@ -20,7 +20,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	}
 
 	// Convert to repository ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.storySvc.List(c.Request.Context(), query)

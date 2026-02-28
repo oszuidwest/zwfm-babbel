@@ -16,7 +16,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	}
 
 	// Convert to repository ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.stationVoiceSvc.List(c.Request.Context(), query)

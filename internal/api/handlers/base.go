@@ -179,8 +179,3 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 		}
 	}
 }
-
-// convertToListQuery converts utils.QueryParams to repository.ListQuery.
-func convertToListQuery(params *utils.QueryParams) *repository.ListQuery {
-	return utils.QueryParamsToListQuery(params)
-}

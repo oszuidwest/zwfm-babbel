@@ -223,7 +223,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 	}
 
 	// Convert to repository ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.bulletinSvc.List(c.Request.Context(), query)
