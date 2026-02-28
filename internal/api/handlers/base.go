@@ -179,19 +179,3 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 		}
 	}
 }
-
-// convertToListQuery converts utils.QueryParams to repository.ListQuery.
-// Delegates to utils.QueryParamsToListQuery to avoid code duplication.
-func convertToListQuery(params *utils.QueryParams) *repository.ListQuery {
-	return utils.QueryParamsToListQuery(params)
-}
-
-// filterFields filters struct fields based on requested field names.
-func filterFields[T any](data []T, fields []string) any {
-	return utils.FilterStructFields(data, fields)
-}
-
-// paramsToListQuery converts utils.QueryParams to repository.ListQuery.
-func (h *Handlers) paramsToListQuery(params *utils.QueryParams) *repository.ListQuery {
-	return convertToListQuery(params)
-}

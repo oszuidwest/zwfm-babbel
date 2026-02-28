@@ -20,7 +20,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	}
 
 	// Convert to repository ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.storySvc.List(c.Request.Context(), query)
@@ -92,15 +92,34 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
 }
 
-// hasStoryFieldUpdates reports whether any story fields need updating.
-func hasStoryFieldUpdates(req *utils.StoryUpdateRequest) bool {
-	return req.Title != nil || req.Text != nil || req.Status != nil ||
+// UpdateStory updates an existing story (JSON API only).
+func (h *Handlers) UpdateStory(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+
+	var req utils.StoryUpdateRequest
+	if !utils.BindAndValidate(c, &req) {
+		return
+	}
+
+	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
+		return
+	}
+
+	// Validate that at least one field is being updated
+	hasUpdates := req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
 		req.Weekdays != nil || req.Metadata != nil
-}
+	if !hasUpdates {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "fields",
+			Message: "No fields to update",
+		}})
+		return
+	}
 
-// applyStoryFieldUpdates applies field updates via service and returns the updated story.
-func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.StoryUpdateRequest) (*models.Story, bool) {
 	svcReq := &services.UpdateStoryRequest{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -115,45 +134,9 @@ func (h *Handlers) applyStoryFieldUpdates(c *gin.Context, id int64, req *utils.S
 	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
-		return nil, false
-	}
-
-	return updated, true
-}
-
-// UpdateStory updates an existing story (JSON API only).
-func (h *Handlers) UpdateStory(c *gin.Context) {
-	// Get ID param
-	id, ok := utils.IDParam(c)
-	if !ok {
 		return
 	}
 
-	// Pure JSON binding - no form-data support
-	var req utils.StoryUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
-		return
-	}
-
-	// Validate date range
-	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
-		return
-	}
-
-	// Validate update request - at least one field must be updated
-	if !hasStoryFieldUpdates(&req) {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
-		return
-	}
-
-	// Apply field updates and return updated story
-	updated, ok := h.applyStoryFieldUpdates(c, id, &req)
-	if !ok {
-		return
-	}
 	utils.Success(c, updated)
 }
 

@@ -16,7 +16,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	}
 
 	// Convert to repository ListQuery
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.stationVoiceSvc.List(c.Request.Context(), query)
@@ -71,26 +71,6 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	utils.CreatedWithLocation(c, stationVoice.ID, "/api/v1/station-voices", "Station-voice relationship created successfully")
 }
 
-// hasStationVoiceFieldUpdates reports whether the request contains any field updates.
-func hasStationVoiceFieldUpdates(req *utils.StationVoiceUpdateRequest) bool {
-	return req.StationID != nil || req.VoiceID != nil || req.MixPoint != nil
-}
-
-// updateStationVoiceFields updates the station-voice relationship fields via service.
-func (h *Handlers) updateStationVoiceFields(c *gin.Context, id int64, req *utils.StationVoiceUpdateRequest) bool {
-	serviceReq := &services.UpdateStationVoiceRequest{
-		StationID: req.StationID,
-		VoiceID:   req.VoiceID,
-		MixPoint:  req.MixPoint,
-	}
-
-	if _, err := h.stationVoiceSvc.Update(c.Request.Context(), id, serviceReq); err != nil {
-		handleServiceError(c, err, "Station-voice relationship")
-		return false
-	}
-	return true
-}
-
 // UpdateStationVoice updates an existing station-voice relationship.
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
@@ -98,14 +78,13 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Pure JSON binding - no form-data support
 	var req utils.StationVoiceUpdateRequest
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
 	// Validate that there's at least one field to update
-	if !hasStationVoiceFieldUpdates(&req) {
+	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
@@ -113,19 +92,19 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Update station-voice relationship fields
-	if !h.updateStationVoiceFields(c, id, &req) {
-		return
+	serviceReq := &services.UpdateStationVoiceRequest{
+		StationID: req.StationID,
+		VoiceID:   req.VoiceID,
+		MixPoint:  req.MixPoint,
 	}
 
-	// Get updated record for response - AfterFind hook populates computed fields
-	updatedRecord, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
+	updated, err := h.stationVoiceSvc.Update(c.Request.Context(), id, serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "Station-voice relationship")
 		return
 	}
 
-	utils.Success(c, updatedRecord)
+	utils.Success(c, updated)
 }
 
 // DeleteStationVoice deletes a station-voice relationship and associated jingle file.

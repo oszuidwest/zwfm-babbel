@@ -20,7 +20,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 	}
 
 	// Convert utils.QueryParams to repository.ListQuery using shared function
-	query := convertToListQuery(params)
+	query := utils.QueryParamsToListQuery(params)
 
 	result, err := h.userSvc.List(c.Request.Context(), query)
 	if err != nil {
