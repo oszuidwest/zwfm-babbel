@@ -140,8 +140,13 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	// Initialize custom validators
 	utils.InitializeValidators()
 
-	// Create router
-	r := gin.Default()
+	// Create router with query string stripping to prevent logging sensitive
+	// data such as the automation API key (?key=...) in request logs.
+	r := gin.New()
+	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipQueryString: true,
+	}))
+	r.Use(gin.Recovery())
 
 	// Session middleware - must be first
 	r.Use(authService.SessionMiddleware())
