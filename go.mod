@@ -1,6 +1,6 @@
 module github.com/oszuidwest/zwfm-babbel
 
-go 1.26
+go 1.26.1
 
 require (
 	github.com/caarlos0/env/v11 v11.4.0
