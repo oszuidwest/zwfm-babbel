@@ -56,7 +56,7 @@ type DatabaseConfig struct {
 	// User specifies the MySQL database username.
 	User string `env:"USER" envDefault:"babbel"`
 	// Password specifies the MySQL database password.
-	Password string `env:"PASSWORD" envDefault:"babbel"` //nolint:gosec // G117: intentional field for auth credentials
+	Password string `env:"PASSWORD" envDefault:"babbel"`
 	// Database specifies the MySQL database name.
 	Database string `env:"NAME" envDefault:"babbel"`
 	// MigrationsPath specifies the filesystem path to migration files.
@@ -92,7 +92,7 @@ type AuthConfig struct {
 	// Method specifies the authentication method (local, oidc, or both).
 	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
 	// SessionSecret provides the key for session encryption (min 32 characters).
-	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"` //nolint:gosec // G117: intentional field for auth credentials
+	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
 	// CookieDomain sets the domain scope for session cookies.
 	CookieDomain string `env:"COOKIE_DOMAIN"`
 	// CookieSameSite controls the SameSite cookie attribute (strict, lax, or none).
@@ -112,7 +112,7 @@ type AuthConfig struct {
 // TTSConfig defines text-to-speech integration settings for ElevenLabs.
 type TTSConfig struct {
 	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
-	APIKey string `env:"API_KEY"` //nolint:gosec // G117: This is a config field, not a hardcoded secret
+	APIKey string `env:"API_KEY"`
 	// Model specifies the ElevenLabs model to use (default: eleven_multilingual_v2).
 	Model string `env:"MODEL" envDefault:"eleven_multilingual_v2"`
 	// RequestTimeout limits TTS API request duration (default: 60s).

@@ -86,7 +86,6 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "audio/mpeg")
 
-	//nolint:gosec // G704: voiceID is validated on input (notblank, max=255) and stored in DB
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("TTS API request failed: %w", err)
