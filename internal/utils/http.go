@@ -194,7 +194,7 @@ type UserUpdateRequest struct {
 	Username  string             `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  string             `json:"full_name" binding:"omitempty,notblank,max=255"`
 	Email     *string            `json:"email" binding:"omitempty,email,max=255"`
-	Password  string             `json:"password" binding:"omitempty,min=8,max=255"` //nolint:gosec // G117: intentional field for auth credentials
+	Password  string             `json:"password" binding:"omitempty,min=8,max=255"`
 	Role      string             `json:"role" binding:"omitempty,oneof=admin editor viewer"`
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 	Suspended *bool              `json:"suspended" binding:"omitempty"`
