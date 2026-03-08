@@ -25,6 +25,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Final stage
 FROM alpine:3.23
 
+LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-babbel"
+LABEL org.opencontainers.image.description="Headless REST API for generating audio news bulletins for radio stations"
+LABEL org.opencontainers.image.licenses="MIT"
+
 # Install FFmpeg and timezone data, upgrade to get security patches
 # Update package index first to ensure we get the latest security fixes (e.g., libpng)
 RUN apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
