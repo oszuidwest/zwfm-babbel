@@ -2706,6 +2706,9 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          description: Breaking news flag. Breaking stories bypass fair rotation and are always included in bulletins.
         metadata:
           type: object
           additionalProperties: true
@@ -2770,6 +2773,10 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          default: false
+          description: Mark as breaking news. Breaking stories are always included in bulletins, bypassing fair rotation.
         metadata:
           type: object
           additionalProperties: true
@@ -2830,6 +2837,10 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          nullable: true
+          description: Mark as breaking news. Breaking stories are always included in bulletins, bypassing fair rotation.
         metadata:
           type: object
           additionalProperties: true

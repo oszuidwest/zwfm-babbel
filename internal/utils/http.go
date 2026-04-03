@@ -208,8 +208,9 @@ type StoryCreateRequest struct {
 	Status    string             `json:"status" binding:"omitempty,story_status"`
 	StartDate string             `json:"start_date" binding:"required,dateformat"`
 	EndDate   string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays  models.Weekdays    `json:"weekdays"` // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
-	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
+	Weekdays   models.Weekdays    `json:"weekdays"`   // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+	IsBreaking bool               `json:"is_breaking"` // Breaking stories are always included in bulletins
+	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
 // StoryUpdateRequest represents the request for updating existing stories.
@@ -220,8 +221,9 @@ type StoryUpdateRequest struct {
 	Status    *string            `json:"status" binding:"omitempty,story_status"`
 	StartDate *string            `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string            `json:"end_date" binding:"omitempty,dateformat"`
-	Weekdays  *models.Weekdays   `json:"weekdays"` // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
-	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
+	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are always included in bulletins
+	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
 // ValidateDateRange validates that end date is not before start date.

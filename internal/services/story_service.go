@@ -51,26 +51,28 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 
 // CreateStoryRequest contains the data needed to create a new story.
 type CreateStoryRequest struct {
-	Title     string
-	Text      string
-	VoiceID   *int64
-	Status    string
-	StartDate string // Date in YYYY-MM-DD format
-	EndDate   string // Date in YYYY-MM-DD format
-	Weekdays  models.Weekdays
-	Metadata  *datatypes.JSONMap
+	Title      string
+	Text       string
+	VoiceID    *int64
+	Status     string
+	StartDate  string // Date in YYYY-MM-DD format
+	EndDate    string // Date in YYYY-MM-DD format
+	Weekdays   models.Weekdays
+	IsBreaking bool
+	Metadata   *datatypes.JSONMap
 }
 
 // UpdateStoryRequest contains the data needed to update an existing story.
 type UpdateStoryRequest struct {
-	Title     *string
-	Text      *string
-	VoiceID   *int64
-	Status    *string
-	StartDate *string // Date in YYYY-MM-DD format
-	EndDate   *string // Date in YYYY-MM-DD format
-	Weekdays  *models.Weekdays
-	Metadata  *datatypes.JSONMap
+	Title      *string
+	Text       *string
+	VoiceID    *int64
+	Status     *string
+	StartDate  *string // Date in YYYY-MM-DD format
+	EndDate    *string // Date in YYYY-MM-DD format
+	Weekdays   *models.Weekdays
+	IsBreaking *bool
+	Metadata   *datatypes.JSONMap
 }
 
 // Create creates a new story in the database.
@@ -105,14 +107,15 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 
 	// Create story data
 	data := &repository.StoryCreateData{
-		Title:     req.Title,
-		Text:      req.Text,
-		VoiceID:   req.VoiceID,
-		Status:    req.Status,
-		StartDate: startDate,
-		EndDate:   endDate,
-		Weekdays:  req.Weekdays,
-		Metadata:  req.Metadata,
+		Title:      req.Title,
+		Text:       req.Text,
+		VoiceID:    req.VoiceID,
+		Status:     req.Status,
+		StartDate:  startDate,
+		EndDate:    endDate,
+		Weekdays:   req.Weekdays,
+		IsBreaking: req.IsBreaking,
+		Metadata:   req.Metadata,
 	}
 
 	// Create story via repository
@@ -254,6 +257,12 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	// Apply weekdays updates
 	if req.Weekdays != nil {
 		updates.Weekdays = req.Weekdays
+		hasUpdates = true
+	}
+
+	// Apply breaking news flag
+	if req.IsBreaking != nil {
+		updates.IsBreaking = req.IsBreaking
 		hasUpdates = true
 	}
 

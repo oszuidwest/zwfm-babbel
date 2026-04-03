@@ -23,6 +23,8 @@ type StoryUpdate struct {
 	AudioFile       *string            `gorm:"column:audio_file"`
 	DurationSeconds *float64           `gorm:"column:duration_seconds"`
 
+	IsBreaking      *bool              `gorm:"column:is_breaking"`
+
 	// Clear flags - when true, explicitly set the field to NULL
 	ClearVoiceID         bool `gorm:"-"`
 	ClearAudioFile       bool `gorm:"-"`
@@ -34,14 +36,15 @@ type StoryUpdate struct {
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
-	Title     string
-	Text      string
-	VoiceID   *int64
-	Status    string
-	StartDate time.Time
-	EndDate   time.Time
-	Weekdays  models.Weekdays
-	Metadata  *datatypes.JSONMap
+	Title      string
+	Text       string
+	VoiceID    *int64
+	Status     string
+	StartDate  time.Time
+	EndDate    time.Time
+	Weekdays   models.Weekdays
+	IsBreaking bool
+	Metadata   *datatypes.JSONMap
 }
 
 // StoryRepository defines the interface for story data access.
@@ -86,14 +89,15 @@ func NewStoryRepository(db *gorm.DB) StoryRepository {
 // Create inserts a new story and returns the created record with voice info.
 func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
-		Title:     data.Title,
-		Text:      data.Text,
-		VoiceID:   data.VoiceID,
-		Status:    models.StoryStatus(data.Status),
-		StartDate: data.StartDate,
-		EndDate:   data.EndDate,
-		Weekdays:  data.Weekdays,
-		Metadata:  data.Metadata,
+		Title:      data.Title,
+		Text:       data.Text,
+		VoiceID:    data.VoiceID,
+		Status:     models.StoryStatus(data.Status),
+		StartDate:  data.StartDate,
+		EndDate:    data.EndDate,
+		Weekdays:   data.Weekdays,
+		IsBreaking: data.IsBreaking,
+		Metadata:   data.Metadata,
 	}
 
 	db := DBFromContext(ctx, r.db)
@@ -220,6 +224,7 @@ var storyFieldMapping = FieldMapping{
 	"end_date":         "end_date",
 	"duration_seconds": "duration_seconds",
 	"weekdays":         "weekdays",
+	"is_breaking":      "is_breaking",
 	"created_at":       "created_at",
 	"updated_at":       "updated_at",
 	"deleted_at":       "deleted_at",
@@ -291,14 +296,18 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		  AND b.created_at >= ?
 	)`
 
-	// Build the query with fair rotation ordering:
-	// 1. last_used_today IS NULL DESC     → unused stories first
-	// 2. CASE for unused: start_date DESC → newer stories preferred (only for unused)
-	// 3. last_used_today ASC              → least-recently-used (only for used stories)
-	// 4. RAND()                           → variety within equal priority
+	// Build the query with breaking news priority + fair rotation ordering:
+	// 1. is_breaking DESC                 → breaking stories always first
+	// 2. CASE for breaking: start_date    → newest breaking stories preferred
+	// 3. last_used_today IS NULL DESC     → unused non-breaking stories next
+	// 4. CASE for unused: start_date DESC → newer stories preferred (only for unused)
+	// 5. last_used_today ASC              → least-recently-used (only for used stories)
+	// 6. RAND()                           → variety within equal priority
 	//
-	// The CASE expression ensures start_date sorting only applies to unused stories,
-	// while used stories are sorted by their last usage timestamp.
+	// Breaking stories bypass fair rotation entirely — they appear in every bulletin.
+	// The LIMIT ensures MaxStoriesPerBlock is respected; breaking stories consume slots.
+	// When is_breaking is false, the CASE returns NULL which sorts last in DESC order,
+	// so non-breaking stories fall through to the fair rotation clauses.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
 		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).
@@ -310,7 +319,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.start_date <= ?", dateStr).
 		Where("stories.end_date >= ?", dateStr).
 		Where("stories.weekdays & ? > 0", weekdayBit).
-		Order("last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
+		Order("stories.is_breaking DESC, CASE WHEN stories.is_breaking THEN stories.start_date END DESC, last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
 		Limit(limit).
 		Find(&stories).Error
 
