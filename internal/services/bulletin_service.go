@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -65,6 +66,13 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	if len(stories) == 0 {
 		return nil, apperrors.NoStories(stationID)
 	}
+
+	// Shuffle story order for varied playback.
+	// Selection logic (breaking priority, fair rotation) determines WHICH stories
+	// are included; the playback order should be randomized for natural radio flow.
+	rand.Shuffle(len(stories), func(i, j int) {
+		stories[i], stories[j] = stories[j], stories[i]
+	})
 
 	// Generate audio file
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories)
