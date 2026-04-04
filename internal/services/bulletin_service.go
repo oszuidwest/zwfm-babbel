@@ -133,8 +133,13 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
 	}
 
-	// Total duration = stories duration + pauses + mix point delay
-	return storiesDuration + mixPoint
+	// Keep stored duration aligned with the FFmpeg path, which only delays for positive mix points.
+	if mixPoint > 0 {
+		return storiesDuration + mixPoint
+	}
+
+	// Total duration = stories duration + pauses
+	return storiesDuration
 }
 
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
