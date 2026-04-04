@@ -83,6 +83,132 @@ describe('Bulletins', () => {
       // Assert
       expect(response.status).toBe(200);
     });
+
+    test('when stories use different voices, then bulletin duration reflects highest-priority mix point', async () => {
+      // Regression: jingle context (voice + mix point) must come from the
+      // highest-priority story BEFORE the playback order is shuffled.
+      // If the code used a random story's mix point instead, duration_seconds
+      // would be unpredictable.
+
+      // Arrange: two voices with very different mix points
+      const station = await global.helpers.createStation(global.resources, 'JingleCtxStation', 2, 0);
+      const highPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceHigh');
+      const lowPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceLow');
+
+      expect(station).not.toBeNull();
+      expect(highPriorityVoice).not.toBeNull();
+      expect(lowPriorityVoice).not.toBeNull();
+
+      // High-priority voice gets a large mix point (5s), low-priority gets small (0.5s)
+      const svHigh = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, highPriorityVoice.id, 5.0);
+      const svLow = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, lowPriorityVoice.id, 0.5);
+      expect(svHigh).not.toBeNull();
+      expect(svLow).not.toBeNull();
+
+      // Breaking story on high-priority voice → will be first in SQL order
+      const breakingStory = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `JingleCtxBreaking_${Date.now()}`,
+        text: 'Breaking story for jingle context test',
+        voice_id: highPriorityVoice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }, [station.id]);
+
+      // Regular story on low-priority voice
+      const regularStory = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `JingleCtxRegular_${Date.now()}`,
+        text: 'Regular story for jingle context test',
+        voice_id: lowPriorityVoice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: false
+      }, [station.id]);
+
+      expect(breakingStory).not.toBeNull();
+      expect(regularStory).not.toBeNull();
+
+      await global.helpers.waitForStoryAudio(breakingStory.id);
+      await global.helpers.waitForStoryAudio(regularStory.id);
+
+      // Act
+      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+
+      // Assert
+      expect(bulletinResponse.status).toBe(200);
+
+      // Both stories should be included (2 slots, 2 stories)
+      expect(bulletinResponse.data.story_count).toBe(2);
+
+      // Duration must include the 5.0s mix point from the breaking story's voice,
+      // not the 0.5s from the regular story's voice. Each test story is ~3s audio,
+      // pause_seconds is 0, so total ≈ 3 + 3 + 5.0 = 11.0s.
+      // If the wrong mix point were used, total ≈ 3 + 3 + 0.5 = 6.5s.
+      // We check that duration exceeds 9s, which can only be true with the 5.0s mix point.
+      expect(bulletinResponse.data.duration_seconds).toBeGreaterThan(9);
+    });
+
+    test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
+      // Arrange
+      const station = await global.helpers.createStation(global.resources, 'BreakingPriorityStation', 2);
+      const voice = await global.helpers.createVoice(global.resources, 'BreakingPriorityVoice');
+
+      expect(station).not.toBeNull();
+      expect(voice).not.toBeNull();
+
+      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+      expect(stationVoice).not.toBeNull();
+
+      const breakingStoryA = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingPriorityA_${Date.now()}`,
+        text: 'Breaking story A',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }, [station.id]);
+
+      const breakingStoryB = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingPriorityB_${Date.now()}`,
+        text: 'Breaking story B',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }, [station.id]);
+
+      const regularStory = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingPriorityRegular_${Date.now()}`,
+        text: 'Regular story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: false
+      }, [station.id]);
+
+      expect(breakingStoryA).not.toBeNull();
+      expect(breakingStoryB).not.toBeNull();
+      expect(regularStory).not.toBeNull();
+
+      await global.helpers.waitForStoryAudio(breakingStoryA.id);
+      await global.helpers.waitForStoryAudio(breakingStoryB.id);
+      await global.helpers.waitForStoryAudio(regularStory.id);
+
+      // Act
+      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+
+      // Assert
+      expect(bulletinResponse.status).toBe(200);
+
+      const bulletinStoriesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
+      expect(bulletinStoriesResponse.status).toBe(200);
+      expect(bulletinStoriesResponse.data.total).toBe(2);
+
+      const includedStoryIds = bulletinStoriesResponse.data.data.map(story => story.story_id);
+      expect(includedStoryIds).toHaveLength(2);
+      expect(includedStoryIds).toEqual(expect.arrayContaining([breakingStoryA.id, breakingStoryB.id]));
+      expect(includedStoryIds).not.toContain(regularStory.id);
+    });
   });
 
   describe('Bulletin Retrieval', () => {
