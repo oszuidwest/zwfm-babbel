@@ -47,7 +47,7 @@ Babbel uses breaking news priority combined with fair rotation to select stories
 
 When generating a bulletin, stories are selected in this priority order:
 
-1. **Breaking news first** - Stories marked as `is_breaking` are selected before all others, newest by start date preferred
+1. **Breaking news first** - Stories marked as `is_breaking` are selected before all others, newest by start date preferred. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
 2. **Fresh stories next** - Non-breaking stories that haven't been used yet today get priority, newest by start date preferred
 3. **Least-recently-used fallback** - If all non-breaking stories have already aired today, the ones that aired longest ago are chosen
 4. **Random tiebreaker** - When stories have equal priority, random selection adds variety
