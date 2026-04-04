@@ -299,7 +299,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 
 	// Build the query with breaking news priority + fair rotation ordering:
 	// 1. is_breaking DESC                 → breaking stories selected first
-	// 2. CASE for breaking: start_date    → among breaking, newest preferred
+	// 2. CASE for breaking: start_date DESC → among breaking, newest preferred
 	// 3. last_used_today IS NULL DESC     → then unused stories
 	// 4. CASE for unused: start_date DESC → among unused, newest preferred
 	// 5. last_used_today ASC              → then least-recently-used stories
