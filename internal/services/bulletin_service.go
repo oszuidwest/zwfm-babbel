@@ -74,6 +74,16 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		MixPoint: stories[0].MixPoint,
 	}
 
+	// Log when selected stories span multiple voices, since only one jingle is used
+	if jingle.VoiceID != nil {
+		for _, s := range stories[1:] {
+			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
+				logger.Debug("Bulletin for station %d uses jingle from voice %d; other selected stories use different voices", stationID, *jingle.VoiceID)
+				break
+			}
+		}
+	}
+
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine WHICH stories are selected;
 	// playback order is randomized so breaking stories appear in varied positions.
