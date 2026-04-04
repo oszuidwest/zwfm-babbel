@@ -17,6 +17,13 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
+// JingleContext holds jingle selection data captured before story order randomization.
+// This ensures the jingle and mix point remain stable regardless of shuffle order.
+type JingleContext struct {
+	VoiceID  *int64
+	MixPoint float64
+}
+
 // Service handles audio processing operations using FFmpeg.
 type Service struct {
 	config *config.Config
@@ -78,7 +85,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 }
 
 // CreateBulletin generates a complete audio bulletin by combining multiple stories with station-specific jingles.
-func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, outputPath string) (string, error) {
+// The jingle parameter determines which jingle and mix point to use, independent of story order.
+func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, jingle JingleContext, outputPath string) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
@@ -91,7 +99,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 	defer cleanupTempDir(tempDir)
 
 	// Build FFmpeg command arguments and filters
-	args, filters := s.buildBulletinFFmpegCommand(station, stories, outputPath)
+	args, filters := s.buildBulletinFFmpegCommand(station, stories, jingle, outputPath)
 
 	// Execute FFmpeg command
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
@@ -106,7 +114,7 @@ func cleanupTempDir(tempDir string) {
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
-func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []repository.BulletinStoryData, outputPath string) ([]string, []string) {
+func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []repository.BulletinStoryData, jingle JingleContext, outputPath string) ([]string, []string) {
 	args := []string{}
 	filters := []string{}
 
@@ -116,11 +124,11 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 	// Step 2: Concatenate all stories into one timeline
 	filters = s.addStoryConcat(filters, stories)
 
-	// Step 2.5: Add delay based on the first story's mix point
-	filters = s.addMixPointDelay(filters, stories)
+	// Step 2.5: Add delay based on the jingle's mix point
+	filters = s.addMixPointDelay(filters, jingle.MixPoint)
 
 	// Step 3: Add the bed/jingle if available
-	args, filters = s.addJingleMix(args, filters, station, stories)
+	args, filters = s.addJingleMix(args, filters, station, jingle, len(stories))
 
 	// Step 4: Apply EBU R128 s2 loudness normalization to final mix
 	filters = append(filters, "[mixed]loudnorm=I=-16:TP=-1:LRA=11[out]")
@@ -164,10 +172,10 @@ func (s *Service) addStoryConcat(filters []string, stories []repository.Bulletin
 	return append(filters, concatFilter)
 }
 
-// addMixPointDelay adds delay to the message timeline based on the first story's mix point.
-func (s *Service) addMixPointDelay(filters []string, stories []repository.BulletinStoryData) []string {
-	if len(stories) > 0 && stories[0].MixPoint > 0 {
-		delayMs := int(stories[0].MixPoint * 1000)
+// addMixPointDelay adds delay to the message timeline based on the jingle's mix point.
+func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string {
+	if mixPoint > 0 {
+		delayMs := int(mixPoint * 1000)
 		return append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", delayMs))
 	}
 	return append(filters, "[concat_messages]anull[messages]")
@@ -175,20 +183,16 @@ func (s *Service) addMixPointDelay(filters []string, stories []repository.Bullet
 
 // addJingleMix adds the bed/jingle and mixes it with the message timeline.
 // Outputs to [mixed] which is then normalized by the loudnorm filter.
-func (s *Service) addJingleMix(args, filters []string, station *models.Station, stories []repository.BulletinStoryData) ([]string, []string) {
-	if len(stories) == 0 {
-		return args, filters
-	}
-
+func (s *Service) addJingleMix(args, filters []string, station *models.Station, jingle JingleContext, storyCount int) ([]string, []string) {
 	// Check if voice ID is available for jingle lookup
-	if stories[0].VoiceID == nil {
-		logger.Debug("First story has no voice ID, generating bulletin without bed")
+	if jingle.VoiceID == nil {
+		logger.Debug("No voice ID in jingle context, generating bulletin without bed")
 		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
 	}
 
 	// Use station-specific jingle
-	jinglePath := utils.JinglePath(s.config, station.ID, *stories[0].VoiceID)
+	jinglePath := utils.JinglePath(s.config, station.ID, *jingle.VoiceID)
 
 	if _, err := os.Stat(jinglePath); err != nil {
 		if !os.IsNotExist(err) {
@@ -201,7 +205,7 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 	} else {
 		// File exists, add jingle to mix
 		args = append(args, "-i", jinglePath)
-		jingleIndex := len(stories)
+		jingleIndex := storyCount
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
 		filters = append(filters, fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))

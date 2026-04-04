@@ -67,6 +67,13 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		return nil, apperrors.NoStories(stationID)
 	}
 
+	// Capture jingle context from the highest-priority story (first in SQL order)
+	// before shuffling — jingle selection must be stable regardless of playback order.
+	jingle := audio.JingleContext{
+		VoiceID:  stories[0].VoiceID,
+		MixPoint: stories[0].MixPoint,
+	}
+
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine WHICH stories are selected;
 	// playback order is randomized so breaking stories appear in varied positions.
@@ -75,7 +82,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	})
 
 	// Generate audio file
-	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories)
+	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +92,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	if fi, err := os.Stat(bulletinPath); err == nil {
 		fileSize = fi.Size()
 	}
-	totalDuration := s.calculateBulletinDuration(station, stories)
+	totalDuration := s.calculateBulletinDuration(station, stories, jingle.MixPoint)
 
 	// Persist bulletin to database using transaction
 	bulletinID, err := s.saveBulletinToDatabase(ctx, stationID, bulletinPath, totalDuration, fileSize, stories)
@@ -98,13 +105,13 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
-func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData) (string, error) {
+func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, jingle audio.JingleContext) (string, error) {
 	// Generate consistent paths using single timestamp
 	timestamp := time.Now()
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
 	// Create bulletin using the generated absolute path
-	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, bulletinPath); err != nil {
+	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, bulletinPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
 	}
 
@@ -112,7 +119,7 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 }
 
 // calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
-func (s *BulletinService) calculateBulletinDuration(station *models.Station, stories []repository.BulletinStoryData) float64 {
+func (s *BulletinService) calculateBulletinDuration(station *models.Station, stories []repository.BulletinStoryData, mixPoint float64) float64 {
 	// Calculate total duration of all stories
 	var storiesDuration float64
 	for _, story := range stories {
@@ -126,14 +133,8 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
 	}
 
-	// Add mix point delay (when voice starts over jingle)
-	var mixPointDelay float64
-	if len(stories) > 0 && stories[0].MixPoint > 0 {
-		mixPointDelay = stories[0].MixPoint
-	}
-
 	// Total duration = stories duration + pauses + mix point delay
-	return storiesDuration + mixPointDelay
+	return storiesDuration + mixPoint
 }
 
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
