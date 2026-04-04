@@ -202,27 +202,27 @@ type UserUpdateRequest struct {
 
 // StoryCreateRequest represents the request for creating news stories.
 type StoryCreateRequest struct {
-	Title     string             `json:"title" binding:"required,notblank,max=500"`
-	Text      string             `json:"text" binding:"required,notblank"`
-	VoiceID   *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status    string             `json:"status" binding:"omitempty,story_status"`
-	StartDate string             `json:"start_date" binding:"required,dateformat"`
-	EndDate   string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays   models.Weekdays    `json:"weekdays"`   // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
-	IsBreaking bool               `json:"is_breaking"` // Breaking stories are always included in bulletins
+	Title      string             `json:"title" binding:"required,notblank,max=500"`
+	Text       string             `json:"text" binding:"required,notblank"`
+	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
+	Status     string             `json:"status" binding:"omitempty,story_status"`
+	StartDate  string             `json:"start_date" binding:"required,dateformat"`
+	EndDate    string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	Weekdays   models.Weekdays    `json:"weekdays"`    // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+	IsBreaking bool               `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
 // StoryUpdateRequest represents the request for updating existing stories.
 type StoryUpdateRequest struct {
-	Title     *string            `json:"title" binding:"omitempty,notblank,max=500"`
-	Text      *string            `json:"text" binding:"omitempty,notblank"`
-	VoiceID   *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status    *string            `json:"status" binding:"omitempty,story_status"`
-	StartDate *string            `json:"start_date" binding:"omitempty,dateformat"`
-	EndDate   *string            `json:"end_date" binding:"omitempty,dateformat"`
+	Title      *string            `json:"title" binding:"omitempty,notblank,max=500"`
+	Text       *string            `json:"text" binding:"omitempty,notblank"`
+	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
+	Status     *string            `json:"status" binding:"omitempty,story_status"`
+	StartDate  *string            `json:"start_date" binding:"omitempty,dateformat"`
+	EndDate    *string            `json:"end_date" binding:"omitempty,dateformat"`
 	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
-	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are always included in bulletins
+	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 

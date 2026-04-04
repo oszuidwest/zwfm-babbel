@@ -51,7 +51,7 @@ type Story struct {
 	EndDate time.Time `gorm:"not null;index" json:"end_date"`
 	// Weekdays is a bitmask for scheduling on specific days (0-127, where 127 = all days).
 	Weekdays Weekdays `gorm:"not null;default:127;index" json:"weekdays"`
-	// IsBreaking indicates a breaking news story that bypasses fair rotation in bulletins.
+	// IsBreaking marks a breaking news story that is prioritized above fair rotation for selection in bulletins.
 	IsBreaking bool `gorm:"not null;default:false;index" json:"is_breaking"`
 	// Metadata stores additional custom data as JSON.
 	Metadata *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`

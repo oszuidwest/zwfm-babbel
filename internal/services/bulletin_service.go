@@ -67,9 +67,9 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		return nil, apperrors.NoStories(stationID)
 	}
 
-	// Shuffle story order for varied playback.
-	// Selection logic (breaking priority, fair rotation) determines WHICH stories
-	// are included; the playback order should be randomized for natural radio flow.
+	// Shuffle story order for natural radio flow.
+	// Breaking priority and fair rotation determine WHICH stories are selected;
+	// playback order is randomized so breaking stories appear in varied positions.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
 	})
@@ -182,20 +182,33 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
-// Uses fair rotation to ensure all stories get equal airtime throughout the day.
+// Breaking news stories are prioritized for selection; remaining slots use fair rotation.
 func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 
-	// Debug logging for story selection (fair rotation transparency)
+	// Warn when breaking stories consume all available slots
+	if len(stories) > 0 && len(stories) == limit {
+		breakingCount := 0
+		for _, story := range stories {
+			if story.IsBreaking {
+				breakingCount++
+			}
+		}
+		if breakingCount == len(stories) {
+			logger.Warn("All %d bulletin slots for station %d consumed by breaking stories; non-breaking stories excluded", len(stories), stationID)
+		}
+	}
+
+	// Debug logging for story selection transparency
 	if len(stories) > 0 {
 		storyIDs := make([]int64, len(stories))
 		for i, story := range stories {
 			storyIDs[i] = story.ID
 		}
-		logger.Debug("Fair rotation selected %d stories for station %d: IDs=%v", len(stories), stationID, storyIDs)
+		logger.Debug("Story selection returned %d stories for station %d: IDs=%v", len(stories), stationID, storyIDs)
 	}
 
 	return stories, nil

@@ -512,17 +512,28 @@ describe('Stories', () => {
       expect(getResponse.data.is_breaking).toBe(false);
     });
 
-    test('when filtering by is_breaking, then returns matching stories', async () => {
+    test('when filtering by is_breaking=1, then returns only breaking stories', async () => {
       // Act
       const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=1');
 
       // Assert
       expect(response.status).toBe(200);
       const stories = response.data.data || [];
-      if (stories.length > 0) {
-        const allBreaking = stories.every(s => s.is_breaking === true);
-        expect(allBreaking).toBe(true);
-      }
+      expect(stories.length).toBeGreaterThan(0);
+      const allBreaking = stories.every(s => s.is_breaking === true);
+      expect(allBreaking).toBe(true);
+    });
+
+    test('when filtering by is_breaking=0, then returns only non-breaking stories', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=0');
+
+      // Assert
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      const allNonBreaking = stories.every(s => s.is_breaking === false);
+      expect(allNonBreaking).toBe(true);
     });
   });
 
