@@ -84,11 +84,12 @@ describe('Bulletins', () => {
       expect(response.status).toBe(200);
     });
 
-    test('when stories use different voices, then bulletin duration reflects highest-priority mix point', async () => {
+    test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
       // Regression: jingle context (voice + mix point) must come from the
       // highest-priority story BEFORE the playback order is shuffled.
-      // If the code used a random story's mix point instead, duration_seconds
-      // would be unpredictable.
+      // A single run has a 50% chance of passing by luck with 2 stories,
+      // so we generate multiple bulletins and assert ALL are consistent.
+      // With 5 runs the false-pass probability drops to ~3%.
 
       // Arrange: two voices with very different mix points
       const station = await global.helpers.createStation(global.resources, 'JingleCtxStation', 2, 0);
@@ -131,21 +132,28 @@ describe('Bulletins', () => {
       await global.helpers.waitForStoryAudio(breakingStory.id);
       await global.helpers.waitForStoryAudio(regularStory.id);
 
-      // Act
-      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      // Act: generate 5 bulletins — each shuffle is independent
+      const runs = 5;
+      const durations = [];
+      for (let i = 0; i < runs; i++) {
+        const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+        expect(response.status).toBe(200);
+        expect(response.data.story_count).toBe(2);
+        durations.push(response.data.duration_seconds);
+      }
 
-      // Assert
-      expect(bulletinResponse.status).toBe(200);
-
-      // Both stories should be included (2 slots, 2 stories)
-      expect(bulletinResponse.data.story_count).toBe(2);
-
-      // Duration must include the 5.0s mix point from the breaking story's voice,
-      // not the 0.5s from the regular story's voice. Each test story is ~3s audio,
-      // pause_seconds is 0, so total ≈ 3 + 3 + 5.0 = 11.0s.
+      // Assert: every bulletin must use the 5.0s mix point from the breaking
+      // story's voice. Each test story is ~3s audio, pause_seconds is 0,
+      // so total ≈ 3 + 3 + 5.0 = 11.0s.
       // If the wrong mix point were used, total ≈ 3 + 3 + 0.5 = 6.5s.
-      // We check that duration exceeds 9s, which can only be true with the 5.0s mix point.
-      expect(bulletinResponse.data.duration_seconds).toBeGreaterThan(9);
+      // Threshold of 9s can only be met with the 5.0s mix point.
+      for (let i = 0; i < runs; i++) {
+        expect(durations[i]).toBeGreaterThan(9);
+      }
+
+      // All durations should be identical (same mix point every time)
+      const uniqueDurations = new Set(durations.map(d => d.toFixed(2)));
+      expect(uniqueDurations.size).toBe(1);
     });
 
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
