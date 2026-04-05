@@ -215,7 +215,7 @@ type StoryCreateRequest struct {
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// NormalizeText decodes HTML entities in text fields before validation.
+// NormalizeText decodes HTML entities in text fields to plain Unicode.
 func (r *StoryCreateRequest) NormalizeText() {
 	r.Title = html.UnescapeString(r.Title)
 	r.Text = html.UnescapeString(r.Text)
@@ -233,7 +233,7 @@ type StoryUpdateRequest struct {
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// NormalizeText decodes HTML entities in text fields before validation.
+// NormalizeText decodes HTML entities in text fields to plain Unicode.
 func (r *StoryUpdateRequest) NormalizeText() {
 	if r.Title != nil {
 		normalized := html.UnescapeString(*r.Title)
@@ -279,7 +279,8 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 }
 
 // textNormalizer is implemented by request structs that need text normalization
-// (e.g. HTML entity decoding) before validation runs.
+// (e.g. HTML entity decoding) before validation runs. Currently only story
+// requests need this, as story content often originates from CMS integrations.
 type textNormalizer interface {
 	NormalizeText()
 }

@@ -103,7 +103,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 	}
 
-	// Create story data (text already normalized by BindAndValidate)
+	// Create story data (text expected to be pre-normalized by the caller)
 	data := &repository.StoryCreateData{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -214,7 +214,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	updates := &repository.StoryUpdate{}
 	hasUpdates := false
 
-	// Apply simple field updates (text already normalized by BindAndValidate)
+	// Apply simple field updates (text expected to be pre-normalized by the caller)
 	if req.Title != nil {
 		updates.Title = req.Title
 		hasUpdates = true
