@@ -21,11 +21,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	var req struct {
 		Date string `json:"date"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "request_body",
-			Message: "Invalid request body",
-		}})
+	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
