@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -104,10 +105,20 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 	}
 
-	// Create story data (normalize HTML entities to plain Unicode)
+	// Normalize HTML entities to plain Unicode and re-validate
+	title := html.UnescapeString(req.Title)
+	text := html.UnescapeString(req.Text)
+	if strings.TrimSpace(title) == "" {
+		return nil, apperrors.Validation("Story", "title", "must not be blank after decoding HTML entities")
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil, apperrors.Validation("Story", "text", "must not be blank after decoding HTML entities")
+	}
+
+	// Create story data
 	data := &repository.StoryCreateData{
-		Title:     html.UnescapeString(req.Title),
-		Text:      html.UnescapeString(req.Text),
+		Title:     title,
+		Text:      text,
 		VoiceID:   req.VoiceID,
 		Status:    req.Status,
 		StartDate: startDate,
@@ -218,11 +229,17 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	// Apply simple field updates (normalize HTML entities to plain Unicode)
 	if req.Title != nil {
 		normalized := html.UnescapeString(*req.Title)
+		if strings.TrimSpace(normalized) == "" {
+			return nil, apperrors.Validation("Story", "title", "must not be blank after decoding HTML entities")
+		}
 		updates.Title = &normalized
 		hasUpdates = true
 	}
 	if req.Text != nil {
 		normalized := html.UnescapeString(*req.Text)
+		if strings.TrimSpace(normalized) == "" {
+			return nil, apperrors.Validation("Story", "text", "must not be blank after decoding HTML entities")
+		}
 		updates.Text = &normalized
 		hasUpdates = true
 	}
