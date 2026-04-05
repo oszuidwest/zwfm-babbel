@@ -215,7 +215,7 @@ The API uses RFC 9457 Problem Details for error responses:
 {
   "type": "https://babbel.api/problems/validation-error",
   "title": "Validation Error",
-  "status": 400,
+  "status": 422,
   "detail": "The request contains invalid fields",
   "errors": [
     {
@@ -230,11 +230,12 @@ The API uses RFC 9457 Problem Details for error responses:
 
 | Status | Type | Description |
 |--------|------|-------------|
-| 400 | ` + "`validation-error`" + ` | Invalid request parameters or body |
+| 400 | ` + "`bad-request`" + ` | Malformed request or domain validation error |
 | 401 | ` + "`unauthorized`" + ` | Missing or invalid authentication |
 | 403 | ` + "`forbidden`" + ` | Insufficient permissions |
 | 404 | ` + "`not-found`" + ` | Resource not found |
 | 409 | ` + "`conflict`" + ` | Resource conflict (duplicate, dependency) |
+| 422 | ` + "`validation-error`" + ` | Request body validation errors |
 | 500 | ` + "`internal-server-error`" + ` | Server error |
 
 ---
