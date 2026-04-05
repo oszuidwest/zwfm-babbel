@@ -3,6 +3,7 @@ package models
 
 import (
 	"fmt"
+	"html"
 	"time"
 
 	"gorm.io/datatypes"
@@ -68,8 +69,12 @@ type Story struct {
 	AudioURL  string `gorm:"-" json:"audio_url"`
 }
 
-// AfterFind populates computed fields from preloaded relations.
+// AfterFind populates computed fields from preloaded relations and normalizes text.
 func (s *Story) AfterFind(_ *gorm.DB) error {
+	// Normalize HTML entities to plain Unicode (handles existing data stored with entities)
+	s.Title = html.UnescapeString(s.Title)
+	s.Text = html.UnescapeString(s.Text)
+
 	// Populate voice name from preloaded relation
 	if s.Voice != nil {
 		s.VoiceName = s.Voice.Name
