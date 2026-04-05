@@ -103,7 +103,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 	}
 
-	// Create story data
+	// Create story data (text arrives normalized from the binding layer)
 	data := &repository.StoryCreateData{
 		Title:     req.Title,
 		Text:      req.Text,
@@ -214,7 +214,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	updates := &repository.StoryUpdate{}
 	hasUpdates := false
 
-	// Apply simple field updates
+	// Apply simple field updates (text arrives normalized from the binding layer)
 	if req.Title != nil {
 		updates.Title = req.Title
 		hasUpdates = true

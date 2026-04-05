@@ -40,6 +40,9 @@ lint:
 
 # Run code quality checks (including dead code detection)
 quality: lint
+	@echo "Running unit tests..."
+	@go test ./...
+	@echo "✅ Unit tests passed!"
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
 	@if command -v deadcode >/dev/null 2>&1 || [ -f "$$(go env GOPATH)/bin/deadcode" ]; then \
