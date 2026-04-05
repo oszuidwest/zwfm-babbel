@@ -2,8 +2,10 @@
 package utils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"mime/multipart"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -212,6 +215,12 @@ type StoryCreateRequest struct {
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
+// NormalizeText decodes HTML entities in text fields before validation.
+func (r *StoryCreateRequest) NormalizeText() {
+	r.Title = html.UnescapeString(r.Title)
+	r.Text = html.UnescapeString(r.Text)
+}
+
 // StoryUpdateRequest represents the request for updating existing stories.
 type StoryUpdateRequest struct {
 	Title     *string            `json:"title" binding:"omitempty,notblank,max=500"`
@@ -222,6 +231,18 @@ type StoryUpdateRequest struct {
 	EndDate   *string            `json:"end_date" binding:"omitempty,dateformat"`
 	Weekdays  *models.Weekdays   `json:"weekdays"` // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
+}
+
+// NormalizeText decodes HTML entities in text fields before validation.
+func (r *StoryUpdateRequest) NormalizeText() {
+	if r.Title != nil {
+		normalized := html.UnescapeString(*r.Title)
+		r.Title = &normalized
+	}
+	if r.Text != nil {
+		normalized := html.UnescapeString(*r.Text)
+		r.Text = &normalized
+	}
 }
 
 // ValidateDateRange validates that end date is not before start date.
@@ -257,13 +278,38 @@ func (req *StoryUpdateRequest) ValidateDateRange() error {
 	return nil
 }
 
-// BindAndValidate binds and validates a JSON request.
+// textNormalizer is implemented by request structs that need text normalization
+// (e.g. HTML entity decoding) before validation runs.
+type textNormalizer interface {
+	NormalizeText()
+}
+
+// BindAndValidate decodes a JSON request, normalizes text fields, then validates.
+// Normalization runs before validation so that validators like notblank and max
+// operate on the decoded values rather than the raw encoded input.
 func BindAndValidate(c *gin.Context, req any) bool {
-	if err := c.ShouldBindJSON(req); err != nil {
-		validationErrors := convertValidationErrors(err)
-		ProblemValidationError(c, "The request contains invalid data", validationErrors)
+	// Step 1: Decode JSON without validation
+	if err := json.NewDecoder(c.Request.Body).Decode(req); err != nil {
+		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+			{Field: "request", Message: "Invalid request format"},
+		})
 		return false
 	}
+
+	// Step 2: Normalize text fields (e.g. unescape HTML entities)
+	if n, ok := req.(textNormalizer); ok {
+		n.NormalizeText()
+	}
+
+	// Step 3: Validate using Gin's registered validators (including custom ones)
+	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
+		if err := v.Struct(req); err != nil {
+			validationErrors := convertValidationErrors(err)
+			ProblemValidationError(c, "The request contains invalid data", validationErrors)
+			return false
+		}
+	}
+
 	return true
 }
 

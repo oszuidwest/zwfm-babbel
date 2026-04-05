@@ -5,10 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -105,20 +103,10 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
 	}
 
-	// Normalize HTML entities to plain Unicode and re-validate
-	title := html.UnescapeString(req.Title)
-	text := html.UnescapeString(req.Text)
-	if strings.TrimSpace(title) == "" {
-		return nil, apperrors.Validation("Story", "title", "must not be blank after decoding HTML entities")
-	}
-	if strings.TrimSpace(text) == "" {
-		return nil, apperrors.Validation("Story", "text", "must not be blank after decoding HTML entities")
-	}
-
-	// Create story data
+	// Create story data (text already normalized by BindAndValidate)
 	data := &repository.StoryCreateData{
-		Title:     title,
-		Text:      text,
+		Title:     req.Title,
+		Text:      req.Text,
 		VoiceID:   req.VoiceID,
 		Status:    req.Status,
 		StartDate: startDate,
@@ -226,21 +214,13 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	updates := &repository.StoryUpdate{}
 	hasUpdates := false
 
-	// Apply simple field updates (normalize HTML entities to plain Unicode)
+	// Apply simple field updates (text already normalized by BindAndValidate)
 	if req.Title != nil {
-		normalized := html.UnescapeString(*req.Title)
-		if strings.TrimSpace(normalized) == "" {
-			return nil, apperrors.Validation("Story", "title", "must not be blank after decoding HTML entities")
-		}
-		updates.Title = &normalized
+		updates.Title = req.Title
 		hasUpdates = true
 	}
 	if req.Text != nil {
-		normalized := html.UnescapeString(*req.Text)
-		if strings.TrimSpace(normalized) == "" {
-			return nil, apperrors.Validation("Story", "text", "must not be blank after decoding HTML entities")
-		}
-		updates.Text = &normalized
+		updates.Text = req.Text
 		hasUpdates = true
 	}
 	if req.Status != nil {
