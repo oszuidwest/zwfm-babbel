@@ -303,12 +303,16 @@ func BindAndValidate(c *gin.Context, req any) bool {
 	}
 
 	// Step 3: Validate using Gin's registered validators (including custom ones)
-	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
-		if err := v.Struct(req); err != nil {
-			validationErrors := convertValidationErrors(err)
-			ProblemValidationError(c, "The request contains invalid data", validationErrors)
-			return false
-		}
+	v, ok := binding.Validator.Engine().(*validator.Validate)
+	if !ok {
+		logger.Error("Validator engine is not *validator.Validate, got %T", binding.Validator.Engine())
+		ProblemInternalServer(c, "Internal validation error")
+		return false
+	}
+	if err := v.Struct(req); err != nil {
+		validationErrors := convertValidationErrors(err)
+		ProblemValidationError(c, "The request contains invalid data", validationErrors)
+		return false
 	}
 
 	return true

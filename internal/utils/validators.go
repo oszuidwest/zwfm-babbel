@@ -14,35 +14,38 @@ import (
 // Must be called during application startup to enable custom validation tags.
 // Panics if validator registration fails, as this is a critical configuration error.
 func InitializeValidators() {
-	if v, ok := binding.Validator.Engine().(*validator.Validate); ok {
-		// Register Optional[string] so binding tags (omitempty, max, notblank) work on the
-		// inner string value. Returns "" for absent/null, letting omitempty skip validation.
-		v.RegisterCustomTypeFunc(func(field reflect.Value) any {
-			if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
-				return *opt.Value
-			}
-			return ""
-		}, Optional[string]{})
+	v, ok := binding.Validator.Engine().(*validator.Validate)
+	if !ok {
+		panic(fmt.Sprintf("Validator engine is not *validator.Validate, got %T", binding.Validator.Engine()))
+	}
 
-		// Register notblank validator - ensures string is not empty or whitespace-only
-		if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
-			panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
+	// Register Optional[string] so binding tags (omitempty, max, notblank) work on the
+	// inner string value. Returns "" for absent/null, letting omitempty skip validation.
+	v.RegisterCustomTypeFunc(func(field reflect.Value) any {
+		if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
+			return *opt.Value
 		}
+		return ""
+	}, Optional[string]{})
 
-		// Register story status validator
-		if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
-			panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
-		}
+	// Register notblank validator - ensures string is not empty or whitespace-only
+	if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
+		panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
+	}
 
-		// Register date after validator for comparing dates
-		if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
-			panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
-		}
+	// Register story status validator
+	if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
+		panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
+	}
 
-		// Register date format validator
-		if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
-			panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
-		}
+	// Register date after validator for comparing dates
+	if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
+		panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
+	}
+
+	// Register date format validator
+	if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
+		panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
 	}
 }
 
