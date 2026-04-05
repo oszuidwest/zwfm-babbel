@@ -3,8 +3,10 @@ package utils
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -123,6 +125,27 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 
 // BindAndValidate tests.
 
+// problemResponse is the subset of the RFC 9457 response we assert on.
+type problemResponse struct {
+	Errors []ValidationError `json:"errors"`
+}
+
+// assertValidationError checks that the response contains a validation error for the given field
+// with a message that contains the given substring.
+func assertValidationError(t *testing.T, w *httptest.ResponseRecorder, field, msgSubstring string) {
+	t.Helper()
+	var resp problemResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to parse response body: %v", err)
+	}
+	for _, e := range resp.Errors {
+		if e.Field == field && strings.Contains(e.Message, msgSubstring) {
+			return
+		}
+	}
+	t.Errorf("expected validation error on field %q containing %q, got errors: %+v", field, msgSubstring, resp.Errors)
+}
+
 func newTestContext(body string) (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -205,6 +228,7 @@ func TestBindAndValidate_ValidationFailure_MissingRequired(t *testing.T) {
 	if w.Code != 422 {
 		t.Errorf("status = %d, want 422", w.Code)
 	}
+	assertValidationError(t, w, "Title", "required")
 }
 
 func TestBindAndValidate_ValidationFailure_NotBlank(t *testing.T) {
@@ -220,6 +244,7 @@ func TestBindAndValidate_ValidationFailure_NotBlank(t *testing.T) {
 	if w.Code != 422 {
 		t.Errorf("status = %d, want 422", w.Code)
 	}
+	assertValidationError(t, w, "Title", "empty or whitespace")
 }
 
 func TestBindAndValidate_NormalizesEntitiesBeforeValidation(t *testing.T) {
@@ -271,6 +296,7 @@ func TestBindAndValidate_CustomValidator_StoryStatus(t *testing.T) {
 	if w.Code != 422 {
 		t.Errorf("status = %d, want 422", w.Code)
 	}
+	assertValidationError(t, w, "Status", "must be one of")
 }
 
 func TestBindAndValidate_CustomValidator_DateFormat(t *testing.T) {
@@ -286,6 +312,82 @@ func TestBindAndValidate_CustomValidator_DateFormat(t *testing.T) {
 	if w.Code != 422 {
 		t.Errorf("status = %d, want 422", w.Code)
 	}
+	assertValidationError(t, w, "StartDate", "YYYY-MM-DD")
+}
+
+func TestBindAndValidate_MaxLengthCheckedAfterNormalization(t *testing.T) {
+	// 496 chars + "&amp;" (5 encoded, 1 decoded) = 501 encoded, 497 decoded.
+	// Must pass because max=500 applies to the decoded value.
+	title := strings.Repeat("A", 496) + "&amp;"
+
+	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
+	c, w := newTestContext(body)
+
+	var req StoryCreateRequest
+	ok := BindAndValidate(c, &req)
+
+	if !ok {
+		t.Fatalf("expected true (497 decoded chars <= 500), got false; response: %s", w.Body.String())
+	}
+	if len(req.Title) != 497 {
+		t.Errorf("decoded Title length = %d, want 497", len(req.Title))
+	}
+}
+
+func TestBindAndValidate_MaxLengthRejectsAfterNormalization(t *testing.T) {
+	// 500 chars + "&amp;" (5 encoded, 1 decoded) = 505 encoded, 501 decoded.
+	// Must fail because decoded length exceeds max=500.
+	title := strings.Repeat("A", 500) + "&amp;"
+
+	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
+	c, w := newTestContext(body)
+
+	var req StoryCreateRequest
+	ok := BindAndValidate(c, &req)
+
+	if ok {
+		t.Fatal("expected false (501 decoded chars > 500)")
+	}
+	if w.Code != 422 {
+		t.Errorf("status = %d, want 422", w.Code)
+	}
+	assertValidationError(t, w, "Title", "cannot exceed 500")
+}
+
+func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T) {
+	// StoryUpdateRequest uses pointer fields — verify the same boundary via the update path.
+	t.Run("passes when decoded length within limit", func(t *testing.T) {
+		title := strings.Repeat("A", 496) + "&amp;"
+		body := `{"title":"` + title + `"}`
+		c, w := newTestContext(body)
+
+		var req StoryUpdateRequest
+		ok := BindAndValidate(c, &req)
+
+		if !ok {
+			t.Fatalf("expected true (497 decoded chars <= 500), got false; response: %s", w.Body.String())
+		}
+		if req.Title == nil || len(*req.Title) != 497 {
+			t.Errorf("decoded Title length = %v, want 497", req.Title)
+		}
+	})
+
+	t.Run("rejects when decoded length exceeds limit", func(t *testing.T) {
+		title := strings.Repeat("A", 500) + "&amp;"
+		body := `{"title":"` + title + `"}`
+		c, w := newTestContext(body)
+
+		var req StoryUpdateRequest
+		ok := BindAndValidate(c, &req)
+
+		if ok {
+			t.Fatal("expected false (501 decoded chars > 500)")
+		}
+		if w.Code != 422 {
+			t.Errorf("status = %d, want 422", w.Code)
+		}
+		assertValidationError(t, w, "Title", "cannot exceed 500")
+	})
 }
 
 // Double-encoded entity pipeline documenting the full write-read decode behavior.

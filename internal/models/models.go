@@ -71,8 +71,9 @@ type Story struct {
 
 // AfterFind populates computed fields from preloaded relations and normalizes text.
 func (s *Story) AfterFind(_ *gorm.DB) error {
-	// Normalize HTML entities to plain Unicode for data stored before input-side
-	// normalization was added. Can be removed after a data migration cleans existing rows.
+	// TODO: Remove after a data migration normalizes HTML entities in existing rows.
+	// Decodes HTML entities to plain Unicode for data stored before input-side
+	// normalization was added (see NormalizeText in utils/http.go).
 	s.Title = html.UnescapeString(s.Title)
 	s.Text = html.UnescapeString(s.Text)
 
