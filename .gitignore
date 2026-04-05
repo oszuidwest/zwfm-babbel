@@ -54,7 +54,9 @@ pids
 # Coverage directory used by tools like istanbul
 coverage/
 
-# Documentation files that shouldn't be tracked
+# Generated documentation (rebuilt by CI from openapi.yaml)
+docs/API_REFERENCE.md
+docs/index.html
 CLAUDE.md
 main
 docgen
