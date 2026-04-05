@@ -1937,7 +1937,7 @@ To get story information, use the separate GET /bulletins/{id}/stories endpoint 
 
 - `400`: Error
 - `404`: Station not found or no stories available
-- `422`: Validation error (RFC 9457 Problem Details)
+- `422`: Error
 
 
 ---
