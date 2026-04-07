@@ -264,7 +264,7 @@ CLAUDE.md              # AI assistant instructions
 
 ## Testing
 
-The project includes a comprehensive Jest integration test suite (513 tests):
+The project includes a comprehensive Jest integration test suite (516 tests):
 - **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, bulletins, bulletin cleanup, automation, users, validation
 - **Test generators**: Declarative schema-driven generators for CRUD, query, and validation tests
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security

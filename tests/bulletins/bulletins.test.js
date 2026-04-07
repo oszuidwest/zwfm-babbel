@@ -217,6 +217,222 @@ describe('Bulletins', () => {
       expect(includedStoryIds).toEqual(expect.arrayContaining([breakingStoryA.id, breakingStoryB.id]));
       expect(includedStoryIds).not.toContain(regularStory.id);
     });
+
+    test('when breaking and non-breaking stories compete for slots, then breaking always included', async () => {
+      // Arrange: station with 3 slots, 1 breaking + 4 non-breaking stories
+      const station = await global.helpers.createStation(global.resources, 'BreakingAlwaysStation', 3);
+      const voice = await global.helpers.createVoice(global.resources, 'BreakingAlwaysVoice');
+
+      expect(station).not.toBeNull();
+      expect(voice).not.toBeNull();
+
+      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+      expect(stationVoice).not.toBeNull();
+
+      const breakingStory = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingAlways_${Date.now()}`,
+        text: 'This breaking story must always appear',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }, [station.id]);
+
+      const regularStoryIds = [];
+      for (let i = 0; i < 4; i++) {
+        const story = await global.helpers.createStoryWithAudio(global.resources, {
+          title: `BreakingAlwaysRegular${i}_${Date.now()}`,
+          text: `Regular story ${i}`,
+          voice_id: voice.id,
+          weekdays: 127,
+          status: 'active',
+          is_breaking: false
+        }, [station.id]);
+        expect(story).not.toBeNull();
+        await global.helpers.waitForStoryAudio(story.id);
+        regularStoryIds.push(story.id);
+      }
+
+      expect(breakingStory).not.toBeNull();
+      await global.helpers.waitForStoryAudio(breakingStory.id);
+
+      // Act: generate 5 bulletins — fair rotation will vary the non-breaking stories
+      const runs = 5;
+      for (let i = 0; i < runs; i++) {
+        const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+        expect(bulletinResponse.status).toBe(200);
+        expect(bulletinResponse.data.story_count).toBe(3);
+
+        const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
+        const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+
+        // Assert: breaking story is in every single bulletin
+        expect(includedStoryIds).toContain(breakingStory.id);
+
+        // Assert: remaining 2 slots are filled by non-breaking stories
+        const nonBreakingIncluded = includedStoryIds.filter(id => id !== breakingStory.id);
+        expect(nonBreakingIncluded).toHaveLength(2);
+        nonBreakingIncluded.forEach(id => {
+          expect(regularStoryIds).toContain(id);
+        });
+      }
+    });
+
+    test('when breaking story is ineligible, then excluded from bulletin despite flag', async () => {
+      // Arrange: station with stories that are breaking but fail eligibility
+      const station = await global.helpers.createStation(global.resources, 'BreakingEligStation', 3);
+      const voice = await global.helpers.createVoice(global.resources, 'BreakingEligVoice');
+
+      expect(station).not.toBeNull();
+      expect(voice).not.toBeNull();
+
+      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+      expect(stationVoice).not.toBeNull();
+
+      // Breaking story with draft status — should be excluded
+      const draftBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingDraft_${Date.now()}`,
+        text: 'Breaking but draft',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'draft',
+        is_breaking: true
+      }, [station.id]);
+
+      // Breaking story with expired date range — should be excluded
+      const expiredBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingExpired_${Date.now()}`,
+        text: 'Breaking but expired',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        start_date: '2020-01-01',
+        end_date: '2020-12-31',
+        is_breaking: true
+      }, [station.id]);
+
+      // Breaking story on wrong weekday — should be excluded
+      // Current weekday bitmask: Sunday=1, Monday=2, Tuesday=4, etc.
+      // Use a bitmask that excludes today
+      const todayBit = 1 << new Date().getDay();
+      const wrongWeekdays = 127 ^ todayBit; // all days except today
+      const wrongDayBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingWrongDay_${Date.now()}`,
+        text: 'Breaking but wrong weekday',
+        voice_id: voice.id,
+        weekdays: wrongWeekdays,
+        status: 'active',
+        is_breaking: true
+      }, [station.id]);
+
+      // One eligible non-breaking story so the bulletin can still generate
+      const eligibleStory = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingEligRegular_${Date.now()}`,
+        text: 'Eligible regular story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: false
+      }, [station.id]);
+
+      expect(draftBreaking).not.toBeNull();
+      expect(expiredBreaking).not.toBeNull();
+      expect(wrongDayBreaking).not.toBeNull();
+      expect(eligibleStory).not.toBeNull();
+
+      await global.helpers.waitForStoryAudio(draftBreaking.id);
+      await global.helpers.waitForStoryAudio(expiredBreaking.id);
+      await global.helpers.waitForStoryAudio(wrongDayBreaking.id);
+      await global.helpers.waitForStoryAudio(eligibleStory.id);
+
+      // Act
+      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+
+      // Assert
+      expect(bulletinResponse.status).toBe(200);
+
+      const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
+      const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+
+      // None of the ineligible breaking stories should be included
+      expect(includedStoryIds).not.toContain(draftBreaking.id);
+      expect(includedStoryIds).not.toContain(expiredBreaking.id);
+      expect(includedStoryIds).not.toContain(wrongDayBreaking.id);
+
+      // The eligible regular story should be included
+      expect(includedStoryIds).toContain(eligibleStory.id);
+    });
+
+    test('when multiple breaking stories compete for limited slots, then newest by start_date selected', async () => {
+      // Arrange: station with 2 slots, 3 breaking stories with different start_dates
+      const station = await global.helpers.createStation(global.resources, 'BreakingNewestStation', 2);
+      const voice = await global.helpers.createVoice(global.resources, 'BreakingNewestVoice');
+
+      expect(station).not.toBeNull();
+      expect(voice).not.toBeNull();
+
+      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+      expect(stationVoice).not.toBeNull();
+
+      // Oldest breaking story — should be excluded (start_date 2024)
+      const oldBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingOld_${Date.now()}`,
+        text: 'Old breaking story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        start_date: '2024-01-01',
+        end_date: '2030-12-31',
+        is_breaking: true
+      }, [station.id]);
+
+      // Middle breaking story — should be included (start_date 2025)
+      const midBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingMid_${Date.now()}`,
+        text: 'Middle breaking story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        start_date: '2025-06-01',
+        end_date: '2030-12-31',
+        is_breaking: true
+      }, [station.id]);
+
+      // Newest breaking story — should be included (start_date 2026)
+      const newBreaking = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BreakingNew_${Date.now()}`,
+        text: 'Newest breaking story',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active',
+        start_date: '2026-03-01',
+        end_date: '2030-12-31',
+        is_breaking: true
+      }, [station.id]);
+
+      expect(oldBreaking).not.toBeNull();
+      expect(midBreaking).not.toBeNull();
+      expect(newBreaking).not.toBeNull();
+
+      await global.helpers.waitForStoryAudio(oldBreaking.id);
+      await global.helpers.waitForStoryAudio(midBreaking.id);
+      await global.helpers.waitForStoryAudio(newBreaking.id);
+
+      // Act
+      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+
+      // Assert
+      expect(bulletinResponse.status).toBe(200);
+      expect(bulletinResponse.data.story_count).toBe(2);
+
+      const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
+      const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+
+      // Newest two breaking stories should be selected
+      expect(includedStoryIds).toContain(newBreaking.id);
+      expect(includedStoryIds).toContain(midBreaking.id);
+      expect(includedStoryIds).not.toContain(oldBreaking.id);
+    });
   });
 
   describe('Bulletin Retrieval', () => {
