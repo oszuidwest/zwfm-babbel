@@ -72,14 +72,15 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 
 	// Create service request
 	svcReq := &services.CreateStoryRequest{
-		Title:     req.Title,
-		Text:      req.Text,
-		VoiceID:   req.VoiceID,
-		Status:    req.Status,
-		StartDate: req.StartDate,
-		EndDate:   req.EndDate,
-		Weekdays:  weekdays,
-		Metadata:  req.Metadata,
+		Title:      req.Title,
+		Text:       req.Text,
+		VoiceID:    req.VoiceID,
+		Status:     req.Status,
+		StartDate:  req.StartDate,
+		EndDate:    req.EndDate,
+		Weekdays:   weekdays,
+		IsBreaking: req.IsBreaking,
+		Metadata:   req.Metadata,
 	}
 
 	// Create story via service
@@ -111,7 +112,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	// Validate that at least one field is being updated
 	hasUpdates := req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		req.Weekdays != nil || req.Metadata != nil
+		req.Weekdays != nil || req.IsBreaking != nil || req.Metadata != nil
 	if !hasUpdates {
 		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
 			Field:   "fields",
@@ -121,14 +122,15 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.UpdateStoryRequest{
-		Title:     req.Title,
-		Text:      req.Text,
-		VoiceID:   req.VoiceID,
-		Status:    req.Status,
-		StartDate: req.StartDate,
-		EndDate:   req.EndDate,
-		Weekdays:  req.Weekdays,
-		Metadata:  req.Metadata,
+		Title:      req.Title,
+		Text:       req.Text,
+		VoiceID:    req.VoiceID,
+		Status:     req.Status,
+		StartDate:  req.StartDate,
+		EndDate:    req.EndDate,
+		Weekdays:   req.Weekdays,
+		IsBreaking: req.IsBreaking,
+		Metadata:   req.Metadata,
 	}
 
 	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)

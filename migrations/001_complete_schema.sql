@@ -44,6 +44,7 @@ CREATE TABLE stories (
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
     weekdays TINYINT UNSIGNED NOT NULL DEFAULT 127,  -- Bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+    is_breaking BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSON,
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -124,6 +125,7 @@ CREATE INDEX idx_stories_voice_id ON stories(voice_id);
 CREATE INDEX idx_stories_status ON stories(status);
 CREATE INDEX idx_stories_dates ON stories(start_date, end_date);
 CREATE INDEX idx_stories_weekdays ON stories(weekdays);
+CREATE INDEX idx_stories_is_breaking ON stories(is_breaking);
 
 -- Insert default admin user (password: admin)
 -- Password hash is for 'admin' with bcrypt default cost

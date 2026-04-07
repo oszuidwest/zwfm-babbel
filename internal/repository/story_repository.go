@@ -22,6 +22,7 @@ type StoryUpdate struct {
 	Metadata        *datatypes.JSONMap `gorm:"column:metadata"`
 	AudioFile       *string            `gorm:"column:audio_file"`
 	DurationSeconds *float64           `gorm:"column:duration_seconds"`
+	IsBreaking      *bool              `gorm:"column:is_breaking"`
 
 	// Clear flags - when true, explicitly set the field to NULL
 	ClearVoiceID         bool `gorm:"-"`
@@ -34,14 +35,15 @@ type StoryUpdate struct {
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
-	Title     string
-	Text      string
-	VoiceID   *int64
-	Status    string
-	StartDate time.Time
-	EndDate   time.Time
-	Weekdays  models.Weekdays
-	Metadata  *datatypes.JSONMap
+	Title      string
+	Text       string
+	VoiceID    *int64
+	Status     string
+	StartDate  time.Time
+	EndDate    time.Time
+	Weekdays   models.Weekdays
+	IsBreaking bool
+	Metadata   *datatypes.JSONMap
 }
 
 // StoryRepository defines the interface for story data access.
@@ -86,14 +88,15 @@ func NewStoryRepository(db *gorm.DB) StoryRepository {
 // Create inserts a new story and returns the created record with voice info.
 func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
-		Title:     data.Title,
-		Text:      data.Text,
-		VoiceID:   data.VoiceID,
-		Status:    models.StoryStatus(data.Status),
-		StartDate: data.StartDate,
-		EndDate:   data.EndDate,
-		Weekdays:  data.Weekdays,
-		Metadata:  data.Metadata,
+		Title:      data.Title,
+		Text:       data.Text,
+		VoiceID:    data.VoiceID,
+		Status:     models.StoryStatus(data.Status),
+		StartDate:  data.StartDate,
+		EndDate:    data.EndDate,
+		Weekdays:   data.Weekdays,
+		IsBreaking: data.IsBreaking,
+		Metadata:   data.Metadata,
 	}
 
 	db := DBFromContext(ctx, r.db)
@@ -220,6 +223,7 @@ var storyFieldMapping = FieldMapping{
 	"end_date":         "end_date",
 	"duration_seconds": "duration_seconds",
 	"weekdays":         "weekdays",
+	"is_breaking":      "is_breaking",
 	"created_at":       "created_at",
 	"updated_at":       "updated_at",
 	"deleted_at":       "deleted_at",
@@ -248,7 +252,7 @@ type BulletinStoryData struct {
 	MixPoint float64 `gorm:"column:mix_point"`
 }
 
-// GetStoriesForBulletin retrieves eligible stories for bulletin generation with fair rotation.
+// GetStoriesForBulletin retrieves eligible stories for bulletin generation.
 // Returns stories with station-specific mix point data needed for audio processing.
 //
 // Stories must meet ALL criteria to be eligible:
@@ -258,12 +262,14 @@ type BulletinStoryData struct {
 //   - Current date is within start_date and end_date range
 //   - Current weekday matches the story's weekday schedule
 //
-// Fair rotation algorithm ensures all stories get equal airtime:
-//  1. Stories not yet used TODAY for this station get highest priority
-//  2. Within unused stories, newer stories (by start_date) come first
+// Selection priority (determines which stories fill available slots):
+//  1. Breaking news stories are selected first (newest by start_date preferred)
+//  2. Unused stories today get next priority (newest by start_date preferred)
 //  3. If all stories were used today, least-recently-used ones are selected
 //  4. RAND() as final tiebreaker for variety
 //
+// Breaking stories consume slots from the station's limit. Playback order is
+// randomized by the caller; this function only determines which stories are selected.
 // The rotation resets daily at local midnight and is isolated per station.
 func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
@@ -291,14 +297,15 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		  AND b.created_at >= ?
 	)`
 
-	// Build the query with fair rotation ordering:
-	// 1. last_used_today IS NULL DESC     → unused stories first
-	// 2. CASE for unused: start_date DESC → newer stories preferred (only for unused)
-	// 3. last_used_today ASC              → least-recently-used (only for used stories)
-	// 4. RAND()                           → variety within equal priority
+	// Build the query with breaking news priority + fair rotation ordering:
+	// 1. is_breaking DESC                 → breaking stories selected first
+	// 2. CASE for breaking: start_date DESC → among breaking, newest preferred
+	// 3. last_used_today IS NULL DESC     → then unused stories
+	// 4. CASE for unused: start_date DESC → among unused, newest preferred
+	// 5. last_used_today ASC              → then least-recently-used stories
+	// 6. RAND()                           → variety within equal priority
 	//
-	// The CASE expression ensures start_date sorting only applies to unused stories,
-	// while used stories are sorted by their last usage timestamp.
+	// Breaking stories consume slots from the limit just like regular stories.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
 		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).
@@ -310,7 +317,7 @@ func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		Where("stories.start_date <= ?", dateStr).
 		Where("stories.end_date >= ?", dateStr).
 		Where("stories.weekdays & ? > 0", weekdayBit).
-		Order("last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
+		Order("stories.is_breaking DESC, CASE WHEN stories.is_breaking = 1 THEN stories.start_date END DESC, last_used_today IS NULL DESC, CASE WHEN last_used_today IS NULL THEN stories.start_date END DESC, last_used_today ASC, RAND()").
 		Limit(limit).
 		Find(&stories).Error
 

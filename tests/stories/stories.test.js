@@ -411,6 +411,132 @@ describe('Stories', () => {
     });
   });
 
+  describe('Breaking News', () => {
+    let voiceId, stationId;
+
+    beforeAll(async () => {
+      const voice = await global.helpers.createVoice(global.resources, 'BreakingVoice');
+      const station = await global.helpers.createStation(global.resources, 'BreakingStation');
+      voiceId = voice.id;
+      stationId = station.id;
+    });
+
+    test('when creating story with is_breaking=true, then persists flag', async () => {
+      // Arrange
+      const storyData = {
+        title: `Breaking Story ${Date.now()}`,
+        text: 'Breaking news content',
+        voice_id: voiceId,
+        status: 'active',
+        start_date: '2024-01-01',
+        end_date: '2030-12-31',
+        weekdays: 127,
+        is_breaking: true,
+        target_stations: [stationId]
+      };
+
+      // Act
+      const response = await global.api.apiCall('POST', '/stories', storyData);
+
+      // Assert
+      expect(response.status).toBe(201);
+      global.resources.track('stories', response.data.id);
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
+      expect(getResponse.data.is_breaking).toBe(true);
+    });
+
+    test('when creating story without is_breaking, then defaults to false', async () => {
+      // Arrange
+      const storyData = {
+        title: `Normal Story ${Date.now()}`,
+        text: 'Normal news content',
+        voice_id: voiceId,
+        status: 'active',
+        start_date: '2024-01-01',
+        end_date: '2030-12-31',
+        weekdays: 127,
+        target_stations: [stationId]
+      };
+
+      // Act
+      const response = await global.api.apiCall('POST', '/stories', storyData);
+
+      // Assert
+      expect(response.status).toBe(201);
+      global.resources.track('stories', response.data.id);
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
+      expect(getResponse.data.is_breaking).toBe(false);
+    });
+
+    test('when updating is_breaking to true, then persists', async () => {
+      // Arrange
+      const result = await createStoryWithDeps('BreakingUpdate', 'Test', 'BrkUpdVoice', 'BrkUpdStation');
+      expect(result).not.toBeNull();
+
+      // Act
+      const response = await global.api.apiCall('PUT', `/stories/${result.id}`, { is_breaking: true });
+
+      // Assert
+      expect(response.status).toBe(200);
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
+      expect(getResponse.data.is_breaking).toBe(true);
+    });
+
+    test('when updating is_breaking to false, then persists', async () => {
+      // Arrange
+      const storyData = {
+        title: `Breaking to Normal ${Date.now()}`,
+        text: 'Was breaking',
+        voice_id: voiceId,
+        status: 'active',
+        start_date: '2024-01-01',
+        end_date: '2030-12-31',
+        weekdays: 127,
+        is_breaking: true,
+        target_stations: [stationId]
+      };
+      const createResponse = await global.api.apiCall('POST', '/stories', storyData);
+      expect(createResponse.status).toBe(201);
+      global.resources.track('stories', createResponse.data.id);
+
+      // Act
+      const response = await global.api.apiCall('PUT', `/stories/${createResponse.data.id}`, { is_breaking: false });
+
+      // Assert
+      expect(response.status).toBe(200);
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${createResponse.data.id}`);
+      expect(getResponse.data.is_breaking).toBe(false);
+    });
+
+    test('when filtering by is_breaking=1, then returns only breaking stories', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=1');
+
+      // Assert
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      const allBreaking = stories.every(s => s.is_breaking === true);
+      expect(allBreaking).toBe(true);
+    });
+
+    test('when filtering by is_breaking=0, then returns only non-breaking stories', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=0');
+
+      // Assert
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      const allNonBreaking = stories.every(s => s.is_breaking === false);
+      expect(allNonBreaking).toBe(true);
+    });
+  });
+
   describe('Status Filtering', () => {
     test('when filtering by status, then returns matching', async () => {
       // Arrange

@@ -186,6 +186,7 @@ class TestHelpers {
       start_date: data.start_date || `${year}-01-01`,
       end_date: data.end_date || `${year + 1}-12-31`,
       weekdays: data.weekdays !== undefined ? data.weekdays : 127,
+      is_breaking: data.is_breaking !== undefined ? data.is_breaking : false,
       target_stations: targetStations.map(id => parseInt(id, 10)),
       metadata: data.metadata || null
     };

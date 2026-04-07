@@ -30,9 +30,9 @@ module.exports = {
   query: {
     searchFields: ['title', 'text'],
     sortableFields: ['id', 'title', 'status', 'start_date', 'end_date', 'created_at', 'updated_at'],
-    filterableFields: ['id', 'title', 'status', 'voice_id', 'weekdays'],
+    filterableFields: ['id', 'title', 'status', 'voice_id', 'weekdays', 'is_breaking'],
     numericFields: ['id', 'voice_id', 'weekdays'],
-    selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'start_date', 'end_date', 'created_at', 'updated_at']
+    selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'is_breaking', 'start_date', 'end_date', 'created_at', 'updated_at']
   },
 
   // Note: Story API doesn't properly exclude fields on field selection

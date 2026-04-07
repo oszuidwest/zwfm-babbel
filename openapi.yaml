@@ -884,6 +884,7 @@ paths:
                         start_date: "2024-01-20"
                         end_date: "2024-01-27"
                         weekdays: 62
+                        is_breaking: false
                         created_at: "2024-01-20T10:00:00Z"
                         updated_at: "2024-01-20T10:00:00Z"
                         deleted_at: null
@@ -932,6 +933,7 @@ paths:
               start_date: "2024-01-20"
               end_date: "2024-01-27"
               weekdays: 62
+              is_breaking: true
               metadata:
                 priority: "high"
                 category: "breaking"
@@ -2708,6 +2710,9 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          description: Breaking news flag. Breaking stories are prioritized for selection in bulletins. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
         metadata:
           type: object
           additionalProperties: true
@@ -2772,6 +2777,10 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          default: false
+          description: Mark as breaking news. Breaking stories are prioritized for selection in bulletins. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
         metadata:
           type: object
           additionalProperties: true
@@ -2832,6 +2841,10 @@ components:
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
+        is_breaking:
+          type: boolean
+          nullable: true
+          description: Mark as breaking news. Breaking stories are prioritized for selection in bulletins. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
         metadata:
           type: object
           additionalProperties: true

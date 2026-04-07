@@ -39,28 +39,31 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 4. **Generate**: API creates bulletins with appropriate jingles
 5. **Broadcast**: Automation systems fetch bulletins via HTTP
 
-## Fair Story Rotation
+## Story Selection
 
-Babbel uses a rotation algorithm to ensure all news stories get equal airtime throughout the day. This prevents the same stories from repeating every hour while others are never heard.
+Babbel uses breaking news priority combined with fair rotation to select stories for bulletins. Breaking news is always included when slots are available; remaining slots are filled using rotation to ensure equal airtime.
 
 ### How it works
 
 When generating a bulletin, stories are selected in this priority order:
 
-1. **Fresh stories first** - Stories that haven't been used yet today always get priority
-2. **Newest content preferred** - Among fresh stories, the most recent ones (by start date) are selected first
-3. **Least-recently-used fallback** - If all stories have already aired today, the ones that aired longest ago are chosen
+1. **Breaking news first** - Stories marked as `is_breaking` are selected before all others, newest by start date preferred. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
+2. **Fresh stories next** - Non-breaking stories that haven't been used yet today get priority, newest by start date preferred
+3. **Least-recently-used fallback** - If all non-breaking stories have already aired today, the ones that aired longest ago are chosen
 4. **Random tiebreaker** - When stories have equal priority, random selection adds variety
+
+After selection, the playback order is shuffled randomly for natural radio flow — breaking priority only affects *which* stories are included, not their position in the bulletin audio.
 
 ### Key characteristics
 
 - **Daily reset** - The rotation resets at midnight (server's local timezone). Every day starts fresh.
 - **Per-station isolation** - Each station has its own rotation. A story airing on Station A doesn't affect its priority for Station B.
-- **Automatic balancing** - No manual intervention needed. The system distributes airtime across all available stories.
+- **Automatic balancing** - No manual intervention needed. The system distributes airtime across all non-breaking stories.
+- **Breaking stories consume slots** - A station's `max_stories_per_block` limit applies to all stories. If breaking stories fill all slots, non-breaking stories are excluded.
 
-### Example
+### Example (fair rotation for non-breaking stories)
 
-Scenario: 13 stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
+Scenario: 13 non-breaking stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
 
 | Time | Pool state | Selected | Reason |
 |------|------------|----------|--------|
@@ -261,7 +264,7 @@ CLAUDE.md              # AI assistant instructions
 
 ## Testing
 
-The project includes a comprehensive Jest integration test suite (508 tests):
+The project includes a comprehensive Jest integration test suite (516 tests):
 - **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, bulletins, bulletin cleanup, automation, users, validation
 - **Test generators**: Declarative schema-driven generators for CRUD, query, and validation tests
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security

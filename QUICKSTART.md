@@ -123,6 +123,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories \
     "text": "This is my first news story",
     "voice_id": 1,
     "weekdays": 62,
+    "is_breaking": false,
     "start_date": "2025-01-01",
     "end_date": "2025-12-31",
     "status": "active"
