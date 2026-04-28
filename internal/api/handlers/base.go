@@ -74,16 +74,20 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			"internal.timeout",
 			"The request took too long. Please try again.",
 		)
-	} else if notFound, ok := errors.AsType[*apperrors.NotFoundError](err); ok {
-		// NotFoundError - resource does not exist
+		return
+	}
+
+	if notFound, ok := errors.AsType[*apperrors.NotFoundError](err); ok {
 		logError(notFound.Resource, "not_found", err)
 		utils.ProblemExtended(c, http.StatusNotFound,
 			notFound.Error(),
 			strings.ToLower(notFound.Resource)+".not_found",
 			"Check that the ID exists and you have access",
 		)
-	} else if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
-		// DuplicateError - unique constraint violation
+		return
+	}
+
+	if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
 		logError(duplicate.Resource, "duplicate", err)
 		hint := "Use a different value"
 		if duplicate.Field != "" {
@@ -95,16 +99,20 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(duplicate.Resource)+".duplicate",
 			hint,
 		)
-	} else if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
-		// DependencyError - cannot delete due to dependencies
+		return
+	}
+
+	if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
 		logError(dependency.Resource, "has_dependencies", err)
 		utils.ProblemExtended(c, http.StatusConflict,
 			dependency.Error(),
 			strings.ToLower(dependency.Resource)+".has_dependencies",
 			fmt.Sprintf("Delete or reassign the associated %s first", dependency.Dependency),
 		)
-	} else if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
-		// ValidationError - input validation failed
+		return
+	}
+
+	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
 		logError(validation.Resource, "validation_failed", err)
 		hint := "Check your input and try again"
 		if validation.Field != "" {
@@ -115,39 +123,46 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(validation.Resource)+".validation_failed",
 			hint,
 		)
-	} else if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
-		// NoStoriesError - no stories available for bulletin
+		return
+	}
+
+	if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
 		logError("bulletin", "no_stories", err)
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
 			noStories.Error(),
 			"bulletin.no_stories",
 			"Add active stories with audio before generating a bulletin",
 		)
-	} else if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
-		// AudioError - audio processing failed (internal)
+		return
+	}
+
+	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			"audio.processing_failed",
 			"Check the audio file format and try again",
 		)
-	} else if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
-		// DatabaseError - unexpected database error (internal)
+		return
+	}
+
+	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
 			"Please try again later",
 		)
-	} else {
-		// Unknown error - fallback
-		logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
-		utils.ProblemExtended(c, http.StatusInternalServerError,
-			fmt.Sprintf("Failed to process %s", fallbackResource),
-			"internal.unknown_error",
-			"Please try again later or contact support",
-		)
+		return
 	}
+
+	// Unknown error - fallback
+	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
+	utils.ProblemExtended(c, http.StatusInternalServerError,
+		fmt.Sprintf("Failed to process %s", fallbackResource),
+		"internal.unknown_error",
+		"Please try again later or contact support",
+	)
 }
 
 // logError logs an error with structured fields for filtering.
