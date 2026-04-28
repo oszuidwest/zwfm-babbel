@@ -2,7 +2,6 @@
 package logger
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 )
@@ -37,30 +36,30 @@ func Initialize(level string, development bool) error {
 	return nil
 }
 
-// Info logs informational messages with Printf-style formatting.
+// Info logs informational messages with slog key-value attributes.
 func Info(message string, args ...any) {
-	logger.Info(fmt.Sprintf(message, args...))
+	logger.Info(message, args...)
 }
 
-// Error logs error messages with Printf-style formatting.
+// Error logs error messages with slog key-value attributes.
 func Error(message string, args ...any) {
-	logger.Error(fmt.Sprintf(message, args...))
+	logger.Error(message, args...)
 }
 
-// Fatal logs fatal error messages and terminates the program.
+// Fatal logs fatal error messages with slog key-value attributes and terminates the program.
 func Fatal(message string, args ...any) {
-	logger.Error(fmt.Sprintf(message, args...))
+	logger.Error(message, args...)
 	os.Exit(1)
 }
 
-// Debug logs debug messages with Printf-style formatting.
+// Debug logs debug messages with slog key-value attributes.
 func Debug(message string, args ...any) {
-	logger.Debug(fmt.Sprintf(message, args...))
+	logger.Debug(message, args...)
 }
 
-// Warn logs warning messages with Printf-style formatting.
+// Warn logs warning messages with slog key-value attributes.
 func Warn(message string, args ...any) {
-	logger.Warn(fmt.Sprintf(message, args...))
+	logger.Warn(message, args...)
 }
 
 // Sync flushes any buffered log entries.

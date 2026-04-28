@@ -87,7 +87,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	// Clean up OAuth session data (type-safe)
 	auth.ClearSessionOAuth(session)
 	if err := session.Save(c); err != nil {
-		logger.Error("Failed to save session after cleanup: %v", err)
+		logger.Error("Failed to save session after cleanup", "error", err)
 	}
 
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")

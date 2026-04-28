@@ -2,7 +2,7 @@ package services
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"time"
@@ -78,7 +78,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	if jingle.VoiceID != nil {
 		for _, s := range stories[1:] {
 			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
-				logger.Debug("Bulletin for station %d uses jingle from voice %d; other selected stories use different voices", stationID, *jingle.VoiceID)
+				logger.Debug("Bulletin uses jingle from one voice; other selected stories use different voices", "station_id", stationID, "jingle_voice_id", *jingle.VoiceID)
 				break
 			}
 		}
@@ -214,7 +214,7 @@ func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64
 			}
 		}
 		if breakingCount == len(stories) {
-			logger.Warn("All %d bulletin slots for station %d consumed by breaking stories; non-breaking stories excluded", len(stories), stationID)
+			logger.Warn("All bulletin slots consumed by breaking stories; non-breaking stories excluded", "slot_count", len(stories), "station_id", stationID)
 		}
 	}
 
@@ -224,7 +224,7 @@ func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64
 		for i, story := range stories {
 			storyIDs[i] = story.ID
 		}
-		logger.Debug("Story selection returned %d stories for station %d: IDs=%v", len(stories), stationID, storyIDs)
+		logger.Debug("Story selection complete", "story_count", len(stories), "station_id", stationID, "story_ids", storyIDs)
 	}
 
 	return stories, nil

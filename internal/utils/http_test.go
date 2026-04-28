@@ -2,7 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -146,17 +145,18 @@ func assertValidationError(t *testing.T, w *httptest.ResponseRecorder, field, ms
 	t.Errorf("expected validation error on field %q containing %q, got errors: %+v", field, msgSubstring, resp.Errors)
 }
 
-func newTestContext(body string) (*gin.Context, *httptest.ResponseRecorder) {
+func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequestWithContext(context.Background(), "POST", "/test", bytes.NewBufferString(body))
+	c.Request = httptest.NewRequestWithContext(t.Context(), "POST", "/test", bytes.NewBufferString(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 	return c, w
 }
 
 func TestBindAndValidate_ValidStoryRequest(t *testing.T) {
 	body := `{"title":"Test Story","text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -173,7 +173,7 @@ func TestBindAndValidate_ValidStoryRequest(t *testing.T) {
 }
 
 func TestBindAndValidate_MalformedJSON(t *testing.T) {
-	c, w := newTestContext(`{invalid json}`)
+	c, w := newTestContext(t, `{invalid json}`)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -187,7 +187,7 @@ func TestBindAndValidate_MalformedJSON(t *testing.T) {
 }
 
 func TestBindAndValidate_EmptyBody(t *testing.T) {
-	c, w := newTestContext("")
+	c, w := newTestContext(t, "")
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -202,7 +202,7 @@ func TestBindAndValidate_EmptyBody(t *testing.T) {
 
 func TestBindAndValidate_TypeMismatch(t *testing.T) {
 	body := `{"name":"Test","max_stories_per_block":"five","pause_seconds":1.5}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StationRequest
 	ok := BindAndValidate(c, &req)
@@ -217,7 +217,7 @@ func TestBindAndValidate_TypeMismatch(t *testing.T) {
 
 func TestBindAndValidate_ValidationFailure_MissingRequired(t *testing.T) {
 	body := `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -233,7 +233,7 @@ func TestBindAndValidate_ValidationFailure_MissingRequired(t *testing.T) {
 
 func TestBindAndValidate_ValidationFailure_NotBlank(t *testing.T) {
 	body := `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -249,7 +249,7 @@ func TestBindAndValidate_ValidationFailure_NotBlank(t *testing.T) {
 
 func TestBindAndValidate_NormalizesEntitiesBeforeValidation(t *testing.T) {
 	body := `{"title":"Tom &amp; Jerry","text":"Content &lt;here&gt;","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -267,7 +267,7 @@ func TestBindAndValidate_NormalizesEntitiesBeforeValidation(t *testing.T) {
 
 func TestBindAndValidate_NonNormalizerType(t *testing.T) {
 	body := `{"name":"Test Station","max_stories_per_block":5,"pause_seconds":1.5}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StationRequest
 	ok := BindAndValidate(c, &req)
@@ -285,7 +285,7 @@ func TestBindAndValidate_NonNormalizerType(t *testing.T) {
 
 func TestBindAndValidate_CustomValidator_StoryStatus(t *testing.T) {
 	body := `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -301,7 +301,7 @@ func TestBindAndValidate_CustomValidator_StoryStatus(t *testing.T) {
 
 func TestBindAndValidate_CustomValidator_DateFormat(t *testing.T) {
 	body := `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -321,7 +321,7 @@ func TestBindAndValidate_MaxLengthCheckedAfterNormalization(t *testing.T) {
 	title := strings.Repeat("A", 496) + "&amp;"
 
 	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -340,7 +340,7 @@ func TestBindAndValidate_MaxLengthRejectsAfterNormalization(t *testing.T) {
 	title := strings.Repeat("A", 500) + "&amp;"
 
 	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(body)
+	c, w := newTestContext(t, body)
 
 	var req StoryCreateRequest
 	ok := BindAndValidate(c, &req)
@@ -359,7 +359,7 @@ func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T)
 	t.Run("passes when decoded length within limit", func(t *testing.T) {
 		title := strings.Repeat("A", 496) + "&amp;"
 		body := `{"title":"` + title + `"}`
-		c, w := newTestContext(body)
+		c, w := newTestContext(t, body)
 
 		var req StoryUpdateRequest
 		ok := BindAndValidate(c, &req)
@@ -375,7 +375,7 @@ func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T)
 	t.Run("rejects when decoded length exceeds limit", func(t *testing.T) {
 		title := strings.Repeat("A", 500) + "&amp;"
 		body := `{"title":"` + title + `"}`
-		c, w := newTestContext(body)
+		c, w := newTestContext(t, body)
 
 		var req StoryUpdateRequest
 		ok := BindAndValidate(c, &req)

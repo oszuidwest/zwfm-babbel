@@ -68,7 +68,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Context timeout (check first as it's a special case)
 	if errors.Is(err, context.DeadlineExceeded) {
-		logger.Error("Request timeout: %v", err)
+		logger.Error("Request timeout", "error", err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
 			"internal.timeout",
@@ -141,7 +141,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		)
 	} else {
 		// Unknown error - fallback
-		logger.Error("Unhandled error for %s: %v", fallbackResource, err)
+		logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			fmt.Sprintf("Failed to process %s", fallbackResource),
 			"internal.unknown_error",
@@ -175,7 +175,7 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 func deferCleanup(cleanup func() error, resourceType string) func() {
 	return func() {
 		if err := cleanup(); err != nil {
-			logger.Error("Failed to cleanup %s: %v", resourceType, err)
+			logger.Error("Failed to cleanup resource", "type", resourceType, "error", err)
 		}
 	}
 }

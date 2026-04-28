@@ -41,13 +41,13 @@ func main() {
 
 	db, err := database.NewGormDB(cfg)
 	if err != nil {
-		logger.Fatal("Failed to connect to database: %v", err)
+		logger.Fatal("Failed to connect to database", "error", err)
 	}
 	defer closeDatabase(db)
 
 	router, err := api.SetupRouter(db, cfg)
 	if err != nil {
-		logger.Fatal("Failed to setup router: %v", err)
+		logger.Fatal("Failed to setup router", "error", err)
 	}
 
 	srv := newServer(cfg, router)
@@ -108,11 +108,11 @@ func initLogger(cfg *config.Config) {
 func closeDatabase(db *gorm.DB) {
 	sqlDB, err := db.DB()
 	if err != nil {
-		logger.Error("Failed to get underlying database connection: %v", err)
+		logger.Error("Failed to get underlying database connection", "error", err)
 		return
 	}
 	if err := sqlDB.Close(); err != nil {
-		logger.Error("Failed to close database connection: %v", err)
+		logger.Error("Failed to close database connection", "error", err)
 	}
 }
 
@@ -129,7 +129,7 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 func startServer(srv *http.Server, cfg *config.Config) {
 	serverErr := make(chan error, 1)
 	go func() {
-		logger.Info("Starting Babbel API server on %s (version: %s, commit: %s)", cfg.Server.Address, version.Version, version.Commit)
+		logger.Info("Starting Babbel API server", "address", cfg.Server.Address, "version", version.Version, "commit", version.Commit)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			serverErr <- err
 		}
@@ -139,7 +139,7 @@ func startServer(srv *http.Server, cfg *config.Config) {
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			logger.Fatal("Failed to start server: %v", err)
+			logger.Fatal("Failed to start server", "error", err)
 		}
 	case <-time.After(serverStartupCheckDelay):
 	}
@@ -155,6 +155,6 @@ func shutdownServer(srv *http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		logger.Fatal("Server forced to shutdown: %v", err)
+		logger.Fatal("Server forced to shutdown", "error", err)
 	}
 }

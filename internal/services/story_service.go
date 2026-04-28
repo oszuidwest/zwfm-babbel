@@ -342,7 +342,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	if err != nil {
 		// Clean up file on database error
 		if rmErr := os.Remove(outputPath); rmErr != nil {
-			logger.Error("Failed to remove audio file after database error: %v", rmErr)
+			logger.Error("Failed to remove audio file after database error", "error", rmErr)
 		}
 		if errors.Is(err, repository.ErrNotFound) {
 			return apperrors.NotFoundWithID("Story", storyID)
@@ -350,7 +350,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Database("Story", "update", err)
 	}
 
-	logger.Info("Processed audio for story %d: %s (%.2fs)", storyID, filename, duration)
+	logger.Info("Processed audio for story", "story_id", storyID, "filename", filename, "duration_s", duration)
 	return nil
 }
 
@@ -421,7 +421,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}
 	defer func() {
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
-			logger.Warn("Failed to remove TTS temp file %s: %v", tempPath, err)
+			logger.Warn("Failed to remove TTS temp file", "path", tempPath, "error", err)
 		}
 	}()
 

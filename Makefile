@@ -45,33 +45,17 @@ quality: lint
 	@echo "✅ Unit tests passed!"
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
-	@if command -v deadcode >/dev/null 2>&1 || [ -f "$$(go env GOPATH)/bin/deadcode" ]; then \
-		DEADCODE_CMD="deadcode"; \
-		if ! command -v deadcode >/dev/null 2>&1; then \
-			DEADCODE_CMD="$$(go env GOPATH)/bin/deadcode"; \
-		fi; \
-		deadcode_output=$$($$DEADCODE_CMD ./... 2>&1 | grep -v "database/connection.go:.*func: Migrate" || true); \
-		if [ -n "$$deadcode_output" ]; then \
-			echo "❌ Found dead code:"; \
-			echo "$$deadcode_output"; \
-			exit 1; \
-		else \
-			echo "✅ No dead code found!"; \
-		fi \
+	@deadcode_output=$$(go tool deadcode ./... 2>/dev/null | grep -v "database/connection.go:.*func: Migrate" || true); \
+	if [ -n "$$deadcode_output" ]; then \
+		echo "❌ Found dead code:"; \
+		echo "$$deadcode_output"; \
+		exit 1; \
 	else \
-		echo "deadcode not installed, install with: go install golang.org/x/tools/cmd/deadcode@latest"; \
+		echo "✅ No dead code found!"; \
 	fi
 	@echo "Running staticcheck..."
-	@if command -v staticcheck >/dev/null 2>&1 || [ -f "$$(go env GOPATH)/bin/staticcheck" ]; then \
-		STATICCHECK_CMD="staticcheck"; \
-		if ! command -v staticcheck >/dev/null 2>&1; then \
-			STATICCHECK_CMD="$$(go env GOPATH)/bin/staticcheck"; \
-		fi; \
-		$$STATICCHECK_CMD ./...; \
-		echo "✅ staticcheck passed!"; \
-	else \
-		echo "staticcheck not installed, install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; \
-	fi
+	@go tool staticcheck ./...
+	@echo "✅ staticcheck passed!"
 
 # Clean build artifacts
 clean:
@@ -134,9 +118,7 @@ docker-logs:
 install-tools:
 	@echo "Installing Go tools..."
 	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest || echo "Failed to install golangci-lint"
-	@go install golang.org/x/tools/cmd/deadcode@latest || echo "Failed to install deadcode"
-	@go install honnef.co/go/tools/cmd/staticcheck@latest || echo "Failed to install staticcheck"
-	@echo "✅ Tool installation complete (docs tools use npx automatically)"
+	@echo "✅ Tool installation complete (deadcode, staticcheck and govulncheck are managed via go.mod tool directives)"
 
 db-reset:
 	@if ! command -v docker >/dev/null 2>&1; then \

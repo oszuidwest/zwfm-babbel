@@ -40,7 +40,7 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 	// Generate relative path for database storage
 	rel, err := filepath.Rel(config.Audio.AppRoot, config.Audio.OutputPath)
 	if err != nil {
-		logger.Warn("Failed to compute relative path for bulletin output, using default: %v", err)
+		logger.Warn("Failed to compute relative path for bulletin output, using default", "error", err)
 		rel = defaultAudioOutputPath
 	}
 	relativePath := filepath.Join(rel, filename)

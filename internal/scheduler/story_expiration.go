@@ -101,11 +101,11 @@ func (s *StoryExpirationService) expireStories(ctx context.Context) {
 		Update("status", models.StoryStatusExpired)
 
 	if result.Error != nil {
-		logger.Error("Failed to expire stories: %v", result.Error)
+		logger.Error("Failed to expire stories", "error", result.Error)
 		return
 	}
 
 	if result.RowsAffected > 0 {
-		logger.Info("Expired %d stories past their end date", result.RowsAffected)
+		logger.Info("Expired stories past their end date", "count", result.RowsAffected)
 	}
 }
