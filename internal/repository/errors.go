@@ -40,13 +40,13 @@ func ParseDBError(err error) error {
 	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch mysqlErr.Number {
 		case 1062: // ER_DUP_ENTRY
-			logger.Debug("MySQL duplicate key: %v", err)
+			logger.Debug("MySQL duplicate key", "error", err)
 			return ErrDuplicateKey
 		case 1452: // ER_NO_REFERENCED_ROW_2
-			logger.Debug("MySQL foreign key violation: %v", err)
+			logger.Debug("MySQL foreign key violation", "error", err)
 			return ErrForeignKeyViolation
 		case 1406: // ER_DATA_TOO_LONG
-			logger.Debug("MySQL data too long: %v", err)
+			logger.Debug("MySQL data too long", "error", err)
 			return ErrDataTooLong
 		}
 	}
@@ -55,13 +55,13 @@ func ParseDBError(err error) error {
 	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
-		logger.Debug("Duplicate entry detected: %v", err)
+		logger.Debug("Duplicate entry detected", "error", err)
 		return ErrDuplicateKey
 	case strings.Contains(errStr, "foreign key constraint"):
-		logger.Debug("Foreign key constraint violation: %v", err)
+		logger.Debug("Foreign key constraint violation", "error", err)
 		return ErrForeignKeyViolation
 	case strings.Contains(errStr, "Data too long"):
-		logger.Debug("Data too long for column: %v", err)
+		logger.Debug("Data too long for column", "error", err)
 		return ErrDataTooLong
 	default:
 		return err

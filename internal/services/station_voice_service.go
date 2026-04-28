@@ -271,9 +271,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
 		if err := os.Remove(jinglePath); err != nil {
 			// Log error but don't fail the deletion - database record is already gone
-			logger.Error("Failed to remove jingle file %s after deletion: %v", jinglePath, err)
+			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
 		} else {
-			logger.Info("Removed jingle file for station %d voice %d", stationID, voiceID)
+			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
 		}
 	}
 
@@ -304,12 +304,12 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 	if err != nil {
 		// Clean up file on database error
 		if rmErr := os.Remove(outputPath); rmErr != nil {
-			logger.Error("Failed to remove jingle file after database error: %v", rmErr)
+			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
 		}
 		return apperrors.Database("StationVoice", "update", err)
 	}
 
-	logger.Info("Processed jingle for station-voice %d: %s", stationVoiceID, filename)
+	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoiceID, "filename", filename)
 	return nil
 }
 

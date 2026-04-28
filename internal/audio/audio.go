@@ -109,7 +109,7 @@ func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, s
 func cleanupTempDir(tempDir string) {
 	if err := os.RemoveAll(tempDir); err != nil {
 		// Ignore cleanup errors
-		logger.Warn("Failed to cleanup temp directory %s: %v", tempDir, err)
+		logger.Warn("Failed to cleanup temp directory", "path", tempDir, "error", err)
 	}
 }
 
@@ -197,9 +197,9 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 	if _, err := os.Stat(jinglePath); err != nil {
 		if !os.IsNotExist(err) {
 			// Log unexpected errors (permission issues, etc.) but continue without jingle
-			logger.Warn("Failed to stat jingle file %s: %v", jinglePath, err)
+			logger.Warn("Failed to stat jingle file", "path", jinglePath, "error", err)
 		} else {
-			logger.Debug("Jingle file not found at %s, generating bulletin without bed", jinglePath)
+			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
 		}
 		filters = append(filters, "[messages]anull[mixed]")
 	} else {
@@ -220,8 +220,8 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	// Print command for debugging
-	logger.Debug("Executing FFmpeg command: %s %s", s.config.Audio.FFmpegPath, strings.Join(args, " "))
-	logger.Debug("Filter complex: %s", strings.Join(filters, ";"))
+	logger.Debug("Executing FFmpeg command", "binary", s.config.Audio.FFmpegPath, "args", strings.Join(args, " "))
+	logger.Debug("FFmpeg filter complex", "filters", strings.Join(filters, ";"))
 
 	// Capture stderr for better error reporting
 	stderr, err := cmd.StderrPipe()
@@ -236,11 +236,11 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
 		// Continue despite read error
-		logger.Warn("Failed to read FFmpeg stderr: %v", readErr)
+		logger.Warn("Failed to read FFmpeg stderr", "error", readErr)
 	}
 
 	if err := cmd.Wait(); err != nil {
-		logger.Debug("FFmpeg stderr: %s", string(stderrBytes))
+		logger.Debug("FFmpeg stderr output", "stderr", string(stderrBytes))
 		stderrStr := string(stderrBytes)
 		if readErr != nil {
 			stderrStr = fmt.Sprintf("(stderr read failed: %v)", readErr)

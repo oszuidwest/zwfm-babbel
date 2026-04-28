@@ -6,7 +6,7 @@ import (
 	"cmp"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -298,30 +298,35 @@ func main() {
 	// Read OpenAPI spec
 	data, err := os.ReadFile(*input)
 	if err != nil {
-		log.Fatalf("Failed to read OpenAPI spec: %v", err)
+		slog.Error("Failed to read OpenAPI spec", "error", err)
+		os.Exit(1)
 	}
 
 	// Parse YAML
 	var spec OpenAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
-		log.Fatalf("Failed to parse OpenAPI spec: %v", err)
+		slog.Error("Failed to parse OpenAPI spec", "error", err)
+		os.Exit(1)
 	}
 
 	// Create output directory if needed
 	outputDir := filepath.Dir(*output)
 	if err := os.MkdirAll(outputDir, 0750); err != nil {
-		log.Fatalf("Failed to create output directory: %v", err)
+		slog.Error("Failed to create output directory", "error", err)
+		os.Exit(1)
 	}
 
 	// Generate markdown
 	markdown, err := generateMarkdown(spec)
 	if err != nil {
-		log.Fatalf("Failed to generate markdown: %v", err)
+		slog.Error("Failed to generate markdown", "error", err)
+		os.Exit(1)
 	}
 
 	// Write output
 	if err := os.WriteFile(*output, []byte(markdown), 0600); err != nil {
-		log.Fatalf("Failed to write output: %v", err)
+		slog.Error("Failed to write output", "error", err)
+		os.Exit(1)
 	}
 
 	fmt.Printf("✓ Documentation generated at %s\n", *output)

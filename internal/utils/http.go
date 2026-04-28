@@ -71,7 +71,7 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 
 	if err := ValidateAudioFile(header); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
-			logger.Warn("Failed to close file during validation error: %v", closeErr)
+			logger.Warn("Failed to close file during validation error", "error", closeErr)
 		}
 		return "", nil, fmt.Errorf("invalid audio file: %w", err)
 	}
@@ -81,7 +81,7 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 
 	if err := saveFileToPath(file, tempPath); err != nil {
 		if closeErr := file.Close(); closeErr != nil {
-			logger.Warn("Failed to close file during save error: %v", closeErr)
+			logger.Warn("Failed to close file during save error", "error", closeErr)
 		}
 		return "", nil, err
 	}
@@ -89,11 +89,11 @@ func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (
 	cleanup = func() error {
 		var errs []error
 		if err := file.Close(); err != nil {
-			logger.Warn("Failed to close uploaded file during cleanup: %v", err)
+			logger.Warn("Failed to close uploaded file during cleanup", "error", err)
 			errs = append(errs, err)
 		}
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
-			logger.Warn("Failed to remove temp file %s: %v", tempPath, err)
+			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
 			errs = append(errs, err)
 		}
 		if len(errs) > 0 {
@@ -140,7 +140,7 @@ func saveFileToPath(file multipart.File, dst string) error {
 	}
 	defer func() {
 		if err := out.Close(); err != nil {
-			logger.Error("Failed to close output file: %v", err)
+			logger.Error("Failed to close output file", "error", err)
 		}
 	}()
 
@@ -307,7 +307,7 @@ func BindAndValidate(c *gin.Context, req any) bool {
 	// Step 3: Validate using Gin's registered validators (including custom ones)
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
-		logger.Error("Validator engine is not *validator.Validate, got %T", binding.Validator.Engine())
+		logger.Error("Validator engine is not *validator.Validate", "type", fmt.Sprintf("%T", binding.Validator.Engine()))
 		ProblemInternalServer(c, "Internal validation error")
 		return false
 	}

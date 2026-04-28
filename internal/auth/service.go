@@ -176,7 +176,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		}
 		if !added {
 			// Policy already exists (from database adapter), this is expected
-			logger.Debug("RBAC policy already exists: %v", p)
+			logger.Debug("RBAC policy already exists", "policy", p)
 		}
 	}
 
@@ -222,7 +222,7 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Where("deleted_at IS NULL").Count(&count).Error
 		if err != nil {
 			// On error, assume it might exist and try with suffix
-			logger.Warn("Database error checking username uniqueness, trying next: %v", err)
+			logger.Warn("Database error checking username uniqueness, trying next", "error", err)
 			username = fmt.Sprintf("%s_%d", baseUsername, counter)
 			counter++
 			if counter > 100 {
@@ -303,7 +303,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		if err != nil || user.SuspendedAt != nil {
 			session.Delete(string(SessKeyUserID))
 			if saveErr := session.Save(c); saveErr != nil {
-				logger.Error("Failed to save session during cleanup: %v", saveErr)
+				logger.Error("Failed to save session during cleanup", "error", saveErr)
 				// Continue with authentication error - session cleanup failure is secondary
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -386,7 +386,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		// Increment failed login attempt counter (log but don't block - we're returning invalid credentials anyway)
 		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
-			logger.Error("Failed to update login failure stats: %v", updateErr)
+			logger.Error("Failed to update login failure stats", "error", updateErr)
 		}
 		return fmt.Errorf("invalid credentials")
 	}
@@ -410,7 +410,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	// Generate state for CSRF protection (type-safe error handling)
 	state, err := generateState()
 	if err != nil {
-		logger.Error("Failed to generate OAuth state: %v", err)
+		logger.Error("Failed to generate OAuth state", "error", err)
 		utils.ProblemInternalServer(c, "Failed to initiate OAuth flow")
 		return
 	}
@@ -424,11 +424,11 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		if s.isAllowedFrontendURL(frontendURL) {
 			SetSessionFrontendURL(session, frontendURL)
 		} else {
-			logger.Warn("Rejected invalid frontend_url: %s", frontendURL)
+			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
 		}
 	}
 	if err := session.Save(c); err != nil {
-		logger.Error("Failed to save OAuth session: %v", err)
+		logger.Error("Failed to save OAuth session", "error", err)
 		utils.ProblemInternalServer(c, "Session error")
 		return
 	}
@@ -599,7 +599,7 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 		Where("id = ?", user.ID).
 		Where("deleted_at IS NULL").
 		Scan(&role).Error; err != nil {
-		logger.Error("SECURITY: Failed to get user role for user %d: %v", user.ID, err)
+		logger.Error("SECURITY: Failed to get user role", "user_id", user.ID, "error", err)
 		return fmt.Errorf("failed to get user role: %w", err)
 	}
 
@@ -621,7 +621,7 @@ func (s *Service) Logout(c *gin.Context) error {
 	session := s.sessions.Get(c)
 	session.Clear()
 	if err := session.Save(c); err != nil {
-		logger.Error("Failed to save session during logout: %v", err)
+		logger.Error("Failed to save session during logout", "error", err)
 		return fmt.Errorf("failed to save session: %w", err)
 	}
 	return nil
@@ -651,7 +651,7 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 			"failed_login_attempts": 0,
 		}).Error
 	if err != nil {
-		logger.Error("Failed to update login stats: %v", err)
+		logger.Error("Failed to update login stats", "error", err)
 	}
 	return err
 }
@@ -663,7 +663,7 @@ func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
 		Where("id = ?", userID).
 		Update("failed_login_attempts", gorm.Expr("failed_login_attempts + 1")).Error
 	if err != nil {
-		logger.Error("Failed to update failed login attempts: %v", err)
+		logger.Error("Failed to update failed login attempts", "error", err)
 	}
 	return err
 }

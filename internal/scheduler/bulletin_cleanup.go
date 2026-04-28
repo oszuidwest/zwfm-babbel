@@ -43,7 +43,7 @@ func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config) *BulletinCleanup
 // Start begins the background cleanup service with immediate execution and daily intervals.
 // The service runs in a separate goroutine and can be stopped with [BulletinCleanupService.Stop].
 func (s *BulletinCleanupService) Start() {
-	logger.Info("Starting bulletin cleanup service (retention: %s, runs daily)", s.config.Audio.BulletinRetention)
+	logger.Info("Starting bulletin cleanup service (runs daily)", "retention", s.config.Audio.BulletinRetention)
 
 	// Run immediately on start with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -96,7 +96,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
-		logger.Error("Failed to query expired bulletins: %v", err)
+		logger.Error("Failed to query expired bulletins", "error", err)
 		return
 	}
 
@@ -106,7 +106,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 		if b.AudioFile == "" {
 			// No file to delete, just mark as purged
 			if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
-				logger.Error("Failed to mark bulletin %d as purged: %v", b.ID, err)
+				logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			}
 			continue
 		}
@@ -116,7 +116,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 
 		info, statErr := os.Stat(filePath)
 		if statErr != nil && !os.IsNotExist(statErr) {
-			logger.Error("Failed to stat bulletin file %s: %v", filePath, statErr)
+			logger.Error("Failed to stat bulletin file", "path", filePath, "error", statErr)
 			continue
 		}
 
@@ -127,12 +127,12 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 
 		// Remove the file (ignore "not found" — file may already be gone)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-			logger.Error("Failed to remove bulletin file %s: %v", filePath, err)
+			logger.Error("Failed to remove bulletin file", "path", filePath, "error", err)
 			continue
 		}
 
 		if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
-			logger.Error("Failed to mark bulletin %d as purged: %v", b.ID, err)
+			logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			continue
 		}
 
@@ -144,9 +144,9 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 	orphansRemoved, orphanBytes := s.cleanOrphanedFiles(ctx)
 
 	if purgedCount > 0 || orphansRemoved > 0 {
-		logger.Info("Bulletin cleanup complete: %d files purged (%.1f MB freed), %d orphans removed (%.1f MB freed)",
-			purgedCount, float64(bytesFreed)/1024/1024,
-			orphansRemoved, float64(orphanBytes)/1024/1024)
+		logger.Info("Bulletin cleanup complete",
+			"files_purged", purgedCount, "mb_freed", float64(bytesFreed)/1024/1024,
+			"orphans_removed", orphansRemoved, "orphan_mb_freed", float64(orphanBytes)/1024/1024)
 	}
 }
 
@@ -157,7 +157,7 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
-		logger.Error("Failed to read output directory %s: %v", outputDir, err)
+		logger.Error("Failed to read output directory", "path", outputDir, "error", err)
 		return 0, 0
 	}
 
@@ -168,7 +168,7 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 	// Get all known audio files from database
 	knownFiles, err := s.repo.GetAllAudioFiles(ctx)
 	if err != nil {
-		logger.Error("Failed to query audio files from database: %v", err)
+		logger.Error("Failed to query audio files from database", "error", err)
 		return 0, 0
 	}
 
@@ -205,7 +205,7 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 
 		fileBytes := info.Size()
 		if err := os.Remove(fullPath); err != nil {
-			logger.Error("Failed to remove orphaned file %s: %v", fullPath, err)
+			logger.Error("Failed to remove orphaned file", "path", fullPath, "error", err)
 			continue
 		}
 

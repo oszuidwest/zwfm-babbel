@@ -135,7 +135,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	// Check if station exists
 	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
-		logger.Error("Automation: failed to check station existence: %v", err)
+		logger.Error("Automation: failed to check station existence", "error", err)
 		utils.ProblemInternalServer(c, "Failed to check station")
 		return
 	}
@@ -159,7 +159,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
 		if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
 			// Database error (not "not found") - fail fast
-			logger.Error("Automation: failed to check existing bulletin: %v", err)
+			logger.Error("Automation: failed to check existing bulletin", "error", err)
 			utils.ProblemInternalServer(c, "Failed to check existing bulletin")
 			return
 		}
@@ -173,7 +173,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	}
 
 	// Generate new bulletin
-	logger.Info("Automation: generating new bulletin for station %d (max_age=%ds)", req.stationID, req.maxAgeSeconds)
+	logger.Info("Automation: generating new bulletin", "station_id", req.stationID, "max_age_s", req.maxAgeSeconds)
 
 	bulletin, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
 	if err != nil {
@@ -193,10 +193,10 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	// Verify file exists before serving (consistent RFC 9457 error handling)
 	if _, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
-			logger.Error("Automation: audio file not found: %s", filePath)
+			logger.Error("Automation: audio file not found", "path", filePath)
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
-			logger.Error("Automation: failed to access audio file: %v", err)
+			logger.Error("Automation: failed to access audio file", "error", err)
 			utils.ProblemInternalServer(c, "Failed to access audio file")
 		}
 		return err

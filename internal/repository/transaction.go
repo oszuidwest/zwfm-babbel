@@ -45,7 +45,7 @@ func (m *txManager) WithTransaction(ctx context.Context, fn func(ctx context.Con
 		// but we need to log it
 		defer func() {
 			if p := recover(); p != nil {
-				logger.Error("Panic in transaction: %v", p)
+				logger.Error("Panic in transaction", "panic", p)
 				panic(p) // Re-raise the panic after logging
 			}
 		}()
