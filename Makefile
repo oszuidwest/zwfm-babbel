@@ -45,7 +45,7 @@ quality: lint
 	@echo "✅ Unit tests passed!"
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
-	@deadcode_output=$$(go tool deadcode ./... 2>&1 | grep -v "database/connection.go:.*func: Migrate" || true); \
+	@deadcode_output=$$(go tool deadcode ./... 2>/dev/null | grep -v "database/connection.go:.*func: Migrate" || true); \
 	if [ -n "$$deadcode_output" ]; then \
 		echo "❌ Found dead code:"; \
 		echo "$$deadcode_output"; \
