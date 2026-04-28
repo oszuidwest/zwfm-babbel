@@ -25,6 +25,16 @@ func NewUserService(repo repository.UserRepository) *UserService {
 	}
 }
 
+// CreateUserRequest represents the parameters for creating a new user.
+type CreateUserRequest struct {
+	Username string
+	FullName string
+	Email    string
+	Password string
+	Role     string
+	Metadata *datatypes.JSONMap
+}
+
 // UpdateUserRequest represents the parameters for updating a user.
 type UpdateUserRequest struct {
 	Username  string
@@ -37,46 +47,53 @@ type UpdateUserRequest struct {
 }
 
 // Create creates a new user account with the given parameters.
-func (s *UserService) Create(ctx context.Context, username, fullName, email, password, role string, metadata *datatypes.JSONMap) (*models.User, error) {
+func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
 	// Validate role
-	if !isValidRole(role) {
-		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
+	if !isValidRole(req.Role) {
+		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
 	}
 
 	// Check username uniqueness
-	taken, err := s.repo.IsUsernameTaken(ctx, username, nil)
+	taken, err := s.repo.IsUsernameTaken(ctx, req.Username, nil)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 	if taken {
-		return nil, apperrors.Duplicate("User", "username", username)
+		return nil, apperrors.Duplicate("User", "username", req.Username)
 	}
 
 	// Check email uniqueness (if provided)
-	if email != "" {
-		taken, err = s.repo.IsEmailTaken(ctx, email, nil)
+	if req.Email != "" {
+		taken, err = s.repo.IsEmailTaken(ctx, req.Email, nil)
 		if err != nil {
 			return nil, apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 		}
 		if taken {
-			return nil, apperrors.Duplicate("User", "email", email)
+			return nil, apperrors.Duplicate("User", "email", req.Email)
 		}
 	}
 
 	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, apperrors.Database("User", "hash", err)
 	}
 
 	// Handle email - empty string should be NULL
 	var emailValue *string
-	if email != "" {
-		emailValue = &email
+	if req.Email != "" {
+		emailValue = &req.Email
 	}
 
 	// Create user
-	user, err := s.repo.Create(ctx, username, fullName, emailValue, string(hashedPassword), role, metadata)
+	user, err := s.repo.Create(ctx, repository.CreateUserParams{
+		Username:     req.Username,
+		FullName:     req.FullName,
+		Email:        emailValue,
+		PasswordHash: string(hashedPassword),
+		Role:         req.Role,
+		Metadata:     req.Metadata,
+	})
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateKey) {
 			return nil, apperrors.Duplicate("User", "username or email", "")
@@ -88,7 +105,9 @@ func (s *UserService) Create(ctx context.Context, username, fullName, email, pas
 }
 
 // applyUsernameUpdate validates and applies username update.
-func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *repository.UserUpdate, username string, excludeID int64) error {
+func (s *UserService) applyUsernameUpdate(
+	ctx context.Context, updates *repository.UserUpdate, username string, excludeID int64,
+) error {
 	if username == "" {
 		return nil
 	}
@@ -107,7 +126,9 @@ func (s *UserService) applyUsernameUpdate(ctx context.Context, updates *reposito
 // If email is nil, the field is not updated.
 // If email points to empty string, the email is cleared to NULL.
 // Otherwise, the email is validated for uniqueness and updated.
-func (s *UserService) applyEmailUpdate(ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64) error {
+func (s *UserService) applyEmailUpdate(
+	ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64,
+) error {
 	if email == nil {
 		return nil
 	}
@@ -308,7 +329,9 @@ func isValidRole(role string) bool {
 }
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.
-func (s *UserService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.User], error) {
+func (s *UserService) List(
+	ctx context.Context, query *repository.ListQuery,
+) (*repository.ListResult[models.User], error) {
 	result, err := s.repo.List(ctx, query)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("User", apperrors.OpQuery, err)

@@ -32,10 +32,20 @@ type UserUpdate struct {
 	ClearMetadata    bool
 }
 
+// CreateUserParams holds the parameters for creating a new user.
+type CreateUserParams struct {
+	Username     string
+	FullName     string
+	Email        *string
+	PasswordHash string
+	Role         string
+	Metadata     *datatypes.JSONMap
+}
+
 // UserRepository defines the interface for user data access.
 type UserRepository interface {
 	// CRUD operations
-	Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string, metadata *datatypes.JSONMap) (*models.User, error)
+	Create(ctx context.Context, params CreateUserParams) (*models.User, error)
 	GetByID(ctx context.Context, id int64) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	Update(ctx context.Context, id int64, updates *UserUpdate) error
@@ -66,14 +76,14 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 }
 
 // Create inserts a new user and returns the created record.
-func (r *userRepository) Create(ctx context.Context, username, fullName string, email *string, passwordHash, role string, metadata *datatypes.JSONMap) (*models.User, error) {
+func (r *userRepository) Create(ctx context.Context, params CreateUserParams) (*models.User, error) {
 	user := &models.User{
-		Username:     username,
-		FullName:     fullName,
-		Email:        email,
-		PasswordHash: passwordHash,
-		Role:         models.UserRole(role),
-		Metadata:     metadata,
+		Username:     params.Username,
+		FullName:     params.FullName,
+		Email:        params.Email,
+		PasswordHash: params.PasswordHash,
+		Role:         models.UserRole(params.Role),
+		Metadata:     params.Metadata,
 	}
 
 	db := DBFromContext(ctx, r.db)
@@ -180,7 +190,8 @@ func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 	db := r.db.WithContext(ctx).Model(&models.User{})
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
-	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, []SortField{{Field: "username", Direction: SortAsc}})
+	defaultSort := []SortField{{Field: "username", Direction: SortAsc}}
+	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, defaultSort)
 	if err != nil {
 		return nil, ParseDBError(err)
 	}

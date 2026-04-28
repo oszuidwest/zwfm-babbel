@@ -78,7 +78,8 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	if jingle.VoiceID != nil {
 		for _, s := range stories[1:] {
 			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
-				logger.Debug("Bulletin uses jingle from one voice; other selected stories use different voices", "station_id", stationID, "jingle_voice_id", *jingle.VoiceID)
+				logger.Debug("Bulletin uses jingle from one voice; other selected stories use different voices",
+				"station_id", stationID, "jingle_voice_id", *jingle.VoiceID)
 				break
 			}
 		}
@@ -105,7 +106,13 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	totalDuration := s.calculateBulletinDuration(station, stories, jingle.MixPoint)
 
 	// Persist bulletin to database using transaction
-	bulletinID, err := s.saveBulletinToDatabase(ctx, stationID, bulletinPath, totalDuration, fileSize, stories)
+	bulletinID, err := s.saveBulletinToDatabase(ctx, saveBulletinParams{
+		StationID:    stationID,
+		BulletinPath: bulletinPath,
+		Duration:     totalDuration,
+		FileSize:     fileSize,
+		Stories:      stories,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +122,12 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 }
 
 // generateBulletinAudio creates the audio file for a bulletin and returns its path.
-func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, jingle audio.JingleContext) (string, error) {
+func (s *BulletinService) generateBulletinAudio(
+	ctx context.Context,
+	station *models.Station,
+	stories []repository.BulletinStoryData,
+	jingle audio.JingleContext,
+) (string, error) {
 	// Generate consistent paths using single timestamp
 	timestamp := time.Now()
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
@@ -129,7 +141,9 @@ func (s *BulletinService) generateBulletinAudio(ctx context.Context, station *mo
 }
 
 // calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
-func (s *BulletinService) calculateBulletinDuration(station *models.Station, stories []repository.BulletinStoryData, mixPoint float64) float64 {
+func (s *BulletinService) calculateBulletinDuration(
+	station *models.Station, stories []repository.BulletinStoryData, mixPoint float64,
+) float64 {
 	// Calculate total duration of all stories
 	var storiesDuration float64
 	for _, story := range stories {
@@ -152,22 +166,38 @@ func (s *BulletinService) calculateBulletinDuration(station *models.Station, sto
 	return storiesDuration
 }
 
+// saveBulletinParams holds the parameters for persisting a bulletin to the database.
+type saveBulletinParams struct {
+	StationID    int64
+	BulletinPath string
+	Duration     float64
+	FileSize     int64
+	Stories      []repository.BulletinStoryData
+}
+
 // saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
-func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID int64, bulletinPath string, duration float64, fileSize int64, stories []repository.BulletinStoryData) (int64, error) {
+func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params saveBulletinParams) (int64, error) {
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// Insert bulletin record
-		filename := filepath.Base(bulletinPath)
-		id, err := s.bulletinRepo.Create(txCtx, stationID, filename, filename, duration, fileSize, len(stories))
+		filename := filepath.Base(params.BulletinPath)
+		id, err := s.bulletinRepo.Create(txCtx, repository.CreateBulletinParams{
+			StationID:  params.StationID,
+			Filename:   filename,
+			AudioFile:  filename,
+			Duration:   params.Duration,
+			FileSize:   params.FileSize,
+			StoryCount: len(params.Stories),
+		})
 		if err != nil {
 			return err
 		}
 		bulletinID = id
 
 		// Link stories to bulletin
-		storyIDs := make([]int64, len(stories))
-		for i, story := range stories {
+		storyIDs := make([]int64, len(params.Stories))
+		for i, story := range params.Stories {
 			storyIDs[i] = story.ID
 		}
 
@@ -187,7 +217,9 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, stationID 
 
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins newer than that duration.
-func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error) {
+func (s *BulletinService) GetLatest(
+	ctx context.Context, stationID int64, maxAge *time.Duration,
+) (*models.Bulletin, error) {
 	bulletin, err := s.bulletinRepo.GetLatest(ctx, stationID, maxAge)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
@@ -199,7 +231,9 @@ func (s *BulletinService) GetLatest(ctx context.Context, stationID int64, maxAge
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
 // Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
 // Breaking news stories are prioritized for selection; remaining slots use fair rotation.
-func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64, date time.Time, limit int) ([]repository.BulletinStoryData, error) {
+func (s *BulletinService) GetStoriesForDate(
+	ctx context.Context, stationID int64, date time.Time, limit int,
+) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
@@ -214,7 +248,8 @@ func (s *BulletinService) GetStoriesForDate(ctx context.Context, stationID int64
 			}
 		}
 		if breakingCount == len(stories) {
-			logger.Warn("All bulletin slots consumed by breaking stories; non-breaking stories excluded", "slot_count", len(stories), "station_id", stationID)
+			logger.Warn("All bulletin slots consumed by breaking stories; non-breaking stories excluded",
+				"slot_count", len(stories), "station_id", stationID)
 		}
 	}
 
@@ -244,7 +279,9 @@ func ParseTargetDate(dateStr string) (time.Time, error) {
 }
 
 // List retrieves bulletins with pagination, filtering, and sorting.
-func (s *BulletinService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+func (s *BulletinService) List(
+	ctx context.Context, query *repository.ListQuery,
+) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.List(ctx, query)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
@@ -271,7 +308,9 @@ func (s *BulletinService) GetByID(ctx context.Context, id int64) (*models.Bullet
 }
 
 // GetBulletinStories retrieves stories included in a specific bulletin with pagination.
-func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error) {
+func (s *BulletinService) GetBulletinStories(
+	ctx context.Context, bulletinID int64, limit, offset int,
+) ([]models.BulletinStory, int64, error) {
 	stories, total, err := s.bulletinRepo.GetBulletinStories(ctx, bulletinID, limit, offset)
 	if err != nil {
 		return nil, 0, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
@@ -280,7 +319,9 @@ func (s *BulletinService) GetBulletinStories(ctx context.Context, bulletinID int
 }
 
 // GetStationBulletins retrieves bulletins for a specific station with pagination.
-func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+func (s *BulletinService) GetStationBulletins(
+	ctx context.Context, stationID int64, query *repository.ListQuery,
+) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.GetStationBulletins(ctx, stationID, query)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)
@@ -289,7 +330,9 @@ func (s *BulletinService) GetStationBulletins(ctx context.Context, stationID int
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
-func (s *BulletinService) GetStoryBulletinHistory(ctx context.Context, storyID int64, query *repository.ListQuery) (*repository.ListResult[models.Bulletin], error) {
+func (s *BulletinService) GetStoryBulletinHistory(
+	ctx context.Context, storyID int64, query *repository.ListQuery,
+) (*repository.ListResult[models.Bulletin], error) {
 	result, err := s.bulletinRepo.GetStoryBulletinHistory(ctx, storyID, query)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin", apperrors.OpQuery, err)

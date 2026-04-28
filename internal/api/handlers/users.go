@@ -67,7 +67,14 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	}
 
 	// Create user via service
-	user, err := h.userSvc.Create(c.Request.Context(), req.Username, req.FullName, email, req.Password, req.Role, req.Metadata)
+	user, err := h.userSvc.Create(c.Request.Context(), services.CreateUserRequest{
+		Username: req.Username,
+		FullName: req.FullName,
+		Email:    email,
+		Password: req.Password,
+		Role:     req.Role,
+		Metadata: req.Metadata,
+	})
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return
@@ -119,8 +126,13 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
 		// Special handling for last admin constraint
-		if validationErr, ok := errors.AsType[*apperrors.ValidationError](err); ok && validationErr.Message == "cannot delete last admin" {
-			utils.ProblemCustom(c, "https://babbel.api/problems/admin-constraint", "Admin Constraint", 409, "Cannot delete the last admin user")
+		validationErr, ok := errors.AsType[*apperrors.ValidationError](err)
+		if ok && validationErr.Message == "cannot delete last admin" {
+			utils.ProblemCustom(c,
+				"https://babbel.api/problems/admin-constraint",
+				"Admin Constraint", 409,
+				"Cannot delete the last admin user",
+			)
 			return
 		}
 		handleServiceError(c, err, "User")
