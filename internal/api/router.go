@@ -170,11 +170,14 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 // setupEngine creates the Gin engine with global middleware.
 func setupEngine(cfg *config.Config, authService *auth.Service) *gin.Engine {
 	r := gin.New()
+	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys)
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
+	// Session middleware must come before any handler that reads session state
 	r.Use(authService.SessionMiddleware())
+	// Security headers before CORS, because CORS may abort on OPTIONS preflight
 	r.Use(securityHeaders(cfg))
 	r.Use(corsMiddleware(cfg))
 	return r
@@ -205,6 +208,7 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 }
 
 // registerAuthRoutes registers public authentication endpoints.
+// Sessions are resources that can be created (login) and deleted (logout).
 func registerAuthRoutes(v1 *gin.RouterGroup, deps *routerDeps) {
 	v1.GET("/auth/config", deps.authHandlers.GetAuthConfig)
 	v1.POST("/sessions", deps.authHandlers.Login)
@@ -267,7 +271,7 @@ func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.PATCH("/stories/:id", perm(auth.ResourceStories, auth.ActionWrite), h.UpdateStoryStatus)
 }
 
-// registerUserRoutes registers user management endpoints (admin only).
+// registerUserRoutes registers user management endpoints (write operations are admin only).
 func registerUserRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission

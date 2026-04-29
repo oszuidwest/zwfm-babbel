@@ -164,7 +164,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "bulletins", "read"},
 		{"viewer", "broadcasts", "read"},
 
-		// User management is admin only
+		// User management: read for editors and admins, write for admins only
 		{"admin", "users", "read"},
 		{"admin", "users", "write"},
 	}

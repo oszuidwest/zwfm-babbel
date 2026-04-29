@@ -78,8 +78,10 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	if jingle.VoiceID != nil {
 		for _, s := range stories[1:] {
 			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
-				logger.Debug("Bulletin uses jingle from one voice; other selected stories use different voices",
-				"station_id", stationID, "jingle_voice_id", *jingle.VoiceID)
+				logger.Debug(
+					"Bulletin uses jingle from one voice; other selected stories use different voices",
+					"station_id", stationID, "jingle_voice_id", *jingle.VoiceID,
+				)
 				break
 			}
 		}

@@ -132,7 +132,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
 	c.Header("Content-Type", "audio/wav")
 	c.Header("X-Bulletin-Id", strconv.FormatInt(bulletinID, 10))
-	c.Header("X-Bulletin-Cached", fmt.Sprintf("%t", cached))
+	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
 	c.File(filePath)
 }
 
