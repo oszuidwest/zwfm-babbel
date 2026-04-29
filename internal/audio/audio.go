@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -35,7 +36,9 @@ func NewService(cfg *config.Config) *Service {
 }
 
 // ConvertToWAV converts uploaded audio files to standardized WAV format with EBU R128 loudness normalization.
-func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string, channelCount int) (string, float64, error) {
+func (s *Service) ConvertToWAV(
+	ctx context.Context, inputPath, outputPath string, channelCount int,
+) (string, float64, error) {
 	// Convert to WAV 48kHz with specified channel count and EBU R128 s2 loudness normalization
 	// loudnorm filter: I=-16 (integrated loudness per R128 s2 streaming), TP=-1 (true peak), LRA=11 (loudness range)
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
@@ -43,7 +46,7 @@ func (s *Service) ConvertToWAV(ctx context.Context, inputPath, outputPath string
 		"-i", inputPath,
 		"-af", "loudnorm=I=-16:TP=-1:LRA=11",
 		"-ar", "48000",
-		"-ac", fmt.Sprintf("%d", channelCount),
+		"-ac", strconv.Itoa(channelCount),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
 	)
@@ -86,7 +89,13 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 
 // CreateBulletin generates a complete audio bulletin by combining multiple stories with station-specific jingles.
 // The jingle parameter determines which jingle and mix point to use, independent of story order.
-func (s *Service) CreateBulletin(ctx context.Context, station *models.Station, stories []repository.BulletinStoryData, jingle JingleContext, outputPath string) (string, error) {
+func (s *Service) CreateBulletin(
+	ctx context.Context,
+	station *models.Station,
+	stories []repository.BulletinStoryData,
+	jingle JingleContext,
+	outputPath string,
+) (string, error) {
 	if len(stories) == 0 {
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
@@ -114,7 +123,12 @@ func cleanupTempDir(tempDir string) {
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
-func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []repository.BulletinStoryData, jingle JingleContext, outputPath string) ([]string, []string) {
+func (s *Service) buildBulletinFFmpegCommand(
+	station *models.Station,
+	stories []repository.BulletinStoryData,
+	jingle JingleContext,
+	outputPath string,
+) ([]string, []string) {
 	args := []string{}
 	filters := []string{}
 
@@ -145,7 +159,11 @@ func (s *Service) buildBulletinFFmpegCommand(station *models.Station, stories []
 }
 
 // addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
-func (s *Service) addStoryInputsWithPadding(args, filters []string, station *models.Station, stories []repository.BulletinStoryData) ([]string, []string) {
+func (s *Service) addStoryInputsWithPadding(
+	args, filters []string,
+	station *models.Station,
+	stories []repository.BulletinStoryData,
+) ([]string, []string) {
 	for i, story := range stories {
 		storyPath := utils.StoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
@@ -183,7 +201,12 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 
 // addJingleMix adds the bed/jingle and mixes it with the message timeline.
 // Outputs to [mixed] which is then normalized by the loudnorm filter.
-func (s *Service) addJingleMix(args, filters []string, station *models.Station, jingle JingleContext, storyCount int) ([]string, []string) {
+func (s *Service) addJingleMix(
+	args, filters []string,
+	station *models.Station,
+	jingle JingleContext,
+	storyCount int,
+) ([]string, []string) {
 	// Check if voice ID is available for jingle lookup
 	if jingle.VoiceID == nil {
 		logger.Debug("No voice ID in jingle context, generating bulletin without bed")
@@ -208,7 +231,8 @@ func (s *Service) addJingleMix(args, filters []string, station *models.Station, 
 		jingleIndex := storyCount
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
-		filters = append(filters, fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
+		filters = append(filters,
+			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
 	}
 
 	return args, filters

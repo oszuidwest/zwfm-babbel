@@ -63,7 +63,9 @@ func ValidateDateRange(startStr, endStr string) (time.Time, time.Time, error) {
 }
 
 // ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
-func ValidateAndSaveAudioFile(c *gin.Context, fieldName string, prefix string) (tempPath string, cleanup func() error, err error) {
+func ValidateAndSaveAudioFile(
+	c *gin.Context, fieldName string, prefix string,
+) (tempPath string, cleanup func() error, err error) {
 	file, header, err := c.Request.FormFile(fieldName)
 	if err != nil {
 		return "", nil, err
@@ -211,7 +213,7 @@ type StoryCreateRequest struct {
 	Status     string             `json:"status" binding:"omitempty,story_status"`
 	StartDate  string             `json:"start_date" binding:"required,dateformat"`
 	EndDate    string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays   models.Weekdays    `json:"weekdays"`    // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+	Weekdays   models.Weekdays    `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
 	IsBreaking bool               `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
@@ -230,7 +232,7 @@ type StoryUpdateRequest struct {
 	Status     *string            `json:"status" binding:"omitempty,story_status"`
 	StartDate  *string            `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate    *string            `json:"end_date" binding:"omitempty,dateformat"`
-	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask integer (0-127): Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
+	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
 	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
@@ -347,7 +349,8 @@ func formatValidationMessage(field, tag, param string) string {
 	case "notblank":
 		return fmt.Sprintf("%s cannot be empty or whitespace only", field)
 	case "story_status":
-		return fmt.Sprintf("%s must be one of: %s, %s, %s", field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
+		return fmt.Sprintf("%s must be one of: %s, %s, %s",
+			field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
 	case "dateformat":
 		return fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
 	case "dateafter":
@@ -359,19 +362,19 @@ func formatValidationMessage(field, tag, param string) string {
 
 // convertValidationErrors converts Go validator errors into structured error messages.
 func convertValidationErrors(err error) []ValidationError {
-	var validationErrs []ValidationError
-
-	if validationErrors, ok := errors.AsType[validator.ValidationErrors](err); ok {
-		for _, e := range validationErrors {
-			validationErrs = append(validationErrs, ValidationError{
-				Field:   e.Field(),
-				Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
-			})
-		}
-	} else {
-		validationErrs = append(validationErrs, ValidationError{
+	validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
+	if !ok {
+		return []ValidationError{{
 			Field:   "request",
 			Message: "Invalid request format",
+		}}
+	}
+
+	validationErrs := make([]ValidationError, 0, len(validationErrors))
+	for _, e := range validationErrors {
+		validationErrs = append(validationErrs, ValidationError{
+			Field:   e.Field(),
+			Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 		})
 	}
 
