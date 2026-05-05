@@ -117,7 +117,7 @@ docker-logs:
 
 install-tools:
 	@echo "Installing Go tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest || echo "Failed to install golangci-lint"
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.1 || echo "Failed to install golangci-lint"
 	@echo "✅ Tool installation complete (deadcode, staticcheck and govulncheck are managed via go.mod tool directives)"
 
 db-reset:
