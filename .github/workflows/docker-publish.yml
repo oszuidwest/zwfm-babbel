@@ -37,7 +37,9 @@ jobs:
       # release.yml, the workflow already runs at the tagged commit.
       - name: Check out version tag (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
-        run: git checkout "${{ inputs.version }}"
+        env:
+          VERSION: ${{ inputs.version }}
+        run: git checkout "$VERSION"
 
       - name: Compute build time
         id: build_time

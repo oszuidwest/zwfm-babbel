@@ -41,7 +41,7 @@ lint:
 # Run code quality checks (including dead code detection)
 quality: lint
 	@echo "Running unit tests..."
-	@go test ./...
+	@go test -race -shuffle=on ./...
 	@echo "✅ Unit tests passed!"
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
