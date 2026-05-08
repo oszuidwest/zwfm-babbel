@@ -23,12 +23,15 @@ jobs:
     
     - name: Install FFmpeg
       run: sudo apt-get update && sudo apt-get install -y ffmpeg
-    
+
+    - name: Run Go tests with race detector
+      run: go test -race -shuffle=on -v ./...
+
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v9
       with:
         version: v2.12.1
-    
+
     - name: Quality checks
       run: make quality
 
