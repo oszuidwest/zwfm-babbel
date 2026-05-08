@@ -60,7 +60,11 @@ jobs:
       - name: YAML Lint
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
+          # openapi.yaml is the API spec; its formatting is owned by the
+          # OpenAPI tooling and not relevant to Docker quality. Skip it.
           config_data: |
+            ignore: |
+              openapi.yaml
             extends: default
             rules:
               line-length:
