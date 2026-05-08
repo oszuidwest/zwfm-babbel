@@ -1,10 +1,11 @@
+---
 name: CI
 permissions:
   contents: read
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -12,58 +13,58 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TZ: Europe/Amsterdam
-    
+
     steps:
-    - uses: actions/checkout@v6
-    
-    - uses: actions/setup-go@v6
-      with:
-        go-version-file: 'go.mod'
-        cache: true
-    
-    - name: Install FFmpeg
-      run: sudo apt-get update && sudo apt-get install -y ffmpeg
-    
-    - name: golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: v2.12.1
-    
-    - name: Quality checks
-      run: make quality
+      - uses: actions/checkout@v6
 
-    - name: Vulnerability scan
-      run: go tool govulncheck ./...
-    
-    - name: Setup docker-compose compatibility
-      run: |
-        # Create symlink for docker-compose v1 compatibility
-        sudo ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
-        docker --version
-        docker-compose --version
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v6
-      with:
-        node-version: '24.x'
-        cache: 'npm'
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
 
-    - name: Validate OpenAPI specification
-      run: make validate-spec
-    
-    - name: Install Node.js dependencies
-      run: npm ci
-    
-    - name: Run complete tests
-      run: |
-        mkdir -p audio/{processed,output,temp,voices,stories}
-        # Run Node.js test suite
-        npm test || {
-          echo "Test failed, showing debug info:"
-          echo "Audio directory contents:"
-          find audio -type f -ls || true
-          echo "Docker logs:"
-          docker-compose logs babbel || true
-          docker-compose logs mysql || true
-          exit 1
-        }
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.1
+
+      - name: Quality checks
+        run: make quality
+
+      - name: Vulnerability scan
+        run: go tool govulncheck ./...
+
+      - name: Setup docker-compose compatibility
+        run: |
+          # Create symlink for docker-compose v1 compatibility
+          sudo ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+          docker --version
+          docker-compose --version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+          cache: 'npm'
+
+      - name: Validate OpenAPI specification
+        run: make validate-spec
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Run complete tests
+        run: |
+          mkdir -p audio/{processed,output,temp,voices,stories}
+          # Run Node.js test suite
+          npm test || {
+            echo "Test failed, showing debug info:"
+            echo "Audio directory contents:"
+            find audio -type f -ls || true
+            echo "Docker logs:"
+            docker-compose logs babbel || true
+            docker-compose logs mysql || true
+            exit 1
+          }

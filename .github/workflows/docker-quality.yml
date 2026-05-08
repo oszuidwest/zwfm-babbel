@@ -1,6 +1,16 @@
 ---
 # Docker Quality Workflow Template
 # Source: oszuidwest/.github-templates
+#
+# This workflow lints Dockerfiles, validates YAML, and checks Docker Compose files.
+# Copy to: .github/workflows/docker-quality.yml
+#
+# Required config files:
+#   - .hadolint.yaml (at repo root)
+#
+# Customization:
+#   - DOCKERFILE_PATH: Change if Dockerfile is not at root (e.g., "docker/Dockerfile")
+#   - Adjust YAML lint rules in the inline config as needed
 
 name: Docker Quality
 
@@ -35,9 +45,9 @@ jobs:
         id: check_dockerfile
         run: |
           if [ -f "${{ env.DOCKERFILE_PATH }}" ]; then
-            echo "has_dockerfile=true" >> $GITHUB_OUTPUT
+            echo "has_dockerfile=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_dockerfile=false" >> $GITHUB_OUTPUT
+            echo "has_dockerfile=false" >> "$GITHUB_OUTPUT"
           fi
 
       # Configuration in .hadolint.yaml - do NOT duplicate ignore rules here
@@ -47,20 +57,25 @@ jobs:
         with:
           dockerfile: ${{ env.DOCKERFILE_PATH }}
 
-      - name: YAML Lint (Docker Compose only)
+      - name: YAML Lint
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
-          file_or_dir: docker-compose*.yml
+          # openapi.yaml is the API spec; its formatting is owned by the
+          # OpenAPI tooling and not relevant to Docker quality. Skip it.
           config_data: |
+            ignore: |
+              openapi.yaml
             extends: default
             rules:
               line-length:
-                max: 200
+                max: 120
                 level: warning
-              document-start:
-                present: true
+              comments:
+                min-spaces-from-content: 1
               truthy:
                 allowed-values: ['true', 'false', 'on', 'off', 'yes', 'no']
+              document-start:
+                present: true
 
       - name: Check for Docker Compose
         id: check_compose
@@ -72,9 +87,9 @@ jobs:
             fi
           done
           if [ -n "$COMPOSE_FILES" ]; then
-            echo "has_compose=true" >> $GITHUB_OUTPUT
+            echo "has_compose=true" >> "$GITHUB_OUTPUT"
           else
-            echo "has_compose=false" >> $GITHUB_OUTPUT
+            echo "has_compose=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Docker Compose Validation
