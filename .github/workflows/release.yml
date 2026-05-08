@@ -1,4 +1,8 @@
 ---
+# Thin shim — delegates to oszuidwest/.github-templates go-release.yml@v1.
+# enable-docker: true triggers transitive docker-publish.yml@v1 for releases.
+# The `body` job exists only to compute the v-stripped version for the
+# `docker pull` line in release notes (GitHub Actions expressions can't slice).
 name: Release
 
 on:
@@ -7,131 +11,56 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version without v prefix (e.g., 1.0.0) or "edge" for development build'
+        description: 'Version (edge, vX.Y.Z, or X.Y.Z auto-prefixed)'
         required: true
-        default: '1.0.0'
+        default: 'edge'
 
 jobs:
-  release:
+  body:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      is_release: ${{ steps.version.outputs.is_release }}
+      text: ${{ steps.compute.outputs.text }}
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: 'go.mod'
-          cache: true
-
-      - name: Set version
-        id: version
+      - id: compute
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "$REF_TYPE" = "tag" ]; then
-            VERSION="$REF_NAME"
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-          elif [ "$INPUT_VERSION" = "edge" ]; then
-            VERSION="edge"
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          else
-            VERSION="v$INPUT_VERSION"
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          # Strip leading v for Docker tag references in release notes
-          # (docker/metadata-action publishes :1.0.0, not :v1.0.0).
-          echo "version_no_v=${VERSION#v}" >> "$GITHUB_OUTPUT"
+          VERSION="${INPUT_VERSION:-$REF_NAME}"
+          VERSION_NO_V="${VERSION#v}"
+          {
+            echo 'text<<RELEASE_BODY_EOF'
+            echo '## Installation'
+            echo ''
+            echo '**Docker (recommended)**:'
+            echo '```bash'
+            echo "docker pull ghcr.io/oszuidwest/zwfm-babbel:${VERSION_NO_V}"
+            echo '```'
+            echo ''
+            echo '**Binary**: Download below. Requires FFmpeg and MySQL.'
+            echo 'RELEASE_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Test
-        run: |
-          go mod download
-          go test -race -shuffle=on -v ./...
-          go vet ./...
-
-      - name: Create or check out version tag (manual release)
-        if: github.event_name == 'workflow_dispatch' && steps.version.outputs.is_release == 'true'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
-            echo "Tag $VERSION already exists; checking it out so the build matches the tag."
-          else
-            git tag "$VERSION"
-            git push origin "refs/tags/$VERSION"
-          fi
-          # Always end on the tag commit so binaries and Docker image come from
-          # the same source as the version label.
-          git checkout "refs/tags/$VERSION"
-
-      - name: Build binaries
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          COMMIT: ${{ github.sha }}
-        run: |
-          if [ "$VERSION" = "edge" ]; then
-            VERSION="edge-$(git rev-parse --short HEAD)"
-          fi
-          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          LDFLAGS="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=$VERSION -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=$COMMIT -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=$BUILD_TIME"
-
-          build() {
-            local os=$1 arch=$2
-            local output="babbel-${os}-${arch}"
-            echo "Building $output"
-            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags="$LDFLAGS" -o "dist/$output" ./cmd/babbel
-          }
-
-          mkdir -p dist
-
-          build linux amd64
-          build linux arm64
-          build darwin amd64
-          build darwin arm64
-
-      - name: Create release
-        if: steps.version.outputs.is_release == 'true'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: ${{ steps.version.outputs.version }}
-          body: |
-            ## Installation
-
-            **Docker (recommended)**:
-            ```bash
-            docker pull ghcr.io/oszuidwest/zwfm-babbel:${{ steps.version.outputs.version_no_v }}
-            ```
-
-            **Binary**: Download below. Requires FFmpeg and MySQL.
-          files: dist/*
-          generate_release_notes: true
-          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
-
-      - name: Upload edge artifacts
-        if: steps.version.outputs.is_release == 'false'
-        uses: actions/upload-artifact@v7
-        with:
-          name: babbel-edge-${{ github.sha }}
-          path: dist/*
-          retention-days: 7
-
-  docker:
-    needs: release
-    if: needs.release.outputs.is_release == 'true' && needs.release.result == 'success'
-    uses: ./.github/workflows/docker-publish.yml
+  release:
+    needs: body
+    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v1
     with:
-      version: ${{ needs.release.outputs.version }}
+      project-name: babbel
+      ldflags-target: github.com/oszuidwest/zwfm-babbel/pkg/version
+      main-package: ./cmd/babbel
+      build-matrix: >-
+        [{"os":"linux","arch":"amd64"},
+         {"os":"linux","arch":"arm64"},
+         {"os":"darwin","arch":"amd64"},
+         {"os":"darwin","arch":"arm64"}]
+      version: ${{ inputs.version }}
+      enable-docker: true
+      image-labels: |
+        org.opencontainers.image.title=Babbel
+        org.opencontainers.image.description=Audio bulletin generation API for radio automation
+        org.opencontainers.image.vendor=Streekomroep ZuidWest
+        org.opencontainers.image.licenses=MIT
+      release-body: ${{ needs.body.outputs.text }}
     permissions:
-      contents: read
+      contents: write
       packages: write
