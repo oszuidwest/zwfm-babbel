@@ -15,6 +15,9 @@ on:
         required: true
         default: 'edge'
 
+permissions:
+  contents: read
+
 jobs:
   body:
     runs-on: ubuntu-latest
