@@ -5,7 +5,7 @@
 # `docker pull` line in release notes (GitHub Actions expressions can't slice).
 name: Release
 
-on:
+'on':
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -60,7 +60,7 @@ jobs:
       enable-docker: true
       image-labels: |
         org.opencontainers.image.title=Babbel
-        org.opencontainers.image.description=Audio bulletin generation API for radio automation
+        org.opencontainers.image.description=Audio bulletin API
         org.opencontainers.image.vendor=Streekomroep ZuidWest
         org.opencontainers.image.licenses=MIT
       release-body: ${{ needs.body.outputs.text }}
