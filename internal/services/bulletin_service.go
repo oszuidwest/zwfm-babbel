@@ -68,7 +68,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	// Capture jingle context from the highest-priority story (first in SQL order)
-	// before shuffling — jingle selection must be stable regardless of playback order.
+	// before shuffling - jingle selection must be stable regardless of playback order.
 	jingle := audio.JingleContext{
 		VoiceID:  stories[0].VoiceID,
 		MixPoint: stories[0].MixPoint,

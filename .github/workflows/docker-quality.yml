@@ -38,7 +38,7 @@ jobs:
             echo "has_dockerfile=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # Ignore rules live in .hadolint.yaml — do not duplicate here.
+      # Ignore rules live in .hadolint.yaml - do not duplicate here.
       - name: Hadolint
         if: steps.check_dockerfile.outputs.has_dockerfile == 'true'
         uses: hadolint/hadolint-action@v3.3.0
@@ -48,7 +48,7 @@ jobs:
       - name: YAML Lint
         uses: ibiqlik/action-yamllint@v3.1.1
         with:
-          # openapi.yaml is owned by OpenAPI tooling — skip.
+          # openapi.yaml is owned by OpenAPI tooling - skip.
           config_data: |
             ignore: |
               openapi.yaml

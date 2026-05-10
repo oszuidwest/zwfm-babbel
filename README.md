@@ -52,7 +52,7 @@ When generating a bulletin, stories are selected in this priority order:
 3. **Least-recently-used fallback** - If all non-breaking stories have already aired today, the ones that aired longest ago are chosen
 4. **Random tiebreaker** - When stories have equal priority, random selection adds variety
 
-After selection, the playback order is shuffled randomly for natural radio flow — breaking priority only affects *which* stories are included, not their position in the bulletin audio.
+After selection, the playback order is shuffled randomly for natural radio flow - breaking priority only affects *which* stories are included, not their position in the bulletin audio.
 
 ### Key characteristics
 

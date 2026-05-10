@@ -132,7 +132,7 @@ describe('Bulletins', () => {
       await global.helpers.waitForStoryAudio(breakingStory.id);
       await global.helpers.waitForStoryAudio(regularStory.id);
 
-      // Act: generate 5 bulletins — each shuffle is independent
+      // Act: generate 5 bulletins - each shuffle is independent
       const runs = 5;
       const durations = [];
       for (let i = 0; i < runs; i++) {
@@ -256,7 +256,7 @@ describe('Bulletins', () => {
       expect(breakingStory).not.toBeNull();
       await global.helpers.waitForStoryAudio(breakingStory.id);
 
-      // Act: generate 5 bulletins — fair rotation will vary the non-breaking stories
+      // Act: generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
       for (let i = 0; i < runs; i++) {
         const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
@@ -289,7 +289,7 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      // Breaking story with draft status — should be excluded
+      // Breaking story with draft status - should be excluded
       const draftBreaking = await global.helpers.createStoryWithAudio(global.resources, {
         title: `BreakingDraft_${Date.now()}`,
         text: 'Breaking but draft',
@@ -299,7 +299,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      // Breaking story with expired date range — should be excluded
+      // Breaking story with expired date range - should be excluded
       const expiredBreaking = await global.helpers.createStoryWithAudio(global.resources, {
         title: `BreakingExpired_${Date.now()}`,
         text: 'Breaking but expired',
@@ -311,7 +311,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      // Breaking story on wrong weekday — should be excluded
+      // Breaking story on wrong weekday - should be excluded
       // Current weekday bitmask: Sunday=1, Monday=2, Tuesday=4, etc.
       // Use a bitmask that excludes today
       const todayBit = 1 << new Date().getDay();
@@ -374,7 +374,7 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      // Oldest breaking story — should be excluded (start_date 2024)
+      // Oldest breaking story - should be excluded (start_date 2024)
       const oldBreaking = await global.helpers.createStoryWithAudio(global.resources, {
         title: `BreakingOld_${Date.now()}`,
         text: 'Old breaking story',
@@ -386,7 +386,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      // Middle breaking story — should be included (start_date 2025)
+      // Middle breaking story - should be included (start_date 2025)
       const midBreaking = await global.helpers.createStoryWithAudio(global.resources, {
         title: `BreakingMid_${Date.now()}`,
         text: 'Middle breaking story',
@@ -398,7 +398,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      // Newest breaking story — should be included (start_date 2026)
+      // Newest breaking story - should be included (start_date 2026)
       const newBreaking = await global.helpers.createStoryWithAudio(global.resources, {
         title: `BreakingNew_${Date.now()}`,
         text: 'Newest breaking story',
