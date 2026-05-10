@@ -1,6 +1,7 @@
 ---
-# Thin shim — delegates to oszuidwest/.github-templates go-release.yml@v1.
-# enable-docker: true triggers transitive docker-publish.yml@v1 for releases.
+# Thin shim — delegates to oszuidwest/.github-templates go-release.yml@v2.
+# Docker publishing is composed via a second job that calls
+# docker-publish.yml@v1 directly, gated on the release outputs.
 # The `body` job exists only to compute the v-stripped version for the
 # `docker pull` line in release notes (GitHub Actions expressions can't slice).
 name: Release
@@ -46,7 +47,7 @@ jobs:
 
   release:
     needs: body
-    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v1
+    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v2
     with:
       project-name: babbel
       ldflags-target: github.com/oszuidwest/zwfm-babbel/pkg/version
@@ -57,13 +58,21 @@ jobs:
          {"os":"darwin","arch":"amd64"},
          {"os":"darwin","arch":"arm64"}]
       version: ${{ inputs.version }}
-      enable-docker: true
+      release-body: ${{ needs.body.outputs.text }}
+    permissions:
+      contents: write
+
+  docker:
+    needs: release
+    if: needs.release.outputs.is_release == 'true'
+    uses: oszuidwest/.github-templates/.github/workflows/docker-publish.yml@v1
+    with:
+      version: ${{ needs.release.outputs.version }}
       image-labels: |
         org.opencontainers.image.title=Babbel
         org.opencontainers.image.description=Audio bulletin API
         org.opencontainers.image.vendor=Streekomroep ZuidWest
         org.opencontainers.image.licenses=MIT
-      release-body: ${{ needs.body.outputs.text }}
     permissions:
-      contents: write
+      contents: read
       packages: write
