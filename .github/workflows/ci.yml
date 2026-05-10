@@ -1,9 +1,5 @@
 ---
-# Hybrid CI:
-# - `go` job → oszuidwest/.github-templates go-ci.yml@v2 (test, vet, fmt, lint,
-#   deadcode, govulncheck, staticcheck).
-# - `integration` job stays inline because it needs Node + docker-compose + MySQL
-#   for end-to-end API tests against a docker-compose'd babbel + mysql.
+# Hybrid: `go` delegates to go-ci.yml; `integration` stays inline (Node + compose + MySQL).
 name: CI
 permissions:
   contents: read
@@ -32,8 +28,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Setup docker-compose compatibility
+        # Symlink for docker-compose v1 callers.
         run: |
-          # Create symlink for docker-compose v1 compatibility
           sudo ln -sf /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
           docker --version
           docker-compose --version
@@ -53,7 +49,6 @@ jobs:
       - name: Run complete tests
         run: |
           mkdir -p audio/{processed,output,temp,voices,stories}
-          # Run Node.js test suite
           npm test || {
             echo "Test failed, showing debug info:"
             echo "Audio directory contents:"
