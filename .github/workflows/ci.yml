@@ -1,6 +1,6 @@
 ---
 # Hybrid CI:
-# - `go` job → oszuidwest/.github-templates go-ci.yml@v1 (test, vet, fmt, lint,
+# - `go` job → oszuidwest/.github-templates go-ci.yml@v2 (test, vet, fmt, lint,
 #   deadcode, govulncheck, staticcheck).
 # - `integration` job stays inline because it needs Node + docker-compose + MySQL
 #   for end-to-end API tests against a docker-compose'd babbel + mysql.
@@ -15,7 +15,7 @@ on:
 
 jobs:
   go:
-    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v1
+    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v2
     with:
       golangci-lint-version: v2.12.1
 
