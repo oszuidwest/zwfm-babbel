@@ -5,7 +5,7 @@
 # `docker pull` line in release notes (GitHub Actions expressions can't slice).
 name: Release
 
-'on':
+on:
   push:
     tags: ['v*']
   workflow_dispatch:
