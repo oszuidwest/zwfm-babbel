@@ -58,7 +58,7 @@ describe('Authentication', () => {
     });
 
     test('when credentials empty, then returns 400', async () => {
-      // Act — empty body hits binding:"required" validation before auth check
+      // Act - empty body hits binding:"required" validation before auth check
       const response = await global.api.apiCall('POST', '/sessions', {});
 
       // Assert

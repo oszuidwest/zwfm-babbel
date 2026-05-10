@@ -355,7 +355,7 @@ func TestBindAndValidate_MaxLengthRejectsAfterNormalization(t *testing.T) {
 }
 
 func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T) {
-	// StoryUpdateRequest uses pointer fields — verify the same boundary via the update path.
+	// StoryUpdateRequest uses pointer fields - verify the same boundary via the update path.
 	t.Run("passes when decoded length within limit", func(t *testing.T) {
 		title := strings.Repeat("A", 496) + "&amp;"
 		body := `{"title":"` + title + `"}`
@@ -411,7 +411,7 @@ func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
 		t.Errorf("after NormalizeText: Text = %q, want %q", req.Text, "&lt;script&gt;")
 	}
 
-	// Step 2: Simulate DB round-trip — AfterFind decodes again on read
+	// Step 2: Simulate DB round-trip - AfterFind decodes again on read
 	story := &models.Story{
 		Title: req.Title,
 		Text:  req.Text,

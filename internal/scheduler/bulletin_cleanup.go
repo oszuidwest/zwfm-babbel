@@ -125,7 +125,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 			fileBytes = info.Size()
 		}
 
-		// Remove the file (ignore "not found" — file may already be gone)
+		// Remove the file (ignore "not found" - file may already be gone)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			logger.Error("Failed to remove bulletin file", "path", filePath, "error", err)
 			continue

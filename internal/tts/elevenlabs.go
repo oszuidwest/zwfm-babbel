@@ -27,9 +27,9 @@ func (e *APIError) Error() string {
 	case http.StatusForbidden:
 		return "ElevenLabs API key does not have access to this resource"
 	case http.StatusNotFound:
-		return "ElevenLabs voice ID not found — check the voice configuration"
+		return "ElevenLabs voice ID not found - check the voice configuration"
 	case http.StatusTooManyRequests:
-		return "ElevenLabs API rate limit or quota exceeded — try again later"
+		return "ElevenLabs API rate limit or quota exceeded - try again later"
 	case http.StatusUnprocessableEntity:
 		return fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
 	default:

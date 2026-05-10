@@ -8,7 +8,7 @@ import "encoding/json"
 //   - Present: Set=true,  Value=&v   (field set to a value)
 //
 // This solves the fundamental Go JSON limitation where *T cannot distinguish
-// "field absent" from "field is null" — both unmarshal to nil. Use this type
+// "field absent" from "field is null" - both unmarshal to nil. Use this type
 // in update request structs for nullable database columns that support clearing.
 //
 // Integrates with the repository layer's Clear* flag convention:

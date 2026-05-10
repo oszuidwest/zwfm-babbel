@@ -396,7 +396,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 	// Validate TTS prerequisites
 	if story.AudioFile != "" && !force {
-		return apperrors.Validation("Story", "audio_file", "story already has audio — use ?force=true to overwrite")
+		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
 	}
 	if story.Text == "" {
 		return apperrors.Validation("Story", "text", "story has no text for TTS generation")

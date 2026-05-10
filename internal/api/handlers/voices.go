@@ -73,7 +73,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	}
 
 	// Convert to service update request, translating Optional to Clear* flag.
-	// Empty string is treated as clearing (same as null) — a blank voice ID is unusable.
+	// Empty string is treated as clearing (same as null) - a blank voice ID is unusable.
 	updateReq := &services.UpdateVoiceRequest{
 		Name: req.Name,
 	}
