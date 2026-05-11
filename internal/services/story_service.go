@@ -329,9 +329,9 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 
 // ProcessAudio converts an uploaded audio file and associates it with a story.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
-	// Process audio with audio service (convert to mono WAV)
+	// Process story audio with audio service (convert to mono WAV and normalize to -1 dBTP)
 	outputPath := utils.StoryPath(s.config, storyID)
-	filename, duration, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 1)
+	filename, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, outputPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
