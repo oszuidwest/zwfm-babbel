@@ -7,8 +7,50 @@
  * - "when...then" naming convention
  */
 
+const fs = require('fs');
+const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
+
+const STORY_TRUE_PEAK_TARGET_DBTP = -1.0;
+const TRUE_PEAK_TOLERANCE_DB = 0.3;
+
+function runFFmpeg(args) {
+  const result = spawnSync('ffmpeg', args, { encoding: 'utf8' });
+  if (result.status !== 0) {
+    throw new Error(`ffmpeg failed: ${result.stderr || result.stdout}`);
+  }
+  return `${result.stdout || ''}${result.stderr || ''}`;
+}
+
+function createQuietStoryAudioFile(outputPath) {
+  runFFmpeg([
+    '-f', 'lavfi',
+    '-i', 'sine=frequency=1000:duration=1',
+    '-af', 'volume=-24dB',
+    '-ar', '44100',
+    '-ac', '1',
+    '-f', 'wav',
+    '-y', outputPath
+  ]);
+}
+
+function measureTruePeakDBTP(inputPath) {
+  const output = runFFmpeg([
+    '-i', inputPath,
+    '-af', 'loudnorm=I=-16:TP=-1:LRA=11:print_format=json',
+    '-f', 'null',
+    '-'
+  ]);
+  const start = output.indexOf('{');
+  const end = output.lastIndexOf('}');
+  if (start === -1 || end <= start) {
+    throw new Error(`loudnorm JSON stats not found: ${output}`);
+  }
+
+  const stats = JSON.parse(output.slice(start, end + 1));
+  return Number(stats.input_tp);
+}
 
 describe('Stories', () => {
   // Shared helpers
@@ -331,7 +373,7 @@ describe('Stories', () => {
     });
 
     test('when uploading audio, then attached to story', async () => {
-      if (!require('fs').existsSync(testAudio)) return;
+      if (!fs.existsSync(testAudio)) return;
 
       // Arrange
       const result = await createStoryWithDeps('AudioUpload', 'Has audio', 'AudioVoice', 'AudioStation');
@@ -358,6 +400,43 @@ describe('Stories', () => {
       // Assert
       expect(response.data).toHaveProperty('audio_url');
       expect(response.data).toHaveProperty('audio_file');
+    });
+
+    test('when uploading quiet story audio, then normalizes true peak to -1 dBTP', async () => {
+      if (!global.helpers.isFFmpegAvailable()) return;
+
+      // Arrange
+      const inputAudio = `/tmp/test_story_true_peak_input_${Date.now()}_${process.pid}.wav`;
+      const outputAudio = `/tmp/test_story_true_peak_output_${Date.now()}_${process.pid}.wav`;
+
+      try {
+        createQuietStoryAudioFile(inputAudio);
+
+        const result = await createStoryWithDeps(
+          'TruePeakAudio',
+          'Quiet story audio',
+          'TruePeakVoice',
+          'TruePeakStation'
+        );
+        expect(result).not.toBeNull();
+
+        // Act
+        const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, inputAudio, 'audio');
+        expect(uploadResponse.status).toBe(201);
+
+        const audioReady = await global.helpers.waitForStoryAudio(result.id);
+        expect(audioReady).toBe(true);
+
+        const downloadStatus = await global.api.downloadFile(`/stories/${result.id}/audio`, outputAudio);
+        expect(downloadStatus).toBe(200);
+
+        // Assert
+        const truePeakDBTP = measureTruePeakDBTP(outputAudio);
+        expect(Math.abs(truePeakDBTP - STORY_TRUE_PEAK_TARGET_DBTP)).toBeLessThanOrEqual(TRUE_PEAK_TOLERANCE_DB);
+      } finally {
+        global.helpers.cleanupTempFile(inputAudio);
+        global.helpers.cleanupTempFile(outputAudio);
+      }
     });
   });
 
