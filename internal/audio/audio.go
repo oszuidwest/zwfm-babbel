@@ -3,8 +3,10 @@ package audio
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,6 +19,16 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+const (
+	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
+	truePeakMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
+	storyTruePeakTargetDBTP     = -1.0
+)
+
+type loudnormStats struct {
+	InputTruePeak string `json:"input_tp"`
+}
 
 // JingleContext holds jingle selection data captured before story order randomization.
 // This ensures the jingle and mix point remain stable regardless of shuffle order.
@@ -39,17 +51,33 @@ func NewService(cfg *config.Config) *Service {
 func (s *Service) ConvertToWAV(
 	ctx context.Context, inputPath, outputPath string, channelCount int,
 ) (string, float64, error) {
-	// Convert to WAV 48kHz with specified channel count and EBU R128 s2 loudness normalization
-	// loudnorm filter: I=-16 (integrated loudness per R128 s2 streaming), TP=-1 (true peak), LRA=11 (loudness range)
-	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
+	return s.convertToWAV(ctx, inputPath, outputPath, channelCount, loudnessNormalizationFilter)
+}
+
+// ConvertStoryToWAV converts story audio to mono WAV and peak-normalizes it to -1 dBTP.
+func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
+	gainDB, err := s.storyTruePeakGain(ctx, inputPath, int(Mono))
+	if err != nil {
+		return "", 0, err
+	}
+
+	return s.convertToWAV(ctx, inputPath, outputPath, int(Mono), storyNormalizationFilter(int(Mono), gainDB))
+}
+
+func (s *Service) convertToWAV(
+	ctx context.Context, inputPath, outputPath string, channelCount int, audioFilter string,
+) (string, float64, error) {
+	args := []string{
 		"-i", inputPath,
-		"-af", "loudnorm=I=-16:TP=-1:LRA=11",
+		"-af", audioFilter,
 		"-ar", "48000",
 		"-ac", strconv.Itoa(channelCount),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
-	)
+	}
+
+	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	if err := cmd.Run(); err != nil {
 		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", err)
@@ -61,6 +89,113 @@ func (s *Service) ConvertToWAV(
 	}
 
 	return outputPath, duration, nil
+}
+
+func (s *Service) storyTruePeakGain(ctx context.Context, inputPath string, channelCount int) (float64, error) {
+	truePeakDBTP, err := s.detectTruePeak(ctx, inputPath, channelCount)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsInf(truePeakDBTP, -1) {
+		return 0, nil
+	}
+	if math.IsInf(truePeakDBTP, 1) || math.IsNaN(truePeakDBTP) {
+		return 0, fmt.Errorf("invalid true peak measurement: %v", truePeakDBTP)
+	}
+
+	return storyTruePeakTargetDBTP - truePeakDBTP, nil
+}
+
+func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelCount int) (float64, error) {
+	filter := strings.Join([]string{
+		loudnessNormalizationFilter,
+		audioFormatFilter(channelCount),
+		truePeakMeasurementFilter,
+	}, ",")
+
+	// #nosec G204 - FFmpegPath is from config and inputPath is internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
+		"-i", inputPath,
+		"-af", filter,
+		"-f", "null",
+		"-",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("ffmpeg failed to measure true peak: %w. output: %s", err, string(output))
+	}
+
+	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
+	if err != nil {
+		return 0, err
+	}
+	return truePeakDBTP, nil
+}
+
+func storyNormalizationFilter(channelCount int, gainDB float64) string {
+	filters := []string{
+		loudnessNormalizationFilter,
+		audioFormatFilter(channelCount),
+	}
+
+	if math.Abs(gainDB) >= 0.001 {
+		filters = append(filters, fmt.Sprintf("volume=%.6fdB", gainDB))
+	}
+
+	return strings.Join(filters, ",")
+}
+
+func audioFormatFilter(channelCount int) string {
+	switch channelCount {
+	case int(Mono):
+		return "aformat=sample_rates=48000:channel_layouts=mono"
+	case int(Stereo):
+		return "aformat=sample_rates=48000:channel_layouts=stereo"
+	default:
+		return "aformat=sample_rates=48000"
+	}
+}
+
+func parseLoudnormInputTruePeak(output string) (float64, error) {
+	stats, err := parseLoudnormStats(output)
+	if err != nil {
+		return 0, err
+	}
+	return parseLoudnormNumber(stats.InputTruePeak)
+}
+
+func parseLoudnormStats(output string) (*loudnormStats, error) {
+	start := strings.Index(output, "{")
+	end := strings.LastIndex(output, "}")
+	if start == -1 || end <= start {
+		return nil, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
+	}
+
+	var stats loudnormStats
+	if err := json.Unmarshal([]byte(output[start:end+1]), &stats); err != nil {
+		return nil, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
+	}
+	if stats.InputTruePeak == "" {
+		return nil, fmt.Errorf("loudnorm JSON stats missing input_tp")
+	}
+
+	return &stats, nil
+}
+
+func parseLoudnormNumber(value string) (float64, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "-inf":
+		return math.Inf(-1), nil
+	case "inf", "+inf":
+		return math.Inf(1), nil
+	}
+
+	number, err := strconv.ParseFloat(normalized, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse loudnorm number %q: %w", value, err)
+	}
+	return number, nil
 }
 
 // Duration retrieves the duration of an audio file in seconds using ffprobe.
@@ -145,7 +280,7 @@ func (s *Service) buildBulletinFFmpegCommand(
 	args, filters = s.addJingleMix(args, filters, station, jingle, len(stories))
 
 	// Step 4: Apply EBU R128 s2 loudness normalization to final mix
-	filters = append(filters, "[mixed]loudnorm=I=-16:TP=-1:LRA=11[out]")
+	filters = append(filters, "[mixed]"+loudnessNormalizationFilter+"[out]")
 
 	// Final FFmpeg command arguments
 	args = append(args,

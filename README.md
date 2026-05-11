@@ -119,7 +119,7 @@ All audio is normalized using [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) vi
 | Loudness Range | 11 LU |
 
 Normalization is applied to:
-- Story audio (during upload/TTS processing)
+- Story audio (during upload/TTS processing), with an additional true-peak normalization pass to -1 dBTP
 - Final bulletin mix (after combining stories with jingle)
 
 The -16 LUFS target (rather than the traditional -23 LUFS) prevents radio automation systems from incorrectly triggering mix points due to low audio levels
