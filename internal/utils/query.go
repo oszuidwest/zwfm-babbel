@@ -39,11 +39,12 @@ type SortField struct {
 	Direction string `json:"direction"` // "asc" or "desc"
 }
 
-// FilterOperation represents a filter operation on a field.
+// FilterOperation represents a filter operation on a field. Operator values come
+// from repository.Filter* constants so callers do not translate between vocabularies.
 type FilterOperation struct {
-	Operator string   `json:"operator"` // "eq", "ne", "gt", "gte", "lt", "lte", "in", "like", "between"
-	Value    any      `json:"value"`
-	Values   []string `json:"values"` // For "in" and "between" operations
+	Operator repository.FilterOperator `json:"operator"`
+	Value    any                       `json:"value"`
+	Values   []string                  `json:"values"` // For "in" and "between" operations
 }
 
 // ParseQueryParams extracts and validates modern query parameters from the request.
@@ -175,14 +176,14 @@ type filterOperatorHandler func(value string) (FilterOperation, error)
 // filterOperatorHandlers maps operator names to their handler functions.
 var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"eq": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterEquals, Value: value}, nil
 	},
 	"in": func(value string) (FilterOperation, error) {
 		filterValues := strings.Split(value, ",")
 		for i, v := range filterValues {
 			filterValues[i] = strings.TrimSpace(v)
 		}
-		return FilterOperation{Operator: "IN", Values: filterValues}, nil
+		return FilterOperation{Operator: repository.FilterIn, Values: filterValues}, nil
 	},
 	"between": func(value string) (FilterOperation, error) {
 		betweenValues := strings.Split(value, ",")
@@ -194,28 +195,28 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 		if lower == "" || upper == "" {
 			return FilterOperation{}, errors.New("expected two non-empty values")
 		}
-		return FilterOperation{Operator: "BETWEEN", Values: []string{lower, upper}}, nil
+		return FilterOperation{Operator: repository.FilterBetween, Values: []string{lower, upper}}, nil
 	},
 	"like": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "LIKE", Value: "%" + value + "%"}, nil
+		return FilterOperation{Operator: repository.FilterLike, Value: "%" + value + "%"}, nil
 	},
 	"gte": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: ">=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterGreaterOrEq, Value: value}, nil
 	},
 	"gt": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: ">", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterGreaterThan, Value: value}, nil
 	},
 	"lte": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "<=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterLessOrEq, Value: value}, nil
 	},
 	"lt": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "<", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterLessThan, Value: value}, nil
 	},
 	"ne": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "!=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterNotEquals, Value: value}, nil
 	},
 	"not": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "!=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterNotEquals, Value: value}, nil
 	},
 	"null": func(value string) (FilterOperation, error) {
 		isNull, err := strconv.ParseBool(value)
@@ -223,19 +224,19 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 			return FilterOperation{}, errors.New("expected boolean")
 		}
 		if isNull {
-			return FilterOperation{Operator: "IS NULL"}, nil
+			return FilterOperation{Operator: repository.FilterIsNull}, nil
 		}
-		return FilterOperation{Operator: "IS NOT NULL"}, nil
+		return FilterOperation{Operator: repository.FilterIsNotNull}, nil
 	},
 	"band": func(value string) (FilterOperation, error) {
 		val, err := strconv.ParseUint(value, 10, 8)
 		if err != nil {
 			return FilterOperation{}, errors.New("expected integer between 0 and 255")
 		}
-		return FilterOperation{Operator: "BAND", Value: uint8(val)}, nil
+		return FilterOperation{Operator: repository.FilterBitwiseAnd, Value: uint8(val)}, nil
 	},
 	"": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: "=", Value: value}, nil
+		return FilterOperation{Operator: repository.FilterEquals, Value: value}, nil
 	},
 }
 
@@ -384,8 +385,25 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	return result
 }
 
+// supportedFilterOperators is the set of repository.FilterOperator values that
+// FilterOperation may carry. Keeping a single source of truth here lets us
+// validate Operator without re-translating between vocabularies.
+var supportedFilterOperators = map[repository.FilterOperator]bool{
+	repository.FilterEquals:      true,
+	repository.FilterNotEquals:   true,
+	repository.FilterGreaterThan: true,
+	repository.FilterGreaterOrEq: true,
+	repository.FilterLessThan:    true,
+	repository.FilterLessOrEq:    true,
+	repository.FilterLike:        true,
+	repository.FilterIn:          true,
+	repository.FilterBetween:     true,
+	repository.FilterBitwiseAnd:  true,
+	repository.FilterIsNull:      true,
+	repository.FilterIsNotNull:   true,
+}
+
 // QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
-// This is the single source of truth for filter operator mapping.
 func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) {
 	if params == nil {
 		return repository.NewListQuery(), nil
@@ -398,7 +416,6 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 		Trashed: params.Trashed,
 	}
 
-	// Convert sort fields
 	for _, sf := range params.Sort {
 		direction := repository.SortAsc
 		if strings.ToLower(sf.Direction) == "desc" {
@@ -411,52 +428,48 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 	}
 
 	for field, filter := range params.Filters {
-		operator, err := queryFilterOperator(filter.Operator)
-		if err != nil {
-			return nil, err
+		if !supportedFilterOperators[filter.Operator] {
+			return nil, fmt.Errorf("unsupported filter operator %q", filter.Operator)
 		}
 		condition := repository.FilterCondition{
 			Field:    field,
-			Operator: operator,
+			Operator: filter.Operator,
 			Value:    filter.Value,
 		}
-		if filter.Operator == "IN" || filter.Operator == "BETWEEN" {
+		if filter.Operator == repository.FilterIn || filter.Operator == repository.FilterBetween {
 			condition.Value = filter.Values
 		}
-
 		query.Filters = append(query.Filters, condition)
 	}
 
 	return query, nil
 }
 
-func queryFilterOperator(operator string) (repository.FilterOperator, error) {
-	switch operator {
-	case "=":
-		return repository.FilterEquals, nil
-	case "!=":
-		return repository.FilterNotEquals, nil
-	case ">":
-		return repository.FilterGreaterThan, nil
-	case ">=":
-		return repository.FilterGreaterOrEq, nil
-	case "<":
-		return repository.FilterLessThan, nil
-	case "<=":
-		return repository.FilterLessOrEq, nil
-	case "LIKE":
-		return repository.FilterLike, nil
-	case "IN":
-		return repository.FilterIn, nil
-	case "BETWEEN":
-		return repository.FilterBetween, nil
-	case "BAND":
-		return repository.FilterBitwiseAnd, nil
-	case "IS NULL":
-		return repository.FilterIsNull, nil
-	case "IS NOT NULL":
-		return repository.FilterIsNotNull, nil
-	default:
-		return "", fmt.Errorf("unsupported filter operator %q", operator)
+// ParseListQuery parses query parameters and converts them into a repository ListQuery.
+// On invalid input it emits an RFC 9457 problem response and returns ok=false.
+func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) {
+	params, err := ParseQueryParams(c)
+	if err != nil {
+		ProblemBadRequest(c, err.Error())
+		return nil, nil, false
 	}
+	query, err := QueryParamsToListQuery(params)
+	if err != nil {
+		ProblemBadRequest(c, err.Error())
+		return nil, nil, false
+	}
+	return params, query, true
+}
+
+// PaginatedListResponse writes a paginated response, applying sparse-fieldset
+// filtering when params.Fields is non-empty.
+func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *repository.ListResult[T]) {
+	if c == nil || result == nil {
+		return
+	}
+	var data any = result.Data
+	if params != nil && len(params.Fields) > 0 {
+		data = FilterStructFields(result.Data, params.Fields)
+	}
+	PaginatedResponse(c, data, result.Total, result.Limit, result.Offset)
 }

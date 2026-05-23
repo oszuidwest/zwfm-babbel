@@ -13,27 +13,27 @@ func TestFilterOperatorHandlers_Null(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    string
-		operator string
+		operator repository.FilterOperator
 	}{
 		{
 			name:     "true maps to is null",
 			value:    "true",
-			operator: "IS NULL",
+			operator: repository.FilterIsNull,
 		},
 		{
 			name:     "false maps to is not null",
 			value:    "false",
-			operator: "IS NOT NULL",
+			operator: repository.FilterIsNotNull,
 		},
 		{
 			name:     "one maps to is null",
 			value:    "1",
-			operator: "IS NULL",
+			operator: repository.FilterIsNull,
 		},
 		{
 			name:     "zero maps to is not null",
 			value:    "0",
-			operator: "IS NOT NULL",
+			operator: repository.FilterIsNotNull,
 		},
 	}
 
@@ -59,18 +59,15 @@ func TestFilterOperatorHandlers_NullRejectsInvalidValues(t *testing.T) {
 func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 	tests := []struct {
 		name     string
-		operator string
-		want     repository.FilterOperator
+		operator repository.FilterOperator
 	}{
 		{
 			name:     "is null",
-			operator: "IS NULL",
-			want:     repository.FilterIsNull,
+			operator: repository.FilterIsNull,
 		},
 		{
 			name:     "is not null",
-			operator: "IS NOT NULL",
-			want:     repository.FilterIsNotNull,
+			operator: repository.FilterIsNotNull,
 		},
 	}
 
@@ -78,9 +75,7 @@ func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			query, err := QueryParamsToListQuery(&QueryParams{
 				Filters: map[string]FilterOperation{
-					"audio_url": {
-						Operator: tt.operator,
-					},
+					"audio_url": {Operator: tt.operator},
 				},
 			})
 			if err != nil {
@@ -90,8 +85,8 @@ func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 			if len(query.Filters) != 1 {
 				t.Fatalf("len(Filters) = %d, want 1", len(query.Filters))
 			}
-			if query.Filters[0].Operator != tt.want {
-				t.Fatalf("Operator = %q, want %q", query.Filters[0].Operator, tt.want)
+			if query.Filters[0].Operator != tt.operator {
+				t.Fatalf("Operator = %q, want %q", query.Filters[0].Operator, tt.operator)
 			}
 		})
 	}
@@ -136,16 +131,16 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 	}
 
 	between := params.Filters["id"]
-	if between.Operator != "BETWEEN" {
-		t.Fatalf("between Operator = %q, want BETWEEN", between.Operator)
+	if between.Operator != repository.FilterBetween {
+		t.Fatalf("between Operator = %q, want %q", between.Operator, repository.FilterBetween)
 	}
 	if len(between.Values) != 2 || between.Values[0] != "1" || between.Values[1] != "10" {
 		t.Fatalf("between Values = %#v, want [1 10]", between.Values)
 	}
 
 	not := params.Filters["status"]
-	if not.Operator != "!=" || not.Value != "draft" {
-		t.Fatalf("not filter = %#v, want != draft", not)
+	if not.Operator != repository.FilterNotEquals || not.Value != "draft" {
+		t.Fatalf("not filter = %#v, want %s draft", not, repository.FilterNotEquals)
 	}
 }
 
@@ -153,7 +148,7 @@ func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
 	query, err := QueryParamsToListQuery(&QueryParams{
 		Filters: map[string]FilterOperation{
 			"id": {
-				Operator: "BETWEEN",
+				Operator: repository.FilterBetween,
 				Values:   []string{"1", "10"},
 			},
 		},

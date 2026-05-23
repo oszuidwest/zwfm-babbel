@@ -12,24 +12,18 @@ import (
 
 // ListStories returns a paginated list of stories with modern query parameter support.
 func (h *Handlers) ListStories(c *gin.Context) {
-	params, query, ok := parseListQuery(c)
+	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	// Call service
 	result, err := h.storySvc.List(c.Request.Context(), query)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetStory returns a single story by ID.

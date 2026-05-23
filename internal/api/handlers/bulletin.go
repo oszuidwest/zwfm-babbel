@@ -153,7 +153,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	params, ok := parseQueryParams(c)
+	params, _, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
@@ -200,7 +200,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := parseListQuery(c)
+	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
@@ -211,34 +211,23 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support.
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	params, query, ok := parseListQuery(c)
+	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	// Call service
 	result, err := h.bulletinSvc.List(c.Request.Context(), query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetBulletin returns a single bulletin by ID.
@@ -276,7 +265,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := parseListQuery(c)
+	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
@@ -287,12 +276,7 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetBulletinAudio serves the audio file for a specific bulletin.

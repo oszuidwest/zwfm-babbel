@@ -12,7 +12,7 @@ import (
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
-	params, query, ok := parseListQuery(c)
+	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
@@ -23,13 +23,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 		return
 	}
 
-	// Apply field filtering if requested
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetUser returns a single user by ID.
