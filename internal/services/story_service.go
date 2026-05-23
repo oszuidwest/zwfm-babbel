@@ -281,7 +281,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 
 // GetByID retrieves a story by its ID.
 func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, error) {
-	story, err := s.storyRepo.GetByIDWithVoice(ctx, id)
+	story, err := s.storyRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, apperrors.NotFoundWithID("Story", id)

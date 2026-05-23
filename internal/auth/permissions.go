@@ -15,8 +15,6 @@ const (
 	ResourceBulletins Resource = "bulletins"
 	// ResourceUsers represents user account resources.
 	ResourceUsers Resource = "users"
-	// ResourceStationVoices represents station-voice junction resources.
-	ResourceStationVoices Resource = "station_voices"
 )
 
 // Action represents an operation on a resource.

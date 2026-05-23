@@ -92,13 +92,6 @@ func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story,
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// GetByIDWithVoice retrieves a story with its associated voice.
-//
-// Deprecated: Use GetByID instead, which includes voice information.
-func (r *StoryRepository) GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error) {
-	return r.GetByIDWithPreload(ctx, id, "Voice")
-}
-
 // Update updates a story. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
@@ -139,16 +132,6 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-// ExistsIncludingDeleted reports whether a story exists, including soft-deleted stories.
-func (r *StoryRepository) ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).Where("id = ?", id).Count(&count).Error
-	if err != nil {
-		return false, ParseDBError(err)
-	}
-	return count > 0, nil
 }
 
 // UpdateAudio updates the audio file and duration.

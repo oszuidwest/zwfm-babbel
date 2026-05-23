@@ -73,18 +73,6 @@ func (r *UserRepository) Create(ctx context.Context, params CreateUserParams) (*
 	return user, nil
 }
 
-// GetByUsername retrieves a user by username.
-func (r *UserRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
-	var user models.User
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).Where("username = ?", username).First(&user).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &user, nil
-}
-
 // Update updates a user. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *UserRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
 	if u == nil {
