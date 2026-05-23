@@ -18,9 +18,9 @@ import (
 // StationVoiceServiceDeps contains all dependencies for StationVoiceService.
 type StationVoiceServiceDeps struct {
 	TxManager        repository.TxManager
-	StationVoiceRepo repository.StationVoiceRepository
-	StationRepo      repository.StationRepository
-	VoiceRepo        repository.VoiceRepository
+	StationVoiceRepo *repository.StationVoiceRepository
+	StationRepo      *repository.StationRepository
+	VoiceRepo        *repository.VoiceRepository
 	AudioSvc         *audio.Service
 	Config           *config.Config
 }
@@ -28,9 +28,9 @@ type StationVoiceServiceDeps struct {
 // StationVoiceService handles business logic for station-voice relationship operations.
 type StationVoiceService struct {
 	txManager        repository.TxManager
-	stationVoiceRepo repository.StationVoiceRepository
-	stationRepo      repository.StationRepository
-	voiceRepo        repository.VoiceRepository
+	stationVoiceRepo *repository.StationVoiceRepository
+	stationRepo      *repository.StationRepository
+	voiceRepo        *repository.VoiceRepository
 	audioSvc         *audio.Service
 	config           *config.Config
 }

@@ -33,56 +33,9 @@ const (
 const WeekdaysAll Weekdays = WeekdaySunday | WeekdayMonday | WeekdayTuesday |
 	WeekdayWednesday | WeekdayThursday | WeekdayFriday | WeekdaySaturday
 
-// WeekdaysWeekdays represents Monday through Friday (62).
-const WeekdaysWeekdays Weekdays = WeekdayMonday | WeekdayTuesday |
-	WeekdayWednesday | WeekdayThursday | WeekdayFriday
-
-// WeekdaysWeekend represents Saturday and Sunday (65).
-const WeekdaysWeekend Weekdays = WeekdaySaturday | WeekdaySunday
-
-// WeekdaysNone represents no days (0).
-const WeekdaysNone Weekdays = 0
-
 // IsActive reports whether the given weekday is set in the bitmask.
 func (w Weekdays) IsActive(day time.Weekday) bool {
 	return w&(1<<day) != 0
-}
-
-// With returns a new Weekdays with the given day added.
-func (w Weekdays) With(day time.Weekday) Weekdays {
-	return w | (1 << day)
-}
-
-// Without returns a new Weekdays with the given day removed.
-func (w Weekdays) Without(day time.Weekday) Weekdays {
-	return w &^ (1 << day)
-}
-
-// Toggle returns a new Weekdays with the given day toggled.
-func (w Weekdays) Toggle(day time.Weekday) Weekdays {
-	return w ^ (1 << day)
-}
-
-// ActiveDays returns a slice of time.Weekday values for all active days.
-func (w Weekdays) ActiveDays() []time.Weekday {
-	var days []time.Weekday
-	for day := time.Sunday; day <= time.Saturday; day++ {
-		if w.IsActive(day) {
-			days = append(days, day)
-		}
-	}
-	return days
-}
-
-// Count returns the number of active days.
-func (w Weekdays) Count() int {
-	count := 0
-	for day := time.Sunday; day <= time.Saturday; day++ {
-		if w.IsActive(day) {
-			count++
-		}
-	}
-	return count
 }
 
 // MarshalJSON implements json.Marshaler to serialize Weekdays as an integer.

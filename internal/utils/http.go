@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -72,23 +71,6 @@ func Pagination(c *gin.Context) (limit, offset int, err error) {
 		}
 	}
 	return limit, offset, nil
-}
-
-// ValidateDateRange parses start and end date strings and validates the range.
-// Uses local timezone for consistent date handling across the application.
-func ValidateDateRange(startStr, endStr string) (time.Time, time.Time, error) {
-	start, err := time.ParseInLocation("2006-01-02", startStr, time.Local)
-	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("invalid start_date: %w", err)
-	}
-	end, err := time.ParseInLocation("2006-01-02", endStr, time.Local)
-	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("invalid end_date: %w", err)
-	}
-	if end.Before(start) {
-		return time.Time{}, time.Time{}, errors.New("end_date cannot be before start_date")
-	}
-	return start, end, nil
 }
 
 // ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
@@ -276,39 +258,6 @@ func (r *StoryUpdateRequest) NormalizeText() {
 		normalized := html.UnescapeString(*r.Text)
 		r.Text = &normalized
 	}
-}
-
-// ValidateDateRange validates that end date is not before start date.
-func (req *StoryCreateRequest) ValidateDateRange() error {
-	if req.StartDate == "" || req.EndDate == "" {
-		return nil // Individual date validation will catch required field errors
-	}
-
-	_, _, err := ValidateDateRange(req.StartDate, req.EndDate)
-	// Ignore parse errors as they will be caught by date format validators
-	// Only return range validation errors
-	if err != nil && strings.Contains(err.Error(), "end_date cannot be before start_date") {
-		return err
-	}
-
-	return nil
-}
-
-// ValidateDateRange validates that end date is not before start date.
-func (req *StoryUpdateRequest) ValidateDateRange() error {
-	// Only validate if both dates are provided
-	if req.StartDate == nil || req.EndDate == nil {
-		return nil
-	}
-
-	_, _, err := ValidateDateRange(*req.StartDate, *req.EndDate)
-	// Ignore parse errors as they will be caught by date format validators
-	// Only return range validation errors
-	if err != nil && strings.Contains(err.Error(), "end_date cannot be before start_date") {
-		return err
-	}
-
-	return nil
 }
 
 // textNormalizer is implemented by request structs that need text normalization

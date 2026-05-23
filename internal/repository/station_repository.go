@@ -15,35 +15,20 @@ type StationUpdate struct {
 	PauseSeconds       *float64 `gorm:"column:pause_seconds"`
 }
 
-// StationRepository defines the interface for station data access.
-type StationRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error)
-	GetByID(ctx context.Context, id int64) (*models.Station, error)
-	Update(ctx context.Context, id int64, updates *StationUpdate) error
-	Delete(ctx context.Context, id int64) error
-
-	// Query operations
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error)
-	Exists(ctx context.Context, id int64) (bool, error)
-	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
-	HasDependencies(ctx context.Context, id int64) (bool, error)
-}
-
-// stationRepository implements StationRepository using GORM.
-type stationRepository struct {
+// StationRepository provides station data access using GORM.
+type StationRepository struct {
 	*GormRepository[models.Station]
 }
 
 // NewStationRepository creates a new station repository.
-func NewStationRepository(db *gorm.DB) StationRepository {
-	return &stationRepository{
+func NewStationRepository(db *gorm.DB) *StationRepository {
+	return &StationRepository{
 		GormRepository: NewGormRepository[models.Station](db),
 	}
 }
 
 // Create inserts a new station and returns the created record.
-func (r *stationRepository) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
+func (r *StationRepository) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
 	station := &models.Station{
 		Name:               name,
 		MaxStoriesPerBlock: maxStories,
@@ -59,12 +44,12 @@ func (r *stationRepository) Create(ctx context.Context, name string, maxStories 
 }
 
 // GetByID retrieves a station by its ID.
-func (r *stationRepository) GetByID(ctx context.Context, id int64) (*models.Station, error) {
+func (r *StationRepository) GetByID(ctx context.Context, id int64) (*models.Station, error) {
 	return r.GormRepository.GetByID(ctx, id)
 }
 
 // Update updates an existing station. Nil pointer fields are skipped.
-func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
+func (r *StationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
 	if u == nil {
 		return nil
 	}
@@ -78,7 +63,7 @@ func (r *stationRepository) Update(ctx context.Context, id int64, u *StationUpda
 }
 
 // Delete removes a station by its ID.
-func (r *stationRepository) Delete(ctx context.Context, id int64) error {
+func (r *StationRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
@@ -96,23 +81,23 @@ var stationFieldMapping = FieldMapping{
 var stationSearchFields = []string{"name"}
 
 // List retrieves a paginated list of stations with filtering, sorting, and search.
-func (r *stationRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error) {
+func (r *StationRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error) {
 	db := r.db.WithContext(ctx).Model(&models.Station{})
 	return ApplyListQuery[models.Station](db, query, stationFieldMapping, stationSearchFields, []SortField{{Field: "name", Direction: SortAsc}})
 }
 
 // Exists reports whether a station with the given ID exists.
-func (r *stationRepository) Exists(ctx context.Context, id int64) (bool, error) {
+func (r *StationRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken reports whether a station name is already in use.
-func (r *stationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
+func (r *StationRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
 // HasDependencies reports whether the station has any station_voices relationships.
-func (r *stationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
+func (r *StationRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	return r.HasRelatedRecords(ctx, id, map[string]string{
 		"station_voices": "station_id",
 	})

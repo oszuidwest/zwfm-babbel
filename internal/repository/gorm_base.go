@@ -19,11 +19,6 @@ func NewGormRepository[T any](db *gorm.DB) *GormRepository[T] {
 	return &GormRepository[T]{db: db}
 }
 
-// DB returns the underlying GORM database connection.
-func (r *GormRepository[T]) DB() *gorm.DB {
-	return r.db
-}
-
 // GetByID retrieves a record by its primary key.
 func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
 	var result T

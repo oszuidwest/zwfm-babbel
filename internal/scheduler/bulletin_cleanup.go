@@ -19,7 +19,7 @@ import (
 // the configured retention period, while preserving database records as an audit trail.
 type BulletinCleanupService struct {
 	// repo provides access to bulletin data for cleanup queries
-	repo repository.BulletinRepository
+	repo *repository.BulletinRepository
 	// config holds the application configuration including retention settings
 	config *config.Config
 	// ticker controls the daily execution schedule

@@ -42,41 +42,20 @@ type CreateUserParams struct {
 	Metadata     *datatypes.JSONMap
 }
 
-// UserRepository defines the interface for user data access.
-type UserRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, params CreateUserParams) (*models.User, error)
-	GetByID(ctx context.Context, id int64) (*models.User, error)
-	GetByUsername(ctx context.Context, username string) (*models.User, error)
-	Update(ctx context.Context, id int64, updates *UserUpdate) error
-	Delete(ctx context.Context, id int64) error
-
-	// Query operations
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error)
-	Exists(ctx context.Context, id int64) (bool, error)
-	IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error)
-	IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error)
-	CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error)
-
-	// User-specific operations
-	SetSuspended(ctx context.Context, id int64, suspended bool) error
-	DeleteSessions(ctx context.Context, userID int64) error
-}
-
-// userRepository implements UserRepository using GORM.
-type userRepository struct {
+// UserRepository provides user data access using GORM.
+type UserRepository struct {
 	*GormRepository[models.User]
 }
 
 // NewUserRepository creates a new user repository.
-func NewUserRepository(db *gorm.DB) UserRepository {
-	return &userRepository{
+func NewUserRepository(db *gorm.DB) *UserRepository {
+	return &UserRepository{
 		GormRepository: NewGormRepository[models.User](db),
 	}
 }
 
 // Create inserts a new user and returns the created record.
-func (r *userRepository) Create(ctx context.Context, params CreateUserParams) (*models.User, error) {
+func (r *UserRepository) Create(ctx context.Context, params CreateUserParams) (*models.User, error) {
 	user := &models.User{
 		Username:     params.Username,
 		FullName:     params.FullName,
@@ -94,20 +73,8 @@ func (r *userRepository) Create(ctx context.Context, params CreateUserParams) (*
 	return user, nil
 }
 
-// GetByUsername retrieves a user by username.
-func (r *userRepository) GetByUsername(ctx context.Context, username string) (*models.User, error) {
-	var user models.User
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).Where("username = ?", username).First(&user).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &user, nil
-}
-
 // Update updates a user. Nil pointer fields are skipped; Clear* flags set fields to NULL.
-func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
+func (r *UserRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
 	if u == nil {
 		return nil
 	}
@@ -121,17 +88,17 @@ func (r *userRepository) Update(ctx context.Context, id int64, u *UserUpdate) er
 }
 
 // IsUsernameTaken reports whether the username is already in use.
-func (r *userRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
+func (r *UserRepository) IsUsernameTaken(ctx context.Context, username string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "username", username, excludeID)
 }
 
 // IsEmailTaken reports whether the email is already in use.
-func (r *userRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
+func (r *UserRepository) IsEmailTaken(ctx context.Context, email string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "email", email, excludeID)
 }
 
 // CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
-func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
+func (r *UserRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
 	var count int64
 	db := DBFromContext(ctx, r.db)
 	err := db.WithContext(ctx).
@@ -148,7 +115,7 @@ func (r *userRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 }
 
 // SetSuspended updates the user's suspended status.
-func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
+func (r *UserRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
 	var updateMap map[string]any
 	if suspended {
 		updateMap = map[string]any{"suspended_at": time.Now()}
@@ -160,7 +127,7 @@ func (r *userRepository) SetSuspended(ctx context.Context, id int64, suspended b
 }
 
 // DeleteSessions removes all sessions for a user.
-func (r *userRepository) DeleteSessions(ctx context.Context, userID int64) error {
+func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error {
 	// user_sessions is not a GORM model, so we use raw SQL
 	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
 	return ParseDBError(err)
@@ -181,7 +148,7 @@ var userFieldMapping = FieldMapping{
 var userSearchFields = []string{"username", "full_name"}
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.
-func (r *userRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
+func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
 	if query == nil {
 		query = NewListQuery()
 	}

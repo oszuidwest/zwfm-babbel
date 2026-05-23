@@ -18,43 +18,20 @@ type CreateBulletinParams struct {
 	StoryCount int
 }
 
-// BulletinRepository defines the interface for bulletin data access.
-type BulletinRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, params CreateBulletinParams) (int64, error)
-	GetByID(ctx context.Context, id int64) (*models.Bulletin, error)
-
-	// Query operations
-	GetLatest(ctx context.Context, stationID int64, maxAge *time.Duration) (*models.Bulletin, error)
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error)
-	Exists(ctx context.Context, id int64) (bool, error)
-	GetBulletinStories(ctx context.Context, bulletinID int64, limit, offset int) ([]models.BulletinStory, int64, error)
-	GetStationBulletins(ctx context.Context, stationID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
-	GetStoryBulletinHistory(ctx context.Context, storyID int64, query *ListQuery) (*ListResult[models.Bulletin], error)
-
-	// Story linking
-	LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error
-
-	// Cleanup operations
-	GetExpiredBulletins(ctx context.Context, cutoff time.Time) ([]models.Bulletin, error)
-	MarkFilePurged(ctx context.Context, id int64) error
-	GetAllAudioFiles(ctx context.Context) ([]string, error)
-}
-
-// bulletinRepository implements BulletinRepository using GORM.
-type bulletinRepository struct {
+// BulletinRepository provides bulletin data access using GORM.
+type BulletinRepository struct {
 	*GormRepository[models.Bulletin]
 }
 
 // NewBulletinRepository creates a new bulletin repository.
-func NewBulletinRepository(db *gorm.DB) BulletinRepository {
-	return &bulletinRepository{
+func NewBulletinRepository(db *gorm.DB) *BulletinRepository {
+	return &BulletinRepository{
 		GormRepository: NewGormRepository[models.Bulletin](db),
 	}
 }
 
 // Create inserts a new bulletin and returns the created ID.
-func (r *bulletinRepository) Create(ctx context.Context, params CreateBulletinParams) (int64, error) {
+func (r *BulletinRepository) Create(ctx context.Context, params CreateBulletinParams) (int64, error) {
 	bulletin := &models.Bulletin{
 		StationID:       params.StationID,
 		Filename:        params.Filename,
@@ -73,7 +50,7 @@ func (r *bulletinRepository) Create(ctx context.Context, params CreateBulletinPa
 }
 
 // GetByID retrieves a bulletin by ID with its associated station.
-func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
+func (r *BulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
 	var bulletin models.Bulletin
 
 	db := DBFromContext(ctx, r.db)
@@ -90,7 +67,7 @@ func (r *bulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 
 // GetLatest retrieves the most recent bulletin for a station.
 // If maxAge is provided, only returns bulletins created within that duration.
-func (r *bulletinRepository) GetLatest(
+func (r *BulletinRepository) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
 	var bulletin models.Bulletin
@@ -116,7 +93,7 @@ func (r *bulletinRepository) GetLatest(
 }
 
 // LinkStories creates bulletin-story relationship records preserving story order.
-func (r *bulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
+func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
 	if len(storyIDs) == 0 {
 		return nil
 	}
@@ -159,7 +136,7 @@ var bulletinSearchFields = []string{"bulletins.filename"}
 var bulletinDefaultSort = []SortField{{Field: "created_at", Direction: SortDesc}}
 
 // List retrieves bulletins with pagination, filtering, and sorting.
-func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error) {
+func (r *BulletinRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Joins("Station")
@@ -170,12 +147,12 @@ func (r *bulletinRepository) List(ctx context.Context, query *ListQuery) (*ListR
 }
 
 // Exists reports whether a bulletin with the given ID exists.
-func (r *bulletinRepository) Exists(ctx context.Context, id int64) (bool, error) {
+func (r *BulletinRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
 // GetBulletinStories retrieves stories included in a specific bulletin with pagination.
-func (r *bulletinRepository) GetBulletinStories(
+func (r *BulletinRepository) GetBulletinStories(
 	ctx context.Context, bulletinID int64, limit, offset int,
 ) ([]models.BulletinStory, int64, error) {
 	var bulletinStories []models.BulletinStory
@@ -212,7 +189,7 @@ func (r *bulletinRepository) GetBulletinStories(
 }
 
 // GetStationBulletins retrieves bulletins for a specific station with pagination.
-func (r *bulletinRepository) GetStationBulletins(
+func (r *BulletinRepository) GetStationBulletins(
 	ctx context.Context, stationID int64, query *ListQuery,
 ) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
@@ -226,7 +203,7 @@ func (r *bulletinRepository) GetStationBulletins(
 }
 
 // GetStoryBulletinHistory retrieves bulletins that included a specific story.
-func (r *bulletinRepository) GetStoryBulletinHistory(
+func (r *BulletinRepository) GetStoryBulletinHistory(
 	ctx context.Context, storyID int64, query *ListQuery,
 ) (*ListResult[models.Bulletin], error) {
 	db := r.db.WithContext(ctx).
@@ -242,7 +219,7 @@ func (r *bulletinRepository) GetStoryBulletinHistory(
 
 // GetExpiredBulletins returns bulletins older than cutoff whose files haven't been purged yet,
 // excluding the latest unpurged bulletin per station (to always keep at least one available).
-func (r *bulletinRepository) GetExpiredBulletins(ctx context.Context, cutoff time.Time) ([]models.Bulletin, error) {
+func (r *BulletinRepository) GetExpiredBulletins(ctx context.Context, cutoff time.Time) ([]models.Bulletin, error) {
 	var bulletins []models.Bulletin
 
 	err := r.db.WithContext(ctx).
@@ -264,7 +241,7 @@ func (r *bulletinRepository) GetExpiredBulletins(ctx context.Context, cutoff tim
 }
 
 // MarkFilePurged sets file_purged_at to the current time for the given bulletin.
-func (r *bulletinRepository) MarkFilePurged(ctx context.Context, id int64) error {
+func (r *BulletinRepository) MarkFilePurged(ctx context.Context, id int64) error {
 	err := r.db.WithContext(ctx).
 		Model(&models.Bulletin{}).
 		Where("id = ?", id).
@@ -278,7 +255,7 @@ func (r *bulletinRepository) MarkFilePurged(ctx context.Context, id int64) error
 }
 
 // GetAllAudioFiles returns audio_file filenames for bulletins whose files have not been purged.
-func (r *bulletinRepository) GetAllAudioFiles(ctx context.Context) ([]string, error) {
+func (r *BulletinRepository) GetAllAudioFiles(ctx context.Context) ([]string, error) {
 	var files []string
 
 	err := r.db.WithContext(ctx).

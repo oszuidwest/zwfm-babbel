@@ -10,11 +10,11 @@ import (
 
 // VoiceService handles voice-related business logic.
 type VoiceService struct {
-	repo repository.VoiceRepository
+	repo *repository.VoiceRepository
 }
 
 // NewVoiceService creates a new voice service instance.
-func NewVoiceService(repo repository.VoiceRepository) *VoiceService {
+func NewVoiceService(repo *repository.VoiceRepository) *VoiceService {
 	return &VoiceService{
 		repo: repo,
 	}

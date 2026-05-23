@@ -46,47 +46,20 @@ type StoryCreateData struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// StoryRepository defines the interface for story data access.
-type StoryRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, data *StoryCreateData) (*models.Story, error)
-	GetByID(ctx context.Context, id int64) (*models.Story, error)
-	GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error)
-	Update(ctx context.Context, id int64, updates *StoryUpdate) error
-
-	// Soft delete operations
-	SoftDelete(ctx context.Context, id int64) error
-	Restore(ctx context.Context, id int64) error
-
-	// Query operations
-	Exists(ctx context.Context, id int64) (bool, error)
-	ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error)
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error)
-
-	// Audio operations
-	UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error
-
-	// Status operations
-	UpdateStatus(ctx context.Context, id int64, status string) error
-
-	// Bulletin-related queries
-	GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error)
-}
-
-// storyRepository implements StoryRepository using GORM.
-type storyRepository struct {
+// StoryRepository provides story data access using GORM.
+type StoryRepository struct {
 	*GormRepository[models.Story]
 }
 
 // NewStoryRepository creates a new story repository.
-func NewStoryRepository(db *gorm.DB) StoryRepository {
-	return &storyRepository{
+func NewStoryRepository(db *gorm.DB) *StoryRepository {
+	return &StoryRepository{
 		GormRepository: NewGormRepository[models.Story](db),
 	}
 }
 
 // Create inserts a new story and returns the created record with voice info.
-func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
+func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
 		Title:      data.Title,
 		Text:       data.Text,
@@ -115,19 +88,12 @@ func (r *storyRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 }
 
 // GetByID retrieves a story by ID with its associated voice.
-func (r *storyRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
-	return r.GetByIDWithPreload(ctx, id, "Voice")
-}
-
-// GetByIDWithVoice retrieves a story with its associated voice.
-//
-// Deprecated: Use GetByID instead, which includes voice information.
-func (r *storyRepository) GetByIDWithVoice(ctx context.Context, id int64) (*models.Story, error) {
+func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
 // Update updates a story. Nil pointer fields are skipped; Clear* flags set fields to NULL.
-func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
+func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
 	}
@@ -141,7 +107,7 @@ func (r *storyRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
-func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
+func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).Delete(&models.Story{}, id)
 	if result.Error != nil {
@@ -154,7 +120,7 @@ func (r *storyRepository) SoftDelete(ctx context.Context, id int64) error {
 }
 
 // Restore clears the deleted_at timestamp.
-func (r *storyRepository) Restore(ctx context.Context, id int64) error {
+func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
 		Where("id = ?", id).
@@ -168,18 +134,8 @@ func (r *storyRepository) Restore(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ExistsIncludingDeleted reports whether a story exists, including soft-deleted stories.
-func (r *storyRepository) ExistsIncludingDeleted(ctx context.Context, id int64) (bool, error) {
-	var count int64
-	err := r.db.WithContext(ctx).Unscoped().Model(&models.Story{}).Where("id = ?", id).Count(&count).Error
-	if err != nil {
-		return false, ParseDBError(err)
-	}
-	return count > 0, nil
-}
-
 // UpdateAudio updates the audio file and duration.
-func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
+func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
@@ -197,7 +153,7 @@ func (r *storyRepository) UpdateAudio(ctx context.Context, id int64, audioFile s
 }
 
 // UpdateStatus updates the story status.
-func (r *storyRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
+func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).Model(&models.Story{}).
 		Where("id = ?", id).
@@ -234,7 +190,7 @@ var storySearchFields = []string{"title", "text"}
 
 // List retrieves stories with filtering, sorting, and pagination.
 // Supports soft delete filtering via Trashed field: "", "only", or "with".
-func (r *storyRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
+func (r *StoryRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
 	if query == nil {
 		query = NewListQuery()
 	}
@@ -271,7 +227,7 @@ type BulletinStoryData struct {
 // Breaking stories consume slots from the station's limit. Playback order is
 // randomized by the caller; this function only determines which stories are selected.
 // The rotation resets daily at local midnight and is isolated per station.
-func (r *storyRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
+func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
 	// Calculate bitmask for the current weekday (Sunday=1, Monday=2, etc.)

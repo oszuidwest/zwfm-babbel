@@ -22,8 +22,8 @@ import (
 
 // StoryServiceDeps contains all dependencies for StoryService.
 type StoryServiceDeps struct {
-	StoryRepo repository.StoryRepository
-	VoiceRepo repository.VoiceRepository
+	StoryRepo *repository.StoryRepository
+	VoiceRepo *repository.VoiceRepository
 	AudioSvc  *audio.Service
 	TTSSvc    *tts.Service
 	Config    *config.Config
@@ -31,8 +31,8 @@ type StoryServiceDeps struct {
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo repository.StoryRepository
-	voiceRepo repository.VoiceRepository
+	storyRepo *repository.StoryRepository
+	voiceRepo *repository.VoiceRepository
 	audioSvc  *audio.Service
 	ttsSvc    *tts.Service
 	config    *config.Config
@@ -281,7 +281,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 
 // GetByID retrieves a story by its ID.
 func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, error) {
-	story, err := s.storyRepo.GetByIDWithVoice(ctx, id)
+	story, err := s.storyRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, apperrors.NotFoundWithID("Story", id)
