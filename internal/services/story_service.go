@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -332,8 +333,9 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	// Convert into a temporary output beside the final file (same directory keeps the rename
 	// atomic). The existing audio stays untouched until the database update confirms the story
 	// still exists, so a concurrent delete can never leave audio_file pointing at a removed file.
+	// Keep the .wav suffix so FFmpeg still selects the WAV muxer from the output extension.
 	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := finalPath + ".processing"
+	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
 	defer func() {
 		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
