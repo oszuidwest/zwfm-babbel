@@ -66,6 +66,10 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		return nil, errors.New("missing request context")
 	}
 
+	if err := rejectDuplicateSingleValueParams(c); err != nil {
+		return nil, err
+	}
+
 	params := &QueryParams{
 		Filters: make(map[string]FilterOperation),
 	}
@@ -257,6 +261,30 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"": func(value string) (FilterOperation, error) {
 		return FilterOperation{Operator: repository.FilterEquals, Value: value}, nil
 	},
+}
+
+// rejectDuplicateSingleValueParams enforces that every non-filter query key
+// appears at most once. Gin's c.Query() silently returns values[0] on a
+// duplicate, which masks client bugs (e.g. ?limit=1&limit=2 used to slip
+// past the latest-shortcut guard because only the first value was checked).
+// filter[...] keys are excluded because parseFilters validates them with
+// richer per-operator context.
+func rejectDuplicateSingleValueParams(c *gin.Context) error {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return nil
+	}
+	for key, values := range c.Request.URL.Query() {
+		if strings.HasPrefix(key, "filter[") {
+			continue
+		}
+		if len(values) > 1 {
+			return &QueryParamError{
+				Field:   key,
+				Message: "received multiple values; only one is allowed",
+			}
+		}
+	}
+	return nil
 }
 
 // parseFilters parses the filter query parameters into filter operations.

@@ -867,6 +867,20 @@ describe('Bulletins', () => {
       // Assert
       expect(response.status).toBe(200);
     });
+
+    test('when limit appears twice, then returns 422 regardless of which wins', async () => {
+      // Regression: c.Query() returns values[0], so latest=true&limit=1&limit=2
+      // used to slip past the latest-shortcut guard because only the first
+      // limit was checked. The central duplicate-key guard now catches it.
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&limit=1&limit=2`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
   });
 
   describe('Bulletin Error Cases', () => {

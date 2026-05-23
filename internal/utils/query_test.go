@@ -221,6 +221,56 @@ func TestPagination(t *testing.T) {
 	}
 }
 
+func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    string
+		wantField string
+	}{
+		{name: "duplicate limit", target: "/x?limit=1&limit=2", wantField: "limit"},
+		{name: "duplicate offset", target: "/x?offset=0&offset=10", wantField: "offset"},
+		{name: "duplicate sort", target: "/x?sort=name&sort=-id", wantField: "sort"},
+		{name: "duplicate fields", target: "/x?fields=id&fields=name", wantField: "fields"},
+		{name: "duplicate search", target: "/x?search=a&search=b", wantField: "search"},
+		{name: "duplicate trashed", target: "/x?trashed=only&trashed=with", wantField: "trashed"},
+		{name: "duplicate ad-hoc key", target: "/x?latest=true&latest=false", wantField: "latest"},
+		{name: "identical duplicates also rejected", target: "/x?limit=1&limit=1", wantField: "limit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseQueryParams(testQueryContext(t, tt.target))
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			var qpe *QueryParamError
+			if !errors.As(err, &qpe) {
+				t.Fatalf("expected *QueryParamError, got %T (%v)", err, err)
+			}
+			if qpe.Field != tt.wantField {
+				t.Fatalf("Field = %q, want %q", qpe.Field, tt.wantField)
+			}
+			if !strings.Contains(qpe.Message, "multiple values") {
+				t.Fatalf("Message = %q, want substring 'multiple values'", qpe.Message)
+			}
+		})
+	}
+}
+
+func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
+	// Regression: the duplicate-key guard must not reject the single-value happy path.
+	params, err := ParseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.Limit != 5 || params.Offset != 10 {
+		t.Fatalf("pagination = %d/%d, want 5/10", params.Limit, params.Offset)
+	}
+	if params.Search != "x" || params.Trashed != "with" {
+		t.Fatalf("search/trashed = %q/%q, want x/with", params.Search, params.Trashed)
+	}
+}
+
 func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	c := testQueryContext(t, "/x?filter[name]=a&filter[name]=b")
 	_, err := ParseQueryParams(c)
