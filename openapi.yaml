@@ -1,4 +1,5 @@
-openapi: 3.0.3
+openapi: 3.1.0
+jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
 info:
   title: Babbel API
   description: |
@@ -43,24 +44,14 @@ info:
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
   version: 1.0.0
-      - "Station-specific voice jingles with mix points"
-      - "Local and OAuth/OIDC authentication"
-      - "Role-based access control (admin, editor, viewer)"
-      - "Soft delete for stories and users"
-      - "FFmpeg audio processing"
-      - "Pagination and filtering on all list endpoints"
-      - "RESTful design for radio automation"
-      - "Removed redundant /broadcasts endpoint"
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
   contact:
     name: Streekomroep ZuidWest
 servers:
-  - url: http://localhost:8080/api/v1
-    description: Development server
-  - url: https://your-api-server.com/api/v1
-    description: Production server (configure with your domain)
+  - url: /
+    description: Relative server root
 
 tags:
   - name: System
@@ -90,6 +81,7 @@ security:
 paths:
   /health:
     get:
+      operationId: getHealth
       summary: Health check endpoint
       tags:
         - System
@@ -198,7 +190,7 @@ paths:
                 status: 401
                 detail: "API key required"
         '404':
-          description: Station not found, endpoint disabled, or no stories available
+          description: Station not found or endpoint disabled
           content:
             application/problem+json:
               schema:
@@ -216,8 +208,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
 
-  /auth/config:
+  /api/v1/auth/config:
     get:
+      operationId: getAuthConfig
       summary: Get authentication configuration
       description: Returns available authentication methods for the API
       tags:
@@ -245,8 +238,9 @@ paths:
                     description: URL to start OAuth flow (only present when OAuth is enabled)
                     example: "/api/v1/auth/oauth"
 
-  /sessions:
+  /api/v1/sessions:
     post:
+      operationId: postSessions
       summary: Login with username and password (local authentication)
       tags:
         - Authentication
@@ -288,8 +282,9 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /auth/oauth:
+  /api/v1/auth/oauth:
     get:
+      operationId: getAuthOauth
       summary: Start OAuth/OIDC authentication flow
       tags:
         - Authentication
@@ -309,8 +304,8 @@ paths:
             If not provided, uses BABBEL_FRONTEND_URL environment variable.
           example: "https://your-frontend.com/dashboard"
       responses:
-        '302':
-          description: Redirect to OAuth provider
+        '307':
+          description: Temporary redirect to OAuth provider
           headers:
             Location:
               schema:
@@ -319,8 +314,9 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /auth/oauth/callback:
+  /api/v1/auth/oauth/callback:
     get:
+      operationId: getAuthOauthCallback
       summary: OAuth callback endpoint
       tags:
         - Authentication
@@ -348,7 +344,7 @@ paths:
             type: string
           description: Error from OAuth provider (if authentication failed)
       responses:
-        '302':
+        '303':
           description: Redirect to frontend application
           headers:
             Location:
@@ -366,8 +362,9 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /sessions/current:
+  /api/v1/sessions/current:
     get:
+      operationId: getSessionsCurrent
       summary: Get current user information
       tags:
         - Authentication
@@ -382,17 +379,21 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
     delete:
+      operationId: deleteSessionsCurrent
       summary: Logout and destroy session
       tags:
         - Authentication
       responses:
         '204':
           description: Session terminated successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stations:
+  /api/v1/stations:
     get:
+      operationId: getStations
       summary: List all stations
       description: |
         Returns a paginated list of radio stations with modern query parameter support.
@@ -488,9 +489,14 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     post:
+      operationId: postStations
       summary: Create a new station
       tags:
         - Stations
@@ -525,11 +531,16 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stations/{id}:
+  /api/v1/stations/{id}:
     get:
+      operationId: getStationsId
       summary: Get station by ID
       tags:
         - Stations
@@ -544,9 +555,14 @@ paths:
                 $ref: '#/components/schemas/Station'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     put:
+      operationId: putStationsId
       summary: Update station
       tags:
         - Stations
@@ -573,9 +589,14 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
+      operationId: deleteStationsId
       summary: Delete station
       tags:
         - Stations
@@ -586,11 +607,16 @@ paths:
           description: Station deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /voices:
+  /api/v1/voices:
     get:
+      operationId: getVoices
       summary: List all voices
       description: |
         Returns a paginated list of newsreader voices with modern query parameter support.
@@ -673,9 +699,14 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     post:
+      operationId: postVoices
       summary: Create a new voice
       tags:
         - Voices
@@ -694,9 +725,8 @@ paths:
                   maxLength: 255
                   pattern: '\S'
                 elevenlabs_voice_id:
-                  type: string
+                  type: [string, 'null']
                   maxLength: 255
-                  nullable: true
                   description: ElevenLabs voice identifier for TTS generation
       responses:
         '201':
@@ -721,11 +751,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /voices/{id}:
+  /api/v1/voices/{id}:
     get:
+      operationId: getVoicesId
       summary: Get voice by ID
       tags:
         - Voices
@@ -740,9 +777,14 @@ paths:
                 $ref: '#/components/schemas/Voice'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     put:
+      operationId: putVoicesId
       summary: Update voice
       tags:
         - Voices
@@ -762,9 +804,8 @@ paths:
                   maxLength: 255
                   pattern: '\S'
                 elevenlabs_voice_id:
-                  type: string
+                  type: [string, 'null']
                   maxLength: 255
-                  nullable: true
                   description: ElevenLabs voice identifier for TTS generation (set to null or empty string to clear)
       responses:
         '200':
@@ -779,9 +820,16 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
+      operationId: deleteVoicesId
       summary: Delete voice
       tags:
         - Voices
@@ -794,11 +842,16 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stories:
+  /api/v1/stories:
     get:
+      operationId: getStories
       summary: List all stories
       description: |
         List stories with modern query parameter support.
@@ -881,8 +934,8 @@ paths:
                         voice_id: 1
                         voice_name: "Sarah Johnson"
                         status: "active"
-                        start_date: "2024-01-20"
-                        end_date: "2024-01-27"
+                        start_date: "2024-01-20T00:00:00Z"
+                        end_date: "2024-01-27T00:00:00Z"
                         weekdays: 62
                         is_breaking: false
                         created_at: "2024-01-20T10:00:00Z"
@@ -913,7 +966,12 @@ paths:
                     total: 1
                     limit: 20
                     offset: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      operationId: postStories
       summary: Create a new story
       description: |
         Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
@@ -958,11 +1016,18 @@ paths:
                     message: "Story created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stories/{id}/audio:
+  /api/v1/stories/{id}/audio:
     get:
+      operationId: getStoriesIdAudio
       summary: Download story audio file
       tags:
         - Stories
@@ -977,11 +1042,16 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Story not found or no audio file
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      operationId: postStoriesIdAudio
       summary: Upload story audio file
       description: |
-        Upload audio file for a story. Accepts WAV or MP3 format.
+        Upload audio file for a story. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
         Audio duration is automatically calculated and stored.
       tags:
         - Stories
@@ -1015,11 +1085,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stories/{id}/tts:
+  /api/v1/stories/{id}/tts:
     post:
+      operationId: postStoriesIdTts
       summary: Generate story audio via text-to-speech
       description: |
         Generates audio for a story using the ElevenLabs text-to-speech API.
@@ -1071,6 +1148,10 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '501':
@@ -1086,8 +1167,9 @@ paths:
                 detail: "Text-to-speech is not configured"
                 hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
 
-  /stories/{id}:
+  /api/v1/stories/{id}:
     get:
+      operationId: getStoriesId
       summary: Get story by ID
       tags:
         - Stories
@@ -1102,9 +1184,14 @@ paths:
                 $ref: '#/components/schemas/Story'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     put:
+      operationId: putStoriesId
       summary: Update story (full update)
       description: |
         Update story with JSON body. All fields are optional - only provided fields will be updated.
@@ -1141,9 +1228,14 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
+      operationId: deleteStoriesId
       summary: Delete story (soft delete)
       description: |
         Performs a soft delete by setting deleted_at timestamp.
@@ -1158,7 +1250,12 @@ paths:
           description: Story soft deleted successfully
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     patch:
+      operationId: patchStoriesId
       summary: Update story state
       description: |
         Update story status or restore soft-deleted stories. 
@@ -1206,56 +1303,51 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /stories/{id}/bulletins:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/stories/{id}/bulletins:
     get:
+      operationId: getStoriesIdBulletins
       summary: Get bulletin history for a story
       description: |
         Returns all bulletins that have included this specific story with modern query parameter support.
-        Ordered by most recent inclusion first by default.
+        Ordered by bulletin creation time descending by default.
         
         ## Search Fields
         Full-text search across:
-        - `b.filename` - Bulletin filename
-        - `s.name` - Station name
+        - `filename` - Bulletin filename
         
         ## Filter Fields
         Available filter fields:
         - `id` - Bulletin ID
-        - `bulletin_id` - Bulletin ID (same as id)
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
         - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Bulletin creation timestamp
-        - `station_name` - Station name (from join)
-        - `story_order` - Order of story in bulletin
-        - `included_at` - When story was included in bulletin
 
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Bulletin creation timestamp
-        - `station_name` - Station name
-        - `story_order` - Story order in bulletin
-        - `included_at` - Inclusion timestamp (default: descending)
 
         ## Examples
         - Search by bulletin filename: `?search=bulletin_2024`
         - Filter by station: `?filter[station_id]=1`
-        - Filter by date range: `?filter[included_at][gte]=2024-01-01`
-        - Sort by story order: `?sort=story_order`
-        - Field selection: `?fields=id,filename,story_order,included_at`
-        - Complex query: `?search=bulletin&filter[story_order][lte]=2&sort=-included_at&fields=id,filename,story_order`
+        - Filter by date range: `?filter[created_at][gte]=2024-01-01`
+        - Sort by creation date: `?sort=-created_at`
+        - Field selection: `?fields=id,filename,created_at`
+        - Complex query: `?search=bulletin&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Stories
       parameters:
@@ -1287,8 +1379,6 @@ paths:
                         file_size: 2965440
                         story_count: 4
                         created_at: "2024-01-20T14:05:00Z"
-                        story_order: 0
-                        included_at: "2024-01-20T14:05:00Z"
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
@@ -1298,33 +1388,34 @@ paths:
                         file_size: 2845568
                         story_count: 3
                         created_at: "2024-01-20T14:02:00Z"
-                        story_order: 1
-                        included_at: "2024-01-20T14:02:00Z"
                     total: 2
                     limit: 20
                     offset: 0
                 field_selection:
-                  summary: Field selection (fields=id,filename,story_order,included_at)
+                  summary: Field selection (fields=id,filename,created_at)
                   value:
                     data:
                       - id: 150
                         filename: "bulletin_150_20240120_140500.wav"
-                        story_order: 0
-                        included_at: "2024-01-20T14:05:00Z"
+                        created_at: "2024-01-20T14:05:00Z"
                       - id: 149
                         filename: "bulletin_149_20240120_140200.wav"
-                        story_order: 1
-                        included_at: "2024-01-20T14:02:00Z"
+                        created_at: "2024-01-20T14:02:00Z"
                     total: 2
                     limit: 20
                     offset: 0
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /users:
+  /api/v1/users:
     get:
+      operationId: getUsers
       summary: List all users
       tags:
         - Users
@@ -1354,7 +1445,12 @@ paths:
                     type: integer
                   offset:
                     type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      operationId: postUsers
       summary: Create a new user
       tags:
         - Users
@@ -1385,9 +1481,19 @@ paths:
                     message: "User created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
-
-  /users/{id}:
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /api/v1/users/{id}:
     get:
+      operationId: getUsersId
       summary: Get user by ID
       tags:
         - Users
@@ -1402,7 +1508,12 @@ paths:
                 $ref: '#/components/schemas/User'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     put:
+      operationId: putUsersId
       summary: Update user
       description: |
         Update user information. All fields are optional - only provided fields will be updated.
@@ -1424,13 +1535,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
-      summary: Permanently delete user
+      operationId: deleteUsersId
+      summary: Delete user
       description: |
-        Permanently deletes a user account and all associated data.
-        This action cannot be undone. All active sessions for the user will be terminated.
+        Soft-deletes a user account. All active sessions for the user will be terminated.
         Cannot delete the last admin user.
       tags:
         - Users
@@ -1438,12 +1561,21 @@ paths:
         - $ref: '#/components/parameters/id'
       responses:
         '204':
-          description: User permanently deleted
+          description: User deleted
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     patch:
+      operationId: patchUsersId
       summary: Update user state  
       description: |
         Update user state (suspend/restore) without requiring full user data. 
@@ -1480,43 +1612,42 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /bulletins:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/bulletins:
     get:
+      operationId: getBulletins
       summary: List bulletins
       description: |
         Returns a paginated list of generated bulletins with modern query parameter support.
         
         ## Search Fields
         Full-text search across:
-        - `b.filename` - Bulletin filename
-        - `s.name` - Station name
-        
+        - `filename` - Bulletin filename
+
         ## Filter Fields
         Available filter fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
         - `file_purged_at` - When audio file was cleaned up (null = file exists)
-        - `metadata` - JSON metadata
         - `created_at` - Creation timestamp
-        - `station_name` - Station name (from join)
 
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
-        - `station_name` - Station name
 
         ## Notes
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
@@ -1606,8 +1737,9 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /bulletins/{id}:
+  /api/v1/bulletins/{id}:
     get:
+      operationId: getBulletinsId
       summary: Get bulletin by ID
       description: |
         Returns a single bulletin by its ID.
@@ -1645,8 +1777,9 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /stations/{id}/bulletins:
+  /api/v1/stations/{id}/bulletins:
     get:
+      operationId: getStationsIdBulletins
       summary: List bulletins for a station
       description: |
         Returns a paginated list of bulletins generated for a specific station with modern query parameter support.
@@ -1654,37 +1787,35 @@ paths:
         
         ## Search Fields
         Full-text search across:
-        - `b.filename` - Bulletin filename
-        - `s.name` - Station name
-        
+        - `filename` - Bulletin filename
+
         ## Filter Fields
         Available filter fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID (automatically filtered by path parameter)
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
         - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Creation timestamp
-        - `station_name` - Station name (from join)
 
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
-        - `station_name` - Station name
 
         ## Special Parameters
-        - `latest=true` - Returns only the latest bulletin with cache headers (Last-Modified, ETag)
-        - `limit=1` - Also triggers the special single-bulletin response with cache headers, equivalent to `latest=true`
+        - `latest=true` - Returns the latest bulletin object directly with `X-Cache` and `Age` headers
+        - `limit=1` - Also triggers the same single-bulletin response as `latest=true`
+
+        When the latest shortcut is active, the only other accepted query parameter is `limit=1`.
+        `filter`, `sort`, `fields`, `search`, `trashed`, `offset`, and `limit!=1` are rejected with 422.
 
         ## Notes
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
@@ -1715,11 +1846,15 @@ paths:
           description: Return only the latest bulletin for this station (equivalent to limit=1)
       responses:
         '200':
-          description: List of station bulletins with pagination metadata
+          description: |
+            Station bulletins. Returns a paginated list by default, or a single
+            BulletinResponse object when `latest=true` or `limit=1` is used.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BulletinsListResponse'
+                anyOf:
+                  - $ref: '#/components/schemas/BulletinsListResponse'
+                  - $ref: '#/components/schemas/BulletinResponse'
               examples:
                 basic_list:
                   summary: Basic bulletin list for station
@@ -1749,24 +1884,25 @@ paths:
                 latest_bulletin:
                   summary: Latest bulletin (latest=true)
                   value:
-                    data:
-                      - id: 150
-                        station_id: 1
-                        station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
-                        audio_url: "/bulletins/150/audio"
-                        duration_seconds: 185.4
-                        file_size: 2965440
-                        story_count: 4
-                        created_at: "2024-01-20T14:05:00Z"
-                    total: 1
-                    limit: 1
-                    offset: 0
+                    id: 150
+                    station_id: 1
+                    station_name: "Radio Station 1"
+                    filename: "bulletin_150_20240120_140500.wav"
+                    audio_url: "/bulletins/150/audio"
+                    duration_seconds: 185.4
+                    file_size: 2965440
+                    story_count: 4
+                    created_at: "2024-01-20T14:05:00Z"
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     post:
+      operationId: postStationsIdBulletins
       summary: Generate news bulletin for a station
       description: |
         Generates a news bulletin for a specific station with smart caching and flexible response options.
@@ -1901,12 +2037,19 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
-          description: Station not found or no stories available
+          $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
-  /bulletins/{id}/audio:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/bulletins/{id}/audio:
     get:
+      operationId: getBulletinsIdAudio
       summary: Download bulletin audio file
       tags:
         - Bulletin
@@ -1921,59 +2064,29 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Bulletin not found or no audio file
+          $ref: '#/components/responses/NotFound'
 
-  /bulletins/{id}/stories:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/bulletins/{id}/stories:
     get:
+      operationId: getBulletinsIdStories
       summary: List stories included in a bulletin
       description: |
-        Returns a paginated list of stories that were included in a specific bulletin with modern query parameter support.
-        Ordered by story appearance order (story_order) by default.
-        
-        ## Search Fields
-        Full-text search across:
-        - `st.title` - Story title
-        - `s.name` - Station name
-        - `b.filename` - Bulletin filename
-        
-        ## Filter Fields
-        Available filter fields:
-        - `id` - Bulletin-story relationship ID
-        - `bulletin_id` - Bulletin ID (automatically filtered by path parameter)
-        - `story_id` - Story ID
-        - `story_order` - Order of story in bulletin
-        - `created_at` - When story was added to bulletin
-        - `station_id` - Station ID (from bulletin join)
-        - `station_name` - Station name (from join)
-        - `story_title` - Story title (from join)
-        - `bulletin_filename` - Bulletin filename (from join)
-        
-        ## Sort Fields
-        Available sort fields:
-        - `id` - Relationship ID
-        - `story_id` - Story ID
-        - `story_order` - Story order in bulletin (default: ascending)
-        - `created_at` - Addition timestamp
-        - `station_name` - Station name
-        - `story_title` - Story title
-        - `bulletin_filename` - Bulletin filename
+        Returns a paginated list of bulletin-story relationship records for a specific bulletin.
+        The current implementation supports pagination only and returns the basic join fields.
         
         ## Examples
-        - Search by story title: `?search=breaking`
-        - Filter by story order: `?filter[story_order][lte]=3`
-        - Sort by story title: `?sort=story_title`
-        - Field selection: `?fields=id,story_id,story_order,story_title`
-        - Complex query: `?search=news&filter[story_order][lte]=5&sort=story_order&fields=id,story_title,story_order`
+        - First page: `?limit=20&offset=0`
+        - Second page: `?limit=20&offset=20`
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-        - $ref: '#/components/parameters/sort'
-        - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
       responses:
         '200':
           description: List of stories in the bulletin with pagination metadata
@@ -1991,61 +2104,30 @@ paths:
                         story_id: 101
                         story_order: 0
                         created_at: "2024-01-20T14:05:00Z"
-                        station:
-                          id: 1
-                          name: "Radio Station 1"
-                        story:
-                          id: 101
-                          title: "Breaking News Update"
-                        bulletin:
-                          id: 150
-                          filename: "bulletin_150_20240120_140500.wav"
                       - id: 2
                         bulletin_id: 150
                         story_id: 102
                         story_order: 1
                         created_at: "2024-01-20T14:05:00Z"
-                        station:
-                          id: 1
-                          name: "Radio Station 1"
-                        story:
-                          id: 102
-                          title: "Weather Report"
-                        bulletin:
-                          id: 150
-                          filename: "bulletin_150_20240120_140500.wav"
-                    total: 2
-                    limit: 20
-                    offset: 0
-                field_selection:
-                  summary: Field selection (fields=id,story_order,story_title)
-                  value:
-                    data:
-                      - id: 1
-                        story_order: 0
-                        story_title: "Breaking News Update"
-                      - id: 2
-                        story_order: 1
-                        story_title: "Weather Report"
                     total: 2
                     limit: 20
                     offset: 0
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /station-voices:
+  /api/v1/station-voices:
     get:
+      operationId: getStationVoices
       summary: List station-voice relationships
       description: |
         Returns a paginated list of station-voice relationships with modern query parameter support.
         Includes station and voice information via database joins.
-        
-        ## Search Fields
-        Full-text search across:
-        - `s.name` - Station name
-        - `v.name` - Voice name
         
         ## Filter Fields
         Available filter fields:
@@ -2064,23 +2146,20 @@ paths:
 
         ## Sort Fields
         Available sort fields:
-        - `id` - Relationship ID (default: descending)
+        - `id` - Relationship ID (default: ascending)
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_file` - Audio filename
+        - `audio_url` - Audio presence (maps to audio_file column)
         - `mix_point` - Mix point value
         - `created_at` - Creation timestamp
         - `updated_at` - Last update timestamp
-        - `station_name` - Station name
-        - `voice_name` - Voice name
         
         ## Examples
-        - Search by station name: `?search=Radio`
         - Filter by station: `?filter[station_id]=1`
         - Filter by voice: `?filter[voice_id]=2`
-        - Sort by station name: `?sort=station_name`
+        - Sort by creation date: `?sort=-created_at`
         - Field selection: `?fields=id,station_name,voice_name,mix_point`
-        - Complex query: `?search=Radio&filter[station_id]=1&sort=-created_at&fields=id,station_name,voice_name`
+        - Complex query: `?filter[station_id]=1&sort=-created_at&fields=id,station_name,voice_name`
       tags:
         - Station-Voices
       parameters:
@@ -2088,7 +2167,6 @@ paths:
         - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/filter'
       responses:
         '200':
@@ -2123,19 +2201,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-                search_example:
-                  summary: Search results for "Radio"
-                  value:
-                    data:
-                      - id: 1
-                        station_id: 1
-                        voice_id: 1
-                        station_name: "Radio Station 1"
-                        voice_name: "Sarah Johnson"
-                        mix_point: 2.5
-                    total: 1
-                    limit: 20
-                    offset: 0
                 field_selection:
                   summary: Field selection (fields=id,station_name,voice_name,mix_point)
                   value:
@@ -2147,9 +2212,14 @@ paths:
                     total: 1
                     limit: 20
                     offset: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     post:
+      operationId: postStationVoices
       summary: Create a new station-voice relationship
       description: |
         Create station-voice relationship with JSON body. Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
@@ -2190,11 +2260,16 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /station-voices/{id}/audio:
+  /api/v1/station-voices/{id}/audio:
     get:
+      operationId: getStationVoicesIdAudio
       summary: Download station-voice jingle file
       tags:
         - Station-Voices
@@ -2209,11 +2284,16 @@ paths:
                 type: string
                 format: binary
         '404':
-          description: Station-voice not found or no jingle file
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     post:
+      operationId: postStationVoicesIdAudio
       summary: Upload station-voice jingle file
       description: |
-        Upload jingle audio file for a station-voice relationship. Accepts WAV or MP3 format.
+        Upload jingle audio file for a station-voice relationship. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
       tags:
         - Station-Voices
       parameters:
@@ -2246,11 +2326,18 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /station-voices/{id}:
+  /api/v1/station-voices/{id}:
     get:
+      operationId: getStationVoicesId
       summary: Get station-voice relationship by ID
       tags:
         - Station-Voices
@@ -2265,7 +2352,12 @@ paths:
                 $ref: '#/components/schemas/StationVoice'
         '404':
           $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
     put:
+      operationId: putStationVoicesId
       summary: Update station-voice relationship
       description: |
         Update station-voice relationship properties with JSON body. All fields are optional - only provided fields will be updated.
@@ -2300,9 +2392,14 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
+      operationId: deleteStationVoicesId
       summary: Delete station-voice relationship
       tags:
         - Station-Voices
@@ -2313,7 +2410,12 @@ paths:
           description: Station-voice relationship deleted
         '404':
           $ref: '#/components/responses/NotFound'
-
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   securitySchemes:
@@ -2426,6 +2528,9 @@ components:
                 ne:
                   type: string
                   description: Not equals
+                not:
+                  type: string
+                  description: Alias for ne (not equals)
                 gt:
                   type: string
                   description: Greater than
@@ -2444,6 +2549,9 @@ components:
                 in:
                   type: string
                   description: Comma-separated list of values
+                between:
+                  type: string
+                  description: Two comma-separated inclusive bounds
                 'null':
                   type: boolean
                   description: Is null (true) or not null (false)
@@ -2460,9 +2568,11 @@ components:
         Supported operators:
         - `eq` - equals (default)
         - `ne` - not equals
+        - `not` - alias for `ne` (not equals)
         - `gt`, `gte`, `lt`, `lte` - comparisons
         - `like` - pattern matching
         - `in` - comma-separated values
+        - `between` - two comma-separated inclusive bounds
         - `null` - is/isn't null
         - `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
@@ -2552,9 +2662,8 @@ components:
           minLength: 1
           maxLength: 255
         elevenlabs_voice_id:
-          type: string
+          type: [string, 'null']
           maxLength: 255
-          nullable: true
           description: ElevenLabs voice identifier for TTS generation (null if not configured)
         created_at:
           type: string
@@ -2641,21 +2750,18 @@ components:
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       properties:
         station_id:
-          type: integer
+          type: [integer, 'null']
           minimum: 1
-          nullable: true
           description: New station ID (optional)
         voice_id:
-          type: integer
+          type: [integer, 'null']
           minimum: 1
-          nullable: true
           description: New voice ID (optional)
         mix_point:
-          type: number
+          type: [number, 'null']
           format: float
           minimum: 0
           maximum: 300
-          nullable: true
           description: Mix point in seconds (0-300)
 
     Story:
@@ -2673,9 +2779,8 @@ components:
           type: string
           minLength: 1
         voice_id:
-          type: integer
+          type: [integer, 'null']
           format: int64
-          nullable: true
           description: Voice ID if assigned, null if no voice is assigned
           x-foreign-key: voices.id
         voice_name:
@@ -2688,9 +2793,8 @@ components:
           type: string
           description: API URL to download the audio file (always present, may return 404 if no file exists)
         duration_seconds:
-          type: number
+          type: [number, 'null']
           format: float
-          nullable: true
         status:
           type: string
           enum: [draft, active, expired]
@@ -2723,9 +2827,8 @@ components:
           type: string
           format: date-time
         deleted_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Timestamp when the story was soft-deleted
 
     StoryCreate:
@@ -2751,9 +2854,8 @@ components:
           pattern: '\S'
           description: Story text content
         voice_id:
-          type: integer
+          type: [integer, 'null']
           minimum: 1
-          nullable: true
           description: Optional voice ID. Stories without a voice will not be included in bulletin generation
         status:
           type: string
@@ -2800,55 +2902,46 @@ components:
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       properties:
         title:
-          type: string
+          type: [string, 'null']
           minLength: 1
           maxLength: 500
           pattern: '\S'
-          nullable: true
           description: Story title
         text:
-          type: string
+          type: [string, 'null']
           minLength: 1
           pattern: '\S'
-          nullable: true
           description: Story text content
         voice_id:
-          type: integer
+          type: [integer, 'null']
           minimum: 1
-          nullable: true
           description: Voice ID. Omit or set to null to keep current value unchanged
         status:
-          type: string
-          enum: [draft, active, expired]
-          nullable: true
+          type: [string, 'null']
+          enum: [draft, active, expired, null]
           description: Story status
         start_date:
-          type: string
+          type: [string, 'null']
           format: date
-          nullable: true
           description: Start date in YYYY-MM-DD format
         end_date:
-          type: string
+          type: [string, 'null']
           format: date
-          nullable: true
           description: End date in YYYY-MM-DD format
         weekdays:
-          type: integer
+          type: [integer, 'null']
           minimum: 0
           maximum: 127
-          nullable: true
           description: |
             Bitmask for scheduling stories on specific days of the week.
             Each day is a power of 2: Sunday=1, Monday=2, Tuesday=4, Wednesday=8, Thursday=16, Friday=32, Saturday=64.
             Common values: 127 (all days), 62 (Mon-Fri weekdays), 65 (Sat+Sun weekend), 0 (no days).
         is_breaking:
-          type: boolean
-          nullable: true
+          type: [boolean, 'null']
           description: Mark as breaking news. Breaking stories are prioritized for selection in bulletins. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
         metadata:
-          type: object
+          type: [object, 'null']
           additionalProperties: true
-          nullable: true
           description: Optional JSON metadata object for story-specific settings
           example:
             priority: "medium"
@@ -2866,10 +2959,9 @@ components:
         full_name:
           type: string
         email:
-          type: string
+          type: [string, 'null']
           format: email
           maxLength: 255
-          nullable: true
         role:
           type: string
           enum: [admin, editor, viewer]
@@ -2879,25 +2971,21 @@ components:
             - editor: Can manage content (stations, voices, stories)
             - viewer: Read-only access
         suspended_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Timestamp when the user was suspended
         last_login_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         login_count:
           type: integer
         locked_until:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Timestamp until when the account is locked due to failed login attempts
         password_changed_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
         metadata:
           type: object
           additionalProperties: true
@@ -2909,9 +2997,8 @@ components:
           type: string
           format: date-time
         deleted_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: Soft delete timestamp (present when querying with ?trashed=only or ?trashed=with)
 
     UserInput:
@@ -2941,10 +3028,9 @@ components:
           maxLength: 128
           description: User password
         email:
-          type: string
+          type: [string, 'null']
           format: email
           maxLength: 255
-          nullable: true
           description: Omit or set to null to create user without email
         role:
           type: string
@@ -2982,20 +3068,17 @@ components:
           maxLength: 255
           description: New password
         email:
-          type: string
+          type: [string, 'null']
           format: email
           maxLength: 255
-          nullable: true
         role:
           type: string
           enum: [admin, editor, viewer]
         metadata:
-          type: object
+          type: [object, 'null']
           additionalProperties: true
-          nullable: true
         suspended:
-          type: boolean
-          nullable: true
+          type: [boolean, 'null']
           description: Set to true to suspend user, false to restore
 
     BulletinResponse:
@@ -3035,9 +3118,8 @@ components:
           type: integer
           description: Number of stories included in the bulletin
         file_purged_at:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: When the audio file was cleaned up (null means file still exists)
 
     ProblemDetails:
@@ -3091,8 +3173,8 @@ components:
           example: "The request body contains invalid data"
         instance:
           type: string
-          format: uri
-          description: URI that identifies the specific occurrence of the problem
+          format: uri-reference
+          description: URI reference that identifies the specific occurrence of the problem
           example: "/api/v1/stories/123"
         timestamp:
           type: string
@@ -3226,12 +3308,8 @@ components:
     BulletinStoriesListResponse:
       type: object
       description: |
-        Paginated response for bulletin stories list endpoint.
-
-        **Note:** The current implementation returns only the basic relationship fields.
-        Nested objects (station, story, bulletin) shown in examples are NOT currently
-        included in the actual API response. Use the individual resource endpoints
-        to fetch full details for stations, stories, or bulletins.
+        Paginated response for the bulletin stories list endpoint.
+        The API returns the basic bulletin-story relationship fields.
       properties:
         data:
           type: array
@@ -3255,41 +3333,6 @@ components:
                 type: string
                 format: date-time
                 description: When story was added to bulletin
-              # NOTE: The following nested objects are documented for future implementation
-              # but are NOT currently returned by the API
-              station:
-                type: object
-                description: "NOT CURRENTLY IMPLEMENTED - Use GET /stations/{id} instead"
-                x-not-implemented: true
-                properties:
-                  id:
-                    type: integer
-                    description: Station ID
-                  name:
-                    type: string
-                    description: Station name
-              story:
-                type: object
-                description: "NOT CURRENTLY IMPLEMENTED - Use GET /stories/{id} instead"
-                x-not-implemented: true
-                properties:
-                  id:
-                    type: integer
-                    description: Story ID
-                  title:
-                    type: string
-                    description: Story title
-              bulletin:
-                type: object
-                description: "NOT CURRENTLY IMPLEMENTED - Use GET /bulletins/{id} instead"
-                x-not-implemented: true
-                properties:
-                  id:
-                    type: integer
-                    description: Bulletin ID
-                  filename:
-                    type: string
-                    description: Bulletin filename
         total:
           type: integer
           description: Total number of story-bulletin relationships matching the query
@@ -3304,31 +3347,11 @@ components:
       type: object
       description: |
         Paginated response for story bulletins history endpoint.
-
-        **Note:** The `story_order` and `included_at` fields shown below are planned
-        but NOT currently returned by the API. The current implementation returns
-        only the standard BulletinResponse fields.
       properties:
         data:
           type: array
           items:
-            allOf:
-              - $ref: '#/components/schemas/BulletinResponse'
-              - type: object
-                properties:
-                  story_order:
-                    type: integer
-                    description: |
-                      Order of story in this bulletin.
-                      **NOT CURRENTLY IMPLEMENTED** - Planned for future release.
-                    x-not-implemented: true
-                  included_at:
-                    type: string
-                    format: date-time
-                    description: |
-                      When story was included in this bulletin.
-                      **NOT CURRENTLY IMPLEMENTED** - Planned for future release.
-                    x-not-implemented: true
+            $ref: '#/components/schemas/BulletinResponse'
         total:
           type: integer
           description: Total number of bulletins that included this story
@@ -3410,6 +3433,12 @@ components:
                 status: 409
                 detail: "Cannot delete the last admin user"
                 instance: "/api/v1/users/1"
+    PayloadTooLarge:
+      description: Request body too large
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
     UnprocessableEntity:
       description: Validation error
       content:

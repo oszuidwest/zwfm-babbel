@@ -36,7 +36,10 @@ const (
 	FilterLessOrEq    FilterOperator = "lte"
 	FilterLike        FilterOperator = "like"
 	FilterIn          FilterOperator = "in"
+	FilterBetween     FilterOperator = "between"
 	FilterBitwiseAnd  FilterOperator = "band"
+	FilterIsNull      FilterOperator = "null"
+	FilterIsNotNull   FilterOperator = "not_null"
 )
 
 // FilterCondition represents a single filter condition.
@@ -44,6 +47,31 @@ type FilterCondition struct {
 	Field    string
 	Operator FilterOperator
 	Value    any
+}
+
+// UnknownFieldError indicates a query referenced a field that is not in the
+// resource's FieldMapping. Surfaced through handleServiceError as a structured
+// 422 response so the handler does not silently drop the clause.
+type UnknownFieldError struct {
+	Kind  string // "filter" or "sort"
+	Field string
+}
+
+func (e *UnknownFieldError) Error() string {
+	return fmt.Sprintf("unknown %s field %q", e.Kind, e.Field)
+}
+
+// InvalidFilterError indicates a filter condition could not be applied because
+// the value shape does not match the operator (e.g. LIKE with a non-string
+// value, BETWEEN without two values, BAND on a non-allowlisted field).
+type InvalidFilterError struct {
+	Field    string
+	Operator FilterOperator
+	Reason   string
+}
+
+func (e *InvalidFilterError) Error() string {
+	return fmt.Sprintf("invalid filter[%s][%s]: %s", e.Field, e.Operator, e.Reason)
 }
 
 // ListQuery contains parameters for listing entities.
@@ -85,53 +113,26 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		query = NewListQuery()
 	}
 
-	// Apply search - use string join for proper OR grouping
-	if query.Search != "" && len(searchFields) > 0 {
-		searchPattern := "%" + query.Search + "%"
-		conditions := make([]string, len(searchFields))
-		args := make([]any, len(searchFields))
-		for i, field := range searchFields {
-			conditions[i] = field + " LIKE ?"
-			args[i] = searchPattern
-		}
-		db = db.Where(strings.Join(conditions, " OR "), args...)
-	}
+	db = applySearch(db, query.Search, searchFields)
 
-	// Apply filters
 	for _, filter := range query.Filters {
-		db = applyFilterCondition(db, filter, fieldMapping)
+		next, err := applyFilterCondition(db, filter, fieldMapping)
+		if err != nil {
+			return nil, err
+		}
+		db = next
 	}
 
-	// Count total before pagination
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		return nil, err
 	}
 
-	// Apply sorting - use user-provided sort or fall back to default
-	sortFields := query.Sort
-	if len(sortFields) == 0 {
-		sortFields = defaultSort
+	sortedDB, err := applySorting(db, query.Sort, defaultSort, fieldMapping)
+	if err != nil {
+		return nil, err
 	}
-	for _, sf := range sortFields {
-		dbField, ok := fieldMapping[sf.Field]
-		if !ok {
-			continue
-		}
-		direction := "ASC"
-		if sf.Direction == SortDesc {
-			direction = "DESC"
-		}
-		db = db.Order(dbField + " " + direction)
-	}
-
-	// Apply pagination
-	if query.Limit > 0 {
-		db = db.Limit(query.Limit)
-	}
-	if query.Offset > 0 {
-		db = db.Offset(query.Offset)
-	}
+	db = applyPagination(sortedDB, query.Limit, query.Offset)
 
 	// Execute query
 	var data []T
@@ -164,31 +165,125 @@ var operatorFormats = map[FilterOperator]string{
 	FilterBitwiseAnd:  "(%s & ?) != 0",
 }
 
+// applySearch attaches a search WHERE clause across all search fields.
+func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
+	if search == "" || len(searchFields) == 0 {
+		return db
+	}
+	searchPattern := "%" + search + "%"
+	conditions := make([]string, len(searchFields))
+	args := make([]any, len(searchFields))
+	for i, field := range searchFields {
+		conditions[i] = field + " LIKE ?"
+		args[i] = searchPattern
+	}
+	return db.Where(strings.Join(conditions, " OR "), args...)
+}
+
+// applySorting applies user sort with whitelist validation, falling back to
+// defaultSort when no user sort was provided. Default sort comes from trusted
+// server code and may legally reference columns that the API does not expose.
+func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping FieldMapping) (*gorm.DB, error) {
+	if len(userSort) == 0 {
+		for _, sf := range defaultSort {
+			dbField, ok := fieldMapping[sf.Field]
+			if !ok {
+				continue
+			}
+			db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+		}
+		return db, nil
+	}
+	for _, sf := range userSort {
+		dbField, ok := fieldMapping[sf.Field]
+		if !ok {
+			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
+		}
+		db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+	}
+	return db, nil
+}
+
+// applyPagination attaches LIMIT/OFFSET. Zero or negative values are skipped.
+func applyPagination(db *gorm.DB, limit, offset int) *gorm.DB {
+	if limit > 0 {
+		db = db.Limit(limit)
+	}
+	if offset > 0 {
+		db = db.Offset(offset)
+	}
+	return db
+}
+
+// sortDirectionSQL maps a SortDirection to its SQL token.
+func sortDirectionSQL(d SortDirection) string {
+	if d == SortDesc {
+		return "DESC"
+	}
+	return "ASC"
+}
+
 // applyFilterCondition applies a single filter condition to the query.
-func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) *gorm.DB {
+// Returns an *UnknownFieldError or *InvalidFilterError when the condition
+// cannot be applied, so the caller can surface a 422 instead of silently
+// dropping the clause and returning an unfiltered result set.
+func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) (*gorm.DB, error) {
 	// Validate field name to prevent SQL injection
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
-		return db
+		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
 
 	// Restrict bitwise operators to allowed fields only
 	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
-		return db
+		return nil, &InvalidFilterError{
+			Field:    filter.Field,
+			Operator: filter.Operator,
+			Reason:   "bitwise operator not allowed on this field",
+		}
 	}
 
 	// Special case for LIKE operator (needs pattern wrapping)
 	if filter.Operator == FilterLike {
-		if s, ok := filter.Value.(string); ok {
-			return db.Where(dbField+" LIKE ?", "%"+s+"%")
+		s, ok := filter.Value.(string)
+		if !ok {
+			return nil, &InvalidFilterError{
+				Field:    filter.Field,
+				Operator: filter.Operator,
+				Reason:   "expected string value",
+			}
 		}
-		return db
+		return db.Where(dbField+" LIKE ?", "%"+s+"%"), nil
 	}
 
-	// Use map lookup for standard operators
+	if filter.Operator == FilterBetween {
+		values, ok := filter.Value.([]string)
+		if !ok || len(values) != 2 {
+			return nil, &InvalidFilterError{
+				Field:    filter.Field,
+				Operator: filter.Operator,
+				Reason:   "expected two comma-separated values",
+			}
+		}
+		return db.Where(fmt.Sprintf("%s BETWEEN ? AND ?", dbField), values[0], values[1]), nil
+	}
+
+	// dbField comes from fieldMapping, so these identifier fragments remain whitelist-bound.
+	if filter.Operator == FilterIsNull {
+		return db.Where(dbField + " IS NULL"), nil
+	}
+
+	if filter.Operator == FilterIsNotNull {
+		return db.Where(dbField + " IS NOT NULL"), nil
+	}
+
 	if format, ok := operatorFormats[filter.Operator]; ok {
-		return db.Where(fmt.Sprintf(format, dbField), filter.Value)
+		return db.Where(fmt.Sprintf(format, dbField), filter.Value), nil
 	}
 
-	return db
+	return nil, &InvalidFilterError{
+		Field:    filter.Field,
+		Operator: filter.Operator,
+		Reason:   "unsupported operator",
+	}
 }

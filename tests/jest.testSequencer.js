@@ -16,6 +16,8 @@ class CustomSequencer extends Sequencer {
     'bulletins/bulletin-cleanup.test.js',
     'automation/automation.test.js',
     'users/users.test.js',
+    'lib/OpenApiContractValidator.test.js',
+    'openapi/openapi-contract.test.js',
     'validation/validation.test.js'
   ];
 

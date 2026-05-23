@@ -8,15 +8,10 @@ import (
 
 // ListStations returns a paginated list of all radio stations.
 func (h *Handlers) ListStations(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := utils.ParseListQuery(c)
+	if !ok {
 		return
 	}
-
-	// Convert utils.QueryParams to repository.ListQuery
-	query := utils.QueryParamsToListQuery(params)
 
 	result, err := h.stationSvc.List(c.Request.Context(), query)
 	if err != nil {
@@ -24,13 +19,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 		return
 	}
 
-	// Apply field filtering if requested
-	var responseData any = result.Data
-	if len(params.Fields) > 0 {
-		responseData = utils.FilterStructFields(result.Data, params.Fields)
-	}
-
-	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetStation returns a single radio station by ID.

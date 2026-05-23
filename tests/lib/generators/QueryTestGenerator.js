@@ -96,6 +96,25 @@ function generateQueryTests(schema, setupFn = null) {
           });
         });
 
+        test('when sorting unknown field, then returns 422', async () => {
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?sort=__bogus__`);
+
+          // Assert
+          expect(response.status).toBe(422);
+        });
+
+        test('when sort direction is invalid, then returns 422', async () => {
+          // Arrange
+          const field = query.sortableFields[0];
+
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?sort=${field}:sideways`);
+
+          // Assert
+          expect(response.status).toBe(422);
+        });
+
         if (query.sortableFields.length >= 2) {
           test('when sorting by multiple fields, then accepted', async () => {
             // Arrange
@@ -155,7 +174,58 @@ function generateQueryTests(schema, setupFn = null) {
 
             // Assert
             expect(response.status).toBe(200);
+            expect(response.data.total).toBeGreaterThan(0);
+            const results = response.data.data || [];
+            results.forEach(item => {
+              if (item[field] !== null && item[field] !== undefined) {
+                expect(String(item[field])).not.toBe('999999');
+              }
+            });
           });
+        });
+
+        test('when filtering with unknown operator, then returns 422', async () => {
+          // Arrange
+          const field = query.filterableFields[0];
+
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][unknown]=1`);
+
+          // Assert
+          expect(response.status).toBe(422);
+        });
+
+        test('when filtering null with invalid boolean, then returns 422', async () => {
+          // Arrange
+          const field = query.filterableFields[0];
+
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][null]=not-bool`);
+
+          // Assert
+          expect(response.status).toBe(422);
+        });
+
+        test('when filtering unknown field, then returns 422', async () => {
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?filter[__bogus__]=1`);
+
+          // Assert
+          expect(response.status).toBe(422);
+        });
+
+        test('when filter receives duplicate values, then returns 422', async () => {
+          // Arrange
+          const field = query.filterableFields[0];
+
+          // Act
+          const response = await global.api.apiCall(
+            'GET',
+            `${endpoint}?filter[${field}]=1&filter[${field}]=2`
+          );
+
+          // Assert
+          expect(response.status).toBe(422);
         });
 
         // Numeric operators for numeric fields
@@ -262,6 +332,38 @@ function generateQueryTests(schema, setupFn = null) {
         expect(response.status).toBe(200);
         expect(response.data.data).toEqual([]);
       });
+
+      test('when limit is non-integer, then returns 422', async () => {
+        // Act
+        const response = await global.api.apiCall('GET', `${endpoint}?limit=abc`);
+
+        // Assert
+        expect(response.status).toBe(422);
+      });
+
+      test('when limit is negative, then returns 422', async () => {
+        // Act
+        const response = await global.api.apiCall('GET', `${endpoint}?limit=-5`);
+
+        // Assert
+        expect(response.status).toBe(422);
+      });
+
+      test('when limit exceeds cap, then returns 422', async () => {
+        // Act
+        const response = await global.api.apiCall('GET', `${endpoint}?limit=101`);
+
+        // Assert
+        expect(response.status).toBe(422);
+      });
+
+      test('when offset is non-integer, then returns 422', async () => {
+        // Act
+        const response = await global.api.apiCall('GET', `${endpoint}?offset=foo`);
+
+        // Assert
+        expect(response.status).toBe(422);
+      });
     });
 
     // === FIELD SELECTION TESTS ===
@@ -329,6 +431,14 @@ function generateQueryTests(schema, setupFn = null) {
           if (results.length > 0) {
             expect(results[0]).toHaveProperty('id');
           }
+        });
+
+        test('when selecting unknown field, then returns 422', async () => {
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?fields=id,__bogus__`);
+
+          // Assert
+          expect(response.status).toBe(422);
         });
       });
     }

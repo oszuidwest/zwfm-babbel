@@ -24,9 +24,15 @@ GET /api/v1/stories?filter[status]=active
 # Not equal filter  
 GET /api/v1/stories?filter[status][ne]=draft
 
+# Alias for not equal
+GET /api/v1/stories?filter[status][not]=draft
+
 # Greater than/less than
 GET /api/v1/stories?filter[created_at][gte]=2024-01-01
 GET /api/v1/stories?filter[created_at][lt]=2024-12-31
+
+# Inclusive range
+GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
 ```
 
 #### Array Filters (IN operations)
@@ -72,9 +78,9 @@ GET /api/v1/station-voices?filter[audio_url][ne]=
 GET /api/v1/stories?filter[status]=active&filter[audio_url]=&sort=-created_at
 ```
 
-The `audio_url` filter maps to the internal `audio_file` database column. An empty value (`=`) matches records without audio, while `[ne]=` (not equals empty) matches records with audio.
+The `audio_url` filter maps to the internal `audio_file` database column. An empty value (`=`) matches records without audio, while `[ne]=` (not equals empty) matches records with audio. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
-> **Note:** The `between` and `ilike` operators are not yet implemented. Use `gte` and `lte` for range queries, and `like` for pattern matching.
+> **Note:** The `ilike` operator is not implemented. Use `like` for pattern matching.
 
 ### 2. Sorting
 
@@ -150,11 +156,10 @@ GET /api/v1/stories?filter[status]=active
 # Non-expired stories (active on or after date)
 GET /api/v1/stories?filter[end_date][gte]=2024-06-15
 
-# Stories created in a date range (use gte + lte instead of between)
+# Stories created in a date range
 GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
+GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
 ```
-
-> **Note:** The `null` operator is not yet implemented. Use explicit field filters instead.
 
 ### 7. Pagination
 

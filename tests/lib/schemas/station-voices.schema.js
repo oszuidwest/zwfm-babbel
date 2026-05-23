@@ -23,10 +23,10 @@ module.exports = {
     sortableFields: ['id', 'station_id', 'voice_id', 'mix_point', 'created_at', 'updated_at'],
     filterableFields: ['id', 'station_id', 'voice_id', 'mix_point'],
     numericFields: ['id', 'station_id', 'voice_id', 'mix_point'],
-    selectableFields: ['id', 'station_id', 'voice_id', 'mix_point', 'jingle_file', 'created_at', 'updated_at']
+    selectableFields: ['id', 'station_id', 'voice_id', 'mix_point', 'audio_url', 'created_at', 'updated_at']
   },
 
-  excludeOnFieldSelect: ['jingle_file'],
+  excludeOnFieldSelect: [],
 
   validation: {
     fields: {

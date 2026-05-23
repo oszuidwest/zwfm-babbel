@@ -18,15 +18,23 @@
     "test:automation": "jest --config tests/jest.config.js --testPathPatterns=automation/automation",
     "test:users": "jest --config tests/jest.config.js --testPathPatterns=users/users",
     "test:validation": "jest --config tests/jest.config.js --testPathPatterns=validation/validation",
+    "test:contract": "jest --config tests/jest.config.js --testPathPatterns=openapi/openapi-contract",
+    "test:contract:unit": "jest --config tests/jest.unit.config.js --testPathPatterns=lib/OpenApiContractValidator",
+    "lint:openapi": "redocly lint openapi.yaml",
     "test:quick": "JEST_SKIP_DOCKER=true jest --config tests/jest.config.js",
     "test:no-docker": "npm run test:quick --"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@redocly/cli": "^2.0.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "axios": "^1.16.0",
     "axios-cookiejar-support": "^5.0.2",
     "form-data": "^4.0.0",
     "jest": "^30.2.0",
-    "tough-cookie": "^4.1.3"
+    "tough-cookie": "^4.1.3",
+    "yaml": "^2.9.0"
   },
   "keywords": [
     "radio",

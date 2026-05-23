@@ -8,25 +8,18 @@ import (
 
 // ListStationVoices returns a paginated list of station-voice relationships.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := utils.ParseListQuery(c)
+	if !ok {
 		return
 	}
 
-	// Convert to repository ListQuery
-	query := utils.QueryParamsToListQuery(params)
-
-	// Call service
 	result, err := h.stationVoiceSvc.List(c.Request.Context(), query)
 	if err != nil {
 		handleServiceError(c, err, "Station-voice relationships")
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	utils.PaginatedListResponse(c, params, result)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID.
