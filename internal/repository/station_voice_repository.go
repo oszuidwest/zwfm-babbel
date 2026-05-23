@@ -75,11 +75,6 @@ func (r *StationVoiceRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
-// Exists reports whether a station-voice relationship with the given ID exists.
-func (r *StationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	return r.GormRepository.Exists(ctx, id)
-}
-
 // IsCombinationTaken reports whether a station-voice combination is already in use.
 func (r *StationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	var count int64
