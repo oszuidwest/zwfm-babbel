@@ -15,37 +15,20 @@ type VoiceUpdate struct {
 	ClearElevenLabsVoiceID bool    `gorm:"-"`
 }
 
-// VoiceRepository defines the interface for voice data access.
-type VoiceRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error)
-	GetByID(ctx context.Context, id int64) (*models.Voice, error)
-	Update(ctx context.Context, id int64, updates *VoiceUpdate) error
-	Delete(ctx context.Context, id int64) error
-
-	// List operations
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error)
-
-	// Query operations
-	Exists(ctx context.Context, id int64) (bool, error)
-	IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error)
-	HasDependencies(ctx context.Context, id int64) (bool, error)
-}
-
-// voiceRepository implements VoiceRepository using GORM.
-type voiceRepository struct {
+// VoiceRepository provides voice data access using GORM.
+type VoiceRepository struct {
 	*GormRepository[models.Voice]
 }
 
 // NewVoiceRepository creates a new voice repository.
-func NewVoiceRepository(db *gorm.DB) VoiceRepository {
-	return &voiceRepository{
+func NewVoiceRepository(db *gorm.DB) *VoiceRepository {
+	return &VoiceRepository{
 		GormRepository: NewGormRepository[models.Voice](db),
 	}
 }
 
 // Create inserts a new voice and returns the created record.
-func (r *voiceRepository) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
+func (r *VoiceRepository) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
 	voice := &models.Voice{
 		Name:              name,
 		ElevenLabsVoiceID: elevenLabsVoiceID,
@@ -60,12 +43,12 @@ func (r *voiceRepository) Create(ctx context.Context, name string, elevenLabsVoi
 }
 
 // GetByID retrieves a voice by its ID.
-func (r *voiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
+func (r *VoiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
 	return r.GormRepository.GetByID(ctx, id)
 }
 
 // Update updates an existing voice. Nil pointer fields are skipped.
-func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
+func (r *VoiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
 	if u == nil {
 		return nil
 	}
@@ -79,22 +62,22 @@ func (r *voiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 }
 
 // Delete permanently removes a voice by its ID.
-func (r *voiceRepository) Delete(ctx context.Context, id int64) error {
+func (r *VoiceRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
 // Exists reports whether a voice with the given ID exists.
-func (r *voiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
+func (r *VoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken reports whether a voice name is already in use.
-func (r *voiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
+func (r *VoiceRepository) IsNameTaken(ctx context.Context, name string, excludeID *int64) (bool, error) {
 	return r.IsFieldValueTaken(ctx, "name", name, excludeID)
 }
 
 // HasDependencies reports whether the voice is used by stories or station_voices.
-func (r *voiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
+func (r *VoiceRepository) HasDependencies(ctx context.Context, id int64) (bool, error) {
 	return r.HasRelatedRecords(ctx, id, map[string]string{
 		"stories":        "voice_id",
 		"station_voices": "voice_id",
@@ -114,7 +97,7 @@ var voiceFieldMapping = FieldMapping{
 var voiceSearchFields = []string{"name"}
 
 // List retrieves a paginated list of voices with filtering, sorting, and search.
-func (r *voiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error) {
+func (r *VoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Voice], error) {
 	db := r.db.WithContext(ctx).Model(&models.Voice{})
 	return ApplyListQuery[models.Voice](db, query, voiceFieldMapping, voiceSearchFields, []SortField{{Field: "name", Direction: SortAsc}})
 }

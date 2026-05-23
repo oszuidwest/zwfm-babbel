@@ -22,8 +22,8 @@ import (
 
 // StoryServiceDeps contains all dependencies for StoryService.
 type StoryServiceDeps struct {
-	StoryRepo repository.StoryRepository
-	VoiceRepo repository.VoiceRepository
+	StoryRepo *repository.StoryRepository
+	VoiceRepo *repository.VoiceRepository
 	AudioSvc  *audio.Service
 	TTSSvc    *tts.Service
 	Config    *config.Config
@@ -31,8 +31,8 @@ type StoryServiceDeps struct {
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo repository.StoryRepository
-	voiceRepo repository.VoiceRepository
+	storyRepo *repository.StoryRepository
+	voiceRepo *repository.VoiceRepository
 	audioSvc  *audio.Service
 	ttsSvc    *tts.Service
 	config    *config.Config

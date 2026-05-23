@@ -10,11 +10,11 @@ import (
 
 // StationService handles station-related business logic.
 type StationService struct {
-	repo repository.StationRepository
+	repo *repository.StationRepository
 }
 
 // NewStationService creates a new station service instance.
-func NewStationService(repo repository.StationRepository) *StationService {
+func NewStationService(repo *repository.StationRepository) *StationService {
 	return &StationService{
 		repo: repo,
 	}

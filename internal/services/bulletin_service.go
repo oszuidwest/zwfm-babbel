@@ -19,9 +19,9 @@ import (
 // BulletinServiceDeps contains all dependencies for BulletinService.
 type BulletinServiceDeps struct {
 	TxManager    repository.TxManager
-	BulletinRepo repository.BulletinRepository
-	StationRepo  repository.StationRepository
-	StoryRepo    repository.StoryRepository
+	BulletinRepo *repository.BulletinRepository
+	StationRepo  *repository.StationRepository
+	StoryRepo    *repository.StoryRepository
 	AudioSvc     *audio.Service
 	Config       *config.Config
 }
@@ -29,9 +29,9 @@ type BulletinServiceDeps struct {
 // BulletinService handles bulletin generation and retrieval operations.
 type BulletinService struct {
 	txManager    repository.TxManager
-	bulletinRepo repository.BulletinRepository
-	stationRepo  repository.StationRepository
-	storyRepo    repository.StoryRepository
+	bulletinRepo *repository.BulletinRepository
+	stationRepo  *repository.StationRepository
+	storyRepo    *repository.StoryRepository
 	audioSvc     *audio.Service
 	config       *config.Config
 }

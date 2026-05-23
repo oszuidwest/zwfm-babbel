@@ -17,39 +17,21 @@ type StationVoiceUpdate struct {
 	ClearAudioFile bool     // When true, sets audio_file to NULL
 }
 
-// StationVoiceRepository defines the interface for station-voice relationship data access.
-type StationVoiceRepository interface {
-	// CRUD operations
-	Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error)
-	GetByID(ctx context.Context, id int64) (*models.StationVoice, error)
-	Update(ctx context.Context, id int64, updates *StationVoiceUpdate) error
-	Delete(ctx context.Context, id int64) error
-
-	// Query operations
-	Exists(ctx context.Context, id int64) (bool, error)
-	IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error)
-	List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error)
-
-	// Audio operations
-	GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error)
-	UpdateAudio(ctx context.Context, id int64, audioFile string) error
-}
-
-// stationVoiceRepository implements StationVoiceRepository using GORM.
-type stationVoiceRepository struct {
+// StationVoiceRepository provides station-voice relationship data access using GORM.
+type StationVoiceRepository struct {
 	*GormRepository[models.StationVoice]
 }
 
 // NewStationVoiceRepository creates a new station-voice repository.
-func NewStationVoiceRepository(db *gorm.DB) StationVoiceRepository {
-	return &stationVoiceRepository{
+func NewStationVoiceRepository(db *gorm.DB) *StationVoiceRepository {
+	return &StationVoiceRepository{
 		GormRepository: NewGormRepository[models.StationVoice](db),
 	}
 }
 
 // Create inserts a new station-voice relationship and returns the created record
 // with its associated station and voice.
-func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
+func (r *StationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
 	stationVoice := &models.StationVoice{
 		StationID: stationID,
 		VoiceID:   voiceID,
@@ -70,12 +52,12 @@ func (r *stationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 }
 
 // GetByID retrieves a station-voice relationship with its associated station and voice.
-func (r *stationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
+func (r *StationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	return r.GetByIDWithJoins(ctx, id, "Station", "Voice")
 }
 
 // Update updates a station-voice relationship. Nil pointer fields are skipped.
-func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
+func (r *StationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
 	if u == nil {
 		return nil
 	}
@@ -89,17 +71,17 @@ func (r *stationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 }
 
 // Delete removes a station-voice relationship.
-func (r *stationVoiceRepository) Delete(ctx context.Context, id int64) error {
+func (r *StationVoiceRepository) Delete(ctx context.Context, id int64) error {
 	return r.GormRepository.Delete(ctx, id)
 }
 
 // Exists reports whether a station-voice relationship with the given ID exists.
-func (r *stationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
+func (r *StationVoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
 	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsCombinationTaken reports whether a station-voice combination is already in use.
-func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
+func (r *StationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	var count int64
 
 	db := DBFromContext(ctx, r.db)
@@ -119,7 +101,7 @@ func (r *stationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 }
 
 // GetStationVoiceIDs retrieves the station ID, voice ID, and audio file path for a record.
-func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error) {
+func (r *StationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error) {
 	var record struct {
 		StationID int64  `gorm:"column:station_id"`
 		VoiceID   int64  `gorm:"column:voice_id"`
@@ -140,7 +122,7 @@ func (r *stationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 }
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
-func (r *stationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
+func (r *StationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).
 		Model(&models.StationVoice{}).
@@ -170,7 +152,7 @@ var stationVoiceFieldMapping = FieldMapping{
 }
 
 // List retrieves a paginated list of station-voice relationships with their associated stations and voices.
-func (r *stationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
+func (r *StationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.StationVoice{}).
 		Joins("Station").
