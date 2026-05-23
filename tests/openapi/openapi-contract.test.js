@@ -352,6 +352,7 @@ describe('OpenAPI Contract', () => {
         operationPath: '/api/v1/stations/{id}/bulletins',
         run: () => apiCall('GET', '/api/v1/stations/{id}/bulletins', `/stations/${ctx.station.id}/bulletins`)
       },
+      // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
       {
         name: 'GET /api/v1/stations/{id}/bulletins latest',
         method: 'GET',
@@ -367,6 +368,7 @@ describe('OpenAPI Contract', () => {
           return response;
         }
       },
+      // Keep this after the latest scenario: generating here creates a newer bulletin for ctx.station.
       {
         name: 'POST /api/v1/stations/{id}/bulletins',
         method: 'POST',
