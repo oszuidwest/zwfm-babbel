@@ -5,9 +5,6 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 
-# Install FFmpeg
-RUN apk add --no-cache ffmpeg
-
 WORKDIR /app
 
 # Copy go mod files
@@ -20,22 +17,28 @@ COPY . .
 # Build the application with version information
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=${BUILD_TIME}" \
-    -o babbel cmd/babbel/main.go
+    -o babbel ./cmd/babbel
 
 # Final stage
-FROM alpine:3.23
+FROM debian:13-slim
 
 LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-babbel"
 LABEL org.opencontainers.image.description="Headless REST API for generating audio news bulletins for radio stations"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Install FFmpeg and timezone data, upgrade to get security patches
-# Update package index first to ensure we get the latest security fixes (e.g., libpng)
-RUN apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Create app user
-RUN addgroup -g 1001 -S app \
-    && adduser -u 1001 -S app -G app
+# Install runtime dependencies.
+RUN apt-get update && \
+    apt-get install --no-install-recommends -y \
+    ca-certificates \
+    ffmpeg \
+    tzdata && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create app user.
+RUN groupadd --gid 1001 app && \
+    useradd --uid 1001 --gid app --home-dir /app --shell /usr/sbin/nologin --no-create-home app
 
 WORKDIR /app
 
@@ -46,13 +49,19 @@ COPY --from=builder /app/babbel .
 COPY migrations/ ./migrations/
 
 # Create required directories
-RUN mkdir -p uploads audio/{processed,output,temp} \
+RUN mkdir -p uploads audio/processed audio/output audio/temp \
     && chown -R app:app /app
 
 USER app
 
 EXPOSE 8080
 
+ENV BABBEL_FFMPEG_PATH=/usr/bin/ffmpeg
+ENV BABBEL_FFPROBE_PATH=/usr/bin/ffprobe
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["/app/babbel", "-healthcheck", "http://127.0.0.1:8080/health"]
+
 # Environment variables (including CORS) are configured via docker-compose
 # See docker-compose.yml and .env.example for configuration options
-CMD ["./babbel"]
+CMD ["/app/babbel"]

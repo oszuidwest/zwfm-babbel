@@ -37,7 +37,8 @@ services:
       BABBEL_AUTH_METHOD: ${AUTH_METHOD}
       BABBEL_SESSION_SECRET: ${SESSION_SECRET}
       BABBEL_ENV: ${BABBEL_ENV:-production}
-      BABBEL_FFMPEG_PATH: "ffmpeg"
+      BABBEL_FFMPEG_PATH: "/usr/bin/ffmpeg"
+      BABBEL_FFPROBE_PATH: "/usr/bin/ffprobe"
       # Optional OAuth/OIDC
       BABBEL_OIDC_PROVIDER_URL: ${OIDC_PROVIDER_URL}
       BABBEL_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
@@ -59,7 +60,7 @@ services:
       mysql:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "/app/babbel", "-healthcheck", "http://127.0.0.1:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3

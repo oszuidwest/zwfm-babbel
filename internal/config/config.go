@@ -207,5 +207,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("FFmpeg binary not found at '%s': ensure FFmpeg is installed and in PATH", c.Audio.FFmpegPath)
 	}
 
+	if _, err := exec.LookPath(c.Audio.FFprobePath); err != nil {
+		return fmt.Errorf("FFprobe binary not found at '%s': ensure FFprobe is installed and in PATH", c.Audio.FFprobePath)
+	}
+
 	return nil
 }

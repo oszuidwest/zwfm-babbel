@@ -31,7 +31,7 @@ const (
 )
 
 func main() {
-	if handleVersionFlag() {
+	if handleStartupFlags() {
 		return
 	}
 
@@ -68,13 +68,23 @@ func main() {
 	logger.Info("Server exited")
 }
 
-func handleVersionFlag() bool {
+func handleStartupFlags() bool {
 	showVersion := flag.Bool("version", false, "Show version information")
+	healthcheckURL := flag.String("healthcheck", "", "Run HTTP healthcheck against URL and exit")
 	flag.Parse()
+
 	if *showVersion {
 		fmt.Printf("babbel %s (commit: %s, built: %s)\n", version.Version, version.Commit, version.BuildTime)
 		return true
 	}
+
+	if *healthcheckURL != "" {
+		if err := runHealthcheck(context.Background(), *healthcheckURL); err != nil {
+			log.Fatalf("Healthcheck failed: %v", err)
+		}
+		return true
+	}
+
 	return false
 }
 
