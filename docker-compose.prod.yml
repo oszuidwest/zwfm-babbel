@@ -38,6 +38,7 @@ services:
       BABBEL_SESSION_SECRET: ${SESSION_SECRET}
       BABBEL_ENV: ${BABBEL_ENV:-production}
       BABBEL_FFMPEG_PATH: "ffmpeg"
+      BABBEL_FFPROBE_PATH: "ffprobe"
       # Optional OAuth/OIDC
       BABBEL_OIDC_PROVIDER_URL: ${OIDC_PROVIDER_URL}
       BABBEL_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
