@@ -2,14 +2,18 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
 )
+
+const audioToolVersionCheckTimeout = 5 * time.Second
 
 // Config contains all application settings loaded from environment variables.
 type Config struct {
@@ -203,13 +207,64 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	if _, err := exec.LookPath(c.Audio.FFmpegPath); err != nil {
-		return fmt.Errorf("FFmpeg binary not found at %q: ensure BABBEL_FFMPEG_PATH points to a valid binary: %w", c.Audio.FFmpegPath, err)
+	if err := validateAudioTool("FFmpeg", c.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH"); err != nil {
+		return err
 	}
 
-	if _, err := exec.LookPath(c.Audio.FFprobePath); err != nil {
-		return fmt.Errorf("FFprobe binary not found at %q: ensure BABBEL_FFPROBE_PATH points to a valid binary: %w", c.Audio.FFprobePath, err)
+	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath, "BABBEL_FFPROBE_PATH"); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func validateAudioTool(name, configuredPath, envVar string) error {
+	if configuredPath == "" {
+		return fmt.Errorf("%s must not be empty", envVar)
+	}
+
+	resolvedPath, err := exec.LookPath(configuredPath)
+	if err != nil {
+		return fmt.Errorf("%s binary not found at %q: ensure %s points to a valid binary: %w", name, configuredPath, envVar, err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), audioToolVersionCheckTimeout)
+	defer cancel()
+
+	// #nosec G204 - Audio tool path comes from startup config; only the fixed "-version" argument is supplied.
+	cmd := exec.CommandContext(ctx, resolvedPath, "-version")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf(
+			"%s binary at %q did not complete -version within %s: ensure %s points to a runnable binary",
+			name,
+			configuredPath,
+			audioToolVersionCheckTimeout,
+			envVar,
+		)
+	}
+
+	outputText := strings.TrimSpace(string(output))
+	if outputText != "" {
+		return fmt.Errorf(
+			"%s binary at %q failed -version check: %s: ensure %s points to a runnable binary: %w",
+			name,
+			configuredPath,
+			outputText,
+			envVar,
+			err,
+		)
+	}
+
+	return fmt.Errorf(
+		"%s binary at %q failed -version check: ensure %s points to a runnable binary: %w",
+		name,
+		configuredPath,
+		envVar,
+		err,
+	)
 }
