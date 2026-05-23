@@ -182,7 +182,7 @@ Babbel uses FFmpeg for audio mixing, loudness normalization, and audio analysis.
 | `BABBEL_FFMPEG_PATH` | `ffmpeg` | FFmpeg executable used for mixing and loudness normalization. Resolved via PATH at startup. |
 | `BABBEL_FFPROBE_PATH` | `ffprobe` | ffprobe executable used for audio analysis. Resolved via PATH at startup. |
 
-Both executables are validated at startup via `exec.LookPath`. If either cannot be found, the process exits with a descriptive error that names the corresponding environment variable.
+Both executables are resolved at startup and validated by running `<tool> -version`. If either cannot be found or does not run successfully, the process exits with a descriptive error that names the corresponding environment variable.
 
 ## API Documentation
 
