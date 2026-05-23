@@ -28,6 +28,20 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		return nil
 	}
 
+	// Repository-level query-shape errors flow through to the handler unchanged
+	// so handleServiceError can surface them via ProblemValidationError (422),
+	// keeping the response shape and status consistent with parse-time query
+	// failures from utils/query.go.
+	var unknownField *repository.UnknownFieldError
+	if errors.As(err, &unknownField) {
+		return err
+	}
+
+	var invalidFilter *repository.InvalidFilterError
+	if errors.As(err, &invalidFilter) {
+		return err
+	}
+
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
 		return NotFoundWithCause(resource, err)

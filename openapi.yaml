@@ -1625,35 +1625,29 @@ paths:
         
         ## Search Fields
         Full-text search across:
-        - `b.filename` - Bulletin filename
-        - `s.name` - Station name
-        
+        - `filename` - Bulletin filename
+
         ## Filter Fields
         Available filter fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
         - `file_purged_at` - When audio file was cleaned up (null = file exists)
-        - `metadata` - JSON metadata
         - `created_at` - Creation timestamp
-        - `station_name` - Station name (from join)
 
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
-        - `station_name` - Station name
 
         ## Notes
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
@@ -1793,33 +1787,28 @@ paths:
         
         ## Search Fields
         Full-text search across:
-        - `b.filename` - Bulletin filename
-        - `s.name` - Station name
-        
+        - `filename` - Bulletin filename
+
         ## Filter Fields
         Available filter fields:
         - `id` - Bulletin ID
         - `station_id` - Station ID (automatically filtered by path parameter)
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration in seconds
         - `file_size` - File size in bytes
         - `story_count` - Number of stories in bulletin
         - `file_purged_at` - When audio file was cleaned up (null = file exists)
         - `created_at` - Creation timestamp
-        - `station_name` - Station name (from join)
 
         ## Sort Fields
         Available sort fields:
         - `id` - Bulletin ID
         - `filename` - Bulletin filename
-        - `audio_file` - Audio filename
         - `duration_seconds` - Duration
         - `file_size` - File size
         - `story_count` - Number of stories
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
-        - `station_name` - Station name
 
         ## Special Parameters
         - `latest=true` - Returns the latest bulletin object directly with `X-Cache` and `Age` headers
@@ -2157,7 +2146,7 @@ paths:
         - `id` - Relationship ID (default: descending)
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_file` - Audio filename
+        - `audio_url` - Audio presence (maps to audio_file column)
         - `mix_point` - Mix point value
         - `created_at` - Creation timestamp
         - `updated_at` - Last update timestamp

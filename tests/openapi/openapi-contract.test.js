@@ -338,7 +338,15 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/bulletins',
         method: 'GET',
         operationPath: '/api/v1/bulletins',
-        run: () => apiCall('GET', '/api/v1/bulletins', '/bulletins?filter[file_purged_at][null]=true')
+        run: async () => {
+          const response = await apiCall(
+            'GET',
+            '/api/v1/bulletins',
+            '/bulletins?filter[file_purged_at][null]=true&fields=id,station_id,created_at'
+          );
+          expectSparseListFields(response, ['id', 'station_id', 'created_at']);
+          return response;
+        }
       },
       {
         name: 'GET /api/v1/bulletins/{id}',
@@ -350,7 +358,15 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/stations/{id}/bulletins',
         method: 'GET',
         operationPath: '/api/v1/stations/{id}/bulletins',
-        run: () => apiCall('GET', '/api/v1/stations/{id}/bulletins', `/stations/${ctx.station.id}/bulletins`)
+        run: async () => {
+          const response = await apiCall(
+            'GET',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins?fields=id,station_id,created_at`
+          );
+          expectSparseListFields(response, ['id', 'station_id', 'created_at']);
+          return response;
+        }
       },
       // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
       {

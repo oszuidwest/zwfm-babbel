@@ -19,10 +19,10 @@ module.exports = {
     sortableFields: ['id', 'station_id', 'created_at'],
     filterableFields: ['id', 'station_id'],
     numericFields: ['id', 'station_id'],
-    selectableFields: ['id', 'station_id', 'audio_file', 'created_at']
+    selectableFields: ['id', 'station_id', 'created_at']
   },
 
-  excludeOnFieldSelect: ['audio_file'],
+  excludeOnFieldSelect: [],
 
   // Bulletins don't have direct creation validation - they're generated
   validation: null

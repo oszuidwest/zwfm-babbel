@@ -22,9 +22,9 @@ module.exports = {
   query: {
     searchFields: ['username', 'full_name'],
     sortableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at'],
-    filterableFields: ['id', 'username', 'role', 'is_suspended'],
+    filterableFields: ['id', 'username', 'role'],
     numericFields: ['id'],
-    selectableFields: ['id', 'username', 'full_name', 'role', 'is_suspended', 'created_at', 'updated_at']
+    selectableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at']
   },
 
   excludeOnFieldSelect: ['full_name', 'role'],

@@ -36,16 +36,42 @@ func IDParam(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-// Pagination extracts pagination parameters from the query string.
-func Pagination(c *gin.Context) (limit, offset int) {
-	limit = 20 // default
-	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
-		limit = l
+const (
+	defaultPaginationLimit = 20
+	maxPaginationLimit     = 100
+)
+
+// Pagination extracts pagination parameters from the query string. Absent
+// parameters fall back to defaults (limit=20, offset=0). Malformed or
+// out-of-range values return a *QueryParamError so the caller can surface a
+// structured 422 response instead of silently substituting defaults.
+func Pagination(c *gin.Context) (limit, offset int, err error) {
+	limit = defaultPaginationLimit
+	if raw := c.Query("limit"); raw != "" {
+		l, atoiErr := strconv.Atoi(raw)
+		switch {
+		case atoiErr != nil:
+			return 0, 0, &QueryParamError{Field: "limit", Message: fmt.Sprintf("expected integer, got %q", raw)}
+		case l < 1:
+			return 0, 0, &QueryParamError{Field: "limit", Message: "must be >= 1"}
+		case l > maxPaginationLimit:
+			return 0, 0, &QueryParamError{Field: "limit", Message: fmt.Sprintf("must be <= %d", maxPaginationLimit)}
+		default:
+			limit = l
+		}
 	}
-	if o, err := strconv.Atoi(c.Query("offset")); err == nil && o >= 0 {
-		offset = o
+	if raw := c.Query("offset"); raw != "" {
+		o, atoiErr := strconv.Atoi(raw)
+		switch {
+		case atoiErr != nil:
+			return 0, 0, &QueryParamError{Field: "offset", Message: fmt.Sprintf("expected integer, got %q", raw)}
+		case o < 0:
+			return 0, 0, &QueryParamError{Field: "offset", Message: "must be >= 0"}
+		default:
+			offset = o
+		}
 	}
-	return
+	return limit, offset, nil
 }
 
 // ValidateDateRange parses start and end date strings and validates the range.
@@ -325,8 +351,11 @@ func BindAndValidate(c *gin.Context, req any) bool {
 	return true
 }
 
-// BindOptionalJSON decodes an optional JSON body into req with the same parse
-// error shape as BindAndValidate. Empty or whitespace-only bodies are accepted.
+// BindOptionalJSON decodes an optional JSON body into req. Empty or
+// whitespace-only bodies are accepted (req is left at its zero value). Returns
+// false (and writes a Problem response) on oversized bodies, read failures, or
+// invalid JSON. Parse failures include the underlying error in the response so
+// clients can locate the offending token.
 func BindOptionalJSON(c *gin.Context, req any) bool {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return true
@@ -344,7 +373,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 			)
 			return false
 		}
-		ProblemBadRequest(c, "Failed to read request body")
+		ProblemBadRequest(c, fmt.Sprintf("Failed to read request body: %s", err.Error()))
 		return false
 	}
 
@@ -354,7 +383,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 
 	if err := json.Unmarshal(body, req); err != nil {
 		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
-			{Field: "request", Message: "Invalid request format"},
+			{Field: "request", Message: err.Error()},
 		})
 		return false
 	}

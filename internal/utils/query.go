@@ -11,6 +11,19 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
+// QueryParamError describes a single invalid query parameter. Carrying the
+// field name separately from the message lets ParseListQuery surface a
+// structured RFC 9457 validation response that clients can parse
+// programmatically rather than a flat detail string.
+type QueryParamError struct {
+	Field   string
+	Message string
+}
+
+func (e *QueryParamError) Error() string {
+	return fmt.Sprintf("invalid %s: %s", e.Field, e.Message)
+}
+
 // QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection.
 type QueryParams struct {
 	// Pagination
@@ -57,8 +70,11 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		Filters: make(map[string]FilterOperation),
 	}
 
-	// Parse pagination
-	params.Limit, params.Offset = Pagination(c)
+	limit, offset, err := Pagination(c)
+	if err != nil {
+		return nil, err
+	}
+	params.Limit, params.Offset = limit, offset
 
 	sortFields, err := parseSorting(c)
 	if err != nil {
@@ -126,7 +142,10 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 				field = strings.TrimSpace(before)
 				direction = strings.ToLower(strings.TrimSpace(after))
 				if direction != "asc" && direction != "desc" {
-					return nil, fmt.Errorf("invalid sort direction %q for field %q; use asc or desc", after, field)
+					return nil, &QueryParamError{
+						Field:   "sort",
+						Message: fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field),
+					}
 				}
 			}
 		default:
@@ -253,19 +272,35 @@ func parseFilters(c *gin.Context) (map[string]FilterOperation, error) {
 			continue
 		}
 
+		if len(values) > 1 {
+			return nil, &QueryParamError{
+				Field:   key,
+				Message: "received multiple values; only one is allowed per filter key",
+			}
+		}
+
 		field, operator := parseFilterKey(key)
 		if field == "" {
-			return nil, fmt.Errorf("invalid filter parameter %q; expected filter[field] or filter[field][operator]", key)
+			return nil, &QueryParamError{
+				Field:   key,
+				Message: "expected filter[field] or filter[field][operator]",
+			}
 		}
 
 		handler, exists := filterOperatorHandlers[operator]
 		if !exists {
-			return nil, fmt.Errorf("invalid filter operator %q for field %q", operator, field)
+			return nil, &QueryParamError{
+				Field:   key,
+				Message: fmt.Sprintf("unknown operator %q", operator),
+			}
 		}
 
 		filter, err := handler(values[0])
 		if err != nil {
-			return nil, fmt.Errorf("invalid filter value for %s: %w", filterKeyLabel(field, operator), err)
+			return nil, &QueryParamError{
+				Field:   filterKeyLabel(field, operator),
+				Message: err.Error(),
+			}
 		}
 
 		filters[field] = filter
@@ -429,7 +464,10 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 
 	for field, filter := range params.Filters {
 		if !supportedFilterOperators[filter.Operator] {
-			return nil, fmt.Errorf("unsupported filter operator %q", filter.Operator)
+			return nil, &QueryParamError{
+				Field:   fmt.Sprintf("filter[%s]", field),
+				Message: fmt.Sprintf("unsupported operator %q", filter.Operator),
+			}
 		}
 		condition := repository.FilterCondition{
 			Field:    field,
@@ -447,29 +485,125 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 
 // ParseListQuery parses query parameters and converts them into a repository ListQuery.
 // On invalid input it emits an RFC 9457 problem response and returns ok=false.
+// QueryParamError instances are surfaced as a structured validation response so
+// clients can pinpoint the failing parameter.
 func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) {
 	params, err := ParseQueryParams(c)
 	if err != nil {
-		ProblemBadRequest(c, err.Error())
+		emitQueryError(c, err)
 		return nil, nil, false
 	}
 	query, err := QueryParamsToListQuery(params)
 	if err != nil {
-		ProblemBadRequest(c, err.Error())
+		emitQueryError(c, err)
 		return nil, nil, false
 	}
 	return params, query, true
 }
 
-// PaginatedListResponse writes a paginated response, applying sparse-fieldset
-// filtering when params.Fields is non-empty.
-func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *repository.ListResult[T]) {
-	if c == nil || result == nil {
+// ParsePaginationOnly parses query parameters for an endpoint that only
+// supports limit and offset. Any of search/sort/filter/fields trigger a 422
+// so a typo on a pagination-only endpoint is not silently ignored.
+func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
+	params, err := ParseQueryParams(c)
+	if err != nil {
+		emitQueryError(c, err)
+		return 0, 0, false
+	}
+	var unsupported []ValidationError
+	if params.Search != "" {
+		unsupported = append(unsupported, ValidationError{Field: "search", Message: "not supported on this endpoint"})
+	}
+	if len(params.Sort) > 0 {
+		unsupported = append(unsupported, ValidationError{Field: "sort", Message: "not supported on this endpoint"})
+	}
+	if len(params.Filters) > 0 {
+		unsupported = append(unsupported, ValidationError{Field: "filter", Message: "not supported on this endpoint"})
+	}
+	if len(params.Fields) > 0 {
+		unsupported = append(unsupported, ValidationError{Field: "fields", Message: "not supported on this endpoint"})
+	}
+	if params.Trashed != "" {
+		unsupported = append(unsupported, ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
+	}
+	if len(unsupported) > 0 {
+		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)
+		return 0, 0, false
+	}
+	return params.Limit, params.Offset, true
+}
+
+func emitQueryError(c *gin.Context, err error) {
+	var qpe *QueryParamError
+	if errors.As(err, &qpe) {
+		ProblemValidationError(c, "Invalid query parameter", []ValidationError{
+			{Field: qpe.Field, Message: qpe.Message},
+		})
 		return
 	}
+	ProblemBadRequest(c, err.Error())
+}
+
+// PaginatedListResponse writes a paginated response, applying sparse-fieldset
+// filtering when params.Fields is non-empty. Unknown field names in
+// params.Fields are rejected with a 422 so a client typo does not silently
+// produce a truncated response.
+func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *repository.ListResult[T]) {
 	var data any = result.Data
 	if params != nil && len(params.Fields) > 0 {
+		if valid := jsonFieldNames[T](); valid != nil {
+			var unknown []ValidationError
+			for _, f := range params.Fields {
+				if _, ok := valid[f]; !ok {
+					unknown = append(unknown, ValidationError{
+						Field:   "fields",
+						Message: fmt.Sprintf("unknown field %q", f),
+					})
+				}
+			}
+			if len(unknown) > 0 {
+				ProblemValidationError(c, "Invalid query parameter", unknown)
+				return
+			}
+		}
 		data = FilterStructFields(result.Data, params.Fields)
 	}
 	PaginatedResponse(c, data, result.Total, result.Limit, result.Offset)
+}
+
+// jsonFieldNames returns the set of JSON-visible field names for T. Pointer
+// types are dereferenced; fields tagged json:"-" are skipped. Returns nil when
+// T does not resolve to a struct so callers fall back to the legacy filtering
+// behavior rather than rejecting every request.
+func jsonFieldNames[T any]() map[string]struct{} {
+	var zero T
+	typ := reflect.TypeOf(zero)
+	if typ == nil {
+		return nil
+	}
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() != reflect.Struct {
+		return nil
+	}
+	names := make(map[string]struct{}, typ.NumField())
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		tag := field.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name := field.Name
+		if tag != "" {
+			if before, _, _ := strings.Cut(tag, ","); before != "" {
+				name = before
+			}
+		}
+		names[name] = struct{}{}
+	}
+	return names
 }

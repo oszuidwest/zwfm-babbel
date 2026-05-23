@@ -26,13 +26,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	// Parse date
 	targetDate, err := services.ParseTargetDate(req.Date)
 	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
-			Field:   "date",
-			Message: "Invalid date format, use YYYY-MM-DD",
-		}})
+		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
@@ -153,18 +149,18 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	params, _, ok := utils.ParseListQuery(c)
+	limit, offset, ok := utils.ParsePaginationOnly(c)
 	if !ok {
 		return
 	}
 
-	stories, total, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID, params.Limit, params.Offset)
+	stories, total, err := h.bulletinSvc.GetBulletinStories(c.Request.Context(), bulletinID, limit, offset)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	utils.PaginatedResponse(c, stories, total, params.Limit, params.Offset)
+	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
 // GetStationBulletins returns bulletins for a specific station with pagination and filtering.
@@ -185,8 +181,20 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	// Check for 'latest' query parameter for RESTful latest bulletin access
+	params, query, ok := utils.ParseListQuery(c)
+	if !ok {
+		return
+	}
+
+	// The latest-bulletin shortcut returns before repository-side whitelist
+	// enforcement runs, so ParseListQuery alone cannot catch unknown
+	// filter/sort/fields. Reject those here so latest=true&filter[bogus]=1 does
+	// not silently succeed. `limit=1` is the trigger so it remains allowed;
+	// everything else must be absent.
 	if c.Query("latest") == "true" || c.Query("limit") == "1" {
+		if !rejectIfNotPureLatest(c, params) {
+			return
+		}
 		bulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, nil)
 		if err != nil {
 			utils.ProblemNotFound(c, "No bulletin found for this station")
@@ -200,11 +208,6 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := utils.ParseListQuery(c)
-	if !ok {
-		return
-	}
-
 	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
@@ -212,6 +215,36 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	utils.PaginatedListResponse(c, params, result)
+}
+
+// rejectIfNotPureLatest enforces that the latest-bulletin shortcut sees no
+// list-query parameters beyond the trigger itself (?latest=true and/or
+// limit=1). Returns false after writing a 422 response on violation.
+func rejectIfNotPureLatest(c *gin.Context, params *utils.QueryParams) bool {
+	var unsupported []utils.ValidationError
+	if len(params.Filters) > 0 {
+		unsupported = append(unsupported, utils.ValidationError{Field: "filter", Message: "not supported with latest=true"})
+	}
+	if len(params.Sort) > 0 {
+		unsupported = append(unsupported, utils.ValidationError{Field: "sort", Message: "not supported with latest=true"})
+	}
+	if len(params.Fields) > 0 {
+		unsupported = append(unsupported, utils.ValidationError{Field: "fields", Message: "not supported with latest=true"})
+	}
+	if params.Search != "" {
+		unsupported = append(unsupported, utils.ValidationError{Field: "search", Message: "not supported with latest=true"})
+	}
+	if params.Trashed != "" {
+		unsupported = append(unsupported, utils.ValidationError{Field: "trashed", Message: "not supported with latest=true"})
+	}
+	if params.Offset != 0 {
+		unsupported = append(unsupported, utils.ValidationError{Field: "offset", Message: "not supported with latest=true"})
+	}
+	if len(unsupported) > 0 {
+		utils.ProblemValidationError(c, "latest=true returns a single bulletin; remove other query parameters", unsupported)
+		return false
+	}
+	return true
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support.

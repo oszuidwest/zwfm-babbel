@@ -556,6 +556,181 @@ describe('Bulletins', () => {
     });
   });
 
+  describe('Bulletin Cache-Control', () => {
+    let stationId, voiceId;
+
+    beforeAll(async () => {
+      const station = await global.helpers.createStation(global.resources, 'CacheCtrlStation');
+      const voice = await global.helpers.createVoice(global.resources, 'CacheCtrlVoice');
+      stationId = station.id;
+      voiceId = voice.id;
+
+      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId, 3.0);
+      const story = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `CacheCtrlStory_${Date.now()}`,
+        text: 'Cache control test story',
+        voice_id: voiceId,
+        weekdays: 127,
+        status: 'active'
+      }, [stationId]);
+
+      if (story) await global.helpers.waitForStoryAudio(story.id);
+
+      // Warm the cache once so the HIT scenarios have something to serve.
+      const warmup = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+      expect(warmup.status).toBe(200);
+    });
+
+    test('when generating without cache header, then returns MISS', async () => {
+      // Act
+      const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.headers['x-cache']).toBe('MISS');
+    });
+
+    test('when Cache-Control max-age allows reuse, then returns HIT', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{}',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'max-age=3600'
+        },
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.headers['x-cache']).toBe('HIT');
+      expect(response.headers['age']).toBeDefined();
+    });
+
+    test('when Cache-Control no-cache, then forces regeneration and returns MISS', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{}',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.headers['x-cache']).toBe('MISS');
+    });
+
+    test('when Accept audio/wav with warm cache, then serves cached binary', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{}',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'audio/wav',
+          'Cache-Control': 'max-age=3600'
+        },
+        responseType: 'arraybuffer',
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toMatch(/audio\/wav/);
+      expect(response.headers['x-bulletin-cached']).toBe('true');
+      expect(response.headers['x-cache']).toBe('HIT');
+    });
+
+    test('when Cache-Control max-age is invalid, then falls back to fresh generation', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{}',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'max-age=garbage'
+        },
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.headers['x-cache']).toBe('MISS');
+    });
+  });
+
+  describe('Bulletin Stories Endpoint', () => {
+    let bulletinId;
+
+    beforeAll(async () => {
+      const station = await global.helpers.createStation(global.resources, 'BulletinStoriesEndpoint');
+      const voice = await global.helpers.createVoice(global.resources, 'BulletinStoriesVoice');
+      await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
+      const story = await global.helpers.createStoryWithAudio(global.resources, {
+        title: `BulletinStoriesStory_${Date.now()}`,
+        text: 'Bulletin stories endpoint test',
+        voice_id: voice.id,
+        weekdays: 127,
+        status: 'active'
+      }, [station.id]);
+      if (story) await global.helpers.waitForStoryAudio(story.id);
+
+      const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      expect(response.status).toBe(200);
+      bulletinId = response.data.id;
+    });
+
+    test('when called with only pagination, then returns 200', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?limit=10&offset=0`);
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('data');
+    });
+
+    test('when called with filter, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?filter[story_id]=1`);
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when called with sort, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?sort=story_order`);
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when called with fields, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?fields=id,story_id`);
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when called with search, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?search=anything`);
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+  });
+
   describe('Bulletin Audio Download', () => {
     test('when downloading audio, then file is valid', async () => {
       // Arrange
@@ -621,6 +796,52 @@ describe('Bulletins', () => {
       // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
+    });
+
+    test('when latest=true combined with unknown filter, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&filter[__bogus__]=1`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when latest=true combined with unknown sort, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&sort=__bogus__`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when latest=true combined with unknown fields, then returns 422', async () => {
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&fields=id,__bogus__`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when latest=true combined with extra known query params, then returns 422', async () => {
+      // Even known/valid fields must be rejected because the latest shortcut
+      // returns a single record and can't honor filter/sort semantics.
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&sort=-created_at`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
     });
   });
 

@@ -453,6 +453,23 @@ func TestBindOptionalJSON(t *testing.T) {
 	}
 }
 
+func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
+	c, w := newTestContext(t, "")
+	c.Request.Body = nil
+
+	var req struct {
+		Date string `json:"date"`
+	}
+	ok := BindOptionalJSON(c, &req)
+
+	if !ok {
+		t.Fatalf("expected true for nil request body; response: %s", w.Body.String())
+	}
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want default 200 (no response written)", w.Code)
+	}
+}
+
 func TestBindOptionalJSON_ReadFailure(t *testing.T) {
 	c, w := newTestContext(t, "")
 	c.Request.Body = failingReadCloser{}
