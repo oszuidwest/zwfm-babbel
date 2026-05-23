@@ -87,7 +87,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
-	userSvc := services.NewUserService(userRepo)
+	userSvc := services.NewUserService(userRepo, buildPasswordPolicy(cfg))
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		TxManager:        txManager,
 		StationVoiceRepo: stationVoiceRepo,
@@ -132,6 +132,16 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	}, nil
 }
 
+func buildPasswordPolicy(cfg *config.Config) services.PasswordPolicy {
+	return services.PasswordPolicy{
+		MinLength:          cfg.Auth.Local.MinPasswordLength,
+		RequireUppercase:   cfg.Auth.Local.RequireUppercase,
+		RequireLowercase:   cfg.Auth.Local.RequireLowercase,
+		RequireNumber:      cfg.Auth.Local.RequireNumber,
+		RequireSpecialChar: cfg.Auth.Local.RequireSpecialChar,
+	}
+}
+
 // buildAuthConfig constructs the auth configuration from the application config.
 func buildAuthConfig(cfg *config.Config) *auth.Config {
 	return &auth.Config{
@@ -145,10 +155,6 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 		},
 		Local: auth.LocalConfig{
 			Enabled:                cfg.Auth.Method.SupportsLocal(),
-			MinPasswordLength:      cfg.Auth.Local.MinPasswordLength,
-			RequireUppercase:       cfg.Auth.Local.RequireUppercase,
-			RequireLowercase:       cfg.Auth.Local.RequireLowercase,
-			RequireNumbers:         cfg.Auth.Local.RequireNumber,
 			MaxFailedAttempts:      cfg.Auth.Local.MaxLoginAttempts,
 			LockoutDurationMinutes: cfg.Auth.Local.LockoutDurationMinutes,
 		},

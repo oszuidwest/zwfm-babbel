@@ -85,7 +85,7 @@ describe('Permissions', () => {
 
     test('when admin updates user, then succeeds', async () => {
       // Arrange
-      const userId = await createUser(`updatetest${Date.now()}`, 'Update Test', 'testpass123', 'viewer');
+      const userId = await createUser(`updatetest${Date.now()}`, 'Update Test', 'TestPass123!', 'viewer');
       expect(userId).not.toBeNull();
 
       // Act
@@ -107,10 +107,10 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       editorUsername = `testeditor${Date.now()}`;
-      const editorId = await createUser(editorUsername, 'Test Editor', 'testpass123', 'editor');
+      const editorId = await createUser(editorUsername, 'Test Editor', 'TestPass123!', 'editor');
       expect(editorId).not.toBeNull();
 
-      const switched = await switchToUser(editorUsername, 'testpass123');
+      const switched = await switchToUser(editorUsername, 'TestPass123!');
       expect(switched).toBe(true);
     });
 
@@ -185,10 +185,10 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       viewerUsername = `testviewer${Date.now()}`;
-      const viewerId = await createUser(viewerUsername, 'Test Viewer', 'testpass123', 'viewer');
+      const viewerId = await createUser(viewerUsername, 'Test Viewer', 'TestPass123!', 'viewer');
       expect(viewerId).not.toBeNull();
 
-      const switched = await switchToUser(viewerUsername, 'testpass123');
+      const switched = await switchToUser(viewerUsername, 'TestPass123!');
       expect(switched).toBe(true);
     });
 
@@ -271,7 +271,7 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       suspendedUsername = `suspendeduser${Date.now()}`;
-      const suspendedId = await createUser(suspendedUsername, 'Suspended User', 'testpass123', 'editor');
+      const suspendedId = await createUser(suspendedUsername, 'Suspended User', 'TestPass123!', 'editor');
       expect(suspendedId).not.toBeNull();
 
       // Suspend the user (soft delete)
@@ -285,7 +285,7 @@ describe('Permissions', () => {
       // Act
       const response = await global.api.apiCall('POST', '/sessions', {
         username: suspendedUsername,
-        password: 'testpass123'
+        password: 'TestPass123!'
       });
 
       // Assert

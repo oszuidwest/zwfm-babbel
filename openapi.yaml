@@ -3026,7 +3026,7 @@ components:
           writeOnly: true
           minLength: 8
           maxLength: 128
-          description: User password
+          description: User password. Must satisfy the configured local password policy.
         email:
           type: [string, 'null']
           format: email
@@ -3066,7 +3066,7 @@ components:
           writeOnly: true
           minLength: 8
           maxLength: 255
-          description: New password
+          description: New password. Must satisfy the configured local password policy.
         email:
           type: [string, 'null']
           format: email

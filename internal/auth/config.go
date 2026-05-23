@@ -55,11 +55,7 @@ type LocalConfig struct {
 	// Enable local username/password authentication
 	Enabled bool
 
-	// Password policy
-	MinPasswordLength      int
-	RequireUppercase       bool
-	RequireLowercase       bool
-	RequireNumbers         bool
+	// Login lockout policy
 	MaxFailedAttempts      int
 	LockoutDurationMinutes int
 }

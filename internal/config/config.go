@@ -75,7 +75,7 @@ type DatabaseConfig struct {
 
 // LocalAuthConfig defines password policy and lockout rules for local authentication.
 type LocalAuthConfig struct {
-	// MinPasswordLength sets the minimum required password length (default: 8).
+	// MinPasswordLength sets the minimum required password length (8-128, default: 8).
 	MinPasswordLength int `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
 	// RequireUppercase enforces uppercase letter requirement (default: true).
 	RequireUppercase bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
@@ -175,6 +175,19 @@ func (c *Config) EnsureDirectories() error {
 
 // Validate checks the configuration for required values and valid settings.
 func (c *Config) Validate() error {
+	if err := c.validateCore(); err != nil {
+		return err
+	}
+	if err := c.validateAuth(); err != nil {
+		return err
+	}
+	if err := c.validateAudioTools(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) validateCore() error {
 	if !c.Auth.Method.IsValid() {
 		return fmt.Errorf("invalid auth method: %s (must be local, oidc, or both)", c.Auth.Method)
 	}
@@ -187,6 +200,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid database port: %d (must be 1-65535)", c.Database.Port)
 	}
 
+	if err := c.validateDatabasePool(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) validateAuth() error {
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
@@ -196,25 +216,74 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Auth.Method.SupportsOIDC() {
-		if c.Auth.OIDCProviderURL == "" {
-			return errors.New("BABBEL_OIDC_PROVIDER_URL required when auth method is 'oidc' or 'both'")
-		}
-		if c.Auth.OIDCClientID == "" {
-			return errors.New("BABBEL_OIDC_CLIENT_ID required when auth method is 'oidc' or 'both'")
-		}
-		if c.Auth.OIDCClientSecret == "" {
-			return errors.New("BABBEL_OIDC_CLIENT_SECRET required when auth method is 'oidc' or 'both'")
+		if err := c.validateOIDC(); err != nil {
+			return err
 		}
 	}
 
+	if err := c.validateLocalAuth(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Config) validateOIDC() error {
+	if c.Auth.OIDCProviderURL == "" {
+		return errors.New("BABBEL_OIDC_PROVIDER_URL required when auth method is 'oidc' or 'both'")
+	}
+	if c.Auth.OIDCClientID == "" {
+		return errors.New("BABBEL_OIDC_CLIENT_ID required when auth method is 'oidc' or 'both'")
+	}
+	if c.Auth.OIDCClientSecret == "" {
+		return errors.New("BABBEL_OIDC_CLIENT_SECRET required when auth method is 'oidc' or 'both'")
+	}
+	return nil
+}
+
+func (c *Config) validateAudioTools() error {
 	if err := validateAudioTool("FFmpeg", c.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH"); err != nil {
 		return err
 	}
-
 	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath, "BABBEL_FFPROBE_PATH"); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (c *Config) validateDatabasePool() error {
+	if c.Database.MaxOpenConns < 1 {
+		return fmt.Errorf("BABBEL_DB_MAX_OPEN_CONNS must be >= 1 (got %d)", c.Database.MaxOpenConns)
+	}
+	if c.Database.MaxIdleConns < 0 {
+		return fmt.Errorf("BABBEL_DB_MAX_IDLE_CONNS must be >= 0 (got %d)", c.Database.MaxIdleConns)
+	}
+	if c.Database.MaxIdleConns > c.Database.MaxOpenConns {
+		return fmt.Errorf(
+			"BABBEL_DB_MAX_IDLE_CONNS must be <= BABBEL_DB_MAX_OPEN_CONNS (got %d > %d)",
+			c.Database.MaxIdleConns,
+			c.Database.MaxOpenConns,
+		)
+	}
+	if c.Database.ConnMaxLifetime <= 0 {
+		return fmt.Errorf("BABBEL_DB_CONN_MAX_LIFETIME must be > 0 (got %s)", c.Database.ConnMaxLifetime)
+	}
+	return nil
+}
+
+func (c *Config) validateLocalAuth() error {
+	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > 128 {
+		return fmt.Errorf(
+			"BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128 (got %d)",
+			c.Auth.Local.MinPasswordLength,
+		)
+	}
+	if c.Auth.Local.MaxLoginAttempts < 1 {
+		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
+	}
+	if c.Auth.Local.LockoutDurationMinutes < 1 {
+		return fmt.Errorf("BABBEL_AUTH_LOCKOUT_MINUTES must be >= 1 (got %d)", c.Auth.Local.LockoutDurationMinutes)
+	}
 	return nil
 }
 

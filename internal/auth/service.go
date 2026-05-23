@@ -357,17 +357,19 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	}
 
 	var user struct {
-		ID           int64
-		Username     string
-		PasswordHash string
-		Role         string
-		SuspendedAt  *time.Time
+		ID                  int64
+		Username            string
+		PasswordHash        string
+		Role                string
+		SuspendedAt         *time.Time
+		FailedLoginAttempts int
+		LockedUntil         *time.Time
 	}
 
 	ctx := c.Request.Context()
 	err := s.db.WithContext(ctx).
 		Table("users").
-		Select("id, username, password_hash, role, suspended_at").
+		Select("id, username, password_hash, role, suspended_at, failed_login_attempts, locked_until").
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
@@ -382,10 +384,19 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("account is suspended")
 	}
 
+	now := time.Now()
+	if user.LockedUntil != nil && user.LockedUntil.After(now) {
+		return fmt.Errorf("account is locked")
+	}
+
+	failedAttempts := user.FailedLoginAttempts
+	if user.LockedUntil != nil {
+		failedAttempts = 0
+	}
+
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		// Increment failed login attempt counter (log but don't block - we're returning invalid credentials anyway)
-		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
+		if updateErr := s.updateLoginFailure(ctx, user.ID, failedAttempts); updateErr != nil {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
 		}
 		return fmt.Errorf("invalid credentials")
@@ -649,6 +660,7 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 			"last_login_at":         time.Now(),
 			"login_count":           gorm.Expr("login_count + 1"),
 			"failed_login_attempts": 0,
+			"locked_until":          nil,
 		}).Error
 	if err != nil {
 		logger.Error("Failed to update login stats", "error", err)
@@ -657,15 +669,34 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 }
 
 // updateLoginFailure increments failed login attempts for a user.
-func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
+func (s *Service) updateLoginFailure(ctx context.Context, userID int64, currentFailedAttempts int) error {
+	updates := s.loginFailureUpdates(currentFailedAttempts, time.Now())
 	err := s.db.WithContext(ctx).
 		Table("users").
 		Where("id = ?", userID).
-		Update("failed_login_attempts", gorm.Expr("failed_login_attempts + 1")).Error
+		Updates(updates).Error
 	if err != nil {
 		logger.Error("Failed to update failed login attempts", "error", err)
 	}
 	return err
+}
+
+func (s *Service) loginFailureUpdates(currentFailedAttempts int, now time.Time) map[string]any {
+	nextAttempts := currentFailedAttempts + 1
+	updates := map[string]any{
+		"failed_login_attempts": nextAttempts,
+		"locked_until":          nil,
+	}
+
+	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
+	shouldLock := s.config.Local.MaxFailedAttempts > 0 &&
+		lockoutDuration > 0 &&
+		nextAttempts >= s.config.Local.MaxFailedAttempts
+	if shouldLock {
+		updates["locked_until"] = now.Add(lockoutDuration)
+	}
+
+	return updates
 }
 
 // generateState generates a cryptographically secure random state for OAuth2 CSRF protection.
