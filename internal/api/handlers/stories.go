@@ -29,8 +29,12 @@ func (h *Handlers) ListStories(c *gin.Context) {
 		return
 	}
 
-	// Return stories directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetStory returns a single story by ID.

@@ -8,15 +8,25 @@ import (
 
 // ListVoices returns a paginated list of newsreader voices.
 func (h *Handlers) ListVoices(c *gin.Context) {
-	query := utils.ParseListQuery(c)
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
 
+	query := utils.QueryParamsToListQuery(params)
 	result, err := h.voiceSvc.List(c.Request.Context(), query)
 	if err != nil {
 		handleServiceError(c, err, "Voice")
 		return
 	}
 
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetVoice returns a single newsreader voice by ID.

@@ -9,7 +9,7 @@ Babbel is designed for integration with newsroom workflows and radio automation 
 ## Features
 
 ### Core Functionality
-- **RESTful API** - Complete REST API with OpenAPI 3.0.3 specification in `openapi.yaml`
+- **RESTful API** - Complete REST API with OpenAPI 3.1 specification in `openapi.yaml`
 - **Multi-station support** - Manage multiple radio stations with individual configurations
 - **Voice management** - Multiple newsreaders with station-specific jingles
 - **Text-to-speech** - ElevenLabs integration for automated story audio generation

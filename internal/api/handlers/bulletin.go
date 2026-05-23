@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +24,20 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	var req struct {
 		Date string `json:"date"`
 	}
-	if !utils.BindAndValidate(c, &req) {
-		return
+	if c.Request.Body != nil {
+		body, err := io.ReadAll(c.Request.Body)
+		if err != nil {
+			utils.ProblemBadRequest(c, "Failed to read request body")
+			return
+		}
+		if strings.TrimSpace(string(body)) != "" {
+			if err := json.Unmarshal(body, &req); err != nil {
+				utils.ProblemValidationError(c, "The request contains invalid data", []utils.ValidationError{
+					{Field: "request", Message: "Invalid request format"},
+				})
+				return
+			}
+		}
 	}
 
 	// Parse date
@@ -202,15 +216,25 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	query := utils.ParseListQuery(c)
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	query := utils.QueryParamsToListQuery(params)
 	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support.
@@ -232,8 +256,12 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetBulletin returns a single bulletin by ID.
@@ -271,15 +299,25 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	query := utils.ParseListQuery(c)
+	params := utils.ParseQueryParams(c)
+	if params == nil {
+		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+		return
+	}
+
+	query := utils.QueryParamsToListQuery(params)
 	result, err := h.bulletinSvc.GetStoryBulletinHistory(c.Request.Context(), storyID, query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetBulletinAudio serves the audio file for a specific bulletin.

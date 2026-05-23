@@ -25,8 +25,12 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
-	utils.PaginatedResponse(c, result.Data, result.Total, result.Limit, result.Offset)
+	var responseData any = result.Data
+	if len(params.Fields) > 0 {
+		responseData = utils.FilterStructFields(result.Data, params.Fields)
+	}
+
+	utils.PaginatedResponse(c, responseData, result.Total, result.Limit, result.Offset)
 }
 
 // GetStationVoice returns a single station-voice relationship by ID.

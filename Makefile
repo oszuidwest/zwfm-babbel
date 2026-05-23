@@ -70,7 +70,7 @@ docs:
 	@echo "  → Simple Markdown reference..."
 	@go run tools/docgen.go -input openapi.yaml -output docs/API_REFERENCE.md
 	@echo "  → Interactive HTML docs..."
-	@npx -y @redocly/cli build-docs openapi.yaml \
+	@npx -y @redocly/cli@2.0.1 build-docs openapi.yaml \
 		--output=docs/index.html \
 		--title="Babbel API Documentation" 2>/dev/null
 	@echo "✓ Generated both simple and interactive documentation"
@@ -83,7 +83,7 @@ validate-spec:
 	@if command -v redocly >/dev/null 2>&1; then \
 		redocly lint openapi.yaml; \
 	else \
-		npx -y @redocly/cli lint openapi.yaml; \
+		npx -y @redocly/cli@2.0.1 lint openapi.yaml; \
 	fi
 
 # Docker commands

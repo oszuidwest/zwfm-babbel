@@ -37,6 +37,8 @@ const (
 	FilterLike        FilterOperator = "like"
 	FilterIn          FilterOperator = "in"
 	FilterBitwiseAnd  FilterOperator = "band"
+	FilterIsNull      FilterOperator = "null"
+	FilterIsNotNull   FilterOperator = "not_null"
 )
 
 // FilterCondition represents a single filter condition.
@@ -183,6 +185,14 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 			return db.Where(dbField+" LIKE ?", "%"+s+"%")
 		}
 		return db
+	}
+
+	if filter.Operator == FilterIsNull {
+		return db.Where(dbField + " IS NULL")
+	}
+
+	if filter.Operator == FilterIsNotNull {
+		return db.Where(dbField + " IS NOT NULL")
 	}
 
 	// Use map lookup for standard operators

@@ -201,6 +201,19 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 	"ne": func(value string) FilterOperation {
 		return FilterOperation{Operator: "!=", Value: value}
 	},
+	"not": func(value string) FilterOperation {
+		return FilterOperation{Operator: "!=", Value: value}
+	},
+	"null": func(value string) FilterOperation {
+		isNull, err := strconv.ParseBool(value)
+		if err != nil {
+			return FilterOperation{}
+		}
+		if isNull {
+			return FilterOperation{Operator: "IS NULL"}
+		}
+		return FilterOperation{Operator: "IS NOT NULL"}
+	},
 	"band": func(value string) FilterOperation {
 		val, err := strconv.ParseUint(value, 10, 8)
 		if err != nil {
@@ -349,12 +362,6 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	return result
 }
 
-// ParseListQuery parses HTTP query parameters into a repository.ListQuery.
-func ParseListQuery(c *gin.Context) *repository.ListQuery {
-	params := ParseQueryParams(c)
-	return QueryParamsToListQuery(params)
-}
-
 // QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
 // This is the single source of truth for filter operator mapping.
 func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
@@ -384,37 +391,45 @@ func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
 	// Convert filters - operator mapping is centralized here
 	for field, filter := range params.Filters {
 		condition := repository.FilterCondition{
-			Field: field,
-			Value: filter.Value,
+			Field:    field,
+			Operator: queryFilterOperator(filter.Operator),
+			Value:    filter.Value,
 		}
-
-		// Map operator strings to repository.FilterOperator
-		switch filter.Operator {
-		case "=":
-			condition.Operator = repository.FilterEquals
-		case "!=":
-			condition.Operator = repository.FilterNotEquals
-		case ">":
-			condition.Operator = repository.FilterGreaterThan
-		case ">=":
-			condition.Operator = repository.FilterGreaterOrEq
-		case "<":
-			condition.Operator = repository.FilterLessThan
-		case "<=":
-			condition.Operator = repository.FilterLessOrEq
-		case "LIKE":
-			condition.Operator = repository.FilterLike
-		case "IN":
-			condition.Operator = repository.FilterIn
+		if filter.Operator == "IN" {
 			condition.Value = filter.Values
-		case "BAND":
-			condition.Operator = repository.FilterBitwiseAnd
-		default:
-			condition.Operator = repository.FilterEquals
 		}
 
 		query.Filters = append(query.Filters, condition)
 	}
 
 	return query
+}
+
+func queryFilterOperator(operator string) repository.FilterOperator {
+	switch operator {
+	case "=":
+		return repository.FilterEquals
+	case "!=":
+		return repository.FilterNotEquals
+	case ">":
+		return repository.FilterGreaterThan
+	case ">=":
+		return repository.FilterGreaterOrEq
+	case "<":
+		return repository.FilterLessThan
+	case "<=":
+		return repository.FilterLessOrEq
+	case "LIKE":
+		return repository.FilterLike
+	case "IN":
+		return repository.FilterIn
+	case "BAND":
+		return repository.FilterBitwiseAnd
+	case "IS NULL":
+		return repository.FilterIsNull
+	case "IS NOT NULL":
+		return repository.FilterIsNotNull
+	default:
+		return repository.FilterEquals
+	}
 }
