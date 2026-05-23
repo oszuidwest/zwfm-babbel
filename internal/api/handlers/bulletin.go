@@ -240,6 +240,11 @@ func rejectIfNotPureLatest(c *gin.Context, params *utils.QueryParams) bool {
 	if params.Offset != 0 {
 		unsupported = append(unsupported, utils.ValidationError{Field: "offset", Message: "not supported with latest=true"})
 	}
+	// Explicit limit must be exactly "1" or absent. limit=2 with latest=true
+	// is contradictory because the shortcut only returns one bulletin.
+	if raw := c.Query("limit"); raw != "" && raw != "1" {
+		unsupported = append(unsupported, utils.ValidationError{Field: "limit", Message: "must be 1 (or omitted) when latest=true"})
+	}
 	if len(unsupported) > 0 {
 		utils.ProblemValidationError(c, "latest=true returns a single bulletin; remove other query parameters", unsupported)
 		return false

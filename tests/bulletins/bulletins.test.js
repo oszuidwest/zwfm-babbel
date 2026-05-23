@@ -843,6 +843,30 @@ describe('Bulletins', () => {
       // Assert
       expect(response.status).toBe(422);
     });
+
+    test('when latest=true combined with limit other than 1, then returns 422', async () => {
+      // latest=true returns a single bulletin; limit=2 is contradictory.
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&limit=2`
+      );
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when latest=true combined with limit=1, then returns 200', async () => {
+      // limit=1 is the alternative trigger and may coexist with latest=true.
+      // Act
+      const response = await global.api.apiCall(
+        'GET',
+        `/stations/${stationId}/bulletins?latest=true&limit=1`
+      );
+
+      // Assert
+      expect(response.status).toBe(200);
+    });
   });
 
   describe('Bulletin Error Cases', () => {

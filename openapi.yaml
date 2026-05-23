@@ -1814,6 +1814,9 @@ paths:
         - `latest=true` - Returns the latest bulletin object directly with `X-Cache` and `Age` headers
         - `limit=1` - Also triggers the same single-bulletin response as `latest=true`
 
+        When the latest shortcut is active, the only other accepted query parameter is `limit=1`.
+        `filter`, `sort`, `fields`, `search`, `trashed`, `offset`, and `limit!=1` are rejected with 422.
+
         ## Notes
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
@@ -2143,7 +2146,7 @@ paths:
 
         ## Sort Fields
         Available sort fields:
-        - `id` - Relationship ID (default: descending)
+        - `id` - Relationship ID (default: ascending)
         - `station_id` - Station ID
         - `voice_id` - Voice ID
         - `audio_url` - Audio presence (maps to audio_file column)
