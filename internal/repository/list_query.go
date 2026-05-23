@@ -36,6 +36,7 @@ const (
 	FilterLessOrEq    FilterOperator = "lte"
 	FilterLike        FilterOperator = "like"
 	FilterIn          FilterOperator = "in"
+	FilterBetween     FilterOperator = "between"
 	FilterBitwiseAnd  FilterOperator = "band"
 	FilterIsNull      FilterOperator = "null"
 	FilterIsNotNull   FilterOperator = "not_null"
@@ -187,6 +188,15 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return db
 	}
 
+	if filter.Operator == FilterBetween {
+		values, ok := filter.Value.([]string)
+		if !ok || len(values) != 2 {
+			return db
+		}
+		return db.Where(fmt.Sprintf("%s BETWEEN ? AND ?", dbField), values[0], values[1])
+	}
+
+	// dbField comes from fieldMapping, so these identifier fragments remain whitelist-bound.
 	if filter.Operator == FilterIsNull {
 		return db.Where(dbField + " IS NULL")
 	}

@@ -8,13 +8,11 @@ import (
 
 // ListVoices returns a paginated list of newsreader voices.
 func (h *Handlers) ListVoices(c *gin.Context) {
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
 
-	query := utils.QueryParamsToListQuery(params)
 	result, err := h.voiceSvc.List(c.Request.Context(), query)
 	if err != nil {
 		handleServiceError(c, err, "Voice")

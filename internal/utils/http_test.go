@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -388,6 +389,95 @@ func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T)
 		}
 		assertValidationError(t, w, "Title", "cannot exceed 500")
 	})
+}
+
+func TestBindOptionalJSON(t *testing.T) {
+	type optionalRequest struct {
+		Date string `json:"date"`
+	}
+
+	tests := []struct {
+		name       string
+		body       string
+		wantOK     bool
+		wantStatus int
+		wantDate   string
+	}{
+		{
+			name:   "empty body is accepted",
+			body:   "",
+			wantOK: true,
+		},
+		{
+			name:   "whitespace body is accepted",
+			body:   " \n\t ",
+			wantOK: true,
+		},
+		{
+			name:     "valid json is decoded",
+			body:     `{"date":"2026-05-23"}`,
+			wantOK:   true,
+			wantDate: "2026-05-23",
+		},
+		{
+			name:       "malformed json is rejected",
+			body:       `{invalid json}`,
+			wantOK:     false,
+			wantStatus: 422,
+		},
+		{
+			name:       "oversized body is rejected",
+			body:       strings.Repeat("a", int(maxJSONRequestBodyBytes)+1),
+			wantOK:     false,
+			wantStatus: 413,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, w := newTestContext(t, tt.body)
+
+			var req optionalRequest
+			ok := BindOptionalJSON(c, &req)
+
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v; response: %s", ok, tt.wantOK, w.Body.String())
+			}
+			if tt.wantStatus != 0 && w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+			if req.Date != tt.wantDate {
+				t.Fatalf("Date = %q, want %q", req.Date, tt.wantDate)
+			}
+		})
+	}
+}
+
+func TestBindOptionalJSON_ReadFailure(t *testing.T) {
+	c, w := newTestContext(t, "")
+	c.Request.Body = failingReadCloser{}
+
+	var req struct {
+		Date string `json:"date"`
+	}
+	ok := BindOptionalJSON(c, &req)
+
+	if ok {
+		t.Fatal("expected false for read failure")
+	}
+	if w.Code != 400 {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read(_ []byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
 }
 
 // Double-encoded entity pipeline documenting the full write-read decode behavior.

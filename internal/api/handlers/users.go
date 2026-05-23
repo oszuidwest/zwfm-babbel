@@ -12,15 +12,10 @@ import (
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
-
-	// Convert utils.QueryParams to repository.ListQuery using shared function
-	query := utils.QueryParamsToListQuery(params)
 
 	result, err := h.userSvc.List(c.Request.Context(), query)
 	if err != nil {

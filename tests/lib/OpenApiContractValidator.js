@@ -19,7 +19,7 @@ class OpenApiContractValidator {
     });
     addFormats(this.ajv);
     this.addOpenApiFormats();
-    this.compiledSchemas = new Map();
+    this.compiledSchemas = new WeakMap();
   }
 
   static async fromFile(specPath) {
@@ -119,9 +119,10 @@ class OpenApiContractValidator {
       return;
     }
 
-    const body = this.responseBodyForSchema(actualMediaType, response.data);
+    const label = `${this.operationKey(method, operationPath)} response ${response.status} ${actualMediaType}`;
+    const body = this.responseBodyForSchema(label, actualMediaType, response.data);
     this.validateSchema(
-      `${this.operationKey(method, operationPath)} response ${response.status} ${actualMediaType}`,
+      label,
       mediaSpec.schema,
       body
     );
@@ -144,35 +145,56 @@ class OpenApiContractValidator {
         this.validateSchema(
           `${this.operationKey(method, operationPath)} header ${headerName}`,
           headerSpec.schema,
-          this.coerceHeaderValue(headerSpec.schema, value)
+          this.coerceHeaderValue(`${this.operationKey(method, operationPath)} header ${headerName}`, headerSpec.schema, value)
         );
       }
     }
   }
 
-  coerceHeaderValue(schema, value) {
+  coerceHeaderValue(label, schema, value) {
     if (schema.type === 'integer') {
-      return Number.parseInt(value, 10);
+      if (!/^-?\d+$/.test(String(value))) {
+        throw new Error(`${label} has invalid integer value ${JSON.stringify(value)}`);
+      }
+      const coerced = Number.parseInt(value, 10);
+      if (Number.isNaN(coerced)) {
+        throw new Error(`${label} has invalid integer value ${JSON.stringify(value)}`);
+      }
+      return coerced;
     }
     if (schema.type === 'number') {
-      return Number.parseFloat(value);
+      const coerced = Number(value);
+      if (!Number.isFinite(coerced)) {
+        throw new Error(`${label} has invalid number value ${JSON.stringify(value)}`);
+      }
+      return coerced;
     }
     if (schema.type === 'boolean') {
-      return value === true || value === 'true';
+      if (value === true || value === 'true') {
+        return true;
+      }
+      if (value === false || value === 'false') {
+        return false;
+      }
+      throw new Error(`${label} has invalid boolean value ${JSON.stringify(value)}`);
     }
     return String(value);
   }
 
-  responseBodyForSchema(mediaType, data) {
+  responseBodyForSchema(label, mediaType, data) {
     if (!JSON_MEDIA_TYPES.has(mediaType)) {
       return data;
     }
 
-    if (Buffer.isBuffer(data)) {
-      return JSON.parse(data.toString('utf8'));
-    }
-    if (typeof data === 'string') {
-      return JSON.parse(data);
+    try {
+      if (Buffer.isBuffer(data)) {
+        return JSON.parse(data.toString('utf8'));
+      }
+      if (typeof data === 'string') {
+        return JSON.parse(data);
+      }
+    } catch (error) {
+      throw new Error(`${label} contains invalid JSON: ${error.message}`);
     }
     return data;
   }
@@ -220,10 +242,14 @@ class OpenApiContractValidator {
   }
 
   compileSchema(label, schema) {
-    if (!this.compiledSchemas.has(label)) {
-      this.compiledSchemas.set(label, this.ajv.compile(schema));
+    if (!schema || typeof schema !== 'object') {
+      return this.ajv.compile(schema);
     }
-    return this.compiledSchemas.get(label);
+
+    if (!this.compiledSchemas.has(schema)) {
+      this.compiledSchemas.set(schema, this.ajv.compile(schema));
+    }
+    return this.compiledSchemas.get(schema);
   }
 }
 

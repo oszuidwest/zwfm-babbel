@@ -8,15 +8,10 @@ import (
 
 // ListStationVoices returns a paginated list of station-voice relationships.
 func (h *Handlers) ListStationVoices(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
-
-	// Convert to repository ListQuery
-	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.stationVoiceSvc.List(c.Request.Context(), query)

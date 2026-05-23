@@ -2048,6 +2048,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -2534,6 +2536,9 @@ components:
                 ne:
                   type: string
                   description: Not equals
+                not:
+                  type: string
+                  description: Alias for ne (not equals)
                 gt:
                   type: string
                   description: Greater than
@@ -2552,6 +2557,9 @@ components:
                 in:
                   type: string
                   description: Comma-separated list of values
+                between:
+                  type: string
+                  description: Two comma-separated inclusive bounds
                 'null':
                   type: boolean
                   description: Is null (true) or not null (false)
@@ -2568,9 +2576,11 @@ components:
         Supported operators:
         - `eq` - equals (default)
         - `ne` - not equals
+        - `not` - alias for `ne` (not equals)
         - `gt`, `gte`, `lt`, `lte` - comparisons
         - `like` - pattern matching
         - `in` - comma-separated values
+        - `between` - two comma-separated inclusive bounds
         - `null` - is/isn't null
         - `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
 
@@ -3431,6 +3441,12 @@ components:
                 status: 409
                 detail: "Cannot delete the last admin user"
                 instance: "/api/v1/users/1"
+    PayloadTooLarge:
+      description: Request body too large
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
     UnprocessableEntity:
       description: Validation error
       content:

@@ -12,15 +12,10 @@ import (
 
 // ListStories returns a paginated list of stories with modern query parameter support.
 func (h *Handlers) ListStories(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
-
-	// Convert to repository ListQuery
-	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.storySvc.List(c.Request.Context(), query)

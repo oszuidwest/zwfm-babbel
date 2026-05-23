@@ -103,7 +103,11 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/stations',
         method: 'GET',
         operationPath: '/api/v1/stations',
-        run: () => apiCall('GET', '/api/v1/stations', '/stations?fields=id,name')
+        run: async () => {
+          const response = await apiCall('GET', '/api/v1/stations', '/stations?fields=id,name');
+          expectSparseListFields(response, ['id', 'name']);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/stations',
@@ -144,7 +148,11 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/voices',
         method: 'GET',
         operationPath: '/api/v1/voices',
-        run: () => apiCall('GET', '/api/v1/voices', '/voices?fields=id,name')
+        run: async () => {
+          const response = await apiCall('GET', '/api/v1/voices', '/voices?fields=id,name');
+          expectSparseListFields(response, ['id', 'name']);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/voices',
@@ -184,7 +192,11 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/stories',
         method: 'GET',
         operationPath: '/api/v1/stories',
-        run: () => apiCall('GET', '/api/v1/stories', '/stories?fields=id,title,status')
+        run: async () => {
+          const response = await apiCall('GET', '/api/v1/stories', '/stories?fields=id,title,status');
+          expectSparseListFields(response, ['id', 'title', 'status']);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/stories',
@@ -260,13 +272,25 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/stories/{id}/bulletins',
         method: 'GET',
         operationPath: '/api/v1/stories/{id}/bulletins',
-        run: () => apiCall('GET', '/api/v1/stories/{id}/bulletins', `/stories/${ctx.story.id}/bulletins?fields=id,filename,created_at`)
+        run: async () => {
+          const response = await apiCall(
+            'GET',
+            '/api/v1/stories/{id}/bulletins',
+            `/stories/${ctx.story.id}/bulletins?fields=id,filename,created_at`
+          );
+          expectSparseListFields(response, ['id', 'filename', 'created_at']);
+          return response;
+        }
       },
       {
         name: 'GET /api/v1/users',
         method: 'GET',
         operationPath: '/api/v1/users',
-        run: () => apiCall('GET', '/api/v1/users', '/users?fields=id,username,role')
+        run: async () => {
+          const response = await apiCall('GET', '/api/v1/users', '/users?fields=id,username,role');
+          expectSparseListFields(response, ['id', 'username', 'role']);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/users',
@@ -332,7 +356,16 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/stations/{id}/bulletins latest',
         method: 'GET',
         operationPath: '/api/v1/stations/{id}/bulletins',
-        run: () => apiCall('GET', '/api/v1/stations/{id}/bulletins', `/stations/${ctx.station.id}/bulletins?latest=true`)
+        run: async () => {
+          const response = await apiCall(
+            'GET',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins?latest=true`
+          );
+          expect(response.data).not.toHaveProperty('data');
+          expect(response.data.id).toBe(ctx.bulletin.id);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/stations/{id}/bulletins',
@@ -361,7 +394,15 @@ describe('OpenAPI Contract', () => {
         name: 'GET /api/v1/station-voices',
         method: 'GET',
         operationPath: '/api/v1/station-voices',
-        run: () => apiCall('GET', '/api/v1/station-voices', '/station-voices?fields=id,station_name,voice_name,mix_point')
+        run: async () => {
+          const response = await apiCall(
+            'GET',
+            '/api/v1/station-voices',
+            '/station-voices?fields=id,station_name,voice_name,mix_point'
+          );
+          expectSparseListFields(response, ['id', 'station_name', 'voice_name', 'mix_point']);
+          return response;
+        }
       },
       {
         name: 'POST /api/v1/station-voices',
@@ -479,6 +520,16 @@ describe('OpenAPI Contract', () => {
       return response;
     } finally {
       cleanupFile(audioPath);
+    }
+  }
+
+  function expectSparseListFields(response, fields) {
+    const rows = response.data?.data || [];
+    expect(rows.length).toBeGreaterThan(0);
+
+    const expected = [...fields].sort();
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual(expected);
     }
   }
 });

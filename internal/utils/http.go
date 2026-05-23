@@ -8,6 +8,7 @@ import (
 	"html"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
 )
+
+const maxJSONRequestBodyBytes int64 = 1 << 20
 
 // IDParam extracts and validates the ID parameter from the request URL.
 func IDParam(c *gin.Context) (int64, bool) {
@@ -316,6 +319,43 @@ func BindAndValidate(c *gin.Context, req any) bool {
 	if err := v.Struct(req); err != nil {
 		validationErrors := convertValidationErrors(err)
 		ProblemValidationError(c, "The request contains invalid data", validationErrors)
+		return false
+	}
+
+	return true
+}
+
+// BindOptionalJSON decodes an optional JSON body into req with the same parse
+// error shape as BindAndValidate. Empty or whitespace-only bodies are accepted.
+func BindOptionalJSON(c *gin.Context, req any) bool {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return true
+	}
+
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			ProblemCustom(c,
+				"https://babbel.api/problems/payload-too-large",
+				"Payload Too Large",
+				http.StatusRequestEntityTooLarge,
+				"Request body too large",
+			)
+			return false
+		}
+		ProblemBadRequest(c, "Failed to read request body")
+		return false
+	}
+
+	if strings.TrimSpace(string(body)) == "" {
+		return true
+	}
+
+	if err := json.Unmarshal(body, req); err != nil {
+		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+			{Field: "request", Message: "Invalid request format"},
+		})
 		return false
 	}
 

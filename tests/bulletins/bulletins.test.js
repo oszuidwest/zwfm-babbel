@@ -84,6 +84,80 @@ describe('Bulletins', () => {
       expect(response.status).toBe(200);
     });
 
+    test('when generating with missing body, then succeeds', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('id');
+    });
+
+    test('when generating with whitespace body, then succeeds', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: ' \n\t ',
+        headers: { 'Content-Type': 'application/json' },
+        transformRequest: [data => data],
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('id');
+    });
+
+    test('when generating with malformed JSON body, then returns 422', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{invalid json}',
+        headers: { 'Content-Type': 'application/json' },
+        transformRequest: [data => data],
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(422);
+    });
+
+    test('when generating with non-json content type and JSON body, then succeeds', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: '{}',
+        headers: { 'Content-Type': 'text/plain' },
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('id');
+    });
+
+    test('when generating with oversized body, then returns 413', async () => {
+      // Act
+      const response = await global.api.http({
+        method: 'post',
+        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        data: 'a'.repeat(1024 * 1024 + 1),
+        headers: { 'Content-Type': 'application/json' },
+        transformRequest: [data => data],
+        validateStatus: () => true
+      });
+
+      // Assert
+      expect(response.status).toBe(413);
+    });
+
     test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
       // Regression: jingle context (voice + mix point) must come from the
       // highest-priority story BEFORE the playback order is shuffled.

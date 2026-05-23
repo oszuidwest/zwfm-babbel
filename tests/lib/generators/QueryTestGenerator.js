@@ -155,7 +155,36 @@ function generateQueryTests(schema, setupFn = null) {
 
             // Assert
             expect(response.status).toBe(200);
+            expect(response.data.total).toBeGreaterThan(0);
+            const results = response.data.data || [];
+            results.forEach(item => {
+              if (item[field] !== null && item[field] !== undefined) {
+                expect(String(item[field])).not.toBe('999999');
+              }
+            });
           });
+        });
+
+        test('when filtering with unknown operator, then returns 400', async () => {
+          // Arrange
+          const field = query.filterableFields[0];
+
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][unknown]=1`);
+
+          // Assert
+          expect(response.status).toBe(400);
+        });
+
+        test('when filtering null with invalid boolean, then returns 400', async () => {
+          // Arrange
+          const field = query.filterableFields[0];
+
+          // Act
+          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][null]=not-bool`);
+
+          // Assert
+          expect(response.status).toBe(400);
         });
 
         // Numeric operators for numeric fields

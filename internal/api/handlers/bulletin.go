@@ -1,9 +1,7 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -24,20 +22,8 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	var req struct {
 		Date string `json:"date"`
 	}
-	if c.Request.Body != nil {
-		body, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			utils.ProblemBadRequest(c, "Failed to read request body")
-			return
-		}
-		if strings.TrimSpace(string(body)) != "" {
-			if err := json.Unmarshal(body, &req); err != nil {
-				utils.ProblemValidationError(c, "The request contains invalid data", []utils.ValidationError{
-					{Field: "request", Message: "Invalid request format"},
-				})
-				return
-			}
-		}
+	if !utils.BindOptionalJSON(c, &req) {
+		return
 	}
 
 	// Parse date
@@ -167,10 +153,8 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 		return
 	}
 
-	// Parse query params for pagination (database-level via GORM Limit/Offset)
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, ok := parseQueryParams(c)
+	if !ok {
 		return
 	}
 
@@ -216,13 +200,11 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
 
-	query := utils.QueryParamsToListQuery(params)
 	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
@@ -239,15 +221,10 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support.
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	// Parse query parameters
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
-
-	// Convert to repository ListQuery
-	query := utils.QueryParamsToListQuery(params)
 
 	// Call service
 	result, err := h.bulletinSvc.List(c.Request.Context(), query)
@@ -299,13 +276,11 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	params := utils.ParseQueryParams(c)
-	if params == nil {
-		utils.ProblemInternalServer(c, "Failed to parse query parameters")
+	params, query, ok := parseListQuery(c)
+	if !ok {
 		return
 	}
 
-	query := utils.QueryParamsToListQuery(params)
 	result, err := h.bulletinSvc.GetStoryBulletinHistory(c.Request.Context(), storyID, query)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")

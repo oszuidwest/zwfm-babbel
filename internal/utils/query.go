@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -45,9 +47,9 @@ type FilterOperation struct {
 }
 
 // ParseQueryParams extracts and validates modern query parameters from the request.
-func ParseQueryParams(c *gin.Context) *QueryParams {
+func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
-		return nil
+		return nil, errors.New("missing request context")
 	}
 
 	params := &QueryParams{
@@ -57,8 +59,11 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	// Parse pagination
 	params.Limit, params.Offset = Pagination(c)
 
-	// Parse sorting - handle nil safely
-	if sortFields := parseSorting(c); sortFields != nil {
+	sortFields, err := parseSorting(c)
+	if err != nil {
+		return nil, err
+	}
+	if sortFields != nil {
 		params.Sort = sortFields
 	}
 
@@ -67,8 +72,11 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 		params.Fields = fields
 	}
 
-	// Parse filters - handle nil safely
-	if filters := parseFilters(c); filters != nil {
+	filters, err := parseFilters(c)
+	if err != nil {
+		return nil, err
+	}
+	if filters != nil {
 		params.Filters = filters
 	}
 
@@ -78,18 +86,18 @@ func ParseQueryParams(c *gin.Context) *QueryParams {
 	// Parse search
 	params.Search = c.Query("search")
 
-	return params
+	return params, nil
 }
 
 // parseSorting parses the sort query parameter into sort fields.
-func parseSorting(c *gin.Context) []SortField {
+func parseSorting(c *gin.Context) ([]SortField, error) {
 	if c == nil {
-		return nil
+		return nil, errors.New("missing request context")
 	}
 
 	sortParam := c.Query("sort")
 	if sortParam == "" {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.Split(sortParam, ",")
@@ -117,7 +125,7 @@ func parseSorting(c *gin.Context) []SortField {
 				field = strings.TrimSpace(before)
 				direction = strings.ToLower(strings.TrimSpace(after))
 				if direction != "asc" && direction != "desc" {
-					direction = "asc" // Default to asc for invalid direction
+					return nil, fmt.Errorf("invalid sort direction %q for field %q; use asc or desc", after, field)
 				}
 			}
 		default:
@@ -134,7 +142,7 @@ func parseSorting(c *gin.Context) []SortField {
 		}
 	}
 
-	return sortFields
+	return sortFields, nil
 }
 
 // parseFields parses the fields query parameter for sparse fieldsets.
@@ -162,76 +170,81 @@ func parseFields(c *gin.Context) []string {
 }
 
 // filterOperatorHandler defines a function that creates a FilterOperation from a value.
-type filterOperatorHandler func(value string) FilterOperation
+type filterOperatorHandler func(value string) (FilterOperation, error)
 
 // filterOperatorHandlers maps operator names to their handler functions.
 var filterOperatorHandlers = map[string]filterOperatorHandler{
-	"in": func(value string) FilterOperation {
+	"eq": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "=", Value: value}, nil
+	},
+	"in": func(value string) (FilterOperation, error) {
 		filterValues := strings.Split(value, ",")
 		for i, v := range filterValues {
 			filterValues[i] = strings.TrimSpace(v)
 		}
-		return FilterOperation{Operator: "IN", Values: filterValues}
+		return FilterOperation{Operator: "IN", Values: filterValues}, nil
 	},
-	"between": func(value string) FilterOperation {
+	"between": func(value string) (FilterOperation, error) {
 		betweenValues := strings.Split(value, ",")
-		if len(betweenValues) == 2 {
-			return FilterOperation{
-				Operator: "BETWEEN",
-				Values:   []string{strings.TrimSpace(betweenValues[0]), strings.TrimSpace(betweenValues[1])},
-			}
+		if len(betweenValues) != 2 {
+			return FilterOperation{}, errors.New("expected two comma-separated values")
 		}
-		return FilterOperation{} // Invalid between, return empty
+		lower := strings.TrimSpace(betweenValues[0])
+		upper := strings.TrimSpace(betweenValues[1])
+		if lower == "" || upper == "" {
+			return FilterOperation{}, errors.New("expected two non-empty values")
+		}
+		return FilterOperation{Operator: "BETWEEN", Values: []string{lower, upper}}, nil
 	},
-	"like": func(value string) FilterOperation {
-		return FilterOperation{Operator: "LIKE", Value: "%" + value + "%"}
+	"like": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "LIKE", Value: "%" + value + "%"}, nil
 	},
-	"gte": func(value string) FilterOperation {
-		return FilterOperation{Operator: ">=", Value: value}
+	"gte": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: ">=", Value: value}, nil
 	},
-	"gt": func(value string) FilterOperation {
-		return FilterOperation{Operator: ">", Value: value}
+	"gt": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: ">", Value: value}, nil
 	},
-	"lte": func(value string) FilterOperation {
-		return FilterOperation{Operator: "<=", Value: value}
+	"lte": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "<=", Value: value}, nil
 	},
-	"lt": func(value string) FilterOperation {
-		return FilterOperation{Operator: "<", Value: value}
+	"lt": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "<", Value: value}, nil
 	},
-	"ne": func(value string) FilterOperation {
-		return FilterOperation{Operator: "!=", Value: value}
+	"ne": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "!=", Value: value}, nil
 	},
-	"not": func(value string) FilterOperation {
-		return FilterOperation{Operator: "!=", Value: value}
+	"not": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "!=", Value: value}, nil
 	},
-	"null": func(value string) FilterOperation {
+	"null": func(value string) (FilterOperation, error) {
 		isNull, err := strconv.ParseBool(value)
 		if err != nil {
-			return FilterOperation{}
+			return FilterOperation{}, errors.New("expected boolean")
 		}
 		if isNull {
-			return FilterOperation{Operator: "IS NULL"}
+			return FilterOperation{Operator: "IS NULL"}, nil
 		}
-		return FilterOperation{Operator: "IS NOT NULL"}
+		return FilterOperation{Operator: "IS NOT NULL"}, nil
 	},
-	"band": func(value string) FilterOperation {
+	"band": func(value string) (FilterOperation, error) {
 		val, err := strconv.ParseUint(value, 10, 8)
 		if err != nil {
-			return FilterOperation{} // Invalid input, skip filter
+			return FilterOperation{}, errors.New("expected integer between 0 and 255")
 		}
-		return FilterOperation{Operator: "BAND", Value: uint8(val)}
+		return FilterOperation{Operator: "BAND", Value: uint8(val)}, nil
 	},
-	"": func(value string) FilterOperation {
-		return FilterOperation{Operator: "=", Value: value}
+	"": func(value string) (FilterOperation, error) {
+		return FilterOperation{Operator: "=", Value: value}, nil
 	},
 }
 
 // parseFilters parses the filter query parameters into filter operations.
-func parseFilters(c *gin.Context) map[string]FilterOperation {
+func parseFilters(c *gin.Context) (map[string]FilterOperation, error) {
 	filters := make(map[string]FilterOperation)
 
 	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return filters
+		return filters, nil
 	}
 
 	for key, values := range c.Request.URL.Query() {
@@ -241,21 +254,23 @@ func parseFilters(c *gin.Context) map[string]FilterOperation {
 
 		field, operator := parseFilterKey(key)
 		if field == "" {
-			continue
+			return nil, fmt.Errorf("invalid filter parameter %q; expected filter[field] or filter[field][operator]", key)
 		}
 
 		handler, exists := filterOperatorHandlers[operator]
 		if !exists {
-			handler = filterOperatorHandlers[""] // Default to equality
+			return nil, fmt.Errorf("invalid filter operator %q for field %q", operator, field)
 		}
 
-		filter := handler(values[0])
-		if filter.Operator != "" { // Only add if valid
-			filters[field] = filter
+		filter, err := handler(values[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid filter value for %s: %w", filterKeyLabel(field, operator), err)
 		}
+
+		filters[field] = filter
 	}
 
-	return filters
+	return filters, nil
 }
 
 // parseFilterKey extracts field name and operator from a filter key.
@@ -277,6 +292,13 @@ func parseFilterKey(key string) (field, operator string) {
 
 	// Simple field filter
 	return content, ""
+}
+
+func filterKeyLabel(field, operator string) string {
+	if operator == "" {
+		return fmt.Sprintf("filter[%s]", field)
+	}
+	return fmt.Sprintf("filter[%s][%s]", field, operator)
 }
 
 // FilterStructFields filters struct fields to return only requested fields.
@@ -364,9 +386,9 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 
 // QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
 // This is the single source of truth for filter operator mapping.
-func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
+func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) {
 	if params == nil {
-		return repository.NewListQuery()
+		return repository.NewListQuery(), nil
 	}
 
 	query := &repository.ListQuery{
@@ -388,48 +410,53 @@ func QueryParamsToListQuery(params *QueryParams) *repository.ListQuery {
 		})
 	}
 
-	// Convert filters - operator mapping is centralized here
 	for field, filter := range params.Filters {
+		operator, err := queryFilterOperator(filter.Operator)
+		if err != nil {
+			return nil, err
+		}
 		condition := repository.FilterCondition{
 			Field:    field,
-			Operator: queryFilterOperator(filter.Operator),
+			Operator: operator,
 			Value:    filter.Value,
 		}
-		if filter.Operator == "IN" {
+		if filter.Operator == "IN" || filter.Operator == "BETWEEN" {
 			condition.Value = filter.Values
 		}
 
 		query.Filters = append(query.Filters, condition)
 	}
 
-	return query
+	return query, nil
 }
 
-func queryFilterOperator(operator string) repository.FilterOperator {
+func queryFilterOperator(operator string) (repository.FilterOperator, error) {
 	switch operator {
 	case "=":
-		return repository.FilterEquals
+		return repository.FilterEquals, nil
 	case "!=":
-		return repository.FilterNotEquals
+		return repository.FilterNotEquals, nil
 	case ">":
-		return repository.FilterGreaterThan
+		return repository.FilterGreaterThan, nil
 	case ">=":
-		return repository.FilterGreaterOrEq
+		return repository.FilterGreaterOrEq, nil
 	case "<":
-		return repository.FilterLessThan
+		return repository.FilterLessThan, nil
 	case "<=":
-		return repository.FilterLessOrEq
+		return repository.FilterLessOrEq, nil
 	case "LIKE":
-		return repository.FilterLike
+		return repository.FilterLike, nil
 	case "IN":
-		return repository.FilterIn
+		return repository.FilterIn, nil
+	case "BETWEEN":
+		return repository.FilterBetween, nil
 	case "BAND":
-		return repository.FilterBitwiseAnd
+		return repository.FilterBitwiseAnd, nil
 	case "IS NULL":
-		return repository.FilterIsNull
+		return repository.FilterIsNull, nil
 	case "IS NOT NULL":
-		return repository.FilterIsNotNull
+		return repository.FilterIsNotNull, nil
 	default:
-		return repository.FilterEquals
+		return "", fmt.Errorf("unsupported filter operator %q", operator)
 	}
 }
