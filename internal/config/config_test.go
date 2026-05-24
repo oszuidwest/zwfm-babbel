@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateRequiresAudioToolPaths(t *testing.T) {
@@ -91,6 +92,125 @@ func TestValidateAcceptsBinariesFromPATH(t *testing.T) {
 	assertVersionCheckRan(t, ffprobePath)
 }
 
+func TestValidateDatabasePoolConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{
+			name: "max open connections too low",
+			mutate: func(cfg *Config) {
+				cfg.Database.MaxOpenConns = 0
+			},
+			wantErr: "BABBEL_DB_MAX_OPEN_CONNS must be >= 1",
+		},
+		{
+			name: "max idle connections negative",
+			mutate: func(cfg *Config) {
+				cfg.Database.MaxIdleConns = -1
+			},
+			wantErr: "BABBEL_DB_MAX_IDLE_CONNS must be >= 0",
+		},
+		{
+			name: "max idle connections exceeds max open connections",
+			mutate: func(cfg *Config) {
+				cfg.Database.MaxOpenConns = 5
+				cfg.Database.MaxIdleConns = 6
+			},
+			wantErr: "BABBEL_DB_MAX_IDLE_CONNS must be <= BABBEL_DB_MAX_OPEN_CONNS",
+		},
+		{
+			name: "connection lifetime too low",
+			mutate: func(cfg *Config) {
+				cfg.Database.ConnMaxLifetime = 0
+			},
+			wantErr: "BABBEL_DB_CONN_MAX_LIFETIME must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidateLocalAuthConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{
+			name: "minimum password length below fixed HTTP floor",
+			mutate: func(cfg *Config) {
+				cfg.Auth.Local.MinPasswordLength = 7
+			},
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+		},
+		{
+			name: "minimum password length above HTTP maximum",
+			mutate: func(cfg *Config) {
+				cfg.Auth.Local.MinPasswordLength = 129
+			},
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+		},
+		{
+			name: "max login attempts too low",
+			mutate: func(cfg *Config) {
+				cfg.Auth.Local.MaxLoginAttempts = 0
+			},
+			wantErr: "BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1",
+		},
+		{
+			name: "lockout duration too low",
+			mutate: func(cfg *Config) {
+				cfg.Auth.Local.LockoutDurationMinutes = 0
+			},
+			wantErr: "BABBEL_AUTH_LOCKOUT_MINUTES must be >= 1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
+	t.Parallel()
+
+	cfg := validTestConfig(t)
+	cfg.Auth.Method = AuthMethodOIDC
+	cfg.Auth.OIDCProviderURL = "https://example.com"
+	cfg.Auth.OIDCClientID = "client-id"
+	cfg.Auth.OIDCClientSecret = "client-secret"
+	cfg.Auth.Local.MaxLoginAttempts = 0
+	cfg.Auth.Local.LockoutDurationMinutes = 0
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 	t.Parallel()
 
@@ -150,11 +270,22 @@ func validTestConfig(t *testing.T) *Config {
 func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 	return &Config{
 		Database: DatabaseConfig{
-			Port: 3306,
+			Port:            3306,
+			MaxOpenConns:    25,
+			MaxIdleConns:    5,
+			ConnMaxLifetime: 5 * time.Minute,
 		},
 		Auth: AuthConfig{
 			Method:        AuthMethodLocal,
 			SessionSecret: strings.Repeat("x", 32),
+			Local: LocalAuthConfig{
+				MinPasswordLength:      8,
+				RequireUppercase:       true,
+				RequireLowercase:       true,
+				RequireNumber:          true,
+				MaxLoginAttempts:       5,
+				LockoutDurationMinutes: 15,
+			},
 		},
 		Audio: AudioConfig{
 			FFmpegPath:  ffmpegPath,

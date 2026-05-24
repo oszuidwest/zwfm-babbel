@@ -362,12 +362,13 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		PasswordHash string
 		Role         string
 		SuspendedAt  *time.Time
+		LockedUntil  *time.Time
 	}
 
 	ctx := c.Request.Context()
 	err := s.db.WithContext(ctx).
 		Table("users").
-		Select("id, username, password_hash, role, suspended_at").
+		Select("id, username, password_hash, role, suspended_at, locked_until").
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
@@ -382,10 +383,13 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("account is suspended")
 	}
 
-	// Verify password
+	now := time.Now()
+	if user.LockedUntil != nil && user.LockedUntil.After(now) {
+		return fmt.Errorf("account is locked")
+	}
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		// Increment failed login attempt counter (log but don't block - we're returning invalid credentials anyway)
-		if updateErr := s.updateLoginFailure(ctx, user.ID); updateErr != nil {
+		if updateErr := s.updateLoginFailure(ctx, user.ID, now); updateErr != nil {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
 		}
 		return fmt.Errorf("invalid credentials")
@@ -649,6 +653,7 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 			"last_login_at":         time.Now(),
 			"login_count":           gorm.Expr("login_count + 1"),
 			"failed_login_attempts": 0,
+			"locked_until":          nil,
 		}).Error
 	if err != nil {
 		logger.Error("Failed to update login stats", "error", err)
@@ -656,12 +661,47 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 	return err
 }
 
-// updateLoginFailure increments failed login attempts for a user.
-func (s *Service) updateLoginFailure(ctx context.Context, userID int64) error {
-	err := s.db.WithContext(ctx).
-		Table("users").
-		Where("id = ?", userID).
-		Update("failed_login_attempts", gorm.Expr("failed_login_attempts + 1")).Error
+// updateLoginFailure atomically increments failed login attempts and applies
+// the lockout if the threshold is reached. An expired lock resets the counter
+// to 1 for the current failure. MySQL evaluates single-table UPDATE
+// assignments left-to-right, so locked_until checks the already-incremented
+// failed_login_attempts value without a stale read in Go.
+//
+// The WHERE clause guard skips any update when the row is already actively
+// locked. This prevents stale pre-lock requests from extending an existing
+// lockout window when concurrent failed logins race past the Go-side check.
+func (s *Service) updateLoginFailure(ctx context.Context, userID int64, now time.Time) error {
+	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
+	maxAttempts := s.config.Local.MaxFailedAttempts
+
+	query := `
+UPDATE users
+SET
+	failed_login_attempts = CASE
+		WHEN locked_until IS NOT NULL AND locked_until <= ? THEN 1
+		ELSE failed_login_attempts + 1
+	END,
+	locked_until = NULL
+WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
+	args := []any{now, userID, now}
+
+	if maxAttempts > 0 && lockoutDuration > 0 {
+		query = `
+UPDATE users
+SET
+	failed_login_attempts = CASE
+		WHEN locked_until IS NOT NULL AND locked_until <= ? THEN 1
+		ELSE failed_login_attempts + 1
+	END,
+	locked_until = CASE
+		WHEN failed_login_attempts >= ? THEN ?
+		ELSE NULL
+	END
+WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
+		args = []any{now, maxAttempts, now.Add(lockoutDuration), userID, now}
+	}
+
+	err := s.db.WithContext(ctx).Exec(query, args...).Error
 	if err != nil {
 		logger.Error("Failed to update failed login attempts", "error", err)
 	}

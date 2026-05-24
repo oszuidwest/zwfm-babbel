@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -15,14 +18,62 @@ import (
 
 // UserService handles user-related business logic.
 type UserService struct {
-	repo *repository.UserRepository
+	repo           *repository.UserRepository
+	passwordPolicy PasswordPolicy
+}
+
+// PasswordPolicy defines the local password requirements for user accounts.
+type PasswordPolicy struct {
+	MinLength          int
+	RequireUppercase   bool
+	RequireLowercase   bool
+	RequireNumber      bool
+	RequireSpecialChar bool
 }
 
 // NewUserService creates a new user service instance.
-func NewUserService(repo *repository.UserRepository) *UserService {
+func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPolicy) *UserService {
 	return &UserService{
-		repo: repo,
+		repo:           repo,
+		passwordPolicy: passwordPolicy,
 	}
+}
+
+// Validate checks whether password satisfies the configured policy.
+func (p PasswordPolicy) Validate(password string) error {
+	if utf8.RuneCountInString(password) < p.MinLength {
+		return fmt.Errorf("must be at least %d characters", p.MinLength)
+	}
+
+	var hasUpper, hasLower, hasNumber, hasSpecial bool
+	for _, r := range password {
+		switch {
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsDigit(r):
+			hasNumber = true
+		case unicode.IsPunct(r) || unicode.IsSymbol(r):
+			hasSpecial = true
+		}
+	}
+
+	return p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial)
+}
+
+func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) error {
+	switch {
+	case p.RequireUppercase && !hasUpper:
+		return errors.New("must contain an uppercase letter")
+	case p.RequireLowercase && !hasLower:
+		return errors.New("must contain a lowercase letter")
+	case p.RequireNumber && !hasNumber:
+		return errors.New("must contain a number")
+	case p.RequireSpecialChar && !hasSpecial:
+		return errors.New("must contain a special character")
+	}
+	return nil
 }
 
 // CreateUserRequest represents the parameters for creating a new user.
@@ -51,6 +102,10 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 	// Validate role
 	if !isValidRole(req.Role) {
 		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
+	}
+
+	if err := s.passwordPolicy.Validate(req.Password); err != nil {
+		return nil, apperrors.Validation("User", "password", err.Error())
 	}
 
 	// Check username uniqueness
@@ -153,12 +208,20 @@ func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, passwo
 	if password == "" {
 		return nil
 	}
+	if err := s.passwordPolicy.Validate(password); err != nil {
+		return apperrors.Validation("User", "password", err.Error())
+	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return apperrors.Database("User", "hash", err)
 	}
 	hashedStr := string(hashedPassword)
+	now := time.Now()
+	zero := 0
 	updates.PasswordHash = &hashedStr
+	updates.PasswordChangedAt = &now
+	updates.FailedLoginAttempts = &zero
+	updates.ClearLockedUntil = true
 	return nil
 }
 

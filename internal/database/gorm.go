@@ -3,7 +3,6 @@ package database
 
 import (
 	"fmt"
-	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -42,11 +41,16 @@ func NewGormDB(cfg *config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	sqlDB.SetMaxIdleConns(10)
-	sqlDB.SetMaxOpenConns(100)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	sqlDB.SetMaxOpenConns(cfg.Database.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(cfg.Database.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(cfg.Database.ConnMaxLifetime)
 
-	pkglogger.Info("GORM database connection established")
+	pkglogger.Info(
+		"GORM database connection established",
+		"max_open_conns", cfg.Database.MaxOpenConns,
+		"max_idle_conns", cfg.Database.MaxIdleConns,
+		"conn_max_lifetime", cfg.Database.ConnMaxLifetime.String(),
+	)
 
 	return db, nil
 }
