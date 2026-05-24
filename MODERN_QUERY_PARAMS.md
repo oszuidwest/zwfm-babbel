@@ -45,7 +45,7 @@ GET /api/v1/stories?filter[voice_id][in]=1,2,3
 #### Pattern Matching
 ```http
 # LIKE searches (case-sensitive pattern matching)
-GET /api/v1/stories?filter[title][like]=%news%
+GET /api/v1/stories?filter[title][like]=news
 ```
 
 #### Bitwise Filtering (Bitmask Fields)
