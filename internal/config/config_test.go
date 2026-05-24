@@ -195,6 +195,22 @@ func TestValidateLocalAuthConfig(t *testing.T) {
 	}
 }
 
+func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
+	t.Parallel()
+
+	cfg := validTestConfig(t)
+	cfg.Auth.Method = AuthMethodOIDC
+	cfg.Auth.OIDCProviderURL = "https://example.com"
+	cfg.Auth.OIDCClientID = "client-id"
+	cfg.Auth.OIDCClientSecret = "client-secret"
+	cfg.Auth.Local.MaxLoginAttempts = 0
+	cfg.Auth.Local.LockoutDurationMinutes = 0
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 	t.Parallel()
 

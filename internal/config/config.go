@@ -221,8 +221,10 @@ func (c *Config) validateAuth() error {
 		}
 	}
 
-	if err := c.validateLocalAuth(); err != nil {
-		return err
+	if c.Auth.Method.SupportsLocal() {
+		if err := c.validateLocalAuth(); err != nil {
+			return err
+		}
 	}
 
 	return nil
