@@ -8,6 +8,7 @@
     "test:watch": "jest --config tests/jest.config.js --watch",
     "test:auth": "jest --config tests/jest.config.js --testPathPatterns=auth/auth",
     "test:permissions": "jest --config tests/jest.config.js --testPathPatterns=auth/permissions",
+    "test:lockout": "jest --config tests/jest.config.js --testPathPatterns=auth/lockout",
     "test:stations": "jest --config tests/jest.config.js --testPathPatterns=stations/stations",
     "test:voices": "jest --config tests/jest.config.js --testPathPatterns=voices/voices",
     "test:station-voices": "jest --config tests/jest.config.js --testPathPatterns=station-voices/station-voices",

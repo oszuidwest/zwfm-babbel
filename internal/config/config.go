@@ -65,12 +65,12 @@ type DatabaseConfig struct {
 	Database string `env:"NAME" envDefault:"babbel"`
 	// MigrationsPath specifies the filesystem path to migration files.
 	MigrationsPath string `env:"-"`
-	// MaxOpenConns limits open database connections (default: 25).
-	MaxOpenConns int `env:"MAX_OPEN_CONNS" envDefault:"25"`
-	// MaxIdleConns limits idle database connections (default: 5).
-	MaxIdleConns int `env:"MAX_IDLE_CONNS" envDefault:"5"`
-	// ConnMaxLifetime limits database connection lifetime (default: 5m).
-	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"5m"`
+	// MaxOpenConns limits open database connections (default: 100).
+	MaxOpenConns int `env:"MAX_OPEN_CONNS" envDefault:"100"`
+	// MaxIdleConns limits idle database connections (default: 10).
+	MaxIdleConns int `env:"MAX_IDLE_CONNS" envDefault:"10"`
+	// ConnMaxLifetime limits database connection lifetime (default: 1h).
+	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
 // LocalAuthConfig defines password policy and lockout rules for local authentication.

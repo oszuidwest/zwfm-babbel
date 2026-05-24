@@ -31,13 +31,6 @@ type PasswordPolicy struct {
 	RequireSpecialChar bool
 }
 
-type passwordClasses struct {
-	hasUppercase bool
-	hasLowercase bool
-	hasNumber    bool
-	hasSpecial   bool
-}
-
 // NewUserService creates a new user service instance.
 func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPolicy) *UserService {
 	return &UserService{
@@ -52,40 +45,35 @@ func (p PasswordPolicy) Validate(password string) error {
 		return fmt.Errorf("must be at least %d characters", p.MinLength)
 	}
 
-	classes := classifyPassword(password)
-	return p.validateClasses(classes)
-}
-
-func classifyPassword(password string) passwordClasses {
-	var classes passwordClasses
+	var hasUpper, hasLower, hasNumber, hasSpecial bool
 	for _, r := range password {
 		switch {
 		case unicode.IsUpper(r):
-			classes.hasUppercase = true
+			hasUpper = true
 		case unicode.IsLower(r):
-			classes.hasLowercase = true
+			hasLower = true
 		case unicode.IsDigit(r):
-			classes.hasNumber = true
+			hasNumber = true
 		case unicode.IsPunct(r) || unicode.IsSymbol(r):
-			classes.hasSpecial = true
+			hasSpecial = true
 		}
 	}
-	return classes
+
+	return p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial)
 }
 
-func (p PasswordPolicy) validateClasses(classes passwordClasses) error {
+func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) error {
 	switch {
-	case p.RequireUppercase && !classes.hasUppercase:
+	case p.RequireUppercase && !hasUpper:
 		return errors.New("must contain an uppercase letter")
-	case p.RequireLowercase && !classes.hasLowercase:
+	case p.RequireLowercase && !hasLower:
 		return errors.New("must contain a lowercase letter")
-	case p.RequireNumber && !classes.hasNumber:
+	case p.RequireNumber && !hasNumber:
 		return errors.New("must contain a number")
-	case p.RequireSpecialChar && !classes.hasSpecial:
+	case p.RequireSpecialChar && !hasSpecial:
 		return errors.New("must contain a special character")
-	default:
-		return nil
 	}
+	return nil
 }
 
 // CreateUserRequest represents the parameters for creating a new user.

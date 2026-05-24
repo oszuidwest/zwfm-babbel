@@ -7,6 +7,7 @@ class CustomSequencer extends Sequencer {
   static ORDER = [
     'auth/auth.test.js',
     'auth/permissions.test.js',
+    'auth/lockout.test.js',
     'stations/stations.test.js',
     'voices/voices.test.js',
     'station-voices/station-voices.test.js',

@@ -173,6 +173,16 @@ GET /api/v1/stations/{station_id}/bulletins?latest=true
 
 ## Configuration
 
+### Database connection pool
+
+Babbel configures the Go SQL connection pool from environment variables. The defaults match the previously hard-coded runtime values and only need to be set when tuning is required.
+
+| Env var | Default | Description |
+|---|---:|---|
+| `BABBEL_DB_MAX_OPEN_CONNS` | `100` | Maximum number of open database connections. |
+| `BABBEL_DB_MAX_IDLE_CONNS` | `10` | Maximum number of idle database connections kept in the pool. |
+| `BABBEL_DB_CONN_MAX_LIFETIME` | `1h` | Maximum lifetime for a reused database connection. |
+
 ### Audio tools
 
 Babbel uses FFmpeg for audio mixing, loudness normalization, and audio analysis. The executable paths can be configured for custom runtimes, alternative FFmpeg builds, or local development environments where the binaries are not available under the default names.

@@ -357,19 +357,18 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	}
 
 	var user struct {
-		ID                  int64
-		Username            string
-		PasswordHash        string
-		Role                string
-		SuspendedAt         *time.Time
-		FailedLoginAttempts int
-		LockedUntil         *time.Time
+		ID           int64
+		Username     string
+		PasswordHash string
+		Role         string
+		SuspendedAt  *time.Time
+		LockedUntil  *time.Time
 	}
 
 	ctx := c.Request.Context()
 	err := s.db.WithContext(ctx).
 		Table("users").
-		Select("id, username, password_hash, role, suspended_at, failed_login_attempts, locked_until").
+		Select("id, username, password_hash, role, suspended_at, locked_until").
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
@@ -389,14 +388,8 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("account is locked")
 	}
 
-	failedAttempts := user.FailedLoginAttempts
-	if user.LockedUntil != nil {
-		failedAttempts = 0
-	}
-
-	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		if updateErr := s.updateLoginFailure(ctx, user.ID, failedAttempts); updateErr != nil {
+		if updateErr := s.updateLoginFailure(ctx, user.ID, now); updateErr != nil {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
 		}
 		return fmt.Errorf("invalid credentials")
@@ -668,35 +661,51 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 	return err
 }
 
-// updateLoginFailure increments failed login attempts for a user.
-func (s *Service) updateLoginFailure(ctx context.Context, userID int64, currentFailedAttempts int) error {
-	updates := s.loginFailureUpdates(currentFailedAttempts, time.Now())
-	err := s.db.WithContext(ctx).
-		Table("users").
-		Where("id = ?", userID).
-		Updates(updates).Error
+// updateLoginFailure atomically increments failed login attempts and applies
+// the lockout if the threshold is reached. An expired lock resets the counter
+// to 1 for the current failure. MySQL evaluates single-table UPDATE
+// assignments left-to-right, so locked_until checks the already-incremented
+// failed_login_attempts value without a stale read in Go.
+//
+// The WHERE clause guard skips any update when the row is already actively
+// locked. This prevents stale pre-lock requests from extending an existing
+// lockout window when concurrent failed logins race past the Go-side check.
+func (s *Service) updateLoginFailure(ctx context.Context, userID int64, now time.Time) error {
+	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
+	maxAttempts := s.config.Local.MaxFailedAttempts
+
+	query := `
+UPDATE users
+SET
+	failed_login_attempts = CASE
+		WHEN locked_until IS NOT NULL AND locked_until <= ? THEN 1
+		ELSE failed_login_attempts + 1
+	END,
+	locked_until = NULL
+WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
+	args := []any{now, userID, now}
+
+	if maxAttempts > 0 && lockoutDuration > 0 {
+		query = `
+UPDATE users
+SET
+	failed_login_attempts = CASE
+		WHEN locked_until IS NOT NULL AND locked_until <= ? THEN 1
+		ELSE failed_login_attempts + 1
+	END,
+	locked_until = CASE
+		WHEN failed_login_attempts >= ? THEN ?
+		ELSE NULL
+	END
+WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
+		args = []any{now, maxAttempts, now.Add(lockoutDuration), userID, now}
+	}
+
+	err := s.db.WithContext(ctx).Exec(query, args...).Error
 	if err != nil {
 		logger.Error("Failed to update failed login attempts", "error", err)
 	}
 	return err
-}
-
-func (s *Service) loginFailureUpdates(currentFailedAttempts int, now time.Time) map[string]any {
-	nextAttempts := currentFailedAttempts + 1
-	updates := map[string]any{
-		"failed_login_attempts": nextAttempts,
-		"locked_until":          nil,
-	}
-
-	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
-	shouldLock := s.config.Local.MaxFailedAttempts > 0 &&
-		lockoutDuration > 0 &&
-		nextAttempts >= s.config.Local.MaxFailedAttempts
-	if shouldLock {
-		updates["locked_until"] = now.Add(lockoutDuration)
-	}
-
-	return updates
 }
 
 // generateState generates a cryptographically secure random state for OAuth2 CSRF protection.
