@@ -177,6 +177,12 @@ func escapeLikePattern(s string) string {
 	return likePatternEscaper.Replace(s)
 }
 
+// likeEscapeClause makes the backslash escape character explicit so LIKE
+// matching does not depend on the server's default ESCAPE setting. The doubled
+// backslash is a MySQL string literal that resolves to a single backslash,
+// matching the escape character inserted by escapeLikePattern.
+const likeEscapeClause = ` ESCAPE '\\'`
+
 // applySearch attaches a search WHERE clause across all search fields.
 func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 	if search == "" || len(searchFields) == 0 {
@@ -186,7 +192,7 @@ func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 	conditions := make([]string, len(searchFields))
 	args := make([]any, len(searchFields))
 	for i, field := range searchFields {
-		conditions[i] = field + " LIKE ?"
+		conditions[i] = field + " LIKE ?" + likeEscapeClause
 		args[i] = searchPattern
 	}
 	return db.Where(strings.Join(conditions, " OR "), args...)
@@ -265,7 +271,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 				Reason:   "expected string value",
 			}
 		}
-		return db.Where(dbField+" LIKE ?", "%"+escapeLikePattern(s)+"%"), nil
+		return db.Where(dbField+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(s)+"%"), nil
 	}
 
 	if filter.Operator == FilterBetween {
