@@ -273,10 +273,7 @@ func (c *Config) validateDatabasePool() error {
 
 func (c *Config) validateLocalAuth() error {
 	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > 128 {
-		return fmt.Errorf(
-			"BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128 (got %d)",
-			c.Auth.Local.MinPasswordLength,
-		)
+		return errors.New("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128")
 	}
 	if c.Auth.Local.MaxLoginAttempts < 1 {
 		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
