@@ -241,6 +241,12 @@ func (s *BulletinService) GetStoriesForDate(
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 
+	// The eligibility query only checks the DB audio_file column; the physical file can still be
+	// absent (manual deletion, failed processing, storage issue). Including such a story would make
+	// FFmpeg fail the entire bulletin with a 500, so drop it here. If none remain, Create returns
+	// NoStories (422) instead of leaking an internal error.
+	stories = s.filterStoriesWithMissingAudio(stories, stationID)
+
 	// Warn when breaking stories consume all available slots
 	if len(stories) > 0 && len(stories) == limit {
 		breakingCount := 0
@@ -265,6 +271,25 @@ func (s *BulletinService) GetStoriesForDate(
 	}
 
 	return stories, nil
+}
+
+// filterStoriesWithMissingAudio drops stories whose processed audio file is absent on disk.
+// Generation reads each story file directly via FFmpeg, so a missing file would abort the whole
+// bulletin; skipping the story keeps generation resilient to storage inconsistencies.
+func (s *BulletinService) filterStoriesWithMissingAudio(
+	stories []repository.BulletinStoryData, stationID int64,
+) []repository.BulletinStoryData {
+	kept := make([]repository.BulletinStoryData, 0, len(stories))
+	for _, story := range stories {
+		path := utils.StoryPath(s.config, story.ID)
+		if _, err := os.Stat(path); err != nil {
+			logger.Warn("Skipping story with missing audio file during bulletin generation",
+				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)
+			continue
+		}
+		kept = append(kept, story)
+	}
+	return kept
 }
 
 // ParseTargetDate parses a date string in YYYY-MM-DD format or returns the current date if empty.

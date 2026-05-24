@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -329,28 +330,39 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 
 // ProcessAudio converts an uploaded audio file and associates it with a story.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
+	// Convert into a temporary output beside the final file (same directory keeps the rename
+	// atomic). The existing audio stays untouched until the database update confirms the story
+	// still exists, so a concurrent delete can never leave audio_file pointing at a removed file.
+	// Keep the .wav suffix so FFmpeg still selects the WAV muxer from the output extension.
+	finalPath := utils.StoryPath(s.config, storyID)
+	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+	defer func() {
+		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
+		}
+	}()
+
 	// Process story audio with audio service (convert to mono WAV and normalize to -1 dBTP)
-	outputPath := utils.StoryPath(s.config, storyID)
-	filename, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, outputPath)
+	_, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	// Update database with filename and duration
+	// Update database with filename and duration before publishing the new file.
 	filenameOnly := utils.StoryFilename(storyID)
-	err = s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration)
-	if err != nil {
-		// Clean up file on database error
-		if rmErr := os.Remove(outputPath); rmErr != nil {
-			logger.Error("Failed to remove audio file after database error", "error", rmErr)
-		}
+	if err := s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return apperrors.NotFoundWithID("Story", storyID)
 		}
 		return apperrors.Database("Story", "update", err)
 	}
 
-	logger.Info("Processed audio for story", "story_id", storyID, "filename", filename, "duration_s", duration)
+	// Move the freshly converted file into place only after the database update succeeded.
+	if err := os.Rename(convertedPath, finalPath); err != nil {
+		return apperrors.Audio("Story", "finalize", err)
+	}
+
+	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil
 }
 
