@@ -108,7 +108,7 @@ type AuthConfig struct {
 	// OIDCClientSecret specifies the OAuth/OIDC client secret.
 	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
 	// OIDCRedirectURL specifies the OAuth callback URL for this application.
-	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
+	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/oauth/callback"`
 	// Local configures password policy and lockout rules.
 	Local LocalAuthConfig `envPrefix:"AUTH_"`
 }
