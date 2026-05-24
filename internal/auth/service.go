@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -154,7 +155,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"editor", "stories", "write"},
 		{"editor", "bulletins", "generate"},
 		{"editor", "bulletins", "read"},
-		{"editor", "broadcasts", "read"},
 		{"editor", "users", "read"}, // Can view users
 
 		// Viewers can only read
@@ -162,7 +162,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "voices", "read"},
 		{"viewer", "stories", "read"},
 		{"viewer", "bulletins", "read"},
-		{"viewer", "broadcasts", "read"},
 
 		// User management: read for editors and admins, write for admins only
 		{"admin", "users", "read"},
@@ -723,14 +722,24 @@ func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 		return false
 	}
 
-	// Parse the provided URL to extract the origin
+	frontendURL, err := url.Parse(urlStr)
+	if err != nil || !frontendURL.IsAbs() || frontendURL.Host == "" {
+		return false
+	}
+
 	for origin := range strings.SplitSeq(s.config.AllowedOrigins, ",") {
 		origin = strings.TrimSpace(origin)
 		if origin == "" {
 			continue
 		}
-		// Check if the URL starts with the allowed origin
-		if strings.HasPrefix(urlStr, origin) {
+
+		allowedURL, err := url.Parse(strings.TrimRight(origin, "/"))
+		if err != nil || !allowedURL.IsAbs() || allowedURL.Host == "" {
+			continue
+		}
+
+		if strings.EqualFold(frontendURL.Scheme, allowedURL.Scheme) &&
+			strings.EqualFold(frontendURL.Host, allowedURL.Host) {
 			return true
 		}
 	}
