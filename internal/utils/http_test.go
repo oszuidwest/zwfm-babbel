@@ -201,14 +201,14 @@ func TestBindAndValidate(t *testing.T) {
 			want: expect{status: 422},
 		},
 		{
-			name:   "missing required title",
-			body:   `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want:   expect{status: 422, errField: "Title", errMessage: "required"},
+			name: "missing required title",
+			body: `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: expect{status: 422, errField: "Title", errMessage: "required"},
 		},
 		{
-			name:   "whitespace-only title rejected by notblank",
-			body:   `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want:   expect{status: 422, errField: "Title", errMessage: "empty or whitespace"},
+			name: "whitespace-only title rejected by notblank",
+			body: `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: expect{status: 422, errField: "Title", errMessage: "empty or whitespace"},
 		},
 		{
 			name: "entities decoded before validation",
@@ -221,14 +221,14 @@ func TestBindAndValidate(t *testing.T) {
 			},
 		},
 		{
-			name:   "invalid story status",
-			body:   `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want:   expect{status: 422, errField: "Status", errMessage: "must be one of"},
+			name: "invalid story status",
+			body: `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: expect{status: 422, errField: "Status", errMessage: "must be one of"},
 		},
 		{
-			name:   "invalid date format",
-			body:   `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`,
-			want:   expect{status: 422, errField: "StartDate", errMessage: "YYYY-MM-DD"},
+			name: "invalid date format",
+			body: `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`,
+			want: expect{status: 422, errField: "StartDate", errMessage: "YYYY-MM-DD"},
 		},
 		{
 			name: "max length applies to decoded value (passes)",
@@ -241,9 +241,9 @@ func TestBindAndValidate(t *testing.T) {
 			},
 		},
 		{
-			name:   "max length applies to decoded value (rejects)",
-			body:   `{"title":"` + titleAt501 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want:   expect{status: 422, errField: "Title", errMessage: "cannot exceed 500"},
+			name: "max length applies to decoded value (rejects)",
+			body: `{"title":"` + titleAt501 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: expect{status: 422, errField: "Title", errMessage: "cannot exceed 500"},
 		},
 	}
 
