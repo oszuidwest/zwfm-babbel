@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 // NormalizeText tests for StoryCreateRequest.
 
 func TestStoryCreateRequest_NormalizeText(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		title     string
@@ -68,6 +69,7 @@ func TestStoryCreateRequest_NormalizeText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := &StoryCreateRequest{Title: tt.title, Text: tt.text}
 			req.NormalizeText()
 			if req.Title != tt.wantTitle {
@@ -83,7 +85,10 @@ func TestStoryCreateRequest_NormalizeText(t *testing.T) {
 // NormalizeText tests for StoryUpdateRequest.
 
 func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
+	t.Parallel()
+
 	t.Run("decodes non-nil fields", func(t *testing.T) {
+		t.Parallel()
 		title := "Tom &amp; Jerry"
 		text := "Use &lt;b&gt; tags"
 		req := &StoryUpdateRequest{Title: &title, Text: &text}
@@ -98,6 +103,7 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 	})
 
 	t.Run("handles nil fields without panic", func(t *testing.T) {
+		t.Parallel()
 		req := &StoryUpdateRequest{Title: nil, Text: nil}
 		req.NormalizeText()
 
@@ -110,6 +116,7 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 	})
 
 	t.Run("handles mixed nil and non-nil", func(t *testing.T) {
+		t.Parallel()
 		text := "&amp; more"
 		req := &StoryUpdateRequest{Title: nil, Text: &text}
 		req.NormalizeText()
@@ -155,35 +162,34 @@ func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.Response
 	return c, w
 }
 
-// TestBindAndValidate covers JSON binding, normalization, validation, and the
-// max-length boundary that must be enforced after HTML-entity normalization
-// (decoded length, not encoded). Subtests group by request type so the same
-// table exercises both StoryCreateRequest (value fields) and StoryUpdateRequest
-// (pointer fields), since the max-length boundary applies to both paths.
+// bindExpect is a named type (not a struct alias) so checkBindResult callers
+// share one concrete type definition.
+type bindExpect struct {
+	ok         bool
+	status     int
+	errField   string
+	errMessage string
+}
+
 func TestBindAndValidate(t *testing.T) {
+	t.Parallel()
+
 	// Boundary inputs: max=500 applies to the *decoded* value.
 	// "A"*496 + "&amp;" = 501 encoded -> 497 decoded (allowed).
 	// "A"*500 + "&amp;" = 505 encoded -> 501 decoded (rejected).
 	titleAt497 := strings.Repeat("A", 496) + "&amp;"
 	titleAt501 := strings.Repeat("A", 500) + "&amp;"
 
-	type expect struct {
-		ok         bool
-		status     int
-		errField   string
-		errMessage string
-	}
-
 	storyCases := []struct {
 		name   string
 		body   string
-		want   expect
+		want   bindExpect
 		verify func(t *testing.T, req *StoryCreateRequest)
 	}{
 		{
 			name: "valid request decodes nothing",
 			body: `{"title":"Test Story","text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{ok: true},
+			want: bindExpect{ok: true},
 			verify: func(t *testing.T, req *StoryCreateRequest) {
 				if req.Title != "Test Story" || req.Text != "Some content" {
 					t.Errorf("got Title=%q Text=%q", req.Title, req.Text)
@@ -193,27 +199,27 @@ func TestBindAndValidate(t *testing.T) {
 		{
 			name: "malformed JSON",
 			body: `{invalid json}`,
-			want: expect{status: 422},
+			want: bindExpect{status: 422},
 		},
 		{
 			name: "empty body",
 			body: "",
-			want: expect{status: 422},
+			want: bindExpect{status: 422},
 		},
 		{
 			name: "missing required title",
 			body: `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{status: 422, errField: "Title", errMessage: "required"},
+			want: bindExpect{status: 422, errField: "Title", errMessage: "required"},
 		},
 		{
 			name: "whitespace-only title rejected by notblank",
 			body: `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{status: 422, errField: "Title", errMessage: "empty or whitespace"},
+			want: bindExpect{status: 422, errField: "Title", errMessage: "empty or whitespace"},
 		},
 		{
 			name: "entities decoded before validation",
 			body: `{"title":"Tom &amp; Jerry","text":"Content &lt;here&gt;","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{ok: true},
+			want: bindExpect{ok: true},
 			verify: func(t *testing.T, req *StoryCreateRequest) {
 				if req.Title != "Tom & Jerry" || req.Text != "Content <here>" {
 					t.Errorf("entities not decoded: Title=%q Text=%q", req.Title, req.Text)
@@ -223,17 +229,17 @@ func TestBindAndValidate(t *testing.T) {
 		{
 			name: "invalid story status",
 			body: `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{status: 422, errField: "Status", errMessage: "must be one of"},
+			want: bindExpect{status: 422, errField: "Status", errMessage: "must be one of"},
 		},
 		{
 			name: "invalid date format",
 			body: `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`,
-			want: expect{status: 422, errField: "StartDate", errMessage: "YYYY-MM-DD"},
+			want: bindExpect{status: 422, errField: "StartDate", errMessage: "YYYY-MM-DD"},
 		},
 		{
 			name: "max length applies to decoded value (passes)",
 			body: `{"title":"` + titleAt497 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{ok: true},
+			want: bindExpect{ok: true},
 			verify: func(t *testing.T, req *StoryCreateRequest) {
 				if len(req.Title) != 497 {
 					t.Errorf("decoded Title length = %d, want 497", len(req.Title))
@@ -243,12 +249,13 @@ func TestBindAndValidate(t *testing.T) {
 		{
 			name: "max length applies to decoded value (rejects)",
 			body: `{"title":"` + titleAt501 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
-			want: expect{status: 422, errField: "Title", errMessage: "cannot exceed 500"},
+			want: bindExpect{status: 422, errField: "Title", errMessage: "cannot exceed 500"},
 		},
 	}
 
 	for _, tt := range storyCases {
 		t.Run("StoryCreateRequest/"+tt.name, func(t *testing.T) {
+			t.Parallel()
 			c, w := newTestContext(t, tt.body)
 			var req StoryCreateRequest
 			ok := BindAndValidate(c, &req)
@@ -264,13 +271,14 @@ func TestBindAndValidate(t *testing.T) {
 	updateCases := []struct {
 		name string
 		body string
-		want expect
+		want bindExpect
 	}{
-		{name: "max length passes on update", body: `{"title":"` + titleAt497 + `"}`, want: expect{ok: true}},
-		{name: "max length rejects on update", body: `{"title":"` + titleAt501 + `"}`, want: expect{status: 422, errField: "Title", errMessage: "cannot exceed 500"}},
+		{name: "max length passes on update", body: `{"title":"` + titleAt497 + `"}`, want: bindExpect{ok: true}},
+		{name: "max length rejects on update", body: `{"title":"` + titleAt501 + `"}`, want: bindExpect{status: 422, errField: "Title", errMessage: "cannot exceed 500"}},
 	}
 	for _, tt := range updateCases {
 		t.Run("StoryUpdateRequest/"+tt.name, func(t *testing.T) {
+			t.Parallel()
 			c, w := newTestContext(t, tt.body)
 			var req StoryUpdateRequest
 			ok := BindAndValidate(c, &req)
@@ -280,30 +288,30 @@ func TestBindAndValidate(t *testing.T) {
 			}
 		})
 	}
+}
 
-	// StationRequest exercises the non-normalizer path and type-mismatch handling.
-	t.Run("StationRequest/valid non-normalizer type", func(t *testing.T) {
+// TestBindAndValidate_StationRequest covers the non-normalizer branch:
+// StationRequest has no NormalizeText hook, so binding skips entity decoding.
+func TestBindAndValidate_StationRequest(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid non-normalizer type", func(t *testing.T) {
+		t.Parallel()
 		c, w := newTestContext(t, `{"name":"Test Station","max_stories_per_block":5,"pause_seconds":1.5}`)
 		var req StationRequest
 		ok := BindAndValidate(c, &req)
-		checkBindResult(t, w, ok, expect{ok: true})
+		checkBindResult(t, w, ok, bindExpect{ok: true})
 		if req.Name != "Test Station" || req.MaxStoriesPerBlock != 5 {
 			t.Errorf("got Name=%q MaxStoriesPerBlock=%d", req.Name, req.MaxStoriesPerBlock)
 		}
 	})
-	t.Run("StationRequest/type mismatch", func(t *testing.T) {
+	t.Run("type mismatch", func(t *testing.T) {
+		t.Parallel()
 		c, w := newTestContext(t, `{"name":"Test","max_stories_per_block":"five","pause_seconds":1.5}`)
 		var req StationRequest
 		ok := BindAndValidate(c, &req)
-		checkBindResult(t, w, ok, expect{status: 422})
+		checkBindResult(t, w, ok, bindExpect{status: 422})
 	})
-}
-
-type bindExpect = struct {
-	ok         bool
-	status     int
-	errField   string
-	errMessage string
 }
 
 func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want bindExpect) {
@@ -326,6 +334,7 @@ func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want b
 }
 
 func TestBindOptionalJSON(t *testing.T) {
+	t.Parallel()
 	type optionalRequest struct {
 		Date string `json:"date"`
 	}
@@ -369,6 +378,7 @@ func TestBindOptionalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			c, w := newTestContext(t, tt.body)
 
 			var req optionalRequest
@@ -388,6 +398,7 @@ func TestBindOptionalJSON(t *testing.T) {
 }
 
 func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
+	t.Parallel()
 	c, w := newTestContext(t, "")
 	c.Request.Body = nil
 
@@ -405,6 +416,7 @@ func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
 }
 
 func TestBindOptionalJSON_ReadFailure(t *testing.T) {
+	t.Parallel()
 	c, w := newTestContext(t, "")
 	c.Request.Body = failingReadCloser{}
 
@@ -434,6 +446,7 @@ func (failingReadCloser) Close() error {
 // Double-encoded entity pipeline documenting the full write-read decode behavior.
 
 func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
+	t.Parallel()
 	// Documents the edge case where double-encoded entities are decoded twice
 	// across the write and read paths:
 	//   Input → NormalizeText (decode #1) → stored in DB → AfterFind (decode #2) → output

@@ -14,38 +14,45 @@ import (
 // SQL generation is verified by the Jest integration suite under tests/ against a
 // real MySQL.
 
+// Typed constants make a typo a compile error rather than a silent test pass.
+type errKind string
+
+const (
+	errKindUnknown errKind = "unknown" // -> *UnknownFieldError
+	errKindInvalid errKind = "invalid" // -> *InvalidFilterError
+)
+
 // TestApplyFilterCondition_ErrorPaths covers the early-return branches of
 // applyFilterCondition. A nil *gorm.DB is safe because every case returns
-// before touching it. Successful LIKE wrapping is asserted separately via
-// TestApplyFilterCondition_LikeWrapsValueOnce against a DryRun statement.
+// before touching it. wantField "" skips both the field and operator checks
+// (they are linked - cases that pin the operator must also pin the field).
 func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
+	t.Parallel()
 	mapping := FieldMapping{"name": "name", "id": "id"}
 
-	// errKind: "unknown" -> *UnknownFieldError, "invalid" -> *InvalidFilterError.
-	// wantField/wantOp pin error attributes that callers branch on; the empty
-	// string skips that field (used for cases where only the error type matters).
 	tests := []struct {
 		name      string
 		cond      FilterCondition
-		errKind   string
+		errKind   errKind
 		wantField string
 		wantOp    FilterOperator
 	}{
-		{name: "unknown field", cond: FilterCondition{Field: "bogus", Operator: FilterEquals, Value: "x"}, errKind: "unknown", wantField: "bogus"},
-		{name: "bitwise on non-band field", cond: FilterCondition{Field: "name", Operator: FilterBitwiseAnd, Value: uint8(1)}, errKind: "invalid", wantField: "name", wantOp: FilterBitwiseAnd},
-		{name: "like requires string", cond: FilterCondition{Field: "name", Operator: FilterLike, Value: 42}, errKind: "invalid", wantField: "name", wantOp: FilterLike},
-		{name: "between nil value", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: nil}, errKind: "invalid"},
-		{name: "between wrong type", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: "1,2"}, errKind: "invalid"},
-		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1"}}, errKind: "invalid"},
-		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: "invalid"},
-		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: "invalid"},
+		{name: "unknown field", cond: FilterCondition{Field: "bogus", Operator: FilterEquals, Value: "x"}, errKind: errKindUnknown, wantField: "bogus"},
+		{name: "bitwise on non-band field", cond: FilterCondition{Field: "name", Operator: FilterBitwiseAnd, Value: uint8(1)}, errKind: errKindInvalid, wantField: "name", wantOp: FilterBitwiseAnd},
+		{name: "like requires string", cond: FilterCondition{Field: "name", Operator: FilterLike, Value: 42}, errKind: errKindInvalid, wantField: "name", wantOp: FilterLike},
+		{name: "between nil value", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: nil}, errKind: errKindInvalid},
+		{name: "between wrong type", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: "1,2"}, errKind: errKindInvalid},
+		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1"}}, errKind: errKindInvalid},
+		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: errKindInvalid},
+		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: errKindInvalid},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := applyFilterCondition(nil, tt.cond, mapping)
 			switch tt.errKind {
-			case "unknown":
+			case errKindUnknown:
 				var e *UnknownFieldError
 				if !errors.As(err, &e) {
 					t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
@@ -53,7 +60,7 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 				if e.Kind != "filter" || (tt.wantField != "" && e.Field != tt.wantField) {
 					t.Fatalf("got %+v, want filter/%s", e, tt.wantField)
 				}
-			case "invalid":
+			case errKindInvalid:
 				var e *InvalidFilterError
 				if !errors.As(err, &e) {
 					t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
@@ -61,6 +68,8 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 				if tt.wantField != "" && (e.Field != tt.wantField || e.Operator != tt.wantOp) {
 					t.Fatalf("got %+v, want %s/%s", e, tt.wantField, tt.wantOp)
 				}
+			default:
+				t.Fatalf("unknown errKind %q - add a case or fix the typo", tt.errKind)
 			}
 		})
 	}
@@ -72,6 +81,7 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 // the wrap ("news") or double-wraps ("%%news%%") changes the bind variable and
 // fails here. DryRun builds the statement without opening a database connection.
 func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
+	t.Parallel()
 	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
 		Field:    "title",
 		Operator: FilterLike,
@@ -104,6 +114,7 @@ func dryRunDB(t *testing.T) *gorm.DB {
 }
 
 func TestEscapeLikePattern(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		in   string
@@ -120,6 +131,7 @@ func TestEscapeLikePattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := escapeLikePattern(tt.in); got != tt.want {
 				t.Fatalf("escapeLikePattern(%q) = %q, want %q", tt.in, got, tt.want)
 			}
@@ -128,6 +140,7 @@ func TestEscapeLikePattern(t *testing.T) {
 }
 
 func TestSortDirectionSQL(t *testing.T) {
+	t.Parallel()
 	if got := sortDirectionSQL(SortAsc); got != "ASC" {
 		t.Fatalf("SortAsc -> %q, want ASC", got)
 	}

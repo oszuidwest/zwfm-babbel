@@ -3,6 +3,8 @@ package auth
 import "testing"
 
 func TestIsAllowedFrontendURL(t *testing.T) {
+	t.Parallel()
+
 	const defaultOrigins = "https://app.example.com, http://localhost:3000"
 
 	// origins is a *string so the table can distinguish "use default" (nil) from
@@ -33,6 +35,7 @@ func TestIsAllowedFrontendURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			origins := defaultOrigins
 			if tt.origins != nil {
 				origins = *tt.origins

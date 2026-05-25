@@ -10,6 +10,7 @@ import (
 )
 
 func TestParseLoudnormInputTruePeak(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		output  string
@@ -47,6 +48,7 @@ func TestParseLoudnormInputTruePeak(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := parseLoudnormInputTruePeak(tt.output)
 			if tt.wantErr {
 				if err == nil {
@@ -71,6 +73,7 @@ func TestParseLoudnormInputTruePeak(t *testing.T) {
 }
 
 func TestStoryNormalizationFilter(t *testing.T) {
+	t.Parallel()
 	got := storyNormalizationFilter(int(Mono), 12.3456789)
 	want := "loudnorm=I=-16:TP=-1:LRA=11,aformat=sample_rates=48000:channel_layouts=mono,volume=12.345679dB"
 	if got != want {
@@ -79,6 +82,7 @@ func TestStoryNormalizationFilter(t *testing.T) {
 }
 
 func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
+	t.Parallel()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not available")

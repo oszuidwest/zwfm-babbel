@@ -13,6 +13,8 @@ import (
 )
 
 func TestFilterOperatorHandlers(t *testing.T) {
+	t.Parallel()
+
 	nullCases := []struct {
 		name     string
 		value    string
@@ -25,6 +27,7 @@ func TestFilterOperatorHandlers(t *testing.T) {
 	}
 	for _, tt := range nullCases {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := filterOperatorHandlers["null"](tt.value)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -36,6 +39,7 @@ func TestFilterOperatorHandlers(t *testing.T) {
 	}
 
 	t.Run("null rejects non-boolean", func(t *testing.T) {
+		t.Parallel()
 		if _, err := filterOperatorHandlers["null"]("not-bool"); err == nil {
 			t.Fatal("expected error")
 		}
@@ -44,6 +48,7 @@ func TestFilterOperatorHandlers(t *testing.T) {
 	// LIKE handler stores the raw substring; the repository layer is the only
 	// place that wraps with % wildcards. See list_query_test for that contract.
 	t.Run("like leaves value unwrapped", func(t *testing.T) {
+		t.Parallel()
 		got, err := filterOperatorHandlers["like"]("news")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -55,6 +60,7 @@ func TestFilterOperatorHandlers(t *testing.T) {
 }
 
 func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		operator repository.FilterOperator
@@ -71,6 +77,7 @@ func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			query, err := QueryParamsToListQuery(&QueryParams{
 				Filters: map[string]FilterOperation{
 					"audio_url": {Operator: tt.operator},
@@ -91,6 +98,7 @@ func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 }
 
 func TestParseQueryParams_InvalidFilterReturnsError(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		target string
@@ -115,6 +123,7 @@ func TestParseQueryParams_InvalidFilterReturnsError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := ParseQueryParams(testQueryContext(t, tt.target)); err == nil {
 				t.Fatal("expected error")
 			}
@@ -123,6 +132,7 @@ func TestParseQueryParams_InvalidFilterReturnsError(t *testing.T) {
 }
 
 func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
+	t.Parallel()
 	params, err := ParseQueryParams(testQueryContext(t, "/stories?filter[id][between]=1,10&filter[status][not]=draft"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -143,6 +153,7 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 }
 
 func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
+	t.Parallel()
 	query, err := QueryParamsToListQuery(&QueryParams{
 		Filters: map[string]FilterOperation{
 			"id": {
@@ -171,6 +182,7 @@ func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
 }
 
 func TestPagination(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		target     string
@@ -192,6 +204,7 @@ func TestPagination(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			limit, offset, err := Pagination(testQueryContext(t, tt.target))
 			if tt.wantErr {
 				if err == nil {
@@ -217,6 +230,7 @@ func TestPagination(t *testing.T) {
 }
 
 func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		target    string
@@ -234,6 +248,7 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ParseQueryParams(testQueryContext(t, tt.target))
 			if err == nil {
 				t.Fatal("expected error")
@@ -253,6 +268,7 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 }
 
 func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
+	t.Parallel()
 	// Regression: the duplicate-key guard must not reject the single-value happy path.
 	params, err := ParseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
 	if err != nil {
@@ -267,6 +283,7 @@ func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 }
 
 func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
+	t.Parallel()
 	c := testQueryContext(t, "/x?filter[name]=a&filter[name]=b")
 	_, err := ParseQueryParams(c)
 	if err == nil {
@@ -282,6 +299,7 @@ func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 }
 
 func TestParseFilters_Rejections(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		target string
@@ -296,6 +314,7 @@ func TestParseFilters_Rejections(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := ParseQueryParams(testQueryContext(t, tt.target)); err == nil {
 				t.Fatal("expected error")
 			}
@@ -304,6 +323,7 @@ func TestParseFilters_Rejections(t *testing.T) {
 }
 
 func TestParseFilters_BandAcceptsValidValue(t *testing.T) {
+	t.Parallel()
 	params, err := ParseQueryParams(testQueryContext(t, "/x?filter[weekdays][band]=42"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -324,6 +344,7 @@ type sparseTestRow struct {
 }
 
 func TestPaginatedListResponse_RejectsUnknownFields(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x?fields=id,bogus", nil)
@@ -345,6 +366,7 @@ func TestPaginatedListResponse_RejectsUnknownFields(t *testing.T) {
 }
 
 func TestPaginatedListResponse_AppliesKnownFields(t *testing.T) {
+	t.Parallel()
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x?fields=id", nil)
@@ -378,6 +400,7 @@ func TestPaginatedListResponse_AppliesKnownFields(t *testing.T) {
 }
 
 func TestJSONFieldNames_SkipsExcludedTags(t *testing.T) {
+	t.Parallel()
 	names := jsonFieldNames[sparseTestRow]()
 	if _, ok := names["id"]; !ok {
 		t.Fatal("expected id in name set")
