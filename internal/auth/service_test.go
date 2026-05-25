@@ -25,6 +25,11 @@ func TestIsAllowedFrontendURLRequiresExactOrigin(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "uppercase scheme and host accepted",
+			url:  "HTTPS://APP.EXAMPLE.COM/login",
+			want: true,
+		},
+		{
 			name: "prefix attack host",
 			url:  "https://app.example.com.evil.test/login",
 			want: false,
@@ -37,6 +42,21 @@ func TestIsAllowedFrontendURLRequiresExactOrigin(t *testing.T) {
 		{
 			name: "scheme must match",
 			url:  "http://app.example.com/login",
+			want: false,
+		},
+		{
+			name: "userinfo authority spoofing the host",
+			url:  "https://app.example.com@evil.test/login",
+			want: false,
+		},
+		{
+			name: "different port is a different origin",
+			url:  "https://app.example.com:8443/login",
+			want: false,
+		},
+		{
+			name: "explicit default port does not match portless origin",
+			url:  "https://app.example.com:443/login",
 			want: false,
 		},
 		{
@@ -57,5 +77,21 @@ func TestIsAllowedFrontendURLRequiresExactOrigin(t *testing.T) {
 				t.Fatalf("isAllowedFrontendURL(%q) = %v, want %v", tt.url, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsAllowedFrontendURLEmptyConfigRejectsAll(t *testing.T) {
+	svc := &Service{config: &Config{AllowedOrigins: ""}}
+
+	if svc.isAllowedFrontendURL("https://app.example.com/login") {
+		t.Fatal("expected empty AllowedOrigins to reject every URL")
+	}
+}
+
+func TestIsAllowedFrontendURLToleratesConfiguredTrailingSlash(t *testing.T) {
+	svc := &Service{config: &Config{AllowedOrigins: "https://app.example.com/"}}
+
+	if !svc.isAllowedFrontendURL("https://app.example.com/login") {
+		t.Fatal("expected a trailing slash on the configured origin to be tolerated")
 	}
 }

@@ -733,7 +733,7 @@ func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 			continue
 		}
 
-		allowedURL, err := url.Parse(strings.TrimRight(origin, "/"))
+		allowedURL, err := url.Parse(strings.TrimSuffix(origin, "/"))
 		if err != nil || !allowedURL.IsAbs() || allowedURL.Host == "" {
 			continue
 		}
