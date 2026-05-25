@@ -12,35 +12,18 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-func TestFilterOperatorHandlers_Null(t *testing.T) {
-	tests := []struct {
+func TestFilterOperatorHandlers(t *testing.T) {
+	nullCases := []struct {
 		name     string
 		value    string
 		operator repository.FilterOperator
 	}{
-		{
-			name:     "true maps to is null",
-			value:    "true",
-			operator: repository.FilterIsNull,
-		},
-		{
-			name:     "false maps to is not null",
-			value:    "false",
-			operator: repository.FilterIsNotNull,
-		},
-		{
-			name:     "one maps to is null",
-			value:    "1",
-			operator: repository.FilterIsNull,
-		},
-		{
-			name:     "zero maps to is not null",
-			value:    "0",
-			operator: repository.FilterIsNotNull,
-		},
+		{name: "null/true -> is null", value: "true", operator: repository.FilterIsNull},
+		{name: "null/false -> is not null", value: "false", operator: repository.FilterIsNotNull},
+		{name: "null/1 -> is null", value: "1", operator: repository.FilterIsNull},
+		{name: "null/0 -> is not null", value: "0", operator: repository.FilterIsNotNull},
 	}
-
-	for _, tt := range tests {
+	for _, tt := range nullCases {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := filterOperatorHandlers["null"](tt.value)
 			if err != nil {
@@ -51,25 +34,24 @@ func TestFilterOperatorHandlers_Null(t *testing.T) {
 			}
 		})
 	}
-}
 
-func TestFilterOperatorHandlers_NullRejectsInvalidValues(t *testing.T) {
-	if _, err := filterOperatorHandlers["null"]("not-bool"); err == nil {
-		t.Fatal("expected error")
-	}
-}
+	t.Run("null rejects non-boolean", func(t *testing.T) {
+		if _, err := filterOperatorHandlers["null"]("not-bool"); err == nil {
+			t.Fatal("expected error")
+		}
+	})
 
-func TestFilterOperatorHandlers_LikeLeavesValueUnwrapped(t *testing.T) {
-	got, err := filterOperatorHandlers["like"]("news")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.Operator != repository.FilterLike {
-		t.Fatalf("Operator = %q, want %q", got.Operator, repository.FilterLike)
-	}
-	if got.Value != "news" {
-		t.Fatalf("Value = %#v, want news", got.Value)
-	}
+	// LIKE handler stores the raw substring; the repository layer is the only
+	// place that wraps with % wildcards. See list_query_test for that contract.
+	t.Run("like leaves value unwrapped", func(t *testing.T) {
+		got, err := filterOperatorHandlers["like"]("news")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Operator != repository.FilterLike || got.Value != "news" {
+			t.Fatalf("got %+v, want like/news", got)
+		}
+	})
 }
 
 func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
@@ -299,33 +281,17 @@ func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	}
 }
 
-func TestParseFilters_BetweenRejectsEmptySide(t *testing.T) {
+func TestParseFilters_Rejections(t *testing.T) {
 	tests := []struct {
 		name   string
 		target string
 	}{
-		{name: "trailing empty", target: "/x?filter[id][between]=1,"},
-		{name: "leading empty", target: "/x?filter[id][between]=,10"},
-		{name: "both empty", target: "/x?filter[id][between]=,"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := ParseQueryParams(testQueryContext(t, tt.target)); err == nil {
-				t.Fatal("expected error")
-			}
-		})
-	}
-}
-
-func TestParseFilters_BandRejectsInvalidValue(t *testing.T) {
-	tests := []struct {
-		name   string
-		target string
-	}{
-		{name: "not a number", target: "/x?filter[weekdays][band]=notnum"},
-		{name: "above uint8 range", target: "/x?filter[weekdays][band]=300"},
-		{name: "negative", target: "/x?filter[weekdays][band]=-1"},
+		{name: "between/trailing empty", target: "/x?filter[id][between]=1,"},
+		{name: "between/leading empty", target: "/x?filter[id][between]=,10"},
+		{name: "between/both empty", target: "/x?filter[id][between]=,"},
+		{name: "band/not a number", target: "/x?filter[weekdays][band]=notnum"},
+		{name: "band/above uint8 range", target: "/x?filter[weekdays][band]=300"},
+		{name: "band/negative", target: "/x?filter[weekdays][band]=-1"},
 	}
 
 	for _, tt := range tests {
