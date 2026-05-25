@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 // NormalizeText tests for StoryCreateRequest.
 
 func TestStoryCreateRequest_NormalizeText(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		title     string
@@ -68,6 +69,7 @@ func TestStoryCreateRequest_NormalizeText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			req := &StoryCreateRequest{Title: tt.title, Text: tt.text}
 			req.NormalizeText()
 			if req.Title != tt.wantTitle {
@@ -83,7 +85,10 @@ func TestStoryCreateRequest_NormalizeText(t *testing.T) {
 // NormalizeText tests for StoryUpdateRequest.
 
 func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
+	t.Parallel()
+
 	t.Run("decodes non-nil fields", func(t *testing.T) {
+		t.Parallel()
 		title := "Tom &amp; Jerry"
 		text := "Use &lt;b&gt; tags"
 		req := &StoryUpdateRequest{Title: &title, Text: &text}
@@ -98,6 +103,7 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 	})
 
 	t.Run("handles nil fields without panic", func(t *testing.T) {
+		t.Parallel()
 		req := &StoryUpdateRequest{Title: nil, Text: nil}
 		req.NormalizeText()
 
@@ -110,6 +116,7 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 	})
 
 	t.Run("handles mixed nil and non-nil", func(t *testing.T) {
+		t.Parallel()
 		text := "&amp; more"
 		req := &StoryUpdateRequest{Title: nil, Text: &text}
 		req.NormalizeText()
@@ -155,243 +162,179 @@ func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.Response
 	return c, w
 }
 
-func TestBindAndValidate_ValidStoryRequest(t *testing.T) {
-	body := `{"title":"Test Story","text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
+// bindExpect is a named type (not a struct alias) so checkBindResult callers
+// share one concrete type definition.
+type bindExpect struct {
+	ok         bool
+	status     int
+	errField   string
+	errMessage string
+}
 
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
+func TestBindAndValidate(t *testing.T) {
+	t.Parallel()
 
-	if !ok {
-		t.Fatalf("expected true, got false; response: %s", w.Body.String())
+	// Boundary inputs: max=500 applies to the *decoded* value.
+	// "A"*496 + "&amp;" = 501 encoded -> 497 decoded (allowed).
+	// "A"*500 + "&amp;" = 505 encoded -> 501 decoded (rejected).
+	titleAt497 := strings.Repeat("A", 496) + "&amp;"
+	titleAt501 := strings.Repeat("A", 500) + "&amp;"
+
+	storyCases := []struct {
+		name   string
+		body   string
+		want   bindExpect
+		verify func(t *testing.T, req *StoryCreateRequest)
+	}{
+		{
+			name: "valid request decodes nothing",
+			body: `{"title":"Test Story","text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{ok: true},
+			verify: func(t *testing.T, req *StoryCreateRequest) {
+				if req.Title != "Test Story" || req.Text != "Some content" {
+					t.Errorf("got Title=%q Text=%q", req.Title, req.Text)
+				}
+			},
+		},
+		{
+			name: "malformed JSON",
+			body: `{invalid json}`,
+			want: bindExpect{status: 422},
+		},
+		{
+			name: "empty body",
+			body: "",
+			want: bindExpect{status: 422},
+		},
+		{
+			name: "missing required title",
+			body: `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{status: 422, errField: "Title", errMessage: "required"},
+		},
+		{
+			name: "whitespace-only title rejected by notblank",
+			body: `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{status: 422, errField: "Title", errMessage: "empty or whitespace"},
+		},
+		{
+			name: "entities decoded before validation",
+			body: `{"title":"Tom &amp; Jerry","text":"Content &lt;here&gt;","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{ok: true},
+			verify: func(t *testing.T, req *StoryCreateRequest) {
+				if req.Title != "Tom & Jerry" || req.Text != "Content <here>" {
+					t.Errorf("entities not decoded: Title=%q Text=%q", req.Title, req.Text)
+				}
+			},
+		},
+		{
+			name: "invalid story status",
+			body: `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{status: 422, errField: "Status", errMessage: "must be one of"},
+		},
+		{
+			name: "invalid date format",
+			body: `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`,
+			want: bindExpect{status: 422, errField: "StartDate", errMessage: "YYYY-MM-DD"},
+		},
+		{
+			name: "max length applies to decoded value (passes)",
+			body: `{"title":"` + titleAt497 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{ok: true},
+			verify: func(t *testing.T, req *StoryCreateRequest) {
+				if len(req.Title) != 497 {
+					t.Errorf("decoded Title length = %d, want 497", len(req.Title))
+				}
+			},
+		},
+		{
+			name: "max length applies to decoded value (rejects)",
+			body: `{"title":"` + titleAt501 + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`,
+			want: bindExpect{status: 422, errField: "Title", errMessage: "cannot exceed 500"},
+		},
 	}
-	if req.Title != "Test Story" {
-		t.Errorf("Title = %q, want %q", req.Title, "Test Story")
+
+	for _, tt := range storyCases {
+		t.Run("StoryCreateRequest/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, w := newTestContext(t, tt.body)
+			var req StoryCreateRequest
+			ok := BindAndValidate(c, &req)
+
+			checkBindResult(t, w, ok, tt.want)
+			if ok && tt.verify != nil {
+				tt.verify(t, &req)
+			}
+		})
 	}
-	if req.Text != "Some content" {
-		t.Errorf("Text = %q, want %q", req.Text, "Some content")
+
+	// StoryUpdateRequest uses pointer fields - verify the boundary on the update path.
+	updateCases := []struct {
+		name string
+		body string
+		want bindExpect
+	}{
+		{name: "max length passes on update", body: `{"title":"` + titleAt497 + `"}`, want: bindExpect{ok: true}},
+		{name: "max length rejects on update", body: `{"title":"` + titleAt501 + `"}`, want: bindExpect{status: 422, errField: "Title", errMessage: "cannot exceed 500"}},
+	}
+	for _, tt := range updateCases {
+		t.Run("StoryUpdateRequest/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, w := newTestContext(t, tt.body)
+			var req StoryUpdateRequest
+			ok := BindAndValidate(c, &req)
+			checkBindResult(t, w, ok, tt.want)
+			if tt.want.ok && (req.Title == nil || len(*req.Title) != 497) {
+				t.Errorf("decoded Title length = %v, want 497", req.Title)
+			}
+		})
 	}
 }
 
-func TestBindAndValidate_MalformedJSON(t *testing.T) {
-	c, w := newTestContext(t, `{invalid json}`)
+// TestBindAndValidate_StationRequest covers the non-normalizer branch:
+// StationRequest has no NormalizeText hook, so binding skips entity decoding.
+func TestBindAndValidate_StationRequest(t *testing.T) {
+	t.Parallel()
 
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false for malformed JSON")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-}
-
-func TestBindAndValidate_EmptyBody(t *testing.T) {
-	c, w := newTestContext(t, "")
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false for empty body")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-}
-
-func TestBindAndValidate_TypeMismatch(t *testing.T) {
-	body := `{"name":"Test","max_stories_per_block":"five","pause_seconds":1.5}`
-	c, w := newTestContext(t, body)
-
-	var req StationRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false for type mismatch")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-}
-
-func TestBindAndValidate_ValidationFailure_MissingRequired(t *testing.T) {
-	body := `{"text":"Some content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false when required 'title' is missing")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	assertValidationError(t, w, "Title", "required")
-}
-
-func TestBindAndValidate_ValidationFailure_NotBlank(t *testing.T) {
-	body := `{"title":"   ","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false when title is whitespace-only (notblank)")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	assertValidationError(t, w, "Title", "empty or whitespace")
-}
-
-func TestBindAndValidate_NormalizesEntitiesBeforeValidation(t *testing.T) {
-	body := `{"title":"Tom &amp; Jerry","text":"Content &lt;here&gt;","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if !ok {
-		t.Fatalf("expected true, got false; response: %s", w.Body.String())
-	}
-	if req.Title != "Tom & Jerry" {
-		t.Errorf("Title = %q, want %q (entities should be decoded)", req.Title, "Tom & Jerry")
-	}
-	if req.Text != "Content <here>" {
-		t.Errorf("Text = %q, want %q (entities should be decoded)", req.Text, "Content <here>")
-	}
-}
-
-func TestBindAndValidate_NonNormalizerType(t *testing.T) {
-	body := `{"name":"Test Station","max_stories_per_block":5,"pause_seconds":1.5}`
-	c, w := newTestContext(t, body)
-
-	var req StationRequest
-	ok := BindAndValidate(c, &req)
-
-	if !ok {
-		t.Fatalf("expected true, got false; response: %s", w.Body.String())
-	}
-	if req.Name != "Test Station" {
-		t.Errorf("Name = %q, want %q", req.Name, "Test Station")
-	}
-	if req.MaxStoriesPerBlock != 5 {
-		t.Errorf("MaxStoriesPerBlock = %d, want 5", req.MaxStoriesPerBlock)
-	}
-}
-
-func TestBindAndValidate_CustomValidator_StoryStatus(t *testing.T) {
-	body := `{"title":"Test","text":"content","status":"invalid_status","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false for invalid story status")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	assertValidationError(t, w, "Status", "must be one of")
-}
-
-func TestBindAndValidate_CustomValidator_DateFormat(t *testing.T) {
-	body := `{"title":"Test","text":"content","start_date":"not-a-date","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false for invalid date format")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	assertValidationError(t, w, "StartDate", "YYYY-MM-DD")
-}
-
-func TestBindAndValidate_MaxLengthCheckedAfterNormalization(t *testing.T) {
-	// 496 chars + "&amp;" (5 encoded, 1 decoded) = 501 encoded, 497 decoded.
-	// Must pass because max=500 applies to the decoded value.
-	title := strings.Repeat("A", 496) + "&amp;"
-
-	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if !ok {
-		t.Fatalf("expected true (497 decoded chars <= 500), got false; response: %s", w.Body.String())
-	}
-	if len(req.Title) != 497 {
-		t.Errorf("decoded Title length = %d, want 497", len(req.Title))
-	}
-}
-
-func TestBindAndValidate_MaxLengthRejectsAfterNormalization(t *testing.T) {
-	// 500 chars + "&amp;" (5 encoded, 1 decoded) = 505 encoded, 501 decoded.
-	// Must fail because decoded length exceeds max=500.
-	title := strings.Repeat("A", 500) + "&amp;"
-
-	body := `{"title":"` + title + `","text":"content","start_date":"2024-01-01","end_date":"2024-12-31"}`
-	c, w := newTestContext(t, body)
-
-	var req StoryCreateRequest
-	ok := BindAndValidate(c, &req)
-
-	if ok {
-		t.Fatal("expected false (501 decoded chars > 500)")
-	}
-	if w.Code != 422 {
-		t.Errorf("status = %d, want 422", w.Code)
-	}
-	assertValidationError(t, w, "Title", "cannot exceed 500")
-}
-
-func TestBindAndValidate_UpdateRequest_MaxLengthAfterNormalization(t *testing.T) {
-	// StoryUpdateRequest uses pointer fields - verify the same boundary via the update path.
-	t.Run("passes when decoded length within limit", func(t *testing.T) {
-		title := strings.Repeat("A", 496) + "&amp;"
-		body := `{"title":"` + title + `"}`
-		c, w := newTestContext(t, body)
-
-		var req StoryUpdateRequest
+	t.Run("valid non-normalizer type", func(t *testing.T) {
+		t.Parallel()
+		c, w := newTestContext(t, `{"name":"Test Station","max_stories_per_block":5,"pause_seconds":1.5}`)
+		var req StationRequest
 		ok := BindAndValidate(c, &req)
+		checkBindResult(t, w, ok, bindExpect{ok: true})
+		if req.Name != "Test Station" || req.MaxStoriesPerBlock != 5 {
+			t.Errorf("got Name=%q MaxStoriesPerBlock=%d", req.Name, req.MaxStoriesPerBlock)
+		}
+	})
+	t.Run("type mismatch", func(t *testing.T) {
+		t.Parallel()
+		c, w := newTestContext(t, `{"name":"Test","max_stories_per_block":"five","pause_seconds":1.5}`)
+		var req StationRequest
+		ok := BindAndValidate(c, &req)
+		checkBindResult(t, w, ok, bindExpect{status: 422})
+	})
+}
 
+func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want bindExpect) {
+	t.Helper()
+	if want.ok {
 		if !ok {
-			t.Fatalf("expected true (497 decoded chars <= 500), got false; response: %s", w.Body.String())
+			t.Fatalf("expected ok=true, got false; response: %s", w.Body.String())
 		}
-		if req.Title == nil || len(*req.Title) != 497 {
-			t.Errorf("decoded Title length = %v, want 497", req.Title)
-		}
-	})
-
-	t.Run("rejects when decoded length exceeds limit", func(t *testing.T) {
-		title := strings.Repeat("A", 500) + "&amp;"
-		body := `{"title":"` + title + `"}`
-		c, w := newTestContext(t, body)
-
-		var req StoryUpdateRequest
-		ok := BindAndValidate(c, &req)
-
-		if ok {
-			t.Fatal("expected false (501 decoded chars > 500)")
-		}
-		if w.Code != 422 {
-			t.Errorf("status = %d, want 422", w.Code)
-		}
-		assertValidationError(t, w, "Title", "cannot exceed 500")
-	})
+		return
+	}
+	if ok {
+		t.Fatalf("expected ok=false, got true")
+	}
+	if want.status != 0 && w.Code != want.status {
+		t.Errorf("status = %d, want %d", w.Code, want.status)
+	}
+	if want.errField != "" {
+		assertValidationError(t, w, want.errField, want.errMessage)
+	}
 }
 
 func TestBindOptionalJSON(t *testing.T) {
+	t.Parallel()
 	type optionalRequest struct {
 		Date string `json:"date"`
 	}
@@ -435,6 +378,7 @@ func TestBindOptionalJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			c, w := newTestContext(t, tt.body)
 
 			var req optionalRequest
@@ -454,6 +398,7 @@ func TestBindOptionalJSON(t *testing.T) {
 }
 
 func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
+	t.Parallel()
 	c, w := newTestContext(t, "")
 	c.Request.Body = nil
 
@@ -471,6 +416,7 @@ func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
 }
 
 func TestBindOptionalJSON_ReadFailure(t *testing.T) {
+	t.Parallel()
 	c, w := newTestContext(t, "")
 	c.Request.Body = failingReadCloser{}
 
@@ -500,6 +446,7 @@ func (failingReadCloser) Close() error {
 // Double-encoded entity pipeline documenting the full write-read decode behavior.
 
 func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
+	t.Parallel()
 	// Documents the edge case where double-encoded entities are decoded twice
 	// across the write and read paths:
 	//   Input → NormalizeText (decode #1) → stored in DB → AfterFind (decode #2) → output

@@ -17,19 +17,13 @@ func TestValidateRequiresAudioToolPaths(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "empty ffmpeg path",
-			config: validConfigWithAudioTools(
-				"",
-				writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffprobe")),
-			),
+			name:    "empty ffmpeg path",
+			config:  validConfigWithAudioTools("", writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffprobe"))),
 			wantErr: "BABBEL_FFMPEG_PATH must not be empty",
 		},
 		{
-			name: "empty ffprobe path",
-			config: validConfigWithAudioTools(
-				writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffmpeg")),
-				"",
-			),
+			name:    "empty ffprobe path",
+			config:  validConfigWithAudioTools(writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffmpeg")), ""),
 			wantErr: "BABBEL_FFPROBE_PATH must not be empty",
 		},
 	}
@@ -37,42 +31,31 @@ func TestValidateRequiresAudioToolPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			err := tt.config.Validate()
-			assertErrorContains(t, err, tt.wantErr)
+			assertErrorContains(t, tt.config.Validate(), tt.wantErr)
 		})
 	}
 }
 
 func TestValidateRequiresFFmpeg(t *testing.T) {
 	t.Parallel()
-
 	cfg := validTestConfig(t)
 	cfg.Audio.FFmpegPath = filepath.Join(t.TempDir(), "missing-ffmpeg")
-
-	err := cfg.Validate()
-	assertErrorContains(t, err, "FFmpeg binary not found", cfg.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH")
+	assertErrorContains(t, cfg.Validate(), "FFmpeg binary not found", cfg.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH")
 }
 
 func TestValidateRequiresFFprobe(t *testing.T) {
 	t.Parallel()
-
 	cfg := validTestConfig(t)
 	cfg.Audio.FFprobePath = filepath.Join(t.TempDir(), "missing-ffprobe")
-
-	err := cfg.Validate()
-	assertErrorContains(t, err, "FFprobe binary not found", cfg.Audio.FFprobePath, "BABBEL_FFPROBE_PATH")
+	assertErrorContains(t, cfg.Validate(), "FFprobe binary not found", cfg.Audio.FFprobePath, "BABBEL_FFPROBE_PATH")
 }
 
 func TestValidateAcceptsConfiguredAudioTools(t *testing.T) {
 	t.Parallel()
-
 	cfg := validTestConfig(t)
-
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	assertVersionCheckRan(t, cfg.Audio.FFmpegPath)
 	assertVersionCheckRan(t, cfg.Audio.FFprobePath)
 }
@@ -87,7 +70,6 @@ func TestValidateAcceptsBinariesFromPATH(t *testing.T) {
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	assertVersionCheckRan(t, ffmpegPath)
 	assertVersionCheckRan(t, ffprobePath)
 }

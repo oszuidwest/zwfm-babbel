@@ -10,6 +10,7 @@ import (
 )
 
 func TestCORSMiddlewareAllowedOrigin(t *testing.T) {
+	t.Parallel()
 	recorder := performCORSRequest(t, "https://app.example.com", "https://app.example.com/")
 
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
@@ -18,6 +19,7 @@ func TestCORSMiddlewareAllowedOrigin(t *testing.T) {
 }
 
 func TestCORSMiddlewareRejectsPrefixAttack(t *testing.T) {
+	t.Parallel()
 	recorder := performCORSRequest(t, "https://app.example.com.evil.test", "https://app.example.com")
 
 	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
