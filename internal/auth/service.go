@@ -52,14 +52,12 @@ func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 		db:     db,
 	}
 
-	// Initialize OIDC if configured
 	if cfg.Method.SupportsOIDC() {
 		if err := s.initializeOIDC(); err != nil {
 			return nil, fmt.Errorf("failed to initialize OIDC: %w", err)
 		}
 	}
 
-	// Initialize session store
 	store, ginStore, err := NewGinSessionStore(cfg.Session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize session store: %w", err)
@@ -67,7 +65,6 @@ func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 	s.sessions = store
 	s.ginStore = ginStore
 
-	// Initialize Casbin for RBAC
 	enforcer, err := s.initializeRBAC()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Casbin: %w", err)
@@ -184,7 +181,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 // sanitizeEmailToUsername converts an email address to a valid username.
 func (s *Service) sanitizeEmailToUsername(email string) string {
-	// Take the part before @ (local part of email)
 	base, _, _ := strings.Cut(email, "@")
 
 	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
@@ -206,7 +202,6 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 		username = username[:100]
 	}
 
-	// Ensure uniqueness
 	return s.ensureUniqueUsername(username)
 }
 
@@ -557,7 +552,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		return nil, fmt.Errorf("failed to create user: %w", result.Error)
 	}
 
-	// Get the last inserted ID
 	var id int64
 	err = s.db.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&id).Error
 	if err != nil {

@@ -31,8 +31,6 @@ type StoryUpdate struct {
 	ClearMetadata        bool `gorm:"-"`
 }
 
-// hasUpdates is no longer needed - BuildUpdateMap handles empty check.
-
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
 	Title      string
