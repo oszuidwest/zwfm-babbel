@@ -416,7 +416,6 @@ func TestJSONFieldNames_SkipsExcludedTags(t *testing.T) {
 func testQueryContext(t *testing.T, target string) *gin.Context {
 	t.Helper()
 
-	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
