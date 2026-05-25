@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -37,7 +38,7 @@ type QueryParams struct {
 	Fields []string `json:"fields"`
 
 	// Filtering
-	Filters map[string]FilterOperation `json:"filters"`
+	Filters []ParsedFilter `json:"filters"`
 
 	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
 	Trashed string `json:"trashed"`
@@ -60,6 +61,17 @@ type FilterOperation struct {
 	Values   []string                  `json:"values"` // For "in" and "between" operations
 }
 
+// ParsedFilter represents a single parsed filter condition. It intentionally
+// carries the field alongside the operator so same-field filters such as
+// filter[created_at][gte] + filter[created_at][lte] cannot collapse into one
+// map entry before reaching the repository layer.
+type ParsedFilter struct {
+	Field    string                    `json:"field"`
+	Operator repository.FilterOperator `json:"operator"`
+	Value    any                       `json:"value"`
+	Values   []string                  `json:"values"` // For "in" and "between" operations
+}
+
 // ParseQueryParams extracts and validates modern query parameters from the request.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
@@ -70,9 +82,7 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		return nil, err
 	}
 
-	params := &QueryParams{
-		Filters: make(map[string]FilterOperation),
-	}
+	params := &QueryParams{}
 
 	limit, offset, err := Pagination(c)
 	if err != nil {
@@ -287,16 +297,26 @@ func rejectDuplicateSingleValueParams(c *gin.Context) error {
 	return nil
 }
 
-// parseFilters parses the filter query parameters into filter operations.
-func parseFilters(c *gin.Context) (map[string]FilterOperation, error) {
-	filters := make(map[string]FilterOperation)
+// parseFilters parses the filter query parameters into filter conditions.
+func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
+	var filters []ParsedFilter
 
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return filters, nil
 	}
 
-	for key, values := range c.Request.URL.Query() {
-		if !strings.HasPrefix(key, "filter[") || len(values) == 0 {
+	queryValues := c.Request.URL.Query()
+	filterKeys := make([]string, 0, len(queryValues))
+	for key := range queryValues {
+		if strings.HasPrefix(key, "filter[") {
+			filterKeys = append(filterKeys, key)
+		}
+	}
+	sort.Strings(filterKeys)
+
+	for _, key := range filterKeys {
+		values := queryValues[key]
+		if len(values) == 0 {
 			continue
 		}
 
@@ -331,7 +351,12 @@ func parseFilters(c *gin.Context) (map[string]FilterOperation, error) {
 			}
 		}
 
-		filters[field] = filter
+		filters = append(filters, ParsedFilter{
+			Field:    field,
+			Operator: filter.Operator,
+			Value:    filter.Value,
+			Values:   filter.Values,
+		})
 	}
 
 	return filters, nil
@@ -490,15 +515,15 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 		})
 	}
 
-	for field, filter := range params.Filters {
+	for _, filter := range params.Filters {
 		if !supportedFilterOperators[filter.Operator] {
 			return nil, &QueryParamError{
-				Field:   fmt.Sprintf("filter[%s]", field),
+				Field:   fmt.Sprintf("filter[%s]", filter.Field),
 				Message: fmt.Sprintf("unsupported operator %q", filter.Operator),
 			}
 		}
 		condition := repository.FilterCondition{
-			Field:    field,
+			Field:    filter.Field,
 			Operator: filter.Operator,
 			Value:    filter.Value,
 		}

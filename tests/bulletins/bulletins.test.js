@@ -8,10 +8,35 @@
  */
 
 const fs = require('fs');
+const { execSync } = require('child_process');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
 
 describe('Bulletins', () => {
+  const mysqlUser = process.env.MYSQL_USER || 'babbel';
+  const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
+  const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
+  const mysqlHost = process.env.MYSQL_HOST || 'localhost';
+  const mysqlContainer = process.env.MYSQL_CONTAINER || 'babbel-mysql';
+  let useDockerMySQL = null;
+
+  const execSQL = (sql) => {
+    if (useDockerMySQL === null) {
+      try {
+        execSync(`docker ps --format '{{.Names}}' | grep -x '${mysqlContainer}'`, { stdio: 'ignore' });
+        useDockerMySQL = true;
+      } catch {
+        useDockerMySQL = false;
+      }
+    }
+
+    const escapedSQL = sql.replace(/"/g, '\\"');
+    const cmd = useDockerMySQL
+      ? `docker exec -i ${mysqlContainer} mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${escapedSQL}"`
+      : `mysql -h ${mysqlHost} -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${escapedSQL}"`;
+    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  };
+
   // Setup function - generates a bulletin for query tests
   const setupQueryTestData = async () => {
     const station = await global.helpers.createStation(global.resources, 'QueryBulletinStation');
@@ -916,16 +941,54 @@ describe('Bulletins', () => {
       }
     });
 
-    test('when filtering by date range, then returns matching', async () => {
+    test('when filtering by date range, then applies both bounds', async () => {
       // Arrange
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
+      expect(station).not.toBeNull();
 
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${yesterday}&filter[created_at][lte]=${today}`);
+      const stationId = parseInt(station.id, 10);
+      const suffix = `${Date.now()}_${process.pid}`;
+      const beforeFilename = `range_semantics_before_${suffix}.wav`;
+      const insideFilename = `range_semantics_inside_${suffix}.wav`;
+      const afterFilename = `range_semantics_after_${suffix}.wav`;
 
-      // Assert
-      expect(response.status).toBe(200);
+      const lowerBound = '2024-01-10 00:00:00';
+      const upperBound = '2024-01-20 23:59:59';
+
+      const values = [
+        `(${stationId}, '${beforeFilename}', '${beforeFilename}', '2024-01-09 12:00:00')`,
+        `(${stationId}, '${insideFilename}', '${insideFilename}', '2024-01-15 12:00:00')`,
+        `(${stationId}, '${afterFilename}', '${afterFilename}', '2024-01-21 12:00:00')`
+      ].join(',');
+
+      execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
+
+      try {
+        // Act
+        const response = await global.api.apiCall(
+          'GET',
+          `/bulletins?filter[station_id]=${stationId}&filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}&sort=created_at&limit=10`
+        );
+
+        // Assert
+        expect(response.status).toBe(200);
+        const bulletins = response.data.data || [];
+        const filenames = new Set(bulletins.map(b => b.filename));
+
+        expect(filenames).toContain(insideFilename);
+        expect(filenames).not.toContain(beforeFilename);
+        expect(filenames).not.toContain(afterFilename);
+
+        const min = new Date('2024-01-10T00:00:00Z').getTime();
+        const max = new Date('2024-01-20T23:59:59Z').getTime();
+        bulletins.forEach(bulletin => {
+          const createdAt = new Date(bulletin.created_at).getTime();
+          expect(createdAt).toBeGreaterThanOrEqual(min);
+          expect(createdAt).toBeLessThanOrEqual(max);
+        });
+      } finally {
+        execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename LIKE 'range\\_semantics\\_%\\_${suffix}.wav'`);
+      }
     });
   });
 });
