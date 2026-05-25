@@ -8,42 +8,28 @@
  * - "when...then" naming convention
  */
 
-const { execSync } = require('child_process');
 const fsSync = require('fs');
 const path = require('path');
 
 const TestHelpers = require('../lib/TestHelpers');
+const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 describe('Bulletin Cleanup', () => {
   const automationKey = TestHelpers.AUTOMATION_KEY;
 
-  // MySQL connection defaults (matching docker-compose)
-  const mysqlUser = process.env.MYSQL_USER || 'babbel';
-  const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
-  const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
-  const mysqlContainer = process.env.MYSQL_CONTAINER || 'babbel-mysql';
   const audioDir = path.join(__dirname, '../../audio');
+  const mysql = createMySQLExecutor();
 
-  // Test state set during beforeAll
   let testStationId = null;
   let purgedBulletinId = null;
   let unpurgedBulletinId = null;
 
-  // Execute SQL against the Docker MySQL container
-  const execSQL = (sql) => {
-    const cmd = `docker exec -i ${mysqlContainer} mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${sql}"`;
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-  };
-
-  // Mark a bulletin as purged via direct SQL and remove its audio file
   const markBulletinPurged = (bulletinId) => {
-    const id = parseInt(bulletinId, 10);
+    const id = sqlInteger(bulletinId, 'bulletin ID');
 
-    // Set file_purged_at in database
-    execSQL(`UPDATE bulletins SET file_purged_at = NOW() WHERE id = ${id}`);
+    mysql.execSQL(`UPDATE bulletins SET file_purged_at = NOW() WHERE id = ${id}`);
 
-    // Get filename from database to delete the actual file
-    const result = execSQL(`SELECT audio_file FROM bulletins WHERE id = ${id}`);
+    const result = mysql.execSQL(`SELECT audio_file FROM bulletins WHERE id = ${id}`);
     const lines = result.trim().split('\n');
     if (lines.length >= 2) {
       const filename = lines[1].trim();
@@ -51,8 +37,10 @@ describe('Bulletin Cleanup', () => {
         const filePath = path.join(audioDir, 'output', filename);
         try {
           fsSync.unlinkSync(filePath);
-        } catch {
-          // File may not exist
+        } catch (error) {
+          if (error.code !== 'ENOENT') {
+            throw new Error(`Failed to delete purged bulletin audio file ${filePath}: ${error.message}`);
+          }
         }
       }
     }

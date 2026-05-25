@@ -48,12 +48,13 @@ Sample bulletins for testing bulletin history features
 ### Load Fixtures Manually
 
 ```bash
-# Using the script
 node tests/fixtures/load-fixtures.js
-
-# Or directly with MySQL
-docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < tests/fixtures/test-data.sql
 ```
+
+`load-fixtures.js` uses the `babbel-mysql` Docker container when it is running.
+If Docker cannot be inspected or that container is absent, it connects directly
+to MySQL using `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`MYSQL_DATABASE` (defaults: `localhost`, `babbel`, `babbel`, `babbel`).
 
 ### In Tests
 

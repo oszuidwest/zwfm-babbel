@@ -5,7 +5,7 @@ This document describes the comprehensive modern query parameter system implemen
 ## Overview
 
 The query parameter system provides:
-- **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01`
+- **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
@@ -31,7 +31,8 @@ GET /api/v1/stories?filter[status][not]=draft
 GET /api/v1/stories?filter[created_at][gte]=2024-01-01
 GET /api/v1/stories?filter[created_at][lt]=2024-12-31
 
-# Inclusive range
+# Inclusive ranges
+GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
 GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
 ```
 

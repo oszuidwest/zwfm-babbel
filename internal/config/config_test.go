@@ -355,11 +355,15 @@ if [ "$1" != "-version" ]; then
 	echo "expected -version" >&2
 	exit 42
 fi
-echo "` + message + `" >&2
+printf '%s\n' ` + shellSingleQuote(message) + ` >&2
 exit 17
 `
 	writeExecutable(t, path, script)
 	return path
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func writeExecutable(t *testing.T, path, contents string) {

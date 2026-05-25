@@ -10,9 +10,11 @@
 const fs = require('fs');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
+const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelper');
 
 describe('Bulletins', () => {
-  // Setup function - generates a bulletin for query tests
+  const mysql = createMySQLExecutor();
+
   const setupQueryTestData = async () => {
     const station = await global.helpers.createStation(global.resources, 'QueryBulletinStation');
     const voice = await global.helpers.createVoice(global.resources, 'QueryBulletinVoice');
@@ -916,16 +918,67 @@ describe('Bulletins', () => {
       }
     });
 
-    test('when filtering by date range, then returns matching', async () => {
-      // Arrange
-      const today = new Date().toISOString().split('T')[0];
-      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    test('when filtering by date range, then applies both bounds', async () => {
+      const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
+      expect(station).not.toBeNull();
 
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${yesterday}&filter[created_at][lte]=${today}`);
+      const stationId = sqlInteger(station.id, 'station ID');
+      const suffix = `${Date.now()}_${process.pid}`;
+      const rows = [
+        {
+          filename: `range_semantics_before_${suffix}.wav`,
+          createdAt: '2024-01-09 12:00:00'
+        },
+        {
+          filename: `range_semantics_inside_${suffix}.wav`,
+          createdAt: '2024-01-15 12:00:00'
+        },
+        {
+          filename: `range_semantics_after_${suffix}.wav`,
+          createdAt: '2024-01-21 12:00:00'
+        }
+      ];
+      const [beforeFilename, insideFilename, afterFilename] = rows.map(row => row.filename);
+      const filenameList = rows.map(row => sqlString(row.filename)).join(', ');
 
-      // Assert
-      expect(response.status).toBe(200);
+      const lowerBound = '2024-01-10 00:00:00';
+      const upperBound = '2024-01-20 23:59:59';
+
+      const values = rows.map(row => (
+        `(${stationId}, ${sqlString(row.filename)}, ${sqlString(row.filename)}, ${sqlString(row.createdAt)})`
+      )).join(',');
+
+      try {
+        mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
+
+        // Track inserted IDs in ResourceManager as a safety net: if this test
+        // aborts (timeout, signal) before the finally DELETE runs, global
+        // teardown still removes these rows. The finally DELETE is the primary
+        // cleanup path; tracking is defense-in-depth.
+        const insertedIds = mysql.execSQL(
+          `SELECT id FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`,
+          { silent: true }
+        ).trim().split('\n').map(value => Number(value.trim()));
+        expect(insertedIds).toHaveLength(rows.length);
+        insertedIds.forEach(id => {
+          expect(Number.isSafeInteger(id)).toBe(true);
+          global.resources.track('bulletins', id);
+        });
+
+        const response = await global.api.apiCall(
+          'GET',
+          `/bulletins?filter[station_id]=${stationId}&filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}&sort=created_at&limit=10`
+        );
+
+        expect(response.status).toBe(200);
+        const filenames = new Set((response.data.data || []).map(b => b.filename));
+
+        expect(filenames).toContain(insideFilename);
+        expect(filenames).not.toContain(beforeFilename);
+        expect(filenames).not.toContain(afterFilename);
+      } finally {
+        mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
+      }
     });
   });
 });

@@ -1,8 +1,11 @@
 // Centralized test helper functions for Babbel API tests.
 // Eliminates code duplication across test files by providing unified helper methods.
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fsSync = require('fs');
+
+const { commandErrorMessage } = require('./MySQLHelper');
+const { parseFiniteNumber, parseSafeInteger } = require('./numeric');
 
 class TestHelpers {
   /** Automation key matching docker-compose BABBEL_AUTOMATION_KEY */
@@ -58,10 +61,11 @@ class TestHelpers {
   isFFmpegAvailable() {
     if (this._ffmpegAvailable === null) {
       try {
-        execSync('ffmpeg -version', { stdio: 'ignore' });
+        execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
         this._ffmpegAvailable = true;
-      } catch {
+      } catch (error) {
         this._ffmpegAvailable = false;
+        console.warn(`ffmpeg is not available: ${commandErrorMessage(error)}`);
       }
     }
     return this._ffmpegAvailable;
@@ -75,17 +79,33 @@ class TestHelpers {
    * @returns {boolean} True if file was created successfully.
    */
   createTestAudioFile(outputPath, duration = 3, frequency = 440) {
+    const numericDuration = parseFiniteNumber(duration, 'audio duration');
+    const numericFrequency = parseFiniteNumber(frequency, 'audio frequency');
+
     if (!this.isFFmpegAvailable()) {
       return false;
     }
 
     try {
-      execSync(
-        `ffmpeg -f lavfi -i "sine=frequency=${frequency}:duration=${duration}" -ar 44100 -ac 2 -f wav "${outputPath}" -y 2>/dev/null`,
+      execFileSync(
+        'ffmpeg',
+        [
+          '-f', 'lavfi',
+          '-i', `sine=frequency=${numericFrequency}:duration=${numericDuration}`,
+          '-ar', '44100',
+          '-ac', '2',
+          '-f', 'wav',
+          outputPath,
+          '-y'
+        ],
         { stdio: 'ignore' }
       );
-      return fsSync.existsSync(outputPath);
-    } catch {
+      if (!fsSync.existsSync(outputPath)) {
+        throw new Error('ffmpeg completed but output file was not created');
+      }
+      return true;
+    } catch (error) {
+      console.warn(`Failed to create test audio file ${outputPath}: ${commandErrorMessage(error)}`);
       return false;
     }
   }
@@ -96,11 +116,11 @@ class TestHelpers {
    */
   cleanupTempFile(filePath) {
     try {
-      if (fsSync.existsSync(filePath)) {
-        fsSync.unlinkSync(filePath);
+      fsSync.unlinkSync(filePath);
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.warn(`Failed to clean up temporary file ${filePath}: ${error.message}`);
       }
-    } catch {
-      // Ignore cleanup errors
     }
   }
 
@@ -181,13 +201,15 @@ class TestHelpers {
     const storyData = {
       title: data.title || this.uniqueName('TestStory'),
       text: data.text || 'Test story content',
-      voice_id: data.voice_id ? parseInt(data.voice_id, 10) : null,
+      voice_id: data.voice_id !== undefined && data.voice_id !== null
+        ? parseSafeInteger(data.voice_id, 'voice_id')
+        : null,
       status: data.status || 'active',
       start_date: data.start_date || `${year}-01-01`,
       end_date: data.end_date || `${year + 1}-12-31`,
       weekdays: data.weekdays !== undefined ? data.weekdays : 127,
       is_breaking: data.is_breaking !== undefined ? data.is_breaking : false,
-      target_stations: targetStations.map(id => parseInt(id, 10)),
+      target_stations: targetStations.map(id => parseSafeInteger(id, 'target station ID')),
       metadata: data.metadata || null
     };
 
@@ -219,29 +241,24 @@ class TestHelpers {
       return null;
     }
 
-    // Create story first
-    const story = await this.createStory(resourceManager, data, targetStations);
+    try {
+      const story = await this.createStory(resourceManager, data, targetStations);
 
-    if (!story) {
+      if (!story) {
+        return null;
+      }
+
+      const uploadResponse = await this.api.uploadFile(
+        `/stories/${story.id}/audio`,
+        {},
+        audioFile,
+        'audio'
+      );
+
+      return uploadResponse.status === 201 ? story : null;
+    } finally {
       this.cleanupTempFile(audioFile);
-      return null;
     }
-
-    // Upload audio
-    const uploadResponse = await this.api.uploadFile(
-      `/stories/${story.id}/audio`,
-      {},
-      audioFile,
-      'audio'
-    );
-
-    this.cleanupTempFile(audioFile);
-
-    if (uploadResponse.status !== 201) {
-      return null;
-    }
-
-    return story;
   }
 
   /**
@@ -254,9 +271,9 @@ class TestHelpers {
    */
   async createStationVoice(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const response = await this.api.apiCall('POST', '/station-voices', {
-      station_id: parseInt(stationId, 10),
-      voice_id: parseInt(voiceId, 10),
-      mix_point: parseFloat(mixPoint)
+      station_id: parseSafeInteger(stationId, 'station ID'),
+      voice_id: parseSafeInteger(voiceId, 'voice ID'),
+      mix_point: parseFiniteNumber(mixPoint, 'mix point')
     });
 
     if (response.status === 201 && response.data?.id) {
@@ -276,36 +293,38 @@ class TestHelpers {
    * @returns {Promise<{id: number}|null>} Station-voice data or null if failed.
    */
   async createStationVoiceWithJingle(resourceManager, stationId, voiceId, mixPoint = 3.0) {
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
+    const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
+
     if (!this.isFFmpegAvailable()) {
       return null;
     }
 
-    const jingleFile = `/tmp/test_jingle_${stationId}_${voiceId}_${Date.now()}.wav`;
+    const jingleFile = `/tmp/test_jingle_${safeStationId}_${safeVoiceId}_${Date.now()}.wav`;
 
     if (!this.createTestAudioFile(jingleFile, 5, 440)) {
       return null;
     }
 
-    // Create station-voice first
-    const stationVoice = await this.createStationVoice(resourceManager, stationId, voiceId, mixPoint);
+    try {
+      const stationVoice = await this.createStationVoice(resourceManager, safeStationId, safeVoiceId, mixPoint);
 
-    if (!stationVoice) {
+      if (!stationVoice) {
+        return null;
+      }
+
+      // Jingle upload is best-effort: station-voice remains valid even if it fails.
+      await this.api.uploadFile(
+        `/station-voices/${stationVoice.id}/audio`,
+        {},
+        jingleFile,
+        'jingle'
+      );
+
+      return stationVoice;
+    } finally {
       this.cleanupTempFile(jingleFile);
-      return null;
     }
-
-    // Upload jingle
-    await this.api.uploadFile(
-      `/station-voices/${stationVoice.id}/audio`,
-      {},
-      jingleFile,
-      'jingle'
-    );
-
-    this.cleanupTempFile(jingleFile);
-
-    // Jingle upload is optional - station-voice is still valid without it
-    return stationVoice;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -319,8 +338,9 @@ class TestHelpers {
    * @returns {Promise<{status: number, data: *, headers: Object, contentType: string}>}
    */
   async publicBulletinRequest(stationId, queryParams = {}) {
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
     const params = new URLSearchParams(queryParams);
-    const url = `${this.api.apiBase}/public/stations/${stationId}/bulletin.wav?${params.toString()}`;
+    const url = `${this.api.apiBase}/public/stations/${safeStationId}/bulletin.wav?${params.toString()}`;
 
     const response = await this.api.http({
       method: 'get',

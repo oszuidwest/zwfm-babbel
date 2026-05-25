@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -79,8 +80,8 @@ func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			query, err := QueryParamsToListQuery(&QueryParams{
-				Filters: map[string]FilterOperation{
-					"audio_url": {Operator: tt.operator},
+				Filters: []ParsedFilter{
+					{Field: "audio_url", Operator: tt.operator},
 				},
 			})
 			if err != nil {
@@ -138,7 +139,7 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	between := params.Filters["id"]
+	between := findParsedFilter(t, params.Filters, "id", repository.FilterBetween)
 	if between.Operator != repository.FilterBetween {
 		t.Fatalf("between Operator = %q, want %q", between.Operator, repository.FilterBetween)
 	}
@@ -146,7 +147,7 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 		t.Fatalf("between Values = %#v, want [1 10]", between.Values)
 	}
 
-	not := params.Filters["status"]
+	not := findParsedFilter(t, params.Filters, "status", repository.FilterNotEquals)
 	if not.Operator != repository.FilterNotEquals || not.Value != "draft" {
 		t.Fatalf("not filter = %#v, want %s draft", not, repository.FilterNotEquals)
 	}
@@ -155,8 +156,9 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
 	t.Parallel()
 	query, err := QueryParamsToListQuery(&QueryParams{
-		Filters: map[string]FilterOperation{
-			"id": {
+		Filters: []ParsedFilter{
+			{
+				Field:    "id",
 				Operator: repository.FilterBetween,
 				Values:   []string{"1", "10"},
 			},
@@ -173,11 +175,90 @@ func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
 	}
 
 	if _, err := QueryParamsToListQuery(&QueryParams{
-		Filters: map[string]FilterOperation{
-			"id": {Operator: "UNKNOWN"},
+		Filters: []ParsedFilter{
+			{Field: "id", Operator: "UNKNOWN"},
 		},
 	}); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
+	t.Parallel()
+	type wantFilter struct {
+		field    string
+		operator repository.FilterOperator
+		value    any
+		values   []string
+	}
+
+	tests := []struct {
+		name   string
+		target string
+		want   []wantFilter
+	}{
+		{
+			name:   "gte and lte date bounds",
+			target: "/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31",
+			want: []wantFilter{
+				{field: "created_at", operator: repository.FilterGreaterOrEq, value: "2024-01-01"},
+				{field: "created_at", operator: repository.FilterLessOrEq, value: "2024-12-31"},
+			},
+		},
+		{
+			name:   "gt and lt numeric bounds",
+			target: "/stories?filter[id][gt]=1&filter[id][lt]=10",
+			want: []wantFilter{
+				{field: "id", operator: repository.FilterGreaterThan, value: "1"},
+				{field: "id", operator: repository.FilterLessThan, value: "10"},
+			},
+		},
+		{
+			name:   "in and ne on same field",
+			target: "/stories?filter[status][in]=active,draft&filter[status][ne]=archived",
+			want: []wantFilter{
+				{field: "status", operator: repository.FilterIn, values: []string{"active", "draft"}},
+				{field: "status", operator: repository.FilterNotEquals, value: "archived"},
+			},
+		},
+		{
+			name:   "simple equality and explicit equality on same field",
+			target: "/stories?filter[id]=1&filter[id][eq]=2",
+			want: []wantFilter{
+				{field: "id", operator: repository.FilterEquals, value: "1"},
+				{field: "id", operator: repository.FilterEquals, value: "2"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			params, err := ParseQueryParams(testQueryContext(t, tt.target))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(params.Filters) != len(tt.want) {
+				t.Fatalf("len(Filters) = %d, want %d", len(params.Filters), len(tt.want))
+			}
+
+			query, err := QueryParamsToListQuery(params)
+			if err != nil {
+				t.Fatalf("unexpected conversion error: %v", err)
+			}
+			if len(query.Filters) != len(tt.want) {
+				t.Fatalf("len(ListQuery.Filters) = %d, want %d", len(query.Filters), len(tt.want))
+			}
+
+			for _, want := range tt.want {
+				if !hasParsedFilter(params.Filters, want.field, want.operator, want.value, want.values) {
+					t.Fatalf("missing parsed filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, params.Filters)
+				}
+				if !hasFilterCondition(query.Filters, want.field, want.operator, want.value, want.values) {
+					t.Fatalf("missing list filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, query.Filters)
+				}
+			}
+		})
 	}
 }
 
@@ -328,7 +409,7 @@ func TestParseFilters_BandAcceptsValidValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := params.Filters["weekdays"]
+	got := findParsedFilter(t, params.Filters, "weekdays", repository.FilterBitwiseAnd)
 	if got.Operator != repository.FilterBitwiseAnd {
 		t.Fatalf("Operator = %q, want %q", got.Operator, repository.FilterBitwiseAnd)
 	}
@@ -420,4 +501,52 @@ func testQueryContext(t *testing.T, target string) *gin.Context {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	return c
+}
+
+func findParsedFilter(t *testing.T, filters []ParsedFilter, field string, operator repository.FilterOperator) ParsedFilter {
+	t.Helper()
+	for _, filter := range filters {
+		if filter.Field == field && filter.Operator == operator {
+			return filter
+		}
+	}
+	t.Fatalf("missing parsed filter %s/%s in %#v", field, operator, filters)
+	return ParsedFilter{}
+}
+
+func hasParsedFilter(filters []ParsedFilter, field string, operator repository.FilterOperator, value any, values []string) bool {
+	for _, filter := range filters {
+		if filter.Field != field || filter.Operator != operator {
+			continue
+		}
+		if len(values) > 0 {
+			if slices.Equal(filter.Values, values) {
+				return true
+			}
+			continue
+		}
+		if filter.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFilterCondition(filters []repository.FilterCondition, field string, operator repository.FilterOperator, value any, values []string) bool {
+	for _, filter := range filters {
+		if filter.Field != field || filter.Operator != operator {
+			continue
+		}
+		if len(values) > 0 {
+			got, ok := filter.Value.([]string)
+			if ok && slices.Equal(got, values) {
+				return true
+			}
+			continue
+		}
+		if filter.Value == value {
+			return true
+		}
+	}
+	return false
 }
