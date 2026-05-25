@@ -3,9 +3,7 @@ package api
 
 import (
 	"fmt"
-	"net/url"
 	"os"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -372,7 +370,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Check if the origin is in the allowed list
-		if isAllowedOrigin(origin, cfg.Server.AllowedOrigins) {
+		if config.IsOriginAllowed(origin, cfg.Server.AllowedOrigins) {
 			// Delete any existing CORS headers that might be set by proxies
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
@@ -395,44 +393,6 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// isAllowedOrigin reports whether the origin is in the allowed origins list.
-func isAllowedOrigin(origin string, allowedOrigins string) bool {
-	normalizedOrigin, ok := normalizeOrigin(origin)
-	if !ok {
-		return false
-	}
-
-	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {
-		normalizedAllowedOrigin, ok := normalizeOrigin(allowedOrigin)
-		if ok && normalizedOrigin == normalizedAllowedOrigin {
-			return true
-		}
-	}
-
-	return false
-}
-
-func normalizeOrigin(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", false
-	}
-
-	parsed, err := url.Parse(strings.TrimSuffix(raw, "/"))
-	if err != nil ||
-		!parsed.IsAbs() ||
-		parsed.Host == "" ||
-		parsed.User != nil ||
-		parsed.Path != "" ||
-		parsed.RawQuery != "" ||
-		parsed.ForceQuery ||
-		parsed.Fragment != "" {
-		return "", false
-	}
-
-	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), true
 }
 
 // getEnv retrieves an environment variable with fallback to a default value.

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -202,20 +201,8 @@ func (c *Config) validateAllowedOrigins() error {
 			continue
 		}
 
-		// A lone trailing slash is tolerated (matching isAllowedFrontendURL);
-		// anything else after the host is rejected.
-		parsed, err := url.Parse(strings.TrimSuffix(entry, "/"))
-		switch {
-		case err != nil:
+		if _, err := normalizeOrigin(entry); err != nil {
 			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: %w", entry, err)
-		case !parsed.IsAbs():
-			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: missing scheme (expected scheme://host)", entry)
-		case parsed.Host == "":
-			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: missing host", entry)
-		case parsed.User != nil:
-			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: must not contain user information", entry)
-		case parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "":
-			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: must be a bare origin without path, query, or fragment", entry)
 		}
 	}
 	return nil

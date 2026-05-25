@@ -1,67 +1,46 @@
 package api
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
 
-func TestIsAllowedOrigin(t *testing.T) {
-	t.Parallel()
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+)
 
-	tests := []struct {
-		name           string
-		origin         string
-		allowedOrigins string
-		want           bool
-	}{
-		{
-			name:           "exact origin",
-			origin:         "https://app.example.com",
-			allowedOrigins: "https://app.example.com",
-			want:           true,
-		},
-		{
-			name:           "configured trailing slash tolerated",
-			origin:         "https://app.example.com",
-			allowedOrigins: "https://app.example.com/",
-			want:           true,
-		},
-		{
-			name:           "multiple origins with whitespace",
-			origin:         "http://localhost:3000",
-			allowedOrigins: "https://app.example.com, http://localhost:3000",
-			want:           true,
-		},
-		{
-			name:           "prefix attack rejected",
-			origin:         "https://app.example.com.evil.test",
-			allowedOrigins: "https://app.example.com",
-			want:           false,
-		},
-		{
-			name:           "userinfo rejected",
-			origin:         "https://app.example.com@evil.test",
-			allowedOrigins: "https://app.example.com",
-			want:           false,
-		},
-		{
-			name:           "allowed path rejected",
-			origin:         "https://app.example.com",
-			allowedOrigins: "https://app.example.com/callback",
-			want:           false,
-		},
-		{
-			name:           "empty origin rejected",
-			origin:         "",
-			allowedOrigins: "https://app.example.com",
-			want:           false,
-		},
+func TestCORSMiddlewareAllowedOrigin(t *testing.T) {
+	recorder := performCORSRequest(t, "https://app.example.com", "https://app.example.com/")
+
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want https://app.example.com", got)
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+func TestCORSMiddlewareRejectsPrefixAttack(t *testing.T) {
+	recorder := performCORSRequest(t, "https://app.example.com.evil.test", "https://app.example.com")
 
-			if got := isAllowedOrigin(tt.origin, tt.allowedOrigins); got != tt.want {
-				t.Fatalf("isAllowedOrigin(%q, %q) = %v, want %v", tt.origin, tt.allowedOrigins, got, tt.want)
-			}
-		})
+	if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("Access-Control-Allow-Origin = %q, want empty", got)
 	}
+}
+
+func performCORSRequest(t *testing.T, origin, allowedOrigins string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(corsMiddleware(&config.Config{
+		Server: config.ServerConfig{AllowedOrigins: allowedOrigins},
+	}))
+	router.GET("/", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	request.Header.Set("Origin", origin)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+	return recorder
 }

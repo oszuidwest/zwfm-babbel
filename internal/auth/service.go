@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -22,6 +21,7 @@ import (
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -722,26 +722,5 @@ func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 		return false
 	}
 
-	frontendURL, err := url.Parse(urlStr)
-	if err != nil || !frontendURL.IsAbs() || frontendURL.Host == "" {
-		return false
-	}
-
-	for origin := range strings.SplitSeq(s.config.AllowedOrigins, ",") {
-		origin = strings.TrimSpace(origin)
-		if origin == "" {
-			continue
-		}
-
-		allowedURL, err := url.Parse(strings.TrimSuffix(origin, "/"))
-		if err != nil || !allowedURL.IsAbs() || allowedURL.Host == "" {
-			continue
-		}
-
-		if strings.EqualFold(frontendURL.Scheme, allowedURL.Scheme) &&
-			strings.EqualFold(frontendURL.Host, allowedURL.Host) {
-			return true
-		}
-	}
-	return false
+	return config.IsURLAllowedByOrigin(urlStr, s.config.AllowedOrigins)
 }
