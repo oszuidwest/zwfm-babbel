@@ -18,7 +18,7 @@ async function globalTeardown() {
       console.log('Cleaned up cookie file');
     }
   } catch (error) {
-    // Ignore cleanup errors
+    console.warn(`Failed to clean up cookie file ${COOKIE_FILE}: ${error.message}`);
   }
 
   // Optionally stop Docker (controlled by env var)

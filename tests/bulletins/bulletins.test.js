@@ -8,38 +8,13 @@
  */
 
 const fs = require('fs');
-const { execFileSync } = require('child_process');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
+const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelper');
 
 describe('Bulletins', () => {
-  const mysqlUser = process.env.MYSQL_USER || 'babbel';
-  const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
-  const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
-  const mysqlHost = process.env.MYSQL_HOST || 'localhost';
-  const mysqlContainer = process.env.MYSQL_CONTAINER || 'babbel-mysql';
-  let useDockerMySQL = null;
+  const mysql = createMySQLExecutor();
 
-  const execSQL = (sql) => {
-    if (useDockerMySQL === null) {
-      try {
-        const containers = execFileSync('docker', ['ps', '--format', '{{.Names}}'], {
-          encoding: 'utf-8',
-          stdio: ['ignore', 'pipe', 'ignore']
-        }).trim().split('\n');
-        useDockerMySQL = containers.includes(mysqlContainer);
-      } catch {
-        useDockerMySQL = false;
-      }
-    }
-
-    const [bin, ...args] = useDockerMySQL
-      ? ['docker', 'exec', '-i', mysqlContainer, 'mysql', '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase, '-e', sql]
-      : ['mysql', '-h', mysqlHost, '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase, '-e', sql];
-    return execFileSync(bin, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-  };
-
-  // Setup function - generates a bulletin for query tests
   const setupQueryTestData = async () => {
     const station = await global.helpers.createStation(global.resources, 'QueryBulletinStation');
     const voice = await global.helpers.createVoice(global.resources, 'QueryBulletinVoice');
@@ -944,35 +919,53 @@ describe('Bulletins', () => {
     });
 
     test('when filtering by date range, then applies both bounds', async () => {
-      // Arrange
       const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
       expect(station).not.toBeNull();
 
-      const stationId = parseInt(station.id, 10);
+      const stationId = sqlInteger(station.id, 'station ID');
       const suffix = `${Date.now()}_${process.pid}`;
-      const beforeFilename = `range_semantics_before_${suffix}.wav`;
-      const insideFilename = `range_semantics_inside_${suffix}.wav`;
-      const afterFilename = `range_semantics_after_${suffix}.wav`;
+      const rows = [
+        {
+          filename: `range_semantics_before_${suffix}.wav`,
+          createdAt: '2024-01-09 12:00:00'
+        },
+        {
+          filename: `range_semantics_inside_${suffix}.wav`,
+          createdAt: '2024-01-15 12:00:00'
+        },
+        {
+          filename: `range_semantics_after_${suffix}.wav`,
+          createdAt: '2024-01-21 12:00:00'
+        }
+      ];
+      const [beforeFilename, insideFilename, afterFilename] = rows.map(row => row.filename);
+      const filenameList = rows.map(row => sqlString(row.filename)).join(', ');
 
       const lowerBound = '2024-01-10 00:00:00';
       const upperBound = '2024-01-20 23:59:59';
 
-      const values = [
-        `(${stationId}, '${beforeFilename}', '${beforeFilename}', '2024-01-09 12:00:00')`,
-        `(${stationId}, '${insideFilename}', '${insideFilename}', '2024-01-15 12:00:00')`,
-        `(${stationId}, '${afterFilename}', '${afterFilename}', '2024-01-21 12:00:00')`
-      ].join(',');
-
-      execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
+      const values = rows.map(row => (
+        `(${stationId}, ${sqlString(row.filename)}, ${sqlString(row.filename)}, ${sqlString(row.createdAt)})`
+      )).join(',');
 
       try {
-        // Act
+        mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
+
+        const insertedRows = mysql.execSQL(
+          `SELECT id FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`
+        );
+        const insertedIds = insertedRows.trim().split('\n').slice(1).map(value => Number(value.trim()));
+        expect(insertedIds).toHaveLength(rows.length);
+        insertedIds.forEach(id => {
+          expect(Number.isSafeInteger(id)).toBe(true);
+          global.resources.track('bulletins', id);
+        });
+
         const response = await global.api.apiCall(
           'GET',
           `/bulletins?filter[station_id]=${stationId}&filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}&sort=created_at&limit=10`
         );
 
-        // Assert
         expect(response.status).toBe(200);
         const bulletins = response.data.data || [];
         const filenames = new Set(bulletins.map(b => b.filename));
@@ -989,7 +982,7 @@ describe('Bulletins', () => {
           expect(createdAt).toBeLessThanOrEqual(max);
         });
       } finally {
-        execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename LIKE 'range\\_semantics\\_%\\_${suffix}.wav'`);
+        mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
       }
     });
   });

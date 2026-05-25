@@ -53,8 +53,9 @@ type SortField struct {
 	Direction string `json:"direction"` // "asc" or "desc"
 }
 
-// FilterOperation represents a filter operation on a field. Operator values come
-// from repository.Filter* constants so callers do not translate between vocabularies.
+// FilterOperation is the parsed result of a single operator on a field.
+// Operator values come from repository.Filter* constants so handlers do not
+// translate between vocabularies.
 type FilterOperation struct {
 	Operator repository.FilterOperator `json:"operator"`
 	Value    any                       `json:"value"`
@@ -312,6 +313,7 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 			filterKeys = append(filterKeys, key)
 		}
 	}
+	// Sort so that multiple operators on the same field apply in a stable order.
 	sort.Strings(filterKeys)
 
 	for _, key := range filterKeys {

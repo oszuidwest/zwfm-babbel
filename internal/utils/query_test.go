@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -184,33 +185,81 @@ func TestQueryParamsToListQuery_BetweenAndUnknownOperators(t *testing.T) {
 
 func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
 	t.Parallel()
-	params, err := ParseQueryParams(testQueryContext(t, "/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(params.Filters) != 2 {
-		t.Fatalf("len(Filters) = %d, want 2", len(params.Filters))
-	}
-
-	gte := findParsedFilter(t, params.Filters, "created_at", repository.FilterGreaterOrEq)
-	if gte.Value != "2024-01-01" {
-		t.Fatalf("gte Value = %v, want 2024-01-01", gte.Value)
+	type wantFilter struct {
+		field    string
+		operator repository.FilterOperator
+		value    any
+		values   []string
 	}
 
-	lte := findParsedFilter(t, params.Filters, "created_at", repository.FilterLessOrEq)
-	if lte.Value != "2024-12-31" {
-		t.Fatalf("lte Value = %v, want 2024-12-31", lte.Value)
+	tests := []struct {
+		name   string
+		target string
+		want   []wantFilter
+	}{
+		{
+			name:   "gte and lte date bounds",
+			target: "/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31",
+			want: []wantFilter{
+				{field: "created_at", operator: repository.FilterGreaterOrEq, value: "2024-01-01"},
+				{field: "created_at", operator: repository.FilterLessOrEq, value: "2024-12-31"},
+			},
+		},
+		{
+			name:   "gt and lt numeric bounds",
+			target: "/stories?filter[id][gt]=1&filter[id][lt]=10",
+			want: []wantFilter{
+				{field: "id", operator: repository.FilterGreaterThan, value: "1"},
+				{field: "id", operator: repository.FilterLessThan, value: "10"},
+			},
+		},
+		{
+			name:   "in and ne on same field",
+			target: "/stories?filter[status][in]=active,draft&filter[status][ne]=archived",
+			want: []wantFilter{
+				{field: "status", operator: repository.FilterIn, values: []string{"active", "draft"}},
+				{field: "status", operator: repository.FilterNotEquals, value: "archived"},
+			},
+		},
+		{
+			name:   "simple equality and explicit equality on same field",
+			target: "/stories?filter[id]=1&filter[id][eq]=2",
+			want: []wantFilter{
+				{field: "id", operator: repository.FilterEquals, value: "1"},
+				{field: "id", operator: repository.FilterEquals, value: "2"},
+			},
+		},
 	}
 
-	query, err := QueryParamsToListQuery(params)
-	if err != nil {
-		t.Fatalf("unexpected conversion error: %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			params, err := ParseQueryParams(testQueryContext(t, tt.target))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(params.Filters) != len(tt.want) {
+				t.Fatalf("len(Filters) = %d, want %d", len(params.Filters), len(tt.want))
+			}
+
+			query, err := QueryParamsToListQuery(params)
+			if err != nil {
+				t.Fatalf("unexpected conversion error: %v", err)
+			}
+			if len(query.Filters) != len(tt.want) {
+				t.Fatalf("len(ListQuery.Filters) = %d, want %d", len(query.Filters), len(tt.want))
+			}
+
+			for _, want := range tt.want {
+				if !hasParsedFilter(params.Filters, want.field, want.operator, want.value, want.values) {
+					t.Fatalf("missing parsed filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, params.Filters)
+				}
+				if !hasFilterCondition(query.Filters, want.field, want.operator, want.value, want.values) {
+					t.Fatalf("missing list filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, query.Filters)
+				}
+			}
+		})
 	}
-	if len(query.Filters) != 2 {
-		t.Fatalf("len(ListQuery.Filters) = %d, want 2", len(query.Filters))
-	}
-	findFilterCondition(t, query.Filters, "created_at", repository.FilterGreaterOrEq)
-	findFilterCondition(t, query.Filters, "created_at", repository.FilterLessOrEq)
 }
 
 func TestPagination(t *testing.T) {
@@ -465,12 +514,39 @@ func findParsedFilter(t *testing.T, filters []ParsedFilter, field string, operat
 	return ParsedFilter{}
 }
 
-func findFilterCondition(t *testing.T, filters []repository.FilterCondition, field string, operator repository.FilterOperator) {
-	t.Helper()
+func hasParsedFilter(filters []ParsedFilter, field string, operator repository.FilterOperator, value any, values []string) bool {
 	for _, filter := range filters {
-		if filter.Field == field && filter.Operator == operator {
-			return
+		if filter.Field != field || filter.Operator != operator {
+			continue
+		}
+		if len(values) > 0 {
+			if slices.Equal(filter.Values, values) {
+				return true
+			}
+			continue
+		}
+		if filter.Value == value {
+			return true
 		}
 	}
-	t.Fatalf("missing list filter %s/%s in %#v", field, operator, filters)
+	return false
+}
+
+func hasFilterCondition(filters []repository.FilterCondition, field string, operator repository.FilterOperator, value any, values []string) bool {
+	for _, filter := range filters {
+		if filter.Field != field || filter.Operator != operator {
+			continue
+		}
+		if len(values) > 0 {
+			got, ok := filter.Value.([]string)
+			if ok && slices.Equal(got, values) {
+				return true
+			}
+			continue
+		}
+		if filter.Value == value {
+			return true
+		}
+	}
+	return false
 }

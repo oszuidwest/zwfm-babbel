@@ -7,7 +7,21 @@ const path = require('path');
 const PROJECT_ROOT = path.join(__dirname, '..');
 const API_BASE = process.env.API_BASE || 'http://localhost:8080';
 
+function describeRequestError(error) {
+  if (!error) {
+    return 'unknown error';
+  }
+  if (error.response) {
+    return `HTTP ${error.response.status} ${error.response.statusText || ''}`.trim();
+  }
+  if (error.code) {
+    return `${error.code}: ${error.message}`;
+  }
+  return error.message || String(error);
+}
+
 async function waitForApi(maxRetries = 30, retryDelay = 2000) {
+  let lastError = null;
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await axios.get(`${API_BASE}/api/v1/auth/config`, { timeout: 2000 });
@@ -16,11 +30,12 @@ async function waitForApi(maxRetries = 30, retryDelay = 2000) {
         return true;
       }
     } catch (error) {
-      console.log(`Waiting for API... (attempt ${i + 1}/${maxRetries})`);
+      lastError = error;
+      console.log(`Waiting for API... (attempt ${i + 1}/${maxRetries}: ${describeRequestError(error)})`);
       await new Promise(resolve => setTimeout(resolve, retryDelay));
     }
   }
-  throw new Error('API failed to start within timeout');
+  throw new Error(`API failed to start within timeout. Last error: ${describeRequestError(lastError)}`);
 }
 
 async function globalSetup() {
@@ -30,8 +45,10 @@ async function globalSetup() {
     console.log('Checking API readiness...');
     try {
       await waitForApi(5, 1000);
-    } catch {
-      throw new Error('API is not reachable. Start the API before running with JEST_SKIP_DOCKER=true');
+    } catch (error) {
+      throw new Error(
+        `API is not reachable. Start the API before running with JEST_SKIP_DOCKER=true. ${error.message}`
+      );
     }
     return;
   }
@@ -81,7 +98,7 @@ async function globalSetup() {
         stdio: 'inherit'
       });
     } catch (logError) {
-      // Ignore log errors
+      console.error(`Failed to collect Docker logs: ${logError.message}`);
     }
 
     throw error;

@@ -51,6 +51,11 @@ Sample bulletins for testing bulletin history features
 node tests/fixtures/load-fixtures.js
 ```
 
+`load-fixtures.js` uses the `babbel-mysql` Docker container when it is running.
+If Docker cannot be inspected or that container is absent, it connects directly
+to MySQL using `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
+`MYSQL_DATABASE` (defaults: `localhost`, `babbel`, `babbel`, `babbel`).
+
 ### In Tests
 
 The test fixtures provide a known state for testing. Tests can:

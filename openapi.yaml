@@ -2582,7 +2582,7 @@ components:
           value: { "name": "Radio Station" }
           summary: "Filter by exact name match"
         comparison:
-          value: { "created_at": { "gte": "2024-01-01T00:00:00Z", "lte": "2024-12-31T23:59:59Z" } }
+          value: { "created_at": { "gte": "2024-01-01", "lte": "2024-12-31" } }
           summary: "Filter by date range"
         pattern:
           value: { "name": { "like": "radio" } }
