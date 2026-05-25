@@ -1,5 +1,5 @@
 // Jest global teardown - cleanup after all tests
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -25,7 +25,7 @@ async function globalTeardown() {
   if (process.env.JEST_STOP_DOCKER === 'true') {
     console.log('Stopping Docker containers...');
     try {
-      execSync('docker compose down', {
+      execFileSync('docker', ['compose', 'down'], {
         cwd: PROJECT_ROOT,
         stdio: 'inherit'
       });

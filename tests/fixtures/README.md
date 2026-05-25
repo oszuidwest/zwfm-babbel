@@ -48,11 +48,7 @@ Sample bulletins for testing bulletin history features
 ### Load Fixtures Manually
 
 ```bash
-# Using the script
 node tests/fixtures/load-fixtures.js
-
-# Or directly with MySQL
-docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < tests/fixtures/test-data.sql
 ```
 
 ### In Tests

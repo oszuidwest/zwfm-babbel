@@ -8,7 +8,7 @@
  * - "when...then" naming convention
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fsSync = require('fs');
 const path = require('path');
 
@@ -31,13 +31,19 @@ describe('Bulletin Cleanup', () => {
 
   // Execute SQL against the Docker MySQL container
   const execSQL = (sql) => {
-    const cmd = `docker exec -i ${mysqlContainer} mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${sql}"`;
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return execFileSync(
+      'docker',
+      ['exec', '-i', mysqlContainer, 'mysql', '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase, '-e', sql],
+      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
   };
 
   // Mark a bulletin as purged via direct SQL and remove its audio file
   const markBulletinPurged = (bulletinId) => {
-    const id = parseInt(bulletinId, 10);
+    const id = Number(bulletinId);
+    if (!Number.isSafeInteger(id)) {
+      throw new Error(`Invalid bulletin ID: ${bulletinId}`);
+    }
 
     // Set file_purged_at in database
     execSQL(`UPDATE bulletins SET file_purged_at = NOW() WHERE id = ${id}`);

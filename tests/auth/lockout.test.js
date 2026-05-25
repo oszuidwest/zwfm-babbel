@@ -9,7 +9,7 @@
  * - "when...then" naming convention
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 // Matches BABBEL_AUTH_MAX_LOGIN_ATTEMPTS default in internal/config/config.go.
 const MAX_LOGIN_ATTEMPTS = 5;
@@ -23,8 +23,9 @@ const readLockedUntilUnix = (uname) => {
     throw new Error(`refusing to query MySQL with unsafe username: ${uname}`);
   }
   const sql = `SELECT IFNULL(UNIX_TIMESTAMP(locked_until), 0) FROM users WHERE username = '${uname}';`;
-  const out = execSync(
-    `docker exec -i babbel-mysql mysql -ubabbel -pbabbel -N -s -e "${sql}" babbel`,
+  const out = execFileSync(
+    'docker',
+    ['exec', '-i', 'babbel-mysql', 'mysql', '-ubabbel', '-pbabbel', '-N', '-s', '-e', sql, 'babbel'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
   ).trim();
   return Number.parseInt(out, 10);

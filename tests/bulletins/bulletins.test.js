@@ -8,7 +8,7 @@
  */
 
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
 
@@ -23,18 +23,20 @@ describe('Bulletins', () => {
   const execSQL = (sql) => {
     if (useDockerMySQL === null) {
       try {
-        execSync(`docker ps --format '{{.Names}}' | grep -x '${mysqlContainer}'`, { stdio: 'ignore' });
-        useDockerMySQL = true;
+        const containers = execFileSync('docker', ['ps', '--format', '{{.Names}}'], {
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore']
+        }).trim().split('\n');
+        useDockerMySQL = containers.includes(mysqlContainer);
       } catch {
         useDockerMySQL = false;
       }
     }
 
-    const escapedSQL = sql.replace(/"/g, '\\"');
-    const cmd = useDockerMySQL
-      ? `docker exec -i ${mysqlContainer} mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${escapedSQL}"`
-      : `mysql -h ${mysqlHost} -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} -e "${escapedSQL}"`;
-    return execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const [bin, ...args] = useDockerMySQL
+      ? ['docker', 'exec', '-i', mysqlContainer, 'mysql', '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase, '-e', sql]
+      : ['mysql', '-h', mysqlHost, '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase, '-e', sql];
+    return execFileSync(bin, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
   };
 
   // Setup function - generates a bulletin for query tests

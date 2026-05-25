@@ -3,7 +3,7 @@
 // Load test fixtures into the database.
 // This script populates the database with test data for consistent testing.
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
@@ -20,6 +20,7 @@ const mysqlUser = process.env.MYSQL_USER || 'babbel';
 const mysqlPassword = process.env.MYSQL_PASSWORD || 'babbel';
 const mysqlDatabase = process.env.MYSQL_DATABASE || 'babbel';
 const mysqlHost = process.env.MYSQL_HOST || 'localhost';
+const mysqlContainer = process.env.MYSQL_CONTAINER || 'babbel-mysql';
 
 console.log('Loading test fixtures into database...');
 
@@ -27,24 +28,31 @@ try {
     // Load fixtures using docker exec if container is running
     const isDockerRunning = () => {
         try {
-            execSync('docker ps | grep babbel-mysql', { stdio: 'ignore' });
-            return true;
+            const containers = execFileSync('docker', ['ps', '--format', '{{.Names}}'], {
+                encoding: 'utf-8',
+                stdio: ['ignore', 'pipe', 'ignore']
+            }).trim().split('\n');
+            return containers.includes(mysqlContainer);
         } catch {
             return false;
         }
     };
 
+    const fixtureSQL = fs.readFileSync(fixtureFile);
+
     if (isDockerRunning()) {
-        console.log('Using Docker container babbel-mysql...');
-        execSync(
-            `docker exec -i babbel-mysql mysql -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} < ${fixtureFile}`,
-            { stdio: 'inherit' }
+        console.log(`Using Docker container ${mysqlContainer}...`);
+        execFileSync(
+            'docker',
+            ['exec', '-i', mysqlContainer, 'mysql', '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase],
+            { input: fixtureSQL, stdio: ['pipe', 'inherit', 'inherit'] }
         );
     } else {
         console.log('Connecting directly to MySQL...');
-        execSync(
-            `mysql -h ${mysqlHost} -u ${mysqlUser} -p${mysqlPassword} ${mysqlDatabase} < ${fixtureFile}`,
-            { stdio: 'inherit' }
+        execFileSync(
+            'mysql',
+            ['-h', mysqlHost, '-u', mysqlUser, `-p${mysqlPassword}`, mysqlDatabase],
+            { input: fixtureSQL, stdio: ['pipe', 'inherit', 'inherit'] }
         );
     }
 

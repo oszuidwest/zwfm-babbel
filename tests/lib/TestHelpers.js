@@ -1,7 +1,7 @@
 // Centralized test helper functions for Babbel API tests.
 // Eliminates code duplication across test files by providing unified helper methods.
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fsSync = require('fs');
 
 class TestHelpers {
@@ -58,7 +58,7 @@ class TestHelpers {
   isFFmpegAvailable() {
     if (this._ffmpegAvailable === null) {
       try {
-        execSync('ffmpeg -version', { stdio: 'ignore' });
+        execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' });
         this._ffmpegAvailable = true;
       } catch {
         this._ffmpegAvailable = false;
@@ -79,9 +79,24 @@ class TestHelpers {
       return false;
     }
 
+    const numericDuration = Number(duration);
+    const numericFrequency = Number(frequency);
+    if (!Number.isFinite(numericDuration) || !Number.isFinite(numericFrequency)) {
+      return false;
+    }
+
     try {
-      execSync(
-        `ffmpeg -f lavfi -i "sine=frequency=${frequency}:duration=${duration}" -ar 44100 -ac 2 -f wav "${outputPath}" -y 2>/dev/null`,
+      execFileSync(
+        'ffmpeg',
+        [
+          '-f', 'lavfi',
+          '-i', `sine=frequency=${numericFrequency}:duration=${numericDuration}`,
+          '-ar', '44100',
+          '-ac', '2',
+          '-f', 'wav',
+          outputPath,
+          '-y'
+        ],
         { stdio: 'ignore' }
       );
       return fsSync.existsSync(outputPath);
