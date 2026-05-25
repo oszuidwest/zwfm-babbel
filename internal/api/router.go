@@ -3,8 +3,8 @@ package api
 
 import (
 	"fmt"
+	"net/url"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -399,17 +399,40 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 // isAllowedOrigin reports whether the origin is in the allowed origins list.
 func isAllowedOrigin(origin string, allowedOrigins string) bool {
-	if origin == "" {
+	normalizedOrigin, ok := normalizeOrigin(origin)
+	if !ok {
 		return false
 	}
 
-	// Split and trim the allowed origins
-	origins := strings.Split(allowedOrigins, ",")
-	for i := range origins {
-		origins[i] = strings.TrimSpace(origins[i])
+	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {
+		normalizedAllowedOrigin, ok := normalizeOrigin(allowedOrigin)
+		if ok && normalizedOrigin == normalizedAllowedOrigin {
+			return true
+		}
 	}
 
-	return slices.Contains(origins, origin)
+	return false
+}
+
+func normalizeOrigin(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+
+	parsed, err := url.Parse(strings.TrimSuffix(raw, "/"))
+	if err != nil ||
+		!parsed.IsAbs() ||
+		parsed.Host == "" ||
+		parsed.User != nil ||
+		parsed.Path != "" ||
+		parsed.RawQuery != "" ||
+		parsed.ForceQuery ||
+		parsed.Fragment != "" {
+		return "", false
+	}
+
+	return strings.ToLower(parsed.Scheme + "://" + parsed.Host), true
 }
 
 // getEnv retrieves an environment variable with fallback to a default value.
