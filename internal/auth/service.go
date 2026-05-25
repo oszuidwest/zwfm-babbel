@@ -21,6 +21,7 @@ import (
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -51,14 +52,12 @@ func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 		db:     db,
 	}
 
-	// Initialize OIDC if configured
 	if cfg.Method.SupportsOIDC() {
 		if err := s.initializeOIDC(); err != nil {
 			return nil, fmt.Errorf("failed to initialize OIDC: %w", err)
 		}
 	}
 
-	// Initialize session store
 	store, ginStore, err := NewGinSessionStore(cfg.Session)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize session store: %w", err)
@@ -66,7 +65,6 @@ func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 	s.sessions = store
 	s.ginStore = ginStore
 
-	// Initialize Casbin for RBAC
 	enforcer, err := s.initializeRBAC()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Casbin: %w", err)
@@ -154,7 +152,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"editor", "stories", "write"},
 		{"editor", "bulletins", "generate"},
 		{"editor", "bulletins", "read"},
-		{"editor", "broadcasts", "read"},
 		{"editor", "users", "read"}, // Can view users
 
 		// Viewers can only read
@@ -162,7 +159,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "voices", "read"},
 		{"viewer", "stories", "read"},
 		{"viewer", "bulletins", "read"},
-		{"viewer", "broadcasts", "read"},
 
 		// User management: read for editors and admins, write for admins only
 		{"admin", "users", "read"},
@@ -185,7 +181,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 // sanitizeEmailToUsername converts an email address to a valid username.
 func (s *Service) sanitizeEmailToUsername(email string) string {
-	// Take the part before @ (local part of email)
 	base, _, _ := strings.Cut(email, "@")
 
 	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
@@ -207,7 +202,6 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 		username = username[:100]
 	}
 
-	// Ensure uniqueness
 	return s.ensureUniqueUsername(username)
 }
 
@@ -558,7 +552,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		return nil, fmt.Errorf("failed to create user: %w", result.Error)
 	}
 
-	// Get the last inserted ID
 	var id int64
 	err = s.db.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&id).Error
 	if err != nil {
@@ -723,16 +716,5 @@ func (s *Service) isAllowedFrontendURL(urlStr string) bool {
 		return false
 	}
 
-	// Parse the provided URL to extract the origin
-	for origin := range strings.SplitSeq(s.config.AllowedOrigins, ",") {
-		origin = strings.TrimSpace(origin)
-		if origin == "" {
-			continue
-		}
-		// Check if the URL starts with the allowed origin
-		if strings.HasPrefix(urlStr, origin) {
-			return true
-		}
-	}
-	return false
+	return config.IsURLAllowedByOrigin(urlStr, s.config.AllowedOrigins)
 }

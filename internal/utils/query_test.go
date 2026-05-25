@@ -59,6 +59,19 @@ func TestFilterOperatorHandlers_NullRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestFilterOperatorHandlers_LikeLeavesValueUnwrapped(t *testing.T) {
+	got, err := filterOperatorHandlers["like"]("news")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Operator != repository.FilterLike {
+		t.Fatalf("Operator = %q, want %q", got.Operator, repository.FilterLike)
+	}
+	if got.Value != "news" {
+		t.Fatalf("Value = %#v, want news", got.Value)
+	}
+}
+
 func TestQueryParamsToListQuery_NullFilters(t *testing.T) {
 	tests := []struct {
 		name     string

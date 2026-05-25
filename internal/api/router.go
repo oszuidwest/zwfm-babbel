@@ -4,8 +4,6 @@ package api
 import (
 	"fmt"
 	"os"
-	"slices"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -372,7 +370,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Check if the origin is in the allowed list
-		if isAllowedOrigin(origin, cfg.Server.AllowedOrigins) {
+		if config.IsOriginAllowed(origin, cfg.Server.AllowedOrigins) {
 			// Delete any existing CORS headers that might be set by proxies
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
@@ -395,21 +393,6 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// isAllowedOrigin reports whether the origin is in the allowed origins list.
-func isAllowedOrigin(origin string, allowedOrigins string) bool {
-	if origin == "" {
-		return false
-	}
-
-	// Split and trim the allowed origins
-	origins := strings.Split(allowedOrigins, ",")
-	for i := range origins {
-		origins[i] = strings.TrimSpace(origins[i])
-	}
-
-	return slices.Contains(origins, origin)
 }
 
 // getEnv retrieves an environment variable with fallback to a default value.

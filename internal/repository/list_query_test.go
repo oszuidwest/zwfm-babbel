@@ -3,12 +3,16 @@ package repository
 import (
 	"errors"
 	"testing"
+
+	"gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
-// These tests exercise the error branches of applyFilterCondition. The error
-// branches return before touching the *gorm.DB, so a nil DB is safe input.
-// Happy-path SQL generation is verified by the Jest integration suite under
-// tests/ against a real MySQL.
+// Most of these tests exercise the error branches of applyFilterCondition, which
+// return before touching the *gorm.DB, so a nil DB is safe input. The LIKE
+// wildcard wrapping is pinned with a DryRun statement below; broader happy-path
+// SQL generation is verified by the Jest integration suite under tests/ against a
+// real MySQL.
 
 func TestApplyFilterCondition_UnknownField(t *testing.T) {
 	mapping := FieldMapping{"name": "name"}
@@ -101,6 +105,43 @@ func TestApplyFilterCondition_UnsupportedOperator(t *testing.T) {
 	if !errors.As(err, &invalid) {
 		t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
 	}
+}
+
+// TestApplyFilterCondition_LikeWrapsValueOnce pins the single-wrap contract: the
+// handler layer passes the raw substring (internal/utils/query.go) and the
+// repository is the only layer that adds the % wildcards. A regression that drops
+// the wrap ("news") or double-wraps ("%%news%%") changes the bind variable and
+// fails here. DryRun builds the statement without opening a database connection.
+func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
+	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
+		Field:    "title",
+		Operator: FilterLike,
+		Value:    "news",
+	}, FieldMapping{"title": "title"})
+	if err != nil {
+		t.Fatalf("applyFilterCondition: %v", err)
+	}
+
+	stmt := out.Find(&[]struct{}{}).Statement
+	if got := stmt.Vars; len(got) != 1 || got[0] != "%news%" {
+		t.Fatalf("LIKE bind vars = %#v, want [%q]", got, "%news%")
+	}
+}
+
+// dryRunDB returns a GORM DB on the MySQL dialector in DryRun mode. It builds SQL
+// and bind variables without connecting (SkipInitializeWithVersion skips the
+// version probe; DisableAutomaticPing skips the post-open ping), so it can assert
+// generated argument shapes against the real dialect without a live database.
+func dryRunDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatalf("open dry-run db: %v", err)
+	}
+	return db
 }
 
 func TestSortDirectionSQL(t *testing.T) {

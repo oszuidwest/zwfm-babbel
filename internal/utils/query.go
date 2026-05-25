@@ -221,7 +221,7 @@ var filterOperatorHandlers = map[string]filterOperatorHandler{
 		return FilterOperation{Operator: repository.FilterBetween, Values: []string{lower, upper}}, nil
 	},
 	"like": func(value string) (FilterOperation, error) {
-		return FilterOperation{Operator: repository.FilterLike, Value: "%" + value + "%"}, nil
+		return FilterOperation{Operator: repository.FilterLike, Value: value}, nil
 	},
 	"gte": func(value string) (FilterOperation, error) {
 		return FilterOperation{Operator: repository.FilterGreaterOrEq, Value: value}, nil

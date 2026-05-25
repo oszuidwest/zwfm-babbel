@@ -51,13 +51,11 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 // Create generates a new bulletin for the specified station and date.
 // Returns the created bulletin with all computed fields populated.
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
-	// Fetch station details
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
-	// Get stories for the date
 	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
 	if err != nil {
 		return nil, err
@@ -94,20 +92,17 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		stories[i], stories[j] = stories[j], stories[i]
 	})
 
-	// Generate audio file
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
 		return nil, err
 	}
 
-	// Get file metadata
 	var fileSize int64
 	if fi, err := os.Stat(bulletinPath); err == nil {
 		fileSize = fi.Size()
 	}
 	totalDuration := s.calculateBulletinDuration(station, stories, jingle.MixPoint)
 
-	// Persist bulletin to database using transaction
 	bulletinID, err := s.saveBulletinToDatabase(ctx, saveBulletinParams{
 		StationID:    stationID,
 		BulletinPath: bulletinPath,
@@ -134,7 +129,6 @@ func (s *BulletinService) generateBulletinAudio(
 	timestamp := time.Now()
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
-	// Create bulletin using the generated absolute path
 	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, bulletinPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
 	}
@@ -146,7 +140,6 @@ func (s *BulletinService) generateBulletinAudio(
 func (s *BulletinService) calculateBulletinDuration(
 	station *models.Station, stories []repository.BulletinStoryData, mixPoint float64,
 ) float64 {
-	// Calculate total duration of all stories
 	var storiesDuration float64
 	for _, story := range stories {
 		if story.DurationSeconds != nil {
@@ -154,7 +147,6 @@ func (s *BulletinService) calculateBulletinDuration(
 		}
 	}
 
-	// Add pauses between stories
 	if station.PauseSeconds > 0 && len(stories) > 1 {
 		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
 	}
@@ -164,7 +156,6 @@ func (s *BulletinService) calculateBulletinDuration(
 		return storiesDuration + mixPoint
 	}
 
-	// Total duration = stories duration + pauses
 	return storiesDuration
 }
 
@@ -182,7 +173,6 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params sav
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		// Insert bulletin record
 		filename := filepath.Base(params.BulletinPath)
 		id, err := s.bulletinRepo.Create(txCtx, repository.CreateBulletinParams{
 			StationID:  params.StationID,
@@ -197,7 +187,6 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params sav
 		}
 		bulletinID = id
 
-		// Link stories to bulletin
 		storyIDs := make([]int64, len(params.Stories))
 		for i, story := range params.Stories {
 			storyIDs[i] = story.ID

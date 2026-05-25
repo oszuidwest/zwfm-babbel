@@ -108,7 +108,7 @@ type AuthConfig struct {
 	// OIDCClientSecret specifies the OAuth/OIDC client secret.
 	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
 	// OIDCRedirectURL specifies the OAuth callback URL for this application.
-	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/callback"`
+	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/oauth/callback"`
 	// Local configures password policy and lockout rules.
 	Local LocalAuthConfig `envPrefix:"AUTH_"`
 }
@@ -181,8 +181,29 @@ func (c *Config) Validate() error {
 	if err := c.validateAuth(); err != nil {
 		return err
 	}
+	if err := c.validateAllowedOrigins(); err != nil {
+		return err
+	}
 	if err := c.validateAudioTools(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateAllowedOrigins ensures each configured CORS/OAuth origin is a bare
+// scheme://host[:port] value. Empty configuration is valid (CORS disabled and
+// OAuth frontend redirects rejected); malformed entries fail fast at startup
+// rather than being silently skipped when matching requests.
+func (c *Config) validateAllowedOrigins() error {
+	for entry := range strings.SplitSeq(c.Server.AllowedOrigins, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		if _, err := normalizeOrigin(entry); err != nil {
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: %w", entry, err)
+		}
 	}
 	return nil
 }
