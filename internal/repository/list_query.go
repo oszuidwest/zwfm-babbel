@@ -165,16 +165,34 @@ var operatorFormats = map[FilterOperator]string{
 	FilterBitwiseAnd:  "(%s & ?) != 0",
 }
 
+// likePatternEscaper escapes the LIKE metacharacters so user input is matched
+// literally. MySQL's LIKE treats % and _ as wildcards and \ as the default
+// escape character, so all three must be escaped. Backslash is listed first so
+// the replacer never re-escapes the escapes it just inserted.
+var likePatternEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// escapeLikePattern escapes LIKE wildcards in user input so a search for
+// "50%" or "a_b" matches literally instead of being interpreted as a pattern.
+func escapeLikePattern(s string) string {
+	return likePatternEscaper.Replace(s)
+}
+
+// likeEscapeClause makes the backslash escape character explicit so LIKE
+// matching does not depend on the server's default ESCAPE setting. The doubled
+// backslash is a MySQL string literal that resolves to a single backslash,
+// matching the escape character inserted by escapeLikePattern.
+const likeEscapeClause = ` ESCAPE '\\'`
+
 // applySearch attaches a search WHERE clause across all search fields.
 func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 	if search == "" || len(searchFields) == 0 {
 		return db
 	}
-	searchPattern := "%" + search + "%"
+	searchPattern := "%" + escapeLikePattern(search) + "%"
 	conditions := make([]string, len(searchFields))
 	args := make([]any, len(searchFields))
 	for i, field := range searchFields {
-		conditions[i] = field + " LIKE ?"
+		conditions[i] = field + " LIKE ?" + likeEscapeClause
 		args[i] = searchPattern
 	}
 	return db.Where(strings.Join(conditions, " OR "), args...)
@@ -253,7 +271,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 				Reason:   "expected string value",
 			}
 		}
-		return db.Where(dbField+" LIKE ?", "%"+s+"%"), nil
+		return db.Where(dbField+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(s)+"%"), nil
 	}
 
 	if filter.Operator == FilterBetween {

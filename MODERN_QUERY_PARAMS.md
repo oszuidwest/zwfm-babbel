@@ -42,11 +42,15 @@ GET /api/v1/stories?filter[status][in]=active,draft
 GET /api/v1/stories?filter[voice_id][in]=1,2,3
 ```
 
-#### Pattern Matching
+#### Substring Matching (contains)
 ```http
-# LIKE searches (case-sensitive pattern matching)
+# Case-sensitive "contains" match; the value is matched literally, not as a pattern
 GET /api/v1/stories?filter[title][like]=news
 ```
+
+The value is treated as literal text: `%` and `_` match those characters
+themselves rather than acting as SQL wildcards. The `%value%` wrapping is
+applied internally.
 
 #### Bitwise Filtering (Bitmask Fields)
 ```http
@@ -80,7 +84,7 @@ GET /api/v1/stories?filter[status]=active&filter[audio_url]=&sort=-created_at
 
 The `audio_url` filter maps to the internal `audio_file` database column. An empty value (`=`) matches records without audio, while `[ne]=` (not equals empty) matches records with audio. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
-> **Note:** The `ilike` operator is not implemented. Use `like` for pattern matching.
+> **Note:** The `ilike` operator is not implemented. Use `like` for case-sensitive substring (contains) matching.
 
 ### 2. Sorting
 
