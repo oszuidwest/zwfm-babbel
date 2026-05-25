@@ -14,6 +14,8 @@ func TestNormalizeOrigin(t *testing.T) {
 		{name: "canonical origin", raw: "https://app.example.com", want: "https://app.example.com"},
 		{name: "uppercase origin", raw: "HTTPS://APP.EXAMPLE.COM", want: "https://app.example.com"},
 		{name: "port preserved", raw: "http://LOCALHOST:3000", want: "http://localhost:3000"},
+		{name: "https default port omitted", raw: "https://app.example.com:443", want: "https://app.example.com"},
+		{name: "http default port omitted", raw: "http://app.example.com:80", want: "http://app.example.com"},
 		{name: "single trailing slash tolerated", raw: "https://app.example.com/", want: "https://app.example.com"},
 		{name: "surrounding whitespace trimmed", raw: " https://app.example.com ", want: "https://app.example.com"},
 		{name: "empty rejected", raw: "", wantErr: "must not be empty"},
@@ -50,6 +52,8 @@ func TestOriginFromURL(t *testing.T) {
 		{name: "path and query allowed", raw: "https://app.example.com/login?next=/stories", want: "https://app.example.com"},
 		{name: "fragment allowed", raw: "https://app.example.com/login#done", want: "https://app.example.com"},
 		{name: "port preserved", raw: "http://localhost:3000/auth/done", want: "http://localhost:3000"},
+		{name: "https default port omitted", raw: "https://app.example.com:443/login", want: "https://app.example.com"},
+		{name: "http default port omitted", raw: "http://app.example.com:80/login", want: "http://app.example.com"},
 		{name: "uppercase canonicalized", raw: "HTTPS://APP.EXAMPLE.COM/login", want: "https://app.example.com"},
 		{name: "relative URL rejected", raw: "/login", wantErr: "missing scheme"},
 		{name: "missing host rejected", raw: "https:///login", wantErr: "missing host"},
@@ -81,7 +85,10 @@ func TestIsOriginAllowed(t *testing.T) {
 		{name: "prefix attack rejected", origin: "https://app.example.com.evil.test", allowedOrigins: "https://app.example.com", want: false},
 		{name: "userinfo rejected", origin: "https://app.example.com@evil.test", allowedOrigins: "https://app.example.com", want: false},
 		{name: "allowed path rejected", origin: "https://app.example.com", allowedOrigins: "https://app.example.com/callback", want: false},
+		{name: "subdomain is not same origin", origin: "https://admin.app.example.com", allowedOrigins: "https://app.example.com", want: false},
+		{name: "matches valid entry after malformed entry", origin: "https://good.test", allowedOrigins: "app.example.com, https://good.test", want: true},
 		{name: "empty origin rejected", origin: "", allowedOrigins: "https://app.example.com", want: false},
+		{name: "empty allowed list rejects", origin: "https://app.example.com", allowedOrigins: "", want: false},
 	}
 
 	for _, tt := range tests {
@@ -107,9 +114,11 @@ func TestIsURLAllowedByOrigin(t *testing.T) {
 		{name: "full URL with path allowed", rawURL: "https://app.example.com/login?next=/stories", allowedOrigins: "https://app.example.com", want: true},
 		{name: "uppercase URL canonicalized", rawURL: "HTTPS://APP.EXAMPLE.COM/login", allowedOrigins: "https://app.example.com", want: true},
 		{name: "different port rejected", rawURL: "https://app.example.com:8443/login", allowedOrigins: "https://app.example.com", want: false},
-		{name: "explicit default port rejected", rawURL: "https://app.example.com:443/login", allowedOrigins: "https://app.example.com", want: false},
+		{name: "explicit https default port matches portless origin", rawURL: "https://app.example.com:443/login", allowedOrigins: "https://app.example.com", want: true},
+		{name: "explicit http default port matches portless origin", rawURL: "http://app.example.com:80/login", allowedOrigins: "http://app.example.com", want: true},
 		{name: "relative URL rejected", rawURL: "/login", allowedOrigins: "https://app.example.com", want: false},
 		{name: "userinfo rejected", rawURL: "https://app.example.com@evil.test/login", allowedOrigins: "https://evil.test", want: false},
+		{name: "empty allowed list rejects", rawURL: "https://app.example.com/login", allowedOrigins: "", want: false},
 	}
 
 	for _, tt := range tests {

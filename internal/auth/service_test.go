@@ -55,9 +55,9 @@ func TestIsAllowedFrontendURLRequiresExactOrigin(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "explicit default port does not match portless origin",
+			name: "explicit default port matches portless origin",
 			url:  "https://app.example.com:443/login",
-			want: false,
+			want: true,
 		},
 		{
 			name: "relative URL rejected",

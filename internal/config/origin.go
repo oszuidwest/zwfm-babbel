@@ -6,9 +6,10 @@ import (
 	"strings"
 )
 
-// normalizeOrigin returns the canonical scheme://host form of a bare absolute
-// origin. A single trailing slash is tolerated; path, query, fragment, and
-// userinfo components are rejected.
+// normalizeOrigin returns the canonical, lowercased scheme://host[:port] form of
+// a bare absolute origin. Default ports (:80 for http, :443 for https) are
+// omitted to match web origin serialization. A single trailing slash is
+// tolerated; path, query, fragment, and userinfo components are rejected.
 func normalizeOrigin(raw string) (string, error) {
 	parsed, err := parseAbsoluteURL(raw)
 	if err != nil {
@@ -22,9 +23,9 @@ func normalizeOrigin(raw string) (string, error) {
 	return canonicalOrigin(parsed), nil
 }
 
-// originFromURL returns the canonical scheme://host origin for an absolute URL.
-// The URL may include path, query, or fragment components, but must not include
-// userinfo.
+// originFromURL returns the canonical, lowercased scheme://host[:port] origin for
+// an absolute URL. The URL may include path, query, or fragment components, but
+// must not include userinfo.
 func originFromURL(raw string) (string, error) {
 	parsed, err := parseAbsoluteURL(raw)
 	if err != nil {
@@ -59,6 +60,9 @@ func IsURLAllowedByOrigin(rawURL, allowedOrigins string) bool {
 
 func isNormalizedOriginAllowed(normalizedOrigin, allowedOrigins string) bool {
 	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {
+		// Malformed configured entries are rejected at startup by
+		// validateAllowedOrigins; skipping them here is defense-in-depth, not the
+		// primary safeguard.
 		normalizedAllowedOrigin, err := normalizeOrigin(allowedOrigin)
 		if err == nil && normalizedOrigin == normalizedAllowedOrigin {
 			return true
@@ -92,5 +96,17 @@ func parseAbsoluteURL(raw string) (*url.URL, error) {
 }
 
 func canonicalOrigin(parsed *url.URL) string {
-	return strings.ToLower(parsed.Scheme + "://" + parsed.Host)
+	scheme := strings.ToLower(parsed.Scheme)
+	host := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+
+	if port != "" && !isDefaultPort(scheme, port) {
+		host += ":" + port
+	}
+
+	return scheme + "://" + host
+}
+
+func isDefaultPort(scheme, port string) bool {
+	return (scheme == "http" && port == "80") || (scheme == "https" && port == "443")
 }
