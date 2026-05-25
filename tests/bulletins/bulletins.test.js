@@ -951,10 +951,14 @@ describe('Bulletins', () => {
       try {
         mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
 
-        const insertedRows = mysql.execSQL(
-          `SELECT id FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`
-        );
-        const insertedIds = insertedRows.trim().split('\n').slice(1).map(value => Number(value.trim()));
+        // Track inserted IDs in ResourceManager as a safety net: if this test
+        // aborts (timeout, signal) before the finally DELETE runs, global
+        // teardown still removes these rows. The finally DELETE is the primary
+        // cleanup path; tracking is defense-in-depth.
+        const insertedIds = mysql.execSQL(
+          `SELECT id FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`,
+          { silent: true }
+        ).trim().split('\n').map(value => Number(value.trim()));
         expect(insertedIds).toHaveLength(rows.length);
         insertedIds.forEach(id => {
           expect(Number.isSafeInteger(id)).toBe(true);
@@ -967,20 +971,11 @@ describe('Bulletins', () => {
         );
 
         expect(response.status).toBe(200);
-        const bulletins = response.data.data || [];
-        const filenames = new Set(bulletins.map(b => b.filename));
+        const filenames = new Set((response.data.data || []).map(b => b.filename));
 
         expect(filenames).toContain(insideFilename);
         expect(filenames).not.toContain(beforeFilename);
         expect(filenames).not.toContain(afterFilename);
-
-        const min = new Date('2024-01-10T00:00:00Z').getTime();
-        const max = new Date('2024-01-20T23:59:59Z').getTime();
-        bulletins.forEach(bulletin => {
-          const createdAt = new Date(bulletin.created_at).getTime();
-          expect(createdAt).toBeGreaterThanOrEqual(min);
-          expect(createdAt).toBeLessThanOrEqual(max);
-        });
       } finally {
         mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
       }

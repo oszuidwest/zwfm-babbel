@@ -9,26 +9,21 @@
  * - "when...then" naming convention
  */
 
-const { execFileSync } = require('child_process');
+const { createMySQLExecutor, sqlString } = require('../lib/MySQLHelper');
 
 // Matches BABBEL_AUTH_MAX_LOGIN_ATTEMPTS default in internal/config/config.go.
 const MAX_LOGIN_ATTEMPTS = 5;
+
+const mysql = createMySQLExecutor();
 
 // Reads locked_until as UNIX seconds for the given user, or 0 when NULL.
 // The users.locked_until column is TIMESTAMP (1-second precision), so callers
 // that compare two reads must allow enough wall-clock time between them for a
 // missing guard to shift the value into the next second.
 const readLockedUntilUnix = (uname) => {
-  if (!/^[a-z0-9_]+$/i.test(uname)) {
-    throw new Error(`refusing to query MySQL with unsafe username: ${uname}`);
-  }
-  const sql = `SELECT IFNULL(UNIX_TIMESTAMP(locked_until), 0) FROM users WHERE username = '${uname}';`;
-  const out = execFileSync(
-    'docker',
-    ['exec', '-i', 'babbel-mysql', 'mysql', '-ubabbel', '-pbabbel', '-N', '-s', '-e', sql, 'babbel'],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
-  ).trim();
-  return Number.parseInt(out, 10);
+  const sql = `SELECT IFNULL(UNIX_TIMESTAMP(locked_until), 0) FROM users WHERE username = ${sqlString(uname)}`;
+  const out = mysql.execSQL(sql, { silent: true }).trim();
+  return Number.parseInt(out, 10) || 0;
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

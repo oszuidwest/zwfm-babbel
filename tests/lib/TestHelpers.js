@@ -71,14 +71,6 @@ class TestHelpers {
     return this._ffmpegAvailable;
   }
 
-  requireSafeInteger(value, label) {
-    return parseSafeInteger(value, label);
-  }
-
-  requireFiniteNumber(value, label) {
-    return parseFiniteNumber(value, label);
-  }
-
   /**
    * Creates a test audio file using ffmpeg.
    * @param {string} outputPath - Path to write the audio file.
@@ -87,8 +79,8 @@ class TestHelpers {
    * @returns {boolean} True if file was created successfully.
    */
   createTestAudioFile(outputPath, duration = 3, frequency = 440) {
-    const numericDuration = this.requireFiniteNumber(duration, 'audio duration');
-    const numericFrequency = this.requireFiniteNumber(frequency, 'audio frequency');
+    const numericDuration = parseFiniteNumber(duration, 'audio duration');
+    const numericFrequency = parseFiniteNumber(frequency, 'audio frequency');
 
     if (!this.isFFmpegAvailable()) {
       return false;
@@ -210,14 +202,14 @@ class TestHelpers {
       title: data.title || this.uniqueName('TestStory'),
       text: data.text || 'Test story content',
       voice_id: data.voice_id !== undefined && data.voice_id !== null
-        ? this.requireSafeInteger(data.voice_id, 'voice_id')
+        ? parseSafeInteger(data.voice_id, 'voice_id')
         : null,
       status: data.status || 'active',
       start_date: data.start_date || `${year}-01-01`,
       end_date: data.end_date || `${year + 1}-12-31`,
       weekdays: data.weekdays !== undefined ? data.weekdays : 127,
       is_breaking: data.is_breaking !== undefined ? data.is_breaking : false,
-      target_stations: targetStations.map(id => this.requireSafeInteger(id, 'target station ID')),
+      target_stations: targetStations.map(id => parseSafeInteger(id, 'target station ID')),
       metadata: data.metadata || null
     };
 
@@ -279,9 +271,9 @@ class TestHelpers {
    */
   async createStationVoice(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const response = await this.api.apiCall('POST', '/station-voices', {
-      station_id: this.requireSafeInteger(stationId, 'station ID'),
-      voice_id: this.requireSafeInteger(voiceId, 'voice ID'),
-      mix_point: this.requireFiniteNumber(mixPoint, 'mix point')
+      station_id: parseSafeInteger(stationId, 'station ID'),
+      voice_id: parseSafeInteger(voiceId, 'voice ID'),
+      mix_point: parseFiniteNumber(mixPoint, 'mix point')
     });
 
     if (response.status === 201 && response.data?.id) {
@@ -301,8 +293,8 @@ class TestHelpers {
    * @returns {Promise<{id: number}|null>} Station-voice data or null if failed.
    */
   async createStationVoiceWithJingle(resourceManager, stationId, voiceId, mixPoint = 3.0) {
-    const safeStationId = this.requireSafeInteger(stationId, 'station ID');
-    const safeVoiceId = this.requireSafeInteger(voiceId, 'voice ID');
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
+    const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
 
     if (!this.isFFmpegAvailable()) {
       return null;
@@ -346,7 +338,7 @@ class TestHelpers {
    * @returns {Promise<{status: number, data: *, headers: Object, contentType: string}>}
    */
   async publicBulletinRequest(stationId, queryParams = {}) {
-    const safeStationId = this.requireSafeInteger(stationId, 'station ID');
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
     const params = new URLSearchParams(queryParams);
     const url = `${this.api.apiBase}/public/stations/${safeStationId}/bulletin.wav?${params.toString()}`;
 

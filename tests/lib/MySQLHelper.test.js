@@ -103,6 +103,24 @@ describe('MySQLHelper', () => {
     );
   });
 
+  test('when execSQL is called with silent, then -N -s flags are added', () => {
+    execFileSync.mockImplementation((bin, args) => {
+      if (bin === 'docker' && args[0] === 'ps') {
+        return 'babbel-mysql\n';
+      }
+      return '42\n';
+    });
+
+    const mysql = createMySQLExecutor();
+
+    expect(mysql.execSQL('SELECT 42', { silent: true })).toBe('42\n');
+    expect(execFileSync).toHaveBeenLastCalledWith(
+      'docker',
+      ['exec', '-i', 'babbel-mysql', 'mysql', '-u', 'babbel', '-pbabbel', 'babbel', '-N', '-s', '-e', 'SELECT 42'],
+      expect.objectContaining({ encoding: 'utf-8' })
+    );
+  });
+
   test('when execSQL fails, then stderr is included', () => {
     execFileSync.mockImplementation((bin, args) => {
       if (bin === 'docker' && args[0] === 'ps') {

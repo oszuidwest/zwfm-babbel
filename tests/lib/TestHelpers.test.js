@@ -103,17 +103,6 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
-  test('when numeric IDs are non-integers or booleans, then rejected', () => {
-    const helpers = new TestHelpers({});
-
-    expect(() => helpers.requireSafeInteger(NaN, 'id')).toThrow(/id/);
-    expect(() => helpers.requireSafeInteger(Infinity, 'id')).toThrow(/id/);
-    expect(() => helpers.requireSafeInteger(1.5, 'id')).toThrow(/id/);
-    expect(() => helpers.requireSafeInteger(true, 'id')).toThrow(/id/);
-    expect(() => helpers.requireSafeInteger('1.5', 'id')).toThrow(/id/);
-    expect(helpers.requireSafeInteger('42', 'id')).toBe(42);
-  });
-
   test('when story target station ID is unsafe, then API is not called', async () => {
     const api = { apiCall: jest.fn() };
     const helpers = new TestHelpers(api);

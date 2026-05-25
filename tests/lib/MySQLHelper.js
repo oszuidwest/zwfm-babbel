@@ -36,7 +36,7 @@ function sqlString(value, label = 'value') {
   if (typeof value !== 'string') {
     throw new Error(`Invalid ${label}: expected a string`);
   }
-  return `'${String(value).replace(mysqlEscapePattern, (char) => mysqlEscapeMap[char])}'`;
+  return `'${value.replace(mysqlEscapePattern, (char) => mysqlEscapeMap[char])}'`;
 }
 
 function sqlInteger(value, label = 'value') {
@@ -105,10 +105,12 @@ function createMySQLExecutor(options = {}) {
       return resolveTarget().label;
     },
 
-    execSQL(sql, execOptions = {}) {
+    execSQL(sql, options = {}) {
+      const { silent = false, ...execOptions } = options;
       const target = resolveTarget();
+      const mysqlFlags = silent ? ['-N', '-s'] : [];
       try {
-        return execFileSync(target.bin, [...target.args, '-e', sql], {
+        return execFileSync(target.bin, [...target.args, ...mysqlFlags, '-e', sql], {
           encoding: 'utf-8',
           stdio: ['pipe', 'pipe', 'pipe'],
           ...execOptions
