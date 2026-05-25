@@ -257,6 +257,61 @@ func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 	}
 }
 
+func TestValidateAllowedOrigins(t *testing.T) {
+	t.Parallel()
+
+	valid := []struct {
+		name    string
+		origins string
+	}{
+		{name: "empty disables CORS", origins: ""},
+		{name: "single origin", origins: "https://app.example.com"},
+		{name: "origin with port", origins: "http://localhost:3000"},
+		{name: "trailing slash tolerated", origins: "https://app.example.com/"},
+		{name: "multiple origins with whitespace", origins: "https://app.example.com, http://localhost:3000"},
+	}
+
+	for _, tt := range valid {
+		t.Run("valid/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			cfg.Server.AllowedOrigins = tt.origins
+
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("unexpected error for origins %q: %v", tt.origins, err)
+			}
+		})
+	}
+
+	invalid := []struct {
+		name    string
+		origins string
+		wantErr string
+	}{
+		{name: "missing scheme", origins: "app.example.com", wantErr: "missing scheme"},
+		{name: "userinfo authority", origins: "https://app.example.com@evil.test", wantErr: "must not contain user information"},
+		{name: "path component", origins: "https://app.example.com/callback", wantErr: "without path, query, or fragment"},
+		{name: "multiple trailing slashes", origins: "https://app.example.com//", wantErr: "without path, query, or fragment"},
+		{name: "query component", origins: "https://app.example.com?next=/x", wantErr: "without path, query, or fragment"},
+		{name: "empty query marker", origins: "https://app.example.com?", wantErr: "without path, query, or fragment"},
+		{name: "fragment component", origins: "https://app.example.com#frag", wantErr: "without path, query, or fragment"},
+		{name: "one bad entry among valid entries", origins: "https://app.example.com, app.example.com", wantErr: "missing scheme"},
+	}
+
+	for _, tt := range invalid {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			cfg.Server.AllowedOrigins = tt.origins
+
+			err := cfg.Validate()
+			assertErrorContains(t, err, "BABBEL_ALLOWED_ORIGINS", tt.wantErr)
+		})
+	}
+}
+
 func validTestConfig(t *testing.T) *Config {
 	t.Helper()
 

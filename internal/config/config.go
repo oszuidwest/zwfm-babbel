@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -181,8 +182,41 @@ func (c *Config) Validate() error {
 	if err := c.validateAuth(); err != nil {
 		return err
 	}
+	if err := c.validateAllowedOrigins(); err != nil {
+		return err
+	}
 	if err := c.validateAudioTools(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateAllowedOrigins ensures each configured CORS/OAuth origin is a bare
+// scheme://host[:port] value. Empty configuration is valid (CORS disabled and
+// OAuth frontend redirects rejected); malformed entries fail fast at startup
+// rather than being silently skipped when matching requests.
+func (c *Config) validateAllowedOrigins() error {
+	for entry := range strings.SplitSeq(c.Server.AllowedOrigins, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		// A lone trailing slash is tolerated (matching isAllowedFrontendURL);
+		// anything else after the host is rejected.
+		parsed, err := url.Parse(strings.TrimSuffix(entry, "/"))
+		switch {
+		case err != nil:
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: %w", entry, err)
+		case !parsed.IsAbs():
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: missing scheme (expected scheme://host)", entry)
+		case parsed.Host == "":
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: missing host", entry)
+		case parsed.User != nil:
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: must not contain user information", entry)
+		case parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "":
+			return fmt.Errorf("invalid BABBEL_ALLOWED_ORIGINS entry %q: must be a bare origin without path, query, or fragment", entry)
+		}
 	}
 	return nil
 }
