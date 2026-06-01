@@ -18,6 +18,9 @@ npm run test:quick
 npm run test:stations
 npm run test:tts
 
+# Run offline unit tests for test helpers/validators
+npm run test:unit
+
 # Run with Jest options
 npm run test:quick -- --verbose
 ```
@@ -41,6 +44,7 @@ npm run test:cleanup       # Bulletin file cleanup tests
 npm run test:automation    # Public automation endpoint tests
 npm run test:users         # User management tests
 npm run test:validation    # Input validation and security tests
+npm run test:unit          # Offline unit tests for tests/lib helpers
 
 # Skip Docker setup (alias for test:quick)
 npm run test:no-docker
@@ -51,6 +55,7 @@ npm run test:no-docker
 ```
 tests/
 ├── jest.config.js            # Jest configuration (sequential, 60s timeout)
+├── jest.unit.config.js       # Offline Jest configuration for tests/lib
 ├── jest.testSequencer.js     # Enforces test execution order
 ├── jest.globalSetup.js       # Docker orchestration (start containers)
 ├── jest.globalTeardown.js    # Cleanup (cookies, optional Docker stop)
@@ -77,7 +82,8 @@ tests/
 │       └── bulletins.schema.js
 ├── auth/
 │   ├── auth.test.js          # Authentication tests
-│   └── permissions.test.js   # Permission/RBAC tests
+│   ├── permissions.test.js   # Permission/RBAC tests
+│   └── lockout.test.js       # Account lockout tests
 ├── stations/
 │   └── stations.test.js      # Station CRUD and query tests
 ├── voices/
@@ -95,6 +101,8 @@ tests/
 │   └── automation.test.js    # Public automation endpoint tests
 ├── users/
 │   └── users.test.js         # User management tests
+├── openapi/
+│   └── openapi-contract.test.js # OpenAPI contract tests
 └── validation/
     └── validation.test.js    # Input validation and security tests
 ```
@@ -104,11 +112,12 @@ tests/
 Tests run sequentially (`maxWorkers: 1`) in dependency order enforced by a custom sequencer:
 
 ```
-auth → permissions → stations → voices → station-voices → stories →
-tts → bulletins → bulletin-cleanup → automation → users → validation
+auth → permissions → lockout → stations → voices → station-voices →
+stories → tts → bulletins → bulletin-cleanup → automation → users →
+openapi-contract → validation
 ```
 
-Later tests depend on data created by earlier ones. Individual suites can be run in isolation when Docker is already running.
+Integration tests exclude `tests/lib/*.test.js`; those helper and validator unit tests run offline through `npm run test:unit`. Later integration tests depend on data created by earlier ones. Individual suites can be run in isolation when Docker is already running.
 
 ## Test Generators
 
@@ -124,21 +133,23 @@ Resources with full generator coverage: stations, voices, users, station-voices.
 
 ## Test Coverage
 
-| Suite | Tests | Type |
-|-------|-------|------|
-| auth | 16 | Manual (domain-specific) |
-| permissions | 19 | Manual (RBAC-specific) |
-| stations | 86 | Full (CRUD + Query + Validation) |
-| voices | 56 | Full (CRUD + Query + Validation) |
-| station-voices | 88 | Full (CRUD + Query + Validation) |
-| stories | 70 | Partial (Query) + manual |
-| tts | 7 | Manual (TTS validation chain) |
-| bulletins | 42 | Partial (Query) + manual |
-| bulletin-cleanup | 7 | Manual (purge behavior) |
-| automation | 12 | Manual (public endpoint) |
-| users | 87 | Full (CRUD + Query + Validation) |
-| validation | 18 | Manual (security tests) |
-| **Total** | **508** | |
+| Suite | Type |
+|-------|------|
+| auth | Manual, domain-specific |
+| permissions | Manual RBAC coverage |
+| lockout | Manual login-lockout coverage |
+| stations | Generated CRUD, query, and validation plus business rules |
+| voices | Generated CRUD, query, and validation plus business rules |
+| station-voices | Generated CRUD, query, and validation plus jingle behavior |
+| stories | Generated query coverage plus manual scheduling, audio, metadata, and status behavior |
+| tts | Manual TTS validation chain |
+| bulletins | Generated query coverage plus manual generation, caching, history, and story selection behavior |
+| bulletin-cleanup | Manual purge behavior |
+| automation | Manual public endpoint behavior |
+| users | Generated CRUD, query, and validation plus user lifecycle behavior |
+| openapi-contract | Manual OpenAPI request/response contract coverage |
+| validation | Manual security and validation coverage |
+| tests/lib | Offline unit coverage for test helpers and validators |
 
 ### Coverage Areas
 

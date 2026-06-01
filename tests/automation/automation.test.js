@@ -111,28 +111,16 @@ describe('Automation', () => {
   });
 
   describe('Successful Bulletin Generation', () => {
-    let stationId, voiceId;
+    let stationId;
 
     beforeAll(async () => {
-      // Arrange: Create full station setup
-      const station = await global.helpers.createStation(global.resources, 'Automation Test Station');
-      const voice = await global.helpers.createVoice(global.resources, 'Automation Test Voice');
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'Automation Test Station',
+        voiceName: 'Automation Test Voice',
+        storyTitle: 'Automation Test Story',
+        storyText: 'This is a test story for automation endpoint testing.'
+      });
       stationId = station.id;
-      voiceId = voice.id;
-
-      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
-      expect(sv).not.toBeNull();
-
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `Automation Test Story_${Date.now()}`,
-        text: 'This is a test story for automation endpoint testing.',
-        voice_id: voiceId,
-        weekdays: 127,
-        status: 'active'
-      }, [stationId]);
-      expect(story).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when requesting bulletin, then returns audio', async () => {
@@ -155,24 +143,13 @@ describe('Automation', () => {
     let stationId;
 
     beforeAll(async () => {
-      // Arrange: Create station with story
-      const station = await global.helpers.createStation(global.resources, 'Caching Test Station');
-      const voice = await global.helpers.createVoice(global.resources, 'Caching Test Voice');
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'Caching Test Station',
+        voiceName: 'Caching Test Voice',
+        storyTitle: 'Caching Test Story',
+        storyText: 'Story for testing caching behavior.'
+      });
       stationId = station.id;
-
-      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id);
-      expect(sv).not.toBeNull();
-
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `Caching Test Story_${Date.now()}`,
-        text: 'Story for testing caching behavior.',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active'
-      }, [stationId]);
-      expect(story).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when first request, then generates new bulletin', async () => {

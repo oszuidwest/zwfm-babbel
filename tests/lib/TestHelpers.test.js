@@ -113,4 +113,50 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
+  test('when creating broadcast fixture, then dependencies are created and audio is awaited', async () => {
+    const helpers = new TestHelpers({});
+    const resourceManager = { track: jest.fn() };
+
+    jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
+    jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
+    jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
+    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
+    jest.spyOn(helpers, 'uniqueName').mockReturnValue('Unique Story');
+
+    const fixture = await helpers.createBroadcastFixture(resourceManager, {
+      stationName: 'Station',
+      voiceName: 'Voice',
+      storyTitle: 'Story',
+      storyText: 'Story body',
+      maxStories: 3,
+      pauseSeconds: 1.5,
+      mixPoint: 2.5,
+      storyOverrides: { is_breaking: true }
+    });
+
+    expect(helpers.createStation).toHaveBeenCalledWith(resourceManager, 'Station', 3, 1.5);
+    expect(helpers.createVoice).toHaveBeenCalledWith(resourceManager, 'Voice');
+    expect(helpers.createStationVoiceWithJingle).toHaveBeenCalledWith(resourceManager, 10, 20, 2.5);
+    expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
+      resourceManager,
+      expect.objectContaining({
+        title: 'Unique Story',
+        text: 'Story body',
+        voice_id: 20,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }),
+      [10]
+    );
+    expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
+    expect(fixture).toEqual({
+      station: { id: 10, name: 'Station' },
+      voice: { id: 20, name: 'Voice' },
+      stationVoice: { id: 30 },
+      story: { id: 40 }
+    });
+  });
+
 });

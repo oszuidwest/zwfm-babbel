@@ -16,18 +16,12 @@ describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
 
   const setupQueryTestData = async () => {
-    const station = await global.helpers.createStation(global.resources, 'QueryBulletinStation');
-    const voice = await global.helpers.createVoice(global.resources, 'QueryBulletinVoice');
-    await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-    const story = await global.helpers.createStoryWithAudio(global.resources, {
-      title: `QueryBulletinStory_${Date.now()}`,
-      text: 'Query test story',
-      voice_id: voice.id,
-      weekdays: 127,
-      status: 'active'
-    }, [station.id]);
-
-    if (story) await global.helpers.waitForStoryAudio(story.id);
+    const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+      stationName: 'QueryBulletinStation',
+      voiceName: 'QueryBulletinVoice',
+      storyTitle: 'QueryBulletinStory',
+      storyText: 'Query test story'
+    });
 
     const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
     return response.status === 200 && response.data.id ? [response.data.id] : [];
@@ -39,25 +33,16 @@ describe('Bulletins', () => {
   // === BUSINESS LOGIC TESTS ===
 
   describe('Bulletin Generation', () => {
-    let stationId, voiceId;
+    let stationId;
 
     beforeAll(async () => {
-      // Arrange: Create dependencies for bulletin generation
-      const station = await global.helpers.createStation(global.resources, 'BulletinGenStation');
-      const voice = await global.helpers.createVoice(global.resources, 'BulletinGenVoice');
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'BulletinGenStation',
+        voiceName: 'BulletinGenVoice',
+        storyTitle: 'BulletinGenStory',
+        storyText: 'Bulletin generation test story'
+      });
       stationId = station.id;
-      voiceId = voice.id;
-
-      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId, 3.0);
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BulletinGenStory_${Date.now()}`,
-        text: 'Bulletin generation test story',
-        voice_id: voiceId,
-        weekdays: 127,
-        status: 'active'
-      }, [stationId]);
-
-      if (story) await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when generating bulletin, then returns complete data', async () => {
@@ -559,24 +544,16 @@ describe('Bulletins', () => {
   });
 
   describe('Bulletin Cache-Control', () => {
-    let stationId, voiceId;
+    let stationId;
 
     beforeAll(async () => {
-      const station = await global.helpers.createStation(global.resources, 'CacheCtrlStation');
-      const voice = await global.helpers.createVoice(global.resources, 'CacheCtrlVoice');
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'CacheCtrlStation',
+        voiceName: 'CacheCtrlVoice',
+        storyTitle: 'CacheCtrlStory',
+        storyText: 'Cache control test story'
+      });
       stationId = station.id;
-      voiceId = voice.id;
-
-      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId, 3.0);
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `CacheCtrlStory_${Date.now()}`,
-        text: 'Cache control test story',
-        voice_id: voiceId,
-        weekdays: 127,
-        status: 'active'
-      }, [stationId]);
-
-      if (story) await global.helpers.waitForStoryAudio(story.id);
 
       // Warm the cache once so the HIT scenarios have something to serve.
       const warmup = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
@@ -674,17 +651,12 @@ describe('Bulletins', () => {
     let bulletinId;
 
     beforeAll(async () => {
-      const station = await global.helpers.createStation(global.resources, 'BulletinStoriesEndpoint');
-      const voice = await global.helpers.createVoice(global.resources, 'BulletinStoriesVoice');
-      await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BulletinStoriesStory_${Date.now()}`,
-        text: 'Bulletin stories endpoint test',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active'
-      }, [station.id]);
-      if (story) await global.helpers.waitForStoryAudio(story.id);
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'BulletinStoriesEndpoint',
+        voiceName: 'BulletinStoriesVoice',
+        storyTitle: 'BulletinStoriesStory',
+        storyText: 'Bulletin stories endpoint test'
+      });
 
       const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
       expect(response.status).toBe(200);
@@ -762,21 +734,13 @@ describe('Bulletins', () => {
     let stationId;
 
     beforeAll(async () => {
-      // Arrange: Create station with full setup
-      const station = await global.helpers.createStation(global.resources, 'StationBulletinEndpoint');
-      const voice = await global.helpers.createVoice(global.resources, 'StationBulletinVoice');
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'StationBulletinEndpoint',
+        voiceName: 'StationBulletinVoice',
+        storyTitle: 'StationBulletinStory',
+        storyText: 'Station endpoint test story'
+      });
       stationId = station.id;
-
-      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voice.id);
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `StationBulletinStory_${Date.now()}`,
-        text: 'Station endpoint test story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active'
-      }, [stationId]);
-
-      if (story) await global.helpers.waitForStoryAudio(story.id);
     });
 
     test('when generating station bulletin, then succeeds', async () => {

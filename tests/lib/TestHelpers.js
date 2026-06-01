@@ -327,6 +327,63 @@ class TestHelpers {
     }
   }
 
+  /**
+   * Creates the common station -> voice -> jingle -> story-with-audio fixture
+   * needed by bulletin and automation integration tests.
+   *
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {Object} options - Fixture options.
+   * @returns {Promise<{station: Object, voice: Object, stationVoice: Object, story: Object}>}
+   */
+  async createBroadcastFixture(resourceManager, options = {}) {
+    const {
+      stationName = 'BroadcastStation',
+      voiceName = 'BroadcastVoice',
+      storyTitle = 'BroadcastStory',
+      storyText = 'Broadcast fixture story',
+      maxStories = 4,
+      pauseSeconds = 2.0,
+      mixPoint = 3.0,
+      storyOverrides = {}
+    } = options;
+
+    const station = await this.createStation(resourceManager, stationName, maxStories, pauseSeconds);
+    if (!station) {
+      throw new Error(`Failed to create station fixture: ${stationName}`);
+    }
+
+    const voice = await this.createVoice(resourceManager, voiceName);
+    if (!voice) {
+      throw new Error(`Failed to create voice fixture: ${voiceName}`);
+    }
+
+    const stationVoice = await this.createStationVoiceWithJingle(resourceManager, station.id, voice.id, mixPoint);
+    if (!stationVoice) {
+      throw new Error(`Failed to create station-voice fixture for station ${station.id} and voice ${voice.id}`);
+    }
+
+    const storyData = {
+      title: this.uniqueName(storyTitle),
+      text: storyText,
+      voice_id: voice.id,
+      weekdays: 127,
+      status: 'active',
+      ...storyOverrides
+    };
+
+    const story = await this.createStoryWithAudio(resourceManager, storyData, [station.id]);
+    if (!story) {
+      throw new Error(`Failed to create story-with-audio fixture: ${storyData.title}`);
+    }
+
+    const audioReady = await this.waitForStoryAudio(story.id);
+    if (!audioReady) {
+      throw new Error(`Timed out waiting for story audio fixture: ${story.id}`);
+    }
+
+    return { station, voice, stationVoice, story };
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Public Endpoint Helpers
   // ═══════════════════════════════════════════════════════════════════════════

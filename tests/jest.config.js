@@ -6,16 +6,12 @@ module.exports = {
   // Test file pattern - .test.js files
   testMatch: ['**/*.test.js'],
 
-  // Exclude pure-unit tests under tests/lib/ that use jest.mock() to stub
-  // modules like child_process. setupFilesAfterEnv loads TestHelpers (which
-  // requires MySQLHelper -> child_process) before the test file's jest.mock
-  // can take effect, so the mock is silently bypassed and the real binaries
-  // run. These tests are covered by tests/jest.unit.config.js instead.
+  // Exclude pure-unit tests under tests/lib/. setupFilesAfterEnv loads shared
+  // integration helpers before test-file-level jest.mock() calls can run, so
+  // helper tests belong in tests/jest.unit.config.js instead.
   testPathIgnorePatterns: [
     '/node_modules/',
-    '/lib/MySQLHelper\\.test\\.js$',
-    '/lib/TestHelpers\\.test\\.js$',
-    '/lib/numeric\\.test\\.js$'
+    '<rootDir>/lib/.*\\.test\\.js$'
   ],
 
   // CRITICAL: Sequential execution (shared database state)

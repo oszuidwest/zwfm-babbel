@@ -47,28 +47,15 @@ describe('Bulletin Cleanup', () => {
   };
 
   beforeAll(async () => {
-    // Create test resources: station -> voice -> station-voice with jingle -> story with audio
-    const station = await global.helpers.createStation(global.resources, 'Cleanup Test Station', 3, 2.0);
-    expect(station).not.toBeNull();
+    const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+      stationName: 'Cleanup Test Station',
+      voiceName: 'Cleanup Test Voice',
+      storyTitle: 'CleanupTestStory',
+      storyText: 'Story for testing bulletin cleanup behavior.',
+      maxStories: 3,
+      pauseSeconds: 2.0
+    });
     testStationId = station.id;
-
-    const voice = await global.helpers.createVoice(global.resources, 'Cleanup Test Voice');
-    expect(voice).not.toBeNull();
-
-    const sv = await global.helpers.createStationVoiceWithJingle(global.resources, testStationId, voice.id);
-    expect(sv).not.toBeNull();
-
-    const story = await global.helpers.createStoryWithAudio(global.resources, {
-      title: `CleanupTestStory_${Date.now()}`,
-      text: 'Story for testing bulletin cleanup behavior.',
-      voice_id: voice.id,
-      weekdays: 127,
-      status: 'active'
-    }, [testStationId]);
-    expect(story).not.toBeNull();
-
-    // Wait for audio to be available
-    await global.helpers.waitForStoryAudio(story.id);
 
     // Generate first bulletin
     const bulletin1 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
@@ -178,25 +165,14 @@ describe('Bulletin Cleanup', () => {
   describe('Automation After Purge', () => {
     test('when all bulletins purged, then automation regenerates', async () => {
       // Arrange: create a separate station to avoid interference
-      const station = await global.helpers.createStation(global.resources, 'Automation Purge Test', 3, 2.0);
-      expect(station).not.toBeNull();
-
-      const voice = await global.helpers.createVoice(global.resources, 'Automation Purge Voice');
-      expect(voice).not.toBeNull();
-
-      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id);
-      expect(sv).not.toBeNull();
-
-      const story = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `AutomationPurgeStory_${Date.now()}`,
-        text: 'Story for testing automation after purge.',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active'
-      }, [station.id]);
-      expect(story).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(story.id);
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'Automation Purge Test',
+        voiceName: 'Automation Purge Voice',
+        storyTitle: 'AutomationPurgeStory',
+        storyText: 'Story for testing automation after purge.',
+        maxStories: 3,
+        pauseSeconds: 2.0
+      });
 
       // Generate initial bulletin via automation
       const initialResponse = await global.helpers.publicBulletinRequest(station.id, {
