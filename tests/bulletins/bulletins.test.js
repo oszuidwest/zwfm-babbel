@@ -5,6 +5,37 @@ const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelp
 
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
+  const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
+  const generateBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
+  const postBulletinHttp = (stationId, options = {}) => global.api.http({
+    method: 'post',
+    url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
+    validateStatus: () => true,
+    ...options
+  });
+  const postJsonBulletinHttp = (stationId, headers = {}, options = {}) => postBulletinHttp(stationId, {
+    data: '{}',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    ...options
+  });
+  const getBulletinStoryIds = async bulletinId => {
+    const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories`);
+    return {
+      response,
+      ids: response.data.data.map(story => story.story_id)
+    };
+  };
+  const createStationVoiceFixture = async (stationName, voiceName, maxStories, pauseSeconds = 2.0, mixPoint = 3.0) => {
+    const station = await global.helpers.createStation(global.resources, stationName, maxStories, pauseSeconds);
+    const voice = await global.helpers.createVoice(global.resources, voiceName);
+    expect(station).not.toBeNull();
+    expect(voice).not.toBeNull();
+
+    const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, mixPoint);
+    expect(stationVoice).not.toBeNull();
+
+    return { station, voice, stationVoice };
+  };
 
   const setupQueryTestData = async () => {
     const { station } = await global.helpers.createBroadcastFixture(global.resources, {
@@ -14,7 +45,7 @@ describe('Bulletins', () => {
       storyText: 'Query test story'
     });
 
-    const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+    const response = await generateBulletin(station.id);
     return response.status === 200 && response.data.id ? [response.data.id] : [];
   };
 
@@ -40,7 +71,7 @@ describe('Bulletins', () => {
       // Arrange: Uses station setup from beforeAll
 
       // Act
-      const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+      const response = await generateBulletin(stationId);
 
       // Assert
       expect(response.status).toBe(200);
@@ -56,84 +87,34 @@ describe('Bulletins', () => {
       const today = new Date().toISOString().split('T')[0];
 
       // Act
-      const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, { date: today });
+      const response = await generateBulletin(stationId, { date: today });
 
       // Assert
       expect(response.status).toBe(200);
     });
 
-    test('when generating with missing body, then succeeds', async () => {
-      // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
-        validateStatus: () => true
-      });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('id');
-    });
-
-    test('when generating with whitespace body, then succeeds', async () => {
-      // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+    test.each([
+      ['when generating with missing body, then succeeds', () => postBulletinHttp(stationId), 200, true],
+      ['when generating with whitespace body, then succeeds', () => postJsonBulletinHttp(stationId, {}, {
         data: ' \n\t ',
-        headers: { 'Content-Type': 'application/json' },
-        transformRequest: [data => data],
-        validateStatus: () => true
-      });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('id');
-    });
-
-    test('when generating with malformed JSON body, then returns 422', async () => {
-      // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        transformRequest: [data => data]
+      }), 200, true],
+      ['when generating with malformed JSON body, then returns 422', () => postJsonBulletinHttp(stationId, {}, {
         data: '{invalid json}',
-        headers: { 'Content-Type': 'application/json' },
-        transformRequest: [data => data],
-        validateStatus: () => true
-      });
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when generating with non-json content type and JSON body, then succeeds', async () => {
-      // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        transformRequest: [data => data]
+      }), 422, false],
+      ['when generating with non-json content type and JSON body, then succeeds', () => postBulletinHttp(stationId, {
         data: '{}',
-        headers: { 'Content-Type': 'text/plain' },
-        validateStatus: () => true
-      });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.data).toHaveProperty('id');
-    });
-
-    test('when generating with oversized body, then returns 413', async () => {
-      // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
+        headers: { 'Content-Type': 'text/plain' }
+      }), 200, true],
+      ['when generating with oversized body, then returns 413', () => postJsonBulletinHttp(stationId, {}, {
         data: 'a'.repeat(1024 * 1024 + 1),
-        headers: { 'Content-Type': 'application/json' },
-        transformRequest: [data => data],
-        validateStatus: () => true
-      });
-
-      // Assert
-      expect(response.status).toBe(413);
+        transformRequest: [data => data]
+      }), 413, false]
+    ])('%s', async (_name, request, status, hasBulletin) => {
+      const response = await request();
+      expect(response.status).toBe(status);
+      if (hasBulletin) expect(response.data).toHaveProperty('id');
     });
 
     test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
@@ -181,7 +162,7 @@ describe('Bulletins', () => {
       const runs = 5;
       const durations = [];
       for (let i = 0; i < runs; i++) {
-        const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+        const response = await generateBulletin(station.id);
         expect(response.status).toBe(200);
         expect(response.data.story_count).toBe(2);
         durations.push(response.data.duration_seconds);
@@ -203,14 +184,7 @@ describe('Bulletins', () => {
 
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
       // Arrange
-      const station = await global.helpers.createStation(global.resources, 'BreakingPriorityStation', 2);
-      const voice = await global.helpers.createVoice(global.resources, 'BreakingPriorityVoice');
-
-      expect(station).not.toBeNull();
-      expect(voice).not.toBeNull();
-
-      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-      expect(stationVoice).not.toBeNull();
+      const { station, voice } = await createStationVoiceFixture('BreakingPriorityStation', 'BreakingPriorityVoice', 2);
 
       const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.createStationStoriesWithReadyAudio(
         global.resources,
@@ -224,16 +198,15 @@ describe('Bulletins', () => {
       );
 
       // Act
-      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      const bulletinResponse = await generateBulletin(station.id);
 
       // Assert
       expect(bulletinResponse.status).toBe(200);
 
-      const bulletinStoriesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
+      const { response: bulletinStoriesResponse, ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
       expect(bulletinStoriesResponse.status).toBe(200);
       expect(bulletinStoriesResponse.data.total).toBe(2);
 
-      const includedStoryIds = bulletinStoriesResponse.data.data.map(story => story.story_id);
       expect(includedStoryIds).toHaveLength(2);
       expect(includedStoryIds).toEqual(expect.arrayContaining([breakingStoryA.id, breakingStoryB.id]));
       expect(includedStoryIds).not.toContain(regularStory.id);
@@ -241,14 +214,7 @@ describe('Bulletins', () => {
 
     test('when breaking and non-breaking stories compete for slots, then breaking always included', async () => {
       // Arrange: station with 3 slots, 1 breaking + 4 non-breaking stories
-      const station = await global.helpers.createStation(global.resources, 'BreakingAlwaysStation', 3);
-      const voice = await global.helpers.createVoice(global.resources, 'BreakingAlwaysVoice');
-
-      expect(station).not.toBeNull();
-      expect(voice).not.toBeNull();
-
-      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-      expect(stationVoice).not.toBeNull();
+      const { station, voice } = await createStationVoiceFixture('BreakingAlwaysStation', 'BreakingAlwaysVoice', 3);
 
       const [breakingStory] = await global.helpers.createStationStoriesWithReadyAudio(
         global.resources,
@@ -274,12 +240,11 @@ describe('Bulletins', () => {
       // Act: generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
       for (let i = 0; i < runs; i++) {
-        const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+        const bulletinResponse = await generateBulletin(station.id);
         expect(bulletinResponse.status).toBe(200);
         expect(bulletinResponse.data.story_count).toBe(3);
 
-        const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
-        const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+        const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
         // Assert: breaking story is in every single bulletin
         expect(includedStoryIds).toContain(breakingStory.id);
@@ -295,14 +260,7 @@ describe('Bulletins', () => {
 
     test('when breaking story is ineligible, then excluded from bulletin despite flag', async () => {
       // Arrange: station with stories that are breaking but fail eligibility
-      const station = await global.helpers.createStation(global.resources, 'BreakingEligStation', 3);
-      const voice = await global.helpers.createVoice(global.resources, 'BreakingEligVoice');
-
-      expect(station).not.toBeNull();
-      expect(voice).not.toBeNull();
-
-      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-      expect(stationVoice).not.toBeNull();
+      const { station, voice } = await createStationVoiceFixture('BreakingEligStation', 'BreakingEligVoice', 3);
 
       // Current weekday bitmask: Sunday=1, Monday=2, Tuesday=4, etc.
       // Use a bitmask that excludes today
@@ -328,13 +286,12 @@ describe('Bulletins', () => {
         ]);
 
       // Act
-      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      const bulletinResponse = await generateBulletin(station.id);
 
       // Assert
       expect(bulletinResponse.status).toBe(200);
 
-      const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
-      const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+      const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
       // None of the ineligible breaking stories should be included
       expect(includedStoryIds).not.toContain(draftBreaking.id);
@@ -347,14 +304,7 @@ describe('Bulletins', () => {
 
     test('when multiple breaking stories compete for limited slots, then newest by start_date selected', async () => {
       // Arrange: station with 2 slots, 3 breaking stories with different start_dates
-      const station = await global.helpers.createStation(global.resources, 'BreakingNewestStation', 2);
-      const voice = await global.helpers.createVoice(global.resources, 'BreakingNewestVoice');
-
-      expect(station).not.toBeNull();
-      expect(voice).not.toBeNull();
-
-      const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
-      expect(stationVoice).not.toBeNull();
+      const { station, voice } = await createStationVoiceFixture('BreakingNewestStation', 'BreakingNewestVoice', 2);
 
       const [oldBreaking, midBreaking, newBreaking] = await global.helpers.createStationStoriesWithReadyAudio(
         global.resources,
@@ -386,14 +336,13 @@ describe('Bulletins', () => {
       );
 
       // Act
-      const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      const bulletinResponse = await generateBulletin(station.id);
 
       // Assert
       expect(bulletinResponse.status).toBe(200);
       expect(bulletinResponse.data.story_count).toBe(2);
 
-      const storiesResponse = await global.api.apiCall('GET', `/bulletins/${bulletinResponse.data.id}/stories`);
-      const includedStoryIds = storiesResponse.data.data.map(s => s.story_id);
+      const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
       // Newest two breaking stories should be selected
       expect(includedStoryIds).toContain(newBreaking.id);
@@ -462,13 +411,13 @@ describe('Bulletins', () => {
       stationId = station.id;
 
       // Warm the cache once so the HIT scenarios have something to serve.
-      const warmup = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+      const warmup = await generateBulletin(stationId);
       expect(warmup.status).toBe(200);
     });
 
     test('when generating without cache header, then returns MISS', async () => {
       // Act
-      const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+      const response = await generateBulletin(stationId);
 
       // Assert
       expect(response.status).toBe(200);
@@ -477,16 +426,7 @@ describe('Bulletins', () => {
 
     test('when Cache-Control max-age allows reuse, then returns HIT', async () => {
       // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
-        data: '{}',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'max-age=3600'
-        },
-        validateStatus: () => true
-      });
+      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'max-age=3600' });
 
       // Assert
       expect(response.status).toBe(200);
@@ -496,16 +436,7 @@ describe('Bulletins', () => {
 
     test('when Cache-Control no-cache, then forces regeneration and returns MISS', async () => {
       // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
-        data: '{}',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache'
-        },
-        validateStatus: () => true
-      });
+      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'no-cache' });
 
       // Assert
       expect(response.status).toBe(200);
@@ -514,18 +445,10 @@ describe('Bulletins', () => {
 
     test('when Accept audio/wav with warm cache, then serves cached binary', async () => {
       // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
-        data: '{}',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'audio/wav',
-          'Cache-Control': 'max-age=3600'
-        },
-        responseType: 'arraybuffer',
-        validateStatus: () => true
-      });
+      const response = await postJsonBulletinHttp(stationId, {
+        'Accept': 'audio/wav',
+        'Cache-Control': 'max-age=3600'
+      }, { responseType: 'arraybuffer' });
 
       // Assert
       expect(response.status).toBe(200);
@@ -536,16 +459,7 @@ describe('Bulletins', () => {
 
     test('when Cache-Control max-age is invalid, then falls back to fresh generation', async () => {
       // Act
-      const response = await global.api.http({
-        method: 'post',
-        url: `${global.api.apiUrl}/stations/${stationId}/bulletins`,
-        data: '{}',
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'max-age=garbage'
-        },
-        validateStatus: () => true
-      });
+      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'max-age=garbage' });
 
       // Assert
       expect(response.status).toBe(200);
@@ -564,7 +478,7 @@ describe('Bulletins', () => {
         storyText: 'Bulletin stories endpoint test'
       });
 
-      const response = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+      const response = await generateBulletin(station.id);
       expect(response.status).toBe(200);
       bulletinId = response.data.id;
     });
@@ -631,7 +545,7 @@ describe('Bulletins', () => {
       // Arrange: Uses station setup from beforeAll
 
       // Act
-      const response = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
+      const response = await generateBulletin(stationId);
 
       // Assert
       expect(response.status).toBe(200);

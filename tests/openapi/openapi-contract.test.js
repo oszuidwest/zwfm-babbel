@@ -33,347 +33,87 @@ describe('OpenAPI Contract', () => {
 
   function createScenarios() {
     return [
-      {
-        name: 'GET /health',
-        method: 'GET',
-        operationPath: '/health',
-        run: () => rawCall('GET', '/health', `${global.api.apiBase}/health`)
-      },
-      {
-        name: 'GET /public/stations/{id}/bulletin.wav',
-        method: 'GET',
-        operationPath: '/public/stations/{id}/bulletin.wav',
-        run: () => rawCall(
-          'GET',
-          '/public/stations/{id}/bulletin.wav',
-          `${global.api.apiBase}/public/stations/${ctx.station.id}/bulletin.wav?key=${TestHelpers.AUTOMATION_KEY}&max_age=3600`,
-          { responseType: 'arraybuffer' }
-        )
-      },
-      {
-        name: 'GET /api/v1/auth/config',
-        method: 'GET',
-        operationPath: '/api/v1/auth/config',
-        run: () => apiCall('GET', '/api/v1/auth/config', '/auth/config')
-      },
-      {
-        name: 'POST /api/v1/sessions',
-        method: 'POST',
-        operationPath: '/api/v1/sessions',
-        run: () => apiCall('POST', '/api/v1/sessions', '/sessions', {
-          username: 'admin',
-          password: 'admin'
-        })
-      },
-      {
-        name: 'GET /api/v1/auth/oauth',
-        method: 'GET',
-        operationPath: '/api/v1/auth/oauth',
-        run: () => rawCall('GET', '/api/v1/auth/oauth', `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 })
-      },
-      {
-        name: 'GET /api/v1/auth/oauth/callback',
-        method: 'GET',
-        operationPath: '/api/v1/auth/oauth/callback',
-        run: () => rawCall(
-          'GET',
-          '/api/v1/auth/oauth/callback',
-          `${global.api.apiUrl}/auth/oauth/callback?state=contract&code=contract`,
-          { maxRedirects: 0 }
-        )
-      },
-      {
-        name: 'GET /api/v1/sessions/current',
-        method: 'GET',
-        operationPath: '/api/v1/sessions/current',
-        run: () => apiCall('GET', '/api/v1/sessions/current', '/sessions/current')
-      },
-      {
-        name: 'DELETE /api/v1/sessions/current',
-        method: 'DELETE',
-        operationPath: '/api/v1/sessions/current',
-        run: async () => {
+      rawScenario('GET', '/health', () => `${global.api.apiBase}/health`),
+      rawScenario(
+        'GET',
+        '/public/stations/{id}/bulletin.wav',
+        () => `${global.api.apiBase}/public/stations/${ctx.station.id}/bulletin.wav?key=${TestHelpers.AUTOMATION_KEY}&max_age=3600`,
+        { responseType: 'arraybuffer' }
+      ),
+      apiScenario('GET', '/api/v1/auth/config', '/auth/config'),
+      apiScenario('POST', '/api/v1/sessions', '/sessions', { username: 'admin', password: 'admin' }),
+      rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }),
+      rawScenario(
+        'GET',
+        '/api/v1/auth/oauth/callback',
+        () => `${global.api.apiUrl}/auth/oauth/callback?state=contract&code=contract`,
+        { maxRedirects: 0 }
+      ),
+      apiScenario('GET', '/api/v1/sessions/current', '/sessions/current'),
+      scenario('DELETE', '/api/v1/sessions/current', async () => {
           const response = await apiCall('DELETE', '/api/v1/sessions/current', '/sessions/current');
           const loginResponse = await global.api.apiLogin();
           expect(loginResponse.status).toBe(201);
           return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/stations',
-        method: 'GET',
-        operationPath: '/api/v1/stations',
-        run: async () => {
-          const response = await apiCall('GET', '/api/v1/stations', '/stations?fields=id,name');
-          expectSparseListFields(response, ['id', 'name']);
-          return response;
-        }
-      },
-      {
-        name: 'POST /api/v1/stations',
-        method: 'POST',
-        operationPath: '/api/v1/stations',
-        run: async () => {
-          const body = stationBody('Contract Created Station');
-          const response = await apiCall('POST', '/api/v1/stations', '/stations', body);
-          global.resources.track('stations', response.data.id);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/stations/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/stations/{id}',
-        run: () => apiCall('GET', '/api/v1/stations/{id}', `/stations/${ctx.station.id}`)
-      },
-      {
-        name: 'PUT /api/v1/stations/{id}',
-        method: 'PUT',
-        operationPath: '/api/v1/stations/{id}',
-        run: () => apiCall('PUT', '/api/v1/stations/{id}', `/stations/${ctx.station.id}`, stationBody('Contract Updated Station'))
-      },
-      {
-        name: 'DELETE /api/v1/stations/{id}',
-        method: 'DELETE',
-        operationPath: '/api/v1/stations/{id}',
-        run: async () => {
+        }),
+      sparseListScenario('GET', '/api/v1/stations', '/stations?fields=id,name', ['id', 'name']),
+      trackedApiScenario('POST', '/api/v1/stations', '/stations', () => stationBody('Contract Created Station'), 'stations'),
+      apiScenario('GET', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`),
+      apiScenario('PUT', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`, () => stationBody('Contract Updated Station')),
+      scenario('DELETE', '/api/v1/stations/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Delete Station');
           expect(station).not.toBeNull();
           const response = await apiCall('DELETE', '/api/v1/stations/{id}', `/stations/${station.id}`);
           global.resources.untrack('stations', station.id);
           return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/voices',
-        method: 'GET',
-        operationPath: '/api/v1/voices',
-        run: async () => {
-          const response = await apiCall('GET', '/api/v1/voices', '/voices?fields=id,name');
-          expectSparseListFields(response, ['id', 'name']);
-          return response;
-        }
-      },
-      {
-        name: 'POST /api/v1/voices',
-        method: 'POST',
-        operationPath: '/api/v1/voices',
-        run: async () => {
-          const response = await apiCall('POST', '/api/v1/voices', '/voices', voiceBody('Contract Created Voice'));
-          global.resources.track('voices', response.data.id);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/voices/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/voices/{id}',
-        run: () => apiCall('GET', '/api/v1/voices/{id}', `/voices/${ctx.voice.id}`)
-      },
-      {
-        name: 'PUT /api/v1/voices/{id}',
-        method: 'PUT',
-        operationPath: '/api/v1/voices/{id}',
-        run: () => apiCall('PUT', '/api/v1/voices/{id}', `/voices/${ctx.voice.id}`, voiceBody('Contract Updated Voice'))
-      },
-      {
-        name: 'DELETE /api/v1/voices/{id}',
-        method: 'DELETE',
-        operationPath: '/api/v1/voices/{id}',
-        run: async () => {
+        }),
+      sparseListScenario('GET', '/api/v1/voices', '/voices?fields=id,name', ['id', 'name']),
+      trackedApiScenario('POST', '/api/v1/voices', '/voices', () => voiceBody('Contract Created Voice'), 'voices'),
+      apiScenario('GET', '/api/v1/voices/{id}', () => `/voices/${ctx.voice.id}`),
+      apiScenario('PUT', '/api/v1/voices/{id}', () => `/voices/${ctx.voice.id}`, () => voiceBody('Contract Updated Voice')),
+      scenario('DELETE', '/api/v1/voices/{id}', async () => {
           const voice = await global.helpers.createVoice(global.resources, 'Contract Delete Voice');
           expect(voice).not.toBeNull();
           const response = await apiCall('DELETE', '/api/v1/voices/{id}', `/voices/${voice.id}`);
           global.resources.untrack('voices', voice.id);
           return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/stories',
-        method: 'GET',
-        operationPath: '/api/v1/stories',
-        run: async () => {
-          const response = await apiCall('GET', '/api/v1/stories', '/stories?fields=id,title,status');
-          expectSparseListFields(response, ['id', 'title', 'status']);
-          return response;
-        }
-      },
-      {
-        name: 'POST /api/v1/stories',
-        method: 'POST',
-        operationPath: '/api/v1/stories',
-        run: async () => {
-          const response = await apiCall('POST', '/api/v1/stories', '/stories', storyBody('Contract Created Story'));
-          global.resources.track('stories', response.data.id);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/stories/{id}/audio',
-        method: 'GET',
-        operationPath: '/api/v1/stories/{id}/audio',
-        run: () => rawCall(
-          'GET',
-          '/api/v1/stories/{id}/audio',
-          `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
-          { responseType: 'arraybuffer' }
-        )
-      },
-      {
-        name: 'POST /api/v1/stories/{id}/audio',
-        method: 'POST',
-        operationPath: '/api/v1/stories/{id}/audio',
-        run: () => uploadCall(
-          '/api/v1/stories/{id}/audio',
-          `/stories/${ctx.story.id}/audio`,
-          'audio',
-          { audio: 'contract.wav' }
-        )
-      },
-      {
-        name: 'POST /api/v1/stories/{id}/tts',
-        method: 'POST',
-        operationPath: '/api/v1/stories/{id}/tts',
-        run: () => apiCall('POST', '/api/v1/stories/{id}/tts', `/stories/${ctx.story.id}/tts`)
-      },
-      {
-        name: 'GET /api/v1/stories/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/stories/{id}',
-        run: () => apiCall('GET', '/api/v1/stories/{id}', `/stories/${ctx.story.id}`)
-      },
-      {
-        name: 'PUT /api/v1/stories/{id}',
-        method: 'PUT',
-        operationPath: '/api/v1/stories/{id}',
-        run: () => apiCall('PUT', '/api/v1/stories/{id}', `/stories/${ctx.story.id}`, {
+        }),
+      sparseListScenario('GET', '/api/v1/stories', '/stories?fields=id,title,status', ['id', 'title', 'status']),
+      trackedApiScenario('POST', '/api/v1/stories', '/stories', () => storyBody('Contract Created Story'), 'stories'),
+      rawScenario('GET', '/api/v1/stories/{id}/audio', () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`, { responseType: 'arraybuffer' }),
+      uploadScenario('/api/v1/stories/{id}/audio', () => `/stories/${ctx.story.id}/audio`, 'audio', { audio: 'contract.wav' }),
+      apiScenario('POST', '/api/v1/stories/{id}/tts', () => `/stories/${ctx.story.id}/tts`),
+      apiScenario('GET', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`),
+      apiScenario('PUT', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, () => ({
           title: uniqueName('Contract Updated Story'),
           text: 'Updated contract story body.',
           status: 'active'
-        })
-      },
-      {
-        name: 'DELETE /api/v1/stories/{id}',
-        method: 'DELETE',
-        operationPath: '/api/v1/stories/{id}',
-        run: async () => {
+        })),
+      scenario('DELETE', '/api/v1/stories/{id}', async () => {
           const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'), [ctx.station.id]);
           expect(story).not.toBeNull();
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
-        }
-      },
-      {
-        name: 'PATCH /api/v1/stories/{id}',
-        method: 'PATCH',
-        operationPath: '/api/v1/stories/{id}',
-        run: () => apiCall('PATCH', '/api/v1/stories/{id}', `/stories/${ctx.story.id}`, { status: 'active' })
-      },
-      {
-        name: 'GET /api/v1/stories/{id}/bulletins',
-        method: 'GET',
-        operationPath: '/api/v1/stories/{id}/bulletins',
-        run: async () => {
-          const response = await apiCall(
-            'GET',
-            '/api/v1/stories/{id}/bulletins',
-            `/stories/${ctx.story.id}/bulletins?fields=id,filename,created_at`
-          );
-          expectSparseListFields(response, ['id', 'filename', 'created_at']);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/users',
-        method: 'GET',
-        operationPath: '/api/v1/users',
-        run: async () => {
-          const response = await apiCall('GET', '/api/v1/users', '/users?fields=id,username,role');
-          expectSparseListFields(response, ['id', 'username', 'role']);
-          return response;
-        }
-      },
-      {
-        name: 'POST /api/v1/users',
-        method: 'POST',
-        operationPath: '/api/v1/users',
-        run: async () => {
-          const response = await apiCall('POST', '/api/v1/users', '/users', userBody('created'));
-          global.resources.track('users', response.data.id);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/users/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/users/{id}',
-        run: () => apiCall('GET', '/api/v1/users/{id}', `/users/${ctx.user.id}`)
-      },
-      {
-        name: 'PUT /api/v1/users/{id}',
-        method: 'PUT',
-        operationPath: '/api/v1/users/{id}',
-        run: () => apiCall('PUT', '/api/v1/users/{id}', `/users/${ctx.user.id}`, {
+        }),
+      apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
+      sparseListScenario('GET', '/api/v1/stories/{id}/bulletins', () => `/stories/${ctx.story.id}/bulletins?fields=id,filename,created_at`, ['id', 'filename', 'created_at']),
+      sparseListScenario('GET', '/api/v1/users', '/users?fields=id,username,role', ['id', 'username', 'role']),
+      trackedApiScenario('POST', '/api/v1/users', '/users', () => userBody('created'), 'users'),
+      apiScenario('GET', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`),
+      apiScenario('PUT', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`, {
           full_name: 'Contract Updated User',
           role: 'editor'
-        })
-      },
-      {
-        name: 'DELETE /api/v1/users/{id}',
-        method: 'DELETE',
-        operationPath: '/api/v1/users/{id}',
-        run: async () => {
+        }),
+      scenario('DELETE', '/api/v1/users/{id}', async () => {
           const createResponse = await global.api.apiCall('POST', '/users', userBody('delete'));
           expect(createResponse.status).toBe(201);
-          const response = await apiCall('DELETE', '/api/v1/users/{id}', `/users/${createResponse.data.id}`);
-          return response;
-        }
-      },
-      {
-        name: 'PATCH /api/v1/users/{id}',
-        method: 'PATCH',
-        operationPath: '/api/v1/users/{id}',
-        run: () => apiCall('PATCH', '/api/v1/users/{id}', `/users/${ctx.user.id}`, { action: 'suspend' })
-      },
-      {
-        name: 'GET /api/v1/bulletins',
-        method: 'GET',
-        operationPath: '/api/v1/bulletins',
-        run: async () => {
-          const response = await apiCall(
-            'GET',
-            '/api/v1/bulletins',
-            '/bulletins?filter[file_purged_at][null]=true&fields=id,station_id,created_at'
-          );
-          expectSparseListFields(response, ['id', 'station_id', 'created_at']);
-          return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/bulletins/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/bulletins/{id}',
-        run: () => apiCall('GET', '/api/v1/bulletins/{id}', `/bulletins/${ctx.bulletin.id}`)
-      },
-      {
-        name: 'GET /api/v1/stations/{id}/bulletins',
-        method: 'GET',
-        operationPath: '/api/v1/stations/{id}/bulletins',
-        run: async () => {
-          const response = await apiCall(
-            'GET',
-            '/api/v1/stations/{id}/bulletins',
-            `/stations/${ctx.station.id}/bulletins?fields=id,station_id,created_at`
-          );
-          expectSparseListFields(response, ['id', 'station_id', 'created_at']);
-          return response;
-        }
-      },
-      // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
-      {
-        name: 'GET /api/v1/stations/{id}/bulletins latest',
-        method: 'GET',
-        operationPath: '/api/v1/stations/{id}/bulletins',
-        run: async () => {
+          return apiCall('DELETE', '/api/v1/users/{id}', `/users/${createResponse.data.id}`);
+        }),
+      apiScenario('PATCH', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`, { action: 'suspend' }),
+      sparseListScenario('GET', '/api/v1/bulletins', '/bulletins?filter[file_purged_at][null]=true&fields=id,station_id,created_at', ['id', 'station_id', 'created_at']),
+      apiScenario('GET', '/api/v1/bulletins/{id}', () => `/bulletins/${ctx.bulletin.id}`),
+      sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins?fields=id,station_id,created_at`, ['id', 'station_id', 'created_at']),
+      scenario('GET', '/api/v1/stations/{id}/bulletins', async () => {
+          // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
           const response = await apiCall(
             'GET',
             '/api/v1/stations/{id}/bulletins',
@@ -382,51 +122,13 @@ describe('OpenAPI Contract', () => {
           expect(response.data).not.toHaveProperty('data');
           expect(response.data.id).toBe(ctx.bulletin.id);
           return response;
-        }
-      },
+        }, 'GET /api/v1/stations/{id}/bulletins latest'),
       // Keep this after the latest scenario: generating here creates a newer bulletin for ctx.station.
-      {
-        name: 'POST /api/v1/stations/{id}/bulletins',
-        method: 'POST',
-        operationPath: '/api/v1/stations/{id}/bulletins',
-        run: () => apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${ctx.station.id}/bulletins`, {})
-      },
-      {
-        name: 'GET /api/v1/bulletins/{id}/audio',
-        method: 'GET',
-        operationPath: '/api/v1/bulletins/{id}/audio',
-        run: () => rawCall(
-          'GET',
-          '/api/v1/bulletins/{id}/audio',
-          `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`,
-          { responseType: 'arraybuffer' }
-        )
-      },
-      {
-        name: 'GET /api/v1/bulletins/{id}/stories',
-        method: 'GET',
-        operationPath: '/api/v1/bulletins/{id}/stories',
-        run: () => apiCall('GET', '/api/v1/bulletins/{id}/stories', `/bulletins/${ctx.bulletin.id}/stories`)
-      },
-      {
-        name: 'GET /api/v1/station-voices',
-        method: 'GET',
-        operationPath: '/api/v1/station-voices',
-        run: async () => {
-          const response = await apiCall(
-            'GET',
-            '/api/v1/station-voices',
-            '/station-voices?fields=id,station_name,voice_name,mix_point'
-          );
-          expectSparseListFields(response, ['id', 'station_name', 'voice_name', 'mix_point']);
-          return response;
-        }
-      },
-      {
-        name: 'POST /api/v1/station-voices',
-        method: 'POST',
-        operationPath: '/api/v1/station-voices',
-        run: async () => {
+      apiScenario('POST', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, {}),
+      rawScenario('GET', '/api/v1/bulletins/{id}/audio', () => `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`, { responseType: 'arraybuffer' }),
+      apiScenario('GET', '/api/v1/bulletins/{id}/stories', () => `/bulletins/${ctx.bulletin.id}/stories`),
+      sparseListScenario('GET', '/api/v1/station-voices', '/station-voices?fields=id,station_name,voice_name,mix_point', ['id', 'station_name', 'voice_name', 'mix_point']),
+      scenario('POST', '/api/v1/station-voices', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Post Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Post Voice');
           expect(station).not.toBeNull();
@@ -439,47 +141,12 @@ describe('OpenAPI Contract', () => {
           });
           global.resources.track('stationVoices', response.data.id);
           return response;
-        }
-      },
-      {
-        name: 'GET /api/v1/station-voices/{id}/audio',
-        method: 'GET',
-        operationPath: '/api/v1/station-voices/{id}/audio',
-        run: () => rawCall(
-          'GET',
-          '/api/v1/station-voices/{id}/audio',
-          `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`,
-          { responseType: 'arraybuffer' }
-        )
-      },
-      {
-        name: 'POST /api/v1/station-voices/{id}/audio',
-        method: 'POST',
-        operationPath: '/api/v1/station-voices/{id}/audio',
-        run: () => uploadCall(
-          '/api/v1/station-voices/{id}/audio',
-          `/station-voices/${ctx.stationVoice.id}/audio`,
-          'jingle',
-          { jingle: 'contract.wav' }
-        )
-      },
-      {
-        name: 'GET /api/v1/station-voices/{id}',
-        method: 'GET',
-        operationPath: '/api/v1/station-voices/{id}',
-        run: () => apiCall('GET', '/api/v1/station-voices/{id}', `/station-voices/${ctx.stationVoice.id}`)
-      },
-      {
-        name: 'PUT /api/v1/station-voices/{id}',
-        method: 'PUT',
-        operationPath: '/api/v1/station-voices/{id}',
-        run: () => apiCall('PUT', '/api/v1/station-voices/{id}', `/station-voices/${ctx.stationVoice.id}`, { mix_point: 2.25 })
-      },
-      {
-        name: 'DELETE /api/v1/station-voices/{id}',
-        method: 'DELETE',
-        operationPath: '/api/v1/station-voices/{id}',
-        run: async () => {
+        }),
+      rawScenario('GET', '/api/v1/station-voices/{id}/audio', () => `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`, { responseType: 'arraybuffer' }),
+      uploadScenario('/api/v1/station-voices/{id}/audio', () => `/station-voices/${ctx.stationVoice.id}/audio`, 'jingle', { jingle: 'contract.wav' }),
+      apiScenario('GET', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`),
+      apiScenario('PUT', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`, { mix_point: 2.25 }),
+      scenario('DELETE', '/api/v1/station-voices/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Delete Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Delete Voice');
           expect(station).not.toBeNull();
@@ -491,9 +158,44 @@ describe('OpenAPI Contract', () => {
           const response = await apiCall('DELETE', '/api/v1/station-voices/{id}', `/station-voices/${stationVoice.id}`);
           global.resources.untrack('stationVoices', stationVoice.id);
           return response;
-        }
-      }
+        })
     ];
+  }
+
+  function scenario(method, operationPath, run, name = `${method} ${operationPath}`) {
+    return { name, method, operationPath, run };
+  }
+
+  function resolve(value) {
+    return typeof value === 'function' ? value() : value;
+  }
+
+  function apiScenario(method, operationPath, endpoint, body, options) {
+    return scenario(method, operationPath, () => apiCall(method, operationPath, resolve(endpoint), resolve(body), resolve(options) || {}));
+  }
+
+  function trackedApiScenario(method, operationPath, endpoint, body, resourceType) {
+    return scenario(method, operationPath, async () => {
+      const response = await apiCall(method, operationPath, resolve(endpoint), resolve(body));
+      global.resources.track(resourceType, response.data.id);
+      return response;
+    });
+  }
+
+  function rawScenario(method, operationPath, url, options) {
+    return scenario(method, operationPath, () => rawCall(method, operationPath, resolve(url), resolve(options) || {}));
+  }
+
+  function uploadScenario(operationPath, endpoint, fileFieldName, requestBody) {
+    return scenario('POST', operationPath, () => uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody));
+  }
+
+  function sparseListScenario(method, operationPath, endpoint, fields) {
+    return scenario(method, operationPath, async () => {
+      const response = await apiCall(method, operationPath, resolve(endpoint));
+      expectSparseListFields(response, fields);
+      return response;
+    });
   }
 
   async function apiCall(method, operationPath, endpoint, body = undefined, options = {}) {
