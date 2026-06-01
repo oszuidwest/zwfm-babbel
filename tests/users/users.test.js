@@ -1,12 +1,3 @@
-/**
- * Babbel users tests.
- * Tests user management functionality including CRUD operations, queries, validation, and permissions.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const usersSchema = require('../lib/schemas/users.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 

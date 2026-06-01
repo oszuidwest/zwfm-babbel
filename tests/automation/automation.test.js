@@ -1,68 +1,25 @@
-/**
- * Babbel automation endpoint tests.
- * Tests the public automation endpoint for radio automation systems.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const TestHelpers = require('../lib/TestHelpers');
 
 describe('Automation', () => {
   const automationKey = TestHelpers.AUTOMATION_KEY;
 
   describe('API Key Validation', () => {
-    test('when API key missing, then returns 401', async () => {
-      // Act
-      const response = await global.helpers.publicBulletinRequest(1, { max_age: '3600' });
-
-      // Assert
-      expect(response.status).toBe(401);
-    });
-
-    test('when API key invalid, then returns 401', async () => {
-      // Act
-      const response = await global.helpers.publicBulletinRequest(1, {
-        key: 'wrong-key',
-        max_age: '3600'
-      });
-
-      // Assert
+    test.each([
+      ['when API key missing, then returns 401', { max_age: '3600' }],
+      ['when API key invalid, then returns 401', { key: 'wrong-key', max_age: '3600' }]
+    ])('%s', async (_name, params) => {
+      const response = await global.helpers.publicBulletinRequest(1, params);
       expect(response.status).toBe(401);
     });
   });
 
   describe('Parameter Validation', () => {
-    test('when max_age missing, then returns 422', async () => {
-      // Act
-      const response = await global.helpers.publicBulletinRequest(1, {
-        key: automationKey
-      });
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when max_age invalid, then returns 422', async () => {
-      // Act
-      const response = await global.helpers.publicBulletinRequest(1, {
-        key: automationKey,
-        max_age: 'invalid'
-      });
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when max_age negative, then returns 422', async () => {
-      // Act
-      const response = await global.helpers.publicBulletinRequest(1, {
-        key: automationKey,
-        max_age: '-100'
-      });
-
-      // Assert
+    test.each([
+      ['when max_age missing, then returns 422', { key: automationKey }],
+      ['when max_age invalid, then returns 422', { key: automationKey, max_age: 'invalid' }],
+      ['when max_age negative, then returns 422', { key: automationKey, max_age: '-100' }]
+    ])('%s', async (_name, params) => {
+      const response = await global.helpers.publicBulletinRequest(1, params);
       expect(response.status).toBe(422);
     });
 
@@ -206,14 +163,6 @@ describe('Automation', () => {
     test('when single-day story, then scheduling works correctly', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
-      // Arrange: Create test audio
-      const audioFile = `/tmp/test_story_timezone_${Date.now()}.wav`;
-      const audioCreated = global.helpers.createTestAudioFile(audioFile, 3, 330);
-
-      if (!audioCreated) {
-        throw new Error('Failed to create test audio file');
-      }
-
       // Use today only
       const today = new Date();
       const year = today.getFullYear();
@@ -221,34 +170,12 @@ describe('Automation', () => {
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      // Create story valid only today
-      const storyResponse = await global.api.apiCall('POST', '/stories', {
+      await global.helpers.createStationStoriesWithReadyAudio(global.resources, stationId, voiceId, [{
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
-        voice_id: voiceId,
-        status: 'active',
         start_date: todayStr,
-        end_date: todayStr,
-        weekdays: 127,
-        target_stations: [stationId]
-      });
-
-      expect(storyResponse.status).toBe(201);
-      global.resources.track('stories', storyResponse.data.id);
-
-      // Upload audio
-      const uploadResponse = await global.api.uploadFile(
-        `/stories/${storyResponse.data.id}/audio`,
-        {},
-        audioFile,
-        'audio'
-      );
-      expect(uploadResponse.status).toBe(201);
-
-      // Cleanup
-      global.helpers.cleanupTempFile(audioFile);
-
-      await global.helpers.waitForStoryAudio(storyResponse.data.id);
+        end_date: todayStr
+      }]);
 
       // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {

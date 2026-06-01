@@ -1,13 +1,3 @@
-/**
- * Babbel bulletin cleanup tests.
- * Tests that purged bulletins behave correctly: no audio_url, metadata preserved,
- * latest endpoint skips purged, automation regenerates after purge.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const fsSync = require('fs');
 const path = require('path');
 

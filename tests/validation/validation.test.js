@@ -1,16 +1,17 @@
-/**
- * Babbel security and cross-cutting validation tests.
- * Tests security-related validation that applies across all endpoints.
- *
- * Note: Resource-specific validation (field types, boundaries, required fields)
- * is now tested via generateValidationTests() in each resource's test file.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 describe('Security Validation', () => {
+  const expectStationPayloadHandledSafely = async (payload) => {
+    const response = await global.api.apiCall('POST', '/stations', {
+      name: payload,
+      max_stories_per_block: 5,
+      pause_seconds: 2.0
+    });
+
+    expect([201, 409, 422]).toContain(response.status);
+    if (response.status === 201 && response.data?.id) {
+      global.resources.track('stations', response.data.id);
+    }
+  };
+
   describe('SQL Injection Prevention', () => {
     const sqlPayloads = [
       "'; DROP TABLE users; --",
@@ -22,23 +23,7 @@ describe('Security Validation', () => {
     ];
 
     test.each(sqlPayloads)('when SQL payload submitted: %s, then handled safely', async (payload) => {
-      // Arrange
-      const data = {
-        name: payload,
-        max_stories_per_block: 5,
-        pause_seconds: 2.0
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stations', data);
-
-      // Assert: Should be rejected (422) or safely handled (201/409)
-      expect([201, 409, 422]).toContain(response.status);
-
-      // Cleanup
-      if (response.status === 201 && response.data?.id) {
-        global.resources.track('stations', response.data.id);
-      }
+      await expectStationPayloadHandledSafely(payload);
     });
   });
 
@@ -52,23 +37,7 @@ describe('Security Validation', () => {
     ];
 
     test.each(xssPayloads)('when XSS payload submitted: %s, then handled safely', async (payload) => {
-      // Arrange
-      const data = {
-        name: payload,
-        max_stories_per_block: 5,
-        pause_seconds: 2.0
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stations', data);
-
-      // Assert
-      expect([201, 409, 422]).toContain(response.status);
-
-      // Cleanup
-      if (response.status === 201 && response.data?.id) {
-        global.resources.track('stations', response.data.id);
-      }
+      await expectStationPayloadHandledSafely(payload);
     });
   });
 
@@ -81,23 +50,7 @@ describe('Security Validation', () => {
     ];
 
     test.each(pathPayloads)('when path traversal payload submitted: %s, then handled safely', async (payload) => {
-      // Arrange
-      const data = {
-        name: payload,
-        max_stories_per_block: 5,
-        pause_seconds: 2.0
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stations', data);
-
-      // Assert
-      expect([201, 409, 422]).toContain(response.status);
-
-      // Cleanup
-      if (response.status === 201 && response.data?.id) {
-        global.resources.track('stations', response.data.id);
-      }
+      await expectStationPayloadHandledSafely(payload);
     });
   });
 });
@@ -113,61 +66,20 @@ describe('Story Date Validation', () => {
     voiceId = voice.id;
   });
 
-  test('when start_date invalid format, then returns 422', async () => {
-    // Arrange
-    const storyData = {
+  test.each([
+    ['when start_date invalid format, then returns 422', { start_date: 'invalid-date' }],
+    ['when end_date invalid format, then returns 422', { end_date: 'invalid-date' }],
+    ['when end_date before start_date, then returns 422', { start_date: '2024-12-31', end_date: '2024-01-01' }]
+  ])('%s', async (_name, overrides) => {
+    const response = await global.api.apiCall('POST', '/stories', {
       title: `DateTest ${Date.now()}`,
       text: 'Test content',
       voice_id: voiceId,
       target_stations: [stationId],
-      start_date: 'invalid-date',
       status: 'active',
-      weekdays: 127
-    };
-
-    // Act
-    const response = await global.api.apiCall('POST', '/stories', storyData);
-
-    // Assert
-    expect(response.status).toBe(422);
-  });
-
-  test('when end_date invalid format, then returns 422', async () => {
-    // Arrange
-    const storyData = {
-      title: `DateTest ${Date.now()}`,
-      text: 'Test content',
-      voice_id: voiceId,
-      target_stations: [stationId],
-      end_date: 'invalid-date',
-      status: 'active',
-      weekdays: 127
-    };
-
-    // Act
-    const response = await global.api.apiCall('POST', '/stories', storyData);
-
-    // Assert
-    expect(response.status).toBe(422);
-  });
-
-  test('when end_date before start_date, then returns 422', async () => {
-    // Arrange
-    const storyData = {
-      title: `DateTest ${Date.now()}`,
-      text: 'Test content',
-      voice_id: voiceId,
-      target_stations: [stationId],
-      start_date: '2024-12-31',
-      end_date: '2024-01-01',
-      status: 'active',
-      weekdays: 127
-    };
-
-    // Act
-    const response = await global.api.apiCall('POST', '/stories', storyData);
-
-    // Assert
+      weekdays: 127,
+      ...overrides
+    });
     expect(response.status).toBe(422);
   });
 });

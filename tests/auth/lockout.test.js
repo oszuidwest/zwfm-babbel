@@ -1,14 +1,3 @@
-/**
- * Babbel account lockout tests.
- * Verifies that local login enforces the configured failed-attempt threshold
- * and that the WHERE-clause guard in updateLoginFailure prevents stale
- * pre-lock requests from extending an active lockout.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const { createMySQLExecutor, sqlString } = require('../lib/MySQLHelper');
 
 // Matches BABBEL_AUTH_MAX_LOGIN_ATTEMPTS default in internal/config/config.go.

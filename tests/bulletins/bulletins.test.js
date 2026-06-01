@@ -1,12 +1,3 @@
-/**
- * Babbel bulletins tests.
- * Tests bulletin generation and audio handling functionality.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const fs = require('fs');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
@@ -167,8 +158,8 @@ describe('Bulletins', () => {
       expect(svHigh).not.toBeNull();
       expect(svLow).not.toBeNull();
 
-      // Breaking story on high-priority voice → will be first in SQL order
-      const breakingStory = await global.helpers.createStoryWithAudio(global.resources, {
+      // Breaking story on high-priority voice -> will be first in SQL order
+      await global.helpers.createStoryWithReadyAudio(global.resources, {
         title: `JingleCtxBreaking_${Date.now()}`,
         text: 'Breaking story for jingle context test',
         voice_id: highPriorityVoice.id,
@@ -177,8 +168,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      // Regular story on low-priority voice
-      const regularStory = await global.helpers.createStoryWithAudio(global.resources, {
+      await global.helpers.createStoryWithReadyAudio(global.resources, {
         title: `JingleCtxRegular_${Date.now()}`,
         text: 'Regular story for jingle context test',
         voice_id: lowPriorityVoice.id,
@@ -186,12 +176,6 @@ describe('Bulletins', () => {
         status: 'active',
         is_breaking: false
       }, [station.id]);
-
-      expect(breakingStory).not.toBeNull();
-      expect(regularStory).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(breakingStory.id);
-      await global.helpers.waitForStoryAudio(regularStory.id);
 
       // Act: generate 5 bulletins - each shuffle is independent
       const runs = 5;
@@ -228,40 +212,16 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      const breakingStoryA = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingPriorityA_${Date.now()}`,
-        text: 'Breaking story A',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: true
-      }, [station.id]);
-
-      const breakingStoryB = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingPriorityB_${Date.now()}`,
-        text: 'Breaking story B',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: true
-      }, [station.id]);
-
-      const regularStory = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingPriorityRegular_${Date.now()}`,
-        text: 'Regular story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: false
-      }, [station.id]);
-
-      expect(breakingStoryA).not.toBeNull();
-      expect(breakingStoryB).not.toBeNull();
-      expect(regularStory).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(breakingStoryA.id);
-      await global.helpers.waitForStoryAudio(breakingStoryB.id);
-      await global.helpers.waitForStoryAudio(regularStory.id);
+      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.createStationStoriesWithReadyAudio(
+        global.resources,
+        station.id,
+        voice.id,
+        [
+          { title: `BreakingPriorityA_${Date.now()}`, text: 'Breaking story A', is_breaking: true },
+          { title: `BreakingPriorityB_${Date.now()}`, text: 'Breaking story B', is_breaking: true },
+          { title: `BreakingPriorityRegular_${Date.now()}`, text: 'Regular story', is_breaking: false }
+        ]
+      );
 
       // Act
       const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
@@ -290,32 +250,26 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      const breakingStory = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingAlways_${Date.now()}`,
-        text: 'This breaking story must always appear',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: true
-      }, [station.id]);
+      const [breakingStory] = await global.helpers.createStationStoriesWithReadyAudio(
+        global.resources,
+        station.id,
+        voice.id,
+        [{
+          title: `BreakingAlways_${Date.now()}`,
+          text: 'This breaking story must always appear',
+          is_breaking: true
+        }]
+      );
 
       const regularStoryIds = [];
       for (let i = 0; i < 4; i++) {
-        const story = await global.helpers.createStoryWithAudio(global.resources, {
+        const [story] = await global.helpers.createStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [{
           title: `BreakingAlwaysRegular${i}_${Date.now()}`,
           text: `Regular story ${i}`,
-          voice_id: voice.id,
-          weekdays: 127,
-          status: 'active',
           is_breaking: false
-        }, [station.id]);
-        expect(story).not.toBeNull();
-        await global.helpers.waitForStoryAudio(story.id);
+        }]);
         regularStoryIds.push(story.id);
       }
-
-      expect(breakingStory).not.toBeNull();
-      await global.helpers.waitForStoryAudio(breakingStory.id);
 
       // Act: generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
@@ -350,61 +304,28 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      // Breaking story with draft status - should be excluded
-      const draftBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingDraft_${Date.now()}`,
-        text: 'Breaking but draft',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'draft',
-        is_breaking: true
-      }, [station.id]);
-
-      // Breaking story with expired date range - should be excluded
-      const expiredBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingExpired_${Date.now()}`,
-        text: 'Breaking but expired',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        start_date: '2020-01-01',
-        end_date: '2020-12-31',
-        is_breaking: true
-      }, [station.id]);
-
-      // Breaking story on wrong weekday - should be excluded
       // Current weekday bitmask: Sunday=1, Monday=2, Tuesday=4, etc.
       // Use a bitmask that excludes today
       const todayBit = 1 << new Date().getDay();
       const wrongWeekdays = 127 ^ todayBit; // all days except today
-      const wrongDayBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingWrongDay_${Date.now()}`,
-        text: 'Breaking but wrong weekday',
-        voice_id: voice.id,
-        weekdays: wrongWeekdays,
-        status: 'active',
-        is_breaking: true
-      }, [station.id]);
-
-      // One eligible non-breaking story so the bulletin can still generate
-      const eligibleStory = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingEligRegular_${Date.now()}`,
-        text: 'Eligible regular story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: false
-      }, [station.id]);
-
-      expect(draftBreaking).not.toBeNull();
-      expect(expiredBreaking).not.toBeNull();
-      expect(wrongDayBreaking).not.toBeNull();
-      expect(eligibleStory).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(draftBreaking.id);
-      await global.helpers.waitForStoryAudio(expiredBreaking.id);
-      await global.helpers.waitForStoryAudio(wrongDayBreaking.id);
-      await global.helpers.waitForStoryAudio(eligibleStory.id);
+      const [draftBreaking, expiredBreaking, wrongDayBreaking, eligibleStory] =
+        await global.helpers.createStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [
+          { title: `BreakingDraft_${Date.now()}`, text: 'Breaking but draft', status: 'draft', is_breaking: true },
+          {
+            title: `BreakingExpired_${Date.now()}`,
+            text: 'Breaking but expired',
+            start_date: '2020-01-01',
+            end_date: '2020-12-31',
+            is_breaking: true
+          },
+          {
+            title: `BreakingWrongDay_${Date.now()}`,
+            text: 'Breaking but wrong weekday',
+            weekdays: wrongWeekdays,
+            is_breaking: true
+          },
+          { title: `BreakingEligRegular_${Date.now()}`, text: 'Eligible regular story', is_breaking: false }
+        ]);
 
       // Act
       const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
@@ -435,49 +356,34 @@ describe('Bulletins', () => {
       const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, 3.0);
       expect(stationVoice).not.toBeNull();
 
-      // Oldest breaking story - should be excluded (start_date 2024)
-      const oldBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingOld_${Date.now()}`,
-        text: 'Old breaking story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31',
-        is_breaking: true
-      }, [station.id]);
-
-      // Middle breaking story - should be included (start_date 2025)
-      const midBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingMid_${Date.now()}`,
-        text: 'Middle breaking story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        start_date: '2025-06-01',
-        end_date: '2030-12-31',
-        is_breaking: true
-      }, [station.id]);
-
-      // Newest breaking story - should be included (start_date 2026)
-      const newBreaking = await global.helpers.createStoryWithAudio(global.resources, {
-        title: `BreakingNew_${Date.now()}`,
-        text: 'Newest breaking story',
-        voice_id: voice.id,
-        weekdays: 127,
-        status: 'active',
-        start_date: '2026-03-01',
-        end_date: '2030-12-31',
-        is_breaking: true
-      }, [station.id]);
-
-      expect(oldBreaking).not.toBeNull();
-      expect(midBreaking).not.toBeNull();
-      expect(newBreaking).not.toBeNull();
-
-      await global.helpers.waitForStoryAudio(oldBreaking.id);
-      await global.helpers.waitForStoryAudio(midBreaking.id);
-      await global.helpers.waitForStoryAudio(newBreaking.id);
+      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.createStationStoriesWithReadyAudio(
+        global.resources,
+        station.id,
+        voice.id,
+        [
+          {
+            title: `BreakingOld_${Date.now()}`,
+            text: 'Old breaking story',
+            start_date: '2024-01-01',
+            end_date: '2030-12-31',
+            is_breaking: true
+          },
+          {
+            title: `BreakingMid_${Date.now()}`,
+            text: 'Middle breaking story',
+            start_date: '2025-06-01',
+            end_date: '2030-12-31',
+            is_breaking: true
+          },
+          {
+            title: `BreakingNew_${Date.now()}`,
+            text: 'Newest breaking story',
+            start_date: '2026-03-01',
+            end_date: '2030-12-31',
+            is_breaking: true
+          }
+        ]
+      );
 
       // Act
       const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
@@ -672,35 +578,13 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('data');
     });
 
-    test('when called with filter, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?filter[story_id]=1`);
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when called with sort, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?sort=story_order`);
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when called with fields, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?fields=id,story_id`);
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when called with search, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?search=anything`);
-
-      // Assert
+    test.each([
+      ['when called with filter, then returns 422', 'filter[story_id]=1'],
+      ['when called with sort, then returns 422', 'sort=story_order'],
+      ['when called with fields, then returns 422', 'fields=id,story_id'],
+      ['when called with search, then returns 422', 'search=anything']
+    ])('%s', async (_name, query) => {
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
       expect(response.status).toBe(422);
     });
   });
@@ -764,105 +648,26 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('data');
     });
 
-    test('when latest=true combined with unknown filter, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&filter[__bogus__]=1`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when latest=true combined with unknown sort, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&sort=__bogus__`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when latest=true combined with unknown fields, then returns 422', async () => {
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&fields=id,__bogus__`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when latest=true combined with extra known query params, then returns 422', async () => {
-      // Even known/valid fields must be rejected because the latest shortcut
-      // returns a single record and can't honor filter/sort semantics.
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&sort=-created_at`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when latest=true combined with limit other than 1, then returns 422', async () => {
-      // latest=true returns a single bulletin; limit=2 is contradictory.
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&limit=2`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
-    });
-
-    test('when latest=true combined with limit=1, then returns 200', async () => {
-      // limit=1 is the alternative trigger and may coexist with latest=true.
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&limit=1`
-      );
-
-      // Assert
-      expect(response.status).toBe(200);
-    });
-
-    test('when limit appears twice, then returns 422 regardless of which wins', async () => {
-      // Regression: c.Query() returns values[0], so latest=true&limit=1&limit=2
-      // used to slip past the latest-shortcut guard because only the first
-      // limit was checked. The central duplicate-key guard now catches it.
-      // Act
-      const response = await global.api.apiCall(
-        'GET',
-        `/stations/${stationId}/bulletins?latest=true&limit=1&limit=2`
-      );
-
-      // Assert
-      expect(response.status).toBe(422);
+    test.each([
+      ['when latest=true combined with unknown filter, then returns 422', 'latest=true&filter[__bogus__]=1', 422],
+      ['when latest=true combined with unknown sort, then returns 422', 'latest=true&sort=__bogus__', 422],
+      ['when latest=true combined with unknown fields, then returns 422', 'latest=true&fields=id,__bogus__', 422],
+      ['when latest=true combined with extra known query params, then returns 422', 'latest=true&sort=-created_at', 422],
+      ['when latest=true combined with limit other than 1, then returns 422', 'latest=true&limit=2', 422],
+      ['when latest=true combined with limit=1, then returns 200', 'latest=true&limit=1', 200],
+      ['when limit appears twice, then returns 422 regardless of which wins', 'latest=true&limit=1&limit=2', 422]
+    ])('%s', async (_name, query, status) => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?${query}`);
+      expect(response.status).toBe(status);
     });
   });
 
   describe('Bulletin Error Cases', () => {
-    test('when station non-existent, then returns 404', async () => {
-      // Act
-      const response = await global.api.apiCall('POST', '/stations/99999/bulletins', {});
-
-      // Assert
-      expect(response.status).toBe(404);
-    });
-
-    test('when bulletin audio non-existent, then returns 404', async () => {
-      // Act
-      const response = await global.api.apiCall('GET', '/bulletins/99999/audio');
-
-      // Assert
+    test.each([
+      ['when station non-existent, then returns 404', 'POST', '/stations/99999/bulletins', {}],
+      ['when bulletin audio non-existent, then returns 404', 'GET', '/bulletins/99999/audio', undefined]
+    ])('%s', async (_name, method, endpoint, body) => {
+      const response = await global.api.apiCall(method, endpoint, body);
       expect(response.status).toBe(404);
     });
   });

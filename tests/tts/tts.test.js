@@ -1,19 +1,3 @@
-/**
- * Babbel TTS (text-to-speech) tests.
- * Tests the POST /api/v1/stories/{id}/tts endpoint validation chain.
- *
- * TTS availability is controlled by environment variables:
- * - BABBEL_TEST_TTS_ENABLED=true    → Run TTS validation chain tests
- * - BABBEL_TEST_TTS_REAL_API=true   → Run real ElevenLabs API tests
- * - BABBEL_TEST_ELEVENLABS_VOICE_ID → Voice ID for real API tests
- *
- * Default (all unset): only the "TTS Disabled" suite runs, verifying 501.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 // Module-level flags: determine which describe blocks run/skip.
 // Using env vars (not runtime probes) so describe.skip works at definition time.
 const TTS_ENABLED = process.env.BABBEL_TEST_TTS_ENABLED === 'true';

@@ -262,6 +262,52 @@ class TestHelpers {
   }
 
   /**
+   * Creates a test story with audio and waits until the API exposes it.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {Object} data - Story data (title, text, voice_id, etc.).
+   * @param {Array<number>} targetStations - Array of station IDs to target.
+   * @returns {Promise<{id: number}>} Story data.
+   */
+  async createStoryWithReadyAudio(resourceManager, data, targetStations) {
+    const story = await this.createStoryWithAudio(resourceManager, data, targetStations);
+    if (!story) {
+      throw new Error(`Failed to create story-with-audio fixture: ${data.title || 'untitled story'}`);
+    }
+
+    const audioReady = await this.waitForStoryAudio(story.id);
+    if (!audioReady) {
+      throw new Error(`Timed out waiting for story audio fixture: ${story.id}`);
+    }
+
+    return story;
+  }
+
+  /**
+   * Creates multiple ready audio stories for one station/voice pair.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {string|number} stationId - Station ID.
+   * @param {string|number} voiceId - Voice ID.
+   * @param {Array<Object>} stories - Story overrides.
+   * @returns {Promise<Array<{id: number}>>} Created stories in input order.
+   */
+  async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
+    const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
+    const created = [];
+
+    for (const story of stories) {
+      created.push(await this.createStoryWithReadyAudio(resourceManager, {
+        voice_id: safeVoiceId,
+        weekdays: 127,
+        status: 'active',
+        ...story
+      }, [safeStationId]));
+    }
+
+    return created;
+  }
+
+  /**
    * Creates a station-voice relationship without jingle.
    * @param {Object} resourceManager - ResourceManager instance for tracking.
    * @param {string|number} stationId - Station ID.
@@ -371,15 +417,7 @@ class TestHelpers {
       ...storyOverrides
     };
 
-    const story = await this.createStoryWithAudio(resourceManager, storyData, [station.id]);
-    if (!story) {
-      throw new Error(`Failed to create story-with-audio fixture: ${storyData.title}`);
-    }
-
-    const audioReady = await this.waitForStoryAudio(story.id);
-    if (!audioReady) {
-      throw new Error(`Timed out waiting for story audio fixture: ${story.id}`);
-    }
+    const story = await this.createStoryWithReadyAudio(resourceManager, storyData, [station.id]);
 
     return { station, voice, stationVoice, story };
   }

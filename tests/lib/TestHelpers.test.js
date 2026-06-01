@@ -113,6 +113,75 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
+  test('when creating story with ready audio, then waits until audio is exposed', async () => {
+    const helpers = new TestHelpers({});
+    const resourceManager = { track: jest.fn() };
+
+    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
+
+    const story = await helpers.createStoryWithReadyAudio(
+      resourceManager,
+      { title: 'Story with audio' },
+      [10]
+    );
+
+    expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
+      resourceManager,
+      { title: 'Story with audio' },
+      [10]
+    );
+    expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
+    expect(story).toEqual({ id: 40 });
+  });
+
+  test('when creating station stories with ready audio, then applies shared station and voice defaults', async () => {
+    const helpers = new TestHelpers({});
+    const resourceManager = { track: jest.fn() };
+
+    jest.spyOn(helpers, 'createStoryWithReadyAudio')
+      .mockResolvedValueOnce({ id: 1 })
+      .mockResolvedValueOnce({ id: 2 });
+
+    const stories = await helpers.createStationStoriesWithReadyAudio(
+      resourceManager,
+      10,
+      20,
+      [
+        { title: 'Breaking', text: 'Breaking story', is_breaking: true },
+        { title: 'Regular', text: 'Regular story', is_breaking: false }
+      ]
+    );
+
+    expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
+      1,
+      resourceManager,
+      expect.objectContaining({
+        title: 'Breaking',
+        text: 'Breaking story',
+        voice_id: 20,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: true
+      }),
+      [10]
+    );
+    expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
+      2,
+      resourceManager,
+      expect.objectContaining({
+        title: 'Regular',
+        text: 'Regular story',
+        voice_id: 20,
+        weekdays: 127,
+        status: 'active',
+        is_breaking: false
+      }),
+      [10]
+    );
+    expect(stories).toEqual([{ id: 1 }, { id: 2 }]);
+  });
+
   test('when creating broadcast fixture, then dependencies are created and audio is awaited', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
@@ -120,8 +189,7 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
     jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
     jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
-    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
-    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
+    jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'uniqueName').mockReturnValue('Unique Story');
 
     const fixture = await helpers.createBroadcastFixture(resourceManager, {
@@ -138,7 +206,7 @@ describe('TestHelpers', () => {
     expect(helpers.createStation).toHaveBeenCalledWith(resourceManager, 'Station', 3, 1.5);
     expect(helpers.createVoice).toHaveBeenCalledWith(resourceManager, 'Voice');
     expect(helpers.createStationVoiceWithJingle).toHaveBeenCalledWith(resourceManager, 10, 20, 2.5);
-    expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
+    expect(helpers.createStoryWithReadyAudio).toHaveBeenCalledWith(
       resourceManager,
       expect.objectContaining({
         title: 'Unique Story',
@@ -150,7 +218,6 @@ describe('TestHelpers', () => {
       }),
       [10]
     );
-    expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
     expect(fixture).toEqual({
       station: { id: 10, name: 'Station' },
       voice: { id: 20, name: 'Voice' },

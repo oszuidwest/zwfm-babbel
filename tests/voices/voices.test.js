@@ -1,12 +1,3 @@
-/**
- * Babbel voices tests.
- * Tests voice management functionality including CRUD operations, queries, and validation.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const voicesSchema = require('../lib/schemas/voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
