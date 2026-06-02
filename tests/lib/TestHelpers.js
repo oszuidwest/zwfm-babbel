@@ -9,16 +9,16 @@ const { parseFiniteNumber, parseSafeInteger } = require('./numeric');
 
 class TestHelpers {
   /** Automation key matching docker-compose BABBEL_AUTOMATION_KEY */
-  static AUTOMATION_KEY = 'test-automation-key-for-integration-tests';
+  static AUTOMATION_KEY = process.env.BABBEL_AUTOMATION_KEY || 'test-automation-key-for-integration-tests';
 
   constructor(apiHelper) {
     this.api = apiHelper;
     this._ffmpegAvailable = null;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
   // General Utilities
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
 
   /**
    * Delays execution for the specified number of milliseconds.
@@ -49,9 +49,9 @@ class TestHelpers {
     return false;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
   // FFmpeg Utilities
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
 
   /**
    * Checks if ffmpeg is available on the system.
@@ -124,9 +124,9 @@ class TestHelpers {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
   // Resource Creation Helpers
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
 
   /**
    * Generates a unique name for test resources.
@@ -262,6 +262,87 @@ class TestHelpers {
   }
 
   /**
+   * Creates a test story with audio and waits until the API exposes it.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {Object} data - Story data (title, text, voice_id, etc.).
+   * @param {Array<number>} targetStations - Array of station IDs to target.
+   * @returns {Promise<{id: number}|null>} Story data or null if failed.
+   */
+  async createStoryWithReadyAudio(resourceManager, data, targetStations) {
+    const story = await this.createStoryWithAudio(resourceManager, data, targetStations);
+    if (!story) {
+      return null;
+    }
+
+    const audioReady = await this.waitForStoryAudio(story.id);
+    return audioReady ? story : null;
+  }
+
+  /**
+   * Creates a required test story with ready audio.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {Object} data - Story data (title, text, voice_id, etc.).
+   * @param {Array<number>} targetStations - Array of station IDs to target.
+   * @returns {Promise<{id: number}>} Story data.
+   * @throws {Error} When the story or its audio cannot be prepared.
+   */
+  async requireStoryWithReadyAudio(resourceManager, data, targetStations) {
+    const story = await this.createStoryWithReadyAudio(resourceManager, data, targetStations);
+    if (!story) {
+      throw new Error(`Failed to create ready story audio fixture: ${data.title || 'untitled story'}`);
+    }
+    return story;
+  }
+
+  /**
+   * Creates multiple ready audio stories for one station/voice pair.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {string|number} stationId - Station ID.
+   * @param {string|number} voiceId - Voice ID.
+   * @param {Array<Object>} stories - Story overrides.
+   * @returns {Promise<Array<{id: number}>|null>} Created stories in input order, or null if any failed.
+   */
+  async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
+    const safeStationId = parseSafeInteger(stationId, 'station ID');
+    const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
+    const created = [];
+
+    for (const story of stories) {
+      const createdStory = await this.createStoryWithReadyAudio(resourceManager, {
+        voice_id: safeVoiceId,
+        weekdays: 127,
+        status: 'active',
+        ...story
+      }, [safeStationId]);
+
+      if (!createdStory) {
+        return null;
+      }
+
+      created.push(createdStory);
+    }
+
+    return created;
+  }
+
+  /**
+   * Creates required ready audio stories for one station/voice pair.
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {string|number} stationId - Station ID.
+   * @param {string|number} voiceId - Voice ID.
+   * @param {Array<Object>} stories - Story overrides.
+   * @returns {Promise<Array<{id: number}>>} Created stories in input order.
+   * @throws {Error} When any story or its audio cannot be prepared.
+   */
+  async requireStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
+    const created = await this.createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories);
+    if (!created) {
+      throw new Error(`Failed to create ready story audio fixtures for station ${stationId} and voice ${voiceId}`);
+    }
+    return created;
+  }
+
+  /**
    * Creates a station-voice relationship without jingle.
    * @param {Object} resourceManager - ResourceManager instance for tracking.
    * @param {string|number} stationId - Station ID.
@@ -313,13 +394,17 @@ class TestHelpers {
         return null;
       }
 
-      // Jingle upload is best-effort: station-voice remains valid even if it fails.
-      await this.api.uploadFile(
+      const uploadResponse = await this.api.uploadFile(
         `/station-voices/${stationVoice.id}/audio`,
         {},
         jingleFile,
         'jingle'
       );
+
+      if (uploadResponse.status !== 201) {
+        console.warn(`Failed to upload jingle for station-voice ${stationVoice.id}: HTTP ${uploadResponse.status}`);
+        return null;
+      }
 
       return stationVoice;
     } finally {
@@ -327,9 +412,58 @@ class TestHelpers {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
+  /**
+   * Creates the common station -> voice -> jingle -> story-with-audio fixture
+   * needed by bulletin and automation integration tests.
+   *
+   * @param {Object} resourceManager - ResourceManager instance for tracking.
+   * @param {Object} options - Fixture options.
+   * @returns {Promise<{station: Object, voice: Object, stationVoice: Object, story: Object}>}
+   */
+  async createBroadcastFixture(resourceManager, options = {}) {
+    const {
+      stationName = 'BroadcastStation',
+      voiceName = 'BroadcastVoice',
+      storyTitle = 'BroadcastStory',
+      storyText = 'Broadcast fixture story',
+      maxStories = 4,
+      pauseSeconds = 2.0,
+      mixPoint = 3.0,
+      storyOverrides = {}
+    } = options;
+
+    const station = await this.createStation(resourceManager, stationName, maxStories, pauseSeconds);
+    if (!station) {
+      throw new Error(`Failed to create station fixture: ${stationName}`);
+    }
+
+    const voice = await this.createVoice(resourceManager, voiceName);
+    if (!voice) {
+      throw new Error(`Failed to create voice fixture: ${voiceName}`);
+    }
+
+    const stationVoice = await this.createStationVoiceWithJingle(resourceManager, station.id, voice.id, mixPoint);
+    if (!stationVoice) {
+      throw new Error(`Failed to create station-voice fixture for station ${station.id} and voice ${voice.id}`);
+    }
+
+    const storyData = {
+      title: this.uniqueName(storyTitle),
+      text: storyText,
+      voice_id: voice.id,
+      weekdays: 127,
+      status: 'active',
+      ...storyOverrides
+    };
+
+    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData, [station.id]);
+
+    return { station, voice, stationVoice, story };
+  }
+
+  // -------------------------------------------------------------------------
   // Public Endpoint Helpers
-  // ═══════════════════════════════════════════════════════════════════════════
+  // -------------------------------------------------------------------------
 
   /**
    * Makes a public bulletin request (bypasses authentication).

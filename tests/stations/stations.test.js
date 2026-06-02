@@ -1,12 +1,3 @@
-/**
- * Babbel stations tests.
- * Tests station management functionality including CRUD operations, queries, and validation.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const stationsSchema = require('../lib/schemas/stations.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 

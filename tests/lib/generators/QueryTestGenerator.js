@@ -1,491 +1,236 @@
 /**
  * QueryTestGenerator - Generates query parameter tests for API resources.
- * Covers: search, sort, filter (exact, in, not, gte, lte, between), pagination, field selection.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- * - Test independence via beforeAll setup
+ * Covers search, sort, filter, pagination, field selection, and combined queries.
  */
 
 /**
  * Generates query parameter tests based on resource schema.
- * @param {Object} schema - Resource schema with query configuration
- * @param {Function} [setupFn] - Optional async function to create test data, returns array of IDs
+ * @param {Object} schema - Resource schema with query configuration.
+ * @param {Function} [setupFn] - Optional async setup for resource-specific test data.
  */
 function generateQueryTests(schema, setupFn = null) {
   const { endpoint, name, query } = schema;
+  if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
 
-  if (!query) {
-    throw new Error(`Schema for ${name} missing 'query' configuration`);
-  }
+  const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
+  const expectStatus = async (qs, status = 200) => {
+    const response = await get(qs);
+    expect(response.status).toBe(status);
+    return response;
+  };
+  // Ignore nullish values in comparisons so sparse optional columns do not make
+  // resource-level query tests brittle.
+  const valuesFor = (response, field) => (response.data.data || [])
+    .map(item => item[field])
+    .filter(value => value !== null && value !== undefined);
+  const expectValuesFor = (response, field) => {
+    const values = valuesFor(response, field);
+    expect(values.length).toBeGreaterThan(0);
+    return values;
+  };
+  const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
 
   describe(`${name} Query Parameters`, () => {
     beforeAll(async () => {
-      if (setupFn) {
-        await setupFn();
-      }
+      if (setupFn) await setupFn();
     });
 
-    // === SEARCH TESTS ===
+    // Search tests apply only to resources that declare searchable columns.
     if (query.searchFields?.length > 0) {
       describe('Search', () => {
         test('when searching, then returns 200', async () => {
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?search=test`);
-
-          // Assert
-          expect(response.status).toBe(200);
+          expect.hasAssertions();
+          const response = await expectStatus('search=test');
           expect(response.data).toHaveProperty('data');
         });
 
         test('when search empty, then returns all', async () => {
-          // Arrange: (none - empty search parameter)
-
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?search=`);
-
-          // Assert
-          expect(response.status).toBe(200);
+          expect.hasAssertions();
+          await expectStatus('search=');
         });
       });
     }
 
-    // === SORT TESTS ===
+    // Sorting is validated per declared field in both directions.
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
-          test(`when sorting asc by ${field}, then ordered correctly`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?sort=${field}`);
-
-            // Assert
-            expect(response.status).toBe(200);
-            const results = response.data.data || [];
-            if (results.length > 1) {
-              const isSorted = results.every((item, i) => {
-                if (i === 0) return true;
-                const curr = item[field];
-                const prev = results[i - 1][field];
-                if (curr === null || curr === undefined) return true;
-                if (prev === null || prev === undefined) return true;
-                return curr >= prev;
-              });
-              expect(isSorted).toBe(true);
-            }
-          });
-
-          test(`when sorting desc by ${field}, then ordered correctly`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?sort=-${field}`);
-
-            // Assert
-            expect(response.status).toBe(200);
-            const results = response.data.data || [];
-            if (results.length > 1) {
-              const isSorted = results.every((item, i) => {
-                if (i === 0) return true;
-                const curr = item[field];
-                const prev = results[i - 1][field];
-                if (curr === null || curr === undefined) return true;
-                if (prev === null || prev === undefined) return true;
-                return curr <= prev;
-              });
-              expect(isSorted).toBe(true);
-            }
+          test.each([
+            [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
+            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
+          ])('%s', async (_name, sort, compare) => {
+            expect.hasAssertions();
+            const response = await expectStatus(`sort=${sort}`);
+            const values = expectValuesFor(response, field);
+            if (values.length > 1) expect(isSorted(values, compare)).toBe(true);
           });
         });
 
-        test('when sorting unknown field, then returns 422', async () => {
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?sort=__bogus__`);
-
-          // Assert
-          expect(response.status).toBe(422);
-        });
-
-        test('when sort direction is invalid, then returns 422', async () => {
-          // Arrange
-          const field = query.sortableFields[0];
-
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?sort=${field}:sideways`);
-
-          // Assert
-          expect(response.status).toBe(422);
+        test.each([
+          ['when sorting unknown field, then returns 422', 'sort=__bogus__'],
+          ['when sort direction is invalid, then returns 422', `sort=${query.sortableFields[0]}:sideways`]
+        ])('%s', async (_name, qs) => {
+          expect.hasAssertions();
+          await expectStatus(qs, 422);
         });
 
         if (query.sortableFields.length >= 2) {
-          test('when sorting by multiple fields, then accepted', async () => {
-            // Arrange
-            const fields = query.sortableFields.slice(0, 2);
-
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?sort=${fields.join(',')}`);
-
-            // Assert
-            expect(response.status).toBe(200);
-          });
-
-          test('when sorting with mixed directions, then accepted', async () => {
-            // Arrange: (none - inline sort parameters)
-
-            // Act
-            const response = await global.api.apiCall(
-              'GET',
-              `${endpoint}?sort=${query.sortableFields[0]},-${query.sortableFields[1]}`
-            );
-
-            // Assert
-            expect(response.status).toBe(200);
+          test.each([
+            ['when sorting by multiple fields, then accepted', `sort=${query.sortableFields.slice(0, 2).join(',')}`],
+            ['when sorting with mixed directions, then accepted', `sort=${query.sortableFields[0]},-${query.sortableFields[1]}`]
+          ])('%s', async (_name, qs) => {
+            expect.hasAssertions();
+            await expectStatus(qs);
           });
         }
       });
     }
 
-    // === FILTER TESTS ===
+    // Filter cases are generated from the schema so each resource keeps the
+    // same API contract checks without hand-written duplication.
     if (query.filterableFields?.length > 0) {
       describe('Filtering', () => {
-        // Basic filter operations for all fields
         query.filterableFields.forEach(field => {
-          test(`when filtering ${field} exact, then matches`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}]=1`);
-
-            // Assert
-            expect(response.status).toBe(200);
-          });
-
-          test(`when filtering ${field} with in, then matches`, async () => {
-            // Arrange: (none - inline filter values)
-
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][in]=1,2,3`);
-
-            // Assert
-            expect(response.status).toBe(200);
-          });
-
-          test(`when filtering ${field} with not, then excludes`, async () => {
-            // Arrange: (none - inline filter value)
-
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][not]=999999`);
-
-            // Assert
-            expect(response.status).toBe(200);
-            expect(response.data.total).toBeGreaterThan(0);
-            const results = response.data.data || [];
-            results.forEach(item => {
-              if (item[field] !== null && item[field] !== undefined) {
-                expect(String(item[field])).not.toBe('999999');
-              }
-            });
+          test.each([
+            [`when filtering ${field} exact, then matches`, `filter[${field}]=1`, null],
+            [`when filtering ${field} with in, then matches`, `filter[${field}][in]=1,2,3`, null],
+            [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=999999`, response => {
+              expect(response.data.total).toBeGreaterThan(0);
+              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe('999999'));
+            }]
+          ])('%s', async (_name, qs, verify) => {
+            expect.hasAssertions();
+            const response = await expectStatus(qs);
+            if (verify) verify(response);
           });
         });
 
-        test('when filtering with unknown operator, then returns 422', async () => {
-          // Arrange
-          const field = query.filterableFields[0];
-
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][unknown]=1`);
-
-          // Assert
-          expect(response.status).toBe(422);
+        const firstField = query.filterableFields[0];
+        test.each([
+          ['when filtering with unknown operator, then returns 422', `filter[${firstField}][unknown]=1`],
+          ['when filtering null with invalid boolean, then returns 422', `filter[${firstField}][null]=not-bool`],
+          ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
+          ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
+        ])('%s', async (_name, qs) => {
+          expect.hasAssertions();
+          await expectStatus(qs, 422);
         });
 
-        test('when filtering null with invalid boolean, then returns 422', async () => {
-          // Arrange
-          const field = query.filterableFields[0];
-
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][null]=not-bool`);
-
-          // Assert
-          expect(response.status).toBe(422);
-        });
-
-        test('when filtering unknown field, then returns 422', async () => {
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?filter[__bogus__]=1`);
-
-          // Assert
-          expect(response.status).toBe(422);
-        });
-
-        test('when filter receives duplicate values, then returns 422', async () => {
-          // Arrange
-          const field = query.filterableFields[0];
-
-          // Act
-          const response = await global.api.apiCall(
-            'GET',
-            `${endpoint}?filter[${field}]=1&filter[${field}]=2`
-          );
-
-          // Assert
-          expect(response.status).toBe(422);
-        });
-
-        // Numeric operators for numeric fields
-        const numericFields = query.filterableFields.filter(f =>
-          query.numericFields?.includes(f)
-        );
-
-        numericFields.forEach(field => {
-          test(`when filtering ${field} with gte, then filters correctly`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][gte]=1`);
-
-            // Assert
-            expect(response.status).toBe(200);
-            const results = response.data.data || [];
-            results.forEach(item => {
-              if (item[field] !== null && item[field] !== undefined) {
-                expect(item[field]).toBeGreaterThanOrEqual(1);
-              }
+        query.filterableFields
+          .filter(field => query.numericFields?.includes(field))
+          .forEach(field => {
+            test.each([
+              [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=1`, value => expect(value).toBeGreaterThanOrEqual(1)],
+              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=999999`, value => expect(value).toBeLessThanOrEqual(999999)],
+              [`when filtering ${field} with between, then filters range`, `filter[${field}][between]=1,999999`, value => {
+                expect(value).toBeGreaterThanOrEqual(1);
+                expect(value).toBeLessThanOrEqual(999999);
+              }]
+            ])('%s', async (_name, qs, verifyValue) => {
+              expect.hasAssertions();
+              const response = await expectStatus(qs);
+              expectValuesFor(response, field).forEach(verifyValue);
             });
           });
 
-          test(`when filtering ${field} with lte, then filters correctly`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][lte]=999999`);
-
-            // Assert
-            expect(response.status).toBe(200);
-          });
-
-          test(`when filtering ${field} with between, then filters range`, async () => {
-            // Act
-            const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][between]=1,999999`);
-
-            // Assert
-            expect(response.status).toBe(200);
-            const results = response.data.data || [];
-            results.forEach(item => {
-              if (item[field] !== null && item[field] !== undefined) {
-                expect(item[field]).toBeGreaterThanOrEqual(1);
-                expect(item[field]).toBeLessThanOrEqual(999999);
-              }
-            });
-          });
-        });
-
-        // Test combining multiple filters
         if (query.filterableFields.length >= 2) {
           test('when combining multiple filters, then accepted', async () => {
-            // Arrange
-            const f1 = query.filterableFields[0];
-            const f2 = query.filterableFields[1];
-
-            // Act
-            const response = await global.api.apiCall(
-              'GET',
-              `${endpoint}?filter[${f1}][gte]=1&filter[${f2}][not]=999999`
-            );
-
-            // Assert
-            expect(response.status).toBe(200);
+            expect.hasAssertions();
+            const [f1, f2] = query.filterableFields;
+            await expectStatus(`filter[${f1}][gte]=1&filter[${f2}][not]=999999`);
           });
         }
       });
     }
 
-    // === PAGINATION TESTS ===
+    // Pagination applies to all list endpoints, regardless of other query options.
     describe('Pagination', () => {
-      test('when paginating with limit, then respects limit', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=2`);
-
-        // Assert
-        expect(response.status).toBe(200);
-        expect(response.data.data.length).toBeLessThanOrEqual(2);
-      });
-
-      test('when paginating with offset, then skips records', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=2&offset=1`);
-
-        // Assert
-        expect(response.status).toBe(200);
-        expect(response.data.data.length).toBeLessThanOrEqual(2);
-        expect(response.data).toHaveProperty('offset', 1);
-      });
-
-      test('when paginating, then includes metadata', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=5`);
-
-        // Assert
-        expect(response.status).toBe(200);
-        expect(response.data).toHaveProperty('total');
-        expect(response.data).toHaveProperty('limit');
-        expect(response.data).toHaveProperty('offset');
-      });
-
-      test('when offset exceeds data, then returns empty array', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=10&offset=999999`);
-
-        // Assert
-        expect(response.status).toBe(200);
-        expect(response.data.data).toEqual([]);
-      });
-
-      test('when limit is non-integer, then returns 422', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=abc`);
-
-        // Assert
-        expect(response.status).toBe(422);
-      });
-
-      test('when limit is negative, then returns 422', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=-5`);
-
-        // Assert
-        expect(response.status).toBe(422);
-      });
-
-      test('when limit exceeds cap, then returns 422', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?limit=101`);
-
-        // Assert
-        expect(response.status).toBe(422);
-      });
-
-      test('when offset is non-integer, then returns 422', async () => {
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?offset=foo`);
-
-        // Assert
-        expect(response.status).toBe(422);
+      test.each([
+        ['when paginating with limit, then respects limit', 'limit=2', 200, response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
+        ['when paginating with offset, then skips records', 'limit=2&offset=1', 200, response => {
+          expect(response.data.data.length).toBeLessThanOrEqual(2);
+          expect(response.data).toHaveProperty('offset', 1);
+        }],
+        ['when paginating, then includes metadata', 'limit=5', 200, response => {
+          expect(response.data).toHaveProperty('total');
+          expect(response.data).toHaveProperty('limit');
+          expect(response.data).toHaveProperty('offset');
+        }],
+        ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', 200, response => expect(response.data.data).toEqual([])],
+        ['when limit is non-integer, then returns 422', 'limit=abc', 422, undefined],
+        ['when limit is negative, then returns 422', 'limit=-5', 422, undefined],
+        ['when limit exceeds cap, then returns 422', 'limit=101', 422, undefined],
+        ['when offset is non-integer, then returns 422', 'offset=foo', 422, undefined]
+      ])('%s', async (_name, qs, status, verify) => {
+        expect.hasAssertions();
+        const response = await expectStatus(qs, status);
+        if (verify) verify(response);
       });
     });
 
-    // === FIELD SELECTION TESTS ===
+    // Field selection checks sparse responses and validates unknown fields.
     if (query.selectableFields?.length > 0) {
       describe('Field Selection', () => {
         test('when selecting fields, then returns only those', async () => {
-          // Arrange
+          expect.hasAssertions();
           const requestedFields = ['id', query.selectableFields[1]].filter(Boolean);
+          const response = await expectStatus(`fields=${requestedFields.join(',')}`);
+          expect(response.data.data.length).toBeGreaterThan(0);
+          const first = response.data.data[0];
 
-          // Act
-          const response = await global.api.apiCall(
-            'GET',
-            `${endpoint}?fields=${requestedFields.join(',')}`
-          );
-
-          // Assert
-          expect(response.status).toBe(200);
-          const results = response.data.data || [];
-          if (results.length > 0) {
-            requestedFields.forEach(field => {
-              expect(results[0]).toHaveProperty(field);
-            });
-
-            // Verify excluded fields are not present
-            if (schema.excludeOnFieldSelect?.length > 0) {
-              schema.excludeOnFieldSelect.forEach(excluded => {
-                if (!requestedFields.includes(excluded)) {
-                  expect(results[0]).not.toHaveProperty(excluded);
-                }
-              });
-            }
-          }
+          requestedFields.forEach(field => expect(first).toHaveProperty(field));
+          (schema.excludeOnFieldSelect || [])
+            .filter(excluded => !requestedFields.includes(excluded))
+            .forEach(excluded => expect(first).not.toHaveProperty(excluded));
         });
 
         test('when selecting timestamps, then includes them', async () => {
-          // Arrange
-          const hasUpdatedAt = query.selectableFields?.includes('updated_at');
-          const fields = hasUpdatedAt ? 'id,created_at,updated_at' : 'id,created_at';
+          expect.hasAssertions();
+          const fields = query.selectableFields?.includes('updated_at') ? 'id,created_at,updated_at' : 'id,created_at';
+          const response = await expectStatus(`fields=${fields}`);
+          expect(response.data.data.length).toBeGreaterThan(0);
+          const first = response.data.data[0];
 
-          // Act
-          const response = await global.api.apiCall(
-            'GET',
-            `${endpoint}?fields=${fields}`
-          );
-
-          // Assert
-          expect(response.status).toBe(200);
-          const results = response.data.data || [];
-          if (results.length > 0) {
-            expect(results[0]).toHaveProperty('id');
-            expect(results[0]).toHaveProperty('created_at');
-            if (hasUpdatedAt) {
-              expect(results[0]).toHaveProperty('updated_at');
-            }
-          }
+          expect(first).toHaveProperty('id');
+          expect(first).toHaveProperty('created_at');
+          if (fields.includes('updated_at')) expect(first).toHaveProperty('updated_at');
         });
 
         test('when selecting single field, then works', async () => {
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?fields=id`);
-
-          // Assert
-          expect(response.status).toBe(200);
-          const results = response.data.data || [];
-          if (results.length > 0) {
-            expect(results[0]).toHaveProperty('id');
-          }
+          expect.hasAssertions();
+          const response = await expectStatus('fields=id');
+          expect(response.data.data.length).toBeGreaterThan(0);
+          expect(response.data.data[0]).toHaveProperty('id');
         });
 
         test('when selecting unknown field, then returns 422', async () => {
-          // Act
-          const response = await global.api.apiCall('GET', `${endpoint}?fields=id,__bogus__`);
-
-          // Assert
-          expect(response.status).toBe(422);
+          expect.hasAssertions();
+          await expectStatus('fields=id,__bogus__', 422);
         });
       });
     }
 
-    // === COMBINED QUERY TESTS ===
     describe('Combined Queries', () => {
       test('when combining all query types, then accepted', async () => {
-        // Arrange
+        expect.hasAssertions();
         const params = new URLSearchParams();
-        if (query.searchFields?.length > 0) {
-          params.append('search', 'test');
-        }
-        if (query.sortableFields?.length > 0) {
-          params.append('sort', `-${query.sortableFields[0]}`);
-        }
-        if (query.filterableFields?.length > 0) {
-          params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
-        }
-        if (query.selectableFields?.length > 0) {
-          params.append('fields', query.selectableFields.slice(0, 3).join(','));
-        }
+        if (query.searchFields?.length > 0) params.append('search', 'test');
+        if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
+        if (query.filterableFields?.length > 0) params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
+        if (query.selectableFields?.length > 0) params.append('fields', query.selectableFields.slice(0, 3).join(','));
         params.append('limit', '10');
-
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?${params}`);
-
-        // Assert
-        expect(response.status).toBe(200);
+        await expectStatus(params.toString());
       });
 
       test('when combining search sort pagination, then works', async () => {
-        // Arrange
+        expect.hasAssertions();
         const params = new URLSearchParams();
-        if (query.searchFields?.length > 0) {
-          params.append('search', 'a');
-        }
-        if (query.sortableFields?.length > 0) {
-          params.append('sort', query.sortableFields[0]);
-        }
+        if (query.searchFields?.length > 0) params.append('search', 'a');
+        if (query.sortableFields?.length > 0) params.append('sort', query.sortableFields[0]);
         params.append('limit', '5');
         params.append('offset', '0');
 
-        // Act
-        const response = await global.api.apiCall('GET', `${endpoint}?${params}`);
-
-        // Assert
-        expect(response.status).toBe(200);
+        const response = await expectStatus(params.toString());
         expect(response.data.data.length).toBeLessThanOrEqual(5);
       });
     });

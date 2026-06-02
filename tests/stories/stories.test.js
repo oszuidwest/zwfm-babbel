@@ -1,12 +1,3 @@
-/**
- * Babbel stories tests.
- * Tests story management functionality including CRUD operations, scheduling, and file uploads.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
@@ -53,6 +44,16 @@ function measureTruePeakDBTP(inputPath) {
 }
 
 describe('Stories', () => {
+  const storyData = (voiceId, targetStations, overrides = {}) => ({
+    title: `Story ${Date.now()}`,
+    text: 'Test content',
+    voice_id: voiceId,
+    status: 'active',
+    weekdays: 127,
+    ...(targetStations !== undefined ? { target_stations: targetStations } : {}),
+    ...overrides
+  });
+
   // Shared helpers
   const createStoryWithDeps = async (title, text, voiceName, stationName, weekdays = 127, status = 'active') => {
     const voice = await global.helpers.createVoice(global.resources, voiceName);
@@ -200,20 +201,12 @@ describe('Stories', () => {
     });
 
     test('when creating future-dated story, then accepted', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Future Story ${Date.now()}`,
         text: 'Scheduled for future',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2030-01-01',
-        end_date: '2030-12-31',
-        weekdays: 127,
-        target_stations: [stationId]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        end_date: '2030-12-31'
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -223,20 +216,13 @@ describe('Stories', () => {
     });
 
     test('when creating weekend-only story, then accepted', async () => {
-      // Arrange: weekdays=65 means Sun=1 + Sat=64
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Weekend Story ${Date.now()}`,
         text: 'Weekend only',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2024-01-01',
         end_date: '2024-12-31',
-        weekdays: 65,
-        target_stations: [stationId]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        weekdays: 65
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -275,20 +261,12 @@ describe('Stories', () => {
     });
 
     test('when creating with multiple target_stations, then all assigned', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [station1Id, station2Id], {
         title: `Multi-Target ${Date.now()}`,
         text: 'Targets multiple stations',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2024-01-01',
-        end_date: '2024-12-31',
-        weekdays: 127,
-        target_stations: [station1Id, station2Id]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        end_date: '2024-12-31'
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -306,53 +284,30 @@ describe('Stories', () => {
     });
 
     test('when target_stations missing, then rejected', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, undefined, {
         title: 'No Targets',
-        text: 'Missing target stations',
-        voice_id: voiceId,
-        status: 'active',
-        weekdays: 127
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        text: 'Missing target stations'
+      }));
 
       // Assert
       expect([400, 422]).toContain(response.status);
     });
 
     test('when target_stations empty array, then rejected', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [], {
         title: 'Empty Targets',
-        text: 'Empty array',
-        voice_id: voiceId,
-        status: 'active',
-        weekdays: 127,
-        target_stations: []
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        text: 'Empty array'
+      }));
 
       // Assert
       expect([400, 422]).toContain(response.status);
     });
 
     test('when target_stations has invalid ID, then rejected', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [999999], {
         title: 'Invalid Station',
-        text: 'Non-existent station',
-        voice_id: voiceId,
-        status: 'active',
-        weekdays: 127,
-        target_stations: [999999]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        text: 'Non-existent station'
+      }));
 
       // Assert
       expect([404, 422]).toContain(response.status);
@@ -446,20 +401,13 @@ describe('Stories', () => {
       const voice = await global.helpers.createVoice(global.resources, 'MetaVoice');
       const station = await global.helpers.createStation(global.resources, 'MetaStation');
 
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voice.id, [station.id], {
         title: `Metadata Story ${Date.now()}`,
         text: 'Story with metadata',
-        voice_id: voice.id,
-        status: 'active',
-        weekdays: 127,
         start_date: '2024-01-01',
         end_date: '2024-12-31',
-        target_stations: [station.id],
         metadata: { source: 'test', priority: 'high' }
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -501,21 +449,13 @@ describe('Stories', () => {
     });
 
     test('when creating story with is_breaking=true, then persists flag', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Breaking Story ${Date.now()}`,
         text: 'Breaking news content',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2024-01-01',
         end_date: '2030-12-31',
-        weekdays: 127,
-        is_breaking: true,
-        target_stations: [stationId]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        is_breaking: true
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -526,20 +466,12 @@ describe('Stories', () => {
     });
 
     test('when creating story without is_breaking, then defaults to false', async () => {
-      // Arrange
-      const storyData = {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Normal Story ${Date.now()}`,
         text: 'Normal news content',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2024-01-01',
-        end_date: '2030-12-31',
-        weekdays: 127,
-        target_stations: [stationId]
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
+        end_date: '2030-12-31'
+      }));
 
       // Assert
       expect(response.status).toBe(201);
@@ -565,19 +497,13 @@ describe('Stories', () => {
     });
 
     test('when updating is_breaking to false, then persists', async () => {
-      // Arrange
-      const storyData = {
+      const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Breaking to Normal ${Date.now()}`,
         text: 'Was breaking',
-        voice_id: voiceId,
-        status: 'active',
         start_date: '2024-01-01',
         end_date: '2030-12-31',
-        weekdays: 127,
-        is_breaking: true,
-        target_stations: [stationId]
-      };
-      const createResponse = await global.api.apiCall('POST', '/stories', storyData);
+        is_breaking: true
+      }));
       expect(createResponse.status).toBe(201);
       global.resources.track('stories', createResponse.data.id);
 

@@ -1,12 +1,3 @@
-/**
- * Babbel station-voices tests.
- * Tests station-voice relationship management and jingle functionality.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 const stationVoicesSchema = require('../lib/schemas/station-voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 

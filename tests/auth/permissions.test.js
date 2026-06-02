@@ -1,12 +1,3 @@
-/**
- * Babbel permissions tests.
- * Tests role-based access control (RBAC) functionality across different user roles.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 describe('Permissions', () => {
   // Helper to create a user
   const createUser = async (username, fullName, password, role) => {
@@ -208,57 +199,28 @@ describe('Permissions', () => {
       expect(response.status).toBe(200);
     });
 
-    test('when viewer creates station, then forbidden', async () => {
-      // Arrange: valid payload ensures 403 is from RBAC, not validation
-      const stationData = {
+    test.each([
+      ['when viewer creates station, then forbidden', 'POST', '/stations', () => ({
         name: `ViewerStation_${Date.now()}`,
         max_stories_per_block: 5,
         pause_seconds: 2.0
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stations', stationData);
-
-      // Assert
-      expect(response.status).toBe(403);
-    });
-
-    test('when viewer creates voice, then forbidden', async () => {
-      // Arrange: valid payload ensures 403 is from RBAC, not validation
-      const voiceData = { name: `ViewerVoice_${Date.now()}` };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/voices', voiceData);
-
-      // Assert
-      expect(response.status).toBe(403);
-    });
-
-    test('when viewer creates story, then forbidden', async () => {
-      // Arrange: valid payload ensures 403 is from RBAC, not validation
-      const today = new Date().toISOString().split('T')[0];
-      const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      const storyData = {
-        title: 'Viewer Test Story',
-        text: 'Valid story content for RBAC test.',
-        start_date: today,
-        end_date: nextYear
-      };
-
-      // Act
-      const response = await global.api.apiCall('POST', '/stories', storyData);
-
-      // Assert
-      expect(response.status).toBe(403);
-    });
-
-    test('when viewer lists users, then forbidden', async () => {
-      // Arrange: Viewer session from beforeAll (no user access)
-
-      // Act
-      const response = await global.api.apiCall('GET', '/users');
-
-      // Assert
+      })],
+      ['when viewer creates voice, then forbidden', 'POST', '/voices', () => ({
+        name: `ViewerVoice_${Date.now()}`
+      })],
+      ['when viewer creates story, then forbidden', 'POST', '/stories', () => {
+        const today = new Date().toISOString().split('T')[0];
+        const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        return {
+          title: 'Viewer Test Story',
+          text: 'Valid story content for RBAC test.',
+          start_date: today,
+          end_date: nextYear
+        };
+      }],
+      ['when viewer lists users, then forbidden', 'GET', '/users', () => undefined]
+    ])('%s', async (_name, method, endpoint, bodyFactory) => {
+      const response = await global.api.apiCall(method, endpoint, bodyFactory());
       expect(response.status).toBe(403);
     });
   });

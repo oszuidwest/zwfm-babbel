@@ -1,12 +1,3 @@
-/**
- * Babbel authentication tests.
- * Tests basic authentication functionality including login, logout, and session management.
- *
- * Follows Jest best practices:
- * - AAA pattern (Arrange, Act, Assert)
- * - "when...then" naming convention
- */
-
 describe('Authentication', () => {
   beforeAll(async () => {
     // Start with clean session state
