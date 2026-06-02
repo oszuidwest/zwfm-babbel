@@ -95,6 +95,22 @@ describe('TestHelpers', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
   });
 
+  test('when waiting for story audio times out, then returns false', async () => {
+    const api = {
+      apiCall: jest.fn().mockResolvedValue({ status: 200, data: {} })
+    };
+    const helpers = new TestHelpers(api);
+
+    jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(4);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForStoryAudio(40, 3, 1)).resolves.toBe(false);
+    expect(api.apiCall).toHaveBeenCalledWith('GET', '/stories/40');
+  });
+
   test('when station voice IDs are unsafe, then API is not called', async () => {
     const api = { apiCall: jest.fn() };
     const helpers = new TestHelpers(api);
@@ -133,6 +149,27 @@ describe('TestHelpers', () => {
     );
     expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
     expect(story).toEqual({ id: 40 });
+  });
+
+  test('when creating story with ready audio times out, then returns null', async () => {
+    const helpers = new TestHelpers({});
+
+    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(false);
+
+    await expect(
+      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' }, [10])
+    ).resolves.toBeNull();
+  });
+
+  test('when requiring story with ready audio fails, then throws', async () => {
+    const helpers = new TestHelpers({});
+
+    jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue(null);
+
+    await expect(
+      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' }, [10])
+    ).rejects.toThrow(/Required story/);
   });
 
   test('when creating station stories with ready audio, then applies shared station and voice defaults', async () => {
@@ -182,6 +219,33 @@ describe('TestHelpers', () => {
     expect(stories).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
+  test('when requiring station stories with ready audio fails, then throws', async () => {
+    const helpers = new TestHelpers({});
+
+    jest.spyOn(helpers, 'createStationStoriesWithReadyAudio').mockResolvedValue(null);
+
+    await expect(
+      helpers.requireStationStoriesWithReadyAudio({ track: jest.fn() }, 10, 20, [{ title: 'Missing audio' }])
+    ).rejects.toThrow(/station 10 and voice 20/);
+  });
+
+  test('when jingle upload fails, then station voice with jingle returns null with warning', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const api = {
+      uploadFile: jest.fn().mockResolvedValue({ status: 500 })
+    };
+    const helpers = new TestHelpers(api);
+
+    jest.spyOn(helpers, 'isFFmpegAvailable').mockReturnValue(true);
+    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue(true);
+    jest.spyOn(helpers, 'createStationVoice').mockResolvedValue({ id: 30 });
+    jest.spyOn(helpers, 'cleanupTempFile').mockImplementation(() => {});
+
+    await expect(helpers.createStationVoiceWithJingle({ track: jest.fn() }, 10, 20, 2.5)).resolves.toBeNull();
+    expect(api.uploadFile).toHaveBeenCalledWith('/station-voices/30/audio', {}, expect.any(String), 'jingle');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'));
+  });
+
   test('when creating broadcast fixture, then dependencies are created and audio is awaited', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
@@ -189,7 +253,7 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
     jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
     jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
-    jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'requireStoryWithReadyAudio').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'uniqueName').mockReturnValue('Unique Story');
 
     const fixture = await helpers.createBroadcastFixture(resourceManager, {
@@ -206,7 +270,7 @@ describe('TestHelpers', () => {
     expect(helpers.createStation).toHaveBeenCalledWith(resourceManager, 'Station', 3, 1.5);
     expect(helpers.createVoice).toHaveBeenCalledWith(resourceManager, 'Voice');
     expect(helpers.createStationVoiceWithJingle).toHaveBeenCalledWith(resourceManager, 10, 20, 2.5);
-    expect(helpers.createStoryWithReadyAudio).toHaveBeenCalledWith(
+    expect(helpers.requireStoryWithReadyAudio).toHaveBeenCalledWith(
       resourceManager,
       expect.objectContaining({
         title: 'Unique Story',
@@ -223,6 +287,50 @@ describe('TestHelpers', () => {
       voice: { id: 20, name: 'Voice' },
       stationVoice: { id: 30 },
       story: { id: 40 }
+    });
+  });
+
+  test.each([
+    ['station', 'createStation', () => null, /Failed to create station fixture/],
+    ['voice', 'createVoice', () => null, /Failed to create voice fixture/],
+    ['station voice', 'createStationVoiceWithJingle', () => null, /Failed to create station-voice fixture/],
+    ['story audio', 'requireStoryWithReadyAudio', () => Promise.reject(new Error('story setup failed')), /story setup failed/]
+  ])('when creating broadcast fixture fails at %s, then throws', async (_label, methodName, resultFactory, errorPattern) => {
+    const helpers = new TestHelpers({});
+
+    jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
+    jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
+    jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
+    jest.spyOn(helpers, 'requireStoryWithReadyAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, methodName).mockImplementation(resultFactory);
+
+    await expect(helpers.createBroadcastFixture({ track: jest.fn() })).rejects.toThrow(errorPattern);
+  });
+
+  test('when public bulletin request is made, then station ID and query params are encoded', async () => {
+    const api = {
+      apiBase: 'http://example.test',
+      http: jest.fn().mockResolvedValue({
+        status: 200,
+        data: Buffer.from('wav'),
+        headers: { 'content-type': 'audio/wav' }
+      })
+    };
+    const helpers = new TestHelpers(api);
+
+    const response = await helpers.publicBulletinRequest(10, { key: 'secret key', max_age: '3600' });
+
+    expect(api.http).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'get',
+      url: 'http://example.test/public/stations/10/bulletin.wav?key=secret+key&max_age=3600',
+      responseType: 'arraybuffer',
+      validateStatus: expect.any(Function)
+    }));
+    expect(response).toEqual({
+      status: 200,
+      data: Buffer.from('wav'),
+      headers: { 'content-type': 'audio/wav' },
+      contentType: 'audio/wav'
     });
   });
 

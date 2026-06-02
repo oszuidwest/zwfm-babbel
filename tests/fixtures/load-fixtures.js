@@ -11,7 +11,7 @@ const fixtureFile = path.join(__dirname, 'test-data.sql');
 
 // Verify that the test data fixture file exists.
 if (!fs.existsSync(fixtureFile)) {
-    console.error('❌ Fixture file not found:', fixtureFile);
+    console.error('[ERROR] Fixture file not found:', fixtureFile);
     process.exit(1);
 }
 
@@ -24,7 +24,7 @@ try {
     console.log(`Using ${mysql.describeTarget()}...`);
     mysql.execSQLScript(fixtureSQL);
 
-    console.log('✅ Test fixtures loaded successfully!');
+    console.log('[OK] Test fixtures loaded successfully!');
     console.log('\nTest data includes:');
     console.log('  - 3 test users (editor_user, viewer_user, suspended_user)');
     console.log('  - 3 test stations');
@@ -35,6 +35,6 @@ try {
     console.log('\nAll test users have password: testpass123');
     
 } catch (error) {
-    console.error('❌ Failed to load fixtures:', error.message);
+    console.error('[ERROR] Failed to load fixtures:', error.message);
     process.exit(1);
 }

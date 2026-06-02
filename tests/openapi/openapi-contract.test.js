@@ -351,8 +351,10 @@ function createWavFixture() {
 function cleanupFile(filePath) {
   try {
     fs.unlinkSync(filePath);
-  } catch {
-    // Best-effort cleanup for temporary test fixtures.
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
   }
 }
 

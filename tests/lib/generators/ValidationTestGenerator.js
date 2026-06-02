@@ -33,6 +33,8 @@ function generateValidationTests(schema, setupFn = null) {
       mutate(data);
       return data;
     };
+    // Prefer a single expected status. Pass an array only when an endpoint is
+    // intentionally allowed to return one of several statuses.
     const expectPostStatus = async (data, status) => {
       const response = await global.api.apiCall('POST', endpoint, data);
       if (Array.isArray(status)) {

@@ -23,14 +23,12 @@ function generateQueryTests(schema, setupFn = null) {
   const valuesFor = (response, field) => (response.data.data || [])
     .map(item => item[field])
     .filter(value => value !== null && value !== undefined);
-  const isSorted = (results, field, compare) => results.every((item, i) => (
-    i === 0 ||
-    item[field] === null ||
-    item[field] === undefined ||
-    results[i - 1][field] === null ||
-    results[i - 1][field] === undefined ||
-    compare(item[field], results[i - 1][field])
-  ));
+  const expectValuesFor = (response, field) => {
+    const values = valuesFor(response, field);
+    expect(values.length).toBeGreaterThan(0);
+    return values;
+  };
+  const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
 
   describe(`${name} Query Parameters`, () => {
     beforeAll(async () => {
@@ -41,11 +39,13 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.searchFields?.length > 0) {
       describe('Search', () => {
         test('when searching, then returns 200', async () => {
+          expect.hasAssertions();
           const response = await expectStatus('search=test');
           expect(response.data).toHaveProperty('data');
         });
 
         test('when search empty, then returns all', async () => {
+          expect.hasAssertions();
           await expectStatus('search=');
         });
       });
@@ -59,9 +59,10 @@ function generateQueryTests(schema, setupFn = null) {
             [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
             [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
           ])('%s', async (_name, sort, compare) => {
+            expect.hasAssertions();
             const response = await expectStatus(`sort=${sort}`);
-            const results = response.data.data || [];
-            if (results.length > 1) expect(isSorted(results, field, compare)).toBe(true);
+            const values = expectValuesFor(response, field);
+            if (values.length > 1) expect(isSorted(values, compare)).toBe(true);
           });
         });
 
@@ -69,6 +70,7 @@ function generateQueryTests(schema, setupFn = null) {
           ['when sorting unknown field, then returns 422', 'sort=__bogus__'],
           ['when sort direction is invalid, then returns 422', `sort=${query.sortableFields[0]}:sideways`]
         ])('%s', async (_name, qs) => {
+          expect.hasAssertions();
           await expectStatus(qs, 422);
         });
 
@@ -77,6 +79,7 @@ function generateQueryTests(schema, setupFn = null) {
             ['when sorting by multiple fields, then accepted', `sort=${query.sortableFields.slice(0, 2).join(',')}`],
             ['when sorting with mixed directions, then accepted', `sort=${query.sortableFields[0]},-${query.sortableFields[1]}`]
           ])('%s', async (_name, qs) => {
+            expect.hasAssertions();
             await expectStatus(qs);
           });
         }
@@ -93,9 +96,10 @@ function generateQueryTests(schema, setupFn = null) {
             [`when filtering ${field} with in, then matches`, `filter[${field}][in]=1,2,3`, null],
             [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=999999`, response => {
               expect(response.data.total).toBeGreaterThan(0);
-              valuesFor(response, field).forEach(value => expect(String(value)).not.toBe('999999'));
+              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe('999999'));
             }]
           ])('%s', async (_name, qs, verify) => {
+            expect.hasAssertions();
             const response = await expectStatus(qs);
             if (verify) verify(response);
           });
@@ -108,6 +112,7 @@ function generateQueryTests(schema, setupFn = null) {
           ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
           ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
         ])('%s', async (_name, qs) => {
+          expect.hasAssertions();
           await expectStatus(qs, 422);
         });
 
@@ -116,19 +121,21 @@ function generateQueryTests(schema, setupFn = null) {
           .forEach(field => {
             test.each([
               [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=1`, value => expect(value).toBeGreaterThanOrEqual(1)],
-              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=999999`, null],
+              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=999999`, value => expect(value).toBeLessThanOrEqual(999999)],
               [`when filtering ${field} with between, then filters range`, `filter[${field}][between]=1,999999`, value => {
                 expect(value).toBeGreaterThanOrEqual(1);
                 expect(value).toBeLessThanOrEqual(999999);
               }]
             ])('%s', async (_name, qs, verifyValue) => {
+              expect.hasAssertions();
               const response = await expectStatus(qs);
-              if (verifyValue) valuesFor(response, field).forEach(verifyValue);
+              expectValuesFor(response, field).forEach(verifyValue);
             });
           });
 
         if (query.filterableFields.length >= 2) {
           test('when combining multiple filters, then accepted', async () => {
+            expect.hasAssertions();
             const [f1, f2] = query.filterableFields;
             await expectStatus(`filter[${f1}][gte]=1&filter[${f2}][not]=999999`);
           });
@@ -155,6 +162,7 @@ function generateQueryTests(schema, setupFn = null) {
         ['when limit exceeds cap, then returns 422', 'limit=101', 422, undefined],
         ['when offset is non-integer, then returns 422', 'offset=foo', 422, undefined]
       ])('%s', async (_name, qs, status, verify) => {
+        expect.hasAssertions();
         const response = await expectStatus(qs, status);
         if (verify) verify(response);
       });
@@ -164,10 +172,11 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.selectableFields?.length > 0) {
       describe('Field Selection', () => {
         test('when selecting fields, then returns only those', async () => {
+          expect.hasAssertions();
           const requestedFields = ['id', query.selectableFields[1]].filter(Boolean);
           const response = await expectStatus(`fields=${requestedFields.join(',')}`);
-          const first = (response.data.data || [])[0];
-          if (!first) return;
+          expect(response.data.data.length).toBeGreaterThan(0);
+          const first = response.data.data[0];
 
           requestedFields.forEach(field => expect(first).toHaveProperty(field));
           (schema.excludeOnFieldSelect || [])
@@ -176,10 +185,11 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         test('when selecting timestamps, then includes them', async () => {
+          expect.hasAssertions();
           const fields = query.selectableFields?.includes('updated_at') ? 'id,created_at,updated_at' : 'id,created_at';
           const response = await expectStatus(`fields=${fields}`);
-          const first = (response.data.data || [])[0];
-          if (!first) return;
+          expect(response.data.data.length).toBeGreaterThan(0);
+          const first = response.data.data[0];
 
           expect(first).toHaveProperty('id');
           expect(first).toHaveProperty('created_at');
@@ -187,12 +197,14 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         test('when selecting single field, then works', async () => {
+          expect.hasAssertions();
           const response = await expectStatus('fields=id');
-          const first = (response.data.data || [])[0];
-          if (first) expect(first).toHaveProperty('id');
+          expect(response.data.data.length).toBeGreaterThan(0);
+          expect(response.data.data[0]).toHaveProperty('id');
         });
 
         test('when selecting unknown field, then returns 422', async () => {
+          expect.hasAssertions();
           await expectStatus('fields=id,__bogus__', 422);
         });
       });
@@ -200,6 +212,7 @@ function generateQueryTests(schema, setupFn = null) {
 
     describe('Combined Queries', () => {
       test('when combining all query types, then accepted', async () => {
+        expect.hasAssertions();
         const params = new URLSearchParams();
         if (query.searchFields?.length > 0) params.append('search', 'test');
         if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
@@ -210,6 +223,7 @@ function generateQueryTests(schema, setupFn = null) {
       });
 
       test('when combining search sort pagination, then works', async () => {
+        expect.hasAssertions();
         const params = new URLSearchParams();
         if (query.searchFields?.length > 0) params.append('search', 'a');
         if (query.sortableFields?.length > 0) params.append('sort', query.sortableFields[0]);

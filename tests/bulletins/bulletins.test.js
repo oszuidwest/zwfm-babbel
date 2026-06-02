@@ -140,7 +140,7 @@ describe('Bulletins', () => {
       expect(svLow).not.toBeNull();
 
       // Breaking story on high-priority voice -> will be first in SQL order
-      await global.helpers.createStoryWithReadyAudio(global.resources, {
+      await global.helpers.requireStoryWithReadyAudio(global.resources, {
         title: `JingleCtxBreaking_${Date.now()}`,
         text: 'Breaking story for jingle context test',
         voice_id: highPriorityVoice.id,
@@ -149,7 +149,7 @@ describe('Bulletins', () => {
         is_breaking: true
       }, [station.id]);
 
-      await global.helpers.createStoryWithReadyAudio(global.resources, {
+      await global.helpers.requireStoryWithReadyAudio(global.resources, {
         title: `JingleCtxRegular_${Date.now()}`,
         text: 'Regular story for jingle context test',
         voice_id: lowPriorityVoice.id,
@@ -170,8 +170,8 @@ describe('Bulletins', () => {
 
       // Assert: every bulletin must use the 5.0s mix point from the breaking
       // story's voice. Each test story is ~3s audio, pause_seconds is 0,
-      // so total ≈ 3 + 3 + 5.0 = 11.0s.
-      // If the wrong mix point were used, total ≈ 3 + 3 + 0.5 = 6.5s.
+      // so total about 3 + 3 + 5.0 = 11.0s.
+      // If the wrong mix point were used, total about 3 + 3 + 0.5 = 6.5s.
       // Threshold of 9s can only be met with the 5.0s mix point.
       for (let i = 0; i < runs; i++) {
         expect(durations[i]).toBeGreaterThan(9);
@@ -186,7 +186,7 @@ describe('Bulletins', () => {
       // Arrange
       const { station, voice } = await createStationVoiceFixture('BreakingPriorityStation', 'BreakingPriorityVoice', 2);
 
-      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.createStationStoriesWithReadyAudio(
+      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.requireStationStoriesWithReadyAudio(
         global.resources,
         station.id,
         voice.id,
@@ -216,7 +216,7 @@ describe('Bulletins', () => {
       // Arrange: station with 3 slots, 1 breaking + 4 non-breaking stories
       const { station, voice } = await createStationVoiceFixture('BreakingAlwaysStation', 'BreakingAlwaysVoice', 3);
 
-      const [breakingStory] = await global.helpers.createStationStoriesWithReadyAudio(
+      const [breakingStory] = await global.helpers.requireStationStoriesWithReadyAudio(
         global.resources,
         station.id,
         voice.id,
@@ -229,7 +229,7 @@ describe('Bulletins', () => {
 
       const regularStoryIds = [];
       for (let i = 0; i < 4; i++) {
-        const [story] = await global.helpers.createStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [{
+        const [story] = await global.helpers.requireStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [{
           title: `BreakingAlwaysRegular${i}_${Date.now()}`,
           text: `Regular story ${i}`,
           is_breaking: false
@@ -267,7 +267,7 @@ describe('Bulletins', () => {
       const todayBit = 1 << new Date().getDay();
       const wrongWeekdays = 127 ^ todayBit; // all days except today
       const [draftBreaking, expiredBreaking, wrongDayBreaking, eligibleStory] =
-        await global.helpers.createStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [
+        await global.helpers.requireStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [
           { title: `BreakingDraft_${Date.now()}`, text: 'Breaking but draft', status: 'draft', is_breaking: true },
           {
             title: `BreakingExpired_${Date.now()}`,
@@ -306,7 +306,7 @@ describe('Bulletins', () => {
       // Arrange: station with 2 slots, 3 breaking stories with different start_dates
       const { station, voice } = await createStationVoiceFixture('BreakingNewestStation', 'BreakingNewestVoice', 2);
 
-      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.createStationStoriesWithReadyAudio(
+      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.requireStationStoriesWithReadyAudio(
         global.resources,
         station.id,
         voice.id,
