@@ -15,6 +15,8 @@ const (
 	ResourceBulletins Resource = "bulletins"
 	// ResourceUsers represents user account resources.
 	ResourceUsers Resource = "users"
+	// ResourceSettingsTTS represents global TTS settings.
+	ResourceSettingsTTS Resource = "settings:tts"
 )
 
 // Action represents an operation on a resource.

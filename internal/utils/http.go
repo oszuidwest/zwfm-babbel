@@ -248,6 +248,32 @@ type StoryUpdateRequest struct {
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
+// TTSSettingsUpdateRequest represents a partial update to global TTS settings.
+type TTSSettingsUpdateRequest struct {
+	Model                  *string         `json:"model"`
+	Stability              *float64        `json:"stability"`
+	SimilarityBoost        *float64        `json:"similarity_boost"`
+	Style                  *float64        `json:"style"`
+	UseSpeakerBoost        *bool           `json:"use_speaker_boost"`
+	Speed                  *float64        `json:"speed"`
+	ApplyTextNormalization *string         `json:"apply_text_normalization"`
+	Seed                   Optional[int64] `json:"seed"`
+	TTSStylePrefix         *string         `json:"tts_style_prefix"`
+}
+
+// IsEmpty reports whether no update fields were provided.
+func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
+	return r.Model == nil &&
+		r.Stability == nil &&
+		r.SimilarityBoost == nil &&
+		r.Style == nil &&
+		r.UseSpeakerBoost == nil &&
+		r.Speed == nil &&
+		r.ApplyTextNormalization == nil &&
+		!r.Seed.Set &&
+		r.TTSStylePrefix == nil
+}
+
 // NormalizeText decodes HTML entities in text fields to plain Unicode.
 func (r *StoryUpdateRequest) NormalizeText() {
 	if r.Title != nil {

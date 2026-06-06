@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -23,30 +24,33 @@ import (
 
 // StoryServiceDeps contains all dependencies for StoryService.
 type StoryServiceDeps struct {
-	StoryRepo *repository.StoryRepository
-	VoiceRepo *repository.VoiceRepository
-	AudioSvc  *audio.Service
-	TTSSvc    *tts.Service
-	Config    *config.Config
+	StoryRepo      *repository.StoryRepository
+	VoiceRepo      *repository.VoiceRepository
+	AudioSvc       *audio.Service
+	TTSSvc         *tts.Service
+	TTSSettingsSvc *TTSSettingsService
+	Config         *config.Config
 }
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo *repository.StoryRepository
-	voiceRepo *repository.VoiceRepository
-	audioSvc  *audio.Service
-	ttsSvc    *tts.Service
-	config    *config.Config
+	storyRepo      *repository.StoryRepository
+	voiceRepo      *repository.VoiceRepository
+	audioSvc       *audio.Service
+	ttsSvc         *tts.Service
+	ttsSettingsSvc *TTSSettingsService
+	config         *config.Config
 }
 
 // NewStoryService creates a new story service instance.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
 	return &StoryService{
-		storyRepo: deps.StoryRepo,
-		voiceRepo: deps.VoiceRepo,
-		audioSvc:  deps.AudioSvc,
-		ttsSvc:    deps.TTSSvc,
-		config:    deps.Config,
+		storyRepo:      deps.StoryRepo,
+		voiceRepo:      deps.VoiceRepo,
+		audioSvc:       deps.AudioSvc,
+		ttsSvc:         deps.TTSSvc,
+		ttsSettingsSvc: deps.TTSSettingsSvc,
+		config:         deps.Config,
 	}
 }
 
@@ -420,8 +424,19 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
 	}
 
+	settings, err := s.ttsSettingsSvc.Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	finalText := composeTTSText(story.Text, settings)
+	if err := validateTTSTextLength(finalText, settings.Model); err != nil {
+		return err
+	}
+	options := ttsOptionsFromSettings(settings)
+
 	// Generate speech via TTS service
-	audioData, err := s.ttsSvc.GenerateSpeech(ctx, story.Text, *story.Voice.ElevenLabsVoiceID)
+	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
 	if err != nil {
 		return translateTTSError(err)
 	}
@@ -438,6 +453,55 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+func composeTTSText(text string, settings *models.TTSSettings) string {
+	if settings.Model == TTSModelElevenV3 && strings.TrimSpace(settings.TTSStylePrefix) != "" {
+		return settings.TTSStylePrefix + "\n" + text
+	}
+	return text
+}
+
+func validateTTSTextLength(text, model string) error {
+	limit := modelCharLimit(model)
+	count := utf8.RuneCountInString(text)
+	if limit == 0 || count <= limit {
+		return nil
+	}
+
+	return apperrors.NewValidationProblemError(
+		"story",
+		"Text too long for selected TTS model",
+		[]apperrors.FieldValidationError{{
+			Field: "text",
+			Message: fmt.Sprintf(
+				"rune count %d exceeds limit %d for model %s",
+				count,
+				limit,
+				model,
+			),
+		}},
+	)
+}
+
+func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
+	var useSpeakerBoost *bool
+	if settings.Model != TTSModelElevenV3 {
+		useSpeakerBoost = &settings.UseSpeakerBoost
+	}
+
+	return tts.Options{
+		Model: settings.Model,
+		VoiceSettings: tts.VoiceSettings{
+			Stability:       settings.Stability,
+			SimilarityBoost: settings.SimilarityBoost,
+			Style:           settings.Style,
+			Speed:           settings.Speed,
+			UseSpeakerBoost: useSpeakerBoost,
+		},
+		ApplyTextNormalization: settings.ApplyTextNormalization,
+		Seed:                   settings.Seed,
+	}
 }
 
 // translateTTSError maps TTS service errors to domain errors with specific messages.

@@ -13,6 +13,7 @@ import (
 )
 
 const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
+const defaultAPIBaseURL = "https://api.elevenlabs.io"
 
 // APIError represents an error response from the ElevenLabs API with the HTTP status code preserved.
 type APIError struct {
@@ -39,9 +40,9 @@ func (e *APIError) Error() string {
 
 // Service handles text-to-speech generation via the ElevenLabs API.
 type Service struct {
-	apiKey string
-	model  string
-	client *http.Client
+	apiKey  string
+	baseURL string
+	client  *http.Client
 }
 
 // NewService creates a new TTS service. Returns nil if no API key is configured.
@@ -51,32 +52,55 @@ func NewService(cfg *config.TTSConfig) *Service {
 	}
 
 	return &Service{
-		apiKey: cfg.APIKey,
-		model:  cfg.Model,
+		apiKey:  cfg.APIKey,
+		baseURL: defaultAPIBaseURL,
 		client: &http.Client{
 			Timeout: cfg.RequestTimeout,
 		},
 	}
 }
 
+// Options contains all TTS request options selected by the service layer.
+type Options struct {
+	Model                  string
+	VoiceSettings          VoiceSettings
+	ApplyTextNormalization string
+	Seed                   *uint32
+}
+
+// VoiceSettings contains ElevenLabs voice_settings values.
+type VoiceSettings struct {
+	Stability       float64 `json:"stability"`
+	SimilarityBoost float64 `json:"similarity_boost"`
+	Style           float64 `json:"style"`
+	Speed           float64 `json:"speed"`
+	UseSpeakerBoost *bool   `json:"use_speaker_boost,omitempty"`
+}
+
 // ttsRequest is the JSON body sent to the ElevenLabs API.
 type ttsRequest struct {
-	Text    string `json:"text"`
-	ModelID string `json:"model_id"`
+	Text                   string        `json:"text"`
+	ModelID                string        `json:"model_id"`
+	VoiceSettings          VoiceSettings `json:"voice_settings"`
+	ApplyTextNormalization string        `json:"apply_text_normalization"`
+	Seed                   *uint32       `json:"seed,omitempty"`
 }
 
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw MP3 audio bytes.
-func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string) ([]byte, error) {
+func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
 	body, err := json.Marshal(ttsRequest{
-		Text:    text,
-		ModelID: s.model,
+		Text:                   text,
+		ModelID:                opts.Model,
+		VoiceSettings:          opts.VoiceSettings,
+		ApplyTextNormalization: opts.ApplyTextNormalization,
+		Seed:                   opts.Seed,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)
 	}
 
-	url := fmt.Sprintf("https://api.elevenlabs.io/v1/text-to-speech/%s", voiceID)
+	url := fmt.Sprintf("%s/v1/text-to-speech/%s", s.baseURL, voiceID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TTS request: %w", err)

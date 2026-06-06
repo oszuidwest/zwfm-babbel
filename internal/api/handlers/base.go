@@ -29,6 +29,7 @@ type HandlersDeps struct {
 	VoiceSvc        *services.VoiceService
 	UserSvc         *services.UserService
 	StationVoiceSvc *services.StationVoiceService
+	TTSSettingsSvc  *services.TTSSettingsService
 	TTSEnabled      bool
 }
 
@@ -44,6 +45,7 @@ type Handlers struct {
 	voiceSvc        *services.VoiceService
 	userSvc         *services.UserService
 	stationVoiceSvc *services.StationVoiceService
+	ttsSettingsSvc  *services.TTSSettingsService
 	ttsEnabled      bool
 }
 
@@ -59,6 +61,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 		voiceSvc:        deps.VoiceSvc,
 		userSvc:         deps.UserSvc,
 		stationVoiceSvc: deps.StationVoiceSvc,
+		ttsSettingsSvc:  deps.TTSSettingsSvc,
 		ttsEnabled:      deps.TTSEnabled,
 	}
 }
@@ -130,6 +133,19 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
+	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
+		logError(strings.ToLower(vp.Resource), "validation_failed", err)
+		utilsErrs := make([]utils.ValidationError, 0, len(vp.Errors))
+		for _, fieldErr := range vp.Errors {
+			utilsErrs = append(utilsErrs, utils.ValidationError{
+				Field:   fieldErr.Field,
+				Message: fieldErr.Message,
+			})
+		}
+		utils.ProblemValidationError(c, vp.Detail, utilsErrs)
+		return
+	}
+
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
 		logError(validation.Resource, "validation_failed", err)
 		hint := "Check your input and try again"
@@ -140,6 +156,18 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			validation.Error(),
 			strings.ToLower(validation.Resource)+".validation_failed",
 			hint,
+		)
+		return
+	}
+
+	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
+		logError(ni.Resource, "not_initialized", err)
+		utils.ProblemExtended(
+			c,
+			http.StatusServiceUnavailable,
+			ni.Error(),
+			strings.ToLower(ni.Resource)+".not_initialized",
+			ni.Hint,
 		)
 		return
 	}

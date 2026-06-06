@@ -117,8 +117,6 @@ type AuthConfig struct {
 type TTSConfig struct {
 	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
 	APIKey string `env:"API_KEY"`
-	// Model specifies the ElevenLabs model to use (default: eleven_multilingual_v2).
-	Model string `env:"MODEL" envDefault:"eleven_multilingual_v2"`
 	// RequestTimeout limits TTS API request duration (default: 60s).
 	RequestTimeout time.Duration `env:"TIMEOUT" envDefault:"60s"`
 }

@@ -142,6 +142,8 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	policies := [][]string{
 		// Admins can do everything
 		{"admin", "*", "*"},
+		{"admin", "settings:tts", "read"},
+		{"admin", "settings:tts", "write"},
 
 		// Editors can manage content
 		{"editor", "stations", "read"},
@@ -153,12 +155,14 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"editor", "bulletins", "generate"},
 		{"editor", "bulletins", "read"},
 		{"editor", "users", "read"}, // Can view users
+		{"editor", "settings:tts", "read"},
 
 		// Viewers can only read
 		{"viewer", "stations", "read"},
 		{"viewer", "voices", "read"},
 		{"viewer", "stories", "read"},
 		{"viewer", "bulletins", "read"},
+		{"viewer", "settings:tts", "read"},
 
 		// User management: read for editors and admins, write for admins only
 		{"admin", "users", "read"},

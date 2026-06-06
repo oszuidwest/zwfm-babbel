@@ -117,6 +117,48 @@ func ValidationWithCause(resource, field, message string, cause error) *Validati
 	return &ValidationError{Resource: resource, Field: field, Message: message, cause: cause}
 }
 
+// FieldValidationError mirrors handler validation errors without importing internal/utils.
+type FieldValidationError struct {
+	Field   string
+	Message string
+}
+
+// ValidationProblemError aggregates multi-field validation failures for HTTP 422 responses.
+type ValidationProblemError struct {
+	Resource string
+	Detail   string
+	Errors   []FieldValidationError
+}
+
+func (e *ValidationProblemError) Error() string {
+	return e.Detail
+}
+
+func (e *ValidationProblemError) Unwrap() error { return nil }
+
+// NewValidationProblemError creates a ValidationProblemError for the given resource.
+func NewValidationProblemError(resource, detail string, errs []FieldValidationError) *ValidationProblemError {
+	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
+}
+
+// NotInitializedError indicates a required singleton resource is not initialized.
+type NotInitializedError struct {
+	Resource string
+	Hint     string
+	cause    error
+}
+
+func (e *NotInitializedError) Error() string {
+	return fmt.Sprintf("%s not initialized", e.Resource)
+}
+
+func (e *NotInitializedError) Unwrap() error { return e.cause }
+
+// NotInitialized creates a NotInitializedError for a missing setup prerequisite.
+func NotInitialized(resource, hint string, cause error) *NotInitializedError {
+	return &NotInitializedError{Resource: resource, Hint: hint, cause: cause}
+}
+
 // DatabaseError section.
 
 // DatabaseError indicates an unexpected database error (internal).

@@ -1,0 +1,103 @@
+package handlers
+
+import (
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+)
+
+// TTSSettingsResponse is the API representation of global TTS settings.
+type TTSSettingsResponse struct {
+	Model                  string    `json:"model"`
+	Stability              float64   `json:"stability"`
+	SimilarityBoost        float64   `json:"similarity_boost"`
+	Style                  float64   `json:"style"`
+	UseSpeakerBoost        bool      `json:"use_speaker_boost"`
+	Speed                  float64   `json:"speed"`
+	ApplyTextNormalization string    `json:"apply_text_normalization"`
+	Seed                   *uint32   `json:"seed"`
+	TTSStylePrefix         string    `json:"tts_style_prefix"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	APIKeyConfigured       bool      `json:"api_key_configured"`
+}
+
+// GetTTSSettings returns the global TTS settings.
+func (h *Handlers) GetTTSSettings(c *gin.Context) {
+	settings, err := h.ttsSettingsSvc.Get(c.Request.Context())
+	if err != nil {
+		handleServiceError(c, err, "TTSSettings")
+		return
+	}
+
+	utils.Success(c, h.toTTSSettingsResponse(settings))
+}
+
+// UpdateTTSSettings applies a partial update to the global TTS settings.
+func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
+	var req utils.TTSSettingsUpdateRequest
+	if !utils.BindAndValidate(c, &req) {
+		return
+	}
+
+	if req.IsEmpty() {
+		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+			Field:   "request",
+			Message: "At least one field must be provided",
+		}})
+		return
+	}
+
+	serviceReq := toTTSSettingsServiceRequest(req)
+	if userID, ok := auth.UserID(c); ok {
+		serviceReq.ActorUserID = &userID
+	}
+
+	updated, err := h.ttsSettingsSvc.Update(c.Request.Context(), serviceReq)
+	if err != nil {
+		handleServiceError(c, err, "TTSSettings")
+		return
+	}
+
+	utils.Success(c, h.toTTSSettingsResponse(updated))
+}
+
+func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettingsResponse {
+	return TTSSettingsResponse{
+		Model:                  settings.Model,
+		Stability:              settings.Stability,
+		SimilarityBoost:        settings.SimilarityBoost,
+		Style:                  settings.Style,
+		UseSpeakerBoost:        settings.UseSpeakerBoost,
+		Speed:                  settings.Speed,
+		ApplyTextNormalization: settings.ApplyTextNormalization,
+		Seed:                   settings.Seed,
+		TTSStylePrefix:         settings.TTSStylePrefix,
+		UpdatedAt:              settings.UpdatedAt,
+		APIKeyConfigured:       h.config.TTS.APIKey != "",
+	}
+}
+
+func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.UpdateTTSSettingsRequest {
+	serviceReq := &services.UpdateTTSSettingsRequest{
+		Model:                  req.Model,
+		Stability:              req.Stability,
+		SimilarityBoost:        req.SimilarityBoost,
+		Style:                  req.Style,
+		UseSpeakerBoost:        req.UseSpeakerBoost,
+		Speed:                  req.Speed,
+		ApplyTextNormalization: req.ApplyTextNormalization,
+		TTSStylePrefix:         req.TTSStylePrefix,
+	}
+
+	if req.Seed.HasValue() {
+		serviceReq.Seed = req.Seed.Value
+	} else if req.Seed.IsClearing() {
+		serviceReq.ClearSeed = true
+	}
+
+	return serviceReq
+}
