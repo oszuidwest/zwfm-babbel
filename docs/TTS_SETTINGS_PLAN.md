@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS tts_settings (
     use_speaker_boost        BOOLEAN         NOT NULL,
     speed                    DECIMAL(3,2)    NOT NULL,
     apply_text_normalization VARCHAR(8)      NOT NULL,
-    seed                     BIGINT UNSIGNED NULL,
+    seed                     INT UNSIGNED    NULL,
     tts_style_prefix         VARCHAR(500)    NOT NULL,
     updated_at               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              ON UPDATE CURRENT_TIMESTAMP,

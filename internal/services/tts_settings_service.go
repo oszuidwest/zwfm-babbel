@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -89,15 +90,6 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		return nil, apperrors.NewValidationProblemError("tts_settings", "One or more fields failed validation", validationErrs)
 	}
 
-	seed, ok := seedUpdateValue(req.Seed)
-	if !ok {
-		return nil, apperrors.NewValidationProblemError(
-			"tts_settings",
-			"One or more fields failed validation",
-			[]apperrors.FieldValidationError{fieldError("seed", "must be between 0 and 4294967295")},
-		)
-	}
-
 	update := &repository.TTSSettingsUpdate{
 		Model:                  req.Model,
 		Stability:              req.Stability,
@@ -106,7 +98,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		UseSpeakerBoost:        req.UseSpeakerBoost,
 		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
-		Seed:                   seed,
+		Seed:                   seedUpdateValue(req.Seed),
 		TTSStylePrefix:         req.TTSStylePrefix,
 		ClearSeed:              req.ClearSeed,
 	}
@@ -125,6 +117,9 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 }
 
 // IsEmpty reports whether no fields are being updated.
+// Keep in sync with utils.TTSSettingsUpdateRequest.IsEmpty: the HTTP handler
+// returns 422 for empty PATCHes, while the service keeps a defensive no-op for
+// programmatic callers.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 	return r.Model == nil &&
 		r.Stability == nil &&
@@ -154,15 +149,13 @@ func translateTTSSettingsRepoError(err error) error {
 	return apperrors.TranslateRepoError("TTSSettings", apperrors.OpQuery, err)
 }
 
-func seedUpdateValue(seed *int64) (*uint32, bool) {
+func seedUpdateValue(seed *int64) *uint32 {
 	if seed == nil {
-		return nil, true
+		return nil
 	}
-	if *seed < 0 || *seed > maxElevenLabsSeedUint32 {
-		return nil, false
-	}
-	value := uint32(*seed)
-	return &value, true
+	// validateSeed runs before this conversion and guarantees the uint32 range.
+	value := uint32(*seed) //nolint:gosec // G115 guarded by validateSeed in Update.
+	return &value
 }
 
 func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldValidationError {
@@ -172,7 +165,7 @@ func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldV
 		"model",
 		req.Model,
 		allowedTTSModels,
-		"must be one of: eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5",
+		enumMessage(allowedTTSModels),
 	)...)
 	errs = append(errs, validateNumberField("stability", req.Stability, 0, 1, "must be between 0 and 1")...)
 	errs = append(errs, validateNumberField("similarity_boost", req.SimilarityBoost, 0, 1, "must be between 0 and 1")...)
@@ -182,12 +175,16 @@ func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldV
 		"apply_text_normalization",
 		req.ApplyTextNormalization,
 		allowedTextNormalizations,
-		"must be one of: auto, on, off",
+		enumMessage(allowedTextNormalizations),
 	)...)
 	errs = append(errs, validateSeed(req.Seed)...)
 	errs = append(errs, validateTTSStylePrefix(req.TTSStylePrefix)...)
 
 	return errs
+}
+
+func enumMessage(allowed []string) string {
+	return "must be one of: " + strings.Join(allowed, ", ")
 }
 
 func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.FieldValidationError {

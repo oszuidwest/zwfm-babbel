@@ -2786,7 +2786,6 @@ components:
           enum: [auto, on, off]
         seed:
           type: [integer, 'null']
-          format: int64
           minimum: 0
           maximum: 4294967295
           description: Best-effort deterministic seed. Null means random output.
@@ -2836,7 +2835,6 @@ components:
           enum: [auto, on, off]
         seed:
           type: [integer, 'null']
-          format: int64
           minimum: 0
           maximum: 4294967295
           description: Set to null to clear the stored seed.

@@ -262,6 +262,7 @@ type TTSSettingsUpdateRequest struct {
 }
 
 // IsEmpty reports whether no update fields were provided.
+// Keep in sync with services.UpdateTTSSettingsRequest.IsEmpty.
 func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
 	return r.Model == nil &&
 		r.Stability == nil &&
