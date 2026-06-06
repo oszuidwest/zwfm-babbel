@@ -19,7 +19,7 @@ type TTSSettingsUpdate struct {
 	UseSpeakerBoost        *bool    `gorm:"column:use_speaker_boost"`
 	Speed                  *float64 `gorm:"column:speed"`
 	ApplyTextNormalization *string  `gorm:"column:apply_text_normalization"`
-	Seed                   *int64   `gorm:"column:seed"`
+	Seed                   *uint32  `gorm:"column:seed"`
 	TTSStylePrefix         *string  `gorm:"column:tts_style_prefix"`
 
 	// Clear flags - when true, explicitly set the field to NULL.
@@ -49,7 +49,9 @@ func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, e
 	return &settings, nil
 }
 
-// Update updates the singleton row. RowsAffected==0 is valid for idempotent PATCHes.
+// Update updates the migration-seeded singleton row.
+// The service checks that id=1 exists before calling Update; this method does not
+// inspect RowsAffected so idempotent same-value PATCHes remain successful.
 func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate) error {
 	if u == nil {
 		return nil

@@ -69,10 +69,15 @@ func ParseDBError(err error) error {
 	case strings.Contains(errStr, "Data too long"):
 		logger.Debug("Data too long for column", "error", err)
 		return ErrDataTooLong
-	case strings.Contains(errStr, "doesn't exist"), strings.Contains(errStr, "no such table"):
+	case isTableMissingMessage(errStr):
 		logger.Debug("Schema unavailable", "error", err)
 		return ErrSchemaUnavailable
 	default:
 		return err
 	}
+}
+
+func isTableMissingMessage(message string) bool {
+	return strings.Contains(message, "no such table:") ||
+		(strings.HasPrefix(message, "Table '") && strings.Contains(message, "' doesn't exist"))
 }

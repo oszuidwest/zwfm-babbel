@@ -72,6 +72,9 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 }
 
 // Update validates, applies, and returns the updated singleton settings.
+// TTS settings updates are intentionally last-writer-wins, matching the rest of
+// the PATCH APIs. The audit log is best-effort and compares snapshots around the
+// update; it is not an immutable serialized audit trail.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
 	current, err := s.Get(ctx)
 	if err != nil {
@@ -86,6 +89,15 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		return nil, apperrors.NewValidationProblemError("tts_settings", "One or more fields failed validation", validationErrs)
 	}
 
+	seed, ok := seedUpdateValue(req.Seed)
+	if !ok {
+		return nil, apperrors.NewValidationProblemError(
+			"tts_settings",
+			"One or more fields failed validation",
+			[]apperrors.FieldValidationError{fieldError("seed", "must be between 0 and 4294967295")},
+		)
+	}
+
 	update := &repository.TTSSettingsUpdate{
 		Model:                  req.Model,
 		Stability:              req.Stability,
@@ -94,7 +106,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		UseSpeakerBoost:        req.UseSpeakerBoost,
 		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
-		Seed:                   req.Seed,
+		Seed:                   seed,
 		TTSStylePrefix:         req.TTSStylePrefix,
 		ClearSeed:              req.ClearSeed,
 	}
@@ -127,10 +139,30 @@ func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 }
 
 func translateTTSSettingsRepoError(err error) error {
-	if errors.Is(err, repository.ErrSchemaUnavailable) || errors.Is(err, repository.ErrNotFound) {
+	if errors.Is(err, repository.ErrSchemaUnavailable) {
 		return apperrors.NotInitialized("tts_settings", "apply migration 005_tts_settings.sql", err)
 	}
+	if errors.Is(err, repository.ErrNotFound) {
+		return apperrors.NotInitializedWithCode(
+			"tts_settings",
+			"tts_settings.row_missing",
+			"tts_settings singleton row missing",
+			"restore the id=1 row from migrations/005_tts_settings.sql seed data",
+			err,
+		)
+	}
 	return apperrors.TranslateRepoError("TTSSettings", apperrors.OpQuery, err)
+}
+
+func seedUpdateValue(seed *int64) (*uint32, bool) {
+	if seed == nil {
+		return nil, true
+	}
+	if *seed < 0 || *seed > maxElevenLabsSeedUint32 {
+		return nil, false
+	}
+	value := uint32(*seed)
+	return &value, true
 }
 
 func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldValidationError {
@@ -279,6 +311,8 @@ func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
 }
 
 func modelCharLimit(model string) int {
+	// ElevenLabs documents different per-request character ceilings by model:
+	// eleven_v3=5000, multilingual_v2=10000, flash_v2_5=40000.
 	switch model {
 	case TTSModelElevenV3:
 		return 5000

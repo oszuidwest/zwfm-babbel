@@ -55,6 +55,10 @@ func TestParseDBError_SchemaUnavailable(t *testing.T) {
 			name: "sqlite no such table fallback",
 			err:  errors.New("no such table: tts_settings"),
 		},
+		{
+			name: "raw mysql table prefix fallback",
+			err:  errors.New("Table 'babbel.tts_settings' doesn't exist"),
+		},
 	}
 
 	for _, tt := range tests {
@@ -63,5 +67,17 @@ func TestParseDBError_SchemaUnavailable(t *testing.T) {
 				t.Fatalf("ParseDBError() = %v, want ErrSchemaUnavailable", got)
 			}
 		})
+	}
+}
+
+func TestParseDBError_DoesNotTreatColumnMissingAsSchemaUnavailable(t *testing.T) {
+	err := errors.New("Error 1054 (42S22): Unknown column 'tts_style_prefix' doesn't exist")
+
+	got := ParseDBError(err)
+	if errors.Is(got, ErrSchemaUnavailable) {
+		t.Fatalf("ParseDBError() = %v, should not be ErrSchemaUnavailable", got)
+	}
+	if got.Error() != err.Error() {
+		t.Fatalf("ParseDBError() = %v, want original error message %q", got, err.Error())
 	}
 }

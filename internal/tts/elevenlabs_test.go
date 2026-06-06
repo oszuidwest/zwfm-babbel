@@ -3,6 +3,7 @@ package tts
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -113,6 +114,40 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 				t.Fatalf("use_speaker_boost = %#v, want %t", boost, tt.wantUseSpeakerBoost)
 			}
 		})
+	}
+}
+
+func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "45")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+	}))
+	defer server.Close()
+
+	service := &Service{
+		apiKey:  "test-key",
+		baseURL: server.URL,
+		client:  &http.Client{Timeout: time.Second},
+	}
+
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{Model: "eleven_v3"})
+	if err == nil {
+		t.Fatal("GenerateSpeech() error = nil, want API error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusTooManyRequests)
+	}
+	if apiErr.RetryAfter != "45" {
+		t.Fatalf("RetryAfter = %q, want 45", apiErr.RetryAfter)
+	}
+	if apiErr.Body == "" {
+		t.Fatal("Body is empty, want response body")
 	}
 }
 

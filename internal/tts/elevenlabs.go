@@ -19,6 +19,7 @@ const defaultAPIBaseURL = "https://api.elevenlabs.io"
 type APIError struct {
 	StatusCode int
 	Body       string
+	RetryAfter string
 }
 
 func (e *APIError) Error() string {
@@ -117,8 +118,15 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, &APIError{StatusCode: resp.StatusCode, Body: string(respBody)}
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, err)
+		}
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Body:       string(respBody),
+			RetryAfter: resp.Header.Get("Retry-After"),
+		}
 	}
 
 	limitedReader := io.LimitReader(resp.Body, maxAudioResponseBytes+1)

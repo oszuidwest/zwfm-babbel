@@ -1142,8 +1142,6 @@ paths:
             - Voice has no ElevenLabs voice ID configured
             - Story already has audio (use ?force=true to overwrite)
             - ElevenLabs voice ID not found
-            - ElevenLabs API key is invalid
-            - ElevenLabs rate limit exceeded
           content:
             application/problem+json:
               schema:
@@ -1156,6 +1154,10 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '500':
@@ -3609,6 +3611,40 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+    TooManyRequests:
+      description: Request was rate limited
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying, when provided by the upstream service
+          schema:
+            type: string
+            example: "45"
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://babbel.api/problems/tts.rate_limited"
+            title: "Too Many Requests"
+            status: 429
+            detail: "TTS rate limited"
+            instance: "/api/v1/stories/1/tts"
+            code: "tts.rate_limited"
+            hint: "Retry the request later"
+    BadGateway:
+      description: Upstream service failed
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          example:
+            type: "https://babbel.api/problems/tts.upstream_failed"
+            title: "Bad Gateway"
+            status: 502
+            detail: "TTS upstream ElevenLabs failed"
+            instance: "/api/v1/stories/1/tts"
+            code: "tts.upstream_failed"
+            hint: "Please try again later"
     ServiceUnavailable:
       description: Service unavailable
       content:
@@ -3617,7 +3653,7 @@ components:
             $ref: '#/components/schemas/ProblemDetails'
           examples:
             tts_settings_not_initialized:
-              summary: TTS settings schema or singleton row is missing
+              summary: TTS settings schema is missing
               value:
                 type: "https://babbel.api/problems/tts_settings.not_initialized"
                 title: "Service Unavailable"
@@ -3626,6 +3662,26 @@ components:
                 instance: "/api/v1/settings/tts"
                 code: "tts_settings.not_initialized"
                 hint: "apply migration 005_tts_settings.sql"
+            tts_settings_row_missing:
+              summary: TTS settings singleton row is missing
+              value:
+                type: "https://babbel.api/problems/tts_settings.row_missing"
+                title: "Service Unavailable"
+                status: 503
+                detail: "tts_settings singleton row missing"
+                instance: "/api/v1/settings/tts"
+                code: "tts_settings.row_missing"
+                hint: "restore the id=1 row from migrations/005_tts_settings.sql seed data"
+            tts_upstream_credentials:
+              summary: ElevenLabs credentials are invalid or unauthorized
+              value:
+                type: "https://babbel.api/problems/tts.upstream_failed"
+                title: "Service Unavailable"
+                status: 503
+                detail: "TTS upstream ElevenLabs failed"
+                instance: "/api/v1/stories/1/tts"
+                code: "tts.upstream_failed"
+                hint: "Check the ElevenLabs API key and account access"
     UnprocessableEntity:
       description: Validation error
       content:

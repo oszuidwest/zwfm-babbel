@@ -134,8 +134,6 @@ func (e *ValidationProblemError) Error() string {
 	return e.Detail
 }
 
-func (e *ValidationProblemError) Unwrap() error { return nil }
-
 // NewValidationProblemError creates a ValidationProblemError for the given resource.
 func NewValidationProblemError(resource, detail string, errs []FieldValidationError) *ValidationProblemError {
 	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
@@ -144,11 +142,16 @@ func NewValidationProblemError(resource, detail string, errs []FieldValidationEr
 // NotInitializedError indicates a required singleton resource is not initialized.
 type NotInitializedError struct {
 	Resource string
+	Code     string
+	Detail   string
 	Hint     string
 	cause    error
 }
 
 func (e *NotInitializedError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
 	return fmt.Sprintf("%s not initialized", e.Resource)
 }
 
@@ -157,6 +160,64 @@ func (e *NotInitializedError) Unwrap() error { return e.cause }
 // NotInitialized creates a NotInitializedError for a missing setup prerequisite.
 func NotInitialized(resource, hint string, cause error) *NotInitializedError {
 	return &NotInitializedError{Resource: resource, Hint: hint, cause: cause}
+}
+
+// NotInitializedWithCode creates a NotInitializedError with a specific problem code and detail.
+func NotInitializedWithCode(resource, code, detail, hint string, cause error) *NotInitializedError {
+	return &NotInitializedError{
+		Resource: resource,
+		Code:     code,
+		Detail:   detail,
+		Hint:     hint,
+		cause:    cause,
+	}
+}
+
+// RateLimitedError indicates an upstream or internal rate limit.
+type RateLimitedError struct {
+	Resource   string
+	RetryAfter string
+	cause      error
+}
+
+func (e *RateLimitedError) Error() string {
+	return fmt.Sprintf("%s rate limited", e.Resource)
+}
+
+func (e *RateLimitedError) Unwrap() error { return e.cause }
+
+// RateLimited creates a RateLimitedError.
+func RateLimited(resource, retryAfter string, cause error) *RateLimitedError {
+	return &RateLimitedError{Resource: resource, RetryAfter: retryAfter, cause: cause}
+}
+
+// UpstreamError indicates a dependency service failed or rejected service credentials.
+type UpstreamError struct {
+	Resource string
+	Service  string
+	Status   int
+	Hint     string
+	cause    error
+}
+
+func (e *UpstreamError) Error() string {
+	if e.Service != "" {
+		return fmt.Sprintf("%s upstream %s failed", e.Resource, e.Service)
+	}
+	return fmt.Sprintf("%s upstream failed", e.Resource)
+}
+
+func (e *UpstreamError) Unwrap() error { return e.cause }
+
+// Upstream creates an UpstreamError.
+func Upstream(resource, service string, status int, hint string, cause error) *UpstreamError {
+	return &UpstreamError{
+		Resource: resource,
+		Service:  service,
+		Status:   status,
+		Hint:     hint,
+		cause:    cause,
+	}
 }
 
 // DatabaseError section.

@@ -1,9 +1,13 @@
 package services
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
 func TestValidateTTSSettingsUpdate(t *testing.T) {
@@ -84,6 +88,53 @@ func TestModelCharLimit(t *testing.T) {
 		t.Run(tt.model, func(t *testing.T) {
 			if got := modelCharLimit(tt.model); got != tt.want {
 				t.Fatalf("modelCharLimit(%q) = %d, want %d", tt.model, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTranslateTTSSettingsRepoError(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   string
+		wantDetail string
+		wantHint   string
+	}{
+		{
+			name:       "schema unavailable",
+			err:        repository.ErrSchemaUnavailable,
+			wantDetail: "tts_settings not initialized",
+			wantHint:   "apply migration 005_tts_settings.sql",
+		},
+		{
+			name:       "singleton row missing",
+			err:        repository.ErrNotFound,
+			wantCode:   "tts_settings.row_missing",
+			wantDetail: "tts_settings singleton row missing",
+			wantHint:   "restore the id=1 row from migrations/005_tts_settings.sql seed data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := translateTTSSettingsRepoError(tt.err)
+
+			var notInitialized *apperrors.NotInitializedError
+			if !errors.As(got, &notInitialized) {
+				t.Fatalf("error type = %T, want *apperrors.NotInitializedError", got)
+			}
+			if !errors.Is(got, tt.err) {
+				t.Fatalf("translated error does not wrap %v: %v", tt.err, got)
+			}
+			if notInitialized.Code != tt.wantCode {
+				t.Fatalf("code = %q, want %q", notInitialized.Code, tt.wantCode)
+			}
+			if got.Error() != tt.wantDetail {
+				t.Fatalf("detail = %q, want %q", got.Error(), tt.wantDetail)
+			}
+			if notInitialized.Hint != tt.wantHint {
+				t.Fatalf("hint = %q, want %q", notInitialized.Hint, tt.wantHint)
 			}
 		})
 	}

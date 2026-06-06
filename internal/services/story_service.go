@@ -462,6 +462,8 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 }
 
 func composeTTSText(text string, settings *models.TTSSettings) string {
+	// Only Eleven v3 interprets bracketed style directives as audio tags; v2 and
+	// Flash models would read the prefix literally.
 	if settings.Model == TTSModelElevenV3 && strings.TrimSpace(settings.TTSStylePrefix) != "" {
 		return settings.TTSStylePrefix + "\n" + text
 	}
@@ -470,8 +472,12 @@ func composeTTSText(text string, settings *models.TTSSettings) string {
 
 func validateTTSTextLength(text, model string) error {
 	limit := modelCharLimit(model)
+	if limit == 0 {
+		return apperrors.Database("TTSSettings", "validate", fmt.Errorf("unknown TTS model %q", model))
+	}
+
 	count := utf8.RuneCountInString(text)
-	if limit == 0 || count <= limit {
+	if count <= limit {
 		return nil
 	}
 
@@ -492,6 +498,8 @@ func validateTTSTextLength(text, model string) error {
 
 func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 	var useSpeakerBoost *bool
+	// Eleven v3 does not support speaker boost; omit the field entirely while
+	// preserving the stored DB value for other models.
 	if settings.Model != TTSModelElevenV3 {
 		useSpeakerBoost = &settings.UseSpeakerBoost
 	}
@@ -515,13 +523,27 @@ func translateTTSError(err error) error {
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return apperrors.Validation("TTS", "api_key", apiErr.Error())
+			return apperrors.Upstream(
+				"TTS",
+				"ElevenLabs",
+				http.StatusServiceUnavailable,
+				"Check the ElevenLabs API key and account access",
+				apiErr,
+			)
 		case http.StatusNotFound:
-			return apperrors.Validation("Voice", "elevenlabs_voice_id", apiErr.Error())
+			return apperrors.ValidationWithCause("Voice", "elevenlabs_voice_id", apiErr.Error(), apiErr)
 		case http.StatusTooManyRequests:
-			return apperrors.Validation("TTS", "rate_limit", apiErr.Error())
+			return apperrors.RateLimited("TTS", apiErr.RetryAfter, apiErr)
 		case http.StatusUnprocessableEntity:
-			return apperrors.Validation("TTS", "request", apiErr.Error())
+			return apperrors.ValidationWithCause("TTS", "request", apiErr.Error(), apiErr)
+		default:
+			return apperrors.Upstream(
+				"TTS",
+				"ElevenLabs",
+				http.StatusBadGateway,
+				"Please try again later",
+				apiErr,
+			)
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)

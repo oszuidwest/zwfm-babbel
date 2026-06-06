@@ -146,15 +146,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
-		logError(ni.Resource, "not_initialized", err)
-		utils.ProblemExtended(
-			c,
-			http.StatusServiceUnavailable,
-			ni.Error(),
-			strings.ToLower(ni.Resource)+".not_initialized",
-			ni.Hint,
-		)
+	if handleAvailabilityError(c, err) {
 		return
 	}
 
@@ -213,6 +205,61 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
 			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
 		})
+		return true
+	}
+
+	return false
+}
+
+func handleAvailabilityError(c *gin.Context, err error) bool {
+	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
+		logError(rateLimited.Resource, "rate_limited", err)
+		if rateLimited.RetryAfter != "" {
+			c.Header("Retry-After", rateLimited.RetryAfter)
+		}
+		utils.ProblemExtended(
+			c,
+			http.StatusTooManyRequests,
+			rateLimited.Error(),
+			strings.ToLower(rateLimited.Resource)+".rate_limited",
+			"Retry the request later",
+		)
+		return true
+	}
+
+	if upstream, ok := errors.AsType[*apperrors.UpstreamError](err); ok {
+		status := upstream.Status
+		if status == 0 {
+			status = http.StatusBadGateway
+		}
+		hint := upstream.Hint
+		if hint == "" {
+			hint = "Please try again later"
+		}
+		logErrorWithCause(upstream.Resource, "upstream_failed", err, upstream.Unwrap())
+		utils.ProblemExtended(
+			c,
+			status,
+			upstream.Error(),
+			strings.ToLower(upstream.Resource)+".upstream_failed",
+			hint,
+		)
+		return true
+	}
+
+	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
+		logError(ni.Resource, "not_initialized", err)
+		code := strings.ToLower(ni.Resource) + ".not_initialized"
+		if ni.Code != "" {
+			code = ni.Code
+		}
+		utils.ProblemExtended(
+			c,
+			http.StatusServiceUnavailable,
+			ni.Error(),
+			code,
+			ni.Hint,
+		)
 		return true
 	}
 
