@@ -64,6 +64,8 @@ tags:
     description: Voice/presenter management
   - name: Stories
     description: News story management
+  - name: Settings
+    description: Global API settings
   - name: Audio
     description: Audio file serving
   - name: Users
@@ -1148,10 +1150,14 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '501':
@@ -1166,6 +1172,65 @@ paths:
                 status: 501
                 detail: "Text-to-speech is not configured"
                 hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
+
+  /api/v1/settings/tts:
+    get:
+      operationId: getSettingsTts
+      summary: Get global TTS settings
+      description: |
+        Returns the singleton ElevenLabs text-to-speech settings row.
+        The response includes whether an API key is configured, but never returns the key value.
+      tags:
+        - Settings
+      responses:
+        '200':
+          description: Global TTS settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TTSSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      operationId: patchSettingsTts
+      summary: Update global TTS settings
+      description: |
+        Partially updates the singleton ElevenLabs text-to-speech settings row.
+        Writes are admin-only because these settings affect all subsequent TTS generation.
+      tags:
+        - Settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TTSSettingsUpdate'
+            example:
+              stability: 0.7
+              seed: null
+      responses:
+        '200':
+          description: Global TTS settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TTSSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/stories/{id}:
     get:
@@ -2672,6 +2737,111 @@ components:
           type: string
           format: date-time
 
+    TTSSettings:
+      type: object
+      description: Global singleton ElevenLabs text-to-speech settings.
+      required:
+        - model
+        - stability
+        - similarity_boost
+        - style
+        - use_speaker_boost
+        - speed
+        - apply_text_normalization
+        - tts_style_prefix
+        - updated_at
+        - api_key_configured
+      properties:
+        model:
+          type: string
+          enum: [eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5]
+          description: ElevenLabs model ID used for subsequent story TTS generation.
+        stability:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        similarity_boost:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        style:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        use_speaker_boost:
+          type: boolean
+          description: Preserved in settings, but omitted from Eleven v3 request bodies.
+        speed:
+          type: number
+          format: float
+          minimum: 0.7
+          maximum: 1.2
+        apply_text_normalization:
+          type: string
+          enum: [auto, on, off]
+        seed:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Best-effort deterministic seed. Null means random output.
+        tts_style_prefix:
+          type: string
+          maxLength: 500
+          description: Audio-tag prefix applied only when model is eleven_v3.
+        updated_at:
+          type: string
+          format: date-time
+        api_key_configured:
+          type: boolean
+          description: Whether BABBEL_ELEVENLABS_API_KEY is configured.
+
+    TTSSettingsUpdate:
+      type: object
+      minProperties: 1
+      description: Partial update for global singleton TTS settings.
+      properties:
+        model:
+          type: string
+          enum: [eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5]
+        stability:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        similarity_boost:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        style:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        use_speaker_boost:
+          type: boolean
+        speed:
+          type: number
+          format: float
+          minimum: 0.7
+          maximum: 1.2
+        apply_text_normalization:
+          type: string
+          enum: [auto, on, off]
+        seed:
+          type: [integer, 'null']
+          format: int64
+          minimum: 0
+          maximum: 4294967295
+          description: Set to null to clear the stored seed.
+        tts_style_prefix:
+          type: string
+          maxLength: 500
+
     StationVoice:
       type: object
       description: Represents the relationship between a station and voice with station-specific jingle configuration
@@ -3439,6 +3609,23 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+    ServiceUnavailable:
+      description: Service unavailable
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            tts_settings_not_initialized:
+              summary: TTS settings schema or singleton row is missing
+              value:
+                type: "https://babbel.api/problems/tts_settings.not_initialized"
+                title: "Service Unavailable"
+                status: 503
+                detail: "tts_settings not initialized"
+                instance: "/api/v1/settings/tts"
+                code: "tts_settings.not_initialized"
+                hint: "apply migration 005_tts_settings.sql"
     UnprocessableEntity:
       description: Validation error
       content:

@@ -83,6 +83,14 @@ describe('OpenAPI Contract', () => {
       rawScenario('GET', '/api/v1/stories/{id}/audio', () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`, { responseType: 'arraybuffer' }),
       uploadScenario('/api/v1/stories/{id}/audio', () => `/stories/${ctx.story.id}/audio`, 'audio', { audio: 'contract.wav' }),
       apiScenario('POST', '/api/v1/stories/{id}/tts', () => `/stories/${ctx.story.id}/tts`),
+      apiScenario('GET', '/api/v1/settings/tts', '/settings/tts'),
+      scenario('PATCH', '/api/v1/settings/tts', async () => {
+          const current = await global.api.apiCall('GET', '/settings/tts');
+          expect(current.status).toBe(200);
+          return apiCall('PATCH', '/api/v1/settings/tts', '/settings/tts', {
+            stability: current.data.stability
+          });
+        }),
       apiScenario('GET', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`),
       apiScenario('PUT', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, () => ({
           title: uniqueName('Contract Updated Story'),

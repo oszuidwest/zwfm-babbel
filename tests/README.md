@@ -39,6 +39,7 @@ npm run test:voices        # Voice management tests
 npm run test:station-voices # Station-voice relationship tests
 npm run test:stories       # Story tests with file uploads
 npm run test:tts           # Text-to-speech endpoint tests
+npm run test:settings      # TTS settings singleton tests
 npm run test:bulletins     # Bulletin generation tests
 npm run test:cleanup       # Bulletin file cleanup tests
 npm run test:automation    # Public automation endpoint tests
@@ -94,6 +95,8 @@ tests/
 │   └── stories.test.js       # Story tests with file uploads
 ├── tts/
 │   └── tts.test.js           # Text-to-speech endpoint tests
+├── settings/
+│   └── tts-settings.test.js  # TTS settings singleton tests
 ├── bulletins/
 │   ├── bulletins.test.js     # Bulletin generation tests
 │   └── bulletin-cleanup.test.js # Purged bulletin behavior tests
@@ -113,8 +116,8 @@ Tests run sequentially (`maxWorkers: 1`) in dependency order enforced by a custo
 
 ```
 auth → permissions → lockout → stations → voices → station-voices →
-stories → tts → bulletins → bulletin-cleanup → automation → users →
-openapi-contract → validation
+stories → tts → settings → bulletins → bulletin-cleanup → automation →
+users → openapi-contract → validation
 ```
 
 Integration tests exclude `tests/lib/*.test.js`; those helper and validator unit tests run offline through `npm run test:unit`. Later integration tests depend on data created by earlier ones. Individual suites can be run in isolation when Docker is already running.
@@ -143,6 +146,7 @@ Resources with full generator coverage: stations, voices, users, station-voices.
 | station-voices | Generated CRUD, query, and validation plus jingle behavior |
 | stories | Generated query coverage plus manual scheduling, audio, metadata, and status behavior |
 | tts | Manual TTS validation chain |
+| settings | Manual TTS settings singleton, validation, and RBAC coverage |
 | bulletins | Generated query coverage plus manual generation, caching, history, and story selection behavior |
 | bulletin-cleanup | Manual purge behavior |
 | automation | Manual public endpoint behavior |
