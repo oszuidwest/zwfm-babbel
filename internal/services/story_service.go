@@ -410,18 +410,8 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return apperrors.Database("Story", "query", err)
 	}
 
-	// Validate TTS prerequisites
-	if story.AudioFile != "" && !force {
-		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
-	}
-	if story.Text == "" {
-		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
-	}
-	if story.VoiceID == nil {
-		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
-	}
-	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	if err := validateStoryTTSPrerequisites(story, force); err != nil {
+		return err
 	}
 
 	settings, err := s.ttsSettingsSvc.Get(ctx)
@@ -453,6 +443,22 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
+	if story.AudioFile != "" && !force {
+		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
+	}
+	if story.Text == "" {
+		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
+	}
+	if story.VoiceID == nil {
+		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
+	}
+	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	}
+	return nil
 }
 
 func composeTTSText(text string, settings *models.TTSSettings) string {

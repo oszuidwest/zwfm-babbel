@@ -80,21 +80,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	var unknownField *repository.UnknownFieldError
-	if errors.As(err, &unknownField) {
-		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
-			{Field: unknownField.Kind, Message: unknownField.Error()},
-		})
-		return
-	}
-
-	var invalidFilter *repository.InvalidFilterError
-	if errors.As(err, &invalidFilter) {
-		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
-			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
-		})
+	if handleQueryShapeError(c, err, fallbackResource) {
 		return
 	}
 
@@ -209,6 +195,28 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
+	var unknownField *repository.UnknownFieldError
+	if errors.As(err, &unknownField) {
+		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
+		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
+			{Field: unknownField.Kind, Message: unknownField.Error()},
+		})
+		return true
+	}
+
+	var invalidFilter *repository.InvalidFilterError
+	if errors.As(err, &invalidFilter) {
+		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
+		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
+			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
+		})
+		return true
+	}
+
+	return false
 }
 
 // logError logs an error with structured fields for filtering.

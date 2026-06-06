@@ -136,32 +136,54 @@ func translateTTSSettingsRepoError(err error) error {
 func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldValidationError {
 	errs := []apperrors.FieldValidationError{}
 
-	if req.Model != nil && !slices.Contains(allowedTTSModels, *req.Model) {
-		errs = append(errs, fieldError("model", "must be one of: eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5"))
-	}
-	if req.Stability != nil && !betweenInclusive(*req.Stability, 0, 1) {
-		errs = append(errs, fieldError("stability", "must be between 0 and 1"))
-	}
-	if req.SimilarityBoost != nil && !betweenInclusive(*req.SimilarityBoost, 0, 1) {
-		errs = append(errs, fieldError("similarity_boost", "must be between 0 and 1"))
-	}
-	if req.Style != nil && !betweenInclusive(*req.Style, 0, 1) {
-		errs = append(errs, fieldError("style", "must be between 0 and 1"))
-	}
-	if req.Speed != nil && !betweenInclusive(*req.Speed, 0.7, 1.2) {
-		errs = append(errs, fieldError("speed", "must be between 0.7 and 1.2"))
-	}
-	if req.ApplyTextNormalization != nil && !slices.Contains(allowedTextNormalizations, *req.ApplyTextNormalization) {
-		errs = append(errs, fieldError("apply_text_normalization", "must be one of: auto, on, off"))
-	}
-	if req.Seed != nil && (*req.Seed < 0 || *req.Seed > maxElevenLabsSeedUint32) {
-		errs = append(errs, fieldError("seed", "must be between 0 and 4294967295"))
-	}
-	if req.TTSStylePrefix != nil && utf8.RuneCountInString(*req.TTSStylePrefix) > maxTTSStylePrefixRunes {
-		errs = append(errs, fieldError("tts_style_prefix", "must be at most 500 characters"))
-	}
+	errs = append(errs, validateEnumField(
+		"model",
+		req.Model,
+		allowedTTSModels,
+		"must be one of: eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5",
+	)...)
+	errs = append(errs, validateNumberField("stability", req.Stability, 0, 1, "must be between 0 and 1")...)
+	errs = append(errs, validateNumberField("similarity_boost", req.SimilarityBoost, 0, 1, "must be between 0 and 1")...)
+	errs = append(errs, validateNumberField("style", req.Style, 0, 1, "must be between 0 and 1")...)
+	errs = append(errs, validateNumberField("speed", req.Speed, 0.7, 1.2, "must be between 0.7 and 1.2")...)
+	errs = append(errs, validateEnumField(
+		"apply_text_normalization",
+		req.ApplyTextNormalization,
+		allowedTextNormalizations,
+		"must be one of: auto, on, off",
+	)...)
+	errs = append(errs, validateSeed(req.Seed)...)
+	errs = append(errs, validateTTSStylePrefix(req.TTSStylePrefix)...)
 
 	return errs
+}
+
+func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.FieldValidationError {
+	if value == nil || slices.Contains(allowed, *value) {
+		return nil
+	}
+	return []apperrors.FieldValidationError{fieldError(field, message)}
+}
+
+func validateNumberField(field string, value *float64, min, max float64, message string) []apperrors.FieldValidationError {
+	if value == nil || betweenInclusive(*value, min, max) {
+		return nil
+	}
+	return []apperrors.FieldValidationError{fieldError(field, message)}
+}
+
+func validateSeed(seed *int64) []apperrors.FieldValidationError {
+	if seed == nil || (*seed >= 0 && *seed <= maxElevenLabsSeedUint32) {
+		return nil
+	}
+	return []apperrors.FieldValidationError{fieldError("seed", "must be between 0 and 4294967295")}
+}
+
+func validateTTSStylePrefix(prefix *string) []apperrors.FieldValidationError {
+	if prefix == nil || utf8.RuneCountInString(*prefix) <= maxTTSStylePrefixRunes {
+		return nil
+	}
+	return []apperrors.FieldValidationError{fieldError("tts_style_prefix", "must be at most 500 characters")}
 }
 
 func fieldError(field, message string) apperrors.FieldValidationError {
