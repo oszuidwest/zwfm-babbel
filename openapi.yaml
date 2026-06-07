@@ -1103,10 +1103,18 @@ paths:
       description: |
         Generates audio for a story using the ElevenLabs text-to-speech API.
         Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
-        The generated audio replaces any existing audio file for the story.
+        The generated audio is stored as the story audio. If the story already has audio,
+        the request fails unless `force=true` is provided, in which case the existing
+        story audio is replaced.
+
+        TTS request options are read from the global settings row exposed at
+        `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
+        configuration; model, voice settings, text normalization, seed, and the
+        Eleven v3 style prefix are database-backed settings.
 
         **Prerequisites:**
         - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
+        - The `tts_settings` singleton row must exist
         - Story must have non-empty `text`
         - Story must have a `voice_id` assigned
         - The assigned voice must have an `elevenlabs_voice_id` configured
@@ -1182,6 +1190,7 @@ paths:
       description: |
         Returns the singleton ElevenLabs text-to-speech settings row.
         The response includes whether an API key is configured, but never returns the key value.
+        All authenticated roles can read these settings.
       tags:
         - Settings
       responses:
@@ -2756,6 +2765,7 @@ components:
         - use_speaker_boost
         - speed
         - apply_text_normalization
+        - seed
         - tts_style_prefix
         - updated_at
         - api_key_configured
