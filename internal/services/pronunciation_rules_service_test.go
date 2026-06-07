@@ -383,6 +383,37 @@ func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 				"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary.",
 		},
 		{
+			name: "422 dictionary name collision code nested in detail maps to dictionary field",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `{"detail":[{"type":"dictionary_already_exists","msg":"dictionary already exists"}]}`,
+			},
+			wantKind:  "validation",
+			wantField: "dictionary",
+			wantMessage: "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
+				"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary.",
+		},
+		{
+			name: "422 dictionary already exists text without code stays on rules field",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `{"detail":"dictionary rule already exists"}`,
+			},
+			wantKind:    "validation",
+			wantField:   "rules",
+			wantMessage: "dictionary rule already exists",
+		},
+		{
+			name: "422 raw dictionary collision code body uses sanitized fallback",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `dictionary_already_exists`,
+			},
+			wantKind:    "validation",
+			wantField:   "rules",
+			wantMessage: "ElevenLabs rejected the pronunciation rules",
+		},
+		{
 			name: "422 non-JSON body uses sanitized fallback",
 			apiErr: &tts.APIError{
 				StatusCode: http.StatusUnprocessableEntity,

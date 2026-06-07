@@ -382,7 +382,7 @@ func translatePronunciationRulesUpstreamError(err error) error {
 }
 
 func upstreamRulesValidationFieldAndMessage(apiErr *tts.APIError) (string, string) {
-	if looksLikeDictionaryNameCollision(apiErr.Body) {
+	if hasDictionaryNameCollisionCode(apiErr.Body) {
 		return "dictionary", "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
 			"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary."
 	}
@@ -439,10 +439,37 @@ func upstreamMessageString(value any) string {
 	return ""
 }
 
-func looksLikeDictionaryNameCollision(body string) bool {
-	normalized := strings.ToLower(body)
-	return strings.Contains(normalized, "dictionary_already_exists") ||
-		(strings.Contains(normalized, "dictionary") && strings.Contains(normalized, "already exists"))
+func hasDictionaryNameCollisionCode(body string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return false
+	}
+
+	var payload any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return false
+	}
+	return containsDictionaryNameCollisionCode(payload)
+}
+
+func containsDictionaryNameCollisionCode(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v) == "dictionary_already_exists"
+	case map[string]any:
+		for _, value := range v {
+			if containsDictionaryNameCollisionCode(value) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if containsDictionaryNameCollisionCode(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func diffPronunciationRules(before, after []tts.Rule) pronunciationRulesDiff {
