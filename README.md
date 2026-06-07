@@ -12,7 +12,7 @@ Babbel is designed for integration with newsroom workflows and radio automation 
 - **RESTful API** - Complete REST API with OpenAPI 3.1 specification in `openapi.yaml`
 - **Multi-station support** - Manage multiple radio stations with individual configurations
 - **Voice management** - Multiple newsreaders with station-specific jingles
-- **Text-to-speech** - ElevenLabs integration for automated story audio generation
+- **Text-to-speech** - ElevenLabs integration with global API-managed settings for automated story audio generation
 - **Story scheduling** - Date ranges and weekday-specific scheduling
 - **Bulletin generation** - Automated audio mixing with caching
 - **Direct audio URLs** - Radio automation systems can fetch bulletins directly
@@ -33,7 +33,7 @@ See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
 
 ## Newsroom Workflow
 
-1. **Setup**: Configure your stations and newsreaders (optionally link ElevenLabs voice IDs)
+1. **Setup**: Configure your stations, newsreaders, and optional ElevenLabs TTS settings
 2. **Upload jingles**: Add station-specific intro/outro jingles
 3. **Create stories**: Upload audio or use text-to-speech to generate it
 4. **Generate**: API creates bulletins with appropriate jingles
@@ -194,6 +194,19 @@ Babbel uses FFmpeg for audio mixing, loudness normalization, and audio analysis.
 
 Both executables are resolved at startup and validated by running `<tool> -version`. If either cannot be found or does not run successfully, the process exits with a descriptive error that names the corresponding environment variable.
 
+### Text-to-speech
+
+TTS is enabled by configuring an ElevenLabs API key. Runtime credentials stay in environment variables, while model and voice-generation options are stored in the `tts_settings` singleton row and exposed through the API.
+
+| Env var | Default | Description |
+|---|---|---|
+| `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS when set. If unset, `POST /api/v1/stories/{id}/tts` returns 501. |
+| `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | Timeout for ElevenLabs API calls. |
+
+The initial settings row uses `eleven_v3`, stability `0.80`, similarity boost `0.80`, style `0.25`, speaker boost enabled, speed `1.00`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`.
+
+Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update model, voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
+
 ## API Documentation
 
 - **Base URL**: `/api/v1/`
@@ -218,6 +231,10 @@ GET    /api/v1/stories               # List stories (with filters)
 POST   /api/v1/stories               # Create story (with audio)
 GET    /api/v1/stories/{id}/audio    # Download story audio
 POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
+
+# Settings
+GET    /api/v1/settings/tts          # Inspect global ElevenLabs TTS settings
+PATCH  /api/v1/settings/tts          # Update global TTS settings (admin only)
 
 # Bulletin Generation
 POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
@@ -287,8 +304,8 @@ CLAUDE.md              # AI assistant instructions
 
 ## Testing
 
-The project includes a comprehensive Jest integration test suite (516 tests):
-- **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, bulletins, bulletin cleanup, automation, users, validation
+The project includes a comprehensive Jest integration test suite:
+- **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, TTS settings, bulletins, bulletin cleanup, automation, users, validation
 - **Test generators**: Declarative schema-driven generators for CRUD, query, and validation tests
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security
 

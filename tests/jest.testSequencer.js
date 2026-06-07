@@ -13,6 +13,7 @@ class CustomSequencer extends Sequencer {
     'station-voices/station-voices.test.js',
     'stories/stories.test.js',
     'tts/tts.test.js',
+    'settings/tts-settings.test.js',
     'bulletins/bulletins.test.js',
     'bulletins/bulletin-cleanup.test.js',
     'automation/automation.test.js',

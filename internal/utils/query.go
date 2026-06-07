@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
@@ -25,7 +26,7 @@ func (e *QueryParamError) Error() string {
 	return fmt.Sprintf("invalid %s: %s", e.Field, e.Message)
 }
 
-// QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection.
+// QueryParams holds parsed filtering, sorting, pagination, fieldset, and search options.
 type QueryParams struct {
 	// Pagination
 	Limit  int `json:"limit"`
@@ -556,21 +557,21 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 		emitQueryError(c, err)
 		return 0, 0, false
 	}
-	var unsupported []ValidationError
+	var unsupported []apperrors.ValidationError
 	if params.Search != "" {
-		unsupported = append(unsupported, ValidationError{Field: "search", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported on this endpoint"})
 	}
 	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, ValidationError{Field: "sort", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported on this endpoint"})
 	}
 	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, ValidationError{Field: "filter", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported on this endpoint"})
 	}
 	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, ValidationError{Field: "fields", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported on this endpoint"})
 	}
 	if params.Trashed != "" {
-		unsupported = append(unsupported, ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
 	}
 	if len(unsupported) > 0 {
 		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)
@@ -582,7 +583,7 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 func emitQueryError(c *gin.Context, err error) {
 	var qpe *QueryParamError
 	if errors.As(err, &qpe) {
-		ProblemValidationError(c, "Invalid query parameter", []ValidationError{
+		ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: qpe.Field, Message: qpe.Message},
 		})
 		return
@@ -598,10 +599,10 @@ func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *r
 	var data any = result.Data
 	if params != nil && len(params.Fields) > 0 {
 		if valid := jsonFieldNames[T](); valid != nil {
-			var unknown []ValidationError
+			var unknown []apperrors.ValidationError
 			for _, f := range params.Fields {
 				if _, ok := valid[f]; !ok {
-					unknown = append(unknown, ValidationError{
+					unknown = append(unknown, apperrors.ValidationError{
 						Field:   "fields",
 						Message: fmt.Sprintf("unknown field %q", f),
 					})

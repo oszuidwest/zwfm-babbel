@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -221,29 +222,29 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 // list-query parameters beyond the trigger itself (?latest=true and/or
 // limit=1). Returns false after writing a 422 response on violation.
 func rejectIfNotPureLatest(c *gin.Context, params *utils.QueryParams) bool {
-	var unsupported []utils.ValidationError
+	var unsupported []apperrors.ValidationError
 	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, utils.ValidationError{Field: "filter", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported with latest=true"})
 	}
 	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, utils.ValidationError{Field: "sort", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported with latest=true"})
 	}
 	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, utils.ValidationError{Field: "fields", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported with latest=true"})
 	}
 	if params.Search != "" {
-		unsupported = append(unsupported, utils.ValidationError{Field: "search", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported with latest=true"})
 	}
 	if params.Trashed != "" {
-		unsupported = append(unsupported, utils.ValidationError{Field: "trashed", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported with latest=true"})
 	}
 	if params.Offset != 0 {
-		unsupported = append(unsupported, utils.ValidationError{Field: "offset", Message: "not supported with latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "offset", Message: "not supported with latest=true"})
 	}
 	// Explicit limit must be exactly "1" or absent. limit=2 with latest=true
 	// is contradictory because the shortcut only returns one bulletin.
 	if raw := c.Query("limit"); raw != "" && raw != "1" {
-		unsupported = append(unsupported, utils.ValidationError{Field: "limit", Message: "must be 1 (or omitted) when latest=true"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "limit", Message: "must be 1 (or omitted) when latest=true"})
 	}
 	if len(unsupported) > 0 {
 		utils.ProblemValidationError(c, "latest=true returns a single bulletin; remove other query parameters", unsupported)

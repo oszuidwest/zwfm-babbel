@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -21,32 +22,35 @@ import (
 	"gorm.io/datatypes"
 )
 
-// StoryServiceDeps contains all dependencies for StoryService.
+// StoryServiceDeps groups repositories and services required by StoryService.
 type StoryServiceDeps struct {
-	StoryRepo *repository.StoryRepository
-	VoiceRepo *repository.VoiceRepository
-	AudioSvc  *audio.Service
-	TTSSvc    *tts.Service
-	Config    *config.Config
+	StoryRepo      *repository.StoryRepository
+	VoiceRepo      *repository.VoiceRepository
+	AudioSvc       *audio.Service
+	TTSSvc         *tts.Service
+	TTSSettingsSvc *TTSSettingsService
+	Config         *config.Config
 }
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo *repository.StoryRepository
-	voiceRepo *repository.VoiceRepository
-	audioSvc  *audio.Service
-	ttsSvc    *tts.Service
-	config    *config.Config
+	storyRepo      *repository.StoryRepository
+	voiceRepo      *repository.VoiceRepository
+	audioSvc       *audio.Service
+	ttsSvc         *tts.Service
+	ttsSettingsSvc *TTSSettingsService
+	config         *config.Config
 }
 
-// NewStoryService creates a new story service instance.
+// NewStoryService wires story business logic to its dependencies.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
 	return &StoryService{
-		storyRepo: deps.StoryRepo,
-		voiceRepo: deps.VoiceRepo,
-		audioSvc:  deps.AudioSvc,
-		ttsSvc:    deps.TTSSvc,
-		config:    deps.Config,
+		storyRepo:      deps.StoryRepo,
+		voiceRepo:      deps.VoiceRepo,
+		audioSvc:       deps.AudioSvc,
+		ttsSvc:         deps.TTSSvc,
+		ttsSettingsSvc: deps.TTSSettingsSvc,
+		config:         deps.Config,
 	}
 }
 
@@ -76,7 +80,7 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create creates a new story in the database.
+// Create validates dates and optional voice ownership before persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
 	// Validate voice exists if provided
 	if req.VoiceID != nil {
@@ -406,22 +410,23 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return apperrors.Database("Story", "query", err)
 	}
 
-	// Validate TTS prerequisites
-	if story.AudioFile != "" && !force {
-		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
-	}
-	if story.Text == "" {
-		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
-	}
-	if story.VoiceID == nil {
-		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
-	}
-	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	if err := validateStoryTTSPrerequisites(story, force); err != nil {
+		return err
 	}
 
+	settings, err := s.ttsSettingsSvc.Get(ctx)
+	if err != nil {
+		return err
+	}
+
+	finalText := composeTTSText(story.Text, settings)
+	if err := validateTTSTextLength(finalText, settings.Model); err != nil {
+		return err
+	}
+	options := ttsOptionsFromSettings(settings)
+
 	// Generate speech via TTS service
-	audioData, err := s.ttsSvc.GenerateSpeech(ctx, story.Text, *story.Voice.ElevenLabsVoiceID)
+	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
 	if err != nil {
 		return translateTTSError(err)
 	}
@@ -440,18 +445,105 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	return s.ProcessAudio(ctx, storyID, tempPath)
 }
 
+func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
+	if story.AudioFile != "" && !force {
+		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
+	}
+	if story.Text == "" {
+		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
+	}
+	if story.VoiceID == nil {
+		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
+	}
+	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+	}
+	return nil
+}
+
+func composeTTSText(text string, settings *models.TTSSettings) string {
+	// Only Eleven v3 interprets bracketed style directives as audio tags; v2 and
+	// Flash models would read the prefix literally.
+	if settings.Model == TTSModelElevenV3 && strings.TrimSpace(settings.TTSStylePrefix) != "" {
+		return settings.TTSStylePrefix + "\n" + text
+	}
+	return text
+}
+
+func validateTTSTextLength(text, model string) error {
+	limit := modelCharLimit(model)
+	if limit == 0 {
+		return apperrors.Database("TTSSettings", "validate", fmt.Errorf("unknown TTS model %q", model))
+	}
+
+	count := utf8.RuneCountInString(text)
+	if count <= limit {
+		return nil
+	}
+
+	return apperrors.NewValidationProblemError(
+		"story",
+		"Text too long for selected TTS model",
+		[]apperrors.ValidationError{{
+			Field: "text",
+			Message: fmt.Sprintf(
+				"rune count %d exceeds limit %d for model %s",
+				count,
+				limit,
+				model,
+			),
+		}},
+	)
+}
+
+func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
+	var useSpeakerBoost *bool
+	// Eleven v3 does not support speaker boost; omit the field entirely while
+	// preserving the stored DB value for other models.
+	if settings.Model != TTSModelElevenV3 {
+		useSpeakerBoost = &settings.UseSpeakerBoost
+	}
+
+	return tts.Options{
+		Model: settings.Model,
+		VoiceSettings: tts.VoiceSettings{
+			Stability:       settings.Stability,
+			SimilarityBoost: settings.SimilarityBoost,
+			Style:           settings.Style,
+			Speed:           settings.Speed,
+			UseSpeakerBoost: useSpeakerBoost,
+		},
+		ApplyTextNormalization: settings.ApplyTextNormalization,
+		Seed:                   settings.Seed,
+	}
+}
+
 // translateTTSError maps TTS service errors to domain errors with specific messages.
 func translateTTSError(err error) error {
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
-			return apperrors.Validation("TTS", "api_key", apiErr.Error())
+			return apperrors.Upstream(
+				"TTS",
+				"ElevenLabs",
+				http.StatusServiceUnavailable,
+				"Check the ElevenLabs API key and account access",
+				apiErr,
+			)
 		case http.StatusNotFound:
-			return apperrors.Validation("Voice", "elevenlabs_voice_id", apiErr.Error())
+			return apperrors.ValidationWithCause("Voice", "elevenlabs_voice_id", apiErr.Error(), apiErr)
 		case http.StatusTooManyRequests:
-			return apperrors.Validation("TTS", "rate_limit", apiErr.Error())
+			return apperrors.RateLimited("TTS", apiErr.RetryAfter, apiErr)
 		case http.StatusUnprocessableEntity:
-			return apperrors.Validation("TTS", "request", apiErr.Error())
+			return apperrors.ValidationWithCause("TTS", "request", apiErr.Error(), apiErr)
+		default:
+			return apperrors.Upstream(
+				"TTS",
+				"ElevenLabs",
+				http.StatusBadGateway,
+				"Please try again later",
+				apiErr,
+			)
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)

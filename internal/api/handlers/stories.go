@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -43,7 +44,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory creates a new story (JSON API only).
+// CreateStory accepts a JSON story payload and persists a scheduled story.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
@@ -107,7 +108,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
 		req.Weekdays != nil || req.IsBreaking != nil || req.Metadata != nil
 	if !hasUpdates {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",
 		}})
@@ -168,7 +169,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	// Validate that at least one field is provided
 	if req.Status == nil && req.DeletedAt == nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "request",
 			Message: "At least one field (status or deleted_at) is required",
 		}})
@@ -243,7 +244,7 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 
 	startDate, err := time.ParseInLocation("2006-01-02", *startDateStr, time.Local)
 	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
 			{Field: "start_date", Message: "Invalid start date format"},
 		})
 		return false
@@ -251,14 +252,14 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 
 	endDate, err := time.ParseInLocation("2006-01-02", *endDateStr, time.Local)
 	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
 			{Field: "end_date", Message: "Invalid end date format"},
 		})
 		return false
 	}
 
 	if endDate.Before(startDate) {
-		utils.ProblemValidationError(c, "Date validation failed", []utils.ValidationError{
+		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
 			{Field: "end_date", Message: "End date cannot be before start date"},
 		})
 		return false

@@ -18,7 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// HandlersDeps contains all dependencies required by the API handlers.
+// HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
 	AudioRepo       repository.AudioRepository
 	AudioSvc        *audio.Service
@@ -29,10 +29,11 @@ type HandlersDeps struct {
 	VoiceSvc        *services.VoiceService
 	UserSvc         *services.UserService
 	StationVoiceSvc *services.StationVoiceService
+	TTSSettingsSvc  *services.TTSSettingsService
 	TTSEnabled      bool
 }
 
-// Handlers contains all the dependencies needed by the API handlers.
+// Handlers owns shared dependencies used by endpoint methods.
 type Handlers struct {
 	audioRepo repository.AudioRepository
 	audioSvc  *audio.Service
@@ -44,10 +45,11 @@ type Handlers struct {
 	voiceSvc        *services.VoiceService
 	userSvc         *services.UserService
 	stationVoiceSvc *services.StationVoiceService
+	ttsSettingsSvc  *services.TTSSettingsService
 	ttsEnabled      bool
 }
 
-// NewHandlers creates a new Handlers instance with all required dependencies.
+// NewHandlers creates endpoint handlers from resolved dependencies.
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
 		audioRepo:       deps.AudioRepo,
@@ -59,6 +61,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 		voiceSvc:        deps.VoiceSvc,
 		userSvc:         deps.UserSvc,
 		stationVoiceSvc: deps.StationVoiceSvc,
+		ttsSettingsSvc:  deps.TTSSettingsSvc,
 		ttsEnabled:      deps.TTSEnabled,
 	}
 }
@@ -77,21 +80,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	var unknownField *repository.UnknownFieldError
-	if errors.As(err, &unknownField) {
-		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
-			{Field: unknownField.Kind, Message: unknownField.Error()},
-		})
-		return
-	}
-
-	var invalidFilter *repository.InvalidFilterError
-	if errors.As(err, &invalidFilter) {
-		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
-			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
-		})
+	if handleQueryShapeError(c, err, fallbackResource) {
 		return
 	}
 
@@ -130,6 +119,12 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
+	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
+		logError(strings.ToLower(vp.Resource), "validation_failed", err)
+		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
+		return
+	}
+
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
 		logError(validation.Resource, "validation_failed", err)
 		hint := "Check your input and try again"
@@ -141,6 +136,10 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(validation.Resource)+".validation_failed",
 			hint,
 		)
+		return
+	}
+
+	if handleAvailabilityError(c, err) {
 		return
 	}
 
@@ -181,6 +180,83 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
+	var unknownField *repository.UnknownFieldError
+	if errors.As(err, &unknownField) {
+		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
+		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+			{Field: unknownField.Kind, Message: unknownField.Error()},
+		})
+		return true
+	}
+
+	var invalidFilter *repository.InvalidFilterError
+	if errors.As(err, &invalidFilter) {
+		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
+		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
+		})
+		return true
+	}
+
+	return false
+}
+
+func handleAvailabilityError(c *gin.Context, err error) bool {
+	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
+		logError(rateLimited.Resource, "rate_limited", err)
+		if rateLimited.RetryAfter != "" {
+			c.Header("Retry-After", rateLimited.RetryAfter)
+		}
+		utils.ProblemExtended(
+			c,
+			http.StatusTooManyRequests,
+			rateLimited.Error(),
+			strings.ToLower(rateLimited.Resource)+".rate_limited",
+			"Retry the request later",
+		)
+		return true
+	}
+
+	if upstream, ok := errors.AsType[*apperrors.UpstreamError](err); ok {
+		status := upstream.Status
+		if status == 0 {
+			status = http.StatusBadGateway
+		}
+		hint := upstream.Hint
+		if hint == "" {
+			hint = "Please try again later"
+		}
+		logErrorWithCause(upstream.Resource, "upstream_failed", err, upstream.Unwrap())
+		utils.ProblemExtended(
+			c,
+			status,
+			upstream.Error(),
+			strings.ToLower(upstream.Resource)+".upstream_failed",
+			hint,
+		)
+		return true
+	}
+
+	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
+		logError(ni.Resource, "not_initialized", err)
+		code := strings.ToLower(ni.Resource) + ".not_initialized"
+		if ni.Code != "" {
+			code = ni.Code
+		}
+		utils.ProblemExtended(
+			c,
+			http.StatusServiceUnavailable,
+			ni.Error(),
+			code,
+			ni.Hint,
+		)
+		return true
+	}
+
+	return false
 }
 
 // logError logs an error with structured fields for filtering.

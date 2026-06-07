@@ -14,6 +14,7 @@
     "test:station-voices": "jest --config tests/jest.config.js --testPathPatterns=station-voices/station-voices",
     "test:stories": "jest --config tests/jest.config.js --testPathPatterns=stories/stories",
     "test:tts": "jest --config tests/jest.config.js --testPathPatterns=tts/tts",
+    "test:settings": "jest --config tests/jest.config.js --testPathPatterns=settings/tts-settings",
     "test:bulletins": "jest --config tests/jest.config.js --testPathPatterns=bulletins/bulletins",
     "test:cleanup": "jest --config tests/jest.config.js --testPathPatterns=bulletins/bulletin-cleanup",
     "test:automation": "jest --config tests/jest.config.js --testPathPatterns=automation/automation",

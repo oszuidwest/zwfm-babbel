@@ -62,10 +62,12 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	bulletinRepo := repository.NewBulletinRepository(db)
 	stationVoiceRepo := repository.NewStationVoiceRepository(db)
 	audioRepo := repository.NewAudioRepository(db)
+	ttsSettingsRepo := repository.NewTTSSettingsRepository(db)
 
 	// Create audio and TTS services
 	audioSvc := audio.NewService(cfg)
 	ttsSvc := tts.NewService(&cfg.TTS)
+	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
 
 	// Create domain services
 	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
@@ -77,11 +79,12 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		Config:       cfg,
 	})
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
-		StoryRepo: storyRepo,
-		VoiceRepo: voiceRepo,
-		AudioSvc:  audioSvc,
-		TTSSvc:    ttsSvc,
-		Config:    cfg,
+		StoryRepo:      storyRepo,
+		VoiceRepo:      voiceRepo,
+		AudioSvc:       audioSvc,
+		TTSSvc:         ttsSvc,
+		TTSSettingsSvc: ttsSettingsSvc,
+		Config:         cfg,
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
@@ -106,6 +109,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		VoiceSvc:        voiceSvc,
 		UserSvc:         userSvc,
 		StationVoiceSvc: stationVoiceSvc,
+		TTSSettingsSvc:  ttsSettingsSvc,
 		TTSEnabled:      ttsSvc != nil,
 	})
 	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
@@ -209,6 +213,7 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 	registerUserRoutes(protected, deps)
 	registerStationVoiceRoutes(protected, deps)
 	registerBulletinRoutes(protected, deps)
+	registerTTSSettingsRoutes(protected, deps)
 }
 
 // registerAuthRoutes registers public authentication endpoints.
@@ -323,6 +328,15 @@ func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/bulletins/:id/audio", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)
 	protected.GET("/stories/:id/bulletins", perm(auth.ResourceStories, auth.ActionRead), h.GetStoryBulletinHistory)
 	protected.GET("/bulletins/:id/stories", perm(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)
+}
+
+// registerTTSSettingsRoutes registers global TTS settings endpoints.
+func registerTTSSettingsRoutes(protected *gin.RouterGroup, deps *routerDeps) {
+	h := deps.handlers
+	perm := deps.authService.RequirePermission
+
+	protected.GET("/settings/tts", perm(auth.ResourceSettingsTTS, auth.ActionRead), h.GetTTSSettings)
+	protected.PATCH("/settings/tts", perm(auth.ResourceSettingsTTS, auth.ActionWrite), h.UpdateTTSSettings)
 }
 
 // registerHealthRoute registers the health check endpoint.

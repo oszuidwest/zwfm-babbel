@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 )
 
 // ProblemDetail represents an RFC 9457 Problem Details response for HTTP APIs.
@@ -35,30 +36,31 @@ type ProblemDetail struct {
 	Hint string `json:"hint,omitempty"`
 
 	// Errors contains validation errors for 422 responses.
-	Errors []ValidationError `json:"errors,omitempty"`
+	Errors []apperrors.ValidationError `json:"errors,omitempty"`
 
 	// TraceID can be used for request tracing and debugging.
 	TraceID string `json:"trace_id,omitempty"`
 }
 
-// ValidationError represents a single validation error for a specific field.
-type ValidationError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
-}
-
 // Problem type URIs for common error types.
 const (
-	ProblemTypeValidationError         = "https://babbel.api/problems/validation-error"
-	ProblemTypeResourceNotFound        = "https://babbel.api/problems/resource-not-found"
-	ProblemTypeDuplicateResource       = "https://babbel.api/problems/duplicate-resource"
-	ProblemTypeAuthenticationRequired  = "https://babbel.api/problems/authentication-required"
+	// ProblemTypeValidationError identifies invalid request data.
+	ProblemTypeValidationError = "https://babbel.api/problems/validation-error"
+	// ProblemTypeResourceNotFound identifies a missing resource.
+	ProblemTypeResourceNotFound = "https://babbel.api/problems/resource-not-found"
+	// ProblemTypeDuplicateResource identifies a uniqueness conflict.
+	ProblemTypeDuplicateResource = "https://babbel.api/problems/duplicate-resource"
+	// ProblemTypeAuthenticationRequired identifies missing or invalid credentials.
+	ProblemTypeAuthenticationRequired = "https://babbel.api/problems/authentication-required"
+	// ProblemTypeInsufficientPermissions identifies an authorization failure.
 	ProblemTypeInsufficientPermissions = "https://babbel.api/problems/insufficient-permissions"
-	ProblemTypeInternalServerError     = "https://babbel.api/problems/internal-server-error"
-	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
+	// ProblemTypeInternalServerError identifies an unexpected server failure.
+	ProblemTypeInternalServerError = "https://babbel.api/problems/internal-server-error"
+	// ProblemTypeBadRequest identifies a malformed request.
+	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
 )
 
-// NewProblemDetail creates a new RFC 9457 compliant problem detail response.
+// NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
 func NewProblemDetail(problemType, title string, status int, detail, instance string) *ProblemDetail {
 	return &ProblemDetail{
 		Type:      problemType,
@@ -71,7 +73,7 @@ func NewProblemDetail(problemType, title string, status int, detail, instance st
 }
 
 // NewValidationProblem creates a 422 response for validation errors.
-func NewValidationProblem(detail, instance string, errors []ValidationError) *ProblemDetail {
+func NewValidationProblem(detail, instance string, errors []apperrors.ValidationError) *ProblemDetail {
 	problem := NewProblemDetail(
 		ProblemTypeValidationError,
 		"Validation Error",

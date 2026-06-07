@@ -22,6 +22,9 @@ var (
 
 	// ErrDataTooLong indicates data exceeds column capacity.
 	ErrDataTooLong = errors.New("data too long for column")
+
+	// ErrSchemaUnavailable indicates a referenced table is missing.
+	ErrSchemaUnavailable = errors.New("schema unavailable")
 )
 
 // ParseDBError converts database-specific errors to repository sentinel errors.
@@ -48,6 +51,9 @@ func ParseDBError(err error) error {
 		case 1406: // ER_DATA_TOO_LONG
 			logger.Debug("MySQL data too long", "error", err)
 			return ErrDataTooLong
+		case 1146: // ER_NO_SUCH_TABLE
+			logger.Debug("MySQL schema unavailable", "error", err)
+			return ErrSchemaUnavailable
 		}
 	}
 
@@ -63,7 +69,15 @@ func ParseDBError(err error) error {
 	case strings.Contains(errStr, "Data too long"):
 		logger.Debug("Data too long for column", "error", err)
 		return ErrDataTooLong
+	case isTableMissingMessage(errStr):
+		logger.Debug("Schema unavailable", "error", err)
+		return ErrSchemaUnavailable
 	default:
 		return err
 	}
+}
+
+func isTableMissingMessage(message string) bool {
+	return strings.Contains(message, "no such table:") ||
+		(strings.HasPrefix(message, "Table '") && strings.Contains(message, "' doesn't exist"))
 }

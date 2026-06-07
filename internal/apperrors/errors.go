@@ -3,8 +3,6 @@ package apperrors
 
 import "fmt"
 
-// NotFoundError section.
-
 // NotFoundError indicates the requested resource does not exist.
 type NotFoundError struct {
 	Resource string
@@ -30,8 +28,6 @@ func NotFoundWithID(resource string, id int64) *NotFoundError {
 func NotFoundWithCause(resource string, cause error) *NotFoundError {
 	return &NotFoundError{Resource: resource, cause: cause}
 }
-
-// DuplicateError section.
 
 // DuplicateError indicates a unique constraint violation.
 type DuplicateError struct {
@@ -63,8 +59,6 @@ func DuplicateWithCause(resource, field, value string, cause error) *DuplicateEr
 	return &DuplicateError{Resource: resource, Field: field, Value: value, cause: cause}
 }
 
-// DependencyError section.
-
 // DependencyError indicates the resource cannot be deleted due to dependencies.
 type DependencyError struct {
 	Resource   string
@@ -88,13 +82,11 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
 
-// ValidationError section.
-
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
-	Resource string
-	Field    string
-	Message  string
+	Resource string `json:"-"`
+	Field    string `json:"field"`
+	Message  string `json:"message"`
 	cause    error
 }
 
@@ -117,7 +109,102 @@ func ValidationWithCause(resource, field, message string, cause error) *Validati
 	return &ValidationError{Resource: resource, Field: field, Message: message, cause: cause}
 }
 
-// DatabaseError section.
+// ValidationProblemError aggregates multi-field validation failures for HTTP 422 responses.
+type ValidationProblemError struct {
+	Resource string
+	Detail   string
+	Errors   []ValidationError
+}
+
+func (e *ValidationProblemError) Error() string {
+	return e.Detail
+}
+
+// NewValidationProblemError creates a ValidationProblemError for the given resource.
+func NewValidationProblemError(resource, detail string, errs []ValidationError) *ValidationProblemError {
+	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
+}
+
+// NotInitializedError indicates a required singleton resource is not initialized.
+type NotInitializedError struct {
+	Resource string
+	Code     string
+	Detail   string
+	Hint     string
+	cause    error
+}
+
+func (e *NotInitializedError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return fmt.Sprintf("%s not initialized", e.Resource)
+}
+
+func (e *NotInitializedError) Unwrap() error { return e.cause }
+
+// NotInitialized creates a NotInitializedError for a missing setup prerequisite.
+func NotInitialized(resource, hint string, cause error) *NotInitializedError {
+	return &NotInitializedError{Resource: resource, Hint: hint, cause: cause}
+}
+
+// NotInitializedWithCode creates a NotInitializedError with a specific problem code and detail.
+func NotInitializedWithCode(resource, code, detail, hint string, cause error) *NotInitializedError {
+	return &NotInitializedError{
+		Resource: resource,
+		Code:     code,
+		Detail:   detail,
+		Hint:     hint,
+		cause:    cause,
+	}
+}
+
+// RateLimitedError indicates an upstream or internal rate limit.
+type RateLimitedError struct {
+	Resource   string
+	RetryAfter string
+	cause      error
+}
+
+func (e *RateLimitedError) Error() string {
+	return fmt.Sprintf("%s rate limited", e.Resource)
+}
+
+func (e *RateLimitedError) Unwrap() error { return e.cause }
+
+// RateLimited creates a RateLimitedError.
+func RateLimited(resource, retryAfter string, cause error) *RateLimitedError {
+	return &RateLimitedError{Resource: resource, RetryAfter: retryAfter, cause: cause}
+}
+
+// UpstreamError indicates a dependency service failed or rejected service credentials.
+type UpstreamError struct {
+	Resource string
+	Service  string
+	Status   int
+	Hint     string
+	cause    error
+}
+
+func (e *UpstreamError) Error() string {
+	if e.Service != "" {
+		return fmt.Sprintf("%s upstream %s failed", e.Resource, e.Service)
+	}
+	return fmt.Sprintf("%s upstream failed", e.Resource)
+}
+
+func (e *UpstreamError) Unwrap() error { return e.cause }
+
+// Upstream creates an UpstreamError.
+func Upstream(resource, service string, status int, hint string, cause error) *UpstreamError {
+	return &UpstreamError{
+		Resource: resource,
+		Service:  service,
+		Status:   status,
+		Hint:     hint,
+		cause:    cause,
+	}
+}
 
 // DatabaseError indicates an unexpected database error (internal).
 type DatabaseError struct {
@@ -137,8 +224,6 @@ func Database(resource, operation string, cause error) *DatabaseError {
 	return &DatabaseError{Resource: resource, Operation: operation, cause: cause}
 }
 
-// AudioError section.
-
 // AudioError indicates audio processing failure.
 type AudioError struct {
 	Resource  string
@@ -156,8 +241,6 @@ func (e *AudioError) Unwrap() error { return e.cause }
 func Audio(resource, operation string, cause error) *AudioError {
 	return &AudioError{Resource: resource, Operation: operation, cause: cause}
 }
-
-// NoStoriesError section.
 
 // NoStoriesError indicates no stories are available for bulletin generation.
 type NoStoriesError struct {

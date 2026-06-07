@@ -50,6 +50,9 @@ services:
       # Cookie configuration for cross-subdomain auth
       BABBEL_COOKIE_DOMAIN: ${BABBEL_COOKIE_DOMAIN}
       BABBEL_COOKIE_SAMESITE: ${BABBEL_COOKIE_SAMESITE}
+      # ElevenLabs TTS (leave empty to disable; endpoint returns 501 when unset)
+      BABBEL_ELEVENLABS_API_KEY: ${BABBEL_ELEVENLABS_API_KEY:-}
+      BABBEL_ELEVENLABS_TIMEOUT: ${BABBEL_ELEVENLABS_TIMEOUT:-60s}
       TZ: ${TZ}
     ports:
       - "${API_PORT}:8080"

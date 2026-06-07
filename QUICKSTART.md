@@ -219,6 +219,8 @@ docker compose up -d
 - Ensure stories have audio files uploaded
 - Check that stories are scheduled for the current day
 - Verify voice assignments are correct
+- For TTS, verify `BABBEL_ELEVENLABS_API_KEY` is set and the selected voice has an `elevenlabs_voice_id`
+- If `GET /api/v1/settings/tts` returns `tts_settings.not_initialized`, apply `migrations/005_tts_settings.sql` or reset with the complete schema
 
 **Database connection issues?**
 - Check MySQL is running: `docker compose ps`
@@ -298,6 +300,50 @@ curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/users/2 \
 ```
 
 ## Advanced Features
+
+### Text-to-Speech
+
+Enable TTS by setting an ElevenLabs API key, then restart the app:
+
+```env
+BABBEL_ELEVENLABS_API_KEY=your-elevenlabs-api-key
+BABBEL_ELEVENLABS_TIMEOUT=60s
+```
+
+Runtime credentials use environment variables. Model and voice-generation options live in the `tts_settings` database row and are managed through the API.
+
+```bash
+# Inspect current TTS settings (all authenticated roles can read)
+curl -b cookies.txt http://localhost:8080/api/v1/settings/tts
+
+# Update global TTS settings (admin only)
+curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/settings/tts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "eleven_v3",
+    "stability": 0.8,
+    "similarity_boost": 0.8,
+    "style": 0.25,
+    "use_speaker_boost": true,
+    "speed": 1.0,
+    "apply_text_normalization": "auto",
+    "seed": null,
+    "tts_style_prefix": "[professional][news anchor][engaging]"
+  }'
+
+# Assign an ElevenLabs voice ID to a voice
+curl -b cookies.txt -X PUT http://localhost:8080/api/v1/voices/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Main Newsreader","elevenlabs_voice_id":"your-elevenlabs-voice-id"}'
+
+# Generate story audio with the current global settings
+curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
+
+# Overwrite existing story audio
+curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
+```
+
+The default settings row uses `eleven_v3`. `tts_style_prefix` is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
 
 ### Modern Query Parameters
 

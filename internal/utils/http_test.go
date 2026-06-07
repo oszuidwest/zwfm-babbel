@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
@@ -134,7 +135,22 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 
 // problemResponse is the subset of the RFC 9457 response we assert on.
 type problemResponse struct {
-	Errors []ValidationError `json:"errors"`
+	Errors []apperrors.ValidationError `json:"errors"`
+}
+
+func TestNewValidationProblemUsesAppErrorsValidationError(t *testing.T) {
+	errs := []apperrors.ValidationError{{Resource: "TTSSettings", Field: "model", Message: "invalid model"}}
+	body, err := json.Marshal(NewValidationProblem("Validation failed", "/tts-settings", errs))
+	if err != nil {
+		t.Fatalf("marshal problem: %v", err)
+	}
+
+	got := string(body)
+	if strings.Contains(got, `"resource"`) ||
+		!strings.Contains(got, `"field":"model"`) ||
+		!strings.Contains(got, `"message":"invalid model"`) {
+		t.Fatalf("validation error JSON = %s", got)
+	}
 }
 
 // assertValidationError checks that the response contains a validation error for the given field

@@ -1,4 +1,5 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
+// Package utils provides shared helpers for HTTP handlers, database access,
+// and query parsing.
 package utils
 
 import (
@@ -18,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
@@ -73,7 +75,7 @@ func Pagination(c *gin.Context) (limit, offset int, err error) {
 	return limit, offset, nil
 }
 
-// ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
+// ValidateAndSaveAudioFile validates uploaded audio and stores it in a temp path.
 func ValidateAndSaveAudioFile(
 	c *gin.Context, fieldName string, prefix string,
 ) (tempPath string, cleanup func() error, err error) {
@@ -175,7 +177,7 @@ type VoiceRequest struct {
 }
 
 // VoiceUpdateRequest represents the request for updating voices.
-// Name is optional (omit to skip), ElevenLabsVoiceID supports null-to-clear via Optional.
+// Name is omitted to skip updates; ElevenLabsVoiceID accepts JSON null to clear.
 type VoiceUpdateRequest struct {
 	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
 	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
@@ -218,14 +220,16 @@ type UserUpdateRequest struct {
 
 // StoryCreateRequest represents the request for creating news stories.
 type StoryCreateRequest struct {
-	Title      string             `json:"title" binding:"required,notblank,max=500"`
-	Text       string             `json:"text" binding:"required,notblank"`
-	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status     string             `json:"status" binding:"omitempty,story_status"`
-	StartDate  string             `json:"start_date" binding:"required,dateformat"`
-	EndDate    string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays   models.Weekdays    `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
-	IsBreaking bool               `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
+	Title     string `json:"title" binding:"required,notblank,max=500"`
+	Text      string `json:"text" binding:"required,notblank"`
+	VoiceID   *int64 `json:"voice_id" binding:"omitempty,min=1"`
+	Status    string `json:"status" binding:"omitempty,story_status"`
+	StartDate string `json:"start_date" binding:"required,dateformat"`
+	EndDate   string `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+	Weekdays models.Weekdays `json:"weekdays"`
+	// IsBreaking prioritizes the story for bulletin inclusion.
+	IsBreaking bool               `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
@@ -237,15 +241,44 @@ func (r *StoryCreateRequest) NormalizeText() {
 
 // StoryUpdateRequest represents the request for updating existing stories.
 type StoryUpdateRequest struct {
-	Title      *string            `json:"title" binding:"omitempty,notblank,max=500"`
-	Text       *string            `json:"text" binding:"omitempty,notblank"`
-	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status     *string            `json:"status" binding:"omitempty,story_status"`
-	StartDate  *string            `json:"start_date" binding:"omitempty,dateformat"`
-	EndDate    *string            `json:"end_date" binding:"omitempty,dateformat"`
-	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
-	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
+	Title     *string `json:"title" binding:"omitempty,notblank,max=500"`
+	Text      *string `json:"text" binding:"omitempty,notblank"`
+	VoiceID   *int64  `json:"voice_id" binding:"omitempty,min=1"`
+	Status    *string `json:"status" binding:"omitempty,story_status"`
+	StartDate *string `json:"start_date" binding:"omitempty,dateformat"`
+	EndDate   *string `json:"end_date" binding:"omitempty,dateformat"`
+	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+	Weekdays *models.Weekdays `json:"weekdays"`
+	// IsBreaking prioritizes the story for bulletin inclusion.
+	IsBreaking *bool              `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
+}
+
+// TTSSettingsUpdateRequest represents a partial update to global TTS settings.
+type TTSSettingsUpdateRequest struct {
+	Model                  *string         `json:"model"`
+	Stability              *float64        `json:"stability"`
+	SimilarityBoost        *float64        `json:"similarity_boost"`
+	Style                  *float64        `json:"style"`
+	UseSpeakerBoost        *bool           `json:"use_speaker_boost"`
+	Speed                  *float64        `json:"speed"`
+	ApplyTextNormalization *string         `json:"apply_text_normalization"`
+	Seed                   Optional[int64] `json:"seed"`
+	TTSStylePrefix         *string         `json:"tts_style_prefix"`
+}
+
+// IsEmpty reports whether no update fields were provided.
+// Keep in sync with services.UpdateTTSSettingsRequest.IsEmpty.
+func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
+	return r.Model == nil &&
+		r.Stability == nil &&
+		r.SimilarityBoost == nil &&
+		r.Style == nil &&
+		r.UseSpeakerBoost == nil &&
+		r.Speed == nil &&
+		r.ApplyTextNormalization == nil &&
+		!r.Seed.Set &&
+		r.TTSStylePrefix == nil
 }
 
 // NormalizeText decodes HTML entities in text fields to plain Unicode.
@@ -273,7 +306,7 @@ type textNormalizer interface {
 func BindAndValidate(c *gin.Context, req any) bool {
 	// Step 1: Decode JSON without validation
 	if err := json.NewDecoder(c.Request.Body).Decode(req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: "Invalid request format"},
 		})
 		return false
@@ -331,7 +364,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 	}
 
 	if err := json.Unmarshal(body, req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: err.Error()},
 		})
 		return false
@@ -379,18 +412,18 @@ func formatValidationMessage(field, tag, param string) string {
 }
 
 // convertValidationErrors converts Go validator errors into structured error messages.
-func convertValidationErrors(err error) []ValidationError {
+func convertValidationErrors(err error) []apperrors.ValidationError {
 	validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
 	if !ok {
-		return []ValidationError{{
+		return []apperrors.ValidationError{{
 			Field:   "request",
 			Message: "Invalid request format",
 		}}
 	}
 
-	validationErrs := make([]ValidationError, 0, len(validationErrors))
+	validationErrs := make([]apperrors.ValidationError, 0, len(validationErrors))
 	for _, e := range validationErrors {
-		validationErrs = append(validationErrs, ValidationError{
+		validationErrs = append(validationErrs, apperrors.ValidationError{
 			Field:   e.Field(),
 			Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 		})
