@@ -82,6 +82,41 @@ func TestService_CreateDictionaryFromRules_UpstreamValidationReturnsAPIError(t *
 	}
 }
 
+func TestService_CreateDictionaryFromRules_MissingIDFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{
+			"id":"",
+			"name":"Babbel",
+			"latest_version_id":"v1",
+			"creation_time_unix":1717200000,
+			"rules":[]
+		}`))
+	}))
+	defer server.Close()
+
+	_, err := testTTSService(server.URL).CreateDictionaryFromRules(
+		context.Background(),
+		"Babbel",
+		"Auto-managed by Babbel",
+		[]Rule{{StringToReplace: "A", Alias: "aa"}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "create response missing id") {
+		t.Fatalf("CreateDictionaryFromRules() error = %v, want missing id error", err)
+	}
+}
+
+func TestService_GetDictionary_RequestConstructionFailureIsClientError(t *testing.T) {
+	service := testTTSService(":// invalid")
+
+	_, err := service.GetDictionary(context.Background(), "dict-123")
+	var clientErr *ClientError
+	if !errors.As(err, &clientErr) {
+		t.Fatalf("GetDictionary() error type = %T, want *ClientError", err)
+	}
+}
+
 func TestService_GetDictionary_ParsesAliasRulesAndDefaults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/pronunciation-dictionaries/dict-123" {

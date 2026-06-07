@@ -41,6 +41,28 @@ func (e *APIError) Error() string {
 	}
 }
 
+// ClientError indicates Babbel failed before a request reached ElevenLabs.
+type ClientError struct {
+	Operation string
+	Err       error
+}
+
+func (e *ClientError) Error() string {
+	if e.Err == nil {
+		return e.Operation
+	}
+	if e.Operation == "" {
+		return e.Err.Error()
+	}
+	return e.Operation + ": " + e.Err.Error()
+}
+
+func (e *ClientError) Unwrap() error { return e.Err }
+
+func newClientError(operation string, err error) *ClientError {
+	return &ClientError{Operation: operation, Err: err}
+}
+
 // Service handles text-to-speech generation via the ElevenLabs API.
 type Service struct {
 	apiKey  string

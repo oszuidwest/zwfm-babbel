@@ -46,6 +46,30 @@ func TestPronunciationRulesHandlers_Get(t *testing.T) {
 	}
 }
 
+func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
+	svc := &pronunciationRulesHandlerServiceMock{
+		getErr: apperrors.Upstream(
+			"PronunciationRules",
+			"ElevenLabs",
+			http.StatusBadGateway,
+			"Please try again later",
+			errors.New("upstream failed"),
+		),
+	}
+	h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502: %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	decodeHandlerJSON(t, recorder, &body)
+	if body["hint"] != "Please try again later" {
+		t.Fatalf("hint = %#v, want upstream hint", body["hint"])
+	}
+}
+
 func TestPronunciationRulesHandlers_NotConfigured(t *testing.T) {
 	h := &Handlers{ttsEnabled: false}
 

@@ -123,13 +123,13 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
-		logError(strings.ToLower(vp.Resource), "validation_failed", err)
+		logErrorWithCause(strings.ToLower(vp.Resource), "validation_failed", err, vp.Unwrap())
 		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
 		return
 	}
 
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
-		logError(validation.Resource, "validation_failed", err)
+		logErrorWithCause(validation.Resource, "validation_failed", err, validation.Unwrap())
 		hint := "Check your input and try again"
 		if validation.Field != "" {
 			hint = fmt.Sprintf("Check the %s field", validation.Field)

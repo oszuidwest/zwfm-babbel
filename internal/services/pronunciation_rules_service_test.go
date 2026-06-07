@@ -11,6 +11,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
@@ -79,6 +80,33 @@ func TestMaterializePronunciationRules(t *testing.T) {
 	})
 }
 
+func TestMaterializePronunciationRules_DoesNotDeduplicateEmptyKeys(t *testing.T) {
+	_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
+		Rules: []PronunciationRuleUpdate{
+			{StringToReplace: " ", Alias: "aa"},
+			{StringToReplace: "\t", Alias: "bb"},
+		},
+	})
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error type = %T, want *ValidationProblemError", err)
+	}
+	gotFields := make([]string, 0, len(validationErr.Errors))
+	for _, fieldErr := range validationErr.Errors {
+		gotFields = append(gotFields, fieldErr.Field)
+		if strings.Contains(fieldErr.Message, "duplicates") {
+			t.Fatalf("unexpected duplicate error for whitespace-only key: %#v", fieldErr)
+		}
+	}
+	wantFields := []string{
+		"rules[0].string_to_replace",
+		"rules[1].string_to_replace",
+	}
+	if !reflect.DeepEqual(gotFields, wantFields) {
+		t.Fatalf("fields = %v, want %v", gotFields, wantFields)
+	}
+}
+
 func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing.T) {
 	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
 	client := &pronunciationDictionaryClientMock{
@@ -116,6 +144,27 @@ func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing
 	}
 	if len(result.Rules) != 1 || !result.Rules[0].CaseSensitive || !result.Rules[0].WordBoundaries {
 		t.Fatalf("result rules = %#v, want defaulted rule", result.Rules)
+	}
+}
+
+func TestPronunciationRulesService_Update_CreateWithEmptyDictionaryIDFailsBeforePersist(t *testing.T) {
+	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
+	client := &pronunciationDictionaryClientMock{
+		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
+			return tts.DictionaryState{ID: "   ", LatestVersionID: "v1", Rules: rules}, nil
+		},
+	}
+	service := &PronunciationRulesService{settingsRepo: repo, client: client}
+
+	_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
+		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
+	})
+	var upstreamErr *apperrors.UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("error type = %T, want *UpstreamError", err)
+	}
+	if len(repo.setIDs) != 0 {
+		t.Fatalf("set IDs = %#v, want no DB persist for empty upstream ID", repo.setIDs)
 	}
 }
 
@@ -286,6 +335,7 @@ func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 		apiErr      *tts.APIError
 		wantKind    string
 		wantStatus  int
+		wantField   string
 		wantRetry   string
 		wantMessage string
 	}{
@@ -308,7 +358,29 @@ func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 				Body:       `{"detail":"invalid rule"}`,
 			},
 			wantKind:    "validation",
+			wantField:   "rules",
 			wantMessage: "invalid rule",
+		},
+		{
+			name: "422 maps FastAPI detail list message to validation problem",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `{"detail":[{"loc":["body","rules",0],"msg":"alias is required"}]}`,
+			},
+			wantKind:    "validation",
+			wantField:   "rules",
+			wantMessage: "alias is required",
+		},
+		{
+			name: "422 dictionary name collision maps to dictionary field",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `{"detail":"dictionary_already_exists"}`,
+			},
+			wantKind:  "validation",
+			wantField: "dictionary",
+			wantMessage: "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
+				"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary.",
 		},
 		{
 			name: "422 non-JSON body uses sanitized fallback",
@@ -317,6 +389,7 @@ func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 				Body:       `<html>private upstream details</html>`,
 			},
 			wantKind:    "validation",
+			wantField:   "rules",
 			wantMessage: "ElevenLabs rejected the pronunciation rules",
 		},
 		{
@@ -337,8 +410,29 @@ func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := translatePronunciationRulesUpstreamError(tt.apiErr)
 			assertWrapsAPIError(t, got)
-			assertPronunciationRulesTranslation(t, got, tt.wantKind, tt.wantStatus, tt.wantRetry, tt.wantMessage)
+			assertPronunciationRulesTranslation(
+				t,
+				got,
+				tt.wantKind,
+				tt.wantStatus,
+				tt.wantField,
+				tt.wantRetry,
+				tt.wantMessage,
+			)
 		})
+	}
+}
+
+func TestTranslatePronunciationRulesUpstreamError_ClientErrorStaysInternal(t *testing.T) {
+	clientErr := &tts.ClientError{Operation: "create pronunciation dictionary request", Err: errors.New("bad url")}
+
+	err := translatePronunciationRulesUpstreamError(clientErr)
+	if !errors.Is(err, clientErr) {
+		t.Fatalf("translated error = %v, want original client error", err)
+	}
+	var upstreamErr *apperrors.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		t.Fatalf("error type = %T, did not want UpstreamError", err)
 	}
 }
 
@@ -371,6 +465,30 @@ func TestPronunciationRulesService_Translations(t *testing.T) {
 			t.Fatalf("db error = %#v, want PronunciationRules persist_dictionary_id", dbErr)
 		}
 	})
+
+	t.Run("create persist missing settings row returns not initialized error", func(t *testing.T) {
+		repo := &pronunciationSettingsRepoMock{
+			settings: &models.TTSSettings{},
+			setErr:   repository.ErrNotFound,
+		}
+		client := &pronunciationDictionaryClientMock{
+			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
+				return tts.DictionaryState{ID: "dict-new", LatestVersionID: "v1", Rules: rules}, nil
+			},
+		}
+		service := &PronunciationRulesService{settingsRepo: repo, client: client}
+
+		_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
+			Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
+		})
+		var notInitialized *apperrors.NotInitializedError
+		if !errors.As(err, &notInitialized) {
+			t.Fatalf("error type = %T, want *NotInitializedError", err)
+		}
+		if notInitialized.Code != "tts_settings.row_missing" {
+			t.Fatalf("code = %q, want tts_settings.row_missing", notInitialized.Code)
+		}
+	})
 }
 
 func assertWrapsAPIError(t *testing.T, got error) {
@@ -387,6 +505,7 @@ func assertPronunciationRulesTranslation(
 	got error,
 	wantKind string,
 	wantStatus int,
+	wantField string,
 	wantRetry string,
 	wantMessage string,
 ) {
@@ -396,7 +515,7 @@ func assertPronunciationRulesTranslation(
 	case "upstream":
 		assertUpstreamError(t, got, wantStatus)
 	case "validation":
-		assertPronunciationRulesValidationProblem(t, got, wantMessage)
+		assertPronunciationRulesValidationProblem(t, got, wantField, wantMessage)
 	case "rate_limited":
 		assertPronunciationRulesRateLimited(t, got, wantRetry)
 	default:
@@ -404,7 +523,7 @@ func assertPronunciationRulesTranslation(
 	}
 }
 
-func assertPronunciationRulesValidationProblem(t *testing.T, got error, wantMessage string) {
+func assertPronunciationRulesValidationProblem(t *testing.T, got error, wantField, wantMessage string) {
 	t.Helper()
 
 	var validationErr *apperrors.ValidationProblemError
@@ -415,9 +534,9 @@ func assertPronunciationRulesValidationProblem(t *testing.T, got error, wantMess
 		t.Fatalf("detail = %q, want sanitized detail", validationErr.Detail)
 	}
 	if len(validationErr.Errors) != 1 ||
-		validationErr.Errors[0].Field != "rules" ||
+		validationErr.Errors[0].Field != wantField ||
 		validationErr.Errors[0].Message != wantMessage {
-		t.Fatalf("validation errors = %#v, want rules %q", validationErr.Errors, wantMessage)
+		t.Fatalf("validation errors = %#v, want %s %q", validationErr.Errors, wantField, wantMessage)
 	}
 	if strings.Contains(validationErr.Error(), "private upstream details") ||
 		strings.Contains(validationErr.Errors[0].Message, "private upstream details") {

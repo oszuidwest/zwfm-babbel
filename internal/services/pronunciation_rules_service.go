@@ -211,14 +211,24 @@ func (s *PronunciationRulesService) runCreatePath(
 		return nil, translatePronunciationRulesUpstreamError(err)
 	}
 
-	newID := state.ID
+	newID := strings.TrimSpace(state.ID)
+	if newID == "" {
+		return nil, translatePronunciationRulesUpstreamError(
+			errors.New("pronunciation dictionary create response missing id"),
+		)
+	}
+
 	if err := s.settingsRepo.SetPronunciationDictionaryID(ctx, &newID); err != nil {
+		translated := translatePronunciationRulesRepoWriteError("persist_dictionary_id", err)
+		if isTTSSettingsInitializationError(err) {
+			return nil, translated
+		}
 		logger.Error(
 			"orphan pronunciation dictionary: created on ElevenLabs but DB persist failed; manual cleanup required",
 			"dictionary_id", newID,
 			"error", err.Error(),
 		)
-		return nil, apperrors.Database("PronunciationRules", "persist_dictionary_id", err)
+		return nil, translated
 	}
 
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
@@ -256,13 +266,15 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]tts.
 		if alias == "" {
 			errs = append(errs, fieldError(fieldPrefix+".alias", "cannot be empty or whitespace only"))
 		}
-		if previous, ok := seen[stringToReplace]; ok {
-			errs = append(errs, fieldError(
-				fieldPrefix+".string_to_replace",
-				fmt.Sprintf("duplicates rules[%d].string_to_replace value %q", previous, stringToReplace),
-			))
-		} else {
-			seen[stringToReplace] = i
+		if stringToReplace != "" {
+			if previous, ok := seen[stringToReplace]; ok {
+				errs = append(errs, fieldError(
+					fieldPrefix+".string_to_replace",
+					fmt.Sprintf("duplicates rules[%d].string_to_replace value %q", previous, stringToReplace),
+				))
+			} else {
+				seen[stringToReplace] = i
+			}
 		}
 
 		caseSensitive := true
@@ -316,13 +328,20 @@ func emptyPronunciationRulesResponse() *PronunciationRulesResponse {
 }
 
 func translatePronunciationRulesRepoWriteError(operation string, err error) error {
-	if errors.Is(err, repository.ErrSchemaUnavailable) || errors.Is(err, repository.ErrNotFound) {
+	if isTTSSettingsInitializationError(err) {
 		return translateTTSSettingsRepoError(err)
 	}
 	return apperrors.Database("PronunciationRules", operation, err)
 }
 
+func isTTSSettingsInitializationError(err error) bool {
+	return errors.Is(err, repository.ErrSchemaUnavailable) || errors.Is(err, repository.ErrNotFound)
+}
+
 func translatePronunciationRulesUpstreamError(err error) error {
+	if _, ok := errors.AsType[*tts.ClientError](err); ok {
+		return err
+	}
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
@@ -334,11 +353,11 @@ func translatePronunciationRulesUpstreamError(err error) error {
 				apiErr,
 			)
 		case http.StatusUnprocessableEntity:
-			message := upstreamRulesValidationMessage(apiErr)
+			field, message := upstreamRulesValidationFieldAndMessage(apiErr)
 			return apperrors.NewValidationProblemErrorWithCause(
 				"pronunciation_rules",
 				"ElevenLabs rejected the pronunciation rules",
-				[]apperrors.ValidationError{fieldError("rules", message)},
+				[]apperrors.ValidationError{fieldError(field, message)},
 				apiErr,
 			)
 		case http.StatusTooManyRequests:
@@ -360,6 +379,14 @@ func translatePronunciationRulesUpstreamError(err error) error {
 		"Please try again later",
 		err,
 	)
+}
+
+func upstreamRulesValidationFieldAndMessage(apiErr *tts.APIError) (string, string) {
+	if looksLikeDictionaryNameCollision(apiErr.Body) {
+		return "dictionary", "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
+			"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary."
+	}
+	return "rules", upstreamRulesValidationMessage(apiErr)
 }
 
 func upstreamRulesValidationMessage(apiErr *tts.APIError) string {
@@ -395,13 +422,27 @@ func upstreamMessageString(value any) string {
 	case string:
 		return strings.TrimSpace(v)
 	case map[string]any:
-		for _, key := range []string{"message", "detail", "error"} {
+		for _, key := range []string{"message", "msg", "detail", "error"} {
 			if message, ok := v[key].(string); ok && strings.TrimSpace(message) != "" {
 				return strings.TrimSpace(message)
 			}
 		}
+	case []any:
+		messages := make([]string, 0, len(v))
+		for _, item := range v {
+			if message := upstreamMessageString(item); message != "" {
+				messages = append(messages, message)
+			}
+		}
+		return strings.Join(messages, "; ")
 	}
 	return ""
+}
+
+func looksLikeDictionaryNameCollision(body string) bool {
+	normalized := strings.ToLower(body)
+	return strings.Contains(normalized, "dictionary_already_exists") ||
+		(strings.Contains(normalized, "dictionary") && strings.Contains(normalized, "already exists"))
 }
 
 func diffPronunciationRules(before, after []tts.Rule) pronunciationRulesDiff {

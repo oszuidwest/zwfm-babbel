@@ -142,7 +142,7 @@ func (s *Service) CreateDictionaryFromRules(
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return DictionaryState{}, fmt.Errorf("failed to marshal pronunciation dictionary create request: %w", err)
+		return DictionaryState{}, newClientError("marshal pronunciation dictionary create request", err)
 	}
 
 	req, err := s.newJSONRequest(
@@ -173,7 +173,11 @@ func (s *Service) CreateDictionaryFromRules(
 	if err := decodeLimitedJSON(resp.Body, &wire); err != nil {
 		return DictionaryState{}, fmt.Errorf("failed to decode pronunciation dictionary create response: %w", err)
 	}
-	return wire.toState(), nil
+	state := wire.toState()
+	if strings.TrimSpace(state.ID) == "" {
+		return DictionaryState{}, fmt.Errorf("pronunciation dictionary create response missing id")
+	}
+	return state, nil
 }
 
 // GetDictionary reads the managed dictionary and collapses missing or archived
@@ -222,7 +226,7 @@ func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState
 func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRulesResult, error) {
 	body, err := json.Marshal(setRulesRequest{Rules: outgoingRules(rules)})
 	if err != nil {
-		return SetRulesResult{}, fmt.Errorf("failed to marshal pronunciation dictionary set-rules request: %w", err)
+		return SetRulesResult{}, newClientError("marshal pronunciation dictionary set-rules request", err)
 	}
 
 	req, err := s.newJSONRequest(
@@ -389,7 +393,7 @@ func (s *Service) newJSONRequest(ctx context.Context, method, path string, body 
 	reqURL := s.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, reqURL, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create pronunciation dictionary request: %w", err)
+		return nil, newClientError("create pronunciation dictionary request", err)
 	}
 	req.Header.Set("xi-api-key", s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
