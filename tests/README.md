@@ -96,7 +96,7 @@ tests/
 ├── tts/
 │   └── tts.test.js           # Text-to-speech endpoint tests
 ├── settings/
-│   └── tts-settings.test.js  # TTS settings singleton tests
+│   └── tts-settings.test.js  # TTS settings and pronunciation rules tests
 ├── bulletins/
 │   ├── bulletins.test.js     # Bulletin generation tests
 │   └── bulletin-cleanup.test.js # Purged bulletin behavior tests
@@ -146,7 +146,7 @@ Resources with full generator coverage: stations, voices, users, station-voices.
 | station-voices | Generated CRUD, query, and validation plus jingle behavior |
 | stories | Generated query coverage plus manual scheduling, audio, metadata, and status behavior |
 | tts | Manual TTS validation chain |
-| settings | Manual TTS settings singleton, validation, and RBAC coverage |
+| settings | Manual TTS settings singleton, pronunciation rules, validation, and RBAC coverage |
 | bulletins | Generated query coverage plus manual generation, caching, history, and story selection behavior |
 | bulletin-cleanup | Manual purge behavior |
 | automation | Manual public endpoint behavior |
@@ -163,6 +163,7 @@ Resources with full generator coverage: stations, voices, users, station-voices.
 - Modern query parameters (search, sort, filter, pagination, field selection)
 - File uploads (stories, jingles) and audio processing
 - Text-to-speech generation via ElevenLabs
+- TTS settings and pronunciation-rule management
 - Bulletin generation and caching
 - Bulletin file cleanup and purge behavior
 - Public automation endpoint

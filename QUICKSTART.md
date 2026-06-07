@@ -47,9 +47,10 @@ MYSQL_ROOT_PASSWORD=your_generated_64_char_password_here
 MYSQL_PASSWORD=your_generated_64_char_password_here
 
 # API
-BABBEL_SESSION_SECRET=your_generated_32_char_secret_here
-BABBEL_AUTH_METHOD=local
-BABBEL_SERVER_PORT=8080
+SESSION_SECRET=your_generated_32_char_secret_here
+AUTH_METHOD=local
+API_PORT=8080
+BABBEL_ALLOWED_ORIGINS=
 
 # Timezone (adjust to your location)
 TZ=Europe/Amsterdam
@@ -86,7 +87,7 @@ The database includes a default admin user:
 
 ```bash
 # Test API is running
-curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/health
 # Should return: {"service":"babbel-api","status":"ok"}
 
 # Login (note: endpoint is /sessions, not /session/login)
@@ -205,13 +206,13 @@ docker compose up -d
 - Check logs: `docker compose logs babbel`
 - Verify port 8080 is not in use: `netstat -tulpn | grep 8080` (Linux) or `lsof -i :8080` (macOS)
 - Ensure Docker is running: `docker ps`
-- Check health endpoint: `curl http://localhost:8080/api/v1/health`
+- Check health endpoint: `curl http://localhost:8080/health`
 
 **Can't login?**
 - Verify you're using the correct endpoint: `/api/v1/sessions` (not `/session/login`)
 - Check if cookies are being saved: `cat cookies.txt`
 - Verify timezone in .env matches your location
-- For OIDC/OAuth issues, check `BABBEL_AUTH_METHOD` and OIDC configuration
+- For OIDC/OAuth issues, check `AUTH_METHOD`, `OIDC_*`, and `BABBEL_FRONTEND_URL` configuration
 
 **Audio generation fails?**
 - Check disk space: `df -h`
@@ -345,9 +346,30 @@ curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=tr
 
 The default settings row uses `eleven_v3`. `tts_style_prefix` is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
 
+Manage alias pronunciation rules through the single Babbel-managed ElevenLabs dictionary:
+
+```bash
+# Inspect pronunciation rules
+curl -b cookies.txt http://localhost:8080/api/v1/settings/tts/pronunciations
+
+# Replace all rules; an empty rules array clears the dictionary
+curl -b cookies.txt -X PUT http://localhost:8080/api/v1/settings/tts/pronunciations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rules": [
+      {
+        "string_to_replace": "Albert Heijn",
+        "alias": "albert hijn",
+        "case_sensitive": false,
+        "word_boundaries": true
+      }
+    ]
+  }'
+```
+
 ### Modern Query Parameters
 
-All list endpoints support advanced filtering and searching:
+Most resource list endpoints support advanced filtering and searching:
 
 ```bash
 # Search across fields
@@ -371,11 +393,12 @@ To enable SSO with Microsoft, Google, or other OIDC providers:
 
 1. Set environment variables:
 ```bash
-BABBEL_AUTH_METHOD=oidc  # or "both" for local + OIDC
+AUTH_METHOD=oidc  # or "both" for local + OIDC
 OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
 OIDC_CLIENT_ID=your-client-id
 OIDC_CLIENT_SECRET=your-client-secret
 OIDC_REDIRECT_URL=https://your-api.com/api/v1/auth/oauth/callback
+BABBEL_FRONTEND_URL=https://your-frontend.com
 ```
 
 2. Check available auth methods:
@@ -418,9 +441,9 @@ make test-all
 ## API Documentation
 
 - **OpenAPI Spec**: Available in `openapi.yaml`
-- **Full Reference**: See [API_REFERENCE.md](docs/API_REFERENCE.md)
+- **Full Reference**: Generate `docs/API_REFERENCE.md` and `docs/index.html` with `make docs`
 - **Postman Collection**: Import the OpenAPI spec into Postman
-- **Authentication**: All endpoints except `/health` and `/auth/config` require authentication
+- **Authentication**: `GET /health`, `POST /api/v1/sessions`, `GET /api/v1/auth/config`, and OAuth start/callback endpoints are public; protected API endpoints require a session cookie
 
 ## Security Notes
 

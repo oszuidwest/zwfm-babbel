@@ -127,7 +127,7 @@ Role-based access control (RBAC) with three roles:
 ## Common Parameters
 
 ### Pagination
-All list endpoints support pagination:
+Paginated list endpoints return metadata at the response root:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -135,7 +135,7 @@ All list endpoints support pagination:
 | ` + "`offset`" + ` | integer | 0 | Number of items to skip |
 
 ### Modern Query Parameters
-List endpoints support advanced querying:
+Most resource list endpoints support advanced querying:
 
 | Parameter | Type | Example | Description |
 |-----------|------|---------|-------------|
@@ -153,7 +153,7 @@ List endpoints support advanced querying:
 - ` + "`ne`" + `: Not equal
 - ` + "`in`" + `: In list (comma-separated)
 - ` + "`between`" + `: Between two values (comma-separated)
-- ` + "`like`" + `: Pattern matching (% for wildcard)
+- ` + "`like`" + `: Case-sensitive substring matching; values are treated literally
 
 ### Special Parameters
 
@@ -190,12 +190,9 @@ List endpoints support advanced querying:
       "name": "Example 2"
     }
   ],
-  "pagination": {
-    "total": 150,
-    "limit": 20,
-    "offset": 0,
-    "has_more": true
-  }
+  "total": 150,
+  "limit": 20,
+  "offset": 0
 }
 ` + "```" + `
 

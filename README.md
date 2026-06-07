@@ -237,6 +237,8 @@ POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
 # Settings
 GET    /api/v1/settings/tts          # Inspect global ElevenLabs TTS settings
 PATCH  /api/v1/settings/tts          # Update global TTS settings (admin only)
+GET    /api/v1/settings/tts/pronunciations # Inspect managed pronunciation rules
+PUT    /api/v1/settings/tts/pronunciations # Replace managed pronunciation rules
 
 # Bulletin Generation
 POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
@@ -292,7 +294,6 @@ internal/
 tests/                  # Integration test suite
 migrations/             # Database migrations
 openapi.yaml           # API specification
-CLAUDE.md              # AI assistant instructions
 ```
 
 ## Tech Stack
@@ -327,7 +328,7 @@ Contributions are welcome! Please ensure:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT License - see [LICENSE](LICENSE).
 
 ## Credits
 
