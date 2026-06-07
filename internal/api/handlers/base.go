@@ -20,17 +20,18 @@ import (
 
 // HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
-	AudioRepo       repository.AudioRepository
-	AudioSvc        *audio.Service
-	Config          *config.Config
-	BulletinSvc     *services.BulletinService
-	StorySvc        *services.StoryService
-	StationSvc      *services.StationService
-	VoiceSvc        *services.VoiceService
-	UserSvc         *services.UserService
-	StationVoiceSvc *services.StationVoiceService
-	TTSSettingsSvc  *services.TTSSettingsService
-	TTSEnabled      bool
+	AudioRepo             repository.AudioRepository
+	AudioSvc              *audio.Service
+	Config                *config.Config
+	BulletinSvc           *services.BulletinService
+	StorySvc              *services.StoryService
+	StationSvc            *services.StationService
+	VoiceSvc              *services.VoiceService
+	UserSvc               *services.UserService
+	StationVoiceSvc       *services.StationVoiceService
+	TTSSettingsSvc        *services.TTSSettingsService
+	PronunciationRulesSvc PronunciationRulesService
+	TTSEnabled            bool
 }
 
 // Handlers owns shared dependencies used by endpoint methods.
@@ -39,30 +40,32 @@ type Handlers struct {
 	audioSvc  *audio.Service
 	config    *config.Config
 	// Domain services
-	bulletinSvc     *services.BulletinService
-	storySvc        *services.StoryService
-	stationSvc      *services.StationService
-	voiceSvc        *services.VoiceService
-	userSvc         *services.UserService
-	stationVoiceSvc *services.StationVoiceService
-	ttsSettingsSvc  *services.TTSSettingsService
-	ttsEnabled      bool
+	bulletinSvc           *services.BulletinService
+	storySvc              *services.StoryService
+	stationSvc            *services.StationService
+	voiceSvc              *services.VoiceService
+	userSvc               *services.UserService
+	stationVoiceSvc       *services.StationVoiceService
+	ttsSettingsSvc        *services.TTSSettingsService
+	pronunciationRulesSvc PronunciationRulesService
+	ttsEnabled            bool
 }
 
 // NewHandlers creates endpoint handlers from resolved dependencies.
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
-		audioRepo:       deps.AudioRepo,
-		audioSvc:        deps.AudioSvc,
-		config:          deps.Config,
-		bulletinSvc:     deps.BulletinSvc,
-		storySvc:        deps.StorySvc,
-		stationSvc:      deps.StationSvc,
-		voiceSvc:        deps.VoiceSvc,
-		userSvc:         deps.UserSvc,
-		stationVoiceSvc: deps.StationVoiceSvc,
-		ttsSettingsSvc:  deps.TTSSettingsSvc,
-		ttsEnabled:      deps.TTSEnabled,
+		audioRepo:             deps.AudioRepo,
+		audioSvc:              deps.AudioSvc,
+		config:                deps.Config,
+		bulletinSvc:           deps.BulletinSvc,
+		storySvc:              deps.StorySvc,
+		stationSvc:            deps.StationSvc,
+		voiceSvc:              deps.VoiceSvc,
+		userSvc:               deps.UserSvc,
+		stationVoiceSvc:       deps.StationVoiceSvc,
+		ttsSettingsSvc:        deps.TTSSettingsSvc,
+		pronunciationRulesSvc: deps.PronunciationRulesSvc,
+		ttsEnabled:            deps.TTSEnabled,
 	}
 }
 

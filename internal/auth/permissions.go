@@ -17,6 +17,8 @@ const (
 	ResourceUsers Resource = "users"
 	// ResourceSettingsTTS represents global TTS settings.
 	ResourceSettingsTTS Resource = "settings:tts"
+	// ResourcePronunciationRules represents ElevenLabs pronunciation rules.
+	ResourcePronunciationRules Resource = "pronunciation_rules"
 )
 
 // Action represents an operation on a resource.

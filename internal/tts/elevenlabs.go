@@ -69,6 +69,7 @@ type Options struct {
 	VoiceSettings          VoiceSettings
 	ApplyTextNormalization string
 	Seed                   *uint32
+	DictionaryLocators     []DictionaryLocator
 }
 
 // VoiceSettings contains ElevenLabs voice_settings values.
@@ -82,22 +83,28 @@ type VoiceSettings struct {
 
 // ttsRequest is the JSON body sent to the ElevenLabs API.
 type ttsRequest struct {
-	Text                   string        `json:"text"`
-	ModelID                string        `json:"model_id"`
-	VoiceSettings          VoiceSettings `json:"voice_settings"`
-	ApplyTextNormalization string        `json:"apply_text_normalization"`
-	Seed                   *uint32       `json:"seed,omitempty"`
+	Text                            string              `json:"text"`
+	ModelID                         string              `json:"model_id"`
+	VoiceSettings                   VoiceSettings       `json:"voice_settings"`
+	ApplyTextNormalization          string              `json:"apply_text_normalization"`
+	Seed                            *uint32             `json:"seed,omitempty"`
+	PronunciationDictionaryLocators []DictionaryLocator `json:"pronunciation_dictionary_locators"`
 }
 
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
+	if opts.DictionaryLocators == nil {
+		opts.DictionaryLocators = []DictionaryLocator{}
+	}
+
 	body, err := json.Marshal(ttsRequest{
-		Text:                   text,
-		ModelID:                opts.Model,
-		VoiceSettings:          opts.VoiceSettings,
-		ApplyTextNormalization: opts.ApplyTextNormalization,
-		Seed:                   opts.Seed,
+		Text:                            text,
+		ModelID:                         opts.Model,
+		VoiceSettings:                   opts.VoiceSettings,
+		ApplyTextNormalization:          opts.ApplyTextNormalization,
+		Seed:                            opts.Seed,
+		PronunciationDictionaryLocators: opts.DictionaryLocators,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)

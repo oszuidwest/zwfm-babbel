@@ -1249,6 +1249,104 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/v1/settings/tts/pronunciations:
+    get:
+      operationId: getSettingsTtsPronunciations
+      summary: Get TTS pronunciation rules
+      description: |
+        Returns the alias pronunciation rules from the single Babbel-managed
+        ElevenLabs pronunciation dictionary. No upstream call is made until a
+        dictionary has been created by saving at least one rule.
+      tags:
+        - Settings
+      responses:
+        '200':
+          description: Current pronunciation rules
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PronunciationRulesList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '501':
+          description: TTS is not configured on the server
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/tts.not_configured"
+                title: "Not Implemented"
+                status: 501
+                detail: "Text-to-speech is not configured"
+                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: putSettingsTtsPronunciations
+      summary: Replace TTS pronunciation rules
+      description: |
+        Replaces the complete alias-rule set for the Babbel-managed ElevenLabs
+        pronunciation dictionary. The dictionary is created lazily on the first
+        non-empty save. Editors and admins can write; viewers can only read.
+      tags:
+        - Settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PronunciationRulesUpdate'
+            example:
+              rules:
+                - string_to_replace: "Albert Heijn"
+                  alias: "albert hijn"
+                  case_sensitive: false
+                  word_boundaries: true
+      responses:
+        '200':
+          description: Pronunciation rules replaced
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PronunciationRulesList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '501':
+          description: TTS is not configured on the server
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/tts.not_configured"
+                title: "Not Implemented"
+                status: 501
+                detail: "Text-to-speech is not configured"
+                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/stories/{id}:
     get:
       operationId: getStoriesId
@@ -2857,6 +2955,62 @@ components:
         tts_style_prefix:
           type: string
           maxLength: 500
+
+    PronunciationRule:
+      type: object
+      required:
+        - string_to_replace
+        - alias
+      properties:
+        string_to_replace:
+          type: string
+          minLength: 1
+          description: Text fragment ElevenLabs should replace before synthesis.
+        alias:
+          type: string
+          minLength: 1
+          description: Replacement pronunciation for the text fragment.
+        case_sensitive:
+          type: [boolean, 'null']
+          default: true
+          description: Whether matching is case-sensitive. Defaults to true when omitted.
+        word_boundaries:
+          type: [boolean, 'null']
+          default: true
+          description: Whether matching is constrained to word boundaries. Defaults to true when omitted.
+
+    PronunciationRulesList:
+      type: object
+      required:
+        - rules
+        - latest_version_id
+        - created_at
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/PronunciationRule'
+        latest_version_id:
+          type: [string, 'null']
+          description: ElevenLabs latest version ID. Null until a dictionary exists.
+        created_at:
+          type: [string, 'null']
+          format: date-time
+          description: Dictionary creation time. Null until a dictionary exists.
+        warning:
+          type: string
+          description: Recovery or external-rule warning when the upstream dictionary needs attention.
+
+    PronunciationRulesUpdate:
+      type: object
+      required:
+        - rules
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/PronunciationRule'
+          description: Complete replacement alias-rule set. Empty array clears all rules.
 
     StationVoice:
       type: object

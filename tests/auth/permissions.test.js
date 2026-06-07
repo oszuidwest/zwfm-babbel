@@ -1,4 +1,6 @@
 describe('Permissions', () => {
+  let ttsAPIKeyConfigured = false;
+
   // Helper to create a user
   const createUser = async (username, fullName, password, role) => {
     const response = await global.api.apiCall('POST', '/users', {
@@ -32,6 +34,15 @@ describe('Permissions', () => {
   const restoreAdmin = async () => {
     await global.api.apiLogin('admin', 'admin');
   };
+
+  const expectedPronunciationRulesStatus = () => ttsAPIKeyConfigured ? 200 : 501;
+
+  beforeAll(async () => {
+    await restoreAdmin();
+    const response = await global.api.apiCall('GET', '/settings/tts');
+    expect(response.status).toBe(200);
+    ttsAPIKeyConfigured = response.data.api_key_configured === true;
+  });
 
   afterAll(async () => {
     await restoreAdmin();
@@ -87,6 +98,14 @@ describe('Permissions', () => {
 
       // Assert
       expect(response.status).toBe(200);
+    });
+
+    test('when admin manages pronunciation rules, then reaches handler', async () => {
+      const getResponse = await global.api.apiCall('GET', '/settings/tts/pronunciations');
+      expect(getResponse.status).toBe(expectedPronunciationRulesStatus());
+
+      const putResponse = await global.api.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
+      expect(putResponse.status).toBe(expectedPronunciationRulesStatus());
     });
   });
 
@@ -166,6 +185,14 @@ describe('Permissions', () => {
       // Assert
       expect(response.status).toBe(403);
     });
+
+    test('when editor manages pronunciation rules, then reaches handler', async () => {
+      const getResponse = await global.api.apiCall('GET', '/settings/tts/pronunciations');
+      expect(getResponse.status).toBe(expectedPronunciationRulesStatus());
+
+      const putResponse = await global.api.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
+      expect(putResponse.status).toBe(expectedPronunciationRulesStatus());
+    });
   });
 
   describe('Viewer Permissions', () => {
@@ -222,6 +249,32 @@ describe('Permissions', () => {
     ])('%s', async (_name, method, endpoint, bodyFactory) => {
       const response = await global.api.apiCall(method, endpoint, bodyFactory());
       expect(response.status).toBe(403);
+    });
+
+    test('when viewer reads pronunciation rules, then reaches handler', async () => {
+      const response = await global.api.apiCall('GET', '/settings/tts/pronunciations');
+      expect(response.status).toBe(expectedPronunciationRulesStatus());
+    });
+
+    test('when viewer writes pronunciation rules, then forbidden before handler', async () => {
+      const response = await global.api.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
+      expect(response.status).toBe(403);
+    });
+  });
+
+  describe('Unauthenticated Permissions', () => {
+    afterAll(async () => {
+      await restoreAdmin();
+    });
+
+    test.each([
+      ['GET', '/settings/tts/pronunciations', undefined],
+      ['PUT', '/settings/tts/pronunciations', { rules: [] }]
+    ])('when unauthenticated user calls %s %s, then unauthorized', async (method, endpoint, body) => {
+      global.api.clearCookies();
+
+      const response = await global.api.apiCall(method, endpoint, body);
+      expect(response.status).toBe(401);
     });
   });
 

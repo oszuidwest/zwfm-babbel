@@ -17,6 +17,7 @@ type generateSpeechRequestCase struct {
 	wantBoostPresent      bool
 	wantUseSpeakerBoost   bool
 	wantNormalizationMode string
+	wantLocatorCount      int
 }
 
 func TestService_GenerateSpeech_RequestBody(t *testing.T) {
@@ -53,6 +54,24 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 			wantBoostPresent:      true,
 			wantUseSpeakerBoost:   false,
 			wantNormalizationMode: "off",
+		},
+		{
+			name: "includes pronunciation dictionary locators",
+			options: Options{
+				Model: "eleven_multilingual_v2",
+				VoiceSettings: VoiceSettings{
+					Stability:       0.8,
+					SimilarityBoost: 0.7,
+					Style:           0.25,
+					Speed:           1.0,
+				},
+				ApplyTextNormalization: "auto",
+				DictionaryLocators: []DictionaryLocator{{
+					PronunciationDictionaryID: "dict-123",
+				}},
+			},
+			wantNormalizationMode: "auto",
+			wantLocatorCount:      1,
 		},
 	}
 
@@ -140,6 +159,14 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	}
 	if boostPresent && boost != tt.wantUseSpeakerBoost {
 		t.Fatalf("use_speaker_boost = %#v, want %t", boost, tt.wantUseSpeakerBoost)
+	}
+
+	locators, ok := captured["pronunciation_dictionary_locators"].([]any)
+	if !ok {
+		t.Fatalf("pronunciation_dictionary_locators = %#v, want array", captured["pronunciation_dictionary_locators"])
+	}
+	if len(locators) != tt.wantLocatorCount {
+		t.Fatalf("pronunciation_dictionary_locators len = %d, want %d", len(locators), tt.wantLocatorCount)
 	}
 }
 

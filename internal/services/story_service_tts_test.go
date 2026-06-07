@@ -153,6 +153,25 @@ func TestTTSOptionsFromSettings(t *testing.T) {
 	if !*flashOptions.VoiceSettings.UseSpeakerBoost {
 		t.Fatal("flash v2.5 use_speaker_boost = false, want true")
 	}
+
+	noDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{Model: TTSModelFlashV25})
+	if noDictionaryOptions.DictionaryLocators == nil {
+		t.Fatal("DictionaryLocators = nil, want empty slice")
+	}
+	if len(noDictionaryOptions.DictionaryLocators) != 0 {
+		t.Fatalf("DictionaryLocators len = %d, want 0", len(noDictionaryOptions.DictionaryLocators))
+	}
+
+	withDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{
+		Model:                     TTSModelFlashV25,
+		PronunciationDictionaryID: ptr("dict-123"),
+	})
+	if len(withDictionaryOptions.DictionaryLocators) != 1 {
+		t.Fatalf("DictionaryLocators len = %d, want 1", len(withDictionaryOptions.DictionaryLocators))
+	}
+	if withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID != "dict-123" {
+		t.Fatalf("Dictionary ID = %q, want dict-123", withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID)
+	}
 }
 
 func TestTranslateTTSError(t *testing.T) {

@@ -68,6 +68,10 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	audioSvc := audio.NewService(cfg)
 	ttsSvc := tts.NewService(&cfg.TTS)
 	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
+	var pronunciationRulesSvc handlers.PronunciationRulesService
+	if ttsSvc != nil {
+		pronunciationRulesSvc = services.NewPronunciationRulesService(ttsSettingsRepo, ttsSvc)
+	}
 
 	// Create domain services
 	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
@@ -100,17 +104,18 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 
 	// Create handlers
 	h := handlers.NewHandlers(handlers.HandlersDeps{
-		AudioRepo:       audioRepo,
-		AudioSvc:        audioSvc,
-		Config:          cfg,
-		BulletinSvc:     bulletinSvc,
-		StorySvc:        storySvc,
-		StationSvc:      stationSvc,
-		VoiceSvc:        voiceSvc,
-		UserSvc:         userSvc,
-		StationVoiceSvc: stationVoiceSvc,
-		TTSSettingsSvc:  ttsSettingsSvc,
-		TTSEnabled:      ttsSvc != nil,
+		AudioRepo:             audioRepo,
+		AudioSvc:              audioSvc,
+		Config:                cfg,
+		BulletinSvc:           bulletinSvc,
+		StorySvc:              storySvc,
+		StationSvc:            stationSvc,
+		VoiceSvc:              voiceSvc,
+		UserSvc:               userSvc,
+		StationVoiceSvc:       stationVoiceSvc,
+		TTSSettingsSvc:        ttsSettingsSvc,
+		PronunciationRulesSvc: pronunciationRulesSvc,
+		TTSEnabled:            ttsSvc != nil,
 	})
 	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
 
@@ -214,6 +219,7 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 	registerStationVoiceRoutes(protected, deps)
 	registerBulletinRoutes(protected, deps)
 	registerTTSSettingsRoutes(protected, deps)
+	registerPronunciationRulesRoutes(protected, deps)
 }
 
 // registerAuthRoutes registers public authentication endpoints.
@@ -337,6 +343,23 @@ func registerTTSSettingsRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 
 	protected.GET("/settings/tts", perm(auth.ResourceSettingsTTS, auth.ActionRead), h.GetTTSSettings)
 	protected.PATCH("/settings/tts", perm(auth.ResourceSettingsTTS, auth.ActionWrite), h.UpdateTTSSettings)
+}
+
+// registerPronunciationRulesRoutes registers editor-facing TTS pronunciation rules endpoints.
+func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDeps) {
+	h := deps.handlers
+	perm := deps.authService.RequirePermission
+
+	protected.GET(
+		"/settings/tts/pronunciations",
+		perm(auth.ResourcePronunciationRules, auth.ActionRead),
+		h.GetPronunciationRules,
+	)
+	protected.PUT(
+		"/settings/tts/pronunciations",
+		perm(auth.ResourcePronunciationRules, auth.ActionWrite),
+		h.UpdatePronunciationRules,
+	)
 }
 
 // registerHealthRoute registers the health check endpoint.

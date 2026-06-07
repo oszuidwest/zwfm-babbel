@@ -207,6 +207,8 @@ The initial settings row uses `eleven_v3`, stability `0.80`, similarity boost `0
 
 Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update model, voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
 
+Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage alias pronunciation rules in the single Babbel-managed ElevenLabs dictionary. Admins and editors can save rules; viewers can read them.
+
 ## API Documentation
 
 - **Base URL**: `/api/v1/`
