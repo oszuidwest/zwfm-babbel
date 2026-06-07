@@ -138,15 +138,17 @@ func (s *PronunciationRulesService) Update(
 		return nil, translateTTSSettingsRepoError(err)
 	}
 
+	actorID := actorUserID(req)
+
 	if settings.PronunciationDictionaryID == nil || *settings.PronunciationDictionaryID == "" {
-		return s.runCreatePath(ctx, rules, nil, actorUserID(req))
+		return s.runCreatePath(ctx, rules, nil, actorID)
 	}
 
 	currentID := *settings.PronunciationDictionaryID
 	baseline, err := s.client.GetDictionary(ctx, currentID)
 	if err != nil {
 		if errors.Is(err, tts.ErrDictionaryNotFound) {
-			return s.runCreatePath(ctx, rules, &currentID, actorUserID(req))
+			return s.runCreatePath(ctx, rules, &currentID, actorID)
 		}
 		return nil, translatePronunciationRulesUpstreamError(err)
 	}
@@ -154,7 +156,7 @@ func (s *PronunciationRulesService) Update(
 	result, err := s.client.SetRules(ctx, currentID, rules)
 	if err != nil {
 		if errors.Is(err, tts.ErrDictionaryNotFound) {
-			return s.runCreatePath(ctx, rules, &currentID, actorUserID(req))
+			return s.runCreatePath(ctx, rules, &currentID, actorID)
 		}
 		return nil, translatePronunciationRulesUpstreamError(err)
 	}
@@ -162,7 +164,7 @@ func (s *PronunciationRulesService) Update(
 	diff := diffPronunciationRules(baseline.Rules, rules)
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
 		Action:       pronunciationRulesAuditActionRulesReplace,
-		ActorUserID:  actorUserID(req),
+		ActorUserID:  actorID,
 		DictionaryID: currentID,
 		Added:        diff.Added,
 		Removed:      diff.Removed,
@@ -183,7 +185,7 @@ func (s *PronunciationRulesService) runCreatePath(
 	ctx context.Context,
 	rules []tts.Rule,
 	currentID *string,
-	actorUserID *int64,
+	actorID *int64,
 ) (*PronunciationRulesResponse, error) {
 	if len(rules) == 0 {
 		if currentID == nil {
@@ -194,7 +196,7 @@ func (s *PronunciationRulesService) runCreatePath(
 		}
 		logPronunciationRulesAudit(pronunciationRulesAuditEvent{
 			Action:       pronunciationRulesAuditActionIDCleared,
-			ActorUserID:  actorUserID,
+			ActorUserID:  actorID,
 			DictionaryID: *currentID,
 			TotalAfter:   0,
 		})
@@ -233,7 +235,7 @@ func (s *PronunciationRulesService) runCreatePath(
 
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
 		Action:       pronunciationRulesAuditActionInit,
-		ActorUserID:  actorUserID,
+		ActorUserID:  actorID,
 		DictionaryID: newID,
 		TotalAfter:   len(rules),
 	})
@@ -457,8 +459,8 @@ func containsDictionaryNameCollisionCode(value any) bool {
 	case string:
 		return strings.TrimSpace(v) == "dictionary_already_exists"
 	case map[string]any:
-		for _, value := range v {
-			if containsDictionaryNameCollisionCode(value) {
+		for _, child := range v {
+			if containsDictionaryNameCollisionCode(child) {
 				return true
 			}
 		}
