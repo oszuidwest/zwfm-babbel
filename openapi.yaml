@@ -1119,7 +1119,7 @@ paths:
         - Story must have a `voice_id` assigned
         - The assigned voice must have an `elevenlabs_voice_id` configured
 
-        **Audio pipeline:** ElevenLabs returns MP3 → converted to 48kHz mono WAV → stored as story audio.
+        **Audio pipeline:** ElevenLabs returns Opus (`opus_48000_128`) → converted to 48kHz mono WAV → stored as story audio.
       tags:
         - Stories
       parameters:
