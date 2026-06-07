@@ -26,7 +26,7 @@ func (e *QueryParamError) Error() string {
 	return fmt.Sprintf("invalid %s: %s", e.Field, e.Message)
 }
 
-// QueryParams represents parsed query parameters for modern filtering, sorting, pagination, and field selection.
+// QueryParams holds parsed filtering, sorting, pagination, fieldset, and search options.
 type QueryParams struct {
 	// Pagination
 	Limit  int `json:"limit"`

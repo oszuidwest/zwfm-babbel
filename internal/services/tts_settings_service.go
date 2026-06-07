@@ -15,12 +15,19 @@ import (
 )
 
 const (
-	TTSModelElevenV3        = "eleven_v3"
-	TTSModelMultilingualV2  = "eleven_multilingual_v2"
-	TTSModelFlashV25        = "eleven_flash_v2_5"
-	TTSNormalizationAuto    = "auto"
-	TTSNormalizationOn      = "on"
-	TTSNormalizationOff     = "off"
+	// TTSModelElevenV3 selects ElevenLabs v3, including support for audio tags.
+	TTSModelElevenV3 = "eleven_v3"
+	// TTSModelMultilingualV2 selects ElevenLabs multilingual v2.
+	TTSModelMultilingualV2 = "eleven_multilingual_v2"
+	// TTSModelFlashV25 selects ElevenLabs Flash v2.5 for longer text payloads.
+	TTSModelFlashV25 = "eleven_flash_v2_5"
+	// TTSNormalizationAuto delegates text normalization to ElevenLabs.
+	TTSNormalizationAuto = "auto"
+	// TTSNormalizationOn forces ElevenLabs text normalization on.
+	TTSNormalizationOn = "on"
+	// TTSNormalizationOff disables ElevenLabs text normalization.
+	TTSNormalizationOff = "off"
+
 	maxTTSStylePrefixRunes  = 500
 	maxElevenLabsSeedUint32 = 4_294_967_295
 )
@@ -38,17 +45,17 @@ var (
 	}
 )
 
-// TTSSettingsService handles global text-to-speech settings.
+// TTSSettingsService manages the singleton ElevenLabs request settings.
 type TTSSettingsService struct {
 	repo *repository.TTSSettingsRepository
 }
 
-// NewTTSSettingsService creates a TTS settings service.
+// NewTTSSettingsService binds settings validation and persistence to repo.
 func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsService {
 	return &TTSSettingsService{repo: repo}
 }
 
-// UpdateTTSSettingsRequest contains partial TTS settings updates.
+// UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
 type UpdateTTSSettingsRequest struct {
 	Model                  *string
 	Stability              *float64
@@ -63,7 +70,7 @@ type UpdateTTSSettingsRequest struct {
 	ActorUserID            *int64
 }
 
-// Get retrieves the current singleton settings.
+// Get loads the current singleton settings row.
 func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, error) {
 	settings, err := s.repo.Get(ctx)
 	if err != nil {
@@ -72,12 +79,11 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 	return settings, nil
 }
 
-// Update validates, applies, and returns the updated singleton settings.
+// Update validates a PATCH-style request and returns the persisted settings.
 //
-// Concurrency: last-writer-wins. No ETag / If-Match plumbing; concurrent
-// PATCHes from two admins will silently overwrite each other. This is a
-// deliberate choice — the endpoint is admin-only and write traffic is low —
-// but it is also called out in the OpenAPI description for callers.
+// Concurrency: last writer wins. No ETag / If-Match plumbing; concurrent
+// PATCHes from two admins silently overwrite each other. The endpoint is
+// admin-only and low traffic, and the OpenAPI description calls this out.
 //
 // Auditing: logTTSSettingsUpdate captures both old and new values for every
 // changed field via buildTTSSettingsAuditFields. The log is the system of

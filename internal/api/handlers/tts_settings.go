@@ -11,7 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// TTSSettingsResponse is the API representation of global TTS settings.
+// TTSSettingsResponse exposes global TTS settings plus API-key availability.
 type TTSSettingsResponse struct {
 	Model                  string    `json:"model"`
 	Stability              float64   `json:"stability"`
@@ -26,7 +26,7 @@ type TTSSettingsResponse struct {
 	APIKeyConfigured       bool      `json:"api_key_configured"`
 }
 
-// GetTTSSettings returns the global TTS settings.
+// GetTTSSettings returns the singleton settings used for generated story audio.
 func (h *Handlers) GetTTSSettings(c *gin.Context) {
 	settings, err := h.ttsSettingsSvc.Get(c.Request.Context())
 	if err != nil {
@@ -37,7 +37,7 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 	utils.Success(c, h.toTTSSettingsResponse(settings))
 }
 
-// UpdateTTSSettings applies a partial update to the global TTS settings.
+// UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
 	if !utils.BindAndValidate(c, &req) {

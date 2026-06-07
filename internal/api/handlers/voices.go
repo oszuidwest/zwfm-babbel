@@ -39,7 +39,7 @@ func (h *Handlers) GetVoice(c *gin.Context) {
 	utils.Success(c, voice)
 }
 
-// CreateVoice creates a new newsreader voice.
+// CreateVoice accepts a JSON voice payload and persists a newsreader voice.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
 	if !utils.BindAndValidate(c, &req) {

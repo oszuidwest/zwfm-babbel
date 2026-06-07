@@ -44,7 +44,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory creates a new story (JSON API only).
+// CreateStory accepts a JSON story payload and persists a scheduled story.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 

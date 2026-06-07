@@ -1,4 +1,4 @@
-// Package config handles application configuration management.
+// Package config loads and validates application configuration.
 package config
 
 import (
@@ -15,7 +15,7 @@ import (
 
 const audioToolVersionCheckTimeout = 5 * time.Second
 
-// Config contains all application settings loaded from environment variables.
+// Config is the environment-backed runtime configuration.
 type Config struct {
 	// Server configures HTTP server and CORS settings.
 	Server ServerConfig
@@ -318,7 +318,7 @@ func validateAudioTool(name, configuredPath, envVar string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), audioToolVersionCheckTimeout)
 	defer cancel()
 
-	// #nosec G204 - Audio tool path comes from startup config; only the fixed "-version" argument is supplied.
+	// #nosec G204 - configured audio tool path with fixed "-version" argument.
 	cmd := exec.CommandContext(ctx, resolvedPath, "-version")
 	output, err := cmd.CombinedOutput()
 	if err == nil {

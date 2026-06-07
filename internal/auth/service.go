@@ -45,7 +45,7 @@ func (s *Service) IsOAuthEnabled() bool {
 	return s.config.Method.SupportsOIDC()
 }
 
-// NewService creates a new authentication service.
+// NewService initializes session storage, OIDC, and RBAC for authentication.
 func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 	s := &Service{
 		config: cfg,
@@ -505,7 +505,7 @@ type oauthUser struct {
 	Username string
 }
 
-// findOrCreateOAuthUser finds an existing user by email or creates a new one.
+// findOrCreateOAuthUser resolves an OAuth identity to an active local user.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
 	var existingUser struct {
 		ID          int64
@@ -540,7 +540,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 	username := s.determineOAuthUsername(preferredUsername, email)
 	now := time.Now()
 
-	// Use a map for inserting raw data (not using the models.User since we need to insert specific fields)
+	// Insert raw columns because models.User omits fields needed for OAuth bootstrap.
 	newUser := map[string]any{
 		"username":      username,
 		"full_name":     fullName,
@@ -628,7 +628,7 @@ func (s *Service) Logout(c *gin.Context) error {
 	return nil
 }
 
-// CreateSession creates a new session for the authenticated user.
+// CreateSession stores authenticated user identity in the session.
 func (s *Service) CreateSession(c *gin.Context, userID int64, username string, role string, authMethod string) error {
 	session := s.sessions.Get(c)
 	// Use type-safe session helpers

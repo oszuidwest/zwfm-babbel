@@ -18,7 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// HandlersDeps contains all dependencies required by the API handlers.
+// HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
 	AudioRepo       repository.AudioRepository
 	AudioSvc        *audio.Service
@@ -33,7 +33,7 @@ type HandlersDeps struct {
 	TTSEnabled      bool
 }
 
-// Handlers contains all the dependencies needed by the API handlers.
+// Handlers owns shared dependencies used by endpoint methods.
 type Handlers struct {
 	audioRepo repository.AudioRepository
 	audioSvc  *audio.Service
@@ -49,7 +49,7 @@ type Handlers struct {
 	ttsEnabled      bool
 }
 
-// NewHandlers creates a new Handlers instance with all required dependencies.
+// NewHandlers creates endpoint handlers from resolved dependencies.
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
 		audioRepo:       deps.AudioRepo,

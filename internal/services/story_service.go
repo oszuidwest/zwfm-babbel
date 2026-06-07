@@ -22,7 +22,7 @@ import (
 	"gorm.io/datatypes"
 )
 
-// StoryServiceDeps contains all dependencies for StoryService.
+// StoryServiceDeps groups repositories and services required by StoryService.
 type StoryServiceDeps struct {
 	StoryRepo      *repository.StoryRepository
 	VoiceRepo      *repository.VoiceRepository
@@ -42,7 +42,7 @@ type StoryService struct {
 	config         *config.Config
 }
 
-// NewStoryService creates a new story service instance.
+// NewStoryService wires story business logic to its dependencies.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
 	return &StoryService{
 		storyRepo:      deps.StoryRepo,
@@ -80,7 +80,7 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create creates a new story in the database.
+// Create validates dates and optional voice ownership before persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
 	// Validate voice exists if provided
 	if req.VoiceID != nil {

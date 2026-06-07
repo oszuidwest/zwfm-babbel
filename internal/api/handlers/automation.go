@@ -28,7 +28,7 @@ type AutomationHandler struct {
 	stationLocksMu sync.Mutex
 }
 
-// NewAutomationHandler creates a new automation handler.
+// NewAutomationHandler creates a public automation endpoint handler.
 func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *services.StationService, cfg *config.Config) *AutomationHandler {
 	return &AutomationHandler{
 		bulletinSvc:  bulletinSvc,
@@ -38,7 +38,7 @@ func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *ser
 	}
 }
 
-// getStationLock returns a mutex for the given station ID, creating one if it doesn't exist.
+// getStationLock returns a station mutex, creating it on first use.
 func (h *AutomationHandler) getStationLock(stationID int64) *sync.Mutex {
 	h.stationLocksMu.Lock()
 	defer h.stationLocksMu.Unlock()
@@ -58,8 +58,8 @@ type bulletinRequest struct {
 	maxAgeSeconds int64
 }
 
-// validateBulletinRequest validates and parses request parameters.
-// Returns nil if validation fails (error response already sent).
+// validateBulletinRequest parses public automation parameters.
+// It writes the error response before returning nil on invalid input.
 func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinRequest {
 	// Check if automation endpoint is enabled (stealth 404 if disabled)
 	if h.config.Automation.Key == "" {
@@ -202,7 +202,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		return err
 	}
 
-	// Automation endpoint doesn't cache
+	// Automation clients should not cache public bulletin responses.
 	c.Header("Cache-Control", "no-store")
 	serveAudioFile(c, filePath, audioFile, bulletinID, cached)
 	return nil

@@ -16,7 +16,7 @@ import (
 const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
 const defaultAPIBaseURL = "https://api.elevenlabs.io"
 
-// APIError represents an error response from the ElevenLabs API with the HTTP status code preserved.
+// APIError preserves ElevenLabs response details for service-layer translation.
 type APIError struct {
 	StatusCode int
 	Body       string
@@ -47,7 +47,7 @@ type Service struct {
 	client  *http.Client
 }
 
-// NewService creates a new TTS service. Returns nil if no API key is configured.
+// NewService returns nil when TTS is disabled by an empty API key.
 func NewService(cfg *config.TTSConfig) *Service {
 	if cfg.APIKey == "" {
 		return nil
@@ -62,7 +62,7 @@ func NewService(cfg *config.TTSConfig) *Service {
 	}
 }
 
-// Options contains all TTS request options selected by the service layer.
+// Options selects the ElevenLabs request options supplied by the story service.
 type Options struct {
 	Model                  string
 	VoiceSettings          VoiceSettings

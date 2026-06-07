@@ -31,7 +31,7 @@ type VoiceService struct {
 	repo *repository.VoiceRepository
 }
 
-// NewVoiceService creates a new voice service instance.
+// NewVoiceService returns a voice service backed by repo.
 func NewVoiceService(repo *repository.VoiceRepository) *VoiceService {
 	return &VoiceService{
 		repo: repo,
@@ -45,7 +45,7 @@ type UpdateVoiceRequest struct {
 	ClearElevenLabsVoiceID bool    `json:"clear_elevenlabs_voice_id"`
 }
 
-// Create creates a new voice with the given name and optional ElevenLabs voice ID.
+// Create validates the optional ElevenLabs voice ID before persisting a voice.
 func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
 	if err := validateElevenLabsVoiceID(elevenLabsVoiceID); err != nil {
 		return nil, err

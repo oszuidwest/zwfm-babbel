@@ -40,7 +40,7 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 	utils.Success(c, stationVoice)
 }
 
-// CreateStationVoice creates a new station-voice relationship (JSON API only).
+// CreateStationVoice accepts JSON and links a station to a newsreader voice.
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	var req utils.StationVoiceRequest
 

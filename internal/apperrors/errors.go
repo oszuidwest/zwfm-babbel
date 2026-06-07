@@ -3,8 +3,6 @@ package apperrors
 
 import "fmt"
 
-// NotFoundError section.
-
 // NotFoundError indicates the requested resource does not exist.
 type NotFoundError struct {
 	Resource string
@@ -30,8 +28,6 @@ func NotFoundWithID(resource string, id int64) *NotFoundError {
 func NotFoundWithCause(resource string, cause error) *NotFoundError {
 	return &NotFoundError{Resource: resource, cause: cause}
 }
-
-// DuplicateError section.
 
 // DuplicateError indicates a unique constraint violation.
 type DuplicateError struct {
@@ -63,8 +59,6 @@ func DuplicateWithCause(resource, field, value string, cause error) *DuplicateEr
 	return &DuplicateError{Resource: resource, Field: field, Value: value, cause: cause}
 }
 
-// DependencyError section.
-
 // DependencyError indicates the resource cannot be deleted due to dependencies.
 type DependencyError struct {
 	Resource   string
@@ -87,8 +81,6 @@ func Dependency(resource, dependency string) *DependencyError {
 func DependencyWithCause(resource, dependency string, cause error) *DependencyError {
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
-
-// ValidationError section.
 
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
@@ -214,8 +206,6 @@ func Upstream(resource, service string, status int, hint string, cause error) *U
 	}
 }
 
-// DatabaseError section.
-
 // DatabaseError indicates an unexpected database error (internal).
 type DatabaseError struct {
 	Resource  string
@@ -234,8 +224,6 @@ func Database(resource, operation string, cause error) *DatabaseError {
 	return &DatabaseError{Resource: resource, Operation: operation, cause: cause}
 }
 
-// AudioError section.
-
 // AudioError indicates audio processing failure.
 type AudioError struct {
 	Resource  string
@@ -253,8 +241,6 @@ func (e *AudioError) Unwrap() error { return e.cause }
 func Audio(resource, operation string, cause error) *AudioError {
 	return &AudioError{Resource: resource, Operation: operation, cause: cause}
 }
-
-// NoStoriesError section.
 
 // NoStoriesError indicates no stories are available for bulletin generation.
 type NoStoriesError struct {

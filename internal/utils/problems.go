@@ -44,16 +44,23 @@ type ProblemDetail struct {
 
 // Problem type URIs for common error types.
 const (
-	ProblemTypeValidationError         = "https://babbel.api/problems/validation-error"
-	ProblemTypeResourceNotFound        = "https://babbel.api/problems/resource-not-found"
-	ProblemTypeDuplicateResource       = "https://babbel.api/problems/duplicate-resource"
-	ProblemTypeAuthenticationRequired  = "https://babbel.api/problems/authentication-required"
+	// ProblemTypeValidationError identifies invalid request data.
+	ProblemTypeValidationError = "https://babbel.api/problems/validation-error"
+	// ProblemTypeResourceNotFound identifies a missing resource.
+	ProblemTypeResourceNotFound = "https://babbel.api/problems/resource-not-found"
+	// ProblemTypeDuplicateResource identifies a uniqueness conflict.
+	ProblemTypeDuplicateResource = "https://babbel.api/problems/duplicate-resource"
+	// ProblemTypeAuthenticationRequired identifies missing or invalid credentials.
+	ProblemTypeAuthenticationRequired = "https://babbel.api/problems/authentication-required"
+	// ProblemTypeInsufficientPermissions identifies an authorization failure.
 	ProblemTypeInsufficientPermissions = "https://babbel.api/problems/insufficient-permissions"
-	ProblemTypeInternalServerError     = "https://babbel.api/problems/internal-server-error"
-	ProblemTypeBadRequest              = "https://babbel.api/problems/bad-request"
+	// ProblemTypeInternalServerError identifies an unexpected server failure.
+	ProblemTypeInternalServerError = "https://babbel.api/problems/internal-server-error"
+	// ProblemTypeBadRequest identifies a malformed request.
+	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
 )
 
-// NewProblemDetail creates a new RFC 9457 compliant problem detail response.
+// NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
 func NewProblemDetail(problemType, title string, status int, detail, instance string) *ProblemDetail {
 	return &ProblemDetail{
 		Type:      problemType,

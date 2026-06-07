@@ -1,4 +1,5 @@
-// Package utils provides shared utility functions for HTTP handlers, database operations, and queries.
+// Package utils provides shared helpers for HTTP handlers, database access,
+// and query parsing.
 package utils
 
 import (
@@ -74,7 +75,7 @@ func Pagination(c *gin.Context) (limit, offset int, err error) {
 	return limit, offset, nil
 }
 
-// ValidateAndSaveAudioFile validates an uploaded audio file and saves it to a temporary location.
+// ValidateAndSaveAudioFile validates uploaded audio and stores it in a temp path.
 func ValidateAndSaveAudioFile(
 	c *gin.Context, fieldName string, prefix string,
 ) (tempPath string, cleanup func() error, err error) {
@@ -176,7 +177,7 @@ type VoiceRequest struct {
 }
 
 // VoiceUpdateRequest represents the request for updating voices.
-// Name is optional (omit to skip), ElevenLabsVoiceID supports null-to-clear via Optional.
+// Name is omitted to skip updates; ElevenLabsVoiceID accepts JSON null to clear.
 type VoiceUpdateRequest struct {
 	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
 	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
@@ -219,14 +220,16 @@ type UserUpdateRequest struct {
 
 // StoryCreateRequest represents the request for creating news stories.
 type StoryCreateRequest struct {
-	Title      string             `json:"title" binding:"required,notblank,max=500"`
-	Text       string             `json:"text" binding:"required,notblank"`
-	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status     string             `json:"status" binding:"omitempty,story_status"`
-	StartDate  string             `json:"start_date" binding:"required,dateformat"`
-	EndDate    string             `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	Weekdays   models.Weekdays    `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
-	IsBreaking bool               `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
+	Title     string `json:"title" binding:"required,notblank,max=500"`
+	Text      string `json:"text" binding:"required,notblank"`
+	VoiceID   *int64 `json:"voice_id" binding:"omitempty,min=1"`
+	Status    string `json:"status" binding:"omitempty,story_status"`
+	StartDate string `json:"start_date" binding:"required,dateformat"`
+	EndDate   string `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
+	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+	Weekdays models.Weekdays `json:"weekdays"`
+	// IsBreaking prioritizes the story for bulletin inclusion.
+	IsBreaking bool               `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
@@ -238,14 +241,16 @@ func (r *StoryCreateRequest) NormalizeText() {
 
 // StoryUpdateRequest represents the request for updating existing stories.
 type StoryUpdateRequest struct {
-	Title      *string            `json:"title" binding:"omitempty,notblank,max=500"`
-	Text       *string            `json:"text" binding:"omitempty,notblank"`
-	VoiceID    *int64             `json:"voice_id" binding:"omitempty,min=1"`
-	Status     *string            `json:"status" binding:"omitempty,story_status"`
-	StartDate  *string            `json:"start_date" binding:"omitempty,dateformat"`
-	EndDate    *string            `json:"end_date" binding:"omitempty,dateformat"`
-	Weekdays   *models.Weekdays   `json:"weekdays"`    // Bitmask (0-127): Sun=1 Mon=2 Tue=4 Wed=8 Thu=16 Fri=32 Sat=64
-	IsBreaking *bool              `json:"is_breaking"` // Breaking stories are prioritized for inclusion in bulletins
+	Title     *string `json:"title" binding:"omitempty,notblank,max=500"`
+	Text      *string `json:"text" binding:"omitempty,notblank"`
+	VoiceID   *int64  `json:"voice_id" binding:"omitempty,min=1"`
+	Status    *string `json:"status" binding:"omitempty,story_status"`
+	StartDate *string `json:"start_date" binding:"omitempty,dateformat"`
+	EndDate   *string `json:"end_date" binding:"omitempty,dateformat"`
+	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+	Weekdays *models.Weekdays `json:"weekdays"`
+	// IsBreaking prioritizes the story for bulletin inclusion.
+	IsBreaking *bool              `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
