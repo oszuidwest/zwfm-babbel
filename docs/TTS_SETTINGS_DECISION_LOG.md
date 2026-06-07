@@ -14,3 +14,4 @@
 - Split missing `tts_settings` schema from missing singleton row. A missing table still points admins to migration `005_tts_settings.sql`; a deleted `id=1` row now returns `tts_settings.row_missing` with a re-seed hint.
 - Kept admin PATCH writes as last-writer-wins and documented the audit-log tradeoff in code instead of introducing `SELECT ... FOR UPDATE`; this matches the existing PATCH behavior elsewhere in the API.
 - Kept the handler/service seed DTO as signed `int64` so negative JSON values produce field validation errors, but convert to `uint32` before repository/model writes to match the ElevenLabs and database domain.
+- Default model stays `eleven_v3` paired with the v3-style prefix `[professional][news anchor][engaging]`. Switching the default to `eleven_multilingual_v2` or `eleven_flash_v2_5` requires clearing the prefix simultaneously, because non-v3 models read bracketed style directives literally.
