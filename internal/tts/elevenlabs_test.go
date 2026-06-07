@@ -10,15 +10,17 @@ import (
 	"time"
 )
 
+type generateSpeechRequestCase struct {
+	name                  string
+	options               Options
+	wantSeedPresent       bool
+	wantBoostPresent      bool
+	wantUseSpeakerBoost   bool
+	wantNormalizationMode string
+}
+
 func TestService_GenerateSpeech_RequestBody(t *testing.T) {
-	tests := []struct {
-		name                  string
-		options               Options
-		wantSeedPresent       bool
-		wantBoostPresent      bool
-		wantUseSpeakerBoost   bool
-		wantNormalizationMode string
-	}{
+	tests := []generateSpeechRequestCase{
 		{
 			name: "omits optional seed and speaker boost",
 			options: Options{
@@ -58,18 +60,8 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var captured map[string]any
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/v1/text-to-speech/voice-123" {
-					t.Errorf("path = %q, want /v1/text-to-speech/voice-123", r.URL.Path)
-				}
-				if got := r.URL.Query().Get("output_format"); got != outputFormatOpus48k128 {
-					t.Errorf("output_format = %q, want %q", got, outputFormatOpus48k128)
-				}
-				if got := r.Header.Get("xi-api-key"); got != "test-key" {
-					t.Errorf("xi-api-key = %q, want test-key", got)
-				}
-				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-					t.Errorf("decode request body: %v", err)
-				}
+				assertGenerateSpeechHTTPRequest(t, r)
+				captured = decodeGenerateSpeechRequest(t, r)
 
 				w.Header().Set("Content-Type", "audio/ogg")
 				_, _ = w.Write([]byte("opus"))
@@ -90,33 +82,64 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 				t.Fatalf("audio = %q, want opus", string(audio))
 			}
 
-			if captured["text"] != "final text" {
-				t.Fatalf("text = %q, want final text", captured["text"])
-			}
-			if captured["model_id"] != tt.options.Model {
-				t.Fatalf("model_id = %q, want %q", captured["model_id"], tt.options.Model)
-			}
-			if captured["apply_text_normalization"] != tt.wantNormalizationMode {
-				t.Fatalf("apply_text_normalization = %q, want %q", captured["apply_text_normalization"], tt.wantNormalizationMode)
-			}
-
-			_, seedPresent := captured["seed"]
-			if seedPresent != tt.wantSeedPresent {
-				t.Fatalf("seed present = %t, want %t; body=%#v", seedPresent, tt.wantSeedPresent, captured)
-			}
-
-			voiceSettings, ok := captured["voice_settings"].(map[string]any)
-			if !ok {
-				t.Fatalf("voice_settings = %#v, want object", captured["voice_settings"])
-			}
-			boost, boostPresent := voiceSettings["use_speaker_boost"]
-			if boostPresent != tt.wantBoostPresent {
-				t.Fatalf("use_speaker_boost present = %t, want %t; body=%#v", boostPresent, tt.wantBoostPresent, voiceSettings)
-			}
-			if boostPresent && boost != tt.wantUseSpeakerBoost {
-				t.Fatalf("use_speaker_boost = %#v, want %t", boost, tt.wantUseSpeakerBoost)
-			}
+			assertGenerateSpeechRequestBody(t, captured, tt)
 		})
+	}
+}
+
+func assertGenerateSpeechHTTPRequest(t *testing.T, r *http.Request) {
+	t.Helper()
+
+	if r.URL.Path != "/v1/text-to-speech/voice-123" {
+		t.Errorf("path = %q, want /v1/text-to-speech/voice-123", r.URL.Path)
+	}
+	if got := r.URL.Query().Get("output_format"); got != outputFormatOpus48k128 {
+		t.Errorf("output_format = %q, want %q", got, outputFormatOpus48k128)
+	}
+	if got := r.Header.Get("xi-api-key"); got != "test-key" {
+		t.Errorf("xi-api-key = %q, want test-key", got)
+	}
+}
+
+func decodeGenerateSpeechRequest(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+
+	var captured map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	return captured
+}
+
+func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt generateSpeechRequestCase) {
+	t.Helper()
+
+	if captured["text"] != "final text" {
+		t.Fatalf("text = %q, want final text", captured["text"])
+	}
+	if captured["model_id"] != tt.options.Model {
+		t.Fatalf("model_id = %q, want %q", captured["model_id"], tt.options.Model)
+	}
+	if captured["apply_text_normalization"] != tt.wantNormalizationMode {
+		t.Fatalf("apply_text_normalization = %q, want %q", captured["apply_text_normalization"], tt.wantNormalizationMode)
+	}
+
+	_, seedPresent := captured["seed"]
+	if seedPresent != tt.wantSeedPresent {
+		t.Fatalf("seed present = %t, want %t; body=%#v", seedPresent, tt.wantSeedPresent, captured)
+	}
+
+	voiceSettings, ok := captured["voice_settings"].(map[string]any)
+	if !ok {
+		t.Fatalf("voice_settings = %#v, want object", captured["voice_settings"])
+	}
+
+	boost, boostPresent := voiceSettings["use_speaker_boost"]
+	if boostPresent != tt.wantBoostPresent {
+		t.Fatalf("use_speaker_boost present = %t, want %t; body=%#v", boostPresent, tt.wantBoostPresent, voiceSettings)
+	}
+	if boostPresent && boost != tt.wantUseSpeakerBoost {
+		t.Fatalf("use_speaker_boost = %#v, want %t", boost, tt.wantUseSpeakerBoost)
 	}
 }
 
