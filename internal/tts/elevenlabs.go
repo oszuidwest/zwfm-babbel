@@ -24,6 +24,7 @@ type APIError struct {
 	RetryAfter string
 }
 
+// Error returns the ElevenLabs failure message for the upstream status code.
 func (e *APIError) Error() string {
 	switch e.StatusCode {
 	case http.StatusUnauthorized:
@@ -47,6 +48,7 @@ type ClientError struct {
 	Err       error
 }
 
+// Error returns the local request failure message.
 func (e *ClientError) Error() string {
 	if e.Err == nil {
 		return e.Operation
@@ -57,6 +59,7 @@ func (e *ClientError) Error() string {
 	return e.Operation + ": " + e.Err.Error()
 }
 
+// Unwrap returns the underlying local request error.
 func (e *ClientError) Unwrap() error { return e.Err }
 
 func newClientError(operation string, err error) *ClientError {

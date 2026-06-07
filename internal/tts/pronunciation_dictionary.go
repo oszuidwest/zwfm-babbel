@@ -57,8 +57,13 @@ type SetRulesResult struct {
 // PronunciationDictionaryClient is the service-facing contract for dictionary
 // operations. Service tests mock this interface; *Service implements it.
 type PronunciationDictionaryClient interface {
+	// CreateDictionaryFromRules creates a managed dictionary from the supplied alias rules.
 	CreateDictionaryFromRules(ctx context.Context, name, description string, rules []Rule) (DictionaryState, error)
+
+	// GetDictionary reads a managed dictionary by ID.
 	GetDictionary(ctx context.Context, id string) (DictionaryState, error)
+
+	// SetRules replaces all alias rules in a managed dictionary.
 	SetRules(ctx context.Context, id string, rules []Rule) (SetRulesResult, error)
 }
 
@@ -125,8 +130,8 @@ func (r incomingPronunciationRule) toRule() Rule {
 	}
 }
 
-// CreateDictionaryFromRules creates the managed Babbel dictionary with an
-// initial alias-rule set.
+// CreateDictionaryFromRules creates the managed Babbel dictionary with an initial alias-rule set.
+// It returns APIError for ElevenLabs rejections and ClientError for request construction failures.
 func (s *Service) CreateDictionaryFromRules(
 	ctx context.Context,
 	name string,
@@ -182,6 +187,7 @@ func (s *Service) CreateDictionaryFromRules(
 
 // GetDictionary reads the managed dictionary and collapses missing or archived
 // dictionaries to ErrDictionaryNotFound.
+// It returns APIError for other ElevenLabs rejections and ClientError for request construction failures.
 func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState, error) {
 	req, err := s.newJSONRequest(
 		ctx,
@@ -223,6 +229,7 @@ func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState
 }
 
 // SetRules replaces all rules in the managed dictionary in one upstream call.
+// It returns ErrDictionaryNotFound when ElevenLabs reports the dictionary as missing or archived.
 func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRulesResult, error) {
 	body, err := json.Marshal(setRulesRequest{Rules: outgoingRules(rules)})
 	if err != nil {
@@ -269,6 +276,7 @@ func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRul
 
 // ClassifyDictionaryError returns ErrDictionaryNotFound for upstream responses
 // that mean the managed dictionary is missing or archived.
+// It returns nil for nil input and the original APIError for unrelated responses.
 func ClassifyDictionaryError(apiErr *APIError) error {
 	if apiErr == nil {
 		return nil
@@ -284,6 +292,7 @@ func ClassifyDictionaryError(apiErr *APIError) error {
 
 // ClassifyDictionaryLocatorError returns ErrDictionaryNotFound only when a TTS
 // request error body explicitly points at a missing pronunciation dictionary.
+// It returns nil for nil input and the original APIError for unrelated responses.
 func ClassifyDictionaryLocatorError(apiErr *APIError) error {
 	if apiErr == nil {
 		return nil

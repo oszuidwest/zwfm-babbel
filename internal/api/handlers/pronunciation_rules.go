@@ -14,7 +14,10 @@ import (
 
 // PronunciationRulesService is the handler-facing pronunciation rules contract.
 type PronunciationRulesService interface {
+	// Get loads the current editor-facing pronunciation rule set.
 	Get(ctx context.Context) (*services.PronunciationRulesResponse, error)
+
+	// Update validates and replaces the full pronunciation rule set.
 	Update(ctx context.Context, req *services.UpdatePronunciationRulesRequest) (*services.PronunciationRulesResponse, error)
 }
 

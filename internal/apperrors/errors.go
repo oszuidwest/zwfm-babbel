@@ -10,6 +10,7 @@ type NotFoundError struct {
 	cause    error
 }
 
+// Error returns a message identifying the missing resource.
 func (e *NotFoundError) Error() string {
 	if e.ID != nil {
 		return fmt.Sprintf("%s with id %d not found", e.Resource, *e.ID)
@@ -17,6 +18,7 @@ func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("%s not found", e.Resource)
 }
 
+// Unwrap returns the underlying not-found cause, if one was captured.
 func (e *NotFoundError) Unwrap() error { return e.cause }
 
 // NotFoundWithID creates a NotFoundError for the given resource and ID.
@@ -37,6 +39,7 @@ type DuplicateError struct {
 	cause    error
 }
 
+// Error returns a message identifying the duplicate resource or field.
 func (e *DuplicateError) Error() string {
 	if e.Value != "" {
 		return fmt.Sprintf("%s with %s '%s' already exists", e.Resource, e.Field, e.Value)
@@ -47,6 +50,7 @@ func (e *DuplicateError) Error() string {
 	return fmt.Sprintf("%s already exists", e.Resource)
 }
 
+// Unwrap returns the underlying duplicate cause, if one was captured.
 func (e *DuplicateError) Unwrap() error { return e.cause }
 
 // Duplicate creates a DuplicateError for the given resource, field, and value.
@@ -66,10 +70,12 @@ type DependencyError struct {
 	cause      error
 }
 
+// Error returns a message identifying the dependency that blocks deletion.
 func (e *DependencyError) Error() string {
 	return fmt.Sprintf("cannot delete %s: has associated %s", e.Resource, e.Dependency)
 }
 
+// Unwrap returns the underlying dependency cause, if one was captured.
 func (e *DependencyError) Unwrap() error { return e.cause }
 
 // Dependency creates a DependencyError for the given resource and dependency type.
@@ -90,6 +96,7 @@ type ValidationError struct {
 	cause    error
 }
 
+// Error returns the field-specific validation message.
 func (e *ValidationError) Error() string {
 	if e.Field != "" {
 		return fmt.Sprintf("%s: %s", e.Field, e.Message)
@@ -97,6 +104,7 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
+// Unwrap returns the underlying validation cause, if one was captured.
 func (e *ValidationError) Unwrap() error { return e.cause }
 
 // Validation creates a ValidationError for the given resource, field, and message.
@@ -117,10 +125,12 @@ type ValidationProblemError struct {
 	cause    error
 }
 
+// Error returns the validation problem detail.
 func (e *ValidationProblemError) Error() string {
 	return e.Detail
 }
 
+// Unwrap returns the underlying validation problem cause, if one was captured.
 func (e *ValidationProblemError) Unwrap() error { return e.cause }
 
 // NewValidationProblemError creates a ValidationProblemError for the given resource.
@@ -147,6 +157,7 @@ type NotInitializedError struct {
 	cause    error
 }
 
+// Error returns the setup prerequisite message.
 func (e *NotInitializedError) Error() string {
 	if e.Detail != "" {
 		return e.Detail
@@ -154,6 +165,7 @@ func (e *NotInitializedError) Error() string {
 	return fmt.Sprintf("%s not initialized", e.Resource)
 }
 
+// Unwrap returns the underlying initialization cause, if one was captured.
 func (e *NotInitializedError) Unwrap() error { return e.cause }
 
 // NotInitialized creates a NotInitializedError for a missing setup prerequisite.
@@ -179,10 +191,12 @@ type RateLimitedError struct {
 	cause      error
 }
 
+// Error returns a message identifying the rate-limited resource.
 func (e *RateLimitedError) Error() string {
 	return fmt.Sprintf("%s rate limited", e.Resource)
 }
 
+// Unwrap returns the underlying rate-limit cause, if one was captured.
 func (e *RateLimitedError) Unwrap() error { return e.cause }
 
 // RateLimited creates a RateLimitedError.
@@ -199,6 +213,7 @@ type UpstreamError struct {
 	cause    error
 }
 
+// Error returns a message identifying the failed upstream dependency.
 func (e *UpstreamError) Error() string {
 	if e.Service != "" {
 		return fmt.Sprintf("%s upstream %s failed", e.Resource, e.Service)
@@ -206,6 +221,7 @@ func (e *UpstreamError) Error() string {
 	return fmt.Sprintf("%s upstream failed", e.Resource)
 }
 
+// Unwrap returns the underlying upstream cause, if one was captured.
 func (e *UpstreamError) Unwrap() error { return e.cause }
 
 // Upstream creates an UpstreamError.
@@ -226,10 +242,12 @@ type DatabaseError struct {
 	cause     error
 }
 
+// Error returns a message identifying the failed database operation.
 func (e *DatabaseError) Error() string {
 	return fmt.Sprintf("database error during %s %s", e.Operation, e.Resource)
 }
 
+// Unwrap returns the underlying database cause, if one was captured.
 func (e *DatabaseError) Unwrap() error { return e.cause }
 
 // Database creates a DatabaseError for the given resource and operation.
@@ -244,10 +262,12 @@ type AudioError struct {
 	cause     error
 }
 
+// Error returns a message identifying the failed audio operation.
 func (e *AudioError) Error() string {
 	return fmt.Sprintf("audio %s failed for %s", e.Operation, e.Resource)
 }
 
+// Unwrap returns the underlying audio cause, if one was captured.
 func (e *AudioError) Unwrap() error { return e.cause }
 
 // Audio creates an AudioError for the given resource and operation.
@@ -260,10 +280,12 @@ type NoStoriesError struct {
 	StationID int64
 }
 
+// Error returns a message identifying the station without active stories.
 func (e *NoStoriesError) Error() string {
 	return fmt.Sprintf("no active stories available for station %d", e.StationID)
 }
 
+// Unwrap returns nil because NoStoriesError has no nested cause.
 func (e *NoStoriesError) Unwrap() error { return nil }
 
 // NoStories creates a NoStoriesError for the given station ID.

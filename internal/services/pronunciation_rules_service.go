@@ -43,7 +43,8 @@ type pronunciationSettingsRepository interface {
 	SetPronunciationDictionaryID(ctx context.Context, id *string) error
 }
 
-// NewPronunciationRulesService wires pronunciation-rule operations.
+// NewPronunciationRulesService returns a service that stores the managed
+// dictionary ID in settingsRepo and performs upstream dictionary calls through client.
 func NewPronunciationRulesService(
 	settingsRepo *repository.TTSSettingsRepository,
 	client tts.PronunciationDictionaryClient,
@@ -98,8 +99,9 @@ type pronunciationRulesDiff struct {
 	TotalAfter  int
 }
 
-// Get returns the current alias rules from ElevenLabs, or an empty list when no
-// dictionary has been created yet.
+// Get returns the current alias rules from ElevenLabs.
+// It returns an empty rule list when no dictionary has been created yet, and an
+// empty list with a warning when the stored dictionary is missing upstream.
 func (s *PronunciationRulesService) Get(ctx context.Context) (*PronunciationRulesResponse, error) {
 	settings, err := s.settingsRepo.Get(ctx)
 	if err != nil {
@@ -124,6 +126,8 @@ func (s *PronunciationRulesService) Get(ctx context.Context) (*PronunciationRule
 }
 
 // Update validates and replaces the full alias-rule set.
+// It creates the managed ElevenLabs dictionary on first write or after a missing
+// upstream dictionary, and records audit details for successful changes.
 func (s *PronunciationRulesService) Update(
 	ctx context.Context,
 	req *UpdatePronunciationRulesRequest,
