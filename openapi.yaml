@@ -1205,6 +1205,12 @@ paths:
       description: |
         Partially updates the singleton ElevenLabs text-to-speech settings row.
         Writes are admin-only because these settings affect all subsequent TTS generation.
+
+        Concurrency: this endpoint uses last-writer-wins semantics. There is no
+        optimistic concurrency control (no ETag / If-Match header). If two
+        admins PATCH simultaneously, the later request silently overwrites the
+        earlier one. Coordinate edits out-of-band when multiple admins manage
+        these settings.
       tags:
         - Settings
       requestBody:

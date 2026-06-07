@@ -73,9 +73,15 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 }
 
 // Update validates, applies, and returns the updated singleton settings.
-// TTS settings updates are intentionally last-writer-wins, matching the rest of
-// the PATCH APIs. The audit log is best-effort and compares snapshots around the
-// update; it is not an immutable serialized audit trail.
+//
+// Concurrency: last-writer-wins. No ETag / If-Match plumbing; concurrent
+// PATCHes from two admins will silently overwrite each other. This is a
+// deliberate choice — the endpoint is admin-only and write traffic is low —
+// but it is also called out in the OpenAPI description for callers.
+//
+// Auditing: logTTSSettingsUpdate captures both old and new values for every
+// changed field via buildTTSSettingsAuditFields. The log is the system of
+// record for who changed what; database state alone cannot reconstruct that.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
 	current, err := s.Get(ctx)
 	if err != nil {
@@ -224,23 +230,36 @@ func betweenInclusive(value, min, max float64) bool {
 }
 
 func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) {
+	fields := buildTTSSettingsAuditFields(req, before, after)
+	if fields == nil {
+		return
+	}
+	logger.WithFields(fields).Info("tts settings updated")
+}
+
+// buildTTSSettingsAuditFields returns the structured audit-log fields for a
+// settings update, or nil when no fields actually changed. Each changed field
+// produces both old_<field> and new_<field> so the log entry stands alone as
+// an audit record without having to diff against the DB.
+func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) map[string]any {
 	changed := changedTTSSettingsFields(req, before, after)
 	if len(changed) == 0 {
-		return
+		return nil
 	}
 
 	fields := map[string]any{
 		"changed_fields": changed,
+		"old_model":      before.Model,
 		"new_model":      after.Model,
 	}
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
 	}
 	for _, field := range changed {
+		fields["old_"+field] = ttsSettingsFieldValue(before, field)
 		fields["new_"+field] = ttsSettingsFieldValue(after, field)
 	}
-
-	logger.WithFields(fields).Info("tts settings updated")
+	return fields
 }
 
 func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) []string {

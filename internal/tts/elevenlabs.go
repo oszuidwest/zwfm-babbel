@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
@@ -101,8 +102,10 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1/text-to-speech/%s", s.baseURL, voiceID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	// Defense-in-depth: escape the voice ID path segment in case upstream validation
+	// is bypassed. The service layer also allowlists voice IDs at write time.
+	reqURL := fmt.Sprintf("%s/v1/text-to-speech/%s", s.baseURL, url.PathEscape(voiceID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TTS request: %w", err)
 	}

@@ -151,6 +151,33 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 }
 
+func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
+	var capturedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "audio/mpeg")
+		_, _ = w.Write([]byte("mp3"))
+	}))
+	defer server.Close()
+
+	service := &Service{
+		apiKey:  "test-key",
+		baseURL: server.URL,
+		client:  &http.Client{Timeout: time.Second},
+	}
+
+	// Even if the service layer let a path-altering value slip, the client must
+	// not route it to a different upstream endpoint.
+	if _, err := service.GenerateSpeech(context.Background(), "t", "../evil", Options{Model: "eleven_v3"}); err != nil {
+		t.Fatalf("GenerateSpeech() error = %v", err)
+	}
+
+	const want = "/v1/text-to-speech/..%2Fevil"
+	if capturedPath != want {
+		t.Fatalf("escaped path = %q, want %q", capturedPath, want)
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
@@ -137,6 +138,68 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 				t.Fatalf("hint = %q, want %q", notInitialized.Hint, tt.wantHint)
 			}
 		})
+	}
+}
+
+func TestBuildTTSSettingsAuditFields_RecordsOldAndNewValues(t *testing.T) {
+	actor := int64(7)
+	newPrefix := "[news anchor]"
+	newModel := TTSModelMultilingualV2
+	req := &UpdateTTSSettingsRequest{
+		Model:          &newModel,
+		TTSStylePrefix: &newPrefix,
+		ActorUserID:    &actor,
+	}
+
+	before := &models.TTSSettings{
+		Model:          TTSModelElevenV3,
+		TTSStylePrefix: "[professional]",
+	}
+	after := &models.TTSSettings{
+		Model:          newModel,
+		TTSStylePrefix: newPrefix,
+	}
+
+	fields := buildTTSSettingsAuditFields(req, before, after)
+
+	if fields == nil {
+		t.Fatal("expected audit fields, got nil")
+	}
+
+	want := map[string]any{
+		"changed_fields":       []string{"model", "tts_style_prefix"},
+		"old_model":            TTSModelElevenV3,
+		"new_model":            newModel,
+		"old_tts_style_prefix": "[professional]",
+		"new_tts_style_prefix": newPrefix,
+		"user_id":              actor,
+	}
+
+	for key, expected := range want {
+		got, ok := fields[key]
+		if !ok {
+			t.Fatalf("missing audit field %q in %#v", key, fields)
+		}
+		if slice, isSlice := expected.([]string); isSlice {
+			gotSlice, ok := got.([]string)
+			if !ok || !slices.Equal(gotSlice, slice) {
+				t.Fatalf("audit[%q] = %#v, want %#v", key, got, slice)
+			}
+			continue
+		}
+		if got != expected {
+			t.Fatalf("audit[%q] = %#v, want %#v", key, got, expected)
+		}
+	}
+}
+
+func TestBuildTTSSettingsAuditFields_NoChangeReturnsNil(t *testing.T) {
+	noop := &UpdateTTSSettingsRequest{}
+	before := &models.TTSSettings{Model: TTSModelElevenV3}
+	after := &models.TTSSettings{Model: TTSModelElevenV3}
+
+	if fields := buildTTSSettingsAuditFields(noop, before, after); fields != nil {
+		t.Fatalf("expected nil for no-change update, got %#v", fields)
 	}
 }
 

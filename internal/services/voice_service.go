@@ -2,11 +2,29 @@ package services
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
+
+// elevenLabsVoiceIDPattern matches the alphanumeric voice IDs ElevenLabs issues
+// (e.g. 21m00Tcm4TlvDq8ikWAM). Hyphen and underscore are allowed for
+// forward-compatibility, but path-altering characters are rejected so the value
+// can never reshape the upstream URL.
+var elevenLabsVoiceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
+
+func validateElevenLabsVoiceID(id *string) error {
+	if id == nil || *id == "" {
+		return nil
+	}
+	if !elevenLabsVoiceIDPattern.MatchString(*id) {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id",
+			"must be 8-64 characters of letters, digits, hyphen, or underscore")
+	}
+	return nil
+}
 
 // VoiceService handles voice-related business logic.
 type VoiceService struct {
@@ -29,6 +47,10 @@ type UpdateVoiceRequest struct {
 
 // Create creates a new voice with the given name and optional ElevenLabs voice ID.
 func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceID *string) (*models.Voice, error) {
+	if err := validateElevenLabsVoiceID(elevenLabsVoiceID); err != nil {
+		return nil, err
+	}
+
 	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
@@ -49,6 +71,10 @@ func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceI
 
 // Update updates an existing voice's name and returns the updated voice.
 func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) (*models.Voice, error) {
+	if err := validateElevenLabsVoiceID(req.ElevenLabsVoiceID); err != nil {
+		return nil, err
+	}
+
 	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
