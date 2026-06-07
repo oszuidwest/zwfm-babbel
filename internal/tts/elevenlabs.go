@@ -15,6 +15,7 @@ import (
 
 const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
 const defaultAPIBaseURL = "https://api.elevenlabs.io"
+const outputFormatOpus48k128 = "opus_48000_128"
 
 // APIError preserves ElevenLabs response details for service-layer translation.
 type APIError struct {
@@ -89,7 +90,7 @@ type ttsRequest struct {
 }
 
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
-// Returns the raw MP3 audio bytes.
+// Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
 	body, err := json.Marshal(ttsRequest{
 		Text:                   text,
@@ -104,7 +105,9 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 
 	// Defense-in-depth: escape the voice ID path segment in case upstream validation
 	// is bypassed. The service layer also allowlists voice IDs at write time.
-	reqURL := fmt.Sprintf("%s/v1/text-to-speech/%s", s.baseURL, url.PathEscape(voiceID))
+	query := url.Values{}
+	query.Set("output_format", outputFormatOpus48k128)
+	reqURL := fmt.Sprintf("%s/v1/text-to-speech/%s?%s", s.baseURL, url.PathEscape(voiceID), query.Encode())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TTS request: %w", err)
@@ -112,7 +115,6 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 
 	req.Header.Set("xi-api-key", s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "audio/mpeg")
 
 	resp, err := s.client.Do(req)
 	if err != nil {

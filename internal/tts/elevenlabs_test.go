@@ -61,6 +61,9 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 				if r.URL.Path != "/v1/text-to-speech/voice-123" {
 					t.Errorf("path = %q, want /v1/text-to-speech/voice-123", r.URL.Path)
 				}
+				if got := r.URL.Query().Get("output_format"); got != outputFormatOpus48k128 {
+					t.Errorf("output_format = %q, want %q", got, outputFormatOpus48k128)
+				}
 				if got := r.Header.Get("xi-api-key"); got != "test-key" {
 					t.Errorf("xi-api-key = %q, want test-key", got)
 				}
@@ -68,8 +71,8 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 					t.Errorf("decode request body: %v", err)
 				}
 
-				w.Header().Set("Content-Type", "audio/mpeg")
-				_, _ = w.Write([]byte("mp3"))
+				w.Header().Set("Content-Type", "audio/ogg")
+				_, _ = w.Write([]byte("opus"))
 			}))
 			defer server.Close()
 
@@ -83,8 +86,8 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GenerateSpeech() error = %v", err)
 			}
-			if string(audio) != "mp3" {
-				t.Fatalf("audio = %q, want mp3", string(audio))
+			if string(audio) != "opus" {
+				t.Fatalf("audio = %q, want opus", string(audio))
 			}
 
 			if captured["text"] != "final text" {
@@ -155,8 +158,8 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 	var capturedPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.EscapedPath()
-		w.Header().Set("Content-Type", "audio/mpeg")
-		_, _ = w.Write([]byte("mp3"))
+		w.Header().Set("Content-Type", "audio/ogg")
+		_, _ = w.Write([]byte("opus"))
 	}))
 	defer server.Close()
 

@@ -432,7 +432,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}
 
 	// Write to temp file for processing through the standard audio pipeline
-	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.mp3", storyID))
+	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
