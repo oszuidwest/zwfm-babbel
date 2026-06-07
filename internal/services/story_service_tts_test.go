@@ -262,6 +262,68 @@ func TestTranslateTTSError(t *testing.T) {
 	}
 }
 
+func TestTranslateStoryTTSError_DictionaryLocatorErrors(t *testing.T) {
+	locators := []tts.DictionaryLocator{{PronunciationDictionaryID: "dict-123"}}
+
+	tests := []struct {
+		name     string
+		err      error
+		locators []tts.DictionaryLocator
+		assert   func(t *testing.T, got error)
+	}{
+		{
+			name:     "422 dictionary missing marker maps to pronunciation rules validation",
+			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
+			},
+		},
+		{
+			name:     "404 dictionary missing marker maps to pronunciation rules validation",
+			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"dictionary not found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
+			},
+		},
+		{
+			name:     "404 voice missing with locator still maps to voice validation",
+			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"voice not found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "Voice", "elevenlabs_voice_id")
+			},
+		},
+		{
+			name:     "dictionary marker without locator stays regular TTS validation",
+			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
+			locators: []tts.DictionaryLocator{},
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "TTS", "request")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := translateStoryTTSError(tt.err, tt.locators)
+			if got == nil {
+				t.Fatal("translateStoryTTSError() returned nil")
+			}
+			var apiErr *tts.APIError
+			if !errors.As(got, &apiErr) {
+				t.Fatalf("translated error does not wrap original API error: %v", got)
+			}
+			tt.assert(t, got)
+		})
+	}
+}
+
 func assertUpstreamError(t *testing.T, got error, wantStatus int) {
 	t.Helper()
 

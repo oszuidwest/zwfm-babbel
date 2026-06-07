@@ -2999,7 +2999,7 @@ components:
           description: Dictionary creation time. Null until a dictionary exists.
         warning:
           type: string
-          description: Recovery or external-rule warning when the upstream dictionary needs attention.
+          description: Warns when the upstream dictionary is missing and will be recreated, or when non-alias ElevenLabs rules were discarded from the editor-facing list.
 
     PronunciationRulesUpdate:
       type: object

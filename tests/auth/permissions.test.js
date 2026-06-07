@@ -1,3 +1,5 @@
+const ApiHelper = require('../lib/ApiHelper');
+
 describe('Permissions', () => {
   let ttsAPIKeyConfigured = false;
 
@@ -305,6 +307,27 @@ describe('Permissions', () => {
 
       // Assert
       expect(response.status).toBe(401);
+    });
+
+    test('when suspended admin has an existing session, then pronunciation routes are unauthorized', async () => {
+      await restoreAdmin();
+
+      const username = `suspendedadmin${Date.now()}`;
+      const suspendedAdminId = await createUser(username, 'Suspended Admin', 'TestPass123!', 'admin');
+      expect(suspendedAdminId).not.toBeNull();
+
+      const suspendedAdminApi = new ApiHelper();
+      const login = await suspendedAdminApi.apiLogin(username, 'TestPass123!');
+      expect(login.status).toBe(201);
+
+      const suspendResponse = await global.api.apiCall('PUT', `/users/${suspendedAdminId}`, { suspended: true });
+      expect(suspendResponse.status).toBe(200);
+
+      const getResponse = await suspendedAdminApi.apiCall('GET', '/settings/tts/pronunciations');
+      expect(getResponse.status).toBe(401);
+
+      const putResponse = await suspendedAdminApi.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
+      expect(putResponse.status).toBe(401);
     });
   });
 });

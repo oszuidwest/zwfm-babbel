@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +21,14 @@ const (
 	managedPronunciationDictionaryDescription = "Auto-managed by Babbel"
 
 	missingPronunciationDictionaryWarning = "The Babbel dictionary on ElevenLabs is missing; it will be recreated on the next save."
+)
+
+type pronunciationRulesAuditAction string
+
+const (
+	pronunciationRulesAuditActionInit         pronunciationRulesAuditAction = "init"
+	pronunciationRulesAuditActionIDCleared    pronunciationRulesAuditAction = "id_cleared"
+	pronunciationRulesAuditActionRulesReplace pronunciationRulesAuditAction = "rules_replace"
 )
 
 // PronunciationRulesService manages the flat editor-facing rule list backed by
@@ -69,7 +78,7 @@ type PronunciationRulesResponse struct {
 }
 
 type pronunciationRulesAuditEvent struct {
-	Action       string
+	Action       pronunciationRulesAuditAction
 	ActorUserID  *int64
 	DictionaryID string
 	Added        int
@@ -152,7 +161,7 @@ func (s *PronunciationRulesService) Update(
 
 	diff := diffPronunciationRules(baseline.Rules, rules)
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
-		Action:       "rules_replace",
+		Action:       pronunciationRulesAuditActionRulesReplace,
 		ActorUserID:  actorUserID(req),
 		DictionaryID: currentID,
 		Added:        diff.Added,
@@ -184,7 +193,7 @@ func (s *PronunciationRulesService) runCreatePath(
 			return nil, translatePronunciationRulesRepoWriteError("clear_dictionary_id", err)
 		}
 		logPronunciationRulesAudit(pronunciationRulesAuditEvent{
-			Action:       "id_cleared",
+			Action:       pronunciationRulesAuditActionIDCleared,
 			ActorUserID:  actorUserID,
 			DictionaryID: *currentID,
 			TotalAfter:   0,
@@ -213,7 +222,7 @@ func (s *PronunciationRulesService) runCreatePath(
 	}
 
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
-		Action:       "init",
+		Action:       pronunciationRulesAuditActionInit,
 		ActorUserID:  actorUserID,
 		DictionaryID: newID,
 		TotalAfter:   len(rules),
@@ -247,13 +256,13 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]tts.
 		if alias == "" {
 			errs = append(errs, fieldError(fieldPrefix+".alias", "cannot be empty or whitespace only"))
 		}
-		if previous, ok := seen[rule.StringToReplace]; ok {
+		if previous, ok := seen[stringToReplace]; ok {
 			errs = append(errs, fieldError(
 				fieldPrefix+".string_to_replace",
-				fmt.Sprintf("duplicates rules[%d].string_to_replace value %q", previous, rule.StringToReplace),
+				fmt.Sprintf("duplicates rules[%d].string_to_replace value %q", previous, stringToReplace),
 			))
 		} else {
-			seen[rule.StringToReplace] = i
+			seen[stringToReplace] = i
 		}
 
 		caseSensitive := true
@@ -266,8 +275,8 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]tts.
 		}
 
 		rules = append(rules, tts.Rule{
-			StringToReplace: rule.StringToReplace,
-			Alias:           rule.Alias,
+			StringToReplace: stringToReplace,
+			Alias:           alias,
 			CaseSensitive:   caseSensitive,
 			WordBoundaries:  wordBoundaries,
 		})
@@ -325,10 +334,12 @@ func translatePronunciationRulesUpstreamError(err error) error {
 				apiErr,
 			)
 		case http.StatusUnprocessableEntity:
-			return apperrors.NewValidationProblemError(
+			message := upstreamRulesValidationMessage(apiErr)
+			return apperrors.NewValidationProblemErrorWithCause(
 				"pronunciation_rules",
-				apiErr.Error(),
-				[]apperrors.ValidationError{fieldError("rules", apiErr.Body)},
+				"ElevenLabs rejected the pronunciation rules",
+				[]apperrors.ValidationError{fieldError("rules", message)},
+				apiErr,
 			)
 		case http.StatusTooManyRequests:
 			return apperrors.RateLimited("PronunciationRules", apiErr.RetryAfter, apiErr)
@@ -349,6 +360,48 @@ func translatePronunciationRulesUpstreamError(err error) error {
 		"Please try again later",
 		err,
 	)
+}
+
+func upstreamRulesValidationMessage(apiErr *tts.APIError) string {
+	const fallback = "ElevenLabs rejected the pronunciation rules"
+	if apiErr == nil {
+		return fallback
+	}
+
+	body := strings.TrimSpace(apiErr.Body)
+	if body == "" {
+		return fallback
+	}
+
+	var payload struct {
+		Detail  any `json:"detail"`
+		Message any `json:"message"`
+		Error   any `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return fallback
+	}
+
+	for _, value := range []any{payload.Detail, payload.Message, payload.Error} {
+		if message := upstreamMessageString(value); message != "" {
+			return message
+		}
+	}
+	return fallback
+}
+
+func upstreamMessageString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]any:
+		for _, key := range []string{"message", "detail", "error"} {
+			if message, ok := v[key].(string); ok && strings.TrimSpace(message) != "" {
+				return strings.TrimSpace(message)
+			}
+		}
+	}
+	return ""
 }
 
 func diffPronunciationRules(before, after []tts.Rule) pronunciationRulesDiff {
@@ -393,14 +446,14 @@ func pronunciationRulesEqual(a, b tts.Rule) bool {
 
 func logPronunciationRulesAudit(event pronunciationRulesAuditEvent) {
 	fields := map[string]any{
-		"action":        event.Action,
+		"action":        string(event.Action),
 		"dictionary_id": event.DictionaryID,
 		"total_after":   event.TotalAfter,
 	}
 	if event.ActorUserID != nil {
 		fields["user_id"] = *event.ActorUserID
 	}
-	if event.Action == "rules_replace" {
+	if event.Action == pronunciationRulesAuditActionRulesReplace {
 		fields["added"] = event.Added
 		fields["removed"] = event.Removed
 		fields["changed"] = event.Changed

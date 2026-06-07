@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,12 +20,15 @@ func TestMaterializePronunciationRules(t *testing.T) {
 	t.Run("defaults omitted booleans to true", func(t *testing.T) {
 		rules, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
 			Rules: []PronunciationRuleUpdate{{
-				StringToReplace: "Albert Heijn",
-				Alias:           "albert hijn",
+				StringToReplace: " Albert Heijn ",
+				Alias:           "\talbert hijn\n",
 			}},
 		})
 		if err != nil {
 			t.Fatalf("materializePronunciationRules() error = %v", err)
+		}
+		if rules[0].StringToReplace != "Albert Heijn" || rules[0].Alias != "albert hijn" {
+			t.Fatalf("rule = %#v, want trimmed values", rules[0])
 		}
 		if !rules[0].CaseSensitive || !rules[0].WordBoundaries {
 			t.Fatalf("booleans = %t,%t want true,true", rules[0].CaseSensitive, rules[0].WordBoundaries)
@@ -51,8 +55,8 @@ func TestMaterializePronunciationRules(t *testing.T) {
 	t.Run("validates empty and duplicate fields", func(t *testing.T) {
 		_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
 			Rules: []PronunciationRuleUpdate{
-				{StringToReplace: "ZuidWest", Alias: "zuit west"},
-				{StringToReplace: "ZuidWest", Alias: "zuit west opnieuw"},
+				{StringToReplace: " ZuidWest", Alias: "zuit west"},
+				{StringToReplace: "ZuidWest ", Alias: "zuit west opnieuw"},
 				{StringToReplace: " ", Alias: "\t"},
 			},
 		})
@@ -276,18 +280,74 @@ func TestPronunciationRulesService_GetWarnings(t *testing.T) {
 	})
 }
 
-func TestPronunciationRulesService_Translations(t *testing.T) {
-	t.Run("upstream 422 maps to validation problem", func(t *testing.T) {
-		err := translatePronunciationRulesUpstreamError(&tts.APIError{
-			StatusCode: http.StatusUnprocessableEntity,
-			Body:       `{"detail":"invalid rule"}`,
-		})
-		var validationErr *apperrors.ValidationProblemError
-		if !errors.As(err, &validationErr) {
-			t.Fatalf("error type = %T, want *ValidationProblemError", err)
-		}
-	})
+func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
+	tests := []struct {
+		name        string
+		apiErr      *tts.APIError
+		wantKind    string
+		wantStatus  int
+		wantRetry   string
+		wantMessage string
+	}{
+		{
+			name:       "401 maps to service unavailable",
+			apiErr:     &tts.APIError{StatusCode: http.StatusUnauthorized, Body: "bad key"},
+			wantKind:   "upstream",
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name:       "403 maps to service unavailable",
+			apiErr:     &tts.APIError{StatusCode: http.StatusForbidden, Body: "forbidden"},
+			wantKind:   "upstream",
+			wantStatus: http.StatusServiceUnavailable,
+		},
+		{
+			name: "422 maps sanitized upstream message to validation problem",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `{"detail":"invalid rule"}`,
+			},
+			wantKind:    "validation",
+			wantMessage: "invalid rule",
+		},
+		{
+			name: "422 non-JSON body uses sanitized fallback",
+			apiErr: &tts.APIError{
+				StatusCode: http.StatusUnprocessableEntity,
+				Body:       `<html>private upstream details</html>`,
+			},
+			wantKind:    "validation",
+			wantMessage: "ElevenLabs rejected the pronunciation rules",
+		},
+		{
+			name:      "429 preserves retry after",
+			apiErr:    &tts.APIError{StatusCode: http.StatusTooManyRequests, Body: "slow down", RetryAfter: "17"},
+			wantKind:  "rate_limited",
+			wantRetry: "17",
+		},
+		{
+			name:       "500 maps to bad gateway",
+			apiErr:     &tts.APIError{StatusCode: http.StatusInternalServerError, Body: "upstream failed"},
+			wantKind:   "upstream",
+			wantStatus: http.StatusBadGateway,
+		},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := translatePronunciationRulesUpstreamError(tt.apiErr)
+			assertWrapsAPIError(t, got)
+			assertPronunciationRulesTranslation(t, got, tt.wantKind, tt.wantStatus, tt.wantRetry, tt.wantMessage)
+		})
+	}
+}
+
+func TestTranslatePronunciationRulesUpstreamError_PlainError(t *testing.T) {
+	err := translatePronunciationRulesUpstreamError(errors.New("transport failed"))
+	assertUpstreamError(t, err, http.StatusBadGateway)
+}
+
+func TestPronunciationRulesService_Translations(t *testing.T) {
 	t.Run("create persist failure returns PronunciationRules database error", func(t *testing.T) {
 		repo := &pronunciationSettingsRepoMock{
 			settings: &models.TTSSettings{},
@@ -311,6 +371,70 @@ func TestPronunciationRulesService_Translations(t *testing.T) {
 			t.Fatalf("db error = %#v, want PronunciationRules persist_dictionary_id", dbErr)
 		}
 	})
+}
+
+func assertWrapsAPIError(t *testing.T, got error) {
+	t.Helper()
+
+	var apiErr *tts.APIError
+	if !errors.As(got, &apiErr) {
+		t.Fatalf("translated error does not wrap original API error: %v", got)
+	}
+}
+
+func assertPronunciationRulesTranslation(
+	t *testing.T,
+	got error,
+	wantKind string,
+	wantStatus int,
+	wantRetry string,
+	wantMessage string,
+) {
+	t.Helper()
+
+	switch wantKind {
+	case "upstream":
+		assertUpstreamError(t, got, wantStatus)
+	case "validation":
+		assertPronunciationRulesValidationProblem(t, got, wantMessage)
+	case "rate_limited":
+		assertPronunciationRulesRateLimited(t, got, wantRetry)
+	default:
+		t.Fatalf("unknown wantKind %q", wantKind)
+	}
+}
+
+func assertPronunciationRulesValidationProblem(t *testing.T, got error, wantMessage string) {
+	t.Helper()
+
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(got, &validationErr) {
+		t.Fatalf("error type = %T, want *ValidationProblemError", got)
+	}
+	if validationErr.Detail != "ElevenLabs rejected the pronunciation rules" {
+		t.Fatalf("detail = %q, want sanitized detail", validationErr.Detail)
+	}
+	if len(validationErr.Errors) != 1 ||
+		validationErr.Errors[0].Field != "rules" ||
+		validationErr.Errors[0].Message != wantMessage {
+		t.Fatalf("validation errors = %#v, want rules %q", validationErr.Errors, wantMessage)
+	}
+	if strings.Contains(validationErr.Error(), "private upstream details") ||
+		strings.Contains(validationErr.Errors[0].Message, "private upstream details") {
+		t.Fatalf("validation error leaked raw body: %#v", validationErr)
+	}
+}
+
+func assertPronunciationRulesRateLimited(t *testing.T, got error, wantRetry string) {
+	t.Helper()
+
+	var rateLimited *apperrors.RateLimitedError
+	if !errors.As(got, &rateLimited) {
+		t.Fatalf("error type = %T, want *RateLimitedError", got)
+	}
+	if rateLimited.RetryAfter != wantRetry {
+		t.Fatalf("RetryAfter = %q, want %q", rateLimited.RetryAfter, wantRetry)
+	}
 }
 
 func TestDiffPronunciationRules(t *testing.T) {

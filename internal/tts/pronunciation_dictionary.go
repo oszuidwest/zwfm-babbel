@@ -13,8 +13,11 @@ import (
 	"time"
 )
 
+const maxDictionaryResponseBytes int64 = 1024 * 1024
+const maxAPIErrorResponseBytes int64 = 1024
+
 // ErrDictionaryNotFound is returned when the managed pronunciation dictionary
-// is missing, inaccessible, or archived upstream.
+// is missing or archived upstream.
 var ErrDictionaryNotFound = errors.New("elevenlabs: pronunciation dictionary not found")
 
 // Rule is the alias-only pronunciation rule shape Babbel manages.
@@ -158,12 +161,16 @@ func (s *Service) CreateDictionaryFromRules(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		return DictionaryState{}, readAPIError(resp)
+	if !isSuccessStatus(resp.StatusCode) {
+		apiErr, err := readAPIError(resp)
+		if err != nil {
+			return DictionaryState{}, err
+		}
+		return DictionaryState{}, apiErr
 	}
 
 	var wire dictionaryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+	if err := decodeLimitedJSON(resp.Body, &wire); err != nil {
 		return DictionaryState{}, fmt.Errorf("failed to decode pronunciation dictionary create response: %w", err)
 	}
 	return wire.toState(), nil
@@ -188,8 +195,11 @@ func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		apiErr := readAPIError(resp)
+	if !isSuccessStatus(resp.StatusCode) {
+		apiErr, err := readAPIError(resp)
+		if err != nil {
+			return DictionaryState{}, err
+		}
 		if classified := classifyAPIError(apiErr); classified != nil {
 			return DictionaryState{}, classified
 		}
@@ -197,7 +207,7 @@ func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState
 	}
 
 	var wire dictionaryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+	if err := decodeLimitedJSON(resp.Body, &wire); err != nil {
 		return DictionaryState{}, fmt.Errorf("failed to decode pronunciation dictionary get response: %w", err)
 	}
 
@@ -231,8 +241,11 @@ func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRul
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusOK {
-		apiErr := readAPIError(resp)
+	if !isSuccessStatus(resp.StatusCode) {
+		apiErr, err := readAPIError(resp)
+		if err != nil {
+			return SetRulesResult{}, err
+		}
 		if classified := classifyAPIError(apiErr); classified != nil {
 			return SetRulesResult{}, classified
 		}
@@ -240,7 +253,7 @@ func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRul
 	}
 
 	var wire setRulesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+	if err := decodeLimitedJSON(resp.Body, &wire); err != nil {
 		return SetRulesResult{}, fmt.Errorf("failed to decode pronunciation dictionary set-rules response: %w", err)
 	}
 	return SetRulesResult{
@@ -265,12 +278,41 @@ func ClassifyDictionaryError(apiErr *APIError) error {
 	return apiErr
 }
 
+// ClassifyDictionaryLocatorError returns ErrDictionaryNotFound only when a TTS
+// request error body explicitly points at a missing pronunciation dictionary.
+func ClassifyDictionaryLocatorError(apiErr *APIError) error {
+	if apiErr == nil {
+		return nil
+	}
+	if (apiErr.StatusCode == http.StatusNotFound ||
+		apiErr.StatusCode == http.StatusUnprocessableEntity) &&
+		looksLikeDictionaryMissing(apiErr.Body) {
+		return ErrDictionaryNotFound
+	}
+	return apiErr
+}
+
 func classifyAPIError(apiErr *APIError) error {
 	classified := ClassifyDictionaryError(apiErr)
 	if errors.Is(classified, ErrDictionaryNotFound) {
 		return classified
 	}
 	return nil
+}
+
+func isSuccessStatus(status int) bool {
+	return status >= http.StatusOK && status < http.StatusMultipleChoices
+}
+
+func decodeLimitedJSON(body io.Reader, target any) error {
+	respBody, err := io.ReadAll(io.LimitReader(body, maxDictionaryResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if int64(len(respBody)) > maxDictionaryResponseBytes {
+		return fmt.Errorf("response body exceeded maximum allowed size of %d bytes", maxDictionaryResponseBytes)
+	}
+	return json.Unmarshal(respBody, target)
 }
 
 func looksLikeDictionaryMissing(body string) bool {
@@ -354,14 +396,14 @@ func (s *Service) newJSONRequest(ctx context.Context, method, path string, body 
 	return req, nil
 }
 
-func readAPIError(resp *http.Response) *APIError {
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+func readAPIError(resp *http.Response) (*APIError, error) {
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxAPIErrorResponseBytes))
 	if err != nil {
-		respBody = []byte(fmt.Sprintf("failed to read response body: %s", err.Error()))
+		return nil, fmt.Errorf("failed to read ElevenLabs error response body for status %d: %w", resp.StatusCode, err)
 	}
 	return &APIError{
 		StatusCode: resp.StatusCode,
 		Body:       string(respBody),
 		RetryAfter: resp.Header.Get("Retry-After"),
-	}
+	}, nil
 }

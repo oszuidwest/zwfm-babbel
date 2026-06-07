@@ -82,6 +82,27 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 		assertValidationField(t, recorder, "Rules")
 	})
 
+	t.Run("empty rules array reaches service for clear path", func(t *testing.T) {
+		svc := &pronunciationRulesHandlerServiceMock{
+			updateResp: &services.PronunciationRulesResponse{Rules: []tts.Rule{}},
+		}
+		h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+
+		recorder := performPronunciationRulesHandlerRequest(
+			t,
+			http.MethodPut,
+			`{"rules":[]}`,
+			h.UpdatePronunciationRules,
+		)
+
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+		}
+		if svc.updateReq == nil || len(svc.updateReq.Rules) != 0 {
+			t.Fatalf("update request = %#v, want empty rules", svc.updateReq)
+		}
+	})
+
 	t.Run("null booleans are passed as nil for service defaults", func(t *testing.T) {
 		svc := &pronunciationRulesHandlerServiceMock{
 			updateResp: &services.PronunciationRulesResponse{Rules: []tts.Rule{}},

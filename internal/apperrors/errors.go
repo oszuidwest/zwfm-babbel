@@ -114,15 +114,28 @@ type ValidationProblemError struct {
 	Resource string
 	Detail   string
 	Errors   []ValidationError
+	cause    error
 }
 
 func (e *ValidationProblemError) Error() string {
 	return e.Detail
 }
 
+func (e *ValidationProblemError) Unwrap() error { return e.cause }
+
 // NewValidationProblemError creates a ValidationProblemError for the given resource.
 func NewValidationProblemError(resource, detail string, errs []ValidationError) *ValidationProblemError {
 	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
+}
+
+// NewValidationProblemErrorWithCause creates a ValidationProblemError with an underlying cause.
+func NewValidationProblemErrorWithCause(
+	resource string,
+	detail string,
+	errs []ValidationError,
+	cause error,
+) *ValidationProblemError {
+	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs, cause: cause}
 }
 
 // NotInitializedError indicates a required singleton resource is not initialized.

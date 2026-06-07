@@ -1,10 +1,15 @@
 package repository
 
 import (
+	"context"
 	"errors"
+	"regexp"
 	"testing"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/DATA-DOG/go-sqlmock"
+	mysqlerr "github.com/go-sql-driver/mysql"
+	gormmysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func TestTTSSettingsUpdate_BuildUpdateMapPreservesZeroValues(t *testing.T) {
@@ -49,7 +54,7 @@ func TestParseDBError_SchemaUnavailable(t *testing.T) {
 	}{
 		{
 			name: "mysql 1146",
-			err:  &mysql.MySQLError{Number: 1146, Message: "Table 'babbel.tts_settings' doesn't exist"},
+			err:  &mysqlerr.MySQLError{Number: 1146, Message: "Table 'babbel.tts_settings' doesn't exist"},
 		},
 		{
 			name: "sqlite no such table fallback",
@@ -80,4 +85,92 @@ func TestParseDBError_DoesNotTreatColumnMissingAsSchemaUnavailable(t *testing.T)
 	if got.Error() != err.Error() {
 		t.Fatalf("ParseDBError() = %v, want original error message %q", got, err.Error())
 	}
+}
+
+func TestTTSSettingsRepository_SetPronunciationDictionaryID(t *testing.T) {
+	tests := []struct {
+		name      string
+		id        *string
+		wantValue any
+		rows      int64
+		wantErr   error
+	}{
+		{
+			name:      "sets dictionary ID",
+			id:        ptr("dict-123"),
+			wantValue: "dict-123",
+			rows:      1,
+		},
+		{
+			name:      "nil clears dictionary ID",
+			id:        nil,
+			wantValue: nil,
+			rows:      1,
+		},
+		{
+			name:      "empty string clears dictionary ID",
+			id:        ptr(""),
+			wantValue: nil,
+			rows:      1,
+		},
+		{
+			name:      "missing singleton row returns not found",
+			id:        ptr("dict-123"),
+			wantValue: "dict-123",
+			rows:      0,
+			wantErr:   ErrNotFound,
+		},
+	}
+
+	sqlPattern := regexp.QuoteMeta("UPDATE `tts_settings` SET `pronunciation_dictionary_id`=?,`updated_at`=? WHERE id = ?")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo, mock, cleanup := newMockTTSSettingsRepository(t)
+			defer cleanup()
+
+			mock.ExpectExec(sqlPattern).
+				WithArgs(tt.wantValue, sqlmock.AnyArg(), ttsSettingsSingletonID).
+				WillReturnResult(sqlmock.NewResult(0, tt.rows))
+
+			err := repo.SetPronunciationDictionaryID(context.Background(), tt.id)
+			if tt.wantErr == nil {
+				if err != nil {
+					t.Fatalf("SetPronunciationDictionaryID() error = %v, want nil", err)
+				}
+			} else if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("SetPronunciationDictionaryID() error = %v, want %v", err, tt.wantErr)
+			}
+
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatalf("SQL expectations were not met: %v", err)
+			}
+		})
+	}
+}
+
+func newMockTTSSettingsRepository(t *testing.T) (*TTSSettingsRepository, sqlmock.Sqlmock, func()) {
+	t.Helper()
+
+	sqlDB, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New(): %v", err)
+	}
+
+	gormDB, err := gorm.Open(
+		gormmysql.New(gormmysql.Config{
+			Conn:                      sqlDB,
+			SkipInitializeWithVersion: true,
+		}),
+		&gorm.Config{SkipDefaultTransaction: true},
+	)
+	if err != nil {
+		_ = sqlDB.Close()
+		t.Fatalf("gorm.Open(): %v", err)
+	}
+
+	return NewTTSSettingsRepository(gormDB), mock, func() { _ = sqlDB.Close() }
+}
+
+func ptr[T any](value T) *T {
+	return &value
 }

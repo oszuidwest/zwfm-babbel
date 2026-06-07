@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,7 @@ func TestService_CreateDictionaryFromRules_RequestBody(t *testing.T) {
 		captured = decodePronunciationDictionaryRequest(t, r)
 
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{
 			"id":"dict-123",
 			"name":"Babbel",
@@ -55,6 +57,28 @@ func TestService_CreateDictionaryFromRules_RequestBody(t *testing.T) {
 	rule := rules[0].(map[string]any)
 	if rule["type"] != "alias" || rule["case_sensitive"] != false || rule["word_boundaries"] != true {
 		t.Fatalf("rule payload = %#v, want alias with explicit booleans", rule)
+	}
+}
+
+func TestService_CreateDictionaryFromRules_UpstreamValidationReturnsAPIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"detail":"dictionary_already_exists"}`))
+	}))
+	defer server.Close()
+
+	_, err := testTTSService(server.URL).CreateDictionaryFromRules(
+		context.Background(),
+		"Babbel",
+		"Auto-managed by Babbel",
+		[]Rule{{StringToReplace: "A", Alias: "aa"}},
+	)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("CreateDictionaryFromRules() error type = %T, want *APIError", err)
+	}
+	if apiErr.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(apiErr.Body, "dictionary_already_exists") {
+		t.Fatalf("APIError = %#v, want 422 dictionary_already_exists", apiErr)
 	}
 }
 
@@ -99,6 +123,19 @@ func TestService_GetDictionary_ParsesAliasRulesAndDefaults(t *testing.T) {
 	}
 	if !state.CreationTime.Equal(time.Unix(1717200000, 0).UTC()) {
 		t.Fatalf("CreationTime = %s, want unix 1717200000", state.CreationTime)
+	}
+}
+
+func TestService_GetDictionary_LimitsResponseSize(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(strings.Repeat(" ", int(maxDictionaryResponseBytes)+1)))
+	}))
+	defer server.Close()
+
+	_, err := testTTSService(server.URL).GetDictionary(context.Background(), "dict-123")
+	if err == nil || !strings.Contains(err.Error(), "exceeded maximum allowed size") {
+		t.Fatalf("GetDictionary() error = %v, want response size limit error", err)
 	}
 }
 
@@ -148,53 +185,80 @@ func TestService_GetDictionary_MissingAndArchivedCollapseToSentinel(t *testing.T
 	}
 }
 
-func TestService_SetRules_RequestBodyAndErrorClassification(t *testing.T) {
-	t.Run("sends empty rules array", func(t *testing.T) {
-		var captured map[string]any
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/v1/pronunciation-dictionaries/dict-123/set-rules" {
-				t.Fatalf("path = %q, want set-rules path", r.URL.Path)
-			}
-			captured = decodePronunciationDictionaryRequest(t, r)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"dict-123","version_id":"v3","version_rules_num":0}`))
-		}))
-		defer server.Close()
+func TestService_SetRules_SendsEmptyRulesArray(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/pronunciation-dictionaries/dict-123/set-rules" {
+			t.Fatalf("path = %q, want set-rules path", r.URL.Path)
+		}
+		captured = decodePronunciationDictionaryRequest(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"dict-123","version_id":"v3","version_rules_num":0}`))
+	}))
+	defer server.Close()
 
-		result, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{})
-		if err != nil {
-			t.Fatalf("SetRules() error = %v", err)
-		}
-		if result.LatestVersionID != "v3" || result.LatestVersionRulesNum != 0 {
-			t.Fatalf("result = %#v, want v3/0", result)
-		}
-		rules, ok := captured["rules"].([]any)
-		if !ok || len(rules) != 0 {
-			t.Fatalf("rules = %#v, want empty array", captured["rules"])
-		}
-	})
+	result, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{})
+	if err != nil {
+		t.Fatalf("SetRules() error = %v", err)
+	}
+	if result.LatestVersionID != "v3" || result.LatestVersionRulesNum != 0 {
+		t.Fatalf("result = %#v, want v3/0", result)
+	}
+	rules, ok := captured["rules"].([]any)
+	if !ok || len(rules) != 0 {
+		t.Fatalf("rules = %#v, want empty array", captured["rules"])
+	}
+}
 
+func TestService_SetRules_SendsNonEmptyRulesArray(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/pronunciation-dictionaries/dict-123/set-rules" {
+			t.Fatalf("path = %q, want set-rules path", r.URL.Path)
+		}
+		captured = decodePronunciationDictionaryRequest(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"dict-123","version_id":"v4","version_rules_num":1}`))
+	}))
+	defer server.Close()
+
+	result, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{{
+		StringToReplace: "Albert Heijn",
+		Alias:           "albert hijn",
+		CaseSensitive:   false,
+		WordBoundaries:  true,
+	}})
+	if err != nil {
+		t.Fatalf("SetRules() error = %v", err)
+	}
+	if result.LatestVersionID != "v4" || result.LatestVersionRulesNum != 1 {
+		t.Fatalf("result = %#v, want v4/1", result)
+	}
+
+	rules, ok := captured["rules"].([]any)
+	if !ok || len(rules) != 1 {
+		t.Fatalf("rules = %#v, want one rule", captured["rules"])
+	}
+	rule := rules[0].(map[string]any)
+	if rule["type"] != "alias" ||
+		rule["string_to_replace"] != "Albert Heijn" ||
+		rule["alias"] != "albert hijn" ||
+		rule["case_sensitive"] != false ||
+		rule["word_boundaries"] != true {
+		t.Fatalf("rule payload = %#v, want full alias rule", rule)
+	}
+}
+
+func TestService_SetRules_ErrorClassification(t *testing.T) {
 	t.Run("classified 422 returns sentinel", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"detail":"dictionary does not exist"}`))
-		}))
-		defer server.Close()
-
-		_, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{})
+		err := setRulesWithErrorResponse(t, http.StatusUnprocessableEntity, `{"detail":"dictionary does not exist"}`)
 		if !errors.Is(err, ErrDictionaryNotFound) {
 			t.Fatalf("SetRules() error = %v, want ErrDictionaryNotFound", err)
 		}
 	})
 
 	t.Run("generic 422 stays API error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"detail":"rule too long"}`))
-		}))
-		defer server.Close()
-
-		_, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{})
+		err := setRulesWithErrorResponse(t, http.StatusUnprocessableEntity, `{"detail":"rule too long"}`)
 		var apiErr *APIError
 		if !errors.As(err, &apiErr) {
 			t.Fatalf("SetRules() error type = %T, want *APIError", err)
@@ -203,6 +267,19 @@ func TestService_SetRules_RequestBodyAndErrorClassification(t *testing.T) {
 			t.Fatalf("SetRules() error = %v, did not want ErrDictionaryNotFound", err)
 		}
 	})
+}
+
+func setRulesWithErrorResponse(t *testing.T, status int, body string) error {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	_, err := testTTSService(server.URL).SetRules(context.Background(), "dict-123", []Rule{})
+	return err
 }
 
 func TestClassifyDictionaryError(t *testing.T) {
@@ -245,6 +322,77 @@ func TestClassifyDictionaryError(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifyDictionaryLocatorError(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiErr    *APIError
+		wantFound bool
+	}{
+		{
+			name:      "404 with dictionary marker",
+			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "dictionary not found"},
+			wantFound: true,
+		},
+		{
+			name:      "404 with voice marker",
+			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "voice not found"},
+			wantFound: false,
+		},
+		{
+			name:      "422 with dictionary marker",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "pronunciation_dictionary_not_found"},
+			wantFound: true,
+		},
+		{
+			name:      "422 generic validation",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "invalid alias"},
+			wantFound: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyDictionaryLocatorError(tt.apiErr)
+			if errors.Is(got, ErrDictionaryNotFound) != tt.wantFound {
+				t.Fatalf("ClassifyDictionaryLocatorError() = %v, want found=%t", got, tt.wantFound)
+			}
+			var apiErr *APIError
+			if !tt.wantFound && (!errors.As(got, &apiErr) || apiErr != tt.apiErr) {
+				t.Fatalf("ClassifyDictionaryLocatorError() = %v, want original APIError", got)
+			}
+		})
+	}
+}
+
+func TestReadAPIError_ReadFailureIsDistinctError(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusUnprocessableEntity,
+		Body:       failingReadCloser{},
+		Header:     http.Header{},
+	}
+
+	apiErr, err := readAPIError(resp)
+	if err == nil {
+		t.Fatal("readAPIError() error = nil, want read failure")
+	}
+	if apiErr != nil {
+		t.Fatalf("readAPIError() apiErr = %#v, want nil on read failure", apiErr)
+	}
+	if !strings.Contains(err.Error(), "failed to read ElevenLabs error response body") {
+		t.Fatalf("readAPIError() error = %v, want distinct read failure", err)
+	}
+}
+
+type failingReadCloser struct{}
+
+func (failingReadCloser) Read(p []byte) (int, error) {
+	return 0, errors.New("read failed")
+}
+
+func (failingReadCloser) Close() error {
+	return nil
 }
 
 func decodePronunciationDictionaryRequest(t *testing.T, r *http.Request) map[string]any {

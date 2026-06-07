@@ -75,10 +75,10 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 }
 
 // SetPronunciationDictionaryID writes the lazily-created ElevenLabs dictionary
-// ID, or NULL when id is nil.
+// ID, or NULL when id is nil or empty.
 func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context, id *string) error {
 	var value any
-	if id != nil {
+	if id != nil && *id != "" {
 		value = *id
 	}
 
@@ -89,6 +89,9 @@ func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context
 		Update("pronunciation_dictionary_id", value)
 	if result.Error != nil {
 		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
