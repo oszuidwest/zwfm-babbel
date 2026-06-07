@@ -121,14 +121,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
 		logError(strings.ToLower(vp.Resource), "validation_failed", err)
-		utilsErrs := make([]utils.ValidationError, 0, len(vp.Errors))
-		for _, fieldErr := range vp.Errors {
-			utilsErrs = append(utilsErrs, utils.ValidationError{
-				Field:   fieldErr.Field,
-				Message: fieldErr.Message,
-			})
-		}
-		utils.ProblemValidationError(c, vp.Detail, utilsErrs)
+		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
 		return
 	}
 
@@ -193,7 +186,7 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	var unknownField *repository.UnknownFieldError
 	if errors.As(err, &unknownField) {
 		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
+		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: unknownField.Kind, Message: unknownField.Error()},
 		})
 		return true
@@ -202,7 +195,7 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	var invalidFilter *repository.InvalidFilterError
 	if errors.As(err, &invalidFilter) {
 		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []utils.ValidationError{
+		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
 		})
 		return true

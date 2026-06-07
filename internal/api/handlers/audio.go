@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -74,7 +75,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	// Get and validate audio file
 	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
 	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "audio",
 			Message: err.Error(),
 		}})
@@ -108,7 +109,7 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	// Get and validate jingle file
 	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
 	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "jingle",
 			Message: err.Error(),
 		}})

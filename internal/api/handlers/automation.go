@@ -82,7 +82,7 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	stationIDStr := c.Param("id")
 	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
 	if err != nil || stationID <= 0 {
-		utils.ProblemValidationError(c, "Invalid station ID", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Invalid station ID", []apperrors.ValidationError{{
 			Field:   "id",
 			Message: "Station ID must be a positive integer",
 		}})
@@ -92,7 +92,7 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	// Parse max_age (required)
 	maxAgeStr := c.Query("max_age")
 	if maxAgeStr == "" {
-		utils.ProblemValidationError(c, "Missing required parameter", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Missing required parameter", []apperrors.ValidationError{{
 			Field:   "max_age",
 			Message: "max_age parameter is required (seconds)",
 		}})
@@ -100,7 +100,7 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	}
 	maxAgeSeconds, err := strconv.ParseInt(maxAgeStr, 10, 64)
 	if err != nil || maxAgeSeconds < 0 {
-		utils.ProblemValidationError(c, "Invalid parameter", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Invalid parameter", []apperrors.ValidationError{{
 			Field:   "max_age",
 			Message: "max_age must be a non-negative integer (seconds)",
 		}})

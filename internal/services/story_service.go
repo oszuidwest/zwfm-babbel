@@ -484,7 +484,7 @@ func validateTTSTextLength(text, model string) error {
 	return apperrors.NewValidationProblemError(
 		"story",
 		"Text too long for selected TTS model",
-		[]apperrors.FieldValidationError{{
+		[]apperrors.ValidationError{{
 			Field: "text",
 			Message: fmt.Sprintf(
 				"rune count %d exceeds limit %d for model %s",

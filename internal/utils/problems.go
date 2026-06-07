@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 )
 
 // ProblemDetail represents an RFC 9457 Problem Details response for HTTP APIs.
@@ -35,16 +36,10 @@ type ProblemDetail struct {
 	Hint string `json:"hint,omitempty"`
 
 	// Errors contains validation errors for 422 responses.
-	Errors []ValidationError `json:"errors,omitempty"`
+	Errors []apperrors.ValidationError `json:"errors,omitempty"`
 
 	// TraceID can be used for request tracing and debugging.
 	TraceID string `json:"trace_id,omitempty"`
-}
-
-// ValidationError represents a single validation error for a specific field.
-type ValidationError struct {
-	Field   string `json:"field"`
-	Message string `json:"message"`
 }
 
 // Problem type URIs for common error types.
@@ -71,7 +66,7 @@ func NewProblemDetail(problemType, title string, status int, detail, instance st
 }
 
 // NewValidationProblem creates a 422 response for validation errors.
-func NewValidationProblem(detail, instance string, errors []ValidationError) *ProblemDetail {
+func NewValidationProblem(detail, instance string, errors []apperrors.ValidationError) *ProblemDetail {
 	problem := NewProblemDetail(
 		ProblemTypeValidationError,
 		"Validation Error",

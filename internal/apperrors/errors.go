@@ -92,9 +92,9 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
-	Resource string
-	Field    string
-	Message  string
+	Resource string `json:"-"`
+	Field    string `json:"field"`
+	Message  string `json:"message"`
 	cause    error
 }
 
@@ -117,17 +117,11 @@ func ValidationWithCause(resource, field, message string, cause error) *Validati
 	return &ValidationError{Resource: resource, Field: field, Message: message, cause: cause}
 }
 
-// FieldValidationError mirrors handler validation errors without importing internal/utils.
-type FieldValidationError struct {
-	Field   string
-	Message string
-}
-
 // ValidationProblemError aggregates multi-field validation failures for HTTP 422 responses.
 type ValidationProblemError struct {
 	Resource string
 	Detail   string
-	Errors   []FieldValidationError
+	Errors   []ValidationError
 }
 
 func (e *ValidationProblemError) Error() string {
@@ -135,7 +129,7 @@ func (e *ValidationProblemError) Error() string {
 }
 
 // NewValidationProblemError creates a ValidationProblemError for the given resource.
-func NewValidationProblemError(resource, detail string, errs []FieldValidationError) *ValidationProblemError {
+func NewValidationProblemError(resource, detail string, errs []ValidationError) *ValidationProblemError {
 	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
@@ -300,7 +301,7 @@ type textNormalizer interface {
 func BindAndValidate(c *gin.Context, req any) bool {
 	// Step 1: Decode JSON without validation
 	if err := json.NewDecoder(c.Request.Body).Decode(req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: "Invalid request format"},
 		})
 		return false
@@ -358,7 +359,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 	}
 
 	if err := json.Unmarshal(body, req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", []ValidationError{
+		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: err.Error()},
 		})
 		return false
@@ -406,18 +407,18 @@ func formatValidationMessage(field, tag, param string) string {
 }
 
 // convertValidationErrors converts Go validator errors into structured error messages.
-func convertValidationErrors(err error) []ValidationError {
+func convertValidationErrors(err error) []apperrors.ValidationError {
 	validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
 	if !ok {
-		return []ValidationError{{
+		return []apperrors.ValidationError{{
 			Field:   "request",
 			Message: "Invalid request format",
 		}}
 	}
 
-	validationErrs := make([]ValidationError, 0, len(validationErrors))
+	validationErrs := make([]apperrors.ValidationError, 0, len(validationErrors))
 	for _, e := range validationErrors {
-		validationErrs = append(validationErrs, ValidationError{
+		validationErrs = append(validationErrs, apperrors.ValidationError{
 			Field:   e.Field(),
 			Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
 		})

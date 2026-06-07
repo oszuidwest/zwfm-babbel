@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 )
 
 // MessageResponse represents a simple message response (typed alternative to gin.H).
@@ -81,7 +82,7 @@ func CreatedWithMessage(c *gin.Context, message string) {
 // RFC 9457 Problem Details compatible error response functions.
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
-func ProblemValidationError(c *gin.Context, detail string, errors []ValidationError) {
+func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
 	if c == nil {
 		return
 	}

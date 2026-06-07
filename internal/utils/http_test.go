@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
@@ -134,7 +135,7 @@ func TestStoryUpdateRequest_NormalizeText(t *testing.T) {
 
 // problemResponse is the subset of the RFC 9457 response we assert on.
 type problemResponse struct {
-	Errors []ValidationError `json:"errors"`
+	Errors []apperrors.ValidationError `json:"errors"`
 }
 
 // assertValidationError checks that the response contains a validation error for the given field

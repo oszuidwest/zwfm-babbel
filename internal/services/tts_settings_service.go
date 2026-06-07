@@ -158,8 +158,8 @@ func seedUpdateValue(seed *int64) *uint32 {
 	return &value
 }
 
-func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldValidationError {
-	errs := []apperrors.FieldValidationError{}
+func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.ValidationError {
+	errs := []apperrors.ValidationError{}
 
 	errs = append(errs, validateEnumField(
 		"model",
@@ -187,36 +187,36 @@ func enumMessage(allowed []string) string {
 	return "must be one of: " + strings.Join(allowed, ", ")
 }
 
-func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.FieldValidationError {
+func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.ValidationError {
 	if value == nil || slices.Contains(allowed, *value) {
 		return nil
 	}
-	return []apperrors.FieldValidationError{fieldError(field, message)}
+	return []apperrors.ValidationError{fieldError(field, message)}
 }
 
-func validateNumberField(field string, value *float64, min, max float64, message string) []apperrors.FieldValidationError {
+func validateNumberField(field string, value *float64, min, max float64, message string) []apperrors.ValidationError {
 	if value == nil || betweenInclusive(*value, min, max) {
 		return nil
 	}
-	return []apperrors.FieldValidationError{fieldError(field, message)}
+	return []apperrors.ValidationError{fieldError(field, message)}
 }
 
-func validateSeed(seed *int64) []apperrors.FieldValidationError {
+func validateSeed(seed *int64) []apperrors.ValidationError {
 	if seed == nil || (*seed >= 0 && *seed <= maxElevenLabsSeedUint32) {
 		return nil
 	}
-	return []apperrors.FieldValidationError{fieldError("seed", "must be between 0 and 4294967295")}
+	return []apperrors.ValidationError{fieldError("seed", "must be between 0 and 4294967295")}
 }
 
-func validateTTSStylePrefix(prefix *string) []apperrors.FieldValidationError {
+func validateTTSStylePrefix(prefix *string) []apperrors.ValidationError {
 	if prefix == nil || utf8.RuneCountInString(*prefix) <= maxTTSStylePrefixRunes {
 		return nil
 	}
-	return []apperrors.FieldValidationError{fieldError("tts_style_prefix", "must be at most 500 characters")}
+	return []apperrors.ValidationError{fieldError("tts_style_prefix", "must be at most 500 characters")}
 }
 
-func fieldError(field, message string) apperrors.FieldValidationError {
-	return apperrors.FieldValidationError{Field: field, Message: message}
+func fieldError(field, message string) apperrors.ValidationError {
+	return apperrors.ValidationError{Field: field, Message: message}
 }
 
 func betweenInclusive(value, min, max float64) bool {

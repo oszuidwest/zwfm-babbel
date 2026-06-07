@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
@@ -44,7 +45,7 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	}
 
 	if req.IsEmpty() {
-		utils.ProblemValidationError(c, "Validation failed", []utils.ValidationError{{
+		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "request",
 			Message: "At least one field must be provided",
 		}})
