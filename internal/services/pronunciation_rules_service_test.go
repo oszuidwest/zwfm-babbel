@@ -162,8 +162,14 @@ func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if len(repo.setIDs) != 1 || repo.setIDs[0] == nil || *repo.setIDs[0] != "dict-new" {
-		t.Fatalf("set IDs = %#v, want dict-new", repo.setIDs)
+	if len(repo.compareAndSetIDs) != 1 ||
+		repo.compareAndSetIDs[0].current != nil ||
+		repo.compareAndSetIDs[0].next == nil ||
+		*repo.compareAndSetIDs[0].next != "dict-new" {
+		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-new", repo.compareAndSetIDs)
+	}
+	if len(repo.setIDs) != 0 {
+		t.Fatalf("set IDs = %#v, want no unconditional DB write", repo.setIDs)
 	}
 	if result.LatestVersionID == nil || *result.LatestVersionID != "v1" {
 		t.Fatalf("latest_version_id = %v, want v1", result.LatestVersionID)
@@ -191,6 +197,47 @@ func TestPronunciationRulesService_Update_CreateWithEmptyDictionaryIDFailsBefore
 	}
 	if len(repo.setIDs) != 0 {
 		t.Fatalf("set IDs = %#v, want no DB persist for empty upstream ID", repo.setIDs)
+	}
+	if len(repo.compareAndSetIDs) != 0 {
+		t.Fatalf("compare-and-set IDs = %#v, want no DB persist for empty upstream ID", repo.compareAndSetIDs)
+	}
+}
+
+func TestPronunciationRulesService_Update_FirstWriteCreateCASLost(t *testing.T) {
+	casLost := false
+	repo := &pronunciationSettingsRepoMock{
+		settings:      &models.TTSSettings{},
+		compareResult: &casLost,
+	}
+	client := &pronunciationDictionaryClientMock{
+		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
+			return tts.DictionaryState{
+				ID:              "dict-orphan",
+				LatestVersionID: "v1",
+				Rules:           rules,
+			}, nil
+		},
+	}
+	service := &PronunciationRulesService{settingsRepo: repo, client: client}
+
+	_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
+		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
+	})
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error type = %T, want *ValidationProblemError", err)
+	}
+	if len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "dictionary" {
+		t.Fatalf("validation errors = %#v, want dictionary CAS error", validationErr.Errors)
+	}
+	if len(repo.compareAndSetIDs) != 1 ||
+		repo.compareAndSetIDs[0].current != nil ||
+		repo.compareAndSetIDs[0].next == nil ||
+		*repo.compareAndSetIDs[0].next != "dict-orphan" {
+		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-orphan", repo.compareAndSetIDs)
+	}
+	if len(repo.setIDs) != 0 {
+		t.Fatalf("set IDs = %#v, want no unconditional DB write", repo.setIDs)
 	}
 }
 
@@ -225,8 +272,11 @@ func TestPronunciationRulesService_Update_SelfHealPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Update() error = %v", err)
 		}
-		if len(repo.setIDs) != 1 || repo.setIDs[0] != nil {
-			t.Fatalf("set IDs = %#v, want one nil clear", repo.setIDs)
+		if len(repo.compareAndSetIDs) != 1 ||
+			repo.compareAndSetIDs[0].current == nil ||
+			*repo.compareAndSetIDs[0].current != "dict-old" ||
+			repo.compareAndSetIDs[0].next != nil {
+			t.Fatalf("compare-and-set IDs = %#v, want dict-old -> nil", repo.compareAndSetIDs)
 		}
 		if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
 			t.Fatalf("result = %#v, want empty response", result)
@@ -263,8 +313,12 @@ func TestPronunciationRulesService_Update_SelfHealPaths(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Update() error = %v", err)
 		}
-		if len(repo.setIDs) != 1 || repo.setIDs[0] == nil || *repo.setIDs[0] != "dict-new" {
-			t.Fatalf("set IDs = %#v, want dict-new", repo.setIDs)
+		if len(repo.compareAndSetIDs) != 1 ||
+			repo.compareAndSetIDs[0].current == nil ||
+			*repo.compareAndSetIDs[0].current != "dict-old" ||
+			repo.compareAndSetIDs[0].next == nil ||
+			*repo.compareAndSetIDs[0].next != "dict-new" {
+			t.Fatalf("compare-and-set IDs = %#v, want dict-old -> dict-new", repo.compareAndSetIDs)
 		}
 		if result.LatestVersionID == nil || *result.LatestVersionID != "new-v" {
 			t.Fatalf("latest_version_id = %v, want new-v", result.LatestVersionID)
@@ -501,8 +555,8 @@ func TestTranslatePronunciationRulesUpstreamError_PlainError(t *testing.T) {
 func TestPronunciationRulesService_Translations(t *testing.T) {
 	t.Run("create persist failure returns PronunciationRules database error", func(t *testing.T) {
 		repo := &pronunciationSettingsRepoMock{
-			settings: &models.TTSSettings{},
-			setErr:   errors.New("write failed"),
+			settings:   &models.TTSSettings{},
+			compareErr: errors.New("write failed"),
 		}
 		client := &pronunciationDictionaryClientMock{
 			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
@@ -525,8 +579,8 @@ func TestPronunciationRulesService_Translations(t *testing.T) {
 
 	t.Run("create persist missing settings row returns not initialized error", func(t *testing.T) {
 		repo := &pronunciationSettingsRepoMock{
-			settings: &models.TTSSettings{},
-			setErr:   repository.ErrNotFound,
+			settings:   &models.TTSSettings{},
+			compareErr: repository.ErrNotFound,
 		}
 		client := &pronunciationDictionaryClientMock{
 			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
@@ -638,10 +692,18 @@ func TestDiffPronunciationRules(t *testing.T) {
 }
 
 type pronunciationSettingsRepoMock struct {
-	settings *models.TTSSettings
-	getErr   error
-	setErr   error
-	setIDs   []*string
+	settings         *models.TTSSettings
+	getErr           error
+	setErr           error
+	compareErr       error
+	compareResult    *bool
+	setIDs           []*string
+	compareAndSetIDs []compareAndSetIDCall
+}
+
+type compareAndSetIDCall struct {
+	current *string
+	next    *string
 }
 
 func (m *pronunciationSettingsRepoMock) Get(ctx context.Context) (*models.TTSSettings, error) {
@@ -662,6 +724,34 @@ func (m *pronunciationSettingsRepoMock) SetPronunciationDictionaryID(ctx context
 	value := *id
 	m.setIDs = append(m.setIDs, &value)
 	return nil
+}
+
+func (m *pronunciationSettingsRepoMock) CompareAndSetPronunciationDictionaryID(
+	ctx context.Context,
+	currentID *string,
+	id *string,
+) (bool, error) {
+	if m.compareErr != nil {
+		return false, m.compareErr
+	}
+
+	call := compareAndSetIDCall{
+		current: copyStringPtr(currentID),
+		next:    copyStringPtr(id),
+	}
+	m.compareAndSetIDs = append(m.compareAndSetIDs, call)
+	if m.compareResult != nil {
+		return *m.compareResult, nil
+	}
+	return true, nil
+}
+
+func copyStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
 }
 
 type createDictionaryCall struct {

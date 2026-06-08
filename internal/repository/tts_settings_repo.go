@@ -106,3 +106,47 @@ func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context
 	}
 	return nil
 }
+
+// CompareAndSetPronunciationDictionaryID writes the dictionary ID only when the
+// stored value still matches currentID. A nil or empty currentID matches both
+// NULL and the legacy empty-string representation.
+func (r *TTSSettingsRepository) CompareAndSetPronunciationDictionaryID(
+	ctx context.Context,
+	currentID *string,
+	id *string,
+) (bool, error) {
+	var value any
+	if id != nil && *id != "" {
+		value = *id
+	}
+
+	db := DBFromContext(ctx, r.db)
+	query := db.WithContext(ctx).
+		Model(&models.TTSSettings{}).
+		Where("id = ?", ttsSettingsSingletonID)
+	if currentID == nil || *currentID == "" {
+		query = query.Where("pronunciation_dictionary_id IS NULL OR pronunciation_dictionary_id = ?", "")
+	} else {
+		query = query.Where("pronunciation_dictionary_id = ?", *currentID)
+	}
+
+	result := query.Update("pronunciation_dictionary_id", value)
+	if result.Error != nil {
+		return false, ParseDBError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return true, nil
+	}
+
+	var count int64
+	if err := db.WithContext(ctx).
+		Model(&models.TTSSettings{}).
+		Where("id = ?", ttsSettingsSingletonID).
+		Count(&count).Error; err != nil {
+		return false, ParseDBError(err)
+	}
+	if count == 0 {
+		return false, ErrNotFound
+	}
+	return false, nil
+}

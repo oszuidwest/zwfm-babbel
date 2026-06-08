@@ -33,6 +33,8 @@ const (
 		" dictionary on ElevenLabs is missing; it will be recreated on the next save."
 )
 
+var errPronunciationDictionaryChangedConcurrently = errors.New("pronunciation dictionary id changed concurrently")
+
 type pronunciationRulesAuditAction string
 
 const (
@@ -50,7 +52,7 @@ type PronunciationRulesService struct {
 
 type pronunciationSettingsRepository interface {
 	Get(ctx context.Context) (*models.TTSSettings, error)
-	SetPronunciationDictionaryID(ctx context.Context, id *string) error
+	CompareAndSetPronunciationDictionaryID(ctx context.Context, currentID *string, id *string) (bool, error)
 }
 
 // NewPronunciationRulesService returns a service that stores the managed
@@ -205,8 +207,12 @@ func (s *PronunciationRulesService) runCreatePath(
 		if currentID == nil {
 			return emptyPronunciationRulesResponse(), nil
 		}
-		if err := s.settingsRepo.SetPronunciationDictionaryID(ctx, nil); err != nil {
+		updated, err := s.settingsRepo.CompareAndSetPronunciationDictionaryID(ctx, currentID, nil)
+		if err != nil {
 			return nil, translatePronunciationRulesRepoWriteError("clear_dictionary_id", err)
+		}
+		if !updated {
+			return nil, pronunciationDictionaryChangedConcurrentlyError()
 		}
 		logPronunciationRulesAudit(pronunciationRulesAuditEvent{
 			Action:       pronunciationRulesAuditActionIDCleared,
@@ -234,13 +240,21 @@ func (s *PronunciationRulesService) runCreatePath(
 		)
 	}
 
-	if err := s.settingsRepo.SetPronunciationDictionaryID(ctx, &newID); err != nil {
+	updated, err := s.settingsRepo.CompareAndSetPronunciationDictionaryID(ctx, currentID, &newID)
+	if err != nil {
 		logger.Error(
 			"orphan pronunciation dictionary: created on ElevenLabs but DB persist failed; manual cleanup required",
 			"dictionary_id", newID,
 			"error", err.Error(),
 		)
 		return nil, translatePronunciationRulesRepoWriteError("persist_dictionary_id", err)
+	}
+	if !updated {
+		logger.Error(
+			"orphan pronunciation dictionary: created on ElevenLabs but DB pointer changed concurrently; manual cleanup required",
+			"dictionary_id", newID,
+		)
+		return nil, pronunciationDictionaryChangedConcurrentlyError()
 	}
 
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
@@ -252,6 +266,18 @@ func (s *PronunciationRulesService) runCreatePath(
 	response := pronunciationRulesResponseFromState(state)
 	response.Rules = rules
 	return response, nil
+}
+
+func pronunciationDictionaryChangedConcurrentlyError() error {
+	return apperrors.NewValidationProblemErrorWithCause(
+		"pronunciation_rules",
+		"Pronunciation dictionary changed concurrently",
+		[]apperrors.ValidationError{fieldError(
+			"dictionary",
+			"Another request changed the pronunciation dictionary; reload and try again",
+		)},
+		errPronunciationDictionaryChangedConcurrently,
+	)
 }
 
 func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]tts.Rule, error) {
