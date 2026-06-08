@@ -44,10 +44,10 @@ BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud
 
 ### Production Setup (zuidwest.cloud)
 
-Use the provided `.env.zuidwest.example` as a template:
+Use the provided `.env.example` as a template:
 
 ```bash
-cp .env.zuidwest.example .env
+cp .env.example .env
 # Edit .env with your actual values
 docker-compose -f docker-compose.prod.yml up -d
 ```

@@ -428,7 +428,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	// Generate speech via TTS service
 	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
 	if err != nil {
-		return translateTTSError(err)
+		return translateStoryTTSError(err, options.DictionaryLocators)
 	}
 
 	// Write to temp file for processing through the standard audio pipeline
@@ -504,6 +504,13 @@ func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 		useSpeakerBoost = &settings.UseSpeakerBoost
 	}
 
+	locators := []tts.DictionaryLocator{}
+	if settings.PronunciationDictionaryID != nil && *settings.PronunciationDictionaryID != "" {
+		locators = append(locators, tts.DictionaryLocator{
+			PronunciationDictionaryID: *settings.PronunciationDictionaryID,
+		})
+	}
+
 	return tts.Options{
 		Model: settings.Model,
 		VoiceSettings: tts.VoiceSettings{
@@ -515,7 +522,26 @@ func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 		},
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,
+		DictionaryLocators:     locators,
 	}
+}
+
+func translateStoryTTSError(err error, locators []tts.DictionaryLocator) error {
+	if len(locators) > 0 {
+		if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
+			if errors.Is(tts.ClassifyDictionaryLocatorError(apiErr), tts.ErrDictionaryNotFound) {
+				return apperrors.ValidationWithCause(
+					"PronunciationRules",
+					"pronunciation_dictionary_id",
+					"The "+ManagedPronunciationDictionaryName+
+						" pronunciation dictionary is missing on ElevenLabs. "+
+						"Save your rules at PUT /api/v1/settings/tts/pronunciations to recreate it.",
+					apiErr,
+				)
+			}
+		}
+	}
+	return translateTTSError(err)
 }
 
 // translateTTSError maps TTS service errors to domain errors with specific messages.

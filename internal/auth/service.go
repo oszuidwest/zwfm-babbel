@@ -156,6 +156,8 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"editor", "bulletins", "read"},
 		{"editor", "users", "read"}, // Can view users
 		{"editor", "settings:tts", "read"},
+		{"editor", "pronunciation_rules", "read"},
+		{"editor", "pronunciation_rules", "write"},
 
 		// Viewers can only read
 		{"viewer", "stations", "read"},
@@ -163,6 +165,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "stories", "read"},
 		{"viewer", "bulletins", "read"},
 		{"viewer", "settings:tts", "read"},
+		{"viewer", "pronunciation_rules", "read"},
 
 		// User management: read for editors and admins, write for admins only
 		{"admin", "users", "read"},

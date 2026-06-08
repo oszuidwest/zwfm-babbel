@@ -12,6 +12,10 @@ The query parameter system provides:
 - **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
+Most resource list endpoints support the full set. A few relationship/history
+endpoints intentionally support pagination only; unsupported query parameters
+return RFC 9457 validation errors instead of being silently ignored.
+
 ## Modern Query Parameter Formats
 
 ### 1. Filtering
@@ -219,7 +223,7 @@ GET /api/v1/voices?search=john&fields=id,name
 
 ## Response Format
 
-All endpoints return paginated responses with metadata at the root level:
+Paginated list endpoints return responses with metadata at the root level:
 
 ```json
 {
@@ -258,7 +262,7 @@ GET /api/v1/stories?fields=id,title,created_at
 ### Core Components
 
 1. **`/internal/utils/query.go`**: Modern query parameter parsing and processing
-2. **`/internal/utils/queries.go`**: Enhanced database query building utilities
+2. **`/internal/repository/list_query.go`**: Whitelist-based database query building utilities
 3. **Handler Updates**: All major handlers updated to support modern parameters
 
 ### Key Features
@@ -291,15 +295,21 @@ FieldMapping: map[string]string{
 
 ## Error Handling
 
-The system provides detailed error responses for invalid parameters:
+The system provides RFC 9457 Problem Details responses for invalid parameters:
 
 ```json
 {
-  "error": "Validation failed",
-  "details": [
-    "Invalid date format for created_at. Use YYYY-MM-DD",
-    "Invalid sort field: invalid_field",
-    "Invalid filter operator 'foo' for field 'status'"
+  "type": "https://babbel.api/problems/validation-error",
+  "title": "Validation Error",
+  "status": 422,
+  "detail": "Invalid query parameter",
+  "instance": "/api/v1/stories",
+  "timestamp": "2026-06-08T00:00:00Z",
+  "errors": [
+    {
+      "field": "sort",
+      "message": "unknown field \"invalid_field\""
+    }
   ]
 }
 ```
@@ -325,15 +335,15 @@ Potential additions for future versions:
 
 ### For API Consumers
 
-1. **Use modern parameters**: All endpoints support the modern query system
+1. **Use modern parameters**: Use the modern query system on endpoints that document support for it
 2. **Optimize**: Use field selection to reduce bandwidth
 3. **Search**: Implement full-text search where applicable
 4. **Filter precisely**: Use the filter operators for exact matching
 
 ### For Developers
 
-1. **New Endpoints**: Use `ModernListWithQuery` for all list endpoints
-2. **Configuration**: Define search fields and field mappings
+1. **New Endpoints**: Use `ParseListQuery` and `PaginatedListResponse` for list endpoints that need modern query support
+2. **Configuration**: Define search fields and field mappings in the repository layer
 3. **Testing**: Test modern parameter combinations
 4. **Documentation**: Update API documentation with examples
 
@@ -342,7 +352,7 @@ Potential additions for future versions:
 ### Mobile App Optimization
 ```http
 # Minimal fields for mobile list view
-GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_file][ne]=&sort=-created_at
+GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_url][ne]=&sort=-created_at
 ```
 
 ### Admin Dashboard
@@ -360,7 +370,7 @@ GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lte]
 ### Integration Testing
 ```http
 # Comprehensive query for testing
-GET /api/v1/stories?filter[voice_id][in]=1,2&filter[audio_file][ne]=&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
+GET /api/v1/stories?filter[voice_id][in]=1,2&filter[audio_url][ne]=&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
 ```
 
 This modern query parameter system provides a robust, scalable foundation for API querying while maintaining backward compatibility and following 2024 REST API best practices.

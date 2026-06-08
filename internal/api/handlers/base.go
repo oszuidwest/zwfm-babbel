@@ -20,17 +20,18 @@ import (
 
 // HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
-	AudioRepo       repository.AudioRepository
-	AudioSvc        *audio.Service
-	Config          *config.Config
-	BulletinSvc     *services.BulletinService
-	StorySvc        *services.StoryService
-	StationSvc      *services.StationService
-	VoiceSvc        *services.VoiceService
-	UserSvc         *services.UserService
-	StationVoiceSvc *services.StationVoiceService
-	TTSSettingsSvc  *services.TTSSettingsService
-	TTSEnabled      bool
+	AudioRepo             repository.AudioRepository
+	AudioSvc              *audio.Service
+	Config                *config.Config
+	BulletinSvc           *services.BulletinService
+	StorySvc              *services.StoryService
+	StationSvc            *services.StationService
+	VoiceSvc              *services.VoiceService
+	UserSvc               *services.UserService
+	StationVoiceSvc       *services.StationVoiceService
+	TTSSettingsSvc        *services.TTSSettingsService
+	PronunciationRulesSvc PronunciationRulesService
+	TTSEnabled            bool
 }
 
 // Handlers owns shared dependencies used by endpoint methods.
@@ -39,30 +40,32 @@ type Handlers struct {
 	audioSvc  *audio.Service
 	config    *config.Config
 	// Domain services
-	bulletinSvc     *services.BulletinService
-	storySvc        *services.StoryService
-	stationSvc      *services.StationService
-	voiceSvc        *services.VoiceService
-	userSvc         *services.UserService
-	stationVoiceSvc *services.StationVoiceService
-	ttsSettingsSvc  *services.TTSSettingsService
-	ttsEnabled      bool
+	bulletinSvc           *services.BulletinService
+	storySvc              *services.StoryService
+	stationSvc            *services.StationService
+	voiceSvc              *services.VoiceService
+	userSvc               *services.UserService
+	stationVoiceSvc       *services.StationVoiceService
+	ttsSettingsSvc        *services.TTSSettingsService
+	pronunciationRulesSvc PronunciationRulesService
+	ttsEnabled            bool
 }
 
 // NewHandlers creates endpoint handlers from resolved dependencies.
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
-		audioRepo:       deps.AudioRepo,
-		audioSvc:        deps.AudioSvc,
-		config:          deps.Config,
-		bulletinSvc:     deps.BulletinSvc,
-		storySvc:        deps.StorySvc,
-		stationSvc:      deps.StationSvc,
-		voiceSvc:        deps.VoiceSvc,
-		userSvc:         deps.UserSvc,
-		stationVoiceSvc: deps.StationVoiceSvc,
-		ttsSettingsSvc:  deps.TTSSettingsSvc,
-		ttsEnabled:      deps.TTSEnabled,
+		audioRepo:             deps.AudioRepo,
+		audioSvc:              deps.AudioSvc,
+		config:                deps.Config,
+		bulletinSvc:           deps.BulletinSvc,
+		storySvc:              deps.StorySvc,
+		stationSvc:            deps.StationSvc,
+		voiceSvc:              deps.VoiceSvc,
+		userSvc:               deps.UserSvc,
+		stationVoiceSvc:       deps.StationVoiceSvc,
+		ttsSettingsSvc:        deps.TTSSettingsSvc,
+		pronunciationRulesSvc: deps.PronunciationRulesSvc,
+		ttsEnabled:            deps.TTSEnabled,
 	}
 }
 
@@ -119,14 +122,18 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
+	if handleConflictError(c, err) {
+		return
+	}
+
 	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
-		logError(strings.ToLower(vp.Resource), "validation_failed", err)
+		logErrorWithCause(strings.ToLower(vp.Resource), "validation_failed", err, vp.Unwrap())
 		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
 		return
 	}
 
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
-		logError(validation.Resource, "validation_failed", err)
+		logErrorWithCause(validation.Resource, "validation_failed", err, validation.Unwrap())
 		hint := "Check your input and try again"
 		if validation.Field != "" {
 			hint = fmt.Sprintf("Check the %s field", validation.Field)
@@ -204,6 +211,24 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	return false
 }
 
+func handleConflictError(c *gin.Context, err error) bool {
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
+		code := strings.ToLower(conflict.Resource) + ".conflict"
+		if conflict.Code != "" {
+			code = conflict.Code
+		}
+		hint := conflict.Hint
+		if hint == "" {
+			hint = "Reload the resource and try again"
+		}
+		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
+		return true
+	}
+
+	return false
+}
+
 func handleAvailabilityError(c *gin.Context, err error) bool {
 	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
 		logError(rateLimited.Resource, "rate_limited", err)
@@ -256,6 +281,39 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 		return true
 	}
 
+	return false
+}
+
+// requireTTSEnabled writes a 501 Problem response when TTS is not configured
+// and returns false. Used by every endpoint that depends on the ElevenLabs API.
+func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
+	if h.ttsEnabled {
+		return true
+	}
+	utils.ProblemExtended(
+		c,
+		http.StatusNotImplemented,
+		"Text-to-speech is not configured",
+		"tts.not_configured",
+		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
+	)
+	return false
+}
+
+// requirePronunciationRulesEnabled extends requireTTSEnabled with a service-nil
+// guard so a misconfigured Handlers struct (TTSEnabled=true but no
+// PronunciationRulesSvc wired in) returns 501 instead of nil-derefing.
+func (h *Handlers) requirePronunciationRulesEnabled(c *gin.Context) bool {
+	if h.ttsEnabled && h.pronunciationRulesSvc != nil {
+		return true
+	}
+	utils.ProblemExtended(
+		c,
+		http.StatusNotImplemented,
+		"Text-to-speech is not configured",
+		"tts.not_configured",
+		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
+	)
 	return false
 }
 

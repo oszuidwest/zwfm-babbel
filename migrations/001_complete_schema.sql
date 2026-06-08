@@ -163,6 +163,8 @@ CREATE TABLE tts_settings (
     apply_text_normalization VARCHAR(8)      NOT NULL,
     seed                     INT UNSIGNED    NULL,
     tts_style_prefix         VARCHAR(500)    NOT NULL,
+    pronunciation_dictionary_id VARCHAR(255) NULL
+        COMMENT 'ElevenLabs ID of the lazily-created "Babbel" dictionary. NULL = no rules yet.',
     updated_at               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

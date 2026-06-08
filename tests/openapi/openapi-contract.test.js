@@ -91,6 +91,8 @@ describe('OpenAPI Contract', () => {
             stability: current.data.stability
           });
         }),
+      apiScenario('GET', '/api/v1/settings/tts/pronunciations', '/settings/tts/pronunciations'),
+      apiScenario('PUT', '/api/v1/settings/tts/pronunciations', '/settings/tts/pronunciations', { rules: [] }),
       apiScenario('GET', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`),
       apiScenario('PUT', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, () => ({
           title: uniqueName('Contract Updated Story'),

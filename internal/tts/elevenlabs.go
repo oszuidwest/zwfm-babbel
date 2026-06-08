@@ -24,6 +24,7 @@ type APIError struct {
 	RetryAfter string
 }
 
+// Error returns the ElevenLabs failure message for the upstream status code.
 func (e *APIError) Error() string {
 	switch e.StatusCode {
 	case http.StatusUnauthorized:
@@ -39,6 +40,30 @@ func (e *APIError) Error() string {
 	default:
 		return fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
 	}
+}
+
+// ClientError indicates Babbel failed before a request reached ElevenLabs.
+type ClientError struct {
+	Operation string
+	Err       error
+}
+
+// Error returns the local request failure message.
+func (e *ClientError) Error() string {
+	if e.Err == nil {
+		return e.Operation
+	}
+	if e.Operation == "" {
+		return e.Err.Error()
+	}
+	return e.Operation + ": " + e.Err.Error()
+}
+
+// Unwrap returns the underlying local request error.
+func (e *ClientError) Unwrap() error { return e.Err }
+
+func newClientError(operation string, err error) *ClientError {
+	return &ClientError{Operation: operation, Err: err}
 }
 
 // Service handles text-to-speech generation via the ElevenLabs API.
@@ -69,6 +94,7 @@ type Options struct {
 	VoiceSettings          VoiceSettings
 	ApplyTextNormalization string
 	Seed                   *uint32
+	DictionaryLocators     []DictionaryLocator
 }
 
 // VoiceSettings contains ElevenLabs voice_settings values.
@@ -82,22 +108,28 @@ type VoiceSettings struct {
 
 // ttsRequest is the JSON body sent to the ElevenLabs API.
 type ttsRequest struct {
-	Text                   string        `json:"text"`
-	ModelID                string        `json:"model_id"`
-	VoiceSettings          VoiceSettings `json:"voice_settings"`
-	ApplyTextNormalization string        `json:"apply_text_normalization"`
-	Seed                   *uint32       `json:"seed,omitempty"`
+	Text                            string              `json:"text"`
+	ModelID                         string              `json:"model_id"`
+	VoiceSettings                   VoiceSettings       `json:"voice_settings"`
+	ApplyTextNormalization          string              `json:"apply_text_normalization"`
+	Seed                            *uint32             `json:"seed,omitempty"`
+	PronunciationDictionaryLocators []DictionaryLocator `json:"pronunciation_dictionary_locators"`
 }
 
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
+	if opts.DictionaryLocators == nil {
+		opts.DictionaryLocators = []DictionaryLocator{}
+	}
+
 	body, err := json.Marshal(ttsRequest{
-		Text:                   text,
-		ModelID:                opts.Model,
-		VoiceSettings:          opts.VoiceSettings,
-		ApplyTextNormalization: opts.ApplyTextNormalization,
-		Seed:                   opts.Seed,
+		Text:                            text,
+		ModelID:                         opts.Model,
+		VoiceSettings:                   opts.VoiceSettings,
+		ApplyTextNormalization:          opts.ApplyTextNormalization,
+		Seed:                            opts.Seed,
+		PronunciationDictionaryLocators: opts.DictionaryLocators,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)

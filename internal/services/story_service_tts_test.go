@@ -153,6 +153,25 @@ func TestTTSOptionsFromSettings(t *testing.T) {
 	if !*flashOptions.VoiceSettings.UseSpeakerBoost {
 		t.Fatal("flash v2.5 use_speaker_boost = false, want true")
 	}
+
+	noDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{Model: TTSModelFlashV25})
+	if noDictionaryOptions.DictionaryLocators == nil {
+		t.Fatal("DictionaryLocators = nil, want empty slice")
+	}
+	if len(noDictionaryOptions.DictionaryLocators) != 0 {
+		t.Fatalf("DictionaryLocators len = %d, want 0", len(noDictionaryOptions.DictionaryLocators))
+	}
+
+	withDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{
+		Model:                     TTSModelFlashV25,
+		PronunciationDictionaryID: ptr("dict-123"),
+	})
+	if len(withDictionaryOptions.DictionaryLocators) != 1 {
+		t.Fatalf("DictionaryLocators len = %d, want 1", len(withDictionaryOptions.DictionaryLocators))
+	}
+	if withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID != "dict-123" {
+		t.Fatalf("Dictionary ID = %q, want dict-123", withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID)
+	}
 }
 
 func TestTranslateTTSError(t *testing.T) {
@@ -236,6 +255,68 @@ func TestTranslateTTSError(t *testing.T) {
 			}
 			var apiErr *tts.APIError
 			if errors.As(tt.err, &apiErr) && !errors.Is(got, tt.err) {
+				t.Fatalf("translated error does not wrap original API error: %v", got)
+			}
+			tt.assert(t, got)
+		})
+	}
+}
+
+func TestTranslateStoryTTSError_DictionaryLocatorErrors(t *testing.T) {
+	locators := []tts.DictionaryLocator{{PronunciationDictionaryID: "dict-123"}}
+
+	tests := []struct {
+		name     string
+		err      error
+		locators []tts.DictionaryLocator
+		assert   func(t *testing.T, got error)
+	}{
+		{
+			name:     "422 dictionary missing marker maps to pronunciation rules validation",
+			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
+			},
+		},
+		{
+			name:     "404 dictionary missing marker maps to pronunciation rules validation",
+			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
+			},
+		},
+		{
+			name:     "404 voice missing with locator still maps to voice validation",
+			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"voice not found"}`},
+			locators: locators,
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "Voice", "elevenlabs_voice_id")
+			},
+		},
+		{
+			name:     "dictionary marker without locator stays regular TTS validation",
+			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
+			locators: []tts.DictionaryLocator{},
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertValidationError(t, got, "TTS", "request")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := translateStoryTTSError(tt.err, tt.locators)
+			if got == nil {
+				t.Fatal("translateStoryTTSError() returned nil")
+			}
+			var apiErr *tts.APIError
+			if !errors.As(got, &apiErr) {
 				t.Fatalf("translated error does not wrap original API error: %v", got)
 			}
 			tt.assert(t, got)

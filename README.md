@@ -207,6 +207,8 @@ The initial settings row uses `eleven_v3`, stability `0.80`, similarity boost `0
 
 Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update model, voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
 
+Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage alias pronunciation rules in the single Babbel-managed ElevenLabs dictionary. Admins and editors can save rules; viewers can read them.
+
 ## API Documentation
 
 - **Base URL**: `/api/v1/`
@@ -235,6 +237,8 @@ POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
 # Settings
 GET    /api/v1/settings/tts          # Inspect global ElevenLabs TTS settings
 PATCH  /api/v1/settings/tts          # Update global TTS settings (admin only)
+GET    /api/v1/settings/tts/pronunciations # Inspect managed pronunciation rules
+PUT    /api/v1/settings/tts/pronunciations # Replace managed pronunciation rules
 
 # Bulletin Generation
 POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
@@ -290,7 +294,6 @@ internal/
 tests/                  # Integration test suite
 migrations/             # Database migrations
 openapi.yaml           # API specification
-CLAUDE.md              # AI assistant instructions
 ```
 
 ## Tech Stack
@@ -325,7 +328,7 @@ Contributions are welcome! Please ensure:
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file.
+MIT License - see [LICENSE](LICENSE).
 
 ## Credits
 
