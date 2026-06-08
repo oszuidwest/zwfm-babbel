@@ -369,9 +369,24 @@ func shellSingleQuote(s string) string {
 func writeExecutable(t *testing.T, path, contents string) {
 	t.Helper()
 
-	// #nosec G306 - Test helper writes an executable script under t.TempDir().
-	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+	// #nosec G304 - Test helper writes executable scripts under t.TempDir().
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatalf("create executable %s: %v", path, err)
+	}
+
+	if _, err := file.WriteString(contents); err != nil {
+		_ = file.Close()
 		t.Fatalf("write executable %s: %v", path, err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatalf("close executable %s: %v", path, err)
+	}
+
+	// #nosec G302 - Test helper makes scripts executable under t.TempDir().
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("chmod executable %s: %v", path, err)
 	}
 }
 
