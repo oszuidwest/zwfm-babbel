@@ -108,11 +108,6 @@ func (e *ConflictError) Error() string {
 // Unwrap returns the underlying conflict cause, if one was captured.
 func (e *ConflictError) Unwrap() error { return e.cause }
 
-// Conflict creates a ConflictError for a state conflict.
-func Conflict(resource, detail, hint string, cause error) *ConflictError {
-	return &ConflictError{Resource: resource, Detail: detail, Hint: hint, cause: cause}
-}
-
 // ConflictWithCode creates a ConflictError with a specific problem code.
 func ConflictWithCode(resource, code, detail, hint string, cause error) *ConflictError {
 	return &ConflictError{Resource: resource, Code: code, Detail: detail, Hint: hint, cause: cause}
