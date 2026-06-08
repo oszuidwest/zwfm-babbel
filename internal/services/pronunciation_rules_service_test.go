@@ -138,12 +138,7 @@ func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing
 	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
 	client := &pronunciationDictionaryClientMock{
 		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-			if name != "Babbel" || description == "" {
-				t.Fatalf("create name/description = %q/%q", name, description)
-			}
-			if len(rules) != 1 || rules[0].StringToReplace != "Albert Heijn" {
-				t.Fatalf("create rules = %#v", rules)
-			}
+			assertFirstWriteCreateRequest(t, name, description, rules)
 			return tts.DictionaryState{
 				ID:              "dict-new",
 				LatestVersionID: "v1",
@@ -174,6 +169,17 @@ func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing
 	}
 	if len(result.Rules) != 1 || !result.Rules[0].CaseSensitive || !result.Rules[0].WordBoundaries {
 		t.Fatalf("result rules = %#v, want defaulted rule", result.Rules)
+	}
+}
+
+func assertFirstWriteCreateRequest(t *testing.T, name, description string, rules []tts.Rule) {
+	t.Helper()
+
+	if name != "Babbel" || description == "" {
+		t.Fatalf("create name/description = %q/%q", name, description)
+	}
+	if len(rules) != 1 || rules[0].StringToReplace != "Albert Heijn" {
+		t.Fatalf("create rules = %#v", rules)
 	}
 }
 
@@ -262,8 +268,8 @@ func TestPronunciationRulesService_Update_ConcurrentFirstWritesSurfaceOneConflic
 	successes := 0
 	conflicts := 0
 	for err := range errs {
-		switch {
-		case err == nil:
+		switch err {
+		case nil:
 			successes++
 		default:
 			var conflictErr *apperrors.ConflictError
@@ -305,72 +311,70 @@ func TestPronunciationRulesService_Update_FirstWriteWithEmptyRulesIsNoop(t *test
 	}
 }
 
-func TestPronunciationRulesService_Update_SelfHealPaths(t *testing.T) {
-	t.Run("missing stored dictionary with empty request clears ID", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
-		client := &pronunciationDictionaryClientMock{
-			getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-				return tts.DictionaryState{}, tts.ErrDictionaryNotFound
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
+func TestPronunciationRulesService_Update_MissingStoredDictionaryWithEmptyRequestClearsID(t *testing.T) {
+	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
+	client := &pronunciationDictionaryClientMock{
+		getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
+			return tts.DictionaryState{}, tts.ErrDictionaryNotFound
+		},
+	}
+	service := &PronunciationRulesService{settingsRepo: repo, client: client}
 
-		result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{Rules: []PronunciationRuleUpdate{}})
-		if err != nil {
-			t.Fatalf("Update() error = %v", err)
-		}
-		if len(repo.compareAndSetIDs) != 1 ||
-			repo.compareAndSetIDs[0].current == nil ||
-			*repo.compareAndSetIDs[0].current != "dict-old" ||
-			repo.compareAndSetIDs[0].next != nil {
-			t.Fatalf("compare-and-set IDs = %#v, want dict-old -> nil", repo.compareAndSetIDs)
-		}
-		if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
-			t.Fatalf("result = %#v, want empty response", result)
-		}
+	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{Rules: []PronunciationRuleUpdate{}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(repo.compareAndSetIDs) != 1 ||
+		repo.compareAndSetIDs[0].current == nil ||
+		*repo.compareAndSetIDs[0].current != "dict-old" ||
+		repo.compareAndSetIDs[0].next != nil {
+		t.Fatalf("compare-and-set IDs = %#v, want dict-old -> nil", repo.compareAndSetIDs)
+	}
+	if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
+		t.Fatalf("result = %#v, want empty response", result)
+	}
+}
+
+func TestPronunciationRulesService_Update_SetRulesMissingDictionaryRecreatesAndPersistsNewID(t *testing.T) {
+	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
+	client := &pronunciationDictionaryClientMock{
+		getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
+			return tts.DictionaryState{
+				ID:              id,
+				LatestVersionID: "old-v",
+				CreationTime:    time.Unix(1717200000, 0).UTC(),
+			}, nil
+		},
+		setFn: func(ctx context.Context, id string, rules []tts.Rule) (tts.SetRulesResult, error) {
+			return tts.SetRulesResult{}, tts.ErrDictionaryNotFound
+		},
+		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
+			return tts.DictionaryState{
+				ID:              "dict-new",
+				LatestVersionID: "new-v",
+				CreationTime:    time.Unix(1717200100, 0).UTC(),
+				Rules:           rules,
+			}, nil
+		},
+	}
+	service := &PronunciationRulesService{settingsRepo: repo, client: client}
+
+	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
+		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
 	})
-
-	t.Run("set-rules missing dictionary recreates and persists new ID", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
-		client := &pronunciationDictionaryClientMock{
-			getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-				return tts.DictionaryState{
-					ID:              id,
-					LatestVersionID: "old-v",
-					CreationTime:    time.Unix(1717200000, 0).UTC(),
-				}, nil
-			},
-			setFn: func(ctx context.Context, id string, rules []tts.Rule) (tts.SetRulesResult, error) {
-				return tts.SetRulesResult{}, tts.ErrDictionaryNotFound
-			},
-			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-				return tts.DictionaryState{
-					ID:              "dict-new",
-					LatestVersionID: "new-v",
-					CreationTime:    time.Unix(1717200100, 0).UTC(),
-					Rules:           rules,
-				}, nil
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-		result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
-		})
-		if err != nil {
-			t.Fatalf("Update() error = %v", err)
-		}
-		if len(repo.compareAndSetIDs) != 1 ||
-			repo.compareAndSetIDs[0].current == nil ||
-			*repo.compareAndSetIDs[0].current != "dict-old" ||
-			repo.compareAndSetIDs[0].next == nil ||
-			*repo.compareAndSetIDs[0].next != "dict-new" {
-			t.Fatalf("compare-and-set IDs = %#v, want dict-old -> dict-new", repo.compareAndSetIDs)
-		}
-		if result.LatestVersionID == nil || *result.LatestVersionID != "new-v" {
-			t.Fatalf("latest_version_id = %v, want new-v", result.LatestVersionID)
-		}
-	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(repo.compareAndSetIDs) != 1 ||
+		repo.compareAndSetIDs[0].current == nil ||
+		*repo.compareAndSetIDs[0].current != "dict-old" ||
+		repo.compareAndSetIDs[0].next == nil ||
+		*repo.compareAndSetIDs[0].next != "dict-new" {
+		t.Fatalf("compare-and-set IDs = %#v, want dict-old -> dict-new", repo.compareAndSetIDs)
+	}
+	if result.LatestVersionID == nil || *result.LatestVersionID != "new-v" {
+		t.Fatalf("latest_version_id = %v, want new-v", result.LatestVersionID)
+	}
 }
 
 func TestPronunciationRulesService_Update_SetRules(t *testing.T) {

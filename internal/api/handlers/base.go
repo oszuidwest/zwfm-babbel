@@ -122,17 +122,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
-		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
-		code := strings.ToLower(conflict.Resource) + ".conflict"
-		if conflict.Code != "" {
-			code = conflict.Code
-		}
-		hint := conflict.Hint
-		if hint == "" {
-			hint = "Reload the resource and try again"
-		}
-		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
+	if handleConflictError(c, err) {
 		return
 	}
 
@@ -215,6 +205,24 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
 		})
+		return true
+	}
+
+	return false
+}
+
+func handleConflictError(c *gin.Context, err error) bool {
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
+		code := strings.ToLower(conflict.Resource) + ".conflict"
+		if conflict.Code != "" {
+			code = conflict.Code
+		}
+		hint := conflict.Hint
+		if hint == "" {
+			hint = "Reload the resource and try again"
+		}
+		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
 		return true
 	}
 
