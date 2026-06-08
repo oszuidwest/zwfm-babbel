@@ -220,7 +220,8 @@ func (s *BulletinService) GetLatest(
 }
 
 // GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
-// Stories must be active, have audio, match the station's voice configuration, and be scheduled for the weekday.
+// Stories must be active, have audio, match the station's voice configuration,
+// and be scheduled for the weekday.
 // Breaking news stories are prioritized for selection; remaining slots use fair rotation.
 func (s *BulletinService) GetStoriesForDate(
 	ctx context.Context, stationID int64, date time.Time, limit int,

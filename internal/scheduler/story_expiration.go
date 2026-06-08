@@ -14,7 +14,8 @@ import (
 
 // StoryExpirationService handles automatic expiration of stories past their end date.
 // Runs as a background service that periodically checks for stories that should be expired
-// and updates their status from 'active' to 'expired'. This ensures bulletins only include current content.
+// and updates their status from 'active' to 'expired'. This keeps bulletins
+// limited to current content.
 type StoryExpirationService struct {
 	// db provides GORM database access for story status updates
 	db *gorm.DB
@@ -22,7 +23,8 @@ type StoryExpirationService struct {
 	ticker *time.Ticker
 	// done channel enables graceful shutdown signaling
 	done chan bool
-	// stopOnce ensures Stop() can only be called once, preventing double-stop race conditions
+	// stopOnce prevents double-stop race conditions when Stop is called more
+	// than once.
 	stopOnce sync.Once
 }
 

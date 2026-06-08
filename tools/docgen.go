@@ -391,12 +391,14 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	return endpointsByTag
 }
 
-// toKebabCase converts a string to kebab-case by converting to lowercase and replacing spaces with hyphens.
+// toKebabCase converts a string to kebab-case by lowercasing it and replacing
+// spaces with hyphens.
 func toKebabCase(s string) string {
 	return strings.ReplaceAll(strings.ToLower(s), " ", "-")
 }
 
-// getParameterType extracts the type from a parameter's schema, defaulting to "string" if not found.
+// getParameterType extracts the type from a parameter's schema, defaulting to
+// "string" if not found.
 func getParameterType(param Parameter) string {
 	if param.Schema != nil {
 		if t, ok := param.Schema["type"].(string); ok {
@@ -406,7 +408,8 @@ func getParameterType(param Parameter) string {
 	return "string"
 }
 
-// formatRequestBodyInfo extracts and formats request body information including content type and description.
+// formatRequestBodyInfo extracts and formats request body information including
+// content type and description.
 func formatRequestBodyInfo(rb map[string]any) string {
 	if content, ok := rb["content"].(map[string]any); ok {
 		contentTypes := slices.Collect(maps.Keys(content))
@@ -424,7 +427,8 @@ func formatRequestBodyInfo(rb map[string]any) string {
 	return "Required"
 }
 
-// checkHasSuccessResponse determines if the responses map contains any success status codes (200, 201, 204).
+// checkHasSuccessResponse determines if the responses map contains any success
+// status codes (200, 201, 204).
 func checkHasSuccessResponse(responses map[string]any) bool {
 	for code := range responses {
 		if code == "200" || code == "201" || code == "204" {
@@ -434,7 +438,8 @@ func checkHasSuccessResponse(responses map[string]any) bool {
 	return false
 }
 
-// extractSuccessResponse finds and formats the first success response (200, 201, or 204) from the responses map.
+// extractSuccessResponse finds and formats the first success response
+// (200, 201, or 204) from the responses map.
 func extractSuccessResponse(responses map[string]any) string {
 	codes := []string{"200", "201", "204"}
 	for _, code := range codes {
@@ -460,12 +465,14 @@ func checkHasErrorResponses(responses map[string]any) bool {
 	return false
 }
 
-// isHTTPErrorCode determines if the given HTTP status code represents an error (not 200, 201, or 204).
+// isHTTPErrorCode determines if the given HTTP status code represents an error
+// (not 200, 201, or 204).
 func isHTTPErrorCode(code string) bool {
 	return code != "200" && code != "201" && code != "204"
 }
 
-// extractResponseDescription retrieves the description field from a response object, defaulting to "Error".
+// extractResponseDescription retrieves the description field from a response
+// object, defaulting to "Error".
 func extractResponseDescription(response any) string {
 	if respMap, ok := response.(map[string]any); ok {
 		if desc, ok := respMap["description"].(string); ok {
