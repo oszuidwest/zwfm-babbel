@@ -107,9 +107,11 @@ type dictionaryResponse struct {
 }
 
 type setRulesResponse struct {
-	ID              string `json:"id"`
-	VersionID       string `json:"version_id"`
-	VersionRulesNum int    `json:"version_rules_num"`
+	ID                    string `json:"id"`
+	LatestVersionID       string `json:"latest_version_id"`
+	LatestVersionRulesNum int    `json:"latest_version_rules_num"`
+	VersionID             string `json:"version_id"`
+	VersionRulesNum       int    `json:"version_rules_num"`
 }
 
 func (r incomingPronunciationRule) toRule() Rule {
@@ -210,10 +212,7 @@ func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState
 		if err != nil {
 			return DictionaryState{}, err
 		}
-		if classified := classifyAPIError(apiErr); classified != nil {
-			return DictionaryState{}, classified
-		}
-		return DictionaryState{}, apiErr
+		return DictionaryState{}, ClassifyDictionaryError(apiErr)
 	}
 
 	var wire dictionaryResponse
@@ -257,25 +256,33 @@ func (s *Service) SetRules(ctx context.Context, id string, rules []Rule) (SetRul
 		if err != nil {
 			return SetRulesResult{}, err
 		}
-		if classified := classifyAPIError(apiErr); classified != nil {
-			return SetRulesResult{}, classified
-		}
-		return SetRulesResult{}, apiErr
+		return SetRulesResult{}, ClassifyDictionaryError(apiErr)
 	}
 
 	var wire setRulesResponse
 	if err := decodeLimitedJSON(resp.Body, &wire); err != nil {
 		return SetRulesResult{}, fmt.Errorf("failed to decode pronunciation dictionary set-rules response: %w", err)
 	}
+	latestVersionID := wire.LatestVersionID
+	if latestVersionID == "" {
+		latestVersionID = wire.VersionID
+	}
+	rulesNum := wire.LatestVersionRulesNum
+	if rulesNum == 0 {
+		rulesNum = wire.VersionRulesNum
+	}
 	return SetRulesResult{
 		ID:                    wire.ID,
-		LatestVersionID:       wire.VersionID,
-		LatestVersionRulesNum: wire.VersionRulesNum,
+		LatestVersionID:       latestVersionID,
+		LatestVersionRulesNum: rulesNum,
 	}, nil
 }
 
 // ClassifyDictionaryError returns ErrDictionaryNotFound for upstream responses
-// that mean the managed dictionary is missing or archived.
+// that indicate the managed dictionary is missing or archived. Used by the
+// resource-specific dictionary CRUD endpoints (GET /pronunciation-dictionaries/{id},
+// set-rules), where a 404 unambiguously means the resource does not exist; a 422
+// is only classified when the body carries an explicit marker.
 // It returns nil for nil input and the original APIError for unrelated responses.
 func ClassifyDictionaryError(apiErr *APIError) error {
 	if apiErr == nil {
@@ -292,6 +299,9 @@ func ClassifyDictionaryError(apiErr *APIError) error {
 
 // ClassifyDictionaryLocatorError returns ErrDictionaryNotFound only when a TTS
 // request error body explicitly points at a missing pronunciation dictionary.
+// Unlike ClassifyDictionaryError, a bare 404 is NOT enough — the TTS endpoint
+// can 404 for unrelated reasons (e.g. missing voice), so the dictionary marker
+// must be present.
 // It returns nil for nil input and the original APIError for unrelated responses.
 func ClassifyDictionaryLocatorError(apiErr *APIError) error {
 	if apiErr == nil {
@@ -303,14 +313,6 @@ func ClassifyDictionaryLocatorError(apiErr *APIError) error {
 		return ErrDictionaryNotFound
 	}
 	return apiErr
-}
-
-func classifyAPIError(apiErr *APIError) error {
-	classified := ClassifyDictionaryError(apiErr)
-	if errors.Is(classified, ErrDictionaryNotFound) {
-		return classified
-	}
-	return nil
 }
 
 func isSuccessStatus(status int) bool {
@@ -332,10 +334,11 @@ func looksLikeDictionaryMissing(body string) bool {
 	normalized := strings.ToLower(body)
 	markers := []string{
 		"pronunciation_dictionary_not_found",
+		"pronunciation_dictionary_archived",
+		"pronunciation_dictionary_does_not_exist",
 		"pronunciation dictionary not found",
-		"dictionary not found",
-		"dictionary archived",
-		"dictionary does not exist",
+		"pronunciation dictionary archived",
+		"pronunciation dictionary does not exist",
 	}
 	for _, marker := range markers {
 		if strings.Contains(normalized, marker) {
@@ -371,7 +374,7 @@ func (r dictionaryResponse) toState() DictionaryState {
 	}
 
 	var archivedTime *time.Time
-	if r.ArchivedTimeUnix != nil {
+	if r.ArchivedTimeUnix != nil && *r.ArchivedTimeUnix > 0 {
 		parsed := time.Unix(*r.ArchivedTimeUnix, 0).UTC()
 		archivedTime = &parsed
 	}
@@ -386,12 +389,17 @@ func (r dictionaryResponse) toState() DictionaryState {
 		rulesNum = r.VersionRulesNum
 	}
 
+	var creationTime time.Time
+	if r.CreationTimeUnix > 0 {
+		creationTime = time.Unix(r.CreationTimeUnix, 0).UTC()
+	}
+
 	return DictionaryState{
 		ID:                    r.ID,
 		Name:                  r.Name,
 		LatestVersionID:       latestVersionID,
 		LatestVersionRulesNum: rulesNum,
-		CreationTime:          time.Unix(r.CreationTimeUnix, 0).UTC(),
+		CreationTime:          creationTime,
 		ArchivedTime:          archivedTime,
 		Rules:                 rules,
 		NonAliasRuleCount:     nonAliasRuleCount,

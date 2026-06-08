@@ -282,7 +282,7 @@ func TestTranslateStoryTTSError_DictionaryLocatorErrors(t *testing.T) {
 		},
 		{
 			name:     "404 dictionary missing marker maps to pronunciation rules validation",
-			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"dictionary not found"}`},
+			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
 			locators: locators,
 			assert: func(t *testing.T, got error) {
 				t.Helper()

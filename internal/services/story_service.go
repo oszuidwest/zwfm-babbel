@@ -533,7 +533,8 @@ func translateStoryTTSError(err error, locators []tts.DictionaryLocator) error {
 				return apperrors.ValidationWithCause(
 					"PronunciationRules",
 					"pronunciation_dictionary_id",
-					"The Babbel pronunciation dictionary is missing on ElevenLabs. "+
+					"The "+ManagedPronunciationDictionaryName+
+						" pronunciation dictionary is missing on ElevenLabs. "+
 						"Save your rules at PUT /api/v1/settings/tts/pronunciations to recreate it.",
 					apiErr,
 				)

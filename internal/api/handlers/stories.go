@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -215,9 +214,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 // GenerateStoryTTS generates audio for a story using text-to-speech.
 // Pass ?force=true to overwrite existing audio.
 func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
-	if !h.ttsEnabled {
-		utils.ProblemExtended(c, http.StatusNotImplemented, "Text-to-speech is not configured", "tts.not_configured",
-			"Set BABBEL_ELEVENLABS_API_KEY to enable TTS")
+	if !h.requireTTSEnabled(c) {
 		return
 	}
 

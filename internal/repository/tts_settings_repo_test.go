@@ -88,11 +88,19 @@ func TestParseDBError_DoesNotTreatColumnMissingAsSchemaUnavailable(t *testing.T)
 }
 
 func TestTTSSettingsRepository_SetPronunciationDictionaryID(t *testing.T) {
+	type existenceMode int
+	const (
+		noExistenceCheck existenceMode = iota
+		existenceCheckRowExists
+		existenceCheckRowMissing
+	)
+
 	tests := []struct {
 		name      string
 		id        *string
 		wantValue any
 		rows      int64
+		existence existenceMode
 		wantErr   error
 	}{
 		{
@@ -100,37 +108,60 @@ func TestTTSSettingsRepository_SetPronunciationDictionaryID(t *testing.T) {
 			id:        ptr("dict-123"),
 			wantValue: "dict-123",
 			rows:      1,
+			existence: noExistenceCheck,
 		},
 		{
 			name:      "nil clears dictionary ID",
 			id:        nil,
 			wantValue: nil,
 			rows:      1,
+			existence: noExistenceCheck,
 		},
 		{
 			name:      "empty string clears dictionary ID",
 			id:        ptr(""),
 			wantValue: nil,
 			rows:      1,
+			existence: noExistenceCheck,
+		},
+		{
+			name:      "idempotent same-value write disambiguates via existence check",
+			id:        ptr("dict-123"),
+			wantValue: "dict-123",
+			rows:      0,
+			existence: existenceCheckRowExists,
 		},
 		{
 			name:      "missing singleton row returns not found",
 			id:        ptr("dict-123"),
 			wantValue: "dict-123",
 			rows:      0,
+			existence: existenceCheckRowMissing,
 			wantErr:   ErrNotFound,
 		},
 	}
 
-	sqlPattern := regexp.QuoteMeta("UPDATE `tts_settings` SET `pronunciation_dictionary_id`=?,`updated_at`=? WHERE id = ?")
+	updatePattern := regexp.QuoteMeta("UPDATE `tts_settings` SET `pronunciation_dictionary_id`=?,`updated_at`=? WHERE id = ?")
+	countPattern := regexp.QuoteMeta("SELECT count(*) FROM `tts_settings` WHERE id = ?")
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo, mock, cleanup := newMockTTSSettingsRepository(t)
 			defer cleanup()
 
-			mock.ExpectExec(sqlPattern).
+			mock.ExpectExec(updatePattern).
 				WithArgs(tt.wantValue, sqlmock.AnyArg(), ttsSettingsSingletonID).
 				WillReturnResult(sqlmock.NewResult(0, tt.rows))
+
+			switch tt.existence {
+			case existenceCheckRowExists:
+				mock.ExpectQuery(countPattern).
+					WithArgs(ttsSettingsSingletonID).
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+			case existenceCheckRowMissing:
+				mock.ExpectQuery(countPattern).
+					WithArgs(ttsSettingsSingletonID).
+					WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			}
 
 			err := repo.SetPronunciationDictionaryID(context.Background(), tt.id)
 			if tt.wantErr == nil {

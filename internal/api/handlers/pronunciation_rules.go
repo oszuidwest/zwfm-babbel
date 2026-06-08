@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,7 +47,7 @@ type pronunciationRulesResponse struct {
 
 // GetPronunciationRules returns the managed ElevenLabs pronunciation rules.
 func (h *Handlers) GetPronunciationRules(c *gin.Context) {
-	if !h.ensurePronunciationRulesEnabled(c) {
+	if !h.requirePronunciationRulesEnabled(c) {
 		return
 	}
 
@@ -63,7 +62,7 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 
 // UpdatePronunciationRules replaces the full managed pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
-	if !h.ensurePronunciationRulesEnabled(c) {
+	if !h.requirePronunciationRulesEnabled(c) {
 		return
 	}
 
@@ -86,20 +85,6 @@ func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
 	}
 
 	utils.Success(c, toPronunciationRulesResponse(result))
-}
-
-func (h *Handlers) ensurePronunciationRulesEnabled(c *gin.Context) bool {
-	if h.ttsEnabled && h.pronunciationRulesSvc != nil {
-		return true
-	}
-	utils.ProblemExtended(
-		c,
-		http.StatusNotImplemented,
-		"Text-to-speech is not configured",
-		"tts.not_configured",
-		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
-	)
-	return false
 }
 
 func toPronunciationRuleUpdates(rules []pronunciationRuleRequest) []services.PronunciationRuleUpdate {

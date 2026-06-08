@@ -262,6 +262,39 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	return false
 }
 
+// requireTTSEnabled writes a 501 Problem response when TTS is not configured
+// and returns false. Used by every endpoint that depends on the ElevenLabs API.
+func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
+	if h.ttsEnabled {
+		return true
+	}
+	utils.ProblemExtended(
+		c,
+		http.StatusNotImplemented,
+		"Text-to-speech is not configured",
+		"tts.not_configured",
+		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
+	)
+	return false
+}
+
+// requirePronunciationRulesEnabled extends requireTTSEnabled with a service-nil
+// guard so a misconfigured Handlers struct (TTSEnabled=true but no
+// PronunciationRulesSvc wired in) returns 501 instead of nil-derefing.
+func (h *Handlers) requirePronunciationRulesEnabled(c *gin.Context) bool {
+	if h.ttsEnabled && h.pronunciationRulesSvc != nil {
+		return true
+	}
+	utils.ProblemExtended(
+		c,
+		http.StatusNotImplemented,
+		"Text-to-speech is not configured",
+		"tts.not_configured",
+		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
+	)
+	return false
+}
+
 // logError logs an error with structured fields for filtering.
 func logError(resource, errorType string, err error) {
 	logger.WithFields(map[string]any{

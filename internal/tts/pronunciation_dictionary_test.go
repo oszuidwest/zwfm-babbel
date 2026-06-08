@@ -107,6 +107,43 @@ func TestService_CreateDictionaryFromRules_MissingIDFails(t *testing.T) {
 	}
 }
 
+// TestService_CreateDictionaryFromRules_DocumentedResponseShape pins the exact
+// fields ElevenLabs returns per the public OpenAPI spec for /add-from-rules
+// (version_id / version_rules_num, no latest_*). The toState() fallback maps
+// these to LatestVersion* so a future contract drift surfaces here.
+func TestService_CreateDictionaryFromRules_DocumentedResponseShape(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"dict-123",
+			"name":"Babbel",
+			"created_by":"user-1",
+			"creation_time_unix":1717200000,
+			"version_id":"v1",
+			"version_rules_num":1,
+			"description":"Auto-managed by Babbel",
+			"permission_on_resource":"admin"
+		}`))
+	}))
+	defer server.Close()
+
+	state, err := testTTSService(server.URL).CreateDictionaryFromRules(
+		context.Background(),
+		"Babbel",
+		"Auto-managed by Babbel",
+		[]Rule{{StringToReplace: "A", Alias: "aa"}},
+	)
+	if err != nil {
+		t.Fatalf("CreateDictionaryFromRules() error = %v", err)
+	}
+	if state.ID != "dict-123" || state.LatestVersionID != "v1" || state.LatestVersionRulesNum != 1 {
+		t.Fatalf("state = %#v, want id=dict-123, version=v1, rules=1", state)
+	}
+	if state.CreationTime.Unix() != 1717200000 {
+		t.Fatalf("creation time = %v, want unix 1717200000", state.CreationTime)
+	}
+}
+
 func TestService_GetDictionary_RequestConstructionFailureIsClientError(t *testing.T) {
 	service := testTTSService(":// invalid")
 
@@ -181,9 +218,14 @@ func TestService_GetDictionary_MissingAndArchivedCollapseToSentinel(t *testing.T
 		body   string
 	}{
 		{
-			name:   "404",
+			name:   "404 from resource-specific GET",
 			status: http.StatusNotFound,
 			body:   `{"detail":"missing"}`,
+		},
+		{
+			name:   "404 with explicit pronunciation dictionary marker",
+			status: http.StatusNotFound,
+			body:   `{"detail":"pronunciation_dictionary_not_found"}`,
 		},
 		{
 			name:   "classified 422",
@@ -286,7 +328,7 @@ func TestService_SetRules_SendsNonEmptyRulesArray(t *testing.T) {
 
 func TestService_SetRules_ErrorClassification(t *testing.T) {
 	t.Run("classified 422 returns sentinel", func(t *testing.T) {
-		err := setRulesWithErrorResponse(t, http.StatusUnprocessableEntity, `{"detail":"dictionary does not exist"}`)
+		err := setRulesWithErrorResponse(t, http.StatusUnprocessableEntity, `{"detail":"pronunciation_dictionary_does_not_exist"}`)
 		if !errors.Is(err, ErrDictionaryNotFound) {
 			t.Fatalf("SetRules() error = %v, want ErrDictionaryNotFound", err)
 		}
@@ -300,6 +342,13 @@ func TestService_SetRules_ErrorClassification(t *testing.T) {
 		}
 		if errors.Is(err, ErrDictionaryNotFound) {
 			t.Fatalf("SetRules() error = %v, did not want ErrDictionaryNotFound", err)
+		}
+	})
+
+	t.Run("plain 404 from set-rules collapses to sentinel", func(t *testing.T) {
+		err := setRulesWithErrorResponse(t, http.StatusNotFound, `{"detail":"missing"}`)
+		if !errors.Is(err, ErrDictionaryNotFound) {
+			t.Fatalf("SetRules() error = %v, want ErrDictionaryNotFound", err)
 		}
 	})
 }
@@ -324,22 +373,27 @@ func TestClassifyDictionaryError(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:      "404",
+			name:      "plain 404 from resource-specific endpoint",
 			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "not found"},
 			wantFound: true,
 		},
 		{
-			name:      "dictionary not found marker",
-			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "dictionary not found"},
+			name:      "404 with explicit pronunciation dictionary marker",
+			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "pronunciation_dictionary_not_found"},
 			wantFound: true,
 		},
 		{
-			name:      "dictionary archived marker",
-			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "Dictionary archived"},
+			name:      "422 with pronunciation dictionary not found marker",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "pronunciation dictionary not found"},
 			wantFound: true,
 		},
 		{
-			name:      "generic validation",
+			name:      "422 with pronunciation dictionary archived marker",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "Pronunciation dictionary archived"},
+			wantFound: true,
+		},
+		{
+			name:      "generic 422 stays API error",
 			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "invalid alias"},
 			wantFound: false,
 		},
@@ -366,12 +420,12 @@ func TestClassifyDictionaryLocatorError(t *testing.T) {
 		wantFound bool
 	}{
 		{
-			name:      "404 with dictionary marker",
-			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "dictionary not found"},
+			name:      "404 with pronunciation dictionary marker",
+			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "pronunciation_dictionary_not_found"},
 			wantFound: true,
 		},
 		{
-			name:      "404 with voice marker",
+			name:      "404 without marker stays API error (voice 404 etc.)",
 			apiErr:    &APIError{StatusCode: http.StatusNotFound, Body: "voice not found"},
 			wantFound: false,
 		},

@@ -75,7 +75,9 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 }
 
 // SetPronunciationDictionaryID writes the lazily-created ElevenLabs dictionary
-// ID, or NULL when id is nil or empty.
+// ID, or NULL when id is nil or empty. MySQL without CLIENT_FOUND_ROWS reports
+// 0 affected rows for idempotent same-value writes; the zero-rows branch
+// therefore re-queries existence to disambiguate "same value" from "row gone".
 func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context, id *string) error {
 	var value any
 	if id != nil && *id != "" {
@@ -91,7 +93,16 @@ func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context
 		return ParseDBError(result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return ErrNotFound
+		var count int64
+		if err := db.WithContext(ctx).
+			Model(&models.TTSSettings{}).
+			Where("id = ?", ttsSettingsSingletonID).
+			Count(&count).Error; err != nil {
+			return ParseDBError(err)
+		}
+		if count == 0 {
+			return ErrNotFound
+		}
 	}
 	return nil
 }

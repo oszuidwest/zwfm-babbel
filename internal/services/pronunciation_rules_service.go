@@ -16,11 +16,21 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-const (
-	managedPronunciationDictionaryName        = "Babbel"
-	managedPronunciationDictionaryDescription = "Auto-managed by Babbel"
+// ManagedPronunciationDictionaryName is the name Babbel uses for the singleton
+// pronunciation dictionary it creates on ElevenLabs. Exported so other packages
+// (e.g. story_service error messages) reference one source of truth.
+const ManagedPronunciationDictionaryName = "Babbel"
 
-	missingPronunciationDictionaryWarning = "The Babbel dictionary on ElevenLabs is missing; it will be recreated on the next save."
+// MaxPronunciationRules caps the number of rules accepted in a single Update so
+// a malformed or malicious request cannot exhaust memory before reaching
+// ElevenLabs. Chosen to comfortably exceed any realistic editorial workflow.
+const MaxPronunciationRules = 5000
+
+const (
+	managedPronunciationDictionaryDescription = "Auto-managed by " + ManagedPronunciationDictionaryName
+
+	missingPronunciationDictionaryWarning = "The " + ManagedPronunciationDictionaryName +
+		" dictionary on ElevenLabs is missing; it will be recreated on the next save."
 )
 
 type pronunciationRulesAuditAction string
@@ -209,7 +219,7 @@ func (s *PronunciationRulesService) runCreatePath(
 
 	state, err := s.client.CreateDictionaryFromRules(
 		ctx,
-		managedPronunciationDictionaryName,
+		ManagedPronunciationDictionaryName,
 		managedPronunciationDictionaryDescription,
 		rules,
 	)
@@ -225,16 +235,12 @@ func (s *PronunciationRulesService) runCreatePath(
 	}
 
 	if err := s.settingsRepo.SetPronunciationDictionaryID(ctx, &newID); err != nil {
-		translated := translatePronunciationRulesRepoWriteError("persist_dictionary_id", err)
-		if isTTSSettingsInitializationError(err) {
-			return nil, translated
-		}
 		logger.Error(
 			"orphan pronunciation dictionary: created on ElevenLabs but DB persist failed; manual cleanup required",
 			"dictionary_id", newID,
 			"error", err.Error(),
 		)
-		return nil, translated
+		return nil, translatePronunciationRulesRepoWriteError("persist_dictionary_id", err)
 	}
 
 	logPronunciationRulesAudit(pronunciationRulesAuditEvent{
@@ -254,6 +260,17 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]tts.
 			"pronunciation_rules",
 			"One or more fields failed validation",
 			[]apperrors.ValidationError{fieldError("rules", "is required")},
+		)
+	}
+
+	if len(req.Rules) > MaxPronunciationRules {
+		return nil, apperrors.NewValidationProblemError(
+			"pronunciation_rules",
+			"One or more fields failed validation",
+			[]apperrors.ValidationError{fieldError(
+				"rules",
+				fmt.Sprintf("exceeds maximum of %d entries (got %d)", MaxPronunciationRules, len(req.Rules)),
+			)},
 		)
 	}
 
@@ -337,6 +354,14 @@ func translatePronunciationRulesRepoWriteError(operation string, err error) erro
 	if isTTSSettingsInitializationError(err) {
 		return translateTTSSettingsRepoError(err)
 	}
+	switch {
+	case errors.Is(err, repository.ErrDuplicateKey):
+		return apperrors.DuplicateWithCause("PronunciationRules", "", "", err)
+	case errors.Is(err, repository.ErrForeignKeyViolation):
+		return apperrors.ValidationWithCause("PronunciationRules", "reference", "references non-existent resource", err)
+	case errors.Is(err, repository.ErrDataTooLong):
+		return apperrors.ValidationWithCause("PronunciationRules", "field", "exceeds maximum length", err)
+	}
 	return apperrors.Database("PronunciationRules", operation, err)
 }
 
@@ -389,7 +414,8 @@ func translatePronunciationRulesUpstreamError(err error) error {
 
 func upstreamRulesValidationFieldAndMessage(apiErr *tts.APIError) (string, string) {
 	if hasDictionaryNameCollisionCode(apiErr.Body) {
-		return "dictionary", "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
+		return "dictionary", "A " + ManagedPronunciationDictionaryName +
+			" pronunciation dictionary already exists on ElevenLabs. " +
 			"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary."
 	}
 	return "rules", upstreamRulesValidationMessage(apiErr)
