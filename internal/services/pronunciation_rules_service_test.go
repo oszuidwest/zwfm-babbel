@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -78,6 +79,31 @@ func TestMaterializePronunciationRules(t *testing.T) {
 			t.Fatalf("fields = %v, want %v", gotFields, wantFields)
 		}
 	})
+}
+
+// TestMaterializePronunciationRules_RejectsOverflowingRuleSet pins the
+// MaxPronunciationRules guard: one more than the cap must return a validation
+// problem before any allocation or upstream call.
+func TestMaterializePronunciationRules_RejectsOverflowingRuleSet(t *testing.T) {
+	overflowing := make([]PronunciationRuleUpdate, MaxPronunciationRules+1)
+	for i := range overflowing {
+		overflowing[i] = PronunciationRuleUpdate{
+			StringToReplace: fmt.Sprintf("token-%d", i),
+			Alias:           fmt.Sprintf("alias-%d", i),
+		}
+	}
+
+	_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: overflowing})
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error type = %T, want *ValidationProblemError", err)
+	}
+	if len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "rules" {
+		t.Fatalf("errors = %#v, want single rules field error", validationErr.Errors)
+	}
+	if !strings.Contains(validationErr.Errors[0].Message, "exceeds maximum") {
+		t.Fatalf("message = %q, want exceeds-maximum hint", validationErr.Errors[0].Message)
+	}
 }
 
 func TestMaterializePronunciationRules_DoesNotDeduplicateEmptyKeys(t *testing.T) {

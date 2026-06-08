@@ -85,6 +85,24 @@ func TestPronunciationRulesHandlers_NotConfigured(t *testing.T) {
 	}
 }
 
+// TestPronunciationRulesHandlers_NilServiceGuard pins the requirePronunciationRulesEnabled
+// guard: a misconfigured Handlers struct (TTSEnabled=true but no service wired
+// in) must return 501 instead of nil-derefing the service inside the handler.
+func TestPronunciationRulesHandlers_NilServiceGuard(t *testing.T) {
+	h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: nil}
+
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("status = %d, want 501: %s", recorder.Code, recorder.Body.String())
+	}
+	var body map[string]any
+	decodeHandlerJSON(t, recorder, &body)
+	if body["code"] != "tts.not_configured" {
+		t.Fatalf("code = %#v, want tts.not_configured", body["code"])
+	}
+}
+
 func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 	t.Run("missing rules returns 422 with top-level Go field", func(t *testing.T) {
 		svc := &pronunciationRulesHandlerServiceMock{}

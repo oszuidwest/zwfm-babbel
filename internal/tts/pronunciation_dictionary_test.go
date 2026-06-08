@@ -388,9 +388,24 @@ func TestClassifyDictionaryError(t *testing.T) {
 			wantFound: true,
 		},
 		{
-			name:      "422 with pronunciation dictionary archived marker",
-			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "Pronunciation dictionary archived"},
+			name:      "422 with generic dictionary not found phrasing",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":[{"msg":"dictionary not found"}]}`},
 			wantFound: true,
+		},
+		{
+			name:      "422 with generic dictionary archived phrasing",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: "Dictionary archived"},
+			wantFound: true,
+		},
+		{
+			name:      "422 with generic dictionary does not exist phrasing",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"dictionary does not exist"}`},
+			wantFound: true,
+		},
+		{
+			name:      "422 with already-exists collision stays API error",
+			apiErr:    &APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"dictionary already exists"}`},
+			wantFound: false,
 		},
 		{
 			name:      "generic 422 stays API error",

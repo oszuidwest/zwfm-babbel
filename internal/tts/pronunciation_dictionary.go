@@ -331,6 +331,12 @@ func decodeLimitedJSON(body io.Reader, target any) error {
 }
 
 func looksLikeDictionaryMissing(body string) bool {
+	// ElevenLabs only guarantees the HTTPValidationError shape for 422 — the
+	// exact error text/code is not pinned by the spec. Match both the explicit
+	// pronunciation_dictionary_* codes and the generic "dictionary
+	// not found / archived / does not exist" phrases so self-heal still fires
+	// on plausible upstream bodies. The "already exists" collision phrase is a
+	// different substring and is handled separately by hasDictionaryNameCollisionCode.
 	normalized := strings.ToLower(body)
 	markers := []string{
 		"pronunciation_dictionary_not_found",
@@ -339,6 +345,9 @@ func looksLikeDictionaryMissing(body string) bool {
 		"pronunciation dictionary not found",
 		"pronunciation dictionary archived",
 		"pronunciation dictionary does not exist",
+		"dictionary not found",
+		"dictionary archived",
+		"dictionary does not exist",
 	}
 	for _, marker := range markers {
 		if strings.Contains(normalized, marker) {
