@@ -1324,6 +1324,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
@@ -3744,6 +3746,7 @@ components:
         - `https://babbel.api/problems/duplicate` - Duplicate resource (e.g., station name already exists)
         - `https://babbel.api/problems/dependency-constraint` - Resource has dependencies that prevent deletion
         - `https://babbel.api/problems/admin-constraint` - Cannot delete last admin user
+        - `https://babbel.api/problems/pronunciation_rules.conflict` - Pronunciation dictionary changed concurrently
       content:
         application/problem+json:
           schema:

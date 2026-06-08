@@ -74,39 +74,6 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 	return nil
 }
 
-// SetPronunciationDictionaryID writes the lazily-created ElevenLabs dictionary
-// ID, or NULL when id is nil or empty. MySQL without CLIENT_FOUND_ROWS reports
-// 0 affected rows for idempotent same-value writes; the zero-rows branch
-// therefore re-queries existence to disambiguate "same value" from "row gone".
-func (r *TTSSettingsRepository) SetPronunciationDictionaryID(ctx context.Context, id *string) error {
-	var value any
-	if id != nil && *id != "" {
-		value = *id
-	}
-
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).
-		Model(&models.TTSSettings{}).
-		Where("id = ?", ttsSettingsSingletonID).
-		Update("pronunciation_dictionary_id", value)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		var count int64
-		if err := db.WithContext(ctx).
-			Model(&models.TTSSettings{}).
-			Where("id = ?", ttsSettingsSingletonID).
-			Count(&count).Error; err != nil {
-			return ParseDBError(err)
-		}
-		if count == 0 {
-			return ErrNotFound
-		}
-	}
-	return nil
-}
-
 // CompareAndSetPronunciationDictionaryID writes the dictionary ID only when the
 // stored value still matches currentID. A nil or empty currentID matches both
 // NULL and the legacy empty-string representation.

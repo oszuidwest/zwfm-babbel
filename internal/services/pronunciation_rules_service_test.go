@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -168,9 +169,6 @@ func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing
 		*repo.compareAndSetIDs[0].next != "dict-new" {
 		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-new", repo.compareAndSetIDs)
 	}
-	if len(repo.setIDs) != 0 {
-		t.Fatalf("set IDs = %#v, want no unconditional DB write", repo.setIDs)
-	}
 	if result.LatestVersionID == nil || *result.LatestVersionID != "v1" {
 		t.Fatalf("latest_version_id = %v, want v1", result.LatestVersionID)
 	}
@@ -194,9 +192,6 @@ func TestPronunciationRulesService_Update_CreateWithEmptyDictionaryIDFailsBefore
 	var upstreamErr *apperrors.UpstreamError
 	if !errors.As(err, &upstreamErr) {
 		t.Fatalf("error type = %T, want *UpstreamError", err)
-	}
-	if len(repo.setIDs) != 0 {
-		t.Fatalf("set IDs = %#v, want no DB persist for empty upstream ID", repo.setIDs)
 	}
 	if len(repo.compareAndSetIDs) != 0 {
 		t.Fatalf("compare-and-set IDs = %#v, want no DB persist for empty upstream ID", repo.compareAndSetIDs)
@@ -223,12 +218,12 @@ func TestPronunciationRulesService_Update_FirstWriteCreateCASLost(t *testing.T) 
 	_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
 		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
 	})
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *ValidationProblemError", err)
+	var conflictErr *apperrors.ConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("error type = %T, want *ConflictError", err)
 	}
-	if len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "dictionary" {
-		t.Fatalf("validation errors = %#v, want dictionary CAS error", validationErr.Errors)
+	if conflictErr.Code != "pronunciation_rules.conflict" {
+		t.Fatalf("conflict code = %q, want pronunciation_rules.conflict", conflictErr.Code)
 	}
 	if len(repo.compareAndSetIDs) != 1 ||
 		repo.compareAndSetIDs[0].current != nil ||
@@ -236,8 +231,56 @@ func TestPronunciationRulesService_Update_FirstWriteCreateCASLost(t *testing.T) 
 		*repo.compareAndSetIDs[0].next != "dict-orphan" {
 		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-orphan", repo.compareAndSetIDs)
 	}
-	if len(repo.setIDs) != 0 {
-		t.Fatalf("set IDs = %#v, want no unconditional DB write", repo.setIDs)
+}
+
+func TestPronunciationRulesService_Update_ConcurrentFirstWritesSurfaceOneConflict(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	repo := &concurrentFirstWriteRepo{}
+	client := newConcurrentCreateDictionaryClient()
+	service := &PronunciationRulesService{settingsRepo: repo, client: client}
+
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for i := range 2 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := service.Update(ctx, &UpdatePronunciationRulesRequest{
+				Rules: []PronunciationRuleUpdate{{
+					StringToReplace: fmt.Sprintf("token-%d", i),
+					Alias:           fmt.Sprintf("alias-%d", i),
+				}},
+			})
+			errs <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	successes := 0
+	conflicts := 0
+	for err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		default:
+			var conflictErr *apperrors.ConflictError
+			if !errors.As(err, &conflictErr) {
+				t.Fatalf("error type = %T, want nil or *ConflictError: %v", err, err)
+			}
+			conflicts++
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("results = %d successes/%d conflicts, want 1/1", successes, conflicts)
+	}
+	if got := client.CreateCount(); got != 2 {
+		t.Fatalf("create calls = %d, want 2 concurrent creates", got)
+	}
+	if got := repo.CompareCount(); got != 2 {
+		t.Fatalf("compare-and-set calls = %d, want 2", got)
 	}
 }
 
@@ -250,8 +293,12 @@ func TestPronunciationRulesService_Update_FirstWriteWithEmptyRulesIsNoop(t *test
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if len(client.createCalls) != 0 || len(repo.setIDs) != 0 {
-		t.Fatalf("createCalls=%d setIDs=%d, want no calls", len(client.createCalls), len(repo.setIDs))
+	if len(client.createCalls) != 0 || len(repo.compareAndSetIDs) != 0 {
+		t.Fatalf(
+			"createCalls=%d compareAndSetIDs=%d, want no calls",
+			len(client.createCalls),
+			len(repo.compareAndSetIDs),
+		)
 	}
 	if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
 		t.Fatalf("result = %#v, want empty response", result)
@@ -353,8 +400,8 @@ func TestPronunciationRulesService_Update_SetRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if len(repo.setIDs) != 0 {
-		t.Fatalf("set IDs = %#v, want no DB write", repo.setIDs)
+	if len(repo.compareAndSetIDs) != 0 {
+		t.Fatalf("compare-and-set IDs = %#v, want no DB write", repo.compareAndSetIDs)
 	}
 	if result.CreatedAt == nil || !result.CreatedAt.Equal(createdAt) {
 		t.Fatalf("created_at = %v, want %s", result.CreatedAt, createdAt)
@@ -694,10 +741,8 @@ func TestDiffPronunciationRules(t *testing.T) {
 type pronunciationSettingsRepoMock struct {
 	settings         *models.TTSSettings
 	getErr           error
-	setErr           error
 	compareErr       error
 	compareResult    *bool
-	setIDs           []*string
 	compareAndSetIDs []compareAndSetIDCall
 }
 
@@ -711,19 +756,6 @@ func (m *pronunciationSettingsRepoMock) Get(ctx context.Context) (*models.TTSSet
 		return nil, m.getErr
 	}
 	return m.settings, nil
-}
-
-func (m *pronunciationSettingsRepoMock) SetPronunciationDictionaryID(ctx context.Context, id *string) error {
-	if m.setErr != nil {
-		return m.setErr
-	}
-	if id == nil {
-		m.setIDs = append(m.setIDs, nil)
-		return nil
-	}
-	value := *id
-	m.setIDs = append(m.setIDs, &value)
-	return nil
 }
 
 func (m *pronunciationSettingsRepoMock) CompareAndSetPronunciationDictionaryID(
@@ -752,6 +784,100 @@ func copyStringPtr(value *string) *string {
 	}
 	copied := *value
 	return &copied
+}
+
+type concurrentFirstWriteRepo struct {
+	mu           sync.Mutex
+	storedID     *string
+	compareCalls int
+}
+
+func (r *concurrentFirstWriteRepo) Get(ctx context.Context) (*models.TTSSettings, error) {
+	return &models.TTSSettings{}, nil
+}
+
+func (r *concurrentFirstWriteRepo) CompareAndSetPronunciationDictionaryID(
+	ctx context.Context,
+	currentID *string,
+	id *string,
+) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.compareCalls++
+	if !dictionaryIDsMatch(r.storedID, currentID) {
+		return false, nil
+	}
+	r.storedID = copyStringPtr(id)
+	return true, nil
+}
+
+func (r *concurrentFirstWriteRepo) CompareCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.compareCalls
+}
+
+func dictionaryIDsMatch(storedID, currentID *string) bool {
+	if currentID == nil || *currentID == "" {
+		return storedID == nil || *storedID == ""
+	}
+	return storedID != nil && *storedID == *currentID
+}
+
+type concurrentCreateDictionaryClient struct {
+	mu          sync.Mutex
+	createCount int
+	bothCreated chan struct{}
+}
+
+func newConcurrentCreateDictionaryClient() *concurrentCreateDictionaryClient {
+	return &concurrentCreateDictionaryClient{bothCreated: make(chan struct{})}
+}
+
+func (c *concurrentCreateDictionaryClient) CreateDictionaryFromRules(
+	ctx context.Context,
+	name string,
+	description string,
+	rules []tts.Rule,
+) (tts.DictionaryState, error) {
+	c.mu.Lock()
+	c.createCount++
+	id := fmt.Sprintf("dict-%d", c.createCount)
+	if c.createCount == 2 {
+		close(c.bothCreated)
+	}
+	c.mu.Unlock()
+
+	select {
+	case <-c.bothCreated:
+	case <-ctx.Done():
+		return tts.DictionaryState{}, ctx.Err()
+	}
+
+	return tts.DictionaryState{
+		ID:              id,
+		LatestVersionID: "v1",
+		Rules:           rules,
+	}, nil
+}
+
+func (c *concurrentCreateDictionaryClient) GetDictionary(ctx context.Context, id string) (tts.DictionaryState, error) {
+	return tts.DictionaryState{}, errors.New("unexpected GetDictionary call")
+}
+
+func (c *concurrentCreateDictionaryClient) SetRules(
+	ctx context.Context,
+	id string,
+	rules []tts.Rule,
+) (tts.SetRulesResult, error) {
+	return tts.SetRulesResult{}, errors.New("unexpected SetRules call")
+}
+
+func (c *concurrentCreateDictionaryClient) CreateCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.createCount
 }
 
 type createDictionaryCall struct {

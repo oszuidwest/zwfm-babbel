@@ -269,13 +269,11 @@ func (s *PronunciationRulesService) runCreatePath(
 }
 
 func pronunciationDictionaryChangedConcurrentlyError() error {
-	return apperrors.NewValidationProblemErrorWithCause(
-		"pronunciation_rules",
+	return apperrors.ConflictWithCode(
+		"PronunciationRules",
+		"pronunciation_rules.conflict",
 		"Pronunciation dictionary changed concurrently",
-		[]apperrors.ValidationError{fieldError(
-			"dictionary",
-			"Another request changed the pronunciation dictionary; reload and try again",
-		)},
+		"Another request changed the pronunciation dictionary; reload and try again",
 		errPronunciationDictionaryChangedConcurrently,
 	)
 }

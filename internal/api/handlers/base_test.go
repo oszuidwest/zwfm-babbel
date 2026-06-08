@@ -152,6 +152,30 @@ func TestHandleServiceError_NotInitializedUsesCustomCode(t *testing.T) {
 	}
 }
 
+func TestHandleServiceError_ConflictReturns409(t *testing.T) {
+	c, rec := newProblemContext(t)
+	err := apperrors.ConflictWithCode(
+		"PronunciationRules",
+		"pronunciation_rules.conflict",
+		"Pronunciation dictionary changed concurrently",
+		"Reload and try again",
+		errors.New("cas lost"),
+	)
+
+	handleServiceError(c, err, "PronunciationRules")
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	problem := decodeProblem(t, rec)
+	if problem.Code != "pronunciation_rules.conflict" {
+		t.Fatalf("code = %q, want pronunciation_rules.conflict", problem.Code)
+	}
+	if problem.Hint != "Reload and try again" {
+		t.Fatalf("hint = %q, want reload hint", problem.Hint)
+	}
+}
+
 func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
 	err := apperrors.NewValidationProblemError("tts_settings", "validation failed", []apperrors.ValidationError{

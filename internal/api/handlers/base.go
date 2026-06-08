@@ -122,6 +122,20 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
+		code := strings.ToLower(conflict.Resource) + ".conflict"
+		if conflict.Code != "" {
+			code = conflict.Code
+		}
+		hint := conflict.Hint
+		if hint == "" {
+			hint = "Reload the resource and try again"
+		}
+		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
+		return
+	}
+
 	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
 		logErrorWithCause(strings.ToLower(vp.Resource), "validation_failed", err, vp.Unwrap())
 		utils.ProblemValidationError(c, vp.Detail, vp.Errors)

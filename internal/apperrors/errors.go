@@ -88,6 +88,36 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
 
+// ConflictError indicates a state conflict that prevented the operation.
+type ConflictError struct {
+	Resource string
+	Detail   string
+	Hint     string
+	Code     string
+	cause    error
+}
+
+// Error returns the conflict detail.
+func (e *ConflictError) Error() string {
+	if e.Detail != "" {
+		return e.Detail
+	}
+	return fmt.Sprintf("%s conflict", e.Resource)
+}
+
+// Unwrap returns the underlying conflict cause, if one was captured.
+func (e *ConflictError) Unwrap() error { return e.cause }
+
+// Conflict creates a ConflictError for a state conflict.
+func Conflict(resource, detail, hint string, cause error) *ConflictError {
+	return &ConflictError{Resource: resource, Detail: detail, Hint: hint, cause: cause}
+}
+
+// ConflictWithCode creates a ConflictError with a specific problem code.
+func ConflictWithCode(resource, code, detail, hint string, cause error) *ConflictError {
+	return &ConflictError{Resource: resource, Code: code, Detail: detail, Hint: hint, cause: cause}
+}
+
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
 	Resource string `json:"-"`
