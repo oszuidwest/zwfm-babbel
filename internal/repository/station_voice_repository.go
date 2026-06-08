@@ -146,7 +146,8 @@ var stationVoiceFieldMapping = FieldMapping{
 	"updated_at": "station_voices.updated_at",
 }
 
-// List retrieves a paginated list of station-voice relationships with their associated stations and voices.
+// List retrieves a paginated list of station-voice relationships with their
+// associated stations and voices.
 func (r *StationVoiceRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.StationVoice], error) {
 	db := r.db.WithContext(ctx).
 		Model(&models.StationVoice{}).

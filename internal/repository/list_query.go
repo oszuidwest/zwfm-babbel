@@ -13,6 +13,7 @@ type FieldMapping map[string]string
 // SortDirection represents ascending or descending sort order.
 type SortDirection string
 
+// SortDirection values accepted by API list queries.
 const (
 	SortAsc  SortDirection = "asc"
 	SortDesc SortDirection = "desc"
@@ -27,6 +28,7 @@ type SortField struct {
 // FilterOperator represents comparison operators for filtering.
 type FilterOperator string
 
+// FilterOperator values map API filter names to supported query predicates.
 const (
 	FilterEquals      FilterOperator = "eq"
 	FilterNotEquals   FilterOperator = "neq"

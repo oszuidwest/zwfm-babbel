@@ -189,7 +189,8 @@ func (s *Service) CreateDictionaryFromRules(
 
 // GetDictionary reads the managed dictionary and collapses missing or archived
 // dictionaries to ErrDictionaryNotFound.
-// It returns APIError for other ElevenLabs rejections and ClientError for request construction failures.
+// It returns APIError for other ElevenLabs rejections and ClientError for
+// request construction failures.
 func (s *Service) GetDictionary(ctx context.Context, id string) (DictionaryState, error) {
 	req, err := s.newJSONRequest(
 		ctx,

@@ -139,7 +139,8 @@ func (r *GormRepository[T]) HasRelatedRecords(ctx context.Context, id int64, tab
 
 	db := DBFromContext(ctx, r.db)
 
-	// Build UNION query: SELECT 1 FROM table1 WHERE fk = ? UNION SELECT 1 FROM table2 WHERE fk = ? LIMIT 1
+	// Build a UNION query that checks each table for a matching foreign key and
+	// stops after the first match.
 	var parts []string
 	var args []any
 	for table, fk := range tables {

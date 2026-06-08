@@ -47,7 +47,8 @@ func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format with EBU R128 loudness normalization.
+// ConvertToWAV converts uploaded audio files to standardized WAV format with
+// EBU R128 loudness normalization.
 func (s *Service) ConvertToWAV(
 	ctx context.Context, inputPath, outputPath string, channelCount int,
 ) (string, float64, error) {
@@ -222,7 +223,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 	return duration, nil
 }
 
-// CreateBulletin generates a complete audio bulletin by combining multiple stories with station-specific jingles.
+// CreateBulletin generates a complete audio bulletin by combining multiple
+// stories with station-specific jingles.
 // The jingle parameter determines which jingle and mix point to use, independent of story order.
 func (s *Service) CreateBulletin(
 	ctx context.Context,

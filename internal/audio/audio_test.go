@@ -133,7 +133,7 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 
 func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	t.Helper()
-	// #nosec G204 - test helper invokes the locally discovered ffmpeg binary with controlled test arguments
+	// #nosec G204 - ffmpeg path is local; args are controlled test inputs
 	cmd := exec.CommandContext(t.Context(), ffmpegPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -143,7 +143,7 @@ func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 
 func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string) float64 {
 	t.Helper()
-	// #nosec G204 - test helper invokes the locally discovered ffmpeg binary against a test-generated file
+	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
 	cmd := exec.CommandContext(t.Context(), ffmpegPath,
 		"-i", inputPath,
 		"-af", truePeakMeasurementFilter,

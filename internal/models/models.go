@@ -46,7 +46,8 @@ type Story struct {
 	EndDate time.Time `gorm:"not null;index" json:"end_date"`
 	// Weekdays is a bitmask for scheduling on specific days (0-127, where 127 = all days).
 	Weekdays Weekdays `gorm:"not null;default:127;index" json:"weekdays"`
-	// IsBreaking marks a breaking news story that is prioritized above fair rotation for selection in bulletins.
+	// IsBreaking marks a breaking news story prioritized above fair rotation in
+	// bulletin selection.
 	IsBreaking bool               `gorm:"not null;default:false;index" json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	CreatedAt  time.Time          `json:"created_at"`
@@ -63,8 +64,8 @@ type Story struct {
 
 // AfterFind populates computed fields from preloaded relations and normalizes text.
 func (s *Story) AfterFind(_ *gorm.DB) error {
-	// TODO: Remove after a data migration normalizes HTML entities in existing rows.
-	// Decodes HTML entities to plain Unicode for data stored before input-side
+	// Keep this compatibility path until a data migration normalizes HTML
+	// entities in existing rows. It decodes older data stored before input-side
 	// normalization was added (see NormalizeText in utils/http.go).
 	s.Title = html.UnescapeString(s.Title)
 	s.Text = html.UnescapeString(s.Text)
@@ -194,7 +195,8 @@ type Bulletin struct {
 	StationID int64 `gorm:"not null;index" json:"station_id"`
 	// Filename is the user-facing filename for the bulletin.
 	Filename string `gorm:"size:255;not null" json:"filename"`
-	// AudioFile is the filename (not a full path) of the generated audio file, stored in the output directory.
+	// AudioFile is the generated audio filename, not a full path.
+	// Files are stored in the output directory.
 	AudioFile       string  `gorm:"size:500" json:"-"`
 	DurationSeconds float64 `gorm:"not null;default:0" json:"duration_seconds"`
 	FileSize        int64   `gorm:"not null;default:0" json:"file_size"`

@@ -25,7 +25,8 @@ type StationVoiceServiceDeps struct {
 	Config           *config.Config
 }
 
-// StationVoiceService handles business logic for station-voice relationship operations.
+// StationVoiceService handles business logic for station-voice relationship
+// operations.
 type StationVoiceService struct {
 	txManager        repository.TxManager
 	stationVoiceRepo *repository.StationVoiceRepository
@@ -47,14 +48,16 @@ func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 	}
 }
 
-// CreateStationVoiceRequest contains the data needed to create a new station-voice relationship.
+// CreateStationVoiceRequest contains the data needed to create a new
+// station-voice relationship.
 type CreateStationVoiceRequest struct {
 	StationID int64
 	VoiceID   int64
 	MixPoint  float64
 }
 
-// UpdateStationVoiceRequest contains the data needed to update an existing station-voice relationship.
+// UpdateStationVoiceRequest contains the data needed to update an existing
+// station-voice relationship.
 type UpdateStationVoiceRequest struct {
 	StationID *int64
 	VoiceID   *int64
@@ -280,7 +283,8 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessJingle converts an uploaded audio file and associates it with a station-voice relationship.
+// ProcessJingle converts an uploaded audio file and associates it with a
+// station-voice relationship.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
 	// Get station and voice IDs for the relationship
 	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, stationVoiceID)

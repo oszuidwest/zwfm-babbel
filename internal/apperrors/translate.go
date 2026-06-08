@@ -9,6 +9,7 @@ import (
 // Operation represents the type of database operation for FK disambiguation.
 type Operation int
 
+// Operation values identify the repository action that produced an error.
 const (
 	OpQuery Operation = iota
 	OpCreate
