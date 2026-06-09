@@ -35,7 +35,7 @@ type ProblemDetail struct {
 	// Hint provides a user-friendly suggestion for resolving the error.
 	Hint string `json:"hint,omitempty"`
 
-	// Errors contains validation errors for 422 responses.
+	// Errors contains field-level errors for validation and strict parsing responses.
 	Errors []apperrors.ValidationError `json:"errors,omitempty"`
 
 	// TraceID can be used for request tracing and debugging.
@@ -78,6 +78,19 @@ func NewValidationProblem(detail, instance string, errors []apperrors.Validation
 		ProblemTypeValidationError,
 		"Validation Error",
 		422,
+		detail,
+		instance,
+	)
+	problem.Errors = errors
+	return problem
+}
+
+// NewBadRequestValidationProblem creates a 400 response with field-level parse errors.
+func NewBadRequestValidationProblem(detail string, errors []apperrors.ValidationError, instance string) *ProblemDetail {
+	problem := NewProblemDetail(
+		ProblemTypeBadRequest,
+		"Bad Request",
+		400,
 		detail,
 		instance,
 	)

@@ -13,11 +13,9 @@ import (
 
 // TTSSettingsResponse exposes global TTS settings plus API-key availability.
 type TTSSettingsResponse struct {
-	Model                  string    `json:"model"`
 	Stability              float64   `json:"stability"`
 	SimilarityBoost        float64   `json:"similarity_boost"`
 	Style                  float64   `json:"style"`
-	UseSpeakerBoost        bool      `json:"use_speaker_boost"`
 	Speed                  float64   `json:"speed"`
 	ApplyTextNormalization string    `json:"apply_text_normalization"`
 	Seed                   *uint32   `json:"seed"`
@@ -40,7 +38,11 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 // UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	removed := utils.RemovedFields{
+		"model":             "field has been removed in v3-only release",
+		"use_speaker_boost": "field has been removed in v3-only release",
+	}
+	if !utils.BindJSONStrict(c, &req, removed) {
 		return
 	}
 
@@ -68,11 +70,9 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 
 func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettingsResponse {
 	return TTSSettingsResponse{
-		Model:                  settings.Model,
 		Stability:              settings.Stability,
 		SimilarityBoost:        settings.SimilarityBoost,
 		Style:                  settings.Style,
-		UseSpeakerBoost:        settings.UseSpeakerBoost,
 		Speed:                  settings.Speed,
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,
@@ -84,11 +84,9 @@ func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettin
 
 func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.UpdateTTSSettingsRequest {
 	serviceReq := &services.UpdateTTSSettingsRequest{
-		Model:                  req.Model,
 		Stability:              req.Stability,
 		SimilarityBoost:        req.SimilarityBoost,
 		Style:                  req.Style,
-		UseSpeakerBoost:        req.UseSpeakerBoost,
 		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		TTSStylePrefix:         req.TTSStylePrefix,

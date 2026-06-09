@@ -143,6 +143,18 @@ func ProblemBadRequest(c *gin.Context, detail string) {
 	SendProblem(c, problem)
 }
 
+// ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
+func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
+	if c == nil {
+		return
+	}
+	problem := NewBadRequestValidationProblem(detail, errors, c.Request.URL.Path)
+	if traceID := getTraceID(c); traceID != "" {
+		problem.WithTraceID(traceID)
+	}
+	SendProblem(c, problem)
+}
+
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
 	if c == nil {

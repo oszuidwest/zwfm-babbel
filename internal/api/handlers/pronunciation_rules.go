@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
-	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -22,7 +22,7 @@ type PronunciationRulesService interface {
 
 type pronunciationRuleRequest struct {
 	StringToReplace string `json:"string_to_replace"`
-	Alias           string `json:"alias"`
+	IPA             string `json:"ipa"`
 	CaseSensitive   *bool  `json:"case_sensitive,omitempty"`
 	WordBoundaries  *bool  `json:"word_boundaries,omitempty"`
 }
@@ -33,21 +33,19 @@ type pronunciationRulesUpdateRequest struct {
 
 type pronunciationRuleResponse struct {
 	StringToReplace string `json:"string_to_replace"`
-	Alias           string `json:"alias"`
+	IPA             string `json:"ipa"`
 	CaseSensitive   bool   `json:"case_sensitive"`
 	WordBoundaries  bool   `json:"word_boundaries"`
 }
 
 type pronunciationRulesResponse struct {
-	Rules           []pronunciationRuleResponse `json:"rules"`
-	LatestVersionID *string                     `json:"latest_version_id"`
-	CreatedAt       *time.Time                  `json:"created_at"`
-	Warning         *string                     `json:"warning,omitempty"`
+	Rules     []pronunciationRuleResponse `json:"rules"`
+	UpdatedAt *time.Time                  `json:"updated_at"`
 }
 
-// GetPronunciationRules returns the managed ElevenLabs pronunciation rules.
+// GetPronunciationRules returns the local inline-IPA pronunciation rules.
 func (h *Handlers) GetPronunciationRules(c *gin.Context) {
-	if !h.requirePronunciationRulesEnabled(c) {
+	if !h.requirePronunciationRulesService(c) {
 		return
 	}
 
@@ -60,14 +58,17 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 	utils.Success(c, toPronunciationRulesResponse(result))
 }
 
-// UpdatePronunciationRules replaces the full managed pronunciation rule set.
+// UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
-	if !h.requirePronunciationRulesEnabled(c) {
+	if !h.requirePronunciationRulesService(c) {
 		return
 	}
 
 	var req pronunciationRulesUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	removed := utils.RemovedFields{
+		"alias": "field has been replaced by 'ipa'",
+	}
+	if !utils.BindJSONStrict(c, &req, removed) {
 		return
 	}
 
@@ -92,7 +93,7 @@ func toPronunciationRuleUpdates(rules []pronunciationRuleRequest) []services.Pro
 	for _, rule := range rules {
 		updates = append(updates, services.PronunciationRuleUpdate{
 			StringToReplace: rule.StringToReplace,
-			Alias:           rule.Alias,
+			IPA:             rule.IPA,
 			CaseSensitive:   rule.CaseSensitive,
 			WordBoundaries:  rule.WordBoundaries,
 		})
@@ -110,17 +111,15 @@ func toPronunciationRulesResponse(result *services.PronunciationRulesResponse) p
 		rules = append(rules, toPronunciationRuleResponse(rule))
 	}
 	return pronunciationRulesResponse{
-		Rules:           rules,
-		LatestVersionID: result.LatestVersionID,
-		CreatedAt:       result.CreatedAt,
-		Warning:         result.Warning,
+		Rules:     rules,
+		UpdatedAt: result.UpdatedAt,
 	}
 }
 
-func toPronunciationRuleResponse(rule tts.Rule) pronunciationRuleResponse {
+func toPronunciationRuleResponse(rule models.PronunciationRule) pronunciationRuleResponse {
 	return pronunciationRuleResponse{
 		StringToReplace: rule.StringToReplace,
-		Alias:           rule.Alias,
+		IPA:             rule.IPA,
 		CaseSensitive:   rule.CaseSensitive,
 		WordBoundaries:  rule.WordBoundaries,
 	}

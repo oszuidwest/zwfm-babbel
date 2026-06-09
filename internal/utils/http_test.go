@@ -330,6 +330,83 @@ func TestBindAndValidate_StationRequest(t *testing.T) {
 	})
 }
 
+func TestBindJSONStrict(t *testing.T) {
+	t.Parallel()
+
+	type strictSettingsRequest struct {
+		Stability *float64 `json:"stability" binding:"required"`
+	}
+
+	tests := []struct {
+		name       string
+		body       string
+		removed    RemovedFields
+		want       bindExpect
+		wantStatus int
+	}{
+		{
+			name:       "empty body",
+			body:       "",
+			wantStatus: 400,
+			want:       bindExpect{errField: "request", errMessage: "request body is empty"},
+		},
+		{
+			name:       "malformed JSON",
+			body:       "{",
+			wantStatus: 400,
+			want:       bindExpect{errField: "request", errMessage: "invalid JSON"},
+		},
+		{
+			name:       "unknown field",
+			body:       `{"stabilty":0.5}`,
+			wantStatus: 400,
+			want:       bindExpect{errField: "stabilty", errMessage: "unknown field"},
+		},
+		{
+			name:       "removed field",
+			body:       `{"model":"eleven_v3"}`,
+			removed:    RemovedFields{"model": "field has been removed in v3-only release"},
+			wantStatus: 400,
+			want:       bindExpect{errField: "model", errMessage: "field has been removed in v3-only release"},
+		},
+		{
+			name:       "type mismatch",
+			body:       `{"stability":"x"}`,
+			wantStatus: 400,
+			want:       bindExpect{errField: "stability", errMessage: "expected number, got string"},
+		},
+		{
+			name:       "trailing content",
+			body:       `{"stability":0.5}{"other":1}`,
+			wantStatus: 400,
+			want:       bindExpect{errField: "request", errMessage: "unexpected trailing content"},
+		},
+		{
+			name: "success",
+			body: `{"stability":0.5}`,
+			want: bindExpect{ok: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, w := newTestContext(t, tt.body)
+			var req strictSettingsRequest
+			ok := BindJSONStrict(c, &req, tt.removed)
+
+			want := tt.want
+			want.status = tt.wantStatus
+			checkBindResult(t, w, ok, want)
+			if ok {
+				if req.Stability == nil || *req.Stability != 0.5 {
+					t.Fatalf("stability = %v, want 0.5", req.Stability)
+				}
+			}
+		})
+	}
+}
+
 func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want bindExpect) {
 	t.Helper()
 	if want.ok {

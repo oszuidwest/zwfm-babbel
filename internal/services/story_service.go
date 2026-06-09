@@ -24,33 +24,36 @@ import (
 
 // StoryServiceDeps groups repositories and services required by StoryService.
 type StoryServiceDeps struct {
-	StoryRepo      *repository.StoryRepository
-	VoiceRepo      *repository.VoiceRepository
-	AudioSvc       *audio.Service
-	TTSSvc         *tts.Service
-	TTSSettingsSvc *TTSSettingsService
-	Config         *config.Config
+	StoryRepo             *repository.StoryRepository
+	VoiceRepo             *repository.VoiceRepository
+	AudioSvc              *audio.Service
+	TTSSvc                *tts.Service
+	TTSSettingsSvc        *TTSSettingsService
+	PronunciationInjector *PronunciationInjector
+	Config                *config.Config
 }
 
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo      *repository.StoryRepository
-	voiceRepo      *repository.VoiceRepository
-	audioSvc       *audio.Service
-	ttsSvc         *tts.Service
-	ttsSettingsSvc *TTSSettingsService
-	config         *config.Config
+	storyRepo             *repository.StoryRepository
+	voiceRepo             *repository.VoiceRepository
+	audioSvc              *audio.Service
+	ttsSvc                *tts.Service
+	ttsSettingsSvc        *TTSSettingsService
+	pronunciationInjector *PronunciationInjector
+	config                *config.Config
 }
 
 // NewStoryService wires story business logic to its dependencies.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
 	return &StoryService{
-		storyRepo:      deps.StoryRepo,
-		voiceRepo:      deps.VoiceRepo,
-		audioSvc:       deps.AudioSvc,
-		ttsSvc:         deps.TTSSvc,
-		ttsSettingsSvc: deps.TTSSettingsSvc,
-		config:         deps.Config,
+		storyRepo:             deps.StoryRepo,
+		voiceRepo:             deps.VoiceRepo,
+		audioSvc:              deps.AudioSvc,
+		ttsSvc:                deps.TTSSvc,
+		ttsSettingsSvc:        deps.TTSSettingsSvc,
+		pronunciationInjector: deps.PronunciationInjector,
+		config:                deps.Config,
 	}
 }
 
@@ -419,8 +422,17 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return err
 	}
 
-	finalText := composeTTSText(story.Text, settings)
-	if err := validateTTSTextLength(finalText, settings.Model); err != nil {
+	processedText := story.Text
+	if s.pronunciationInjector != nil {
+		processed, err := s.pronunciationInjector.Apply(ctx, story.Text)
+		if err != nil {
+			return err
+		}
+		processedText = processed
+	}
+
+	finalText := composeV3TTSText(processedText, settings.TTSStylePrefix)
+	if err := validateTTSTextLength(finalText); err != nil {
 		return err
 	}
 	options := ttsOptionsFromSettings(settings)
@@ -428,7 +440,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	// Generate speech via TTS service
 	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
 	if err != nil {
-		return translateStoryTTSError(err, options.DictionaryLocators)
+		return translateTTSError(err)
 	}
 
 	// Write to temp file for processing through the standard audio pipeline
@@ -461,23 +473,16 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 	return nil
 }
 
-func composeTTSText(text string, settings *models.TTSSettings) string {
-	// Only Eleven v3 interprets bracketed style directives as audio tags; v2 and
-	// Flash models would read the prefix literally.
-	if settings.Model == TTSModelElevenV3 && strings.TrimSpace(settings.TTSStylePrefix) != "" {
-		return settings.TTSStylePrefix + "\n" + text
+func composeV3TTSText(text, prefix string) string {
+	if strings.TrimSpace(prefix) == "" {
+		return text
 	}
-	return text
+	return prefix + "\n" + text
 }
 
-func validateTTSTextLength(text, model string) error {
-	limit := modelCharLimit(model)
-	if limit == 0 {
-		return apperrors.Database("TTSSettings", "validate", fmt.Errorf("unknown TTS model %q", model))
-	}
-
+func validateTTSTextLength(text string) error {
 	count := utf8.RuneCountInString(text)
-	if count <= limit {
+	if count <= tts.MaxV3InputChars {
 		return nil
 	}
 
@@ -489,59 +494,24 @@ func validateTTSTextLength(text, model string) error {
 			Message: fmt.Sprintf(
 				"rune count %d exceeds limit %d for model %s",
 				count,
-				limit,
-				model,
+				tts.MaxV3InputChars,
+				tts.ModelV3,
 			),
 		}},
 	)
 }
 
 func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
-	var useSpeakerBoost *bool
-	// Eleven v3 does not support speaker boost; omit the field entirely while
-	// preserving the stored DB value for other models.
-	if settings.Model != TTSModelElevenV3 {
-		useSpeakerBoost = &settings.UseSpeakerBoost
-	}
-
-	locators := []tts.DictionaryLocator{}
-	if settings.PronunciationDictionaryID != nil && *settings.PronunciationDictionaryID != "" {
-		locators = append(locators, tts.DictionaryLocator{
-			PronunciationDictionaryID: *settings.PronunciationDictionaryID,
-		})
-	}
-
 	return tts.Options{
-		Model: settings.Model,
 		VoiceSettings: tts.VoiceSettings{
 			Stability:       settings.Stability,
 			SimilarityBoost: settings.SimilarityBoost,
 			Style:           settings.Style,
 			Speed:           settings.Speed,
-			UseSpeakerBoost: useSpeakerBoost,
 		},
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,
-		DictionaryLocators:     locators,
 	}
-}
-
-func translateStoryTTSError(err error, locators []tts.DictionaryLocator) error {
-	if len(locators) > 0 {
-		if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
-			if errors.Is(tts.ClassifyDictionaryLocatorError(apiErr), tts.ErrDictionaryNotFound) {
-				return apperrors.ValidationWithCause(
-					"PronunciationRules",
-					"pronunciation_dictionary_id",
-					"The "+ManagedPronunciationDictionaryName+
-						" pronunciation dictionary is missing on ElevenLabs. "+
-						"Save your rules at PUT /api/v1/settings/tts/pronunciations to recreate it.",
-					apiErr,
-				)
-			}
-		}
-	}
-	return translateTTSError(err)
 }
 
 // translateTTSError maps TTS service errors to domain errors with specific messages.

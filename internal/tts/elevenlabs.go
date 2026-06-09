@@ -17,6 +17,14 @@ const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
 const defaultAPIBaseURL = "https://api.elevenlabs.io"
 const outputFormatOpus48k128 = "opus_48000_128"
 
+const (
+	// ModelV3 is the only ElevenLabs model Babbel supports for generated TTS.
+	ModelV3 = "eleven_v3"
+
+	// MaxV3InputChars is ElevenLabs' per-request character limit for v3.
+	MaxV3InputChars = 5000
+)
+
 // APIError preserves ElevenLabs response details for service-layer translation.
 type APIError struct {
 	StatusCode int
@@ -40,30 +48,6 @@ func (e *APIError) Error() string {
 	default:
 		return fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
 	}
-}
-
-// ClientError indicates Babbel failed before a request reached ElevenLabs.
-type ClientError struct {
-	Operation string
-	Err       error
-}
-
-// Error returns the local request failure message.
-func (e *ClientError) Error() string {
-	if e.Err == nil {
-		return e.Operation
-	}
-	if e.Operation == "" {
-		return e.Err.Error()
-	}
-	return e.Operation + ": " + e.Err.Error()
-}
-
-// Unwrap returns the underlying local request error.
-func (e *ClientError) Unwrap() error { return e.Err }
-
-func newClientError(operation string, err error) *ClientError {
-	return &ClientError{Operation: operation, Err: err}
 }
 
 // Service handles text-to-speech generation via the ElevenLabs API.
@@ -90,11 +74,9 @@ func NewService(cfg *config.TTSConfig) *Service {
 
 // Options selects the ElevenLabs request options supplied by the story service.
 type Options struct {
-	Model                  string
 	VoiceSettings          VoiceSettings
 	ApplyTextNormalization string
 	Seed                   *uint32
-	DictionaryLocators     []DictionaryLocator
 }
 
 // VoiceSettings contains ElevenLabs voice_settings values.
@@ -103,33 +85,26 @@ type VoiceSettings struct {
 	SimilarityBoost float64 `json:"similarity_boost"`
 	Style           float64 `json:"style"`
 	Speed           float64 `json:"speed"`
-	UseSpeakerBoost *bool   `json:"use_speaker_boost,omitempty"`
 }
 
 // ttsRequest is the JSON body sent to the ElevenLabs API.
 type ttsRequest struct {
-	Text                            string              `json:"text"`
-	ModelID                         string              `json:"model_id"`
-	VoiceSettings                   VoiceSettings       `json:"voice_settings"`
-	ApplyTextNormalization          string              `json:"apply_text_normalization"`
-	Seed                            *uint32             `json:"seed,omitempty"`
-	PronunciationDictionaryLocators []DictionaryLocator `json:"pronunciation_dictionary_locators"`
+	Text                   string        `json:"text"`
+	ModelID                string        `json:"model_id"`
+	VoiceSettings          VoiceSettings `json:"voice_settings"`
+	ApplyTextNormalization string        `json:"apply_text_normalization"`
+	Seed                   *uint32       `json:"seed,omitempty"`
 }
 
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
-	if opts.DictionaryLocators == nil {
-		opts.DictionaryLocators = []DictionaryLocator{}
-	}
-
 	body, err := json.Marshal(ttsRequest{
-		Text:                            text,
-		ModelID:                         opts.Model,
-		VoiceSettings:                   opts.VoiceSettings,
-		ApplyTextNormalization:          opts.ApplyTextNormalization,
-		Seed:                            opts.Seed,
-		PronunciationDictionaryLocators: opts.DictionaryLocators,
+		Text:                   text,
+		ModelID:                ModelV3,
+		VoiceSettings:          opts.VoiceSettings,
+		ApplyTextNormalization: opts.ApplyTextNormalization,
+		Seed:                   opts.Seed,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal TTS request: %w", err)

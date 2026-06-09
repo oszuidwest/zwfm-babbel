@@ -196,18 +196,18 @@ Both executables are resolved at startup and validated by running `<tool> -versi
 
 ### Text-to-speech
 
-TTS is enabled by configuring an ElevenLabs API key. Runtime credentials stay in environment variables, while model and voice-generation options are stored in the `tts_settings` singleton row and exposed through the API.
+TTS is enabled by configuring an ElevenLabs API key. Runtime credentials stay in environment variables. Babbel always uses ElevenLabs `eleven_v3`; voice-generation options are stored in the `tts_settings` singleton row and exposed through the API.
 
 | Env var | Default | Description |
 |---|---|---|
 | `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS when set. If unset, `POST /api/v1/stories/{id}/tts` returns 501. |
 | `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | Timeout for ElevenLabs API calls. |
 
-The initial settings row uses `eleven_v3`, stability `0.80`, similarity boost `0.80`, style `0.25`, speaker boost enabled, speed `1.00`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`.
+The initial settings row uses stability `0.80`, similarity boost `0.80`, style `0.25`, speed `1.00`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`.
 
-Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update model, voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
+Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is prepended to story text before the `eleven_v3` request.
 
-Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage alias pronunciation rules in the single Babbel-managed ElevenLabs dictionary. Admins and editors can save rules; viewers can read them.
+Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage local IPA pronunciation rules. Admins and editors can save rules; viewers can read them. Rules are stored in Babbel's database and injected as inline `/ipa/` spans before the ElevenLabs request.
 
 ## API Documentation
 

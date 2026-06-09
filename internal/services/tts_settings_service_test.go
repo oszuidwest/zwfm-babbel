@@ -16,8 +16,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 	validZero := 0.0
 	validSpeed := 0.7
 	invalidSpeed := 0.69
-	invalidModel := "eleven_turbo_v2_5"
-	validModel := TTSModelElevenV3
 	invalidNormalization := "sometimes"
 	maxSeed := int64(maxElevenLabsSeedUint32)
 	tooLargeSeed := maxSeed + 1
@@ -31,7 +29,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 		{
 			name: "valid boundary values",
 			req: &UpdateTTSSettingsRequest{
-				Model:                  &validModel,
 				Stability:              &validZero,
 				Speed:                  &validSpeed,
 				Seed:                   &maxSeed,
@@ -42,7 +39,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 		{
 			name: "aggregates invalid fields",
 			req: &UpdateTTSSettingsRequest{
-				Model:                  &invalidModel,
 				Stability:              &tooHigh,
 				Speed:                  &invalidSpeed,
 				Seed:                   &tooLargeSeed,
@@ -50,7 +46,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 				TTSStylePrefix:         &tooLongPrefix,
 			},
 			wantFields: []string{
-				"model",
 				"stability",
 				"speed",
 				"apply_text_normalization",
@@ -74,26 +69,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 	}
 }
 
-func TestModelCharLimit(t *testing.T) {
-	tests := []struct {
-		model string
-		want  int
-	}{
-		{model: TTSModelElevenV3, want: 5000},
-		{model: TTSModelMultilingualV2, want: 10000},
-		{model: TTSModelFlashV25, want: 40000},
-		{model: "unknown", want: 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			if got := modelCharLimit(tt.model); got != tt.want {
-				t.Fatalf("modelCharLimit(%q) = %d, want %d", tt.model, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestTranslateTTSSettingsRepoError(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -106,14 +81,14 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 			name:       "schema unavailable",
 			err:        repository.ErrSchemaUnavailable,
 			wantDetail: "tts_settings not initialized",
-			wantHint:   "apply migration 005_tts_settings.sql",
+			wantHint:   "apply migrations/001_complete_schema.sql",
 		},
 		{
 			name:       "singleton row missing",
 			err:        repository.ErrNotFound,
 			wantCode:   "tts_settings.row_missing",
 			wantDetail: "tts_settings singleton row missing",
-			wantHint:   "restore the id=1 row from migrations/005_tts_settings.sql seed data",
+			wantHint:   "restore the id=1 row from migrations/001_complete_schema.sql seed data",
 		},
 	}
 
@@ -144,19 +119,15 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 func TestBuildTTSSettingsAuditFields_RecordsOldAndNewValues(t *testing.T) {
 	actor := int64(7)
 	newPrefix := "[news anchor]"
-	newModel := TTSModelMultilingualV2
 	req := &UpdateTTSSettingsRequest{
-		Model:          &newModel,
 		TTSStylePrefix: &newPrefix,
 		ActorUserID:    &actor,
 	}
 
 	before := &models.TTSSettings{
-		Model:          TTSModelElevenV3,
 		TTSStylePrefix: "[professional]",
 	}
 	after := &models.TTSSettings{
-		Model:          newModel,
 		TTSStylePrefix: newPrefix,
 	}
 
@@ -167,9 +138,7 @@ func TestBuildTTSSettingsAuditFields_RecordsOldAndNewValues(t *testing.T) {
 	}
 
 	want := map[string]any{
-		"changed_fields":       []string{"model", "tts_style_prefix"},
-		"old_model":            TTSModelElevenV3,
-		"new_model":            newModel,
+		"changed_fields":       []string{"tts_style_prefix"},
 		"old_tts_style_prefix": "[professional]",
 		"new_tts_style_prefix": newPrefix,
 		"user_id":              actor,
@@ -195,8 +164,8 @@ func TestBuildTTSSettingsAuditFields_RecordsOldAndNewValues(t *testing.T) {
 
 func TestBuildTTSSettingsAuditFields_NoChangeReturnsNil(t *testing.T) {
 	noop := &UpdateTTSSettingsRequest{}
-	before := &models.TTSSettings{Model: TTSModelElevenV3}
-	after := &models.TTSSettings{Model: TTSModelElevenV3}
+	before := &models.TTSSettings{}
+	after := &models.TTSSettings{}
 
 	if fields := buildTTSSettingsAuditFields(noop, before, after); fields != nil {
 		t.Fatalf("expected nil for no-change update, got %#v", fields)

@@ -12,37 +12,27 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
-func TestComposeTTSText(t *testing.T) {
+func TestComposeV3TTSText(t *testing.T) {
 	tests := []struct {
-		name     string
-		settings *models.TTSSettings
-		text     string
-		want     string
+		name   string
+		text   string
+		prefix string
+		want   string
 	}{
 		{
-			name: "applies prefix for eleven v3",
-			settings: &models.TTSSettings{
-				Model:          TTSModelElevenV3,
-				TTSStylePrefix: "[news anchor]",
-			},
-			text: "Hallo",
-			want: "[news anchor]\nHallo",
+			name:   "applies non-empty prefix",
+			text:   "Hallo",
+			prefix: "[news anchor]",
+			want:   "[news anchor]\nHallo",
 		},
 		{
-			name: "drops prefix for multilingual v2",
-			settings: &models.TTSSettings{
-				Model:          TTSModelMultilingualV2,
-				TTSStylePrefix: "[news anchor]",
-			},
-			text: "Hallo",
-			want: "Hallo",
+			name:   "trims blank prefix",
+			text:   "Hallo",
+			prefix: "  \t\n",
+			want:   "Hallo",
 		},
 		{
-			name: "trims blank prefix",
-			settings: &models.TTSSettings{
-				Model:          TTSModelElevenV3,
-				TTSStylePrefix: "  \t\n",
-			},
+			name: "empty prefix",
 			text: "Hallo",
 			want: "Hallo",
 		},
@@ -50,127 +40,64 @@ func TestComposeTTSText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := composeTTSText(tt.text, tt.settings); got != tt.want {
-				t.Fatalf("composeTTSText() = %q, want %q", got, tt.want)
+			if got := composeV3TTSText(tt.text, tt.prefix); got != tt.want {
+				t.Fatalf("composeV3TTSText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestValidateTTSTextLength(t *testing.T) {
-	tests := []struct {
-		model string
-		limit int
-	}{
-		{model: TTSModelElevenV3, limit: 5000},
-		{model: TTSModelMultilingualV2, limit: 10000},
-		{model: TTSModelFlashV25, limit: 40000},
+	withinLimit := strings.Repeat("é", tts.MaxV3InputChars)
+	overLimit := withinLimit + "ë"
+
+	if err := validateTTSTextLength(withinLimit); err != nil {
+		t.Fatalf("validateTTSTextLength within limit returned error: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			withinLimit := strings.Repeat("é", tt.limit)
-			overLimit := withinLimit + "ë"
-
-			if err := validateTTSTextLength(withinLimit, tt.model); err != nil {
-				t.Fatalf("validateTTSTextLength within limit returned error: %v", err)
-			}
-
-			err := validateTTSTextLength(overLimit, tt.model)
-			if err == nil {
-				t.Fatal("validateTTSTextLength over limit returned nil")
-			}
-
-			var validationErr *apperrors.ValidationProblemError
-			if !errors.As(err, &validationErr) {
-				t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
-			}
-			if validationErr.Resource != "story" || len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "text" {
-				t.Fatalf("validation error = %#v, want one story.text error", validationErr)
-			}
-
-			wantMessage := "rune count " + strconv.Itoa(tt.limit+1) + " exceeds limit " + strconv.Itoa(tt.limit)
-			if !strings.Contains(validationErr.Errors[0].Message, wantMessage) {
-				t.Fatalf("message = %q, want %q", validationErr.Errors[0].Message, wantMessage)
-			}
-		})
-	}
-}
-
-func TestValidateTTSTextLength_UnknownModel(t *testing.T) {
-	err := validateTTSTextLength("Hallo", "eleven_future_v1")
+	err := validateTTSTextLength(overLimit)
 	if err == nil {
-		t.Fatal("validateTTSTextLength unknown model returned nil")
+		t.Fatal("validateTTSTextLength over limit returned nil")
 	}
 
-	var dbErr *apperrors.DatabaseError
-	if !errors.As(err, &dbErr) {
-		t.Fatalf("error type = %T, want *apperrors.DatabaseError", err)
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
 	}
-	if dbErr.Resource != "TTSSettings" || dbErr.Operation != "validate" {
-		t.Fatalf("database error = %#v, want TTSSettings validate", dbErr)
+	if validationErr.Resource != "story" || len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "text" {
+		t.Fatalf("validation error = %#v, want one story.text error", validationErr)
+	}
+
+	wantMessage := "rune count " + strconv.Itoa(tts.MaxV3InputChars+1) +
+		" exceeds limit " + strconv.Itoa(tts.MaxV3InputChars)
+	if !strings.Contains(validationErr.Errors[0].Message, wantMessage) {
+		t.Fatalf("message = %q, want %q", validationErr.Errors[0].Message, wantMessage)
 	}
 }
 
 func TestTTSOptionsFromSettings(t *testing.T) {
 	seed := uint32(42)
 
-	v3Options := ttsOptionsFromSettings(&models.TTSSettings{
-		Model:                  TTSModelElevenV3,
+	options := ttsOptionsFromSettings(&models.TTSSettings{
 		Stability:              0.8,
 		SimilarityBoost:        0.7,
 		Style:                  0.2,
 		Speed:                  1.0,
-		UseSpeakerBoost:        true,
 		ApplyTextNormalization: TTSNormalizationAuto,
 		Seed:                   &seed,
 	})
-	if v3Options.VoiceSettings.UseSpeakerBoost != nil {
-		t.Fatal("eleven_v3 options included use_speaker_boost")
-	}
-	if v3Options.Seed == nil || *v3Options.Seed != seed {
-		t.Fatalf("seed = %v, want %d", v3Options.Seed, seed)
-	}
 
-	v2Options := ttsOptionsFromSettings(&models.TTSSettings{
-		Model:           TTSModelMultilingualV2,
-		UseSpeakerBoost: false,
-	})
-	if v2Options.VoiceSettings.UseSpeakerBoost == nil {
-		t.Fatal("multilingual v2 options omitted use_speaker_boost")
+	if options.Seed == nil || *options.Seed != seed {
+		t.Fatalf("seed = %v, want %d", options.Seed, seed)
 	}
-	if *v2Options.VoiceSettings.UseSpeakerBoost {
-		t.Fatal("multilingual v2 use_speaker_boost = true, want false")
+	if options.ApplyTextNormalization != TTSNormalizationAuto {
+		t.Fatalf("normalization = %q, want %q", options.ApplyTextNormalization, TTSNormalizationAuto)
 	}
-
-	flashOptions := ttsOptionsFromSettings(&models.TTSSettings{
-		Model:           TTSModelFlashV25,
-		UseSpeakerBoost: true,
-	})
-	if flashOptions.VoiceSettings.UseSpeakerBoost == nil {
-		t.Fatal("flash v2.5 options omitted use_speaker_boost")
-	}
-	if !*flashOptions.VoiceSettings.UseSpeakerBoost {
-		t.Fatal("flash v2.5 use_speaker_boost = false, want true")
-	}
-
-	noDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{Model: TTSModelFlashV25})
-	if noDictionaryOptions.DictionaryLocators == nil {
-		t.Fatal("DictionaryLocators = nil, want empty slice")
-	}
-	if len(noDictionaryOptions.DictionaryLocators) != 0 {
-		t.Fatalf("DictionaryLocators len = %d, want 0", len(noDictionaryOptions.DictionaryLocators))
-	}
-
-	withDictionaryOptions := ttsOptionsFromSettings(&models.TTSSettings{
-		Model:                     TTSModelFlashV25,
-		PronunciationDictionaryID: ptr("dict-123"),
-	})
-	if len(withDictionaryOptions.DictionaryLocators) != 1 {
-		t.Fatalf("DictionaryLocators len = %d, want 1", len(withDictionaryOptions.DictionaryLocators))
-	}
-	if withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID != "dict-123" {
-		t.Fatalf("Dictionary ID = %q, want dict-123", withDictionaryOptions.DictionaryLocators[0].PronunciationDictionaryID)
+	if options.VoiceSettings.Stability != 0.8 ||
+		options.VoiceSettings.SimilarityBoost != 0.7 ||
+		options.VoiceSettings.Style != 0.2 ||
+		options.VoiceSettings.Speed != 1.0 {
+		t.Fatalf("voice settings = %#v", options.VoiceSettings)
 	}
 }
 
@@ -262,68 +189,6 @@ func TestTranslateTTSError(t *testing.T) {
 	}
 }
 
-func TestTranslateStoryTTSError_DictionaryLocatorErrors(t *testing.T) {
-	locators := []tts.DictionaryLocator{{PronunciationDictionaryID: "dict-123"}}
-
-	tests := []struct {
-		name     string
-		err      error
-		locators []tts.DictionaryLocator
-		assert   func(t *testing.T, got error)
-	}{
-		{
-			name:     "422 dictionary missing marker maps to pronunciation rules validation",
-			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
-			locators: locators,
-			assert: func(t *testing.T, got error) {
-				t.Helper()
-				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
-			},
-		},
-		{
-			name:     "404 dictionary missing marker maps to pronunciation rules validation",
-			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
-			locators: locators,
-			assert: func(t *testing.T, got error) {
-				t.Helper()
-				assertValidationError(t, got, "PronunciationRules", "pronunciation_dictionary_id")
-			},
-		},
-		{
-			name:     "404 voice missing with locator still maps to voice validation",
-			err:      &tts.APIError{StatusCode: http.StatusNotFound, Body: `{"detail":"voice not found"}`},
-			locators: locators,
-			assert: func(t *testing.T, got error) {
-				t.Helper()
-				assertValidationError(t, got, "Voice", "elevenlabs_voice_id")
-			},
-		},
-		{
-			name:     "dictionary marker without locator stays regular TTS validation",
-			err:      &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: `{"detail":"pronunciation_dictionary_not_found"}`},
-			locators: []tts.DictionaryLocator{},
-			assert: func(t *testing.T, got error) {
-				t.Helper()
-				assertValidationError(t, got, "TTS", "request")
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := translateStoryTTSError(tt.err, tt.locators)
-			if got == nil {
-				t.Fatal("translateStoryTTSError() returned nil")
-			}
-			var apiErr *tts.APIError
-			if !errors.As(got, &apiErr) {
-				t.Fatalf("translated error does not wrap original API error: %v", got)
-			}
-			tt.assert(t, got)
-		})
-	}
-}
-
 func assertUpstreamError(t *testing.T, got error, wantStatus int) {
 	t.Helper()
 
@@ -339,11 +204,11 @@ func assertUpstreamError(t *testing.T, got error, wantStatus int) {
 func assertValidationError(t *testing.T, got error, wantResource, wantField string) {
 	t.Helper()
 
-	var validationErr *apperrors.ValidationError
-	if !errors.As(got, &validationErr) {
+	var validation *apperrors.ValidationError
+	if !errors.As(got, &validation) {
 		t.Fatalf("error type = %T, want *apperrors.ValidationError", got)
 	}
-	if validationErr.Resource != wantResource || validationErr.Field != wantField {
-		t.Fatalf("validation error = %#v, want %s.%s", validationErr, wantResource, wantField)
+	if validation.Resource != wantResource || validation.Field != wantField {
+		t.Fatalf("validation = %#v, want %s.%s", validation, wantResource, wantField)
 	}
 }

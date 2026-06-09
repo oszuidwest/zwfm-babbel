@@ -1,930 +1,273 @@
 package services
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"reflect"
+	"slices"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
-	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
-func TestMaterializePronunciationRules(t *testing.T) {
-	falseValue := false
-
-	t.Run("defaults omitted booleans to true", func(t *testing.T) {
-		rules, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{{
-				StringToReplace: " Albert Heijn ",
-				Alias:           "\talbert hijn\n",
-			}},
-		})
-		if err != nil {
-			t.Fatalf("materializePronunciationRules() error = %v", err)
-		}
-		if rules[0].StringToReplace != "Albert Heijn" || rules[0].Alias != "albert hijn" {
-			t.Fatalf("rule = %#v, want trimmed values", rules[0])
-		}
-		if !rules[0].CaseSensitive || !rules[0].WordBoundaries {
-			t.Fatalf("booleans = %t,%t want true,true", rules[0].CaseSensitive, rules[0].WordBoundaries)
-		}
-	})
-
-	t.Run("preserves explicit false", func(t *testing.T) {
-		rules, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{{
-				StringToReplace: "ZuidWest",
-				Alias:           "zuit west",
-				CaseSensitive:   &falseValue,
-				WordBoundaries:  &falseValue,
-			}},
-		})
-		if err != nil {
-			t.Fatalf("materializePronunciationRules() error = %v", err)
-		}
-		if rules[0].CaseSensitive || rules[0].WordBoundaries {
-			t.Fatalf("booleans = %t,%t want false,false", rules[0].CaseSensitive, rules[0].WordBoundaries)
-		}
-	})
-
-	t.Run("validates empty and duplicate fields", func(t *testing.T) {
-		_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{
-				{StringToReplace: " ZuidWest", Alias: "zuit west"},
-				{StringToReplace: "ZuidWest ", Alias: "zuit west opnieuw"},
-				{StringToReplace: " ", Alias: "\t"},
-			},
-		})
-		var validationErr *apperrors.ValidationProblemError
-		if !errors.As(err, &validationErr) {
-			t.Fatalf("error type = %T, want *ValidationProblemError", err)
-		}
-		gotFields := make([]string, 0, len(validationErr.Errors))
-		for _, fieldErr := range validationErr.Errors {
-			gotFields = append(gotFields, fieldErr.Field)
-		}
-		wantFields := []string{
-			"rules[1].string_to_replace",
-			"rules[2].string_to_replace",
-			"rules[2].alias",
-		}
-		if !reflect.DeepEqual(gotFields, wantFields) {
-			t.Fatalf("fields = %v, want %v", gotFields, wantFields)
-		}
-	})
-}
-
-// TestMaterializePronunciationRules_RejectsOverflowingRuleSet pins the
-// MaxPronunciationRules guard: one more than the cap must return a validation
-// problem before any allocation or upstream call.
-func TestMaterializePronunciationRules_RejectsOverflowingRuleSet(t *testing.T) {
-	overflowing := make([]PronunciationRuleUpdate, MaxPronunciationRules+1)
-	for i := range overflowing {
-		overflowing[i] = PronunciationRuleUpdate{
-			StringToReplace: fmt.Sprintf("token-%d", i),
-			Alias:           fmt.Sprintf("alias-%d", i),
-		}
-	}
-
-	_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: overflowing})
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *ValidationProblemError", err)
-	}
-	if len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "rules" {
-		t.Fatalf("errors = %#v, want single rules field error", validationErr.Errors)
-	}
-	if !strings.Contains(validationErr.Errors[0].Message, "exceeds maximum") {
-		t.Fatalf("message = %q, want exceeds-maximum hint", validationErr.Errors[0].Message)
-	}
-}
-
-func TestMaterializePronunciationRules_DoesNotDeduplicateEmptyKeys(t *testing.T) {
-	_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
-		Rules: []PronunciationRuleUpdate{
-			{StringToReplace: " ", Alias: "aa"},
-			{StringToReplace: "\t", Alias: "bb"},
-		},
-	})
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *ValidationProblemError", err)
-	}
-	gotFields := make([]string, 0, len(validationErr.Errors))
-	for _, fieldErr := range validationErr.Errors {
-		gotFields = append(gotFields, fieldErr.Field)
-		if strings.Contains(fieldErr.Message, "duplicates") {
-			t.Fatalf("unexpected duplicate error for whitespace-only key: %#v", fieldErr)
-		}
-	}
-	wantFields := []string{
-		"rules[0].string_to_replace",
-		"rules[1].string_to_replace",
-	}
-	if !reflect.DeepEqual(gotFields, wantFields) {
-		t.Fatalf("fields = %v, want %v", gotFields, wantFields)
-	}
-}
-
-func TestPronunciationRulesService_Update_FirstWriteCreatesDictionary(t *testing.T) {
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
-	client := &pronunciationDictionaryClientMock{
-		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-			assertFirstWriteCreateRequest(t, name, description, rules)
-			return tts.DictionaryState{
-				ID:              "dict-new",
-				LatestVersionID: "v1",
-				CreationTime:    time.Unix(1717200000, 0).UTC(),
-				Rules:           rules,
-			}, nil
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
+func TestMaterializePronunciationRulesDefaultsAndTrimming(t *testing.T) {
+	rules, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
 		Rules: []PronunciationRuleUpdate{{
-			StringToReplace: "Albert Heijn",
-			Alias:           "albert hijn",
+			StringToReplace: "  PSV  ",
+			IPA:             "  piː ɛs veː  ",
 		}},
 	})
 	if err != nil {
-		t.Fatalf("Update() error = %v", err)
+		t.Fatalf("materializePronunciationRules() error = %v", err)
 	}
-	if len(repo.compareAndSetIDs) != 1 ||
-		repo.compareAndSetIDs[0].current != nil ||
-		repo.compareAndSetIDs[0].next == nil ||
-		*repo.compareAndSetIDs[0].next != "dict-new" {
-		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-new", repo.compareAndSetIDs)
+	if len(rules) != 1 {
+		t.Fatalf("rules len = %d, want 1", len(rules))
 	}
-	if result.LatestVersionID == nil || *result.LatestVersionID != "v1" {
-		t.Fatalf("latest_version_id = %v, want v1", result.LatestVersionID)
+	rule := rules[0]
+	if rule.StringToReplace != "PSV" || rule.IPA != "piː ɛs veː" {
+		t.Fatalf("rule = %#v, want trimmed term and IPA", rule)
 	}
-	if len(result.Rules) != 1 || !result.Rules[0].CaseSensitive || !result.Rules[0].WordBoundaries {
-		t.Fatalf("result rules = %#v, want defaulted rule", result.Rules)
+	if !rule.CaseSensitive || !rule.WordBoundaries {
+		t.Fatalf("defaults = %t/%t, want true/true", rule.CaseSensitive, rule.WordBoundaries)
 	}
 }
 
-func assertFirstWriteCreateRequest(t *testing.T, name, description string, rules []tts.Rule) {
-	t.Helper()
-
-	if name != "Babbel" || description == "" {
-		t.Fatalf("create name/description = %q/%q", name, description)
-	}
-	if len(rules) != 1 || rules[0].StringToReplace != "Albert Heijn" {
-		t.Fatalf("create rules = %#v", rules)
-	}
-}
-
-func TestPronunciationRulesService_Update_CreateWithEmptyDictionaryIDFailsBeforePersist(t *testing.T) {
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
-	client := &pronunciationDictionaryClientMock{
-		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-			return tts.DictionaryState{ID: "   ", LatestVersionID: "v1", Rules: rules}, nil
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
+func TestMaterializePronunciationRulesPreservesFalseFlags(t *testing.T) {
+	rules, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
+		Rules: []PronunciationRuleUpdate{{
+			StringToReplace: "PSV",
+			IPA:             "piː ɛs veː",
+			CaseSensitive:   ptr(false),
+			WordBoundaries:  ptr(false),
+		}},
 	})
-	var upstreamErr *apperrors.UpstreamError
-	if !errors.As(err, &upstreamErr) {
-		t.Fatalf("error type = %T, want *UpstreamError", err)
+	if err != nil {
+		t.Fatalf("materializePronunciationRules() error = %v", err)
 	}
-	if len(repo.compareAndSetIDs) != 0 {
-		t.Fatalf("compare-and-set IDs = %#v, want no DB persist for empty upstream ID", repo.compareAndSetIDs)
-	}
-}
-
-func TestPronunciationRulesService_Update_FirstWriteCreateCASLost(t *testing.T) {
-	casLost := false
-	repo := &pronunciationSettingsRepoMock{
-		settings:      &models.TTSSettings{},
-		compareResult: &casLost,
-	}
-	client := &pronunciationDictionaryClientMock{
-		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-			return tts.DictionaryState{
-				ID:              "dict-orphan",
-				LatestVersionID: "v1",
-				Rules:           rules,
-			}, nil
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
-	})
-	var conflictErr *apperrors.ConflictError
-	if !errors.As(err, &conflictErr) {
-		t.Fatalf("error type = %T, want *ConflictError", err)
-	}
-	if conflictErr.Code != "pronunciation_rules.conflict" {
-		t.Fatalf("conflict code = %q, want pronunciation_rules.conflict", conflictErr.Code)
-	}
-	if len(repo.compareAndSetIDs) != 1 ||
-		repo.compareAndSetIDs[0].current != nil ||
-		repo.compareAndSetIDs[0].next == nil ||
-		*repo.compareAndSetIDs[0].next != "dict-orphan" {
-		t.Fatalf("compare-and-set IDs = %#v, want nil -> dict-orphan", repo.compareAndSetIDs)
+	if rules[0].CaseSensitive || rules[0].WordBoundaries {
+		t.Fatalf("flags = %t/%t, want false/false", rules[0].CaseSensitive, rules[0].WordBoundaries)
 	}
 }
 
-func TestPronunciationRulesService_Update_ConcurrentFirstWritesSurfaceOneConflict(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-	defer cancel()
+func TestMaterializePronunciationRulesAcceptsRealisticIPA(t *testing.T) {
+	validIPA := []string{
+		"ˈstreːkɔmˌrupə",
+		"piː ɛs veː",
+		"ˈɑlkmaːr ˈzɑːnstreːk",
+		"ˌbaɪoʊˈkemɪstri",
+		"ˈæktʃuəli",
+	}
 
-	repo := &concurrentFirstWriteRepo{}
-	client := newConcurrentCreateDictionaryClient()
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	errs := make(chan error, 2)
-	var wg sync.WaitGroup
-	for i := range 2 {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, err := service.Update(ctx, &UpdatePronunciationRulesRequest{
-				Rules: []PronunciationRuleUpdate{{
-					StringToReplace: fmt.Sprintf("token-%d", i),
-					Alias:           fmt.Sprintf("alias-%d", i),
-				}},
+	for _, ipa := range validIPA {
+		t.Run(ipa, func(t *testing.T) {
+			_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
+				Rules: []PronunciationRuleUpdate{{StringToReplace: "term", IPA: ipa}},
 			})
-			errs <- err
-		}(i)
-	}
-	wg.Wait()
-	close(errs)
-
-	successes := 0
-	conflicts := 0
-	for err := range errs {
-		switch err {
-		case nil:
-			successes++
-		default:
-			var conflictErr *apperrors.ConflictError
-			if !errors.As(err, &conflictErr) {
-				t.Fatalf("error type = %T, want nil or *ConflictError: %v", err, err)
+			if err != nil {
+				t.Fatalf("materializePronunciationRules() error = %v", err)
 			}
-			conflicts++
-		}
-	}
-	if successes != 1 || conflicts != 1 {
-		t.Fatalf("results = %d successes/%d conflicts, want 1/1", successes, conflicts)
-	}
-	if got := client.CreateCount(); got != 2 {
-		t.Fatalf("create calls = %d, want 2 concurrent creates", got)
-	}
-	if got := repo.CompareCount(); got != 2 {
-		t.Fatalf("compare-and-set calls = %d, want 2", got)
+		})
 	}
 }
 
-func TestPronunciationRulesService_Update_FirstWriteWithEmptyRulesIsNoop(t *testing.T) {
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{}}
-	client := &pronunciationDictionaryClientMock{}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
+func TestMaterializePronunciationRulesValidation(t *testing.T) {
+	long := strings.Repeat("é", maxPronunciationFieldRunes+1)
+	maxWithDiacritics := strings.Repeat("é", maxPronunciationFieldRunes)
 
-	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{Rules: []PronunciationRuleUpdate{}})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if len(client.createCalls) != 0 || len(repo.compareAndSetIDs) != 0 {
-		t.Fatalf(
-			"createCalls=%d compareAndSetIDs=%d, want no calls",
-			len(client.createCalls),
-			len(repo.compareAndSetIDs),
-		)
-	}
-	if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
-		t.Fatalf("result = %#v, want empty response", result)
-	}
-}
-
-func TestPronunciationRulesService_Update_MissingStoredDictionaryWithEmptyRequestClearsID(t *testing.T) {
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
-	client := &pronunciationDictionaryClientMock{
-		getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-			return tts.DictionaryState{}, tts.ErrDictionaryNotFound
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{Rules: []PronunciationRuleUpdate{}})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if len(repo.compareAndSetIDs) != 1 ||
-		repo.compareAndSetIDs[0].current == nil ||
-		*repo.compareAndSetIDs[0].current != "dict-old" ||
-		repo.compareAndSetIDs[0].next != nil {
-		t.Fatalf("compare-and-set IDs = %#v, want dict-old -> nil", repo.compareAndSetIDs)
-	}
-	if len(result.Rules) != 0 || result.CreatedAt != nil || result.LatestVersionID != nil {
-		t.Fatalf("result = %#v, want empty response", result)
-	}
-}
-
-func TestPronunciationRulesService_Update_SetRulesMissingDictionaryRecreatesAndPersistsNewID(t *testing.T) {
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-old")}}
-	client := &pronunciationDictionaryClientMock{
-		getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-			return tts.DictionaryState{
-				ID:              id,
-				LatestVersionID: "old-v",
-				CreationTime:    time.Unix(1717200000, 0).UTC(),
-			}, nil
-		},
-		setFn: func(ctx context.Context, id string, rules []tts.Rule) (tts.SetRulesResult, error) {
-			return tts.SetRulesResult{}, tts.ErrDictionaryNotFound
-		},
-		createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-			return tts.DictionaryState{
-				ID:              "dict-new",
-				LatestVersionID: "new-v",
-				CreationTime:    time.Unix(1717200100, 0).UTC(),
-				Rules:           rules,
-			}, nil
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-		Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
-	})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if len(repo.compareAndSetIDs) != 1 ||
-		repo.compareAndSetIDs[0].current == nil ||
-		*repo.compareAndSetIDs[0].current != "dict-old" ||
-		repo.compareAndSetIDs[0].next == nil ||
-		*repo.compareAndSetIDs[0].next != "dict-new" {
-		t.Fatalf("compare-and-set IDs = %#v, want dict-old -> dict-new", repo.compareAndSetIDs)
-	}
-	if result.LatestVersionID == nil || *result.LatestVersionID != "new-v" {
-		t.Fatalf("latest_version_id = %v, want new-v", result.LatestVersionID)
-	}
-}
-
-func TestPronunciationRulesService_Update_SetRules(t *testing.T) {
-	createdAt := time.Unix(1717200000, 0).UTC()
-	repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-123")}}
-	client := &pronunciationDictionaryClientMock{
-		getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-			return tts.DictionaryState{
-				ID:              id,
-				LatestVersionID: "old-v",
-				CreationTime:    createdAt,
-				Rules: []tts.Rule{
-					{StringToReplace: "A", Alias: "aa", CaseSensitive: true, WordBoundaries: true},
-				},
-			}, nil
-		},
-		setFn: func(ctx context.Context, id string, rules []tts.Rule) (tts.SetRulesResult, error) {
-			if id != "dict-123" || len(rules) != 0 {
-				t.Fatalf("SetRules(%q, %#v), want dict-123 empty rules", id, rules)
-			}
-			return tts.SetRulesResult{ID: id, LatestVersionID: "v2", LatestVersionRulesNum: 0}, nil
-		},
-	}
-	service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-	result, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{Rules: []PronunciationRuleUpdate{}})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-	if len(repo.compareAndSetIDs) != 0 {
-		t.Fatalf("compare-and-set IDs = %#v, want no DB write", repo.compareAndSetIDs)
-	}
-	if result.CreatedAt == nil || !result.CreatedAt.Equal(createdAt) {
-		t.Fatalf("created_at = %v, want %s", result.CreatedAt, createdAt)
-	}
-	if result.LatestVersionID == nil || *result.LatestVersionID != "v2" {
-		t.Fatalf("latest_version_id = %v, want v2", result.LatestVersionID)
-	}
-}
-
-func TestPronunciationRulesService_GetWarnings(t *testing.T) {
-	t.Run("missing dictionary returns warning", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-missing")}}
-		client := &pronunciationDictionaryClientMock{
-			getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-				return tts.DictionaryState{}, tts.ErrDictionaryNotFound
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-		result, err := service.Get(context.Background())
-		if err != nil {
-			t.Fatalf("Get() error = %v", err)
-		}
-		if result.Warning == nil || *result.Warning != missingPronunciationDictionaryWarning {
-			t.Fatalf("warning = %v, want missing dictionary warning", result.Warning)
-		}
-	})
-
-	t.Run("non-alias rules return warning", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{settings: &models.TTSSettings{PronunciationDictionaryID: ptr("dict-123")}}
-		client := &pronunciationDictionaryClientMock{
-			getFn: func(ctx context.Context, id string) (tts.DictionaryState, error) {
-				return tts.DictionaryState{
-					ID:                id,
-					LatestVersionID:   "v1",
-					CreationTime:      time.Unix(1717200000, 0).UTC(),
-					Rules:             []tts.Rule{},
-					NonAliasRuleCount: 3,
-				}, nil
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-		result, err := service.Get(context.Background())
-		if err != nil {
-			t.Fatalf("Get() error = %v", err)
-		}
-		want := "3 non-alias rule(s) detected on ElevenLabs (added externally). They will be discarded on the next save."
-		if result.Warning == nil || *result.Warning != want {
-			t.Fatalf("warning = %v, want %q", result.Warning, want)
-		}
-	})
-}
-
-func TestTranslatePronunciationRulesUpstreamError_StatusMatrix(t *testing.T) {
 	tests := []struct {
-		name        string
-		apiErr      *tts.APIError
-		wantKind    string
-		wantStatus  int
-		wantField   string
-		wantRetry   string
-		wantMessage string
+		name      string
+		rule      PronunciationRuleUpdate
+		wantField string
 	}{
 		{
-			name:       "401 maps to service unavailable",
-			apiErr:     &tts.APIError{StatusCode: http.StatusUnauthorized, Body: "bad key"},
-			wantKind:   "upstream",
-			wantStatus: http.StatusServiceUnavailable,
+			name:      "empty string_to_replace",
+			rule:      PronunciationRuleUpdate{StringToReplace: " ", IPA: "piː"},
+			wantField: "rules[0].string_to_replace",
 		},
 		{
-			name:       "403 maps to service unavailable",
-			apiErr:     &tts.APIError{StatusCode: http.StatusForbidden, Body: "forbidden"},
-			wantKind:   "upstream",
-			wantStatus: http.StatusServiceUnavailable,
+			name:      "empty ipa",
+			rule:      PronunciationRuleUpdate{StringToReplace: "PSV", IPA: " "},
+			wantField: "rules[0].ipa",
 		},
 		{
-			name: "422 maps sanitized upstream message to validation problem",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `{"detail":"invalid rule"}`,
-			},
-			wantKind:    "validation",
-			wantField:   "rules",
-			wantMessage: "invalid rule",
+			name:      "slash in ipa",
+			rule:      PronunciationRuleUpdate{StringToReplace: "PSV", IPA: "piː/ɛs"},
+			wantField: "rules[0].ipa",
 		},
 		{
-			name: "422 maps FastAPI detail list message to validation problem",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `{"detail":[{"loc":["body","rules",0],"msg":"alias is required"}]}`,
-			},
-			wantKind:    "validation",
-			wantField:   "rules",
-			wantMessage: "alias is required",
+			name:      "control character in string_to_replace",
+			rule:      PronunciationRuleUpdate{StringToReplace: "P\nSV", IPA: "piː"},
+			wantField: "rules[0].string_to_replace",
 		},
 		{
-			name: "422 dictionary name collision maps to dictionary field",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `{"detail":"dictionary_already_exists"}`,
-			},
-			wantKind:  "validation",
-			wantField: "dictionary",
-			wantMessage: "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
-				"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary.",
+			name:      "control character in ipa",
+			rule:      PronunciationRuleUpdate{StringToReplace: "PSV", IPA: "piː\u0085x"},
+			wantField: "rules[0].ipa",
 		},
 		{
-			name: "422 dictionary name collision code nested in detail maps to dictionary field",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `{"detail":[{"type":"dictionary_already_exists","msg":"dictionary already exists"}]}`,
-			},
-			wantKind:  "validation",
-			wantField: "dictionary",
-			wantMessage: "A Babbel pronunciation dictionary already exists on ElevenLabs. " +
-				"Reconnect the stored pronunciation_dictionary_id or remove the duplicate upstream dictionary.",
+			name:      "term too long",
+			rule:      PronunciationRuleUpdate{StringToReplace: long, IPA: "piː"},
+			wantField: "rules[0].string_to_replace",
 		},
 		{
-			name: "422 dictionary already exists text without code stays on rules field",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `{"detail":"dictionary rule already exists"}`,
-			},
-			wantKind:    "validation",
-			wantField:   "rules",
-			wantMessage: "dictionary rule already exists",
-		},
-		{
-			name: "422 raw dictionary collision code body uses sanitized fallback",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `dictionary_already_exists`,
-			},
-			wantKind:    "validation",
-			wantField:   "rules",
-			wantMessage: "ElevenLabs rejected the pronunciation rules",
-		},
-		{
-			name: "422 non-JSON body uses sanitized fallback",
-			apiErr: &tts.APIError{
-				StatusCode: http.StatusUnprocessableEntity,
-				Body:       `<html>private upstream details</html>`,
-			},
-			wantKind:    "validation",
-			wantField:   "rules",
-			wantMessage: "ElevenLabs rejected the pronunciation rules",
-		},
-		{
-			name:      "429 preserves retry after",
-			apiErr:    &tts.APIError{StatusCode: http.StatusTooManyRequests, Body: "slow down", RetryAfter: "17"},
-			wantKind:  "rate_limited",
-			wantRetry: "17",
-		},
-		{
-			name:       "500 maps to bad gateway",
-			apiErr:     &tts.APIError{StatusCode: http.StatusInternalServerError, Body: "upstream failed"},
-			wantKind:   "upstream",
-			wantStatus: http.StatusBadGateway,
+			name:      "ipa too long",
+			rule:      PronunciationRuleUpdate{StringToReplace: "PSV", IPA: long},
+			wantField: "rules[0].ipa",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := translatePronunciationRulesUpstreamError(tt.apiErr)
-			assertWrapsAPIError(t, got)
-			assertPronunciationRulesTranslation(
-				t,
-				got,
-				tt.wantKind,
-				tt.wantStatus,
-				tt.wantField,
-				tt.wantRetry,
-				tt.wantMessage,
-			)
+			_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
+				Rules: []PronunciationRuleUpdate{tt.rule},
+			})
+			assertPronunciationValidationField(t, err, tt.wantField)
 		})
 	}
-}
 
-func TestTranslatePronunciationRulesUpstreamError_ClientErrorStaysInternal(t *testing.T) {
-	clientErr := &tts.ClientError{Operation: "create pronunciation dictionary request", Err: errors.New("bad url")}
-
-	err := translatePronunciationRulesUpstreamError(clientErr)
-	if !errors.Is(err, clientErr) {
-		t.Fatalf("translated error = %v, want original client error", err)
-	}
-	var upstreamErr *apperrors.UpstreamError
-	if errors.As(err, &upstreamErr) {
-		t.Fatalf("error type = %T, did not want UpstreamError", err)
-	}
-}
-
-func TestTranslatePronunciationRulesUpstreamError_PlainError(t *testing.T) {
-	err := translatePronunciationRulesUpstreamError(errors.New("transport failed"))
-	assertUpstreamError(t, err, http.StatusBadGateway)
-}
-
-func TestPronunciationRulesService_Translations(t *testing.T) {
-	t.Run("create persist failure returns PronunciationRules database error", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{
-			settings:   &models.TTSSettings{},
-			compareErr: errors.New("write failed"),
-		}
-		client := &pronunciationDictionaryClientMock{
-			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-				return tts.DictionaryState{ID: "orph-123", LatestVersionID: "v1", Rules: rules}, nil
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-		_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
+	t.Run("255 runes with diacritics accepted", func(t *testing.T) {
+		_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{
+			Rules: []PronunciationRuleUpdate{{StringToReplace: maxWithDiacritics, IPA: maxWithDiacritics}},
 		})
-		var dbErr *apperrors.DatabaseError
-		if !errors.As(err, &dbErr) {
-			t.Fatalf("error type = %T, want *DatabaseError", err)
-		}
-		if dbErr.Resource != "PronunciationRules" || dbErr.Operation != "persist_dictionary_id" {
-			t.Fatalf("db error = %#v, want PronunciationRules persist_dictionary_id", dbErr)
-		}
-	})
-
-	t.Run("create persist missing settings row returns not initialized error", func(t *testing.T) {
-		repo := &pronunciationSettingsRepoMock{
-			settings:   &models.TTSSettings{},
-			compareErr: repository.ErrNotFound,
-		}
-		client := &pronunciationDictionaryClientMock{
-			createFn: func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error) {
-				return tts.DictionaryState{ID: "dict-new", LatestVersionID: "v1", Rules: rules}, nil
-			},
-		}
-		service := &PronunciationRulesService{settingsRepo: repo, client: client}
-
-		_, err := service.Update(context.Background(), &UpdatePronunciationRulesRequest{
-			Rules: []PronunciationRuleUpdate{{StringToReplace: "A", Alias: "aa"}},
-		})
-		var notInitialized *apperrors.NotInitializedError
-		if !errors.As(err, &notInitialized) {
-			t.Fatalf("error type = %T, want *NotInitializedError", err)
-		}
-		if notInitialized.Code != "tts_settings.row_missing" {
-			t.Fatalf("code = %q, want tts_settings.row_missing", notInitialized.Code)
+		if err != nil {
+			t.Fatalf("materializePronunciationRules() error = %v", err)
 		}
 	})
 }
 
-func assertWrapsAPIError(t *testing.T, got error) {
-	t.Helper()
+func TestMaterializePronunciationRulesConflicts(t *testing.T) {
+	tests := []struct {
+		name        string
+		rules       []PronunciationRuleUpdate
+		wantField   string
+		wantMessage string
+	}{
+		{
+			name: "byte exact duplicate",
+			rules: []PronunciationRuleUpdate{
+				{StringToReplace: "PSV", IPA: "one"},
+				{StringToReplace: "PSV", IPA: "two"},
+			},
+			wantField:   "rules[1].string_to_replace",
+			wantMessage: "duplicates rules[0]",
+		},
+		{
+			name: "case insensitive shadow",
+			rules: []PronunciationRuleUpdate{
+				{StringToReplace: "PSV", IPA: "one", CaseSensitive: ptr(false)},
+				{StringToReplace: "psv", IPA: "two"},
+			},
+			wantField:   "rules[0].string_to_replace",
+			wantMessage: "conflicts with rules[1] under case-insensitive matching",
+		},
+	}
 
-	var apiErr *tts.APIError
-	if !errors.As(got, &apiErr) {
-		t.Fatalf("translated error does not wrap original API error: %v", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: tt.rules})
+
+			var validationErr *apperrors.ValidationProblemError
+			if !errors.As(err, &validationErr) {
+				t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
+			}
+			if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
+				return e.Field == tt.wantField && e.Message == tt.wantMessage
+			}) {
+				t.Fatalf("errors = %#v, want %s %q", validationErr.Errors, tt.wantField, tt.wantMessage)
+			}
+		})
 	}
 }
 
-func assertPronunciationRulesTranslation(
-	t *testing.T,
-	got error,
-	wantKind string,
-	wantStatus int,
-	wantField string,
-	wantRetry string,
-	wantMessage string,
-) {
-	t.Helper()
+func TestMaterializePronunciationRulesMaxRules(t *testing.T) {
+	rules := make([]PronunciationRuleUpdate, MaxPronunciationRules+1)
+	for i := range rules {
+		rules[i] = PronunciationRuleUpdate{
+			StringToReplace: "term-" + string(rune('a'+(i%26))) + "-" + strings.Repeat("x", i/26),
+			IPA:             "ipa",
+		}
+	}
 
-	switch wantKind {
-	case "upstream":
-		assertUpstreamError(t, got, wantStatus)
-	case "validation":
-		assertPronunciationRulesValidationProblem(t, got, wantField, wantMessage)
-	case "rate_limited":
-		assertPronunciationRulesRateLimited(t, got, wantRetry)
-	default:
-		t.Fatalf("unknown wantKind %q", wantKind)
-	}
-}
-
-func assertPronunciationRulesValidationProblem(t *testing.T, got error, wantField, wantMessage string) {
-	t.Helper()
-
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(got, &validationErr) {
-		t.Fatalf("error type = %T, want *ValidationProblemError", got)
-	}
-	if validationErr.Detail != "ElevenLabs rejected the pronunciation rules" {
-		t.Fatalf("detail = %q, want sanitized detail", validationErr.Detail)
-	}
-	if len(validationErr.Errors) != 1 ||
-		validationErr.Errors[0].Field != wantField ||
-		validationErr.Errors[0].Message != wantMessage {
-		t.Fatalf("validation errors = %#v, want %s %q", validationErr.Errors, wantField, wantMessage)
-	}
-	if strings.Contains(validationErr.Error(), "private upstream details") ||
-		strings.Contains(validationErr.Errors[0].Message, "private upstream details") {
-		t.Fatalf("validation error leaked raw body: %#v", validationErr)
-	}
-}
-
-func assertPronunciationRulesRateLimited(t *testing.T, got error, wantRetry string) {
-	t.Helper()
-
-	var rateLimited *apperrors.RateLimitedError
-	if !errors.As(got, &rateLimited) {
-		t.Fatalf("error type = %T, want *RateLimitedError", got)
-	}
-	if rateLimited.RetryAfter != wantRetry {
-		t.Fatalf("RetryAfter = %q, want %q", rateLimited.RetryAfter, wantRetry)
-	}
+	_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: rules})
+	assertPronunciationValidationField(t, err, "rules")
 }
 
 func TestDiffPronunciationRules(t *testing.T) {
-	before := []tts.Rule{
-		{StringToReplace: "A", Alias: "aa", CaseSensitive: true, WordBoundaries: true},
-		{StringToReplace: "B", Alias: "bb", CaseSensitive: true, WordBoundaries: true},
-		{StringToReplace: "C", Alias: "cc", CaseSensitive: true, WordBoundaries: true},
+	before := []models.PronunciationRule{
+		{StringToReplace: "A", IPA: "a", CaseSensitive: true, WordBoundaries: true, ID: 1},
+		{StringToReplace: "B", IPA: "b", CaseSensitive: true, WordBoundaries: true, ID: 2},
+		{StringToReplace: "C", IPA: "c", CaseSensitive: true, WordBoundaries: true, ID: 3},
 	}
-	after := []tts.Rule{
-		{StringToReplace: "A", Alias: "aa", CaseSensitive: true, WordBoundaries: true},
-		{StringToReplace: "B", Alias: "bee", CaseSensitive: true, WordBoundaries: true},
-		{StringToReplace: "D", Alias: "dd", CaseSensitive: true, WordBoundaries: true},
+	after := []models.PronunciationRule{
+		{StringToReplace: "A", IPA: "a", CaseSensitive: true, WordBoundaries: true, ID: 100},
+		{StringToReplace: "B", IPA: "bee", CaseSensitive: true, WordBoundaries: true, ID: 101},
+		{StringToReplace: "D", IPA: "d", CaseSensitive: true, WordBoundaries: true, ID: 102},
 	}
 
 	diff := diffPronunciationRules(before, after)
-	if diff.Added != 1 || diff.Changed != 1 || diff.Removed != 1 || diff.Unchanged != 1 {
-		t.Fatalf("diff = %#v, want 1 added/changed/removed/unchanged", diff)
-	}
-	if diff.Added+diff.Changed+diff.Unchanged != diff.TotalAfter {
-		t.Fatalf("after invariant failed: %#v", diff)
-	}
-	if diff.Removed+diff.Changed+diff.Unchanged != diff.TotalBefore {
-		t.Fatalf("before invariant failed: %#v", diff)
+	if diff.added != 1 ||
+		diff.removed != 1 ||
+		diff.changed != 1 ||
+		diff.unchanged != 1 ||
+		diff.totalBefore != 3 ||
+		diff.totalAfter != 3 {
+		t.Fatalf("diff = %#v", diff)
 	}
 }
 
-type pronunciationSettingsRepoMock struct {
-	settings         *models.TTSSettings
-	getErr           error
-	compareErr       error
-	compareResult    *bool
-	compareAndSetIDs []compareAndSetIDCall
-}
-
-type compareAndSetIDCall struct {
-	current *string
-	next    *string
-}
-
-func (m *pronunciationSettingsRepoMock) Get(ctx context.Context) (*models.TTSSettings, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	return m.settings, nil
-}
-
-func (m *pronunciationSettingsRepoMock) CompareAndSetPronunciationDictionaryID(
-	ctx context.Context,
-	currentID *string,
-	id *string,
-) (bool, error) {
-	if m.compareErr != nil {
-		return false, m.compareErr
+func TestTranslatePronunciationRulesRepoError(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantError any
+	}{
+		{
+			name:      "schema unavailable",
+			err:       repository.ErrSchemaUnavailable,
+			wantError: &apperrors.NotInitializedError{},
+		},
+		{
+			name:      "singleton row missing",
+			err:       repository.ErrNotFound,
+			wantError: &apperrors.NotInitializedError{},
+		},
+		{
+			name:      "generic repo error",
+			err:       errors.New("db failed"),
+			wantError: &apperrors.DatabaseError{},
+		},
 	}
 
-	call := compareAndSetIDCall{
-		current: copyStringPtr(currentID),
-		next:    copyStringPtr(id),
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := translatePronunciationRulesRepoError(apperrors.OpUpdate, tt.err)
+			switch target := tt.wantError.(type) {
+			case *apperrors.NotInitializedError:
+				if !errors.As(got, &target) {
+					t.Fatalf("error type = %T, want *apperrors.NotInitializedError", got)
+				}
+			case *apperrors.DatabaseError:
+				if !errors.As(got, &target) {
+					t.Fatalf("error type = %T, want *apperrors.DatabaseError", got)
+				}
+			default:
+				t.Fatalf("unhandled target type %T", target)
+			}
+		})
 	}
-	m.compareAndSetIDs = append(m.compareAndSetIDs, call)
-	if m.compareResult != nil {
-		return *m.compareResult, nil
+}
+
+func assertPronunciationValidationField(t *testing.T, err error, wantField string) {
+	t.Helper()
+
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
 	}
-	return true, nil
-}
-
-func copyStringPtr(value *string) *string {
-	if value == nil {
-		return nil
+	if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
+		return e.Field == wantField
+	}) {
+		t.Fatalf("errors = %#v, want field %q", validationErr.Errors, wantField)
 	}
-	copied := *value
-	return &copied
-}
-
-type concurrentFirstWriteRepo struct {
-	mu           sync.Mutex
-	storedID     *string
-	compareCalls int
-}
-
-func (r *concurrentFirstWriteRepo) Get(ctx context.Context) (*models.TTSSettings, error) {
-	return &models.TTSSettings{}, nil
-}
-
-func (r *concurrentFirstWriteRepo) CompareAndSetPronunciationDictionaryID(
-	ctx context.Context,
-	currentID *string,
-	id *string,
-) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.compareCalls++
-	if !dictionaryIDsMatch(r.storedID, currentID) {
-		return false, nil
-	}
-	r.storedID = copyStringPtr(id)
-	return true, nil
-}
-
-func (r *concurrentFirstWriteRepo) CompareCount() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.compareCalls
-}
-
-func dictionaryIDsMatch(storedID, currentID *string) bool {
-	if currentID == nil || *currentID == "" {
-		return storedID == nil || *storedID == ""
-	}
-	return storedID != nil && *storedID == *currentID
-}
-
-type concurrentCreateDictionaryClient struct {
-	mu          sync.Mutex
-	createCount int
-	bothCreated chan struct{}
-}
-
-func newConcurrentCreateDictionaryClient() *concurrentCreateDictionaryClient {
-	return &concurrentCreateDictionaryClient{bothCreated: make(chan struct{})}
-}
-
-func (c *concurrentCreateDictionaryClient) CreateDictionaryFromRules(
-	ctx context.Context,
-	name string,
-	description string,
-	rules []tts.Rule,
-) (tts.DictionaryState, error) {
-	c.mu.Lock()
-	c.createCount++
-	id := fmt.Sprintf("dict-%d", c.createCount)
-	if c.createCount == 2 {
-		close(c.bothCreated)
-	}
-	c.mu.Unlock()
-
-	select {
-	case <-c.bothCreated:
-	case <-ctx.Done():
-		return tts.DictionaryState{}, ctx.Err()
-	}
-
-	return tts.DictionaryState{
-		ID:              id,
-		LatestVersionID: "v1",
-		Rules:           rules,
-	}, nil
-}
-
-func (c *concurrentCreateDictionaryClient) GetDictionary(ctx context.Context, id string) (tts.DictionaryState, error) {
-	return tts.DictionaryState{}, errors.New("unexpected GetDictionary call")
-}
-
-func (c *concurrentCreateDictionaryClient) SetRules(
-	ctx context.Context,
-	id string,
-	rules []tts.Rule,
-) (tts.SetRulesResult, error) {
-	return tts.SetRulesResult{}, errors.New("unexpected SetRules call")
-}
-
-func (c *concurrentCreateDictionaryClient) CreateCount() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.createCount
-}
-
-type createDictionaryCall struct {
-	name        string
-	description string
-	rules       []tts.Rule
-}
-
-type pronunciationDictionaryClientMock struct {
-	createFn func(ctx context.Context, name, description string, rules []tts.Rule) (tts.DictionaryState, error)
-	getFn    func(ctx context.Context, id string) (tts.DictionaryState, error)
-	setFn    func(ctx context.Context, id string, rules []tts.Rule) (tts.SetRulesResult, error)
-
-	createCalls []createDictionaryCall
-}
-
-func (m *pronunciationDictionaryClientMock) CreateDictionaryFromRules(
-	ctx context.Context,
-	name string,
-	description string,
-	rules []tts.Rule,
-) (tts.DictionaryState, error) {
-	m.createCalls = append(m.createCalls, createDictionaryCall{name: name, description: description, rules: rules})
-	if m.createFn != nil {
-		return m.createFn(ctx, name, description, rules)
-	}
-	return tts.DictionaryState{}, errors.New("unexpected CreateDictionaryFromRules call")
-}
-
-func (m *pronunciationDictionaryClientMock) GetDictionary(ctx context.Context, id string) (tts.DictionaryState, error) {
-	if m.getFn != nil {
-		return m.getFn(ctx, id)
-	}
-	return tts.DictionaryState{}, errors.New("unexpected GetDictionary call")
-}
-
-func (m *pronunciationDictionaryClientMock) SetRules(
-	ctx context.Context,
-	id string,
-	rules []tts.Rule,
-) (tts.SetRulesResult, error) {
-	if m.setFn != nil {
-		return m.setFn(ctx, id, rules)
-	}
-	return tts.SetRulesResult{}, errors.New("unexpected SetRules call")
 }

@@ -1109,8 +1109,10 @@ paths:
 
         TTS request options are read from the global settings row exposed at
         `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
-        configuration; model, voice settings, text normalization, seed, and the
-        Eleven v3 style prefix are database-backed settings.
+        configuration; Babbel always sends `eleven_v3`. Voice settings, text
+        normalization, seed, and the Eleven v3 style prefix are database-backed
+        settings. Local pronunciation rules are injected as inline IPA before
+        the TTS request is sent.
 
         **Prerequisites:**
         - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
@@ -1242,6 +1244,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '503':
@@ -1254,9 +1258,8 @@ paths:
       operationId: getSettingsTtsPronunciations
       summary: Get TTS pronunciation rules
       description: |
-        Returns the alias pronunciation rules from the single Babbel-managed
-        ElevenLabs pronunciation dictionary. No upstream call is made until a
-        dictionary has been created by saving at least one rule.
+        Returns local pronunciation rules used for ElevenLabs v3 inline IPA
+        injection. No ElevenLabs API call is made for this management route.
       tags:
         - Settings
       responses:
@@ -1270,35 +1273,19 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '501':
-          description: TTS is not configured on the server
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-              example:
-                type: "https://babbel.api/problems/tts.not_configured"
-                title: "Not Implemented"
-                status: 501
-                detail: "Text-to-speech is not configured"
-                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
-        '502':
-          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     put:
       operationId: putSettingsTtsPronunciations
       summary: Replace TTS pronunciation rules
       description: |
-        Replaces the complete alias-rule set for the Babbel-managed ElevenLabs
-        pronunciation dictionary. The dictionary is created lazily on the first
-        non-empty save. Editors and admins can write; viewers can only read.
+        Replaces the complete local pronunciation rule set used for ElevenLabs
+        v3 inline IPA injection. Editors and admins can write; viewers can
+        only read. IPA injection is 80-90% consistent according to ElevenLabs
+        guidance; keep abbreviations case-sensitive when matching inside URLs
+        would be undesirable.
       tags:
         - Settings
       requestBody:
@@ -1310,7 +1297,7 @@ paths:
             example:
               rules:
                 - string_to_replace: "Albert Heijn"
-                  alias: "albert hijn"
+                  ipa: "ˈɑlbərt ˈɦɛin"
                   case_sensitive: false
                   word_boundaries: true
       responses:
@@ -1324,28 +1311,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '409':
-          $ref: '#/components/responses/Conflict'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '501':
-          description: TTS is not configured on the server
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
-              example:
-                type: "https://babbel.api/problems/tts.not_configured"
-                title: "Not Implemented"
-                status: 501
-                detail: "Text-to-speech is not configured"
-                hint: "Set BABBEL_ELEVENLABS_API_KEY to enable TTS"
-        '502':
-          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
@@ -2857,12 +2828,11 @@ components:
     TTSSettings:
       type: object
       description: Global singleton ElevenLabs text-to-speech settings.
+      additionalProperties: false
       required:
-        - model
         - stability
         - similarity_boost
         - style
-        - use_speaker_boost
         - speed
         - apply_text_normalization
         - seed
@@ -2870,10 +2840,6 @@ components:
         - updated_at
         - api_key_configured
       properties:
-        model:
-          type: string
-          enum: [eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5]
-          description: ElevenLabs model ID used for subsequent story TTS generation.
         stability:
           type: number
           format: float
@@ -2889,9 +2855,6 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        use_speaker_boost:
-          type: boolean
-          description: Preserved in settings, but omitted from Eleven v3 request bodies.
         speed:
           type: number
           format: float
@@ -2908,7 +2871,7 @@ components:
         tts_style_prefix:
           type: string
           maxLength: 500
-          description: Audio-tag prefix applied only when model is eleven_v3.
+          description: Audio-tag prefix prepended to story text before eleven_v3 synthesis.
         updated_at:
           type: string
           format: date-time
@@ -2919,11 +2882,9 @@ components:
     TTSSettingsUpdate:
       type: object
       minProperties: 1
+      additionalProperties: false
       description: Partial update for global singleton TTS settings.
       properties:
-        model:
-          type: string
-          enum: [eleven_v3, eleven_multilingual_v2, eleven_flash_v2_5]
         stability:
           type: number
           format: float
@@ -2939,8 +2900,6 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        use_speaker_boost:
-          type: boolean
         speed:
           type: number
           format: float
@@ -2958,20 +2917,23 @@ components:
           type: string
           maxLength: 500
 
-    PronunciationRule:
+    PronunciationRuleInput:
       type: object
+      additionalProperties: false
       required:
         - string_to_replace
-        - alias
+        - ipa
       properties:
         string_to_replace:
           type: string
           minLength: 1
-          description: Text fragment ElevenLabs should replace before synthesis.
-        alias:
+          maxLength: 255
+          description: Literal story-text fragment to replace with inline IPA.
+        ipa:
           type: string
           minLength: 1
-          description: Replacement pronunciation for the text fragment.
+          maxLength: 255
+          description: IPA pronunciation without surrounding slashes. Forward slashes and control characters are rejected. ElevenLabs v3 inline IPA is typically 80-90% consistent.
         case_sensitive:
           type: [boolean, 'null']
           default: true
@@ -2981,38 +2943,57 @@ components:
           default: true
           description: Whether matching is constrained to word boundaries. Defaults to true when omitted.
 
+    PronunciationRule:
+      type: object
+      additionalProperties: false
+      required:
+        - string_to_replace
+        - ipa
+        - case_sensitive
+        - word_boundaries
+      properties:
+        string_to_replace:
+          type: string
+          minLength: 1
+          maxLength: 255
+        ipa:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: IPA pronunciation without surrounding slashes.
+        case_sensitive:
+          type: boolean
+        word_boundaries:
+          type: boolean
+
     PronunciationRulesList:
       type: object
+      additionalProperties: false
       required:
         - rules
-        - latest_version_id
-        - created_at
+        - updated_at
       properties:
         rules:
           type: array
           items:
             $ref: '#/components/schemas/PronunciationRule'
-        latest_version_id:
-          type: [string, 'null']
-          description: ElevenLabs latest version ID. Null until a dictionary exists.
-        created_at:
+        updated_at:
           type: [string, 'null']
           format: date-time
-          description: Dictionary creation time. Null until a dictionary exists.
-        warning:
-          type: string
-          description: Warns when the upstream dictionary is missing and will be recreated, or when non-alias ElevenLabs rules were discarded from the editor-facing list.
+          description: Maximum updated_at across local rules, or null when the table is empty.
 
     PronunciationRulesUpdate:
       type: object
+      additionalProperties: false
       required:
         - rules
       properties:
         rules:
           type: array
+          maxItems: 1000
           items:
-            $ref: '#/components/schemas/PronunciationRule'
-          description: Complete replacement alias-rule set. Empty array clears all rules.
+            $ref: '#/components/schemas/PronunciationRuleInput'
+          description: Complete replacement inline-IPA rule set. Empty array clears all rules.
 
     StationVoice:
       type: object
@@ -3537,7 +3518,7 @@ components:
           example: "abc123def456"
         errors:
           type: array
-          description: Array of validation errors (for 422 responses)
+          description: Field-level errors for validation or strict request-parsing responses (400 and 422)
           items:
             type: object
             properties:
@@ -3711,6 +3692,27 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+          examples:
+            removed_tts_field:
+              summary: Removed TTS settings field
+              value:
+                type: "https://babbel.api/problems/bad-request"
+                title: "Bad Request"
+                status: 400
+                detail: "Request body contains unknown or removed fields"
+                errors:
+                  - field: "model"
+                    message: "field has been removed in v3-only release"
+            replaced_pronunciation_field:
+              summary: Replaced pronunciation field
+              value:
+                type: "https://babbel.api/problems/bad-request"
+                title: "Bad Request"
+                status: 400
+                detail: "Request body contains unknown or removed fields"
+                errors:
+                  - field: "alias"
+                    message: "field has been replaced by 'ipa'"
     Unauthorized:
       description: Unauthorized
       content:
@@ -3746,7 +3748,6 @@ components:
         - `https://babbel.api/problems/duplicate` - Duplicate resource (e.g., station name already exists)
         - `https://babbel.api/problems/dependency-constraint` - Resource has dependencies that prevent deletion
         - `https://babbel.api/problems/admin-constraint` - Cannot delete last admin user
-        - `https://babbel.api/problems/pronunciation_rules.conflict` - Pronunciation dictionary changed concurrently
       content:
         application/problem+json:
           schema:
@@ -3832,7 +3833,7 @@ components:
                 detail: "tts_settings not initialized"
                 instance: "/api/v1/settings/tts"
                 code: "tts_settings.not_initialized"
-                hint: "apply migration 005_tts_settings.sql"
+                hint: "apply migrations/001_complete_schema.sql"
             tts_settings_row_missing:
               summary: TTS settings singleton row is missing
               value:
@@ -3842,7 +3843,7 @@ components:
                 detail: "tts_settings singleton row missing"
                 instance: "/api/v1/settings/tts"
                 code: "tts_settings.row_missing"
-                hint: "restore the id=1 row from migrations/005_tts_settings.sql seed data"
+                hint: "restore the id=1 row from migrations/001_complete_schema.sql seed data"
             tts_upstream_credentials:
               summary: ElevenLabs credentials are invalid or unauthorized
               value:

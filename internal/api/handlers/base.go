@@ -300,19 +300,14 @@ func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 	return false
 }
 
-// requirePronunciationRulesEnabled extends requireTTSEnabled with a service-nil
-// guard so a misconfigured Handlers struct (TTSEnabled=true but no
-// PronunciationRulesSvc wired in) returns 501 instead of nil-derefing.
-func (h *Handlers) requirePronunciationRulesEnabled(c *gin.Context) bool {
-	if h.ttsEnabled && h.pronunciationRulesSvc != nil {
+// requirePronunciationRulesService guards tests and misconfigured routers from nil dereferences.
+func (h *Handlers) requirePronunciationRulesService(c *gin.Context) bool {
+	if h.pronunciationRulesSvc != nil {
 		return true
 	}
-	utils.ProblemExtended(
+	utils.ProblemInternalServer(
 		c,
-		http.StatusNotImplemented,
-		"Text-to-speech is not configured",
-		"tts.not_configured",
-		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
+		"Pronunciation rules service is not configured",
 	)
 	return false
 }

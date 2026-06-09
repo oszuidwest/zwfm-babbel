@@ -40,6 +40,11 @@ jobs:
           node-version: '24.x'
           cache: 'npm'
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Validate OpenAPI specification
         run: make validate-spec
 
@@ -61,3 +66,8 @@ jobs:
             docker-compose logs mysql || true
             exit 1
           }
+
+      - name: Run Go integration tests
+        env:
+          BABBEL_TEST_DB_DSN: babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local
+        run: make test-integration

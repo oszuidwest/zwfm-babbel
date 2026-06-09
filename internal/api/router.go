@@ -63,15 +63,14 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	stationVoiceRepo := repository.NewStationVoiceRepository(db)
 	audioRepo := repository.NewAudioRepository(db)
 	ttsSettingsRepo := repository.NewTTSSettingsRepository(db)
+	pronunciationRuleRepo := repository.NewPronunciationRuleRepository(db)
 
 	// Create audio and TTS services
 	audioSvc := audio.NewService(cfg)
 	ttsSvc := tts.NewService(&cfg.TTS)
 	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
-	var pronunciationRulesSvc handlers.PronunciationRulesService
-	if ttsSvc != nil {
-		pronunciationRulesSvc = services.NewPronunciationRulesService(ttsSettingsRepo, ttsSvc)
-	}
+	pronunciationInjector := services.NewPronunciationInjector(pronunciationRuleRepo)
+	pronunciationRulesSvc := services.NewPronunciationRulesService(pronunciationRuleRepo, txManager)
 
 	// Create domain services
 	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
@@ -83,12 +82,13 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		Config:       cfg,
 	})
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
-		StoryRepo:      storyRepo,
-		VoiceRepo:      voiceRepo,
-		AudioSvc:       audioSvc,
-		TTSSvc:         ttsSvc,
-		TTSSettingsSvc: ttsSettingsSvc,
-		Config:         cfg,
+		StoryRepo:             storyRepo,
+		VoiceRepo:             voiceRepo,
+		AudioSvc:              audioSvc,
+		TTSSvc:                ttsSvc,
+		TTSSettingsSvc:        ttsSettingsSvc,
+		PronunciationInjector: pronunciationInjector,
+		Config:                cfg,
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
