@@ -26,7 +26,8 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// GetStory returns a single story by ID.
+// GetStory returns a story by ID with computed fields populated by the model
+// hooks used by the repository layer.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -39,31 +40,27 @@ func (h *Handlers) GetStory(c *gin.Context) {
 		return
 	}
 
-	// Return story directly - AfterFind hook populates computed fields
 	utils.Success(c, story)
 }
 
 // CreateStory accepts a JSON story payload and persists a scheduled story.
+// Missing status defaults to draft and missing weekdays default to every day.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
-	// Pure JSON binding - no form-data support
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Apply default status if not provided
 	if req.Status == "" {
 		req.Status = string(models.StoryStatusDraft)
 	}
 
-	// Use provided weekdays or default to all days enabled
 	weekdays := req.Weekdays
 	if weekdays == 0 {
 		weekdays = models.WeekdaysAll
 	}
 
-	// Create service request
 	svcReq := &services.CreateStoryRequest{
 		Title:      req.Title,
 		Text:       req.Text,
@@ -76,7 +73,6 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		Metadata:   req.Metadata,
 	}
 
-	// Create story via service
 	story, err := h.storySvc.Create(c.Request.Context(), svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
@@ -86,7 +82,8 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
 }
 
-// UpdateStory updates an existing story (JSON API only).
+// UpdateStory applies a JSON partial update to an existing story.
+// Empty update objects are rejected before reaching the service layer.
 func (h *Handlers) UpdateStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -102,7 +99,6 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// Validate that at least one field is being updated
 	hasUpdates := req.Title != nil || req.Text != nil || req.Status != nil ||
 		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
 		req.Weekdays != nil || req.IsBreaking != nil || req.Metadata != nil
@@ -150,14 +146,15 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus updates a story's status or handles soft delete/restore operations.
+// UpdateStoryStatus changes workflow state or toggles soft deletion.
+// An empty deleted_at string restores the story; any non-empty deleted_at value
+// is treated as a soft-delete request for compatibility with the legacy API.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Support both status updates and soft delete/restore
 	var req struct {
 		Status    *string `json:"status"`
 		DeletedAt *string `json:"deleted_at"`
@@ -166,7 +163,6 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	// Validate that at least one field is provided
 	if req.Status == nil && req.DeletedAt == nil {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "request",
@@ -175,10 +171,8 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	// Handle soft delete/restore
 	if req.DeletedAt != nil {
 		if *req.DeletedAt == "" {
-			// Restore story (set deleted_at to NULL)
 			if err := h.storySvc.Restore(c.Request.Context(), id); err != nil {
 				handleServiceError(c, err, "Story")
 				return
@@ -191,7 +185,6 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			utils.Success(c, restored)
 			return
 		}
-		// Soft delete story (set deleted_at to NOW())
 		if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
 			handleServiceError(c, err, "Story")
 			return
@@ -200,7 +193,6 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	// Handle status update
 	if req.Status != nil {
 		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
 		if err != nil {

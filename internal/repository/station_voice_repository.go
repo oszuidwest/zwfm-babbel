@@ -22,15 +22,15 @@ type StationVoiceRepository struct {
 	*GormRepository[models.StationVoice]
 }
 
-// NewStationVoiceRepository creates a new station-voice repository.
+// NewStationVoiceRepository returns a station-voice repository backed by db.
 func NewStationVoiceRepository(db *gorm.DB) *StationVoiceRepository {
 	return &StationVoiceRepository{
 		GormRepository: NewGormRepository[models.StationVoice](db),
 	}
 }
 
-// Create inserts a new station-voice relationship and returns the created record
-// with its associated station and voice.
+// Create inserts a station-voice relationship and reloads its station and
+// voice associations.
 func (r *StationVoiceRepository) Create(ctx context.Context, stationID, voiceID int64, mixPoint float64) (*models.StationVoice, error) {
 	stationVoice := &models.StationVoice{
 		StationID: stationID,
@@ -43,7 +43,6 @@ func (r *StationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 		return nil, ParseDBError(err)
 	}
 
-	// Load relations on the created record using Joins (single query with LEFT JOIN)
 	if err := db.WithContext(ctx).Joins("Station").Joins("Voice").First(stationVoice, stationVoice.ID).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
@@ -51,12 +50,12 @@ func (r *StationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 	return stationVoice, nil
 }
 
-// GetByID retrieves a station-voice relationship with its associated station and voice.
+// GetByID loads a station-voice relationship with its station and voice.
 func (r *StationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	return r.GetByIDWithJoins(ctx, id, "Station", "Voice")
 }
 
-// Update updates a station-voice relationship. Nil pointer fields are skipped.
+// Update applies non-nil station-voice fields.
 func (r *StationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
 	if u == nil {
 		return nil

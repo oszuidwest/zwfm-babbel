@@ -132,7 +132,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		return nil, err
 	}
 
-	// Create enforcer with in-memory policy storage (no adapter needed)
 	enforcer, err := casbin.NewEnforcer(m)
 	if err != nil {
 		return nil, err
@@ -190,13 +189,10 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	base, _, _ := strings.Cut(email, "@")
 
-	// Replace any character that's not alphanumeric, underscore, or hyphen with underscore
 	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 	username := re.ReplaceAllString(base, "_")
 
-	// Ensure the username is not empty and meets minimum length requirement
 	if len(username) < 3 {
-		// If too short, append part of the domain
 		if _, domainStr, found := strings.Cut(email, "@"); found {
 			domainPart, _, _ := strings.Cut(domainStr, ".")
 			domainPart = re.ReplaceAllString(domainPart, "_")
@@ -204,7 +200,6 @@ func (s *Service) sanitizeEmailToUsername(email string) string {
 		}
 	}
 
-	// Truncate if too long (max 100 characters)
 	if len(username) > 100 {
 		username = username[:100]
 	}
@@ -260,26 +255,25 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	return username
 }
 
-// SessionMiddleware returns the Gin middleware for session management.
+// SessionMiddleware returns Gin session middleware when the configured store
+// supports gin-contrib sessions.
 func (s *Service) SessionMiddleware() gin.HandlerFunc {
 	if _, ok := s.sessions.(*GinSessionStore); ok {
-		// Use gin-contrib/sessions middleware
 		if store, ok := s.ginStore.(sessions.Store); ok {
 			return sessions.Sessions(s.config.Session.CookieName, store)
 		}
 	}
-	// Default pass-through
 	return func(c *gin.Context) {
 		c.Next()
 	}
 }
 
-// Middleware returns the Gin middleware for authentication enforcement.
+// Middleware loads the authenticated user from the session and attaches the
+// current user context for downstream handlers.
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := s.sessions.Get(c)
 
-		// Check if user is authenticated (type-safe)
 		userID, ok := SessionUserID(session)
 		if !ok {
 			utils.ProblemAuthentication(c, "Authentication required")
@@ -287,7 +281,6 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// Load user from database
 		var user struct {
 			ID          int64
 			Username    string
@@ -312,7 +305,6 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		// Set user info in context (type-safe)
 		SetUserContext(c, UserContext{
 			UserID:   user.ID,
 			Username: user.Username,
@@ -396,12 +388,10 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("invalid credentials")
 	}
 
-	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	// Create session for authenticated user
 	return s.CreateSession(c, user.ID, user.Username, user.Role, "local")
 }
 
@@ -412,7 +402,6 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		return
 	}
 
-	// Generate state for CSRF protection (type-safe error handling)
 	state, err := generateState()
 	if err != nil {
 		logger.Error("Failed to generate OAuth state", "error", err)
@@ -423,7 +412,6 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	session := s.sessions.Get(c)
 	SetSessionOAuthState(session, state)
 
-	// Store frontend URL for later redirect (with validation to prevent open redirect)
 	frontendURL := c.Query("frontend_url")
 	if frontendURL != "" {
 		if s.isAllowedFrontendURL(frontendURL) {
@@ -438,7 +426,6 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		return
 	}
 
-	// Redirect to provider
 	url := s.config.OIDC.OAuth2Config.AuthCodeURL(state)
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
@@ -447,7 +434,6 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session := s.sessions.Get(c)
 
-	// Verify state (type-safe)
 	state := c.Query("state")
 	savedStateStr, ok := SessionOAuthState(session)
 	if !ok || state != savedStateStr {
@@ -455,7 +441,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	session.Delete(string(SessKeyOAuthState))
 
-	// Exchange code for token
 	code := c.Query("code")
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
@@ -465,7 +450,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to exchange code: %w", err)
 	}
 
-	// Extract and verify ID token
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return fmt.Errorf("no id_token in response")
@@ -480,7 +464,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to verify ID token: %w", err)
 	}
 
-	// Extract claims
 	var claims struct {
 		Email             string `json:"email"`
 		Name              string `json:"name"`
@@ -492,13 +475,11 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	// Find or create user based on OAuth claims
 	user, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
 	if err != nil {
 		return err
 	}
 
-	// Setup session for authenticated OAuth user
 	return s.setupOAuthSession(c, user)
 }
 
@@ -516,7 +497,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		SuspendedAt *time.Time
 	}
 
-	// Try to find user by email first
 	err := s.db.WithContext(ctx).
 		Table("users").
 		Select("id, username, suspended_at").
@@ -524,7 +504,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		Where("deleted_at IS NULL").
 		First(&existingUser).Error
 	if err == nil {
-		// User exists with this email
 		if existingUser.SuspendedAt != nil {
 			return nil, fmt.Errorf("account is suspended")
 		}
@@ -534,12 +513,10 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 		}, nil
 	}
 
-	// Check if it's not a "not found" error
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to query user: %w", err)
 	}
 
-	// No existing user with this email, create new user
 	username := s.determineOAuthUsername(preferredUsername, email)
 	now := time.Now()
 
@@ -578,7 +555,6 @@ func (s *Service) determineOAuthUsername(preferredUsername, email string) string
 		return s.sanitizeEmailToUsername(email)
 	}
 
-	// Sanitize if preferredUsername contains invalid characters
 	if strings.Contains(username, "@") || strings.Contains(username, ".") {
 		return s.sanitizeEmailToUsername(username)
 	}
@@ -590,12 +566,12 @@ func (s *Service) determineOAuthUsername(preferredUsername, email string) string
 func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 	ctx := c.Request.Context()
 
-	// Reset failed attempts and update login statistics
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	// Get the user's actual role from database (exclude soft-deleted users)
+	// Read the role after OAuth account resolution so a stale session cannot
+	// retain privileges from an earlier login.
 	var role string
 	if err := s.db.WithContext(ctx).
 		Table("users").
@@ -607,7 +583,6 @@ func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
 		return fmt.Errorf("failed to get user role: %w", err)
 	}
 
-	// Create session with user credentials
 	if err := s.CreateSession(c, user.ID, user.Username, role, "oidc"); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}

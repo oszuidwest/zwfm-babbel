@@ -153,7 +153,6 @@ func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 		query = NewListQuery()
 	}
 
-	// Build base query with soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.User{})
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 

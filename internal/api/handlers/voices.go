@@ -55,7 +55,7 @@ func (h *Handlers) CreateVoice(c *gin.Context) {
 	utils.CreatedWithLocation(c, voice.ID, "/api/v1/voices", "Voice created successfully")
 }
 
-// UpdateVoice updates an existing newsreader voice.
+// UpdateVoice applies a JSON partial update to a newsreader voice.
 func (h *Handlers) UpdateVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -67,7 +67,6 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	// Require at least one field
 	if req.Name == nil && !req.ElevenLabsVoiceID.Set {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "request",
@@ -76,8 +75,8 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	// Convert to service update request, translating Optional to Clear* flag.
-	// Empty string is treated as clearing (same as null) - a blank voice ID is unusable.
+	// Empty string is treated as clearing (same as null) because a blank
+	// ElevenLabs voice ID is unusable.
 	updateReq := &services.UpdateVoiceRequest{
 		Name: req.Name,
 	}

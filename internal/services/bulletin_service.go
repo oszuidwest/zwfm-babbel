@@ -16,7 +16,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// BulletinServiceDeps contains all dependencies for BulletinService.
+// BulletinServiceDeps groups the collaborators required for selecting,
+// rendering, and persisting bulletins.
 type BulletinServiceDeps struct {
 	TxManager    repository.TxManager
 	BulletinRepo *repository.BulletinRepository
@@ -26,7 +27,7 @@ type BulletinServiceDeps struct {
 	Config       *config.Config
 }
 
-// BulletinService handles bulletin generation and retrieval operations.
+// BulletinService generates audio bulletins and exposes bulletin read models.
 type BulletinService struct {
 	txManager    repository.TxManager
 	bulletinRepo *repository.BulletinRepository
@@ -36,7 +37,7 @@ type BulletinService struct {
 	config       *config.Config
 }
 
-// NewBulletinService creates a new bulletin service instance.
+// NewBulletinService returns a bulletin service wired to deps.
 func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 	return &BulletinService{
 		txManager:    deps.TxManager,
@@ -48,8 +49,8 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 	}
 }
 
-// Create generates a new bulletin for the specified station and date.
-// Returns the created bulletin with all computed fields populated.
+// Create selects eligible stories, renders the WAV file, and persists the
+// bulletin plus story links for a station/date.
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
@@ -72,7 +73,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		MixPoint: stories[0].MixPoint,
 	}
 
-	// Log when selected stories span multiple voices, since only one jingle is used
 	if jingle.VoiceID != nil {
 		for _, s := range stories[1:] {
 			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
@@ -86,7 +86,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	// Shuffle story order for natural radio flow.
-	// Breaking priority and fair rotation determine WHICH stories are selected;
+	// Breaking priority and fair rotation determine which stories are selected;
 	// playback order is randomized so breaking stories appear in varied positions.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
@@ -114,18 +114,17 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		return nil, err
 	}
 
-	// Fetch the created bulletin with Station preloaded for computed fields
 	return s.GetByID(ctx, bulletinID)
 }
 
-// generateBulletinAudio creates the audio file for a bulletin and returns its path.
+// generateBulletinAudio renders a bulletin with one timestamp shared by the
+// filesystem path and database filename.
 func (s *BulletinService) generateBulletinAudio(
 	ctx context.Context,
 	station *models.Station,
 	stories []repository.BulletinStoryData,
 	jingle audio.JingleContext,
 ) (string, error) {
-	// Generate consistent paths using single timestamp
 	timestamp := time.Now()
 	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
@@ -159,7 +158,8 @@ func (s *BulletinService) calculateBulletinDuration(
 	return storiesDuration
 }
 
-// saveBulletinParams holds the parameters for persisting a bulletin to the database.
+// saveBulletinParams groups the values stored when a generated bulletin is
+// committed.
 type saveBulletinParams struct {
 	StationID    int64
 	BulletinPath string
@@ -168,7 +168,8 @@ type saveBulletinParams struct {
 	Stories      []repository.BulletinStoryData
 }
 
-// saveBulletinToDatabase persists the bulletin record and story relationships in a transaction.
+// saveBulletinToDatabase stores the bulletin and its story links in one
+// transaction.
 func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params saveBulletinParams) (int64, error) {
 	var bulletinID int64
 
@@ -206,8 +207,8 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params sav
 	return bulletinID, nil
 }
 
-// GetLatest retrieves the most recent bulletin for a station.
-// If maxAge is provided, only returns bulletins newer than that duration.
+// GetLatest loads the most recent bulletin for a station.
+// When maxAge is non-nil, older bulletins are treated as not found.
 func (s *BulletinService) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
@@ -219,7 +220,7 @@ func (s *BulletinService) GetLatest(
 	return bulletin, nil
 }
 
-// GetStoriesForDate retrieves eligible stories for bulletin generation on a specific date.
+// GetStoriesForDate loads stories eligible for bulletin generation on date.
 // Stories must be active, have audio, match the station's voice configuration,
 // and be scheduled for the weekday.
 // Breaking news stories are prioritized for selection; remaining slots use fair rotation.
@@ -237,7 +238,6 @@ func (s *BulletinService) GetStoriesForDate(
 	// NoStories (422) instead of leaking an internal error.
 	stories = s.filterStoriesWithMissingAudio(stories, stationID)
 
-	// Warn when breaking stories consume all available slots
 	if len(stories) > 0 && len(stories) == limit {
 		breakingCount := 0
 		for _, story := range stories {
@@ -251,7 +251,6 @@ func (s *BulletinService) GetStoriesForDate(
 		}
 	}
 
-	// Debug logging for story selection transparency
 	if len(stories) > 0 {
 		storyIDs := make([]int64, len(stories))
 		for i, story := range stories {
@@ -282,8 +281,8 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 	return kept
 }
 
-// ParseTargetDate parses a date string in YYYY-MM-DD format or returns the current date if empty.
-// Uses local timezone to ensure consistent date handling across the application.
+// ParseTargetDate parses YYYY-MM-DD in the local timezone.
+// Empty input returns the current instant so callers can generate "today".
 func ParseTargetDate(dateStr string) (time.Time, error) {
 	if dateStr == "" {
 		return time.Now(), nil
@@ -315,7 +314,7 @@ func (s *BulletinService) Exists(ctx context.Context, id int64) (bool, error) {
 	return exists, nil
 }
 
-// GetByID retrieves a bulletin by its ID.
+// GetByID loads a bulletin by ID and translates repository errors.
 func (s *BulletinService) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
 	bulletin, err := s.bulletinRepo.GetByID(ctx, id)
 	if err != nil {

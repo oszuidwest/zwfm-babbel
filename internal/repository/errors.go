@@ -34,12 +34,10 @@ func ParseDBError(err error) error {
 		return nil
 	}
 
-	// Handle GORM's record not found error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}
 
-	// Handle MySQL-specific errors via type assertion (more robust)
 	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch mysqlErr.Number {
 		case 1062: // ER_DUP_ENTRY
@@ -57,7 +55,7 @@ func ParseDBError(err error) error {
 		}
 	}
 
-	// Fallback to string matching for non-MySQL errors or unhandled cases
+	// SQLite test errors and some wrapped driver errors only expose a message.
 	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):

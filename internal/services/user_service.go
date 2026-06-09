@@ -16,7 +16,8 @@ import (
 	"gorm.io/datatypes"
 )
 
-// UserService handles user-related business logic.
+// UserService enforces account invariants such as unique usernames, password
+// policy, role validity, and the last-admin guard.
 type UserService struct {
 	repo           *repository.UserRepository
 	passwordPolicy PasswordPolicy
@@ -31,7 +32,7 @@ type PasswordPolicy struct {
 	RequireSpecialChar bool
 }
 
-// NewUserService creates a new user service instance.
+// NewUserService returns a user service backed by repo and passwordPolicy.
 func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPolicy) *UserService {
 	return &UserService{
 		repo:           repo,
@@ -76,7 +77,7 @@ func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, has
 	return nil
 }
 
-// CreateUserRequest represents the parameters for creating a new user.
+// CreateUserRequest carries the required fields for a local user account.
 type CreateUserRequest struct {
 	Username string
 	FullName string
@@ -86,7 +87,8 @@ type CreateUserRequest struct {
 	Metadata *datatypes.JSONMap
 }
 
-// UpdateUserRequest represents the parameters for updating a user.
+// UpdateUserRequest carries PATCH-style account fields.
+// Email uses nil to skip updates and an empty string to clear the stored email.
 type UpdateUserRequest struct {
 	Username  string
 	FullName  string
@@ -97,9 +99,9 @@ type UpdateUserRequest struct {
 	Suspended *bool
 }
 
-// Create creates a new user account with the given parameters.
+// Create validates role, password policy, and uniqueness before storing a
+// bcrypt password hash.
 func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
-	// Validate role
 	if !isValidRole(req.Role) {
 		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
 	}
@@ -108,7 +110,6 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		return nil, apperrors.Validation("User", "password", err.Error())
 	}
 
-	// Check username uniqueness
 	taken, err := s.repo.IsUsernameTaken(ctx, req.Username, nil)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
@@ -117,7 +118,6 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		return nil, apperrors.Duplicate("User", "username", req.Username)
 	}
 
-	// Check email uniqueness (if provided)
 	if req.Email != "" {
 		taken, err = s.repo.IsEmailTaken(ctx, req.Email, nil)
 		if err != nil {
@@ -128,19 +128,16 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		}
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, apperrors.Database("User", "hash", err)
 	}
 
-	// Handle email - empty string should be NULL
 	var emailValue *string
 	if req.Email != "" {
 		emailValue = &req.Email
 	}
 
-	// Create user
 	user, err := s.repo.Create(ctx, repository.CreateUserParams{
 		Username:     req.Username,
 		FullName:     req.FullName,
@@ -178,16 +175,13 @@ func (s *UserService) applyUsernameUpdate(
 }
 
 // applyEmailUpdate validates and applies email update.
-// If email is nil, the field is not updated.
-// If email points to empty string, the email is cleared to NULL.
-// Otherwise, the email is validated for uniqueness and updated.
+// Nil skips the field; an empty string clears it to NULL.
 func (s *UserService) applyEmailUpdate(
 	ctx context.Context, u *repository.UserUpdate, email *string, excludeID int64,
 ) error {
 	if email == nil {
 		return nil
 	}
-	// Empty string means clear email to NULL
 	if *email == "" {
 		u.ClearEmail = true
 		return nil
@@ -283,7 +277,9 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates
 	return nil
 }
 
-// Update updates an existing user's information and returns the updated user.
+// Update applies account changes and returns the refreshed user.
+// Suspended is updated separately so callers can suspend an account without
+// sending any other changed fields.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
 	updates := &repository.UserUpdate{}
 
@@ -302,18 +298,15 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	s.applyFullNameUpdate(updates, req.FullName)
 	s.applyMetadataUpdate(updates, req.Metadata)
 
-	// Handle suspended separately
 	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
 		return nil, err
 	}
 
-	// Check if we have any updates
 	hasUpdates := hasFieldUpdates(updates)
 	if !hasUpdates && req.Suspended == nil {
 		return nil, apperrors.Validation("User", "", "no fields to update")
 	}
 
-	// Apply field updates
 	if hasUpdates {
 		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
 			return nil, err
@@ -333,16 +326,14 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 	return user, nil
 }
 
-// SoftDelete permanently deletes a user account and their sessions.
-// It ensures at least one admin remains in the system.
+// SoftDelete permanently deletes a user and their sessions.
+// It rejects deletion of the last active admin.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
-	// Get the user to check their role
 	user, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 
-	// If user is an admin, check that this is not the last admin
 	if user.Role == models.RoleAdmin {
 		adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
 		if err != nil {
@@ -354,10 +345,8 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 		}
 	}
 
-	// Delete user sessions first (ignore errors - session cleanup is non-critical)
 	_ = s.repo.DeleteSessions(ctx, id)
 
-	// Delete user (hard delete as users table doesn't have deleted_at)
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
 	}
@@ -365,8 +354,7 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Suspend prevents a user from logging in by marking their account as suspended.
-// Returns the updated user.
+// Suspend prevents a user from logging in and returns the refreshed account.
 func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, error) {
 	if err := s.repo.SetSuspended(ctx, id, true); err != nil {
 		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
@@ -375,8 +363,8 @@ func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, erro
 	return s.GetByID(ctx, id)
 }
 
-// Unsuspend reactivates a suspended user account, allowing them to log in again.
-// Returns the updated user.
+// Unsuspend allows a suspended user to log in again and returns the refreshed
+// account.
 func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, error) {
 	if err := s.repo.SetSuspended(ctx, id, false); err != nil {
 		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)

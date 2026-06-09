@@ -23,7 +23,8 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// GetStationVoice returns a single station-voice relationship by ID.
+// GetStationVoice returns a station-voice relationship with computed fields
+// populated by model hooks.
 func (h *Handlers) GetStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -36,7 +37,6 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
 	utils.Success(c, stationVoice)
 }
 
@@ -44,12 +44,10 @@ func (h *Handlers) GetStationVoice(c *gin.Context) {
 func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	var req utils.StationVoiceRequest
 
-	// Pure JSON binding - no form-data support
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Create station-voice relationship via service
 	serviceReq := &services.CreateStationVoiceRequest{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
@@ -65,7 +63,7 @@ func (h *Handlers) CreateStationVoice(c *gin.Context) {
 	utils.CreatedWithLocation(c, stationVoice.ID, "/api/v1/station-voices", "Station-voice relationship created successfully")
 }
 
-// UpdateStationVoice updates an existing station-voice relationship.
+// UpdateStationVoice applies a JSON partial update to a station-voice link.
 func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -77,7 +75,6 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	// Validate that there's at least one field to update
 	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "fields",
@@ -101,14 +98,14 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-// DeleteStationVoice deletes a station-voice relationship and associated jingle file.
+// DeleteStationVoice deletes a station-voice relationship and associated
+// jingle file.
 func (h *Handlers) DeleteStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Delete via service (handles both database and file cleanup)
 	if err := h.stationVoiceSvc.Delete(c.Request.Context(), id); err != nil {
 		handleServiceError(c, err, "Station-voice relationship")
 		return

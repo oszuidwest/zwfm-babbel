@@ -39,7 +39,6 @@ func BuildUpdateMap(update any) map[string]any {
 
 	clearFields := collectClearFields(v)
 
-	// Process all fields
 	for fieldType, fieldVal := range v.Fields() {
 		col, val, ok := processField(fieldVal, fieldType, clearFields)
 		if ok {
@@ -74,35 +73,28 @@ func collectClearFields(v reflect.Value) map[string]bool {
 	return clearFields
 }
 
-// processField determines if a struct field should be included in the update map.
-// Returns the column name, value, and whether the field should be included.
-// Returns (col, nil, true) for cleared fields, (col, value, true) for non-nil pointers,
-// or ("", nil, false) if the field should be skipped.
+// processField returns the update column/value for one field.
+// Cleared fields return (col, nil, true); non-nil pointers return
+// (col, value, true); skipped fields return ("", nil, false).
 func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFields map[string]bool) (string, any, bool) {
-	// Skip Clear* flags themselves
 	if strings.HasPrefix(fieldType.Name, "Clear") {
 		return "", nil, false
 	}
 
-	// Skip gorm:"-" fields
 	if shouldSkipGormField(fieldType.Tag.Get("gorm")) {
 		return "", nil, false
 	}
 
-	// Get column name
 	col := getColumnName(fieldType)
 
-	// Check if this field should be cleared to NULL (takes precedence)
 	if clearFields[fieldType.Name] {
 		return col, nil, true
 	}
 
-	// Handle pointer fields - only include if non-nil
 	if fieldVal.Kind() == reflect.Pointer && !fieldVal.IsNil() {
 		return col, fieldVal.Elem().Interface(), true
 	}
 
-	// Handle map fields (like datatypes.JSONMap) - only include if non-nil and non-empty
 	if fieldVal.Kind() == reflect.Map && !fieldVal.IsNil() && fieldVal.Len() > 0 {
 		return col, fieldVal.Interface(), true
 	}

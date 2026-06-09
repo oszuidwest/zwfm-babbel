@@ -92,13 +92,12 @@ func (r *BulletinRepository) GetLatest(
 	return &bulletin, nil
 }
 
-// LinkStories creates bulletin-story relationship records preserving story order.
+// LinkStories creates bulletin-story join rows preserving the provided order.
 func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, storyIDs []int64) error {
 	if len(storyIDs) == 0 {
 		return nil
 	}
 
-	// Build slice of BulletinStory records
 	bulletinStories := make([]models.BulletinStory, len(storyIDs))
 	for i, storyID := range storyIDs {
 		bulletinStories[i] = models.BulletinStory{
@@ -108,7 +107,6 @@ func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 		}
 	}
 
-	// Batch insert all records using transaction if available
 	db := DBFromContext(ctx, r.db)
 	if err := db.WithContext(ctx).Create(&bulletinStories).Error; err != nil {
 		return ParseDBError(err)
@@ -162,12 +160,10 @@ func (r *BulletinRepository) GetBulletinStories(
 		Model(&models.BulletinStory{}).
 		Where("bulletin_id = ?", bulletinID)
 
-	// Count total before pagination
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, ParseDBError(err)
 	}
 
-	// Apply pagination and fetch with preloads
 	query := r.db.WithContext(ctx).
 		Preload("Story").
 		Preload("Story.Voice").

@@ -25,7 +25,7 @@ type txManager struct {
 	db *gorm.DB
 }
 
-// NewTxManager creates a new transaction manager.
+// NewTxManager returns a transaction manager backed by db.
 func NewTxManager(db *gorm.DB) TxManager {
 	return &txManager{db: db}
 }
@@ -39,21 +39,18 @@ func (m *txManager) DB() *gorm.DB {
 // The transaction is automatically stored in the context and can be retrieved
 // by repositories using TxFromContext.
 func (m *txManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
-	// Use GORM's Transaction method which handles begin, commit, and rollback
 	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Handle panic recovery - GORM's Transaction already handles rollback on panic,
-		// but we need to log it
+		// GORM rolls the transaction back on panic; this defer adds observability
+		// before re-raising.
 		defer func() {
 			if p := recover(); p != nil {
 				logger.Error("Panic in transaction", "panic", p)
-				panic(p) // Re-raise the panic after logging
+				panic(p)
 			}
 		}()
 
-		// Store transaction in context for repositories to use
 		txCtx := ContextWithTx(ctx, tx)
 
-		// Execute the function
 		if err := fn(txCtx); err != nil {
 			return fmt.Errorf("transaction failed: %w", err)
 		}

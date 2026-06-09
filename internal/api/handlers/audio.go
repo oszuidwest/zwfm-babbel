@@ -12,7 +12,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// AudioConfig defines configuration parameters for serving audio files.
+// AudioConfig maps an audio endpoint to the database column and storage
+// directory that contain its WAV filename.
 type AudioConfig struct {
 	TableName   string
 	IDColumn    string
@@ -22,14 +23,15 @@ type AudioConfig struct {
 	Directory   string // Directory within audio root (e.g. "processed", "output")
 }
 
-// ServeAudio serves an audio file with proper HTTP headers.
+// ServeAudio streams a stored WAV file for the route ID.
+// Missing database records and missing files are both reported as 404 so
+// callers do not need to distinguish metadata from storage state.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Get file path from repository
 	filePath, err := h.audioRepo.GetFilePath(c.Request.Context(), config.TableName, config.FileColumn, config.IDColumn, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -40,7 +42,6 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	// Construct full path using directory and filename
 	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath)
 
 	if _, err := os.Stat(audioPath); err != nil {
@@ -58,21 +59,20 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	c.File(audioPath)
 }
 
-// UploadStoryAudio handles audio file upload for a story.
+// UploadStoryAudio validates and converts an uploaded story file.
+// The story must exist before temporary upload data is accepted.
 func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Validate that story exists
 	_, err := h.storySvc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
-	// Get and validate audio file
 	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
 	if err != nil {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
@@ -83,7 +83,6 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	// Process audio via service
 	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
 		handleServiceError(c, err, "Story")
 		return
@@ -92,21 +91,21 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	utils.CreatedWithMessage(c, "Audio uploaded successfully")
 }
 
-// UploadStationVoiceAudio handles jingle file upload for a station-voice relationship.
+// UploadStationVoiceAudio validates and converts a station-voice jingle.
+// The current relationship supplies the station and voice IDs used for the
+// canonical output filename.
 func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Get current station-voice to validate existence and get IDs for temp file naming
 	stationVoice, err := h.stationVoiceSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "Station-voice relationship")
 		return
 	}
 
-	// Get and validate jingle file
 	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
 	if err != nil {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
@@ -117,7 +116,6 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "jingle file")()
 
-	// Process jingle via service
 	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
 		handleServiceError(c, err, "Jingle processing")
 		return

@@ -92,7 +92,6 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		params.Sort = sortFields
 	}
 
-	// Parse field selection - handle nil safely
 	if fields := parseFields(c); fields != nil {
 		params.Fields = fields
 	}
@@ -105,10 +104,8 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		params.Filters = filters
 	}
 
-	// Parse trashed (soft-delete filter): "only", "with", or empty
 	params.Trashed = c.Query("trashed")
 
-	// Parse search
 	params.Search = c.Query("search")
 
 	return params, nil
@@ -136,7 +133,6 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 
 		var field, direction string
 
-		// Check for prefix notation (-field or +field) or colon notation
 		switch {
 		case strings.HasPrefix(part, "-"):
 			field, _ = strings.CutPrefix(part, "-")
@@ -145,7 +141,6 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 			field, _ = strings.CutPrefix(part, "+")
 			direction = "asc"
 		case strings.Contains(part, ":"):
-			// Check for colon notation (field:direction)
 			if before, after, found := strings.Cut(part, ":"); found {
 				field = strings.TrimSpace(before)
 				direction = strings.ToLower(strings.TrimSpace(after))
@@ -157,7 +152,6 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 				}
 			}
 		default:
-			// No direction specified, default to asc
 			field = part
 			direction = "asc"
 		}
@@ -358,7 +352,6 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 
 // parseFilterKey extracts field name and operator from a filter key.
 func parseFilterKey(key string) (field, operator string) {
-	// Remove "filter[" prefix and "]" suffix
 	content, found := strings.CutPrefix(key, "filter[")
 	if !found {
 		return "", ""
@@ -368,12 +361,10 @@ func parseFilterKey(key string) (field, operator string) {
 		return "", ""
 	}
 
-	// Check for nested structure: field][operator
 	if before, after, found := strings.Cut(content, "]["); found {
 		return before, after
 	}
 
-	// Simple field filter
 	return content, ""
 }
 
@@ -384,7 +375,8 @@ func filterKeyLabel(field, operator string) string {
 	return fmt.Sprintf("filter[%s][%s]", field, operator)
 }
 
-// FilterStructFields filters struct fields to return only requested fields.
+// FilterStructFields projects a struct or slice of structs to requested JSON
+// field names.
 func FilterStructFields(data any, fields []string) any {
 	if len(fields) == 0 {
 		return data
@@ -406,7 +398,6 @@ func FilterStructFields(data any, fields []string) any {
 		return data
 	}
 
-	// Handle slices
 	if value.Kind() == reflect.Slice {
 		result := make([]map[string]any, value.Len())
 		for i := 0; i < value.Len(); i++ {
@@ -415,11 +406,11 @@ func FilterStructFields(data any, fields []string) any {
 		return result
 	}
 
-	// Handle single struct
 	return structToFilteredMap(data, fields)
 }
 
-// structToFilteredMap converts struct to map with only requested fields.
+// structToFilteredMap converts a struct to a map containing only requested
+// JSON field names.
 func structToFilteredMap(data any, fields []string) map[string]any {
 	result := make(map[string]any)
 
@@ -447,18 +438,15 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	for field, fieldVal := range value.Fields() {
 		jsonTag := field.Tag.Get("json")
 
-		// Skip fields explicitly excluded from JSON serialization
 		if jsonTag == "-" {
 			continue
 		}
 
-		// Parse JSON tag to get field name
 		fieldName := field.Name
 		if jsonTag != "" {
 			fieldName, _, _ = strings.Cut(jsonTag, ",")
 		}
 
-		// Include field if it's in the requested fields
 		if fieldSet[fieldName] {
 			result[fieldName] = fieldVal.Interface()
 		}

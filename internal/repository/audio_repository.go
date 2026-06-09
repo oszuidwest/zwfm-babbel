@@ -11,8 +11,7 @@ import (
 // This provides a safe way to look up file paths from various tables
 // without exposing raw SQL to handlers.
 type AudioRepository interface {
-	// GetFilePath retrieves a file path from any table by ID.
-	// Used by ServeAudio handler for stories, bulletins, and station_voices.
+	// GetFilePath returns an audio filename from an allowed table/column pair.
 	GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error)
 }
 
@@ -21,7 +20,7 @@ type audioRepository struct {
 	db *gorm.DB
 }
 
-// NewAudioRepository creates a new audio repository.
+// NewAudioRepository returns an audio repository backed by db.
 func NewAudioRepository(db *gorm.DB) AudioRepository {
 	return &audioRepository{db: db}
 }
@@ -40,10 +39,10 @@ var allowedTables = map[string]map[string]bool{
 	},
 }
 
-// GetFilePath retrieves a file path from the specified table.
-// Returns ErrNotFound if the record doesn't exist or has no file.
+// GetFilePath returns the stored audio filename for id.
+// Table and column names must be present in allowedTables because GORM cannot
+// parameterize SQL identifiers.
 func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error) {
-	// Validate table and column names against whitelist
 	tableColumns, ok := allowedTables[tableName]
 	if !ok {
 		return "", fmt.Errorf("table %s is not allowed for audio lookups", tableName)
@@ -52,12 +51,10 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn
 		return "", fmt.Errorf("column %s is not allowed for table %s", fileColumn, tableName)
 	}
 
-	// Validate idColumn (should always be "id" for our use cases)
 	if idColumn != "id" {
 		return "", fmt.Errorf("id column must be 'id'")
 	}
 
-	// Use GORM's raw query with context
 	var filePath *string
 	err := r.db.WithContext(ctx).
 		Table(tableName).

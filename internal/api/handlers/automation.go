@@ -59,15 +59,14 @@ type bulletinRequest struct {
 }
 
 // validateBulletinRequest parses public automation parameters.
-// It writes the error response before returning nil on invalid input.
+// It writes the error response before returning nil on invalid input; a missing
+// automation key deliberately behaves like an absent route.
 func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinRequest {
-	// Check if automation endpoint is enabled (stealth 404 if disabled)
 	if h.config.Automation.Key == "" {
 		utils.ProblemNotFound(c, "Endpoint")
 		return nil
 	}
 
-	// Validate API key using constant-time comparison to prevent timing attacks
 	providedKey := c.Query("key")
 	if providedKey == "" {
 		utils.ProblemAuthentication(c, "API key required")
@@ -78,7 +77,6 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		return nil
 	}
 
-	// Parse station ID
 	stationIDStr := c.Param("id")
 	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
 	if err != nil || stationID <= 0 {
@@ -89,7 +87,6 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		return nil
 	}
 
-	// Parse max_age (required)
 	maxAgeStr := c.Query("max_age")
 	if maxAgeStr == "" {
 		utils.ProblemValidationError(c, "Missing required parameter", []apperrors.ValidationError{{
@@ -132,7 +129,6 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	// Check if station exists
 	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
 		logger.Error("Automation: failed to check station existence", "error", err)
@@ -149,30 +145,25 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	// Create context with timeout for bulletin generation
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
 	defer cancel()
 
-	// Check if we have a recent enough bulletin
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 	if req.maxAgeSeconds > 0 {
 		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
 		if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
-			// Database error (not "not found") - fail fast
 			logger.Error("Automation: failed to check existing bulletin", "error", err)
 			utils.ProblemInternalServer(c, "Failed to check existing bulletin")
 			return
 		}
 		if existingBulletin != nil {
-			// Serve cached bulletin
 			if err := h.serveBulletinAudio(c, existingBulletin.AudioFile, existingBulletin.ID, true); err != nil {
-				return // Error already handled in serveBulletinAudio
+				return
 			}
 			return
 		}
 	}
 
-	// Generate new bulletin
 	logger.Info("Automation: generating new bulletin", "station_id", req.stationID, "max_age_s", req.maxAgeSeconds)
 
 	bulletin, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
@@ -181,7 +172,6 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	// Serve newly generated bulletin
 	_ = h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, false)
 }
 
@@ -190,7 +180,6 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) error {
 	filePath := utils.BulletinPath(h.config, audioFile)
 
-	// Verify file exists before serving (consistent RFC 9457 error handling)
 	if _, err := os.Stat(filePath); err != nil {
 		if os.IsNotExist(err) {
 			logger.Error("Automation: audio file not found", "path", filePath)

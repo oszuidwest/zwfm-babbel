@@ -17,19 +17,16 @@ import (
 // and updates their status from 'active' to 'expired'. This keeps bulletins
 // limited to current content.
 type StoryExpirationService struct {
-	// db provides GORM database access for story status updates
-	db *gorm.DB
-	// ticker controls the hourly execution schedule
+	db     *gorm.DB
 	ticker *time.Ticker
-	// done channel enables graceful shutdown signaling
-	done chan bool
+	done   chan bool
 	// stopOnce prevents double-stop race conditions when Stop is called more
 	// than once.
 	stopOnce sync.Once
 }
 
-// NewStoryExpirationService creates a new background service for story expiration management.
-// The service must be started with [StoryExpirationService.Start] to begin operations.
+// NewStoryExpirationService returns a stopped expiration service.
+// Call [StoryExpirationService.Start] to begin hourly checks.
 func NewStoryExpirationService(db *gorm.DB) *StoryExpirationService {
 	return &StoryExpirationService{
 		db:   db,
@@ -37,18 +34,15 @@ func NewStoryExpirationService(db *gorm.DB) *StoryExpirationService {
 	}
 }
 
-// Start begins the background expiration service with immediate execution and hourly intervals.
-// The service runs in a separate goroutine and can be stopped with [StoryExpirationService.Stop].
-// Logs all operations for monitoring and debugging.
+// Start runs expiration immediately and then every hour in a background
+// goroutine.
 func (s *StoryExpirationService) Start() {
 	logger.Info("Starting story expiration service (runs hourly)")
 
-	// Run immediately on start with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s.expireStories(ctx)
 
-	// Then run every hour
 	s.ticker = time.NewTicker(1 * time.Hour)
 
 	go func() {
@@ -87,14 +81,12 @@ func (s *StoryExpirationService) Stop() {
 	})
 }
 
-// expireStories performs the actual expiration logic by updating story statuses.
-// Only affects stories that are currently 'active' and past their end_date.
-// Does not automatically activate draft stories - that requires manual editorial decision.
-// Logs the number of stories affected for monitoring purposes.
+// expireStories marks active stories past end_date as expired.
+// Draft stories are not activated automatically because publication remains an
+// editorial decision.
 func (s *StoryExpirationService) expireStories(ctx context.Context) {
 	logger.Info("Running story expiration check...")
 
-	// Update active stories with past end dates to expired status
 	// GORM automatically excludes soft-deleted records (deleted_at IS NULL)
 	result := s.db.WithContext(ctx).
 		Model(&models.Story{}).

@@ -42,20 +42,18 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	utils.Success(c, user)
 }
 
-// CreateUser creates a new user account.
+// CreateUser accepts a JSON account payload and returns the created user ID.
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req utils.UserCreateRequest
 	if !utils.BindAndValidate(c, &req) {
 		return
 	}
 
-	// Prepare email value (convert pointer to string)
 	email := ""
 	if req.Email != nil {
 		email = *req.Email
 	}
 
-	// Create user via service
 	user, err := h.userSvc.Create(c.Request.Context(), services.CreateUserRequest{
 		Username: req.Username,
 		FullName: req.FullName,
@@ -72,7 +70,7 @@ func (h *Handlers) CreateUser(c *gin.Context) {
 	utils.CreatedWithLocation(c, user.ID, "/api/v1/users", "User created successfully")
 }
 
-// UpdateUser updates an existing user's information.
+// UpdateUser applies a JSON partial account update.
 func (h *Handlers) UpdateUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -84,7 +82,6 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	// Convert to service request
 	serviceReq := &services.UpdateUserRequest{
 		Username:  req.Username,
 		FullName:  req.FullName,
@@ -95,7 +92,6 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		Suspended: req.Suspended,
 	}
 
-	// Update user via service
 	updated, err := h.userSvc.Update(c.Request.Context(), id, serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "User")
@@ -104,17 +100,15 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-// DeleteUser permanently deletes a user account.
+// DeleteUser permanently deletes a user account unless it is the last admin.
 func (h *Handlers) DeleteUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Delete user via service
 	err := h.userSvc.SoftDelete(c.Request.Context(), id)
 	if err != nil {
-		// Special handling for last admin constraint
 		validationErr, ok := errors.AsType[*apperrors.ValidationError](err)
 		if ok && validationErr.Message == "cannot delete last admin" {
 			utils.ProblemCustom(c,

@@ -37,12 +37,12 @@ type JingleContext struct {
 	MixPoint float64
 }
 
-// Service handles audio processing operations using FFmpeg.
+// Service runs FFmpeg operations using configured storage paths and binaries.
 type Service struct {
 	config *config.Config
 }
 
-// NewService creates a new audio processing service.
+// NewService returns an audio service using cfg.
 func NewService(cfg *config.Config) *Service {
 	return &Service{config: cfg}
 }
@@ -225,7 +225,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 
 // CreateBulletin generates a complete audio bulletin by combining multiple
 // stories with station-specific jingles.
-// The jingle parameter determines which jingle and mix point to use, independent of story order.
+// The jingle parameter determines which jingle and mix point to use,
+// independent of story order.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
 	station *models.Station,
@@ -237,24 +238,20 @@ func (s *Service) CreateBulletin(
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	// Create temp directory for mixing
 	tempDir := utils.TempBulletinDir(s.config, uuid.New().String())
 	if err := os.MkdirAll(tempDir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create temp directory %s: %w", tempDir, err)
 	}
 	defer cleanupTempDir(tempDir)
 
-	// Build FFmpeg command arguments and filters
 	args, filters := s.buildBulletinFFmpegCommand(station, stories, jingle, outputPath)
 
-	// Execute FFmpeg command
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
 }
 
-// cleanupTempDir removes the temporary directory, ignoring errors.
+// cleanupTempDir removes the temporary directory and logs cleanup failures.
 func cleanupTempDir(tempDir string) {
 	if err := os.RemoveAll(tempDir); err != nil {
-		// Ignore cleanup errors
 		logger.Warn("Failed to cleanup temp directory", "path", tempDir, "error", err)
 	}
 }
@@ -269,22 +266,16 @@ func (s *Service) buildBulletinFFmpegCommand(
 	args := []string{}
 	filters := []string{}
 
-	// Step 1: Add all story audio files with padding
 	args, filters = s.addStoryInputsWithPadding(args, filters, station, stories)
 
-	// Step 2: Concatenate all stories into one timeline
 	filters = s.addStoryConcat(filters, stories)
 
-	// Step 2.5: Add delay based on the jingle's mix point
 	filters = s.addMixPointDelay(filters, jingle.MixPoint)
 
-	// Step 3: Add the bed/jingle if available
 	args, filters = s.addJingleMix(args, filters, station, jingle, len(stories))
 
-	// Step 4: Apply EBU R128 s2 loudness normalization to final mix
 	filters = append(filters, "[mixed]"+loudnessNormalizationFilter+"[out]")
 
-	// Final FFmpeg command arguments
 	args = append(args,
 		"-filter_complex", strings.Join(filters, ";"),
 		"-map", "[out]",
@@ -305,7 +296,6 @@ func (s *Service) addStoryInputsWithPadding(
 		storyPath := utils.StoryPath(s.config, story.ID)
 		args = append(args, "-i", storyPath)
 
-		// Add padding after each story except the last one
 		if station.PauseSeconds > 0 && i < len(stories)-1 {
 			padMs := int(station.PauseSeconds * 1000)
 			filters = append(filters, fmt.Sprintf("[%d:a]apad=pad_dur=%dms[padded%d]", i, padMs, i))
@@ -336,34 +326,30 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
-// addJingleMix adds the bed/jingle and mixes it with the message timeline.
-// Outputs to [mixed] which is then normalized by the loudnorm filter.
+// addJingleMix adds the bed/jingle when present and writes the final stream to
+// [mixed] for loudness normalization.
 func (s *Service) addJingleMix(
 	args, filters []string,
 	station *models.Station,
 	jingle JingleContext,
 	storyCount int,
 ) ([]string, []string) {
-	// Check if voice ID is available for jingle lookup
 	if jingle.VoiceID == nil {
 		logger.Debug("No voice ID in jingle context, generating bulletin without bed")
 		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
 	}
 
-	// Use station-specific jingle
 	jinglePath := utils.JinglePath(s.config, station.ID, *jingle.VoiceID)
 
 	if _, err := os.Stat(jinglePath); err != nil {
 		if !os.IsNotExist(err) {
-			// Log unexpected errors (permission issues, etc.) but continue without jingle
 			logger.Warn("Failed to stat jingle file", "path", jinglePath, "error", err)
 		} else {
 			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
 		}
 		filters = append(filters, "[messages]anull[mixed]")
 	} else {
-		// File exists, add jingle to mix
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
@@ -380,11 +366,9 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
-	// Print command for debugging
 	logger.Debug("Executing FFmpeg command", "binary", s.config.Audio.FFmpegPath, "args", strings.Join(args, " "))
 	logger.Debug("FFmpeg filter complex", "filters", strings.Join(filters, ";"))
 
-	// Capture stderr for better error reporting
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return "", fmt.Errorf("failed to create stderr pipe: %w", err)

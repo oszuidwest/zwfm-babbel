@@ -15,7 +15,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// StationVoiceServiceDeps contains all dependencies for StationVoiceService.
+// StationVoiceServiceDeps groups the collaborators required to validate and
+// mutate station-voice relationships.
 type StationVoiceServiceDeps struct {
 	TxManager        repository.TxManager
 	StationVoiceRepo *repository.StationVoiceRepository
@@ -25,8 +26,8 @@ type StationVoiceServiceDeps struct {
 	Config           *config.Config
 }
 
-// StationVoiceService handles business logic for station-voice relationship
-// operations.
+// StationVoiceService manages station-voice relationships and their jingle
+// files as one domain boundary.
 type StationVoiceService struct {
 	txManager        repository.TxManager
 	stationVoiceRepo *repository.StationVoiceRepository
@@ -36,7 +37,7 @@ type StationVoiceService struct {
 	config           *config.Config
 }
 
-// NewStationVoiceService creates a new station-voice service instance.
+// NewStationVoiceService returns a station-voice service wired to deps.
 func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 	return &StationVoiceService{
 		txManager:        deps.TxManager,
@@ -48,28 +49,28 @@ func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 	}
 }
 
-// CreateStationVoiceRequest contains the data needed to create a new
-// station-voice relationship.
+// CreateStationVoiceRequest identifies the station, voice, and mix point for a
+// new station-voice relationship.
 type CreateStationVoiceRequest struct {
 	StationID int64
 	VoiceID   int64
 	MixPoint  float64
 }
 
-// UpdateStationVoiceRequest contains the data needed to update an existing
-// station-voice relationship.
+// UpdateStationVoiceRequest carries PATCH-style station-voice fields.
+// Nil pointers leave the corresponding field unchanged.
 type UpdateStationVoiceRequest struct {
 	StationID *int64
 	VoiceID   *int64
 	MixPoint  *float64
 }
 
-// Create creates a new station-voice relationship.
+// Create inserts a relationship after validating both parents and uniqueness in
+// a single transaction.
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
 	var result *models.StationVoice
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		// Validate station exists
 		exists, err := s.stationRepo.Exists(txCtx, req.StationID)
 		if err != nil {
 			return apperrors.Database("StationVoice", "query", err)
@@ -78,7 +79,6 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 			return apperrors.NotFoundWithID("Station", req.StationID)
 		}
 
-		// Validate voice exists
 		exists, err = s.voiceRepo.Exists(txCtx, req.VoiceID)
 		if err != nil {
 			return apperrors.Database("StationVoice", "query", err)
@@ -87,7 +87,6 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 			return apperrors.NotFoundWithID("Voice", req.VoiceID)
 		}
 
-		// Check uniqueness of station-voice combination
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(txCtx, req.StationID, req.VoiceID, nil)
 		if err != nil {
 			return apperrors.Database("StationVoice", "query", err)
@@ -96,7 +95,6 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 			return apperrors.Duplicate("StationVoice", "station_id/voice_id", fmt.Sprintf("%d/%d", req.StationID, req.VoiceID))
 		}
 
-		// Create station-voice relationship
 		stationVoice, err := s.stationVoiceRepo.Create(txCtx, req.StationID, req.VoiceID, req.MixPoint)
 		if err != nil {
 			if errors.Is(err, repository.ErrDuplicateKey) {
@@ -116,9 +114,9 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 	return result, nil
 }
 
-// Update updates an existing station-voice relationship.
+// Update applies relationship changes while preserving the uniqueness of the
+// final station/voice pair.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
-	// Verify station-voice exists and get current values
 	current, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -127,24 +125,20 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, apperrors.Database("StationVoice", "query", err)
 	}
 
-	// Validate update request
 	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
 		return nil, err
 	}
 
-	// Build updates struct
 	updates := &repository.StationVoiceUpdate{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
 		MixPoint:  req.MixPoint,
 	}
 
-	// Validate at least one field is being updated
 	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
 		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
 	}
 
-	// Apply updates
 	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, apperrors.NotFoundWithID("StationVoice", id)
@@ -152,7 +146,6 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, apperrors.Database("StationVoice", "update", err)
 	}
 
-	// Fetch and return the updated station-voice relationship
 	return s.stationVoiceRepo.GetByID(ctx, id)
 }
 
@@ -215,7 +208,6 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 		return err
 	}
 
-	// Check uniqueness if station_id or voice_id is being updated
 	if req.StationID != nil || req.VoiceID != nil {
 		finalStationID := current.StationID
 		finalVoiceID := current.VoiceID
@@ -236,7 +228,8 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 	return nil
 }
 
-// GetByID retrieves a station-voice relationship by its ID.
+// GetByID loads a station-voice relationship and maps repository misses to a
+// domain not-found error.
 func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	stationVoice, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
@@ -249,9 +242,9 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete removes a station-voice relationship and its associated jingle file.
+// Delete removes a relationship before deleting its jingle file.
+// File cleanup failure is logged but does not resurrect the deleted database row.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	// Get jingle file and station/voice IDs before deletion
 	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -260,7 +253,6 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.Database("StationVoice", "query", err)
 	}
 
-	// Delete from database
 	err = s.stationVoiceRepo.Delete(ctx, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -269,11 +261,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.Database("StationVoice", "delete", err)
 	}
 
-	// Clean up jingle file if it exists
 	if audioFile != "" {
 		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
 		if err := os.Remove(jinglePath); err != nil {
-			// Log error but don't fail the deletion - database record is already gone
 			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
 		} else {
 			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
@@ -284,9 +274,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 }
 
 // ProcessJingle converts an uploaded audio file and associates it with a
-// station-voice relationship.
+// station-voice relationship. The database stores the canonical filename, not
+// the absolute path returned by the audio converter.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
-	// Get station and voice IDs for the relationship
 	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, stationVoiceID)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -295,18 +285,15 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 		return apperrors.Database("StationVoice", "query", err)
 	}
 
-	// Process jingle with audio service (convert to WAV 48kHz stereo)
 	outputPath := utils.JinglePath(s.config, stationID, voiceID)
 	filename, _, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 2)
 	if err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
-	// Update database with jingle filename only (not full path)
 	filenameOnly := utils.JingleFilename(stationID, voiceID)
 	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoiceID, filenameOnly)
 	if err != nil {
-		// Clean up file on database error
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
 		}

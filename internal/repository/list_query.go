@@ -136,7 +136,6 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}
 	db = applyPagination(sortedDB, query.Limit, query.Offset)
 
-	// Execute query
 	var data []T
 	if err := db.Find(&data).Error; err != nil {
 		return nil, err
@@ -248,7 +247,8 @@ func sortDirectionSQL(d SortDirection) string {
 // cannot be applied, so the caller can surface a 422 instead of silently
 // dropping the clause and returning an unfiltered result set.
 func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) (*gorm.DB, error) {
-	// Validate field name to prevent SQL injection
+	// Map public field names through a whitelist because SQL identifiers cannot
+	// be parameterized.
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}

@@ -13,7 +13,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// GenerateBulletin generates a news bulletin for a station.
+// GenerateBulletin returns a station bulletin as metadata or WAV audio.
+// Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
+// serve an existing bulletin if it is still fresh enough.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
@@ -33,11 +35,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	// Check HTTP headers for modern behavior
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	download := c.GetHeader("Accept") == "audio/wav"
 
-	// Try to serve cached bulletin if available
 	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
 	if !forceNew && maxAge != nil {
 		if h.tryServeCachedBulletin(c, stationID, download, maxAge) {
@@ -45,14 +45,12 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		}
 	}
 
-	// Generate new bulletin using service
 	bulletin, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
 	}
 
-	// Serve newly generated bulletin
 	h.serveNewBulletin(c, bulletin, download)
 }
 
@@ -93,7 +91,6 @@ func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, downl
 		return true
 	}
 
-	// Return existing bulletin metadata - AfterFind hook populates computed fields
 	utils.Success(c, existingBulletin)
 	return true
 }
@@ -107,7 +104,6 @@ func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, d
 		return
 	}
 
-	// Return bulletin directly - AfterFind hook populates computed fields
 	utils.Success(c, bulletin)
 }
 
@@ -164,14 +160,16 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
-// GetStationBulletins returns bulletins for a specific station with pagination and filtering.
+// GetStationBulletins returns a station's bulletins.
+// The latest=true shortcut is intentionally stricter than normal listing:
+// filter, sort, search, fields, trashed, offset, and limit values other than 1
+// are rejected because the shortcut returns at most one bulletin.
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if station exists first
 	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
 	if err != nil {
 		handleServiceError(c, err, "Station")
@@ -204,7 +202,6 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 
 		setCacheHeaders(c, bulletin.CreatedAt, true)
 
-		// Return directly - AfterFind hook populates computed fields
 		utils.Success(c, bulletin)
 		return
 	}
@@ -282,18 +279,18 @@ func (h *Handlers) GetBulletin(c *gin.Context) {
 		return
 	}
 
-	// Return directly - AfterFind hook populates computed fields
 	utils.Success(c, bulletin)
 }
 
-// GetStoryBulletinHistory returns paginated list of bulletins that included a specific story.
+// GetStoryBulletinHistory returns bulletins that included a specific story.
+// The story is checked first so an unknown story ID returns "Story" rather than
+// an empty bulletin history.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	storyID, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	// Check if story exists first
 	exists, err := h.storySvc.Exists(c.Request.Context(), storyID)
 	if err != nil {
 		handleServiceError(c, err, "Story")

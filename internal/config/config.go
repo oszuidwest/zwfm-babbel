@@ -148,7 +148,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// Set non-env fields
 	cfg.Database.MigrationsPath = "migrations"
 
 	return &cfg, nil

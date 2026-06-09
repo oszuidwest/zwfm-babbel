@@ -150,10 +150,8 @@ func (p *ProblemDetail) WithTraceID(traceID string) *ProblemDetail {
 
 // SendProblem sends an RFC 9457 problem details response.
 func SendProblem(c *gin.Context, problem *ProblemDetail) {
-	// Set the correct content type for RFC 9457
 	c.Header("Content-Type", "application/problem+json")
 
-	// Set the instance if not already set
 	if problem.Instance == "" {
 		problem.Instance = c.Request.URL.Path
 	}
@@ -163,7 +161,6 @@ func SendProblem(c *gin.Context, problem *ProblemDetail) {
 
 // getTraceID extracts the trace ID from the Gin context.
 func getTraceID(c *gin.Context) string {
-	// Check for trace_id in context
 	if traceID, exists := c.Get("trace_id"); exists {
 		if id, ok := traceID.(string); ok {
 			return id

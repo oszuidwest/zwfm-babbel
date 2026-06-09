@@ -21,9 +21,8 @@ type AuthHandlers struct {
 	handlers    *handlers.Handlers
 }
 
-// NewAuthHandlers creates a new authentication handler with the provided services.
-// The frontendURL is used for OAuth redirects after successful authentication.
-// Returns a configured handler ready for route registration.
+// NewAuthHandlers returns authentication handlers using frontendURL as the
+// OAuth callback redirect fallback.
 func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.Handlers) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
@@ -67,7 +66,6 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 // and creates or updates user accounts. Redirects to frontend with success/error status.
 // Cleans up temporary session data after processing.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	// Get frontend URL from session or use configured fallback (type-safe)
 	session := h.authService.Session(c)
 	frontendURL, ok := auth.SessionFrontendURL(session)
 	if !ok || frontendURL == "" {
@@ -103,9 +101,8 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser returns the authenticated user's profile information.
-// Retrieves user data based on the session and delegates to the standard GetUser handler.
-// Requires valid authentication session.
+// GetCurrentUser returns the authenticated user's profile through the same
+// representation as GetUser.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID, ok := auth.UserID(c)
 	if !ok {
@@ -113,16 +110,13 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	// Delegate to GetUser handler
 	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: strconv.FormatInt(userID, 10)})
 	h.handlers.GetUser(c)
 }
 
-// GetAuthConfig returns the available authentication methods and OIDC URLs.
-// Used by frontend applications to discover supported authentication options.
-// Returns array of enabled methods ("local", "oidc") and OIDC initiation URL.
+// GetAuthConfig reports the enabled frontend login methods.
+// OAuth-enabled deployments include the local initiation URL for the OIDC flow.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
-	// Build response using typed struct (compile-time type safety)
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},
 	}

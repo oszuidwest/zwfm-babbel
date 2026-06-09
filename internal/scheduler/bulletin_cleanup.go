@@ -18,20 +18,15 @@ import (
 // Runs as a background service that periodically purges bulletin WAV files older than
 // the configured retention period, while preserving database records as an audit trail.
 type BulletinCleanupService struct {
-	// repo provides access to bulletin data for cleanup queries
-	repo *repository.BulletinRepository
-	// config holds the application configuration including retention settings
-	config *config.Config
-	// ticker controls the daily execution schedule
-	ticker *time.Ticker
-	// done channel enables graceful shutdown signaling
-	done chan bool
-	// stopOnce ensures Stop() can only be called once, preventing double-stop race conditions
+	repo     *repository.BulletinRepository
+	config   *config.Config
+	ticker   *time.Ticker
+	done     chan bool
 	stopOnce sync.Once
 }
 
-// NewBulletinCleanupService creates a new background service for bulletin file cleanup.
-// The service must be started with [BulletinCleanupService.Start] to begin operations.
+// NewBulletinCleanupService returns a stopped cleanup service.
+// Call [BulletinCleanupService.Start] to begin daily purges.
 func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config) *BulletinCleanupService {
 	return &BulletinCleanupService{
 		repo:   repository.NewBulletinRepository(db),
@@ -40,17 +35,15 @@ func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config) *BulletinCleanup
 	}
 }
 
-// Start begins the background cleanup service with immediate execution and daily intervals.
-// The service runs in a separate goroutine and can be stopped with [BulletinCleanupService.Stop].
+// Start runs cleanup immediately and then every 24 hours in a background
+// goroutine.
 func (s *BulletinCleanupService) Start() {
 	logger.Info("Starting bulletin cleanup service (runs daily)", "retention", s.config.Audio.BulletinRetention)
 
-	// Run immediately on start with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	s.cleanup(ctx)
 
-	// Then run every 24 hours
 	s.ticker = time.NewTicker(24 * time.Hour)
 
 	go func() {
@@ -92,7 +85,6 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 	var purgedCount int
 	var bytesFreed int64
 
-	// Purge expired bulletin files
 	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
@@ -104,14 +96,12 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 
 	for _, b := range bulletins {
 		if b.AudioFile == "" {
-			// No file to delete, just mark as purged
 			if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
 				logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			}
 			continue
 		}
 
-		// AudioFile is stored as a filename, not a full path
 		filePath := filepath.Join(outputDir, b.AudioFile)
 
 		info, statErr := os.Stat(filePath)
@@ -125,7 +115,6 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 			fileBytes = info.Size()
 		}
 
-		// Remove the file (ignore "not found" - file may already be gone)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			logger.Error("Failed to remove bulletin file", "path", filePath, "error", err)
 			continue
@@ -140,7 +129,6 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 		bytesFreed += fileBytes
 	}
 
-	// Clean up orphaned files in output directory
 	orphansRemoved, orphanBytes := s.cleanOrphanedFiles(ctx)
 
 	if purgedCount > 0 || orphansRemoved > 0 {
@@ -165,14 +153,12 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 		return 0, 0
 	}
 
-	// Get all known audio files from database
 	knownFiles, err := s.repo.GetAllAudioFiles(ctx)
 	if err != nil {
 		logger.Error("Failed to query audio files from database", "error", err)
 		return 0, 0
 	}
 
-	// Build a set of known filenames (DB stores filenames, not full paths)
 	knownSet := make(map[string]struct{}, len(knownFiles))
 	for _, f := range knownFiles {
 		knownSet[f] = struct{}{}
@@ -187,14 +173,12 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 			continue
 		}
 
-		// Compare using filename only, matching the DB storage format
 		if _, known := knownSet[entry.Name()]; known {
 			continue
 		}
 
 		fullPath := filepath.Join(outputDir, entry.Name())
 
-		// Only remove files older than 1 hour to avoid race with active generation
 		info, err := entry.Info()
 		if err != nil {
 			continue

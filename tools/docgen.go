@@ -292,35 +292,30 @@ func main() {
 	)
 	flag.Parse()
 
-	// Read OpenAPI spec
 	data, err := os.ReadFile(*input)
 	if err != nil {
 		slog.Error("Failed to read OpenAPI spec", "error", err)
 		os.Exit(1)
 	}
 
-	// Parse YAML
 	var spec OpenAPISpec
 	if err := yaml.Unmarshal(data, &spec); err != nil {
 		slog.Error("Failed to parse OpenAPI spec", "error", err)
 		os.Exit(1)
 	}
 
-	// Create output directory if needed
 	outputDir := filepath.Dir(*output)
 	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		slog.Error("Failed to create output directory", "error", err)
 		os.Exit(1)
 	}
 
-	// Generate markdown
 	markdown, err := generateMarkdown(spec)
 	if err != nil {
 		slog.Error("Failed to generate markdown", "error", err)
 		os.Exit(1)
 	}
 
-	// Write output
 	if err := os.WriteFile(*output, []byte(markdown), 0600); err != nil {
 		slog.Error("Failed to write output", "error", err)
 		os.Exit(1)
@@ -371,7 +366,6 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 				SortKey:   path + method,
 			}
 
-			// Add to each tag
 			if len(op.Tags) == 0 {
 				op.Tags = []string{"Other"}
 			}
@@ -381,7 +375,6 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 		}
 	}
 
-	// Sort endpoints within each tag
 	for tag := range endpointsByTag {
 		slices.SortFunc(endpointsByTag[tag], func(a, b EndpointInfo) int {
 			return cmp.Compare(a.SortKey, b.SortKey)
@@ -414,7 +407,6 @@ func formatRequestBodyInfo(rb map[string]any) string {
 	if content, ok := rb["content"].(map[string]any); ok {
 		contentTypes := slices.Collect(maps.Keys(content))
 
-		// Get description if available
 		desc := ""
 		if d, ok := rb["description"].(string); ok {
 			desc = " - " + d
@@ -500,19 +492,15 @@ func createTemplateFuncMap() template.FuncMap {
 }
 
 func generateMarkdown(spec OpenAPISpec) (string, error) {
-	// Collect endpoints by tag
 	endpointsByTag := collectEndpointsByTag(spec)
 
-	// Ensure all tags are present
 	if len(spec.Tags) == 0 {
-		// Create tags from collected endpoints
 		for tag := range endpointsByTag {
 			spec.Tags = append(spec.Tags, struct {
 				Name        string `yaml:"name"`
 				Description string `yaml:"description"`
 			}{Name: tag})
 		}
-		// Sort tags alphabetically
 		slices.SortFunc(spec.Tags, func(a, b struct {
 			Name        string `yaml:"name"`
 			Description string `yaml:"description"`
@@ -521,7 +509,6 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 		})
 	}
 
-	// Create template data
 	templateData := struct {
 		OpenAPISpec
 		EndpointsByTag map[string][]EndpointInfo
@@ -530,7 +517,6 @@ func generateMarkdown(spec OpenAPISpec) (string, error) {
 		EndpointsByTag: endpointsByTag,
 	}
 
-	// Parse and execute template
 	funcMap := createTemplateFuncMap()
 	tmpl, err := template.New("markdown").Funcs(funcMap).Parse(markdownTemplate)
 	if err != nil {

@@ -26,7 +26,8 @@ func validateElevenLabsVoiceID(id *string) error {
 	return nil
 }
 
-// VoiceService handles voice-related business logic.
+// VoiceService enforces voice naming, ElevenLabs ID validation, and dependency
+// checks before persistence.
 type VoiceService struct {
 	repo *repository.VoiceRepository
 }
@@ -38,7 +39,8 @@ func NewVoiceService(repo *repository.VoiceRepository) *VoiceService {
 	}
 }
 
-// UpdateVoiceRequest contains the data needed to update an existing voice.
+// UpdateVoiceRequest carries PATCH-style voice fields.
+// ClearElevenLabsVoiceID distinguishes JSON null from an omitted field.
 type UpdateVoiceRequest struct {
 	Name                   *string `json:"name"`
 	ElevenLabsVoiceID      *string `json:"elevenlabs_voice_id"`
@@ -51,7 +53,6 @@ func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceI
 		return nil, err
 	}
 
-	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
@@ -60,7 +61,6 @@ func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceI
 		return nil, apperrors.Duplicate("Voice", "name", name)
 	}
 
-	// Create voice
 	voice, err := s.repo.Create(ctx, name, elevenLabsVoiceID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpCreate, err)
@@ -69,13 +69,13 @@ func (s *VoiceService) Create(ctx context.Context, name string, elevenLabsVoiceI
 	return voice, nil
 }
 
-// Update updates an existing voice's name and returns the updated voice.
+// Update applies voice changes after validating any new ElevenLabs ID and
+// ensuring a renamed voice remains unique.
 func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceRequest) (*models.Voice, error) {
 	if err := validateElevenLabsVoiceID(req.ElevenLabsVoiceID); err != nil {
 		return nil, err
 	}
 
-	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
@@ -86,14 +86,12 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 		}
 	}
 
-	// Build type-safe update struct
 	updates := &repository.VoiceUpdate{
 		Name:                   req.Name,
 		ElevenLabsVoiceID:      req.ElevenLabsVoiceID,
 		ClearElevenLabsVoiceID: req.ClearElevenLabsVoiceID,
 	}
 
-	// Update voice
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		return nil, apperrors.TranslateRepoError("Voice", apperrors.OpUpdate, err)
 	}
@@ -101,9 +99,9 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 	return s.GetByID(ctx, id)
 }
 
-// Delete deletes a voice after checking for dependencies.
+// Delete removes a voice only when no stories or station-voice relationships
+// depend on it.
 func (s *VoiceService) Delete(ctx context.Context, id int64) error {
-	// Check if voice exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
@@ -112,7 +110,6 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.NotFoundWithID("Voice", id)
 	}
 
-	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
@@ -121,7 +118,6 @@ func (s *VoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.Dependency("Voice", "stories or station_voices")
 	}
 
-	// Delete voice
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return apperrors.TranslateRepoError("Voice", apperrors.OpDelete, err)
 	}

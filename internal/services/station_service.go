@@ -8,28 +8,29 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// StationService handles station-related business logic.
+// StationService enforces station invariants before delegating persistence to
+// the repository layer.
 type StationService struct {
 	repo *repository.StationRepository
 }
 
-// NewStationService creates a new station service instance.
+// NewStationService returns a station service backed by repo.
 func NewStationService(repo *repository.StationRepository) *StationService {
 	return &StationService{
 		repo: repo,
 	}
 }
 
-// UpdateStationRequest contains the data needed to update an existing station.
+// UpdateStationRequest carries PATCH-style station fields.
+// Nil pointers leave the corresponding field unchanged.
 type UpdateStationRequest struct {
 	Name               *string  `json:"name"`
 	MaxStoriesPerBlock *int     `json:"max_stories_per_block"`
 	PauseSeconds       *float64 `json:"pause_seconds"`
 }
 
-// Create creates a new station with the given parameters.
+// Create persists a station after rejecting duplicate names.
 func (s *StationService) Create(ctx context.Context, name string, maxStories int, pauseSeconds float64) (*models.Station, error) {
-	// Check name uniqueness
 	taken, err := s.repo.IsNameTaken(ctx, name, nil)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
@@ -38,7 +39,6 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 		return nil, apperrors.Duplicate("Station", "name", name)
 	}
 
-	// Create station
 	station, err := s.repo.Create(ctx, name, maxStories, pauseSeconds)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Station", apperrors.OpCreate, err)
@@ -47,9 +47,9 @@ func (s *StationService) Create(ctx context.Context, name string, maxStories int
 	return station, nil
 }
 
-// Update updates an existing station's configuration and returns the updated station.
+// Update applies station changes after checking that any new name is still
+// unique outside the current row.
 func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStationRequest) (*models.Station, error) {
-	// Check name uniqueness if name is being updated
 	if req.Name != nil {
 		taken, err := s.repo.IsNameTaken(ctx, *req.Name, &id)
 		if err != nil {
@@ -60,14 +60,12 @@ func (s *StationService) Update(ctx context.Context, id int64, req *UpdateStatio
 		}
 	}
 
-	// Build type-safe update struct
 	updates := &repository.StationUpdate{
 		Name:               req.Name,
 		MaxStoriesPerBlock: req.MaxStoriesPerBlock,
 		PauseSeconds:       req.PauseSeconds,
 	}
 
-	// Update station
 	if err := s.repo.Update(ctx, id, updates); err != nil {
 		return nil, apperrors.TranslateRepoError("Station", apperrors.OpUpdate, err)
 	}
@@ -84,9 +82,8 @@ func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
 	return exists, nil
 }
 
-// Delete deletes a station after checking for dependencies.
+// Delete removes a station only when no station-voice relationships depend on it.
 func (s *StationService) Delete(ctx context.Context, id int64) error {
-	// Check if station exists
 	exists, err := s.repo.Exists(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
@@ -95,7 +92,6 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 		return apperrors.NotFoundWithID("Station", id)
 	}
 
-	// Check for dependencies
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
@@ -104,7 +100,6 @@ func (s *StationService) Delete(ctx context.Context, id int64) error {
 		return apperrors.Dependency("Station", "station_voices")
 	}
 
-	// Delete station
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return apperrors.TranslateRepoError("Station", apperrors.OpDelete, err)
 	}

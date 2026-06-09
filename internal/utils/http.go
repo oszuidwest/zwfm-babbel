@@ -121,15 +121,14 @@ func ValidateAndSaveAudioFile(
 	return tempPath, cleanup, nil
 }
 
-// ValidateAudioFile validates an uploaded audio file for size and format.
+// ValidateAudioFile enforces the upload size limit and accepted audio
+// extensions before the file is written to permanent storage.
 func ValidateAudioFile(header *multipart.FileHeader) error {
-	// Check file size (100MB max)
 	const maxSize = 100 * 1024 * 1024
 	if header.Size > maxSize {
 		return fmt.Errorf("file too large (max 100MB)")
 	}
 
-	// Check file extension
 	ext := strings.ToLower(filepath.Ext(header.Filename))
 	validExts := []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
 
@@ -139,9 +138,9 @@ func ValidateAudioFile(header *multipart.FileHeader) error {
 	return nil
 }
 
-// SanitizeFilename removes unsafe characters from filenames.
+// SanitizeFilename removes path components and replaces spaces for storage
+// paths derived from user-provided filenames.
 func SanitizeFilename(filename string) string {
-	// Remove path separators and other unsafe characters
 	filename = filepath.Base(filename)
 	filename = strings.ReplaceAll(filename, " ", "_")
 	return filename
@@ -164,41 +163,42 @@ func saveFileToPath(file multipart.File, dst string) error {
 	return err
 }
 
-// StationRequest represents the request for creating and updating radio stations.
+// StationRequest is the JSON body for creating or replacing radio station
+// settings.
 type StationRequest struct {
 	Name               string  `json:"name" binding:"required,notblank,max=255"`
 	MaxStoriesPerBlock int     `json:"max_stories_per_block" binding:"gte=1,lte=50"`
 	PauseSeconds       float64 `json:"pause_seconds" binding:"gte=0,lte=60"`
 }
 
-// VoiceRequest represents the request for creating voices.
+// VoiceRequest is the JSON body for creating a newsreader voice.
 type VoiceRequest struct {
 	Name              string  `json:"name" binding:"required,notblank,max=255"`
 	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
 }
 
-// VoiceUpdateRequest represents the request for updating voices.
+// VoiceUpdateRequest is the JSON body for partial voice updates.
 // Name is omitted to skip updates; ElevenLabsVoiceID accepts JSON null to clear.
 type VoiceUpdateRequest struct {
 	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
 	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
 }
 
-// StationVoiceRequest represents the request for creating station-voice relationships.
+// StationVoiceRequest is the JSON body for linking a station to a voice.
 type StationVoiceRequest struct {
 	StationID int64   `json:"station_id" binding:"required,min=1"`
 	VoiceID   int64   `json:"voice_id" binding:"required,min=1"`
 	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
 }
 
-// StationVoiceUpdateRequest represents the request for updating station-voice relationships.
+// StationVoiceUpdateRequest is the JSON body for partial station-voice updates.
 type StationVoiceUpdateRequest struct {
 	StationID *int64   `json:"station_id,omitempty" binding:"omitempty,min=1"`
 	VoiceID   *int64   `json:"voice_id,omitempty" binding:"omitempty,min=1"`
 	MixPoint  *float64 `json:"mix_point,omitempty" binding:"omitempty,gte=0,lte=300"`
 }
 
-// UserCreateRequest represents the request for creating new user accounts.
+// UserCreateRequest is the JSON body for creating local user accounts.
 type UserCreateRequest struct {
 	Username string             `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string             `json:"full_name" binding:"required,notblank,max=255"`
@@ -208,7 +208,7 @@ type UserCreateRequest struct {
 	Metadata *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// UserUpdateRequest represents the request for updating existing user accounts.
+// UserUpdateRequest is the JSON body for partial account updates.
 type UserUpdateRequest struct {
 	Username  string             `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  string             `json:"full_name" binding:"omitempty,notblank,max=255"`
@@ -219,7 +219,7 @@ type UserUpdateRequest struct {
 	Suspended *bool              `json:"suspended" binding:"omitempty"`
 }
 
-// StoryCreateRequest represents the request for creating news stories.
+// StoryCreateRequest is the JSON body for creating scheduled news stories.
 type StoryCreateRequest struct {
 	Title     string `json:"title" binding:"required,notblank,max=500"`
 	Text      string `json:"text" binding:"required,notblank"`
@@ -240,7 +240,7 @@ func (r *StoryCreateRequest) NormalizeText() {
 	r.Text = html.UnescapeString(r.Text)
 }
 
-// StoryUpdateRequest represents the request for updating existing stories.
+// StoryUpdateRequest is the JSON body for partial story updates.
 type StoryUpdateRequest struct {
 	Title     *string `json:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string `json:"text" binding:"omitempty,notblank"`
@@ -255,7 +255,8 @@ type StoryUpdateRequest struct {
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// TTSSettingsUpdateRequest represents a partial update to global TTS settings.
+// TTSSettingsUpdateRequest is the JSON body for partial global TTS settings
+// updates.
 type TTSSettingsUpdateRequest struct {
 	Stability              *float64        `json:"stability"`
 	SimilarityBoost        *float64        `json:"similarity_boost"`
@@ -301,7 +302,6 @@ type textNormalizer interface {
 // Normalization runs before validation so that validators like notblank and max
 // operate on the decoded values rather than the raw encoded input.
 func BindAndValidate(c *gin.Context, req any) bool {
-	// Step 1: Decode JSON without validation
 	if err := json.NewDecoder(c.Request.Body).Decode(req); err != nil {
 		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: "Invalid request format"},
@@ -336,12 +336,10 @@ func BindJSONStrict(c *gin.Context, req any) bool {
 }
 
 func normalizeAndValidate(c *gin.Context, req any) bool {
-	// Normalize text fields (e.g. unescape HTML entities)
 	if n, ok := req.(textNormalizer); ok {
 		n.NormalizeText()
 	}
 
-	// Validate using Gin's registered validators (including custom ones)
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
 		logger.Error("Validator engine is not *validator.Validate", "type", fmt.Sprintf("%T", binding.Validator.Engine()))

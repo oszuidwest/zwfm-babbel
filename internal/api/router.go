@@ -25,21 +25,20 @@ type routerDeps struct {
 	authService       *auth.Service
 }
 
-// SetupRouter configures and returns the main API router with all routes and middleware.
+// SetupRouter builds the dependency graph, configures Gin, and registers all
+// public and authenticated routes.
 func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 	deps, err := buildDependencies(db, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set Gin mode based on environment
 	if cfg.Environment == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	} else {
 		gin.SetMode(gin.DebugMode)
 	}
 
-	// Initialize custom validators
 	utils.InitializeValidators()
 
 	r := setupEngine(cfg, deps.authService)
@@ -54,7 +53,6 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
 
-	// Create repositories
 	stationRepo := repository.NewStationRepository(db)
 	voiceRepo := repository.NewVoiceRepository(db)
 	userRepo := repository.NewUserRepository(db)
@@ -65,14 +63,12 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	ttsSettingsRepo := repository.NewTTSSettingsRepository(db)
 	pronunciationRuleRepo := repository.NewPronunciationRuleRepository(db)
 
-	// Create audio and TTS services
 	audioSvc := audio.NewService(cfg)
 	ttsSvc := tts.NewService(&cfg.TTS)
 	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
 	pronunciationInjector := services.NewPronunciationInjector(pronunciationRuleRepo)
 	pronunciationRulesSvc := services.NewPronunciationRulesService(pronunciationRuleRepo, txManager)
 
-	// Create domain services
 	bulletinSvc := services.NewBulletinService(services.BulletinServiceDeps{
 		TxManager:    txManager,
 		BulletinRepo: bulletinRepo,
@@ -102,7 +98,6 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		Config:           cfg,
 	})
 
-	// Create handlers
 	h := handlers.NewHandlers(handlers.HandlersDeps{
 		AudioRepo:             audioRepo,
 		AudioSvc:              audioSvc,
@@ -119,13 +114,11 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	})
 	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
 
-	// Create auth service
 	authService, err := auth.NewService(buildAuthConfig(cfg), db)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 
-	// Get frontend URL from environment (required if using OAuth)
 	frontendURL := getEnv("BABBEL_FRONTEND_URL", "")
 	if frontendURL == "" && cfg.Auth.Method.SupportsOIDC() {
 		return nil, fmt.Errorf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
@@ -406,15 +399,14 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		// Check if the origin is in the allowed list
 		if config.IsOriginAllowed(origin, cfg.Server.AllowedOrigins) {
-			// Delete any existing CORS headers that might be set by proxies
+			// Replace proxy-supplied CORS headers so the configured allowlist is
+			// the only source of truth.
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
 			c.Writer.Header().Del("Access-Control-Allow-Headers")
 			c.Writer.Header().Del("Access-Control-Allow-Methods")
 
-			// Set our CORS headers
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 			c.Writer.Header().Set("Access-Control-Allow-Headers",

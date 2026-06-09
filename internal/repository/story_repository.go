@@ -24,7 +24,7 @@ type StoryUpdate struct {
 	DurationSeconds *float64           `gorm:"column:duration_seconds"`
 	IsBreaking      *bool              `gorm:"column:is_breaking"`
 
-	// Clear flags - when true, explicitly set the field to NULL
+	// Clear* flags explicitly set nullable columns to NULL.
 	ClearVoiceID         bool `gorm:"-"`
 	ClearAudioFile       bool `gorm:"-"`
 	ClearDurationSeconds bool `gorm:"-"`
@@ -49,14 +49,14 @@ type StoryRepository struct {
 	*GormRepository[models.Story]
 }
 
-// NewStoryRepository creates a new story repository.
+// NewStoryRepository returns a story repository backed by db.
 func NewStoryRepository(db *gorm.DB) *StoryRepository {
 	return &StoryRepository{
 		GormRepository: NewGormRepository[models.Story](db),
 	}
 }
 
-// Create inserts a new story and returns the created record with voice info.
+// Create inserts a story and reloads voice data when a voice is assigned.
 func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
 		Title:      data.Title,
@@ -75,7 +75,6 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		return nil, ParseDBError(err)
 	}
 
-	// Load voice relation on the created record (avoids separate GetByID query)
 	if story.VoiceID != nil {
 		if err := db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error; err != nil {
 			return nil, ParseDBError(err)
@@ -85,12 +84,12 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	return story, nil
 }
 
-// GetByID retrieves a story by ID with its associated voice.
+// GetByID loads a story with its associated voice.
 func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// Update updates a story. Nil pointer fields are skipped; Clear* flags set fields to NULL.
+// Update applies non-nil story fields and Clear* nulling flags.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
@@ -193,7 +192,6 @@ func (r *StoryRepository) List(ctx context.Context, query *ListQuery) (*ListResu
 		query = NewListQuery()
 	}
 
-	// Build base query with voice preload and soft delete filtering
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
@@ -228,16 +226,13 @@ type BulletinStoryData struct {
 func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
-	// Calculate bitmask for the current weekday (Sunday=1, Monday=2, etc.)
-	// time.Weekday is always in range [0,6], safe to convert to uint8
+	// time.Weekday is always in range [0,6], safe to convert to uint8.
 	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
-	// Calculate start of today (local timezone) for fair rotation reset
-	// Uses server's local timezone so rotation resets at local midnight
 	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
 
-	// Format date as YYYY-MM-DD string for comparison with DATE columns
-	// This avoids timezone conversion issues when comparing with MySQL DATE fields
+	// MySQL DATE comparisons should receive date strings, not instants that can
+	// be shifted by timezone conversion.
 	dateStr := date.Format("2006-01-02")
 
 	// Subquery to find when each story was last used in a bulletin for this station today.

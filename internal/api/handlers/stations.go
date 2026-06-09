@@ -38,7 +38,7 @@ func (h *Handlers) GetStation(c *gin.Context) {
 	utils.Success(c, station)
 }
 
-// CreateStation creates a new radio station.
+// CreateStation accepts a JSON station payload and persists a radio station.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
 	if !utils.BindAndValidate(c, &req) {
@@ -54,7 +54,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 	utils.CreatedWithLocation(c, station.ID, "/api/v1/stations", "Station created successfully")
 }
 
-// UpdateStation updates an existing radio station.
+// UpdateStation replaces the editable station configuration fields.
 func (h *Handlers) UpdateStation(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -66,7 +66,6 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 		return
 	}
 
-	// Convert to service update request
 	updateReq := &services.UpdateStationRequest{
 		Name:               &req.Name,
 		MaxStoriesPerBlock: &req.MaxStoriesPerBlock,

@@ -9,12 +9,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// GormRepository provides common GORM operations for any model type.
+// GormRepository provides shared primary-key operations for model repositories.
 type GormRepository[T any] struct {
 	db *gorm.DB
 }
 
-// NewGormRepository creates a new GORM repository instance.
+// NewGormRepository returns a generic repository backed by db.
 func NewGormRepository[T any](db *gorm.DB) *GormRepository[T] {
 	return &GormRepository[T]{db: db}
 }
@@ -102,7 +102,7 @@ func (r *GormRepository[T]) UpdateByID(ctx context.Context, id int64, updates an
 	return nil
 }
 
-// GetByIDWithPreload retrieves a record by its primary key with specified relations loaded.
+// GetByIDWithPreload loads a record and preloads the named GORM relations.
 func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, preloads ...string) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)
@@ -116,7 +116,7 @@ func (r *GormRepository[T]) GetByIDWithPreload(ctx context.Context, id int64, pr
 	return &result, nil
 }
 
-// GetByIDWithJoins retrieves a record by its primary key with specified relations joined.
+// GetByIDWithJoins loads a record and joins the named GORM relations.
 func (r *GormRepository[T]) GetByIDWithJoins(ctx context.Context, id int64, joins ...string) (*T, error) {
 	var result T
 	db := DBFromContext(ctx, r.db)

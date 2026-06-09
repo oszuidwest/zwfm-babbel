@@ -10,17 +10,17 @@ import (
 	"time"
 )
 
-// InitializeValidators registers custom validation rules with Gin's binding engine.
-// Must be called during application startup to enable custom validation tags.
-// Panics if validator registration fails, as this is a critical configuration error.
+// InitializeValidators registers the validation tags used by request structs.
+// It must run during application startup and panics if Gin is not using the
+// go-playground validator engine.
 func InitializeValidators() {
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
 		panic(fmt.Sprintf("Validator engine is not *validator.Validate, got %T", binding.Validator.Engine()))
 	}
 
-	// Register Optional[string] so binding tags (omitempty, max, notblank) work on the
-	// inner string value. Returns "" for absent/null, letting omitempty skip validation.
+	// Optional[string] exposes its inner value to binding tags; absent/null
+	// fields return "" so omitempty can skip validation.
 	v.RegisterCustomTypeFunc(func(field reflect.Value) any {
 		if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
 			return *opt.Value
@@ -28,22 +28,18 @@ func InitializeValidators() {
 		return ""
 	}, Optional[string]{})
 
-	// Register notblank validator - ensures string is not empty or whitespace-only
 	if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
 	}
 
-	// Register story status validator
 	if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
 	}
 
-	// Register date after validator for comparing dates
 	if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
 	}
 
-	// Register date format validator
 	if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
 	}
@@ -70,12 +66,11 @@ type dateParseResult struct {
 	FailValidation bool
 }
 
-// parseDateField attempts to parse a date from a reflect.Value.
-// Returns the parsed result and whether the parse was successful.
+// parseDateField parses supported date field shapes for custom validators.
+// The boolean return is false for unsupported field types.
 func parseDateField(field reflect.Value) (dateParseResult, bool) {
 	result := dateParseResult{}
 
-	// Check if the field is valid before processing
 	if !field.IsValid() {
 		result.IsEmpty = true
 		return result, true
