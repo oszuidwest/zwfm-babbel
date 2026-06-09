@@ -255,6 +255,24 @@ type StoryUpdateRequest struct {
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
+// PronunciationRuleUpdateRequest is the JSON body for a single inline-IPA
+// pronunciation rule. Boolean fields are pointers so the service layer can
+// distinguish "omitted" (apply default) from "explicit false". Field-level
+// validation (trim, non-empty, length, slash, control chars) lives in the
+// service so error paths keep the rules[i].field shape integration tests assert on.
+type PronunciationRuleUpdateRequest struct {
+	StringToReplace string `json:"string_to_replace"`
+	IPA             string `json:"ipa"`
+	CaseSensitive   *bool  `json:"case_sensitive,omitempty"`
+	WordBoundaries  *bool  `json:"word_boundaries,omitempty"`
+}
+
+// PronunciationRulesUpdateRequest is the JSON body for replacing the full
+// inline-IPA rule set. An empty Rules array clears the table.
+type PronunciationRulesUpdateRequest struct {
+	Rules []PronunciationRuleUpdateRequest `json:"rules" binding:"required"`
+}
+
 // TTSSettingsUpdateRequest is the JSON body for partial global TTS settings
 // updates.
 type TTSSettingsUpdateRequest struct {

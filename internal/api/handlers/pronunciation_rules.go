@@ -35,22 +35,38 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 
 // UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
-	var req services.UpdatePronunciationRulesRequest
+	var req utils.PronunciationRulesUpdateRequest
 	if !utils.BindJSONStrict(c, &req) {
 		return
 	}
 
+	serviceReq := toPronunciationRulesServiceRequest(req)
 	if userID, ok := auth.UserID(c); ok {
-		req.ActorUserID = &userID
+		serviceReq.ActorUserID = &userID
 	}
 
-	result, err := h.pronunciationRulesSvc.Update(c.Request.Context(), &req)
+	result, err := h.pronunciationRulesSvc.Update(c.Request.Context(), serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "PronunciationRules")
 		return
 	}
 
 	utils.Success(c, toPronunciationRulesResponse(result))
+}
+
+func toPronunciationRulesServiceRequest(
+	req utils.PronunciationRulesUpdateRequest,
+) *services.UpdatePronunciationRulesRequest {
+	rules := make([]services.PronunciationRuleUpdate, 0, len(req.Rules))
+	for _, rule := range req.Rules {
+		rules = append(rules, services.PronunciationRuleUpdate{
+			StringToReplace: rule.StringToReplace,
+			IPA:             rule.IPA,
+			CaseSensitive:   rule.CaseSensitive,
+			WordBoundaries:  rule.WordBoundaries,
+		})
+	}
+	return &services.UpdatePronunciationRulesRequest{Rules: rules}
 }
 
 func toPronunciationRulesResponse(result *services.PronunciationRulesResponse) pronunciationRulesResponse {

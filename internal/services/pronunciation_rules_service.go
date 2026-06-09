@@ -51,16 +51,16 @@ func NewPronunciationRulesService(
 
 // PronunciationRuleUpdate carries one incoming rule before boolean defaults are materialized.
 type PronunciationRuleUpdate struct {
-	StringToReplace string `json:"string_to_replace"`
-	IPA             string `json:"ipa"`
-	CaseSensitive   *bool  `json:"case_sensitive,omitempty"`
-	WordBoundaries  *bool  `json:"word_boundaries,omitempty"`
+	StringToReplace string
+	IPA             string
+	CaseSensitive   *bool
+	WordBoundaries  *bool
 }
 
 // UpdatePronunciationRulesRequest carries a full replacement rule set.
 type UpdatePronunciationRulesRequest struct {
-	Rules       []PronunciationRuleUpdate `json:"rules" binding:"required"`
-	ActorUserID *int64                    `json:"-"`
+	Rules       []PronunciationRuleUpdate
+	ActorUserID *int64
 }
 
 // PronunciationRulesResponse is the service-level response for both GET and PUT.
