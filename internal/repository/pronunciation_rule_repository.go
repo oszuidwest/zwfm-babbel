@@ -31,7 +31,8 @@ func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.Pronun
 	return rules, nil
 }
 
-// ReplaceAll replaces every pronunciation rule, using the caller's transaction when present.
+// ReplaceAll replaces every pronunciation rule. Caller MUST wrap this in
+// txManager.WithTransaction; DELETE+INSERT is not atomic otherwise.
 func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error {
 	db := DBFromContext(ctx, r.db)
 

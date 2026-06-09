@@ -470,7 +470,7 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 }
 
 func composeV3TTSText(text, prefix string) string {
-	if prefix == "" || strings.TrimSpace(prefix) == "" {
+	if strings.TrimSpace(prefix) == "" {
 		return text
 	}
 	return prefix + "\n" + text

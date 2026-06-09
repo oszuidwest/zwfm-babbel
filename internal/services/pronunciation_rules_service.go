@@ -108,12 +108,9 @@ func (s *PronunciationRulesService) Update(
 }
 
 func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]models.PronunciationRule, error) {
-	input := []PronunciationRuleUpdate{}
-	if req != nil {
-		input = req.Rules
-	}
+	input := req.Rules
 
-	errs := []apperrors.ValidationError{}
+	var errs []apperrors.ValidationError
 	if len(input) > MaxPronunciationRules {
 		errs = append(errs, fieldError("rules", fmt.Sprintf("must contain at most %d rules", MaxPronunciationRules)))
 	}
