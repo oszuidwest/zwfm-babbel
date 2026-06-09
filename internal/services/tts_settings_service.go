@@ -254,6 +254,8 @@ func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *mode
 		}
 	}
 
+	// Float equality is intentional: both sides are read from the same DECIMAL(3,2)
+	// database columns around the update, with no arithmetic between reads.
 	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
 	appendIfChanged(req.SimilarityBoost != nil, "similarity_boost", before.SimilarityBoost == after.SimilarityBoost)
 	appendIfChanged(req.Style != nil, "style", before.Style == after.Style)

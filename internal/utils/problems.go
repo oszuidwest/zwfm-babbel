@@ -58,6 +58,8 @@ const (
 	ProblemTypeInternalServerError = "https://babbel.api/problems/internal-server-error"
 	// ProblemTypeBadRequest identifies a malformed request.
 	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
+	// ProblemTypePayloadTooLarge identifies a request body that exceeds the API limit.
+	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
 )
 
 // NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
