@@ -148,8 +148,10 @@ func seedUpdateValue(seed *int64) *uint32 {
 	if seed == nil {
 		return nil
 	}
-	// validateSeed runs before this conversion and guarantees the uint32 range.
-	value := uint32(*seed) //nolint:gosec // G115 guarded by validateSeed in Update.
+	if *seed < 0 || *seed > maxElevenLabsSeedUint32 {
+		return nil
+	}
+	value := uint32(*seed)
 	return &value
 }
 

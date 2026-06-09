@@ -69,6 +69,57 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 	}
 }
 
+func TestSeedUpdateValue(t *testing.T) {
+	maxSeed := int64(maxElevenLabsSeedUint32)
+	tooLargeSeed := maxSeed + 1
+
+	tests := []struct {
+		name string
+		seed *int64
+		want *uint32
+	}{
+		{
+			name: "nil seed",
+			seed: nil,
+			want: nil,
+		},
+		{
+			name: "zero",
+			seed: ptr(int64(0)),
+			want: ptr(uint32(0)),
+		},
+		{
+			name: "max uint32",
+			seed: &maxSeed,
+			want: ptr(uint32(maxElevenLabsSeedUint32)),
+		},
+		{
+			name: "negative",
+			seed: ptr(int64(-1)),
+			want: nil,
+		},
+		{
+			name: "too large",
+			seed: &tooLargeSeed,
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := seedUpdateValue(tt.seed)
+			switch {
+			case tt.want == nil && got == nil:
+				return
+			case tt.want == nil || got == nil:
+				t.Fatalf("seedUpdateValue() = %v, want %v", got, tt.want)
+			case *got != *tt.want:
+				t.Fatalf("seedUpdateValue() = %d, want %d", *got, *tt.want)
+			}
+		})
+	}
+}
+
 func TestTranslateTTSSettingsRepoError(t *testing.T) {
 	tests := []struct {
 		name       string
