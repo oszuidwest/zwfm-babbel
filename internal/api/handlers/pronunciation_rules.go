@@ -22,6 +22,17 @@ type pronunciationRulesResponse struct {
 	UpdatedAt *time.Time                  `json:"updated_at"`
 }
 
+type pronunciationRuleUpdateRequest struct {
+	StringToReplace string `json:"string_to_replace"`
+	IPA             string `json:"ipa"`
+	CaseSensitive   *bool  `json:"case_sensitive,omitempty"`
+	WordBoundaries  *bool  `json:"word_boundaries,omitempty"`
+}
+
+type pronunciationRulesUpdateRequest struct {
+	Rules []pronunciationRuleUpdateRequest `json:"rules" binding:"required"`
+}
+
 // GetPronunciationRules returns the local inline-IPA pronunciation rules.
 func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 	result, err := h.pronunciationRulesSvc.Get(c.Request.Context())
@@ -35,22 +46,38 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 
 // UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
-	var req services.UpdatePronunciationRulesRequest
+	var req pronunciationRulesUpdateRequest
 	if !utils.BindJSONStrict(c, &req) {
 		return
 	}
 
+	serviceReq := toPronunciationRulesServiceRequest(req)
 	if userID, ok := auth.UserID(c); ok {
-		req.ActorUserID = &userID
+		serviceReq.ActorUserID = &userID
 	}
 
-	result, err := h.pronunciationRulesSvc.Update(c.Request.Context(), &req)
+	result, err := h.pronunciationRulesSvc.Update(c.Request.Context(), serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "PronunciationRules")
 		return
 	}
 
 	utils.Success(c, toPronunciationRulesResponse(result))
+}
+
+func toPronunciationRulesServiceRequest(
+	req pronunciationRulesUpdateRequest,
+) *services.UpdatePronunciationRulesRequest {
+	rules := make([]services.PronunciationRuleUpdate, 0, len(req.Rules))
+	for _, rule := range req.Rules {
+		rules = append(rules, services.PronunciationRuleUpdate{
+			StringToReplace: rule.StringToReplace,
+			IPA:             rule.IPA,
+			CaseSensitive:   rule.CaseSensitive,
+			WordBoundaries:  rule.WordBoundaries,
+		})
+	}
+	return &services.UpdatePronunciationRulesRequest{Rules: rules}
 }
 
 func toPronunciationRulesResponse(result *services.PronunciationRulesResponse) pronunciationRulesResponse {

@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
+	"gorm.io/gorm"
 )
 
 func TestPronunciationRulesResponseMapping(t *testing.T) {
@@ -41,6 +42,33 @@ func TestPronunciationRulesResponseMapping(t *testing.T) {
 	}
 	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("updated_at = %v, want %v", got.UpdatedAt, updatedAt)
+	}
+}
+
+func TestPronunciationRulesServiceRequestMapping(t *testing.T) {
+	caseSensitive := false
+	req := pronunciationRulesUpdateRequest{
+		Rules: []pronunciationRuleUpdateRequest{{
+			StringToReplace: "PSV",
+			IPA:             "piː ɛs veː",
+			CaseSensitive:   &caseSensitive,
+		}},
+	}
+
+	got := toPronunciationRulesServiceRequest(req)
+
+	if len(got.Rules) != 1 {
+		t.Fatalf("rules len = %d, want 1", len(got.Rules))
+	}
+	rule := got.Rules[0]
+	if rule.StringToReplace != "PSV" || rule.IPA != "piː ɛs veː" {
+		t.Fatalf("rule text = %#v, want mapped fields", rule)
+	}
+	if rule.CaseSensitive == nil || *rule.CaseSensitive {
+		t.Fatalf("case_sensitive = %v, want explicit false pointer", rule.CaseSensitive)
+	}
+	if rule.WordBoundaries != nil {
+		t.Fatalf("word_boundaries = %v, want nil preserved for service defaulting", rule.WordBoundaries)
 	}
 }
 
@@ -87,6 +115,31 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 			}
 			assertValidationField(t, recorder, tt.wantField)
 		})
+	}
+}
+
+func TestPronunciationRulesHandlers_UpdateEmptyRulesSuccess(t *testing.T) {
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{},
+			&handlerTxManager{},
+		),
+	}
+
+	recorder := performPronunciationRulesHandlerRequest(
+		t,
+		http.MethodPut,
+		`{"rules":[]}`,
+		h.UpdatePronunciationRules,
+	)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var body pronunciationRulesResponse
+	decodeHandlerJSON(t, recorder, &body)
+	if len(body.Rules) != 0 {
+		t.Fatalf("rules len = %d, want 0", len(body.Rules))
 	}
 }
 
@@ -240,4 +293,14 @@ func (h *handlerPronunciationRuleRepo) MaxUpdatedAt(context.Context) (*time.Time
 		return nil, h.maxErr
 	}
 	return h.updatedAt, nil
+}
+
+type handlerTxManager struct{}
+
+func (h *handlerTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
+func (h *handlerTxManager) DB() *gorm.DB {
+	return nil
 }
