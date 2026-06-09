@@ -262,7 +262,7 @@ func logPronunciationRulesAudit(req *UpdatePronunciationRulesRequest, totalAfter
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
 	} else {
-		logger.WithFields(fields).Warn("pronunciation rules audit entry has no actor")
+		fields["user_id"] = "unknown"
 	}
 	logger.WithFields(fields).Info("pronunciation rules updated")
 }

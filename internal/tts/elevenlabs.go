@@ -14,6 +14,7 @@ import (
 )
 
 const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
+const maxErrorResponseBytes int64 = 1024
 const defaultAPIBaseURL = "https://api.elevenlabs.io"
 const outputFormatOpus48k128 = "opus_48000_128"
 
@@ -130,9 +131,12 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
 		if err != nil {
 			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, err)
+		}
+		if int64(len(respBody)) > maxErrorResponseBytes {
+			respBody = append(respBody[:maxErrorResponseBytes], []byte(" (truncated)")...)
 		}
 		return nil, &APIError{
 			StatusCode: resp.StatusCode,

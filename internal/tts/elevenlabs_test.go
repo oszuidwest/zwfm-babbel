@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -165,6 +166,35 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
+	}
+}
+
+func TestService_GenerateSpeech_APIErrorMarksTruncatedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxErrorResponseBytes)+1)))
+	}))
+	defer server.Close()
+
+	service := &Service{
+		apiKey:  "test-key",
+		baseURL: server.URL,
+		client:  &http.Client{Timeout: time.Second},
+	}
+
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	if err == nil {
+		t.Fatal("GenerateSpeech() error = nil, want API error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+
+	wantBody := strings.Repeat("x", int(maxErrorResponseBytes)) + " (truncated)"
+	if apiErr.Body != wantBody {
+		t.Fatalf("Body len = %d, want %d with truncated marker", len(apiErr.Body), len(wantBody))
 	}
 }
 

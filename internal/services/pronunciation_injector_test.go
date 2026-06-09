@@ -71,8 +71,8 @@ func TestApplyPronunciationRules(t *testing.T) {
 		{
 			name:  "diacritics count as word characters",
 			rules: []models.PronunciationRule{rule("een", "eːn", true, true)},
-			input: "één",
-			want:  "één",
+			input: "de een en caféeen",
+			want:  "de /eːn/ en caféeen",
 		},
 		{
 			name:  "slash wrapped match is not skipped",

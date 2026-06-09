@@ -33,13 +33,33 @@ type StoryServiceDeps struct {
 	Config                *config.Config
 }
 
+type storyRepository interface {
+	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
+	GetByID(context.Context, int64) (*models.Story, error)
+	Update(context.Context, int64, *repository.StoryUpdate) error
+	Exists(context.Context, int64) (bool, error)
+	SoftDelete(context.Context, int64) error
+	Restore(context.Context, int64) error
+	UpdateAudio(context.Context, int64, string, float64) error
+	UpdateStatus(context.Context, int64, string) error
+	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
+}
+
+type speechGenerator interface {
+	GenerateSpeech(context.Context, string, string, tts.Options) ([]byte, error)
+}
+
+type ttsSettingsGetter interface {
+	Get(context.Context) (*models.TTSSettings, error)
+}
+
 // StoryService handles business logic for news story operations.
 type StoryService struct {
-	storyRepo             *repository.StoryRepository
+	storyRepo             storyRepository
 	voiceRepo             *repository.VoiceRepository
 	audioSvc              *audio.Service
-	ttsSvc                *tts.Service
-	ttsSettingsSvc        *TTSSettingsService
+	ttsSvc                speechGenerator
+	ttsSettingsSvc        ttsSettingsGetter
 	pronunciationInjector *PronunciationInjector
 	config                *config.Config
 }
@@ -439,7 +459,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	// Generate speech via TTS service
 	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
 	if err != nil {
-		return translateTTSError(err)
+		return translateTTSError(storyID, err)
 	}
 
 	// Write to temp file for processing through the standard audio pipeline
@@ -487,14 +507,13 @@ func validateTTSTextLength(text string) error {
 
 	return apperrors.NewValidationProblemError(
 		"story",
-		"Text too long for selected TTS model",
+		"Text exceeds ElevenLabs v3 input limit",
 		[]apperrors.ValidationError{{
 			Field: "text",
 			Message: fmt.Sprintf(
-				"rune count %d exceeds limit %d for model %s",
+				"rune count %d exceeds ElevenLabs v3 input limit of %d",
 				count,
 				tts.MaxV3InputChars,
-				tts.ModelV3,
 			),
 		}},
 	)
@@ -514,7 +533,7 @@ func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 }
 
 // translateTTSError maps TTS service errors to domain errors with specific messages.
-func translateTTSError(err error) error {
+func translateTTSError(storyID int64, err error) error {
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
@@ -532,6 +551,11 @@ func translateTTSError(err error) error {
 		case http.StatusUnprocessableEntity:
 			return apperrors.ValidationWithCause("TTS", "request", apiErr.Error(), apiErr)
 		default:
+			logger.WithFields(map[string]any{
+				"story_id":    storyID,
+				"status_code": apiErr.StatusCode,
+				"body":        apiErr.Body,
+			}).Error("unmapped ElevenLabs TTS error")
 			return apperrors.Upstream(
 				"TTS",
 				"ElevenLabs",

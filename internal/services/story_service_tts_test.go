@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -67,11 +68,65 @@ func TestValidateTTSTextLength(t *testing.T) {
 	if validationErr.Resource != "story" || len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "text" {
 		t.Fatalf("validation error = %#v, want one story.text error", validationErr)
 	}
+	if validationErr.Detail != "Text exceeds ElevenLabs v3 input limit" {
+		t.Fatalf("detail = %q, want ElevenLabs v3 limit detail", validationErr.Detail)
+	}
 
 	wantMessage := "rune count " + strconv.Itoa(tts.MaxV3InputChars+1) +
-		" exceeds limit " + strconv.Itoa(tts.MaxV3InputChars)
+		" exceeds ElevenLabs v3 input limit of " + strconv.Itoa(tts.MaxV3InputChars)
 	if !strings.Contains(validationErr.Errors[0].Message, wantMessage) {
 		t.Fatalf("message = %q, want %q", validationErr.Errors[0].Message, wantMessage)
+	}
+}
+
+func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) {
+	stopErr := errors.New("stop after capture")
+	ttsSvc := &fakeSpeechGenerator{err: stopErr}
+	service := newGenerateTTSTestService(
+		storyForTTSTest("PSV wint"),
+		&models.TTSSettings{
+			TTSStylePrefix:         "[news anchor]",
+			ApplyTextNormalization: TTSNormalizationAuto,
+		},
+		[]models.PronunciationRule{rule("PSV", "piː ɛs ʋeː", true, true)},
+		ttsSvc,
+	)
+
+	err := service.GenerateTTS(context.Background(), 99, false)
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
+	}
+	if ttsSvc.calls != 1 {
+		t.Fatalf("GenerateSpeech calls = %d, want 1", ttsSvc.calls)
+	}
+
+	wantText := "[news anchor]\n/piː ɛs ʋeː/ wint"
+	if ttsSvc.text != wantText {
+		t.Fatalf("GenerateSpeech text = %q, want %q", ttsSvc.text, wantText)
+	}
+}
+
+func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
+	ttsSvc := &fakeSpeechGenerator{}
+	service := newGenerateTTSTestService(
+		storyForTTSTest("PSV"),
+		&models.TTSSettings{
+			TTSStylePrefix:         "[news anchor]",
+			ApplyTextNormalization: TTSNormalizationAuto,
+		},
+		[]models.PronunciationRule{
+			rule("PSV", strings.Repeat("a", tts.MaxV3InputChars), true, true),
+		},
+		ttsSvc,
+	)
+
+	err := service.GenerateTTS(context.Background(), 99, false)
+	var validationErr *apperrors.ValidationProblemError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("GenerateTTS() error = %T, want *apperrors.ValidationProblemError", err)
+	}
+	if ttsSvc.calls != 0 {
+		t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)
 	}
 }
 
@@ -176,7 +231,7 @@ func TestTranslateTTSError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := translateTTSError(tt.err)
+			got := translateTTSError(123, tt.err)
 			if got == nil {
 				t.Fatal("translateTTSError returned nil")
 			}
@@ -187,6 +242,82 @@ func TestTranslateTTSError(t *testing.T) {
 			tt.assert(t, got)
 		})
 	}
+}
+
+func newGenerateTTSTestService(
+	story *models.Story,
+	settings *models.TTSSettings,
+	rules []models.PronunciationRule,
+	ttsSvc *fakeSpeechGenerator,
+) *StoryService {
+	return &StoryService{
+		storyRepo: &fakeStoryRepository{
+			story: story,
+		},
+		ttsSettingsSvc: &fakeTTSSettingsGetter{
+			settings: settings,
+		},
+		pronunciationInjector: NewPronunciationInjector(&fakePronunciationRuleLister{
+			rules: rules,
+		}),
+		ttsSvc: ttsSvc,
+	}
+}
+
+func storyForTTSTest(text string) *models.Story {
+	voiceID := int64(7)
+	elevenLabsVoiceID := "voice-123"
+	return &models.Story{
+		ID:      99,
+		Text:    text,
+		VoiceID: &voiceID,
+		Voice: &models.Voice{
+			ID:                voiceID,
+			ElevenLabsVoiceID: &elevenLabsVoiceID,
+		},
+	}
+}
+
+type fakeStoryRepository struct {
+	storyRepository
+	story *models.Story
+	err   error
+	calls int
+}
+
+func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.story, nil
+}
+
+type fakeTTSSettingsGetter struct {
+	settings *models.TTSSettings
+	err      error
+}
+
+func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.settings, nil
+}
+
+type fakeSpeechGenerator struct {
+	text  string
+	err   error
+	calls int
+}
+
+func (f *fakeSpeechGenerator) GenerateSpeech(_ context.Context, text, _ string, _ tts.Options) ([]byte, error) {
+	f.calls++
+	f.text = text
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []byte("opus"), nil
 }
 
 func assertUpstreamError(t *testing.T, got error, wantStatus int) {
