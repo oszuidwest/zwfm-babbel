@@ -15,12 +15,6 @@ import (
 )
 
 const (
-	// TTSModelElevenV3 selects ElevenLabs v3, including support for audio tags.
-	TTSModelElevenV3 = "eleven_v3"
-	// TTSModelMultilingualV2 selects ElevenLabs multilingual v2.
-	TTSModelMultilingualV2 = "eleven_multilingual_v2"
-	// TTSModelFlashV25 selects ElevenLabs Flash v2.5 for longer text payloads.
-	TTSModelFlashV25 = "eleven_flash_v2_5"
 	// TTSNormalizationAuto delegates text normalization to ElevenLabs.
 	TTSNormalizationAuto = "auto"
 	// TTSNormalizationOn forces ElevenLabs text normalization on.
@@ -33,11 +27,6 @@ const (
 )
 
 var (
-	allowedTTSModels = []string{
-		TTSModelElevenV3,
-		TTSModelMultilingualV2,
-		TTSModelFlashV25,
-	}
 	allowedTextNormalizations = []string{
 		TTSNormalizationAuto,
 		TTSNormalizationOn,
@@ -57,11 +46,9 @@ func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsS
 
 // UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
 type UpdateTTSSettingsRequest struct {
-	Model                  *string
 	Stability              *float64
 	SimilarityBoost        *float64
 	Style                  *float64
-	UseSpeakerBoost        *bool
 	Speed                  *float64
 	ApplyTextNormalization *string
 	Seed                   *int64
@@ -103,11 +90,9 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	}
 
 	update := &repository.TTSSettingsUpdate{
-		Model:                  req.Model,
 		Stability:              req.Stability,
 		SimilarityBoost:        req.SimilarityBoost,
 		Style:                  req.Style,
-		UseSpeakerBoost:        req.UseSpeakerBoost,
 		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		Seed:                   seedUpdateValue(req.Seed),
@@ -133,11 +118,9 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 // returns 422 for empty PATCHes, while the service keeps a defensive no-op for
 // programmatic callers.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
-	return r.Model == nil &&
-		r.Stability == nil &&
+	return r.Stability == nil &&
 		r.SimilarityBoost == nil &&
 		r.Style == nil &&
-		r.UseSpeakerBoost == nil &&
 		r.Speed == nil &&
 		r.ApplyTextNormalization == nil &&
 		r.Seed == nil &&
@@ -147,14 +130,14 @@ func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 
 func translateTTSSettingsRepoError(err error) error {
 	if errors.Is(err, repository.ErrSchemaUnavailable) {
-		return apperrors.NotInitialized("tts_settings", "apply migration 005_tts_settings.sql", err)
+		return apperrors.NotInitialized("tts_settings", "apply migrations/001_complete_schema.sql", err)
 	}
 	if errors.Is(err, repository.ErrNotFound) {
 		return apperrors.NotInitializedWithCode(
 			"tts_settings",
 			"tts_settings.row_missing",
 			"tts_settings singleton row missing",
-			"restore the id=1 row from migrations/005_tts_settings.sql seed data",
+			"restore the id=1 row from migrations/001_complete_schema.sql seed data",
 			err,
 		)
 	}
@@ -173,12 +156,6 @@ func seedUpdateValue(seed *int64) *uint32 {
 func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.ValidationError {
 	errs := []apperrors.ValidationError{}
 
-	errs = append(errs, validateEnumField(
-		"model",
-		req.Model,
-		allowedTTSModels,
-		enumMessage(allowedTTSModels),
-	)...)
 	errs = append(errs, validateNumberField("stability", req.Stability, 0, 1, "must be between 0 and 1")...)
 	errs = append(errs, validateNumberField("similarity_boost", req.SimilarityBoost, 0, 1, "must be between 0 and 1")...)
 	errs = append(errs, validateNumberField("style", req.Style, 0, 1, "must be between 0 and 1")...)
@@ -255,8 +232,6 @@ func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *m
 
 	fields := map[string]any{
 		"changed_fields": changed,
-		"old_model":      before.Model,
-		"new_model":      after.Model,
 	}
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
@@ -276,11 +251,9 @@ func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *mode
 		}
 	}
 
-	appendIfChanged(req.Model != nil, "model", before.Model == after.Model)
 	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
 	appendIfChanged(req.SimilarityBoost != nil, "similarity_boost", before.SimilarityBoost == after.SimilarityBoost)
 	appendIfChanged(req.Style != nil, "style", before.Style == after.Style)
-	appendIfChanged(req.UseSpeakerBoost != nil, "use_speaker_boost", before.UseSpeakerBoost == after.UseSpeakerBoost)
 	appendIfChanged(req.Speed != nil, "speed", before.Speed == after.Speed)
 	appendIfChanged(
 		req.ApplyTextNormalization != nil,
@@ -306,16 +279,12 @@ func seedEqual(a, b *uint32) bool {
 
 func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
 	switch field {
-	case "model":
-		return settings.Model
 	case "stability":
 		return settings.Stability
 	case "similarity_boost":
 		return settings.SimilarityBoost
 	case "style":
 		return settings.Style
-	case "use_speaker_boost":
-		return settings.UseSpeakerBoost
 	case "speed":
 		return settings.Speed
 	case "apply_text_normalization":
@@ -329,20 +298,5 @@ func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
 		return settings.TTSStylePrefix
 	default:
 		return fmt.Sprintf("<unknown field %s>", field)
-	}
-}
-
-func modelCharLimit(model string) int {
-	// ElevenLabs documents different per-request character ceilings by model:
-	// eleven_v3=5000, multilingual_v2=10000, flash_v2_5=40000.
-	switch model {
-	case TTSModelElevenV3:
-		return 5000
-	case TTSModelMultilingualV2:
-		return 10000
-	case TTSModelFlashV25:
-		return 40000
-	default:
-		return 0
 	}
 }

@@ -12,186 +12,161 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
-	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
-func TestPronunciationRulesHandlers_Get(t *testing.T) {
-	createdAt := time.Unix(1717200000, 0).UTC()
-	warning := "missing"
-	svc := &pronunciationRulesHandlerServiceMock{
-		getResp: &services.PronunciationRulesResponse{
-			Rules: []tts.Rule{{
-				StringToReplace: "Albert Heijn",
-				Alias:           "albert hijn",
-				CaseSensitive:   true,
-				WordBoundaries:  false,
-			}},
-			LatestVersionID: ptr("v1"),
-			CreatedAt:       &createdAt,
-			Warning:         &warning,
-		},
+func TestPronunciationRulesResponseMapping(t *testing.T) {
+	updatedAt := time.Unix(1717200000, 0).UTC()
+	got := toPronunciationRulesResponse(&services.PronunciationRulesResponse{
+		Rules: []models.PronunciationRule{{
+			StringToReplace: "Albert Heijn",
+			IPA:             "ˈɑlbərt ˈɦɛin",
+			CaseSensitive:   true,
+			WordBoundaries:  false,
+		}},
+		UpdatedAt: &updatedAt,
+	})
+
+	if len(got.Rules) != 1 {
+		t.Fatalf("rules len = %d, want 1", len(got.Rules))
 	}
-	h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
-
-	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+	rule := got.Rules[0]
+	if rule.StringToReplace != "Albert Heijn" ||
+		rule.IPA != "ˈɑlbərt ˈɦɛin" ||
+		!rule.CaseSensitive ||
+		rule.WordBoundaries {
+		t.Fatalf("rule = %#v, want mapped pronunciation rule", rule)
 	}
-	var body map[string]any
-	decodeHandlerJSON(t, recorder, &body)
-	if body["warning"] != warning || body["latest_version_id"] != "v1" {
-		t.Fatalf("body = %#v, want warning and latest_version_id", body)
-	}
-}
-
-func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
-	svc := &pronunciationRulesHandlerServiceMock{
-		getErr: apperrors.Upstream(
-			"PronunciationRules",
-			"ElevenLabs",
-			http.StatusBadGateway,
-			"Please try again later",
-			errors.New("upstream failed"),
-		),
-	}
-	h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
-
-	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
-
-	if recorder.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502: %s", recorder.Code, recorder.Body.String())
-	}
-	var body map[string]any
-	decodeHandlerJSON(t, recorder, &body)
-	if body["hint"] != "Please try again later" {
-		t.Fatalf("hint = %#v, want upstream hint", body["hint"])
-	}
-}
-
-func TestPronunciationRulesHandlers_NotConfigured(t *testing.T) {
-	h := &Handlers{ttsEnabled: false}
-
-	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
-
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want 501: %s", recorder.Code, recorder.Body.String())
-	}
-	var body map[string]any
-	decodeHandlerJSON(t, recorder, &body)
-	if body["code"] != "tts.not_configured" {
-		t.Fatalf("code = %#v, want tts.not_configured", body["code"])
-	}
-}
-
-// TestPronunciationRulesHandlers_NilServiceGuard pins the requirePronunciationRulesEnabled
-// guard: a misconfigured Handlers struct (TTSEnabled=true but no service wired
-// in) must return 501 instead of nil-derefing the service inside the handler.
-func TestPronunciationRulesHandlers_NilServiceGuard(t *testing.T) {
-	h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: nil}
-
-	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
-
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("status = %d, want 501: %s", recorder.Code, recorder.Body.String())
-	}
-	var body map[string]any
-	decodeHandlerJSON(t, recorder, &body)
-	if body["code"] != "tts.not_configured" {
-		t.Fatalf("code = %#v, want tts.not_configured", body["code"])
+	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(updatedAt) {
+		t.Fatalf("updated_at = %v, want %v", got.UpdatedAt, updatedAt)
 	}
 }
 
 func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
-	t.Run("missing rules returns 422 with top-level Go field", func(t *testing.T) {
-		svc := &pronunciationRulesHandlerServiceMock{}
-		h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+	tests := []struct {
+		name      string
+		body      string
+		wantCode  int
+		wantField string
+	}{
+		{
+			name:      "missing rules",
+			body:      `{}`,
+			wantCode:  http.StatusUnprocessableEntity,
+			wantField: "Rules",
+		},
+		{
+			name:      "alias is an unknown strict-binding field",
+			body:      `{"rules":[{"string_to_replace":"A","alias":"aa"}]}`,
+			wantCode:  http.StatusBadRequest,
+			wantField: "alias",
+		},
+		{
+			name:      "unknown actor user id is rejected",
+			body:      `{"rules":[],"actor_user_id":1}`,
+			wantCode:  http.StatusBadRequest,
+			wantField: "actor_user_id",
+		},
+	}
 
-		recorder := performPronunciationRulesHandlerRequest(
-			t,
-			http.MethodPut,
-			`{}`,
-			h.UpdatePronunciationRules,
-		)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Handlers{}
 
-		if recorder.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422: %s", recorder.Code, recorder.Body.String())
-		}
-		if svc.updateReq != nil {
-			t.Fatalf("service was called for invalid request: %#v", svc.updateReq)
-		}
-		assertValidationField(t, recorder, "Rules")
-	})
+			recorder := performPronunciationRulesHandlerRequest(
+				t,
+				http.MethodPut,
+				tt.body,
+				h.UpdatePronunciationRules,
+			)
 
-	t.Run("empty rules array reaches service for clear path", func(t *testing.T) {
-		svc := &pronunciationRulesHandlerServiceMock{
-			updateResp: &services.PronunciationRulesResponse{Rules: []tts.Rule{}},
-		}
-		h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+			if recorder.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, tt.wantCode, recorder.Body.String())
+			}
+			assertValidationField(t, recorder, tt.wantField)
+		})
+	}
+}
 
-		recorder := performPronunciationRulesHandlerRequest(
-			t,
-			http.MethodPut,
-			`{"rules":[]}`,
-			h.UpdatePronunciationRules,
-		)
+func TestPronunciationRulesHandlers_GetSuccess(t *testing.T) {
+	updatedAt := time.Unix(1717200000, 0).UTC()
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{
+				rules: []models.PronunciationRule{{
+					StringToReplace: "PSV",
+					IPA:             "piː ɛs veː",
+					CaseSensitive:   true,
+					WordBoundaries:  false,
+				}},
+				updatedAt: &updatedAt,
+			},
+			nil,
+		),
+	}
 
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
-		}
-		if svc.updateReq == nil || len(svc.updateReq.Rules) != 0 {
-			t.Fatalf("update request = %#v, want empty rules", svc.updateReq)
-		}
-	})
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
 
-	t.Run("null booleans are passed as nil for service defaults", func(t *testing.T) {
-		svc := &pronunciationRulesHandlerServiceMock{
-			updateResp: &services.PronunciationRulesResponse{Rules: []tts.Rule{}},
-		}
-		h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var body pronunciationRulesResponse
+	decodeHandlerJSON(t, recorder, &body)
+	if len(body.Rules) != 1 {
+		t.Fatalf("rules len = %d, want 1", len(body.Rules))
+	}
+	if body.Rules[0].StringToReplace != "PSV" ||
+		body.Rules[0].IPA != "piː ɛs veː" ||
+		!body.Rules[0].CaseSensitive ||
+		body.Rules[0].WordBoundaries {
+		t.Fatalf("rule = %#v, want mapped response", body.Rules[0])
+	}
+	if body.UpdatedAt == nil || !body.UpdatedAt.Equal(updatedAt) {
+		t.Fatalf("updated_at = %v, want %v", body.UpdatedAt, updatedAt)
+	}
+}
 
-		recorder := performPronunciationRulesHandlerRequest(
-			t,
-			http.MethodPut,
-			`{"rules":[{"string_to_replace":"A","alias":"aa","case_sensitive":null,"word_boundaries":null}]}`,
-			h.UpdatePronunciationRules,
-		)
+func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{listErr: errors.New("database down")},
+			nil,
+		),
+	}
 
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
-		}
-		if svc.updateReq == nil || len(svc.updateReq.Rules) != 1 {
-			t.Fatalf("update request = %#v, want one rule", svc.updateReq)
-		}
-		rule := svc.updateReq.Rules[0]
-		if rule.CaseSensitive != nil || rule.WordBoundaries != nil {
-			t.Fatalf("booleans = %v/%v, want nil/nil", rule.CaseSensitive, rule.WordBoundaries)
-		}
-	})
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
 
-	t.Run("service validation returns JSON path field", func(t *testing.T) {
-		svc := &pronunciationRulesHandlerServiceMock{
-			updateErr: apperrors.NewValidationProblemError(
-				"pronunciation_rules",
-				"One or more fields failed validation",
-				[]apperrors.ValidationError{{Field: "rules[0].alias", Message: "cannot be empty"}},
-			),
-		}
-		h := &Handlers{ttsEnabled: true, pronunciationRulesSvc: svc}
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/problem+json" {
+		t.Fatalf("content-type = %q, want application/problem+json", contentType)
+	}
+	problem := decodeProblem(t, recorder)
+	if problem.Status != http.StatusInternalServerError || problem.Code != "internal.database_error" {
+		t.Fatalf("problem = %#v, want database problem details", problem)
+	}
+}
 
-		recorder := performPronunciationRulesHandlerRequest(
-			t,
-			http.MethodPut,
-			`{"rules":[{"string_to_replace":"A","alias":" "}]}`,
-			h.UpdatePronunciationRules,
-		)
+func TestPronunciationRulesHandlers_GetNotInitialized(t *testing.T) {
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{listErr: repository.ErrSchemaUnavailable},
+			nil,
+		),
+	}
 
-		if recorder.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422: %s", recorder.Code, recorder.Body.String())
-		}
-		assertValidationField(t, recorder, "rules[0].alias")
-	})
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusServiceUnavailable, recorder.Body.String())
+	}
+	problem := decodeProblem(t, recorder)
+	if problem.Status != http.StatusServiceUnavailable || problem.Code != "pronunciation_rules.not_initialized" {
+		t.Fatalf("problem = %#v, want not-initialized problem details", problem)
+	}
 }
 
 func performPronunciationRulesHandlerRequest(
@@ -208,12 +183,7 @@ func performPronunciationRulesHandlerRequest(
 	router := gin.New()
 	router.Handle(method, path, handler)
 
-	var reader *bytes.Reader
-	if body == "" {
-		reader = bytes.NewReader(nil)
-	} else {
-		reader = bytes.NewReader([]byte(body))
-	}
+	reader := bytes.NewReader([]byte(body))
 	request := httptest.NewRequestWithContext(context.Background(), method, path, reader)
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -234,9 +204,7 @@ func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, wa
 	t.Helper()
 
 	var body struct {
-		Errors []struct {
-			Field string `json:"field"`
-		} `json:"errors"`
+		Errors []apperrors.ValidationError `json:"errors"`
 	}
 	decodeHandlerJSON(t, recorder, &body)
 	if len(body.Errors) == 0 {
@@ -247,38 +215,29 @@ func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, wa
 	}
 }
 
-type pronunciationRulesHandlerServiceMock struct {
-	getResp    *services.PronunciationRulesResponse
-	getErr     error
-	updateResp *services.PronunciationRulesResponse
-	updateErr  error
-	updateReq  *services.UpdatePronunciationRulesRequest
+type handlerPronunciationRuleRepo struct {
+	rules     []models.PronunciationRule
+	listErr   error
+	updatedAt *time.Time
+	maxErr    error
 }
 
-func (m *pronunciationRulesHandlerServiceMock) Get(ctx context.Context) (*services.PronunciationRulesResponse, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
+func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.PronunciationRule, error) {
+	if h.listErr != nil {
+		return nil, h.listErr
 	}
-	if m.getResp == nil {
-		return &services.PronunciationRulesResponse{Rules: []tts.Rule{}}, nil
-	}
-	return m.getResp, nil
+	rules := make([]models.PronunciationRule, len(h.rules))
+	copy(rules, h.rules)
+	return rules, nil
 }
 
-func (m *pronunciationRulesHandlerServiceMock) Update(
-	ctx context.Context,
-	req *services.UpdatePronunciationRulesRequest,
-) (*services.PronunciationRulesResponse, error) {
-	m.updateReq = req
-	if m.updateErr != nil {
-		return nil, m.updateErr
-	}
-	if m.updateResp == nil {
-		return nil, errors.New("unexpected Update call")
-	}
-	return m.updateResp, nil
+func (h *handlerPronunciationRuleRepo) ReplaceAll(context.Context, []models.PronunciationRule) error {
+	return nil
 }
 
-func ptr[T any](value T) *T {
-	return &value
+func (h *handlerPronunciationRuleRepo) MaxUpdatedAt(context.Context) (*time.Time, error) {
+	if h.maxErr != nil {
+		return nil, h.maxErr
+	}
+	return h.updatedAt, nil
 }

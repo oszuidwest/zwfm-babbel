@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -256,11 +257,9 @@ type StoryUpdateRequest struct {
 
 // TTSSettingsUpdateRequest represents a partial update to global TTS settings.
 type TTSSettingsUpdateRequest struct {
-	Model                  *string         `json:"model"`
 	Stability              *float64        `json:"stability"`
 	SimilarityBoost        *float64        `json:"similarity_boost"`
 	Style                  *float64        `json:"style"`
-	UseSpeakerBoost        *bool           `json:"use_speaker_boost"`
 	Speed                  *float64        `json:"speed"`
 	ApplyTextNormalization *string         `json:"apply_text_normalization"`
 	Seed                   Optional[int64] `json:"seed"`
@@ -270,11 +269,9 @@ type TTSSettingsUpdateRequest struct {
 // IsEmpty reports whether no update fields were provided.
 // Keep in sync with services.UpdateTTSSettingsRequest.IsEmpty.
 func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
-	return r.Model == nil &&
-		r.Stability == nil &&
+	return r.Stability == nil &&
 		r.SimilarityBoost == nil &&
 		r.Style == nil &&
-		r.UseSpeakerBoost == nil &&
 		r.Speed == nil &&
 		r.ApplyTextNormalization == nil &&
 		!r.Seed.Set &&
@@ -312,12 +309,39 @@ func BindAndValidate(c *gin.Context, req any) bool {
 		return false
 	}
 
-	// Step 2: Normalize text fields (e.g. unescape HTML entities)
+	return normalizeAndValidate(c, req)
+}
+
+// BindJSONStrict decodes JSON with unknown-field rejection, then normalizes and validates.
+func BindJSONStrict(c *gin.Context, req any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
+	dec.DisallowUnknownFields()
+
+	if err := dec.Decode(req); err != nil {
+		handleStrictJSONDecodeError(c, err)
+		return false
+	}
+
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		ProblemBadRequestValidationError(
+			c,
+			"Request body contains invalid JSON",
+			[]apperrors.ValidationError{{Field: "request", Message: "unexpected trailing content"}},
+		)
+		return false
+	}
+
+	return normalizeAndValidate(c, req)
+}
+
+func normalizeAndValidate(c *gin.Context, req any) bool {
+	// Normalize text fields (e.g. unescape HTML entities)
 	if n, ok := req.(textNormalizer); ok {
 		n.NormalizeText()
 	}
 
-	// Step 3: Validate using Gin's registered validators (including custom ones)
+	// Validate using Gin's registered validators (including custom ones)
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
 		logger.Error("Validator engine is not *validator.Validate", "type", fmt.Sprintf("%T", binding.Validator.Engine()))
@@ -333,13 +357,118 @@ func BindAndValidate(c *gin.Context, req any) bool {
 	return true
 }
 
+func handleStrictJSONDecodeError(c *gin.Context, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		ProblemCustom(
+			c,
+			"https://babbel.api/problems/payload-too-large",
+			"Payload Too Large",
+			http.StatusRequestEntityTooLarge,
+			"Request body too large",
+		)
+		return
+	}
+
+	if errors.Is(err, io.EOF) {
+		ProblemBadRequestValidationError(
+			c,
+			"Request body contains invalid JSON",
+			[]apperrors.ValidationError{{Field: "request", Message: "request body is empty"}},
+		)
+		return
+	}
+
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		ProblemBadRequestValidationError(
+			c,
+			"Request body contains invalid JSON",
+			[]apperrors.ValidationError{{Field: "request", Message: "invalid JSON: " + err.Error()}},
+		)
+		return
+	}
+
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		field := typeErr.Field
+		if field == "" {
+			field = "request"
+		}
+		ProblemBadRequestValidationError(
+			c,
+			"Request body contains invalid JSON",
+			[]apperrors.ValidationError{{
+				Field:   field,
+				Message: fmt.Sprintf("expected %s, got %s", expectedJSONType(typeErr.Type), typeErr.Value),
+			}},
+		)
+		return
+	}
+
+	if field, ok := unknownJSONField(err); ok {
+		ProblemBadRequestValidationError(
+			c,
+			"Request body contains unknown fields",
+			[]apperrors.ValidationError{{Field: field, Message: "unknown field"}},
+		)
+		return
+	}
+
+	ProblemBadRequestValidationError(
+		c,
+		"Request body contains invalid JSON",
+		[]apperrors.ValidationError{{Field: "request", Message: "invalid JSON: " + err.Error()}},
+	)
+}
+
+func unknownJSONField(err error) (string, bool) {
+	// TODO: switch to typed error if encoding/json/v2 exposes one.
+	const prefix = "json: unknown field "
+	message := err.Error()
+	if !strings.HasPrefix(message, prefix) {
+		return "", false
+	}
+	field := strings.TrimPrefix(message, prefix)
+	field = strings.Trim(field, `"`)
+	return field, field != ""
+}
+
+func expectedJSONType(t reflect.Type) string {
+	if t == nil {
+		return "value"
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.String:
+		return "string"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	case reflect.Map, reflect.Struct:
+		return "object"
+	default:
+		return t.String()
+	}
+}
+
 // BindOptionalJSON decodes an optional JSON body into req. Empty or
 // whitespace-only bodies are accepted (req is left at its zero value). Returns
 // false (and writes a Problem response) on oversized bodies, read failures, or
 // invalid JSON. Parse failures include the underlying error in the response so
 // clients can locate the offending token.
 func BindOptionalJSON(c *gin.Context, req any) bool {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
+	if c == nil {
+		panic("utils: BindOptionalJSON requires a non-nil gin context")
+	}
+	if c.Request == nil || c.Request.Body == nil {
 		return true
 	}
 

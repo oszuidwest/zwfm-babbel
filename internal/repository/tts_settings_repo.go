@@ -13,11 +13,9 @@ const ttsSettingsSingletonID int64 = 1
 // Nil pointer fields leave columns unchanged. ClearSeed explicitly sets Seed to
 // NULL.
 type TTSSettingsUpdate struct {
-	Model                  *string  `gorm:"column:model"`
 	Stability              *float64 `gorm:"column:stability"`
 	SimilarityBoost        *float64 `gorm:"column:similarity_boost"`
 	Style                  *float64 `gorm:"column:style"`
-	UseSpeakerBoost        *bool    `gorm:"column:use_speaker_boost"`
 	Speed                  *float64 `gorm:"column:speed"`
 	ApplyTextNormalization *string  `gorm:"column:apply_text_normalization"`
 	Seed                   *uint32  `gorm:"column:seed"`
@@ -72,48 +70,4 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 		return ParseDBError(result.Error)
 	}
 	return nil
-}
-
-// CompareAndSetPronunciationDictionaryID writes the dictionary ID only when the
-// stored value still matches currentID. A nil or empty currentID matches both
-// NULL and the legacy empty-string representation.
-func (r *TTSSettingsRepository) CompareAndSetPronunciationDictionaryID(
-	ctx context.Context,
-	currentID *string,
-	id *string,
-) (bool, error) {
-	var value any
-	if id != nil && *id != "" {
-		value = *id
-	}
-
-	db := DBFromContext(ctx, r.db)
-	query := db.WithContext(ctx).
-		Model(&models.TTSSettings{}).
-		Where("id = ?", ttsSettingsSingletonID)
-	if currentID == nil || *currentID == "" {
-		query = query.Where("pronunciation_dictionary_id IS NULL OR pronunciation_dictionary_id = ?", "")
-	} else {
-		query = query.Where("pronunciation_dictionary_id = ?", *currentID)
-	}
-
-	result := query.Update("pronunciation_dictionary_id", value)
-	if result.Error != nil {
-		return false, ParseDBError(result.Error)
-	}
-	if result.RowsAffected > 0 {
-		return true, nil
-	}
-
-	var count int64
-	if err := db.WithContext(ctx).
-		Model(&models.TTSSettings{}).
-		Where("id = ?", ttsSettingsSingletonID).
-		Count(&count).Error; err != nil {
-		return false, ParseDBError(err)
-	}
-	if count == 0 {
-		return false, ErrNotFound
-	}
-	return false, nil
 }

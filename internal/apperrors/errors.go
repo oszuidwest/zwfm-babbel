@@ -108,11 +108,6 @@ func (e *ConflictError) Error() string {
 // Unwrap returns the underlying conflict cause, if one was captured.
 func (e *ConflictError) Unwrap() error { return e.cause }
 
-// ConflictWithCode creates a ConflictError with a specific problem code.
-func ConflictWithCode(resource, code, detail, hint string, cause error) *ConflictError {
-	return &ConflictError{Resource: resource, Code: code, Detail: detail, Hint: hint, cause: cause}
-}
-
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
 	Resource string `json:"-"`
@@ -161,16 +156,6 @@ func (e *ValidationProblemError) Unwrap() error { return e.cause }
 // NewValidationProblemError creates a ValidationProblemError for the given resource.
 func NewValidationProblemError(resource, detail string, errs []ValidationError) *ValidationProblemError {
 	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
-}
-
-// NewValidationProblemErrorWithCause creates a ValidationProblemError with an underlying cause.
-func NewValidationProblemErrorWithCause(
-	resource string,
-	detail string,
-	errs []ValidationError,
-	cause error,
-) *ValidationProblemError {
-	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs, cause: cause}
 }
 
 // NotInitializedError indicates a required singleton resource is not initialized.

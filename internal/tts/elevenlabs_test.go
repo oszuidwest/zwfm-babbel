@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,18 +15,14 @@ type generateSpeechRequestCase struct {
 	name                  string
 	options               Options
 	wantSeedPresent       bool
-	wantBoostPresent      bool
-	wantUseSpeakerBoost   bool
 	wantNormalizationMode string
-	wantLocatorCount      int
 }
 
 func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 	tests := []generateSpeechRequestCase{
 		{
-			name: "omits optional seed and speaker boost",
+			name: "omits optional seed",
 			options: Options{
-				Model: "eleven_v3",
 				VoiceSettings: VoiceSettings{
 					Stability:       0.8,
 					SimilarityBoost: 0.7,
@@ -37,41 +34,19 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 			wantNormalizationMode: "auto",
 		},
 		{
-			name: "includes optional seed and speaker boost",
+			name: "includes optional seed",
 			options: Options{
-				Model: "eleven_multilingual_v2",
 				VoiceSettings: VoiceSettings{
 					Stability:       0,
 					SimilarityBoost: 1,
 					Style:           0,
 					Speed:           0.7,
-					UseSpeakerBoost: boolPtr(false),
 				},
 				ApplyTextNormalization: "off",
 				Seed:                   uint32Ptr(123),
 			},
 			wantSeedPresent:       true,
-			wantBoostPresent:      true,
-			wantUseSpeakerBoost:   false,
 			wantNormalizationMode: "off",
-		},
-		{
-			name: "includes pronunciation dictionary locators",
-			options: Options{
-				Model: "eleven_multilingual_v2",
-				VoiceSettings: VoiceSettings{
-					Stability:       0.8,
-					SimilarityBoost: 0.7,
-					Style:           0.25,
-					Speed:           1.0,
-				},
-				ApplyTextNormalization: "auto",
-				DictionaryLocators: []DictionaryLocator{{
-					PronunciationDictionaryID: "dict-123",
-				}},
-			},
-			wantNormalizationMode: "auto",
-			wantLocatorCount:      1,
 		},
 	}
 
@@ -136,8 +111,8 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	if captured["text"] != "final text" {
 		t.Fatalf("text = %q, want final text", captured["text"])
 	}
-	if captured["model_id"] != tt.options.Model {
-		t.Fatalf("model_id = %q, want %q", captured["model_id"], tt.options.Model)
+	if captured["model_id"] != ModelV3 {
+		t.Fatalf("model_id = %q, want %q", captured["model_id"], ModelV3)
 	}
 	if captured["apply_text_normalization"] != tt.wantNormalizationMode {
 		t.Fatalf("apply_text_normalization = %q, want %q", captured["apply_text_normalization"], tt.wantNormalizationMode)
@@ -152,21 +127,11 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	if !ok {
 		t.Fatalf("voice_settings = %#v, want object", captured["voice_settings"])
 	}
-
-	boost, boostPresent := voiceSettings["use_speaker_boost"]
-	if boostPresent != tt.wantBoostPresent {
-		t.Fatalf("use_speaker_boost present = %t, want %t; body=%#v", boostPresent, tt.wantBoostPresent, voiceSettings)
+	if _, present := voiceSettings["use_speaker_boost"]; present {
+		t.Fatalf("use_speaker_boost present in voice_settings: %#v", voiceSettings)
 	}
-	if boostPresent && boost != tt.wantUseSpeakerBoost {
-		t.Fatalf("use_speaker_boost = %#v, want %t", boost, tt.wantUseSpeakerBoost)
-	}
-
-	locators, ok := captured["pronunciation_dictionary_locators"].([]any)
-	if !ok {
-		t.Fatalf("pronunciation_dictionary_locators = %#v, want array", captured["pronunciation_dictionary_locators"])
-	}
-	if len(locators) != tt.wantLocatorCount {
-		t.Fatalf("pronunciation_dictionary_locators len = %d, want %d", len(locators), tt.wantLocatorCount)
+	if _, present := captured["pronunciation_dictionary_locators"]; present {
+		t.Fatalf("pronunciation_dictionary_locators present in request body: %#v", captured)
 	}
 }
 
@@ -184,7 +149,7 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{Model: "eleven_v3"})
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
@@ -201,6 +166,35 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
+	}
+}
+
+func TestService_GenerateSpeech_APIErrorMarksTruncatedBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(strings.Repeat("x", int(maxErrorResponseBytes)+1)))
+	}))
+	defer server.Close()
+
+	service := &Service{
+		apiKey:  "test-key",
+		baseURL: server.URL,
+		client:  &http.Client{Timeout: time.Second},
+	}
+
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	if err == nil {
+		t.Fatal("GenerateSpeech() error = nil, want API error")
+	}
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+
+	wantBody := strings.Repeat("x", int(maxErrorResponseBytes)) + " (truncated)"
+	if apiErr.Body != wantBody {
+		t.Fatalf("Body len = %d, want %d with truncated marker", len(apiErr.Body), len(wantBody))
 	}
 }
 
@@ -221,7 +215,7 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 
 	// Even if the service layer let a path-altering value slip, the client must
 	// not route it to a different upstream endpoint.
-	if _, err := service.GenerateSpeech(context.Background(), "t", "../evil", Options{Model: "eleven_v3"}); err != nil {
+	if _, err := service.GenerateSpeech(context.Background(), "t", "../evil", Options{}); err != nil {
 		t.Fatalf("GenerateSpeech() error = %v", err)
 	}
 
@@ -229,10 +223,6 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 	if capturedPath != want {
 		t.Fatalf("escaped path = %q, want %q", capturedPath, want)
 	}
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }
 
 func uint32Ptr(v uint32) *uint32 {

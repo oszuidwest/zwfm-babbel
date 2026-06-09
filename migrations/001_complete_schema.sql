@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS bulletin_stories;
 DROP TABLE IF EXISTS bulletins;
 DROP TABLE IF EXISTS stories;
 DROP TABLE IF EXISTS station_voices;
+DROP TABLE IF EXISTS pronunciation_rules;
 DROP TABLE IF EXISTS tts_settings;
 DROP TABLE IF EXISTS voices;
 DROP TABLE IF EXISTS stations;
@@ -154,17 +155,13 @@ CREATE INDEX idx_station_voices_voice_id ON station_voices(voice_id);
 -- Create TTS settings singleton table
 CREATE TABLE tts_settings (
     id                       INT             NOT NULL,
-    model                    VARCHAR(64)     NOT NULL,
     stability                DECIMAL(3,2)    NOT NULL,
     similarity_boost         DECIMAL(3,2)    NOT NULL,
     style                    DECIMAL(3,2)    NOT NULL,
-    use_speaker_boost        BOOLEAN         NOT NULL,
     speed                    DECIMAL(3,2)    NOT NULL,
     apply_text_normalization VARCHAR(8)      NOT NULL,
     seed                     INT UNSIGNED    NULL,
     tts_style_prefix         VARCHAR(500)    NOT NULL,
-    pronunciation_dictionary_id VARCHAR(255) NULL
-        COMMENT 'ElevenLabs ID of the lazily-created "Babbel" dictionary. NULL = no rules yet.',
     updated_at               TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP
                                              ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -173,19 +170,26 @@ CREATE TABLE tts_settings (
     CONSTRAINT chk_tts_settings_similarity         CHECK (similarity_boost >= 0    AND similarity_boost <= 1),
     CONSTRAINT chk_tts_settings_style              CHECK (style            >= 0    AND style            <= 1),
     CONSTRAINT chk_tts_settings_speed              CHECK (speed            >= 0.7  AND speed            <= 1.2),
-    CONSTRAINT chk_tts_settings_text_normalization CHECK (apply_text_normalization IN ('auto', 'on', 'off')),
-    CONSTRAINT chk_tts_settings_model              CHECK (model IN (
-        'eleven_v3',
-        'eleven_multilingual_v2',
-        'eleven_flash_v2_5'
-    ))
+    CONSTRAINT chk_tts_settings_text_normalization CHECK (apply_text_normalization IN ('auto', 'on', 'off'))
 );
 
 INSERT INTO tts_settings (
-    id, model, stability, similarity_boost, style, use_speaker_boost,
+    id, stability, similarity_boost, style,
     speed, apply_text_normalization, seed, tts_style_prefix
 ) VALUES (
-    1, 'eleven_v3', 0.80, 0.80, 0.25, TRUE,
+    1, 0.80, 0.80, 0.25,
     1.00, 'auto', NULL, '[professional][news anchor][engaging]'
 )
 ON DUPLICATE KEY UPDATE id = id;
+
+-- Create local pronunciation rules table for ElevenLabs v3 inline IPA injection
+CREATE TABLE pronunciation_rules (
+    string_to_replace VARCHAR(255) NOT NULL PRIMARY KEY,
+    ipa               VARCHAR(255) NOT NULL,
+    case_sensitive    TINYINT(1)   NOT NULL DEFAULT 1,
+    word_boundaries   TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_bin;

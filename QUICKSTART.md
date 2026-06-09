@@ -221,7 +221,7 @@ docker compose up -d
 - Check that stories are scheduled for the current day
 - Verify voice assignments are correct
 - For TTS, verify `BABBEL_ELEVENLABS_API_KEY` is set and the selected voice has an `elevenlabs_voice_id`
-- If `GET /api/v1/settings/tts` returns `tts_settings.not_initialized`, apply `migrations/005_tts_settings.sql` or reset with the complete schema
+- If `GET /api/v1/settings/tts` returns `tts_settings.not_initialized`, restore the singleton row from `migrations/001_complete_schema.sql` or reset with the complete schema
 
 **Database connection issues?**
 - Check MySQL is running: `docker compose ps`
@@ -311,7 +311,7 @@ BABBEL_ELEVENLABS_API_KEY=your-elevenlabs-api-key
 BABBEL_ELEVENLABS_TIMEOUT=60s
 ```
 
-Runtime credentials use environment variables. Model and voice-generation options live in the `tts_settings` database row and are managed through the API.
+Runtime credentials use environment variables. Babbel always sends ElevenLabs `eleven_v3`; voice-generation options live in the `tts_settings` database row and are managed through the API.
 
 ```bash
 # Inspect current TTS settings (all authenticated roles can read)
@@ -321,11 +321,9 @@ curl -b cookies.txt http://localhost:8080/api/v1/settings/tts
 curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/settings/tts \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "eleven_v3",
     "stability": 0.8,
     "similarity_boost": 0.8,
     "style": 0.25,
-    "use_speaker_boost": true,
     "speed": 1.0,
     "apply_text_normalization": "auto",
     "seed": null,
@@ -344,28 +342,30 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
-The default settings row uses `eleven_v3`. `tts_style_prefix` is applied only for `eleven_v3`; speaker boost is stored but omitted from Eleven v3 request bodies.
+The default settings row uses `eleven_v3`. `tts_style_prefix` is prepended to the story text before synthesis.
 
-Manage alias pronunciation rules through the single Babbel-managed ElevenLabs dictionary:
+Manage local IPA pronunciation rules:
 
 ```bash
 # Inspect pronunciation rules
 curl -b cookies.txt http://localhost:8080/api/v1/settings/tts/pronunciations
 
-# Replace all rules; an empty rules array clears the dictionary
+# Replace all rules; PUT {"rules": []} clears the local table
 curl -b cookies.txt -X PUT http://localhost:8080/api/v1/settings/tts/pronunciations \
   -H "Content-Type: application/json" \
   -d '{
     "rules": [
       {
         "string_to_replace": "Albert Heijn",
-        "alias": "albert hijn",
+        "ipa": "ˈɑlbərt ˈɦɛin",
         "case_sensitive": false,
         "word_boundaries": true
       }
     ]
   }'
 ```
+
+Pronunciation rules are stored locally; saving them does not call ElevenLabs. During story TTS, Babbel injects inline IPA into the story text before sending the `eleven_v3` request.
 
 ### Modern Query Parameters
 

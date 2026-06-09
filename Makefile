@@ -1,4 +1,4 @@
-.PHONY: help build run test clean docs docker
+.PHONY: help build run test test-integration clean docs docker
 
 help:
 	@echo "Babbel Commands:"
@@ -6,6 +6,7 @@ help:
 	@echo "  run       - Run the application"
 	@echo "  test      - Run tests"
 	@echo "  test-all  - Run integration tests"
+	@echo "  test-integration - Run Go integration tests against compose MySQL"
 	@echo "  lint      - Run linters"
 	@echo "  quality   - Run quality checks"
 	@echo "  docs-all  - Generate documentation"
@@ -23,6 +24,19 @@ run:
 # Run tests
 test:
 	go test ./... -v
+
+test-integration:
+	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }
+	docker compose up -d mysql
+	@echo "Waiting for MySQL to be healthy..."
+	@i=0; until docker compose ps mysql | grep -q healthy; do \
+		i=$$((i+1)); \
+		if [ $$i -ge 60 ]; then echo "MySQL not healthy after 60s"; exit 1; fi; \
+		sleep 1; \
+	done
+	$(MAKE) db-reset
+	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local' \
+		go test -tags=integration ./internal/...
 
 # Run linters
 lint:

@@ -1,8 +1,6 @@
 const ApiHelper = require('../lib/ApiHelper');
 
 describe('Permissions', () => {
-  let ttsAPIKeyConfigured = false;
-
   // Helper to create a user
   const createUser = async (username, fullName, password, role) => {
     const response = await global.api.apiCall('POST', '/users', {
@@ -37,13 +35,10 @@ describe('Permissions', () => {
     await global.api.apiLogin('admin', 'admin');
   };
 
-  const expectedPronunciationRulesStatus = () => ttsAPIKeyConfigured ? 200 : 501;
-
   beforeAll(async () => {
     await restoreAdmin();
     const response = await global.api.apiCall('GET', '/settings/tts');
     expect(response.status).toBe(200);
-    ttsAPIKeyConfigured = response.data.api_key_configured === true;
   });
 
   afterAll(async () => {
@@ -104,10 +99,10 @@ describe('Permissions', () => {
 
     test('when admin manages pronunciation rules, then reaches handler', async () => {
       const getResponse = await global.api.apiCall('GET', '/settings/tts/pronunciations');
-      expect(getResponse.status).toBe(expectedPronunciationRulesStatus());
+      expect(getResponse.status).toBe(200);
 
       const putResponse = await global.api.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
-      expect(putResponse.status).toBe(expectedPronunciationRulesStatus());
+      expect(putResponse.status).toBe(200);
     });
   });
 
@@ -190,10 +185,10 @@ describe('Permissions', () => {
 
     test('when editor manages pronunciation rules, then reaches handler', async () => {
       const getResponse = await global.api.apiCall('GET', '/settings/tts/pronunciations');
-      expect(getResponse.status).toBe(expectedPronunciationRulesStatus());
+      expect(getResponse.status).toBe(200);
 
       const putResponse = await global.api.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
-      expect(putResponse.status).toBe(expectedPronunciationRulesStatus());
+      expect(putResponse.status).toBe(200);
     });
   });
 
@@ -255,7 +250,7 @@ describe('Permissions', () => {
 
     test('when viewer reads pronunciation rules, then reaches handler', async () => {
       const response = await global.api.apiCall('GET', '/settings/tts/pronunciations');
-      expect(response.status).toBe(expectedPronunciationRulesStatus());
+      expect(response.status).toBe(200);
     });
 
     test('when viewer writes pronunciation rules, then forbidden before handler', async () => {
