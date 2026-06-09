@@ -8,74 +8,82 @@ import (
 
 // Config combines all authentication methods (local, OIDC) and session management settings.
 type Config struct {
-	// Auth method: "local", "oidc", or "both"
+	// Method selects the enabled auth method: "local", "oidc", or "both".
 	Method config.AuthMethod
 
-	// OIDC/OAuth2 configuration
+	// OIDC contains OAuth2/OIDC provider settings.
 	OIDC OIDCConfig
 
-	// Local auth configuration
+	// Local contains database-backed auth settings.
 	Local LocalConfig
 
-	// Session configuration
+	// Session contains session storage and cookie settings.
 	Session SessionConfig
 
-	// AllowedOrigins for validating OAuth frontend_url (prevents open redirect)
+	// AllowedOrigins validates OAuth frontend_url values to prevent open redirects.
 	AllowedOrigins string
 }
 
 // OIDCConfig defines OAuth2/OIDC provider settings for SSO authentication.
 type OIDCConfig struct {
-	// Provider URL (e.g., https://login.microsoftonline.com/{tenant}/v2.0 for Azure AD)
+	// ProviderURL is the issuer URL, for example https://login.microsoftonline.com/{tenant}/v2.0 for Azure AD.
 	ProviderURL string
 
-	// OAuth2 client credentials
-	ClientID     string
+	// ClientID is the OAuth2 client identifier.
+	ClientID string
+	// ClientSecret is the OAuth2 client secret.
 	ClientSecret string
 
-	// Redirect URL after authentication
+	// RedirectURL is the OAuth2 callback URL after authentication.
 	RedirectURL string
 
-	// OAuth2 scopes
+	// Scopes lists the OAuth2 scopes requested during login.
 	Scopes []string
 
-	// Optional: specific endpoints (auto-discovered if not set)
-	AuthURL  string
+	// AuthURL overrides the provider authorization endpoint when discovery is not used.
+	AuthURL string
+	// TokenURL overrides the provider token endpoint when discovery is not used.
 	TokenURL string
 
-	// OIDC provider
+	// Provider is the initialized OIDC provider.
 	Provider *oidc.Provider
 
-	// OAuth2 config
+	// OAuth2Config is the initialized OAuth2 client configuration.
 	OAuth2Config *oauth2.Config
 }
 
 // LocalConfig defines password policies and lockout rules for database-backed authentication.
 type LocalConfig struct {
-	// Enable local username/password authentication
+	// Enabled controls local username/password authentication.
 	Enabled bool
 
-	// Login lockout policy
-	MaxFailedAttempts      int
+	// MaxFailedAttempts is the failed-login threshold before lockout.
+	MaxFailedAttempts int
+	// LockoutDurationMinutes is the account lockout duration after failed attempts.
 	LockoutDurationMinutes int
 }
 
 // SessionConfig defines how user sessions are stored and secured.
 type SessionConfig struct {
-	// Session store type: "memory" (default)
+	// StoreType selects the session store type; "memory" is the default.
 	StoreType string
 
-	// Session lifetime
-	MaxAge int // seconds
+	// MaxAge is the session lifetime in seconds.
+	MaxAge int
 
-	// Cookie settings
-	CookieName     string
-	CookieDomain   string
-	CookiePath     string
-	CookieSecure   bool
+	// CookieName is the browser cookie name.
+	CookieName string
+	// CookieDomain restricts the session cookie domain.
+	CookieDomain string
+	// CookiePath restricts the session cookie path.
+	CookiePath string
+	// CookieSecure restricts the cookie to HTTPS requests.
+	CookieSecure bool
+	// CookieHTTPOnly prevents JavaScript from reading the session cookie.
 	CookieHTTPOnly bool
+	// CookieSameSite controls the SameSite cookie attribute.
 	CookieSameSite string
 
-	// Secret key for session encryption
+	// SecretKey encrypts or signs session data depending on the store.
 	SecretKey string
 }

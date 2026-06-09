@@ -118,11 +118,11 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 //     a new one will be generated. Use 0 to always generate a fresh bulletin.
 //
 // Response:
-//   - 200 OK: WAV audio file
-//   - 400 Bad Request: Missing or invalid parameters
-//   - 401 Unauthorized: Invalid API key
-//   - 404 Not Found: Station not found, no stories available, or endpoint disabled
-//   - 500 Internal Server Error: Generation failed
+//   - 200 OK: WAV audio file.
+//   - 400 Bad Request: Missing or invalid parameters.
+//   - 401 Unauthorized: Invalid API key.
+//   - 404 Not Found: Station not found, no stories available, or endpoint disabled.
+//   - 500 Internal Server Error: Generation failed.
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	req := h.validateBulletinRequest(c)
 	if req == nil {
@@ -140,7 +140,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	// Acquire per-station lock to prevent concurrent generation
+	// Acquire the per-station lock to prevent concurrent generation.
 	lock := h.getStationLock(req.stationID)
 	lock.Lock()
 	defer lock.Unlock()

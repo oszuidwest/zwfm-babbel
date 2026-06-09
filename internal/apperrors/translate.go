@@ -9,14 +9,18 @@ import (
 // Operation represents the type of database operation for FK disambiguation.
 type Operation int
 
-// Operation values identify the repository action that produced an error.
 const (
+	// OpQuery identifies repository read operations.
 	OpQuery Operation = iota
+	// OpCreate identifies repository insert operations.
 	OpCreate
+	// OpUpdate identifies repository update operations.
 	OpUpdate
+	// OpDelete identifies repository delete operations.
 	OpDelete
 )
 
+// String returns the operation label used in domain-level database errors.
 func (o Operation) String() string {
 	return [...]string{"query", "create", "update", "delete"}[o]
 }

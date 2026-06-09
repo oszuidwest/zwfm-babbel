@@ -12,21 +12,27 @@ import (
 // Thursday=16, Friday=32, Saturday=64.
 //
 // Common values:
-//   - 127 = All days (1+2+4+8+16+32+64)
-//   - 62  = Weekdays Mon-Fri (2+4+8+16+32)
-//   - 65  = Weekend Sat+Sun (1+64)
-//   - 0   = No days
+//   - 127 = All days (1+2+4+8+16+32+64).
+//   - 62  = Weekdays Mon-Fri (2+4+8+16+32).
+//   - 65  = Weekend Sat+Sun (1+64).
+//   - 0   = No days.
 type Weekdays uint8
 
-// Weekday bitmask constants for each day.
 const (
-	WeekdaySunday    Weekdays = 1 << time.Sunday    // 1
-	WeekdayMonday    Weekdays = 1 << time.Monday    // 2
-	WeekdayTuesday   Weekdays = 1 << time.Tuesday   // 4
-	WeekdayWednesday Weekdays = 1 << time.Wednesday // 8
-	WeekdayThursday  Weekdays = 1 << time.Thursday  // 16
-	WeekdayFriday    Weekdays = 1 << time.Friday    // 32
-	WeekdaySaturday  Weekdays = 1 << time.Saturday  // 64
+	// WeekdaySunday selects Sunday in a Weekdays bitmask (1).
+	WeekdaySunday Weekdays = 1 << time.Sunday
+	// WeekdayMonday selects Monday in a Weekdays bitmask (2).
+	WeekdayMonday Weekdays = 1 << time.Monday
+	// WeekdayTuesday selects Tuesday in a Weekdays bitmask (4).
+	WeekdayTuesday Weekdays = 1 << time.Tuesday
+	// WeekdayWednesday selects Wednesday in a Weekdays bitmask (8).
+	WeekdayWednesday Weekdays = 1 << time.Wednesday
+	// WeekdayThursday selects Thursday in a Weekdays bitmask (16).
+	WeekdayThursday Weekdays = 1 << time.Thursday
+	// WeekdayFriday selects Friday in a Weekdays bitmask (32).
+	WeekdayFriday Weekdays = 1 << time.Friday
+	// WeekdaySaturday selects Saturday in a Weekdays bitmask (64).
+	WeekdaySaturday Weekdays = 1 << time.Saturday
 )
 
 // WeekdaysAll represents all days of the week (127).

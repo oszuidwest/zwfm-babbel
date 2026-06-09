@@ -13,9 +13,10 @@ type FieldMapping map[string]string
 // SortDirection represents ascending or descending sort order.
 type SortDirection string
 
-// SortDirection values accepted by API list queries.
 const (
-	SortAsc  SortDirection = "asc"
+	// SortAsc orders query results from lowest to highest value.
+	SortAsc SortDirection = "asc"
+	// SortDesc orders query results from highest to lowest value.
 	SortDesc SortDirection = "desc"
 )
 
@@ -28,20 +29,31 @@ type SortField struct {
 // FilterOperator represents comparison operators for filtering.
 type FilterOperator string
 
-// FilterOperator values map API filter names to supported query predicates.
 const (
-	FilterEquals      FilterOperator = "eq"
-	FilterNotEquals   FilterOperator = "neq"
+	// FilterEquals selects records whose field equals the supplied value.
+	FilterEquals FilterOperator = "eq"
+	// FilterNotEquals selects records whose field differs from the supplied value.
+	FilterNotEquals FilterOperator = "neq"
+	// FilterGreaterThan selects records whose field is greater than the supplied value.
 	FilterGreaterThan FilterOperator = "gt"
+	// FilterGreaterOrEq selects records whose field is greater than or equal to the supplied value.
 	FilterGreaterOrEq FilterOperator = "gte"
-	FilterLessThan    FilterOperator = "lt"
-	FilterLessOrEq    FilterOperator = "lte"
-	FilterLike        FilterOperator = "like"
-	FilterIn          FilterOperator = "in"
-	FilterBetween     FilterOperator = "between"
-	FilterBitwiseAnd  FilterOperator = "band"
-	FilterIsNull      FilterOperator = "null"
-	FilterIsNotNull   FilterOperator = "not_null"
+	// FilterLessThan selects records whose field is less than the supplied value.
+	FilterLessThan FilterOperator = "lt"
+	// FilterLessOrEq selects records whose field is less than or equal to the supplied value.
+	FilterLessOrEq FilterOperator = "lte"
+	// FilterLike selects records whose field matches a SQL LIKE pattern.
+	FilterLike FilterOperator = "like"
+	// FilterIn selects records whose field is one of the supplied values.
+	FilterIn FilterOperator = "in"
+	// FilterBetween selects records whose field falls within the supplied range.
+	FilterBetween FilterOperator = "between"
+	// FilterBitwiseAnd selects records whose bitmask field overlaps the supplied mask.
+	FilterBitwiseAnd FilterOperator = "band"
+	// FilterIsNull selects records whose field is NULL.
+	FilterIsNull FilterOperator = "null"
+	// FilterIsNotNull selects records whose field is not NULL.
+	FilterIsNotNull FilterOperator = "not_null"
 )
 
 // FilterCondition represents a single filter condition.
@@ -59,6 +71,7 @@ type UnknownFieldError struct {
 	Field string
 }
 
+// Error formats the unknown-field message used by repository list queries.
 func (e *UnknownFieldError) Error() string {
 	return fmt.Sprintf("unknown %s field %q", e.Kind, e.Field)
 }
@@ -72,6 +85,7 @@ type InvalidFilterError struct {
 	Reason   string
 }
 
+// Error formats the invalid-filter message returned for malformed filter clauses.
 func (e *InvalidFilterError) Error() string {
 	return fmt.Sprintf("invalid filter[%s][%s]: %s", e.Field, e.Operator, e.Reason)
 }
@@ -83,7 +97,7 @@ type ListQuery struct {
 	Sort    []SortField
 	Filters []FilterCondition
 	Search  string
-	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
+	// Trashed controls soft-delete filtering: "" (default, active only), "only", or "with".
 	Trashed string
 }
 
@@ -254,7 +268,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
 
-	// Restrict bitwise operators to allowed fields only
+	// Restrict bitwise operators to allowed fields only.
 	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
 		return nil, &InvalidFilterError{
 			Field:    filter.Field,

@@ -442,7 +442,7 @@ func handleStrictJSONDecodeError(c *gin.Context, err error) {
 }
 
 func unknownJSONField(err error) (string, bool) {
-	// TODO: switch to typed error if encoding/json/v2 exposes one.
+	// encoding/json reports unknown fields as text, so parse the stable prefix.
 	const prefix = "json: unknown field "
 	message := err.Error()
 	if !strings.HasPrefix(message, prefix) {

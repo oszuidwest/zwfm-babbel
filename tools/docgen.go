@@ -1,4 +1,4 @@
-// Package main provides a comprehensive OpenAPI documentation generator for the Babbel API.
+// Package main generates Markdown API reference documentation from the Babbel OpenAPI specification.
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// OpenAPISpec represents a simplified OpenAPI specification structure for documentation generation.
+// OpenAPISpec models the subset of the OpenAPI specification used for Markdown generation.
 type OpenAPISpec struct {
 	OpenAPI string `yaml:"openapi"`
 	Info    struct {
@@ -40,7 +40,7 @@ type OpenAPISpec struct {
 	} `yaml:"tags"`
 }
 
-// Operation represents an OpenAPI operation definition with its metadata and parameters.
+// Operation describes one OpenAPI operation with the fields used in the generated reference.
 type Operation struct {
 	Summary     string                `yaml:"summary"`
 	Description string                `yaml:"description"`
@@ -52,7 +52,7 @@ type Operation struct {
 	OperationID string                `yaml:"operationId"`
 }
 
-// Parameter represents an OpenAPI parameter definition with validation schema.
+// Parameter describes an OpenAPI parameter definition with its validation schema.
 type Parameter struct {
 	Name        string         `yaml:"name"`
 	In          string         `yaml:"in"`
@@ -63,7 +63,7 @@ type Parameter struct {
 	Example     any            `yaml:"example"`
 }
 
-// EndpointInfo holds structured endpoint information for better organization.
+// EndpointInfo holds the endpoint metadata used for grouping and sorting.
 type EndpointInfo struct {
 	Method    string
 	Path      string
@@ -333,8 +333,8 @@ func resolveParameters(params []Parameter, components struct {
 	resolvedParams := make([]Parameter, 0, len(params))
 	for _, param := range params {
 		if param.Ref != "" {
-			// Extract parameter name from $ref
-			// Format: #/components/parameters/paramName
+			// Extract the parameter name from the $ref path.
+			// Format: #/components/parameters/paramName.
 			parts := strings.Split(param.Ref, "/")
 			if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
 				paramName := parts[3]
@@ -353,10 +353,10 @@ func resolveParameters(params []Parameter, components struct {
 func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	endpointsByTag := make(map[string][]EndpointInfo)
 
-	// Collect all endpoints
+	// Collect all endpoints by their first OpenAPI tag.
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
-			// Resolve parameter references
+			// Resolve parameter references before rendering.
 			op.Parameters = resolveParameters(op.Parameters, spec.Components)
 
 			endpoint := EndpointInfo{
