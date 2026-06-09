@@ -148,6 +148,7 @@ func seedUpdateValue(seed *int64) *uint32 {
 	if seed == nil {
 		return nil
 	}
+	// Defense in depth: validateSeed in Update is the primary guard.
 	if *seed < 0 || *seed > maxElevenLabsSeedUint32 {
 		return nil
 	}
