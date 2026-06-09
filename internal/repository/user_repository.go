@@ -128,7 +128,7 @@ func (r *UserRepository) SetSuspended(ctx context.Context, id int64, suspended b
 
 // DeleteSessions removes all sessions for a user.
 func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error {
-	// user_sessions is not a GORM model, so we use raw SQL
+	// user_sessions is not a GORM model, so use raw SQL.
 	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
 	return ParseDBError(err)
 }

@@ -39,7 +39,7 @@ type Handlers struct {
 	audioRepo repository.AudioRepository
 	audioSvc  *audio.Service
 	config    *config.Config
-	// Domain services
+	// Domain services are injected by NewHandlers.
 	bulletinSvc           *services.BulletinService
 	storySvc              *services.StoryService
 	stationSvc            *services.StationService
@@ -180,7 +180,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	// Unknown error - fallback
+	// Unknown errors fall back to a generic internal problem response.
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	utils.ProblemExtended(c, http.StatusInternalServerError,
 		fmt.Sprintf("Failed to process %s", fallbackResource),

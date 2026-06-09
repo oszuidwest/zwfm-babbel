@@ -176,14 +176,14 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 // setupEngine creates the Gin engine with global middleware.
 func setupEngine(cfg *config.Config, authService *auth.Service) *gin.Engine {
 	r := gin.New()
-	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys)
+	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys).
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
-	// Session middleware must come before any handler that reads session state
+	// Session middleware must come before any handler that reads session state.
 	r.Use(authService.SessionMiddleware())
-	// Security headers before CORS, because CORS may abort on OPTIONS preflight
+	// Security headers run before CORS because CORS may abort on OPTIONS preflight.
 	r.Use(securityHeaders(cfg))
 	r.Use(corsMiddleware(cfg))
 	return r
@@ -368,14 +368,14 @@ func registerHealthRoute(r *gin.Engine) {
 // securityHeaders adds OWASP-recommended security headers to all responses.
 func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Core security headers (always applied)
+		// Core security headers are always applied.
 		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
 		c.Writer.Header().Set("X-Frame-Options", "DENY")
 		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 
-		// HSTS header - only for production or HTTPS requests
+		// HSTS is sent only for production or HTTPS requests.
 		if cfg.Environment == "production" || c.Request.TLS != nil {
 			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}

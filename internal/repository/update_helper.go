@@ -19,10 +19,10 @@ import (
 //	type StoryUpdate struct {
 //	    Title        *string `gorm:"column:title"`
 //	    VoiceID      *int64  `gorm:"column:voice_id"`
-//	    ClearVoiceID bool    `gorm:"-"`  // Sets voice_id to NULL
+//	    ClearVoiceID bool    `gorm:"-"`  // Sets voice_id to NULL.
 //	}
 //
-//	updateMap := BuildUpdateMap(u)  // Handles all fields automatically
+//	updateMap := BuildUpdateMap(u)  // Handles all fields automatically.
 func BuildUpdateMap(update any) map[string]any {
 	result := make(map[string]any)
 
@@ -65,7 +65,7 @@ func collectClearFields(v reflect.Value) map[string]bool {
 		if !fieldVal.Bool() {
 			continue
 		}
-		// ClearVoiceID -> VoiceID
+		// ClearVoiceID maps to VoiceID.
 		targetName := strings.TrimPrefix(field.Name, "Clear")
 		clearFields[targetName] = true
 	}

@@ -352,7 +352,7 @@ func (s *Service) addJingleMix(
 	} else {
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
-		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image
+		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image.
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
 		filters = append(filters,
 			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
@@ -380,7 +380,7 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
-		// Continue despite read error
+		// Continue despite read errors.
 		logger.Warn("Failed to read FFmpeg stderr", "error", readErr)
 	}
 

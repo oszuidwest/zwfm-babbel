@@ -28,23 +28,23 @@ func (e *QueryParamError) Error() string {
 
 // QueryParams holds parsed filtering, sorting, pagination, fieldset, and search options.
 type QueryParams struct {
-	// Pagination
+	// Pagination controls list bounds.
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 
-	// Sorting
+	// Sorting controls result ordering.
 	Sort []SortField `json:"sort"`
 
-	// Field Selection (sparse fieldsets)
+	// Fields controls sparse fieldsets.
 	Fields []string `json:"fields"`
 
-	// Filtering
+	// Filters controls field-level predicates.
 	Filters []ParsedFilter `json:"filters"`
 
-	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
+	// Trashed controls soft-delete filtering: "" (default, active only), "only", or "with".
 	Trashed string `json:"trashed"`
 
-	// Search
+	// Search controls full-text search.
 	Search string `json:"search"`
 }
 

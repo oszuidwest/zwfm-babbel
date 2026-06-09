@@ -621,9 +621,9 @@ func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
 	t.Parallel()
 	// Documents the edge case where double-encoded entities are decoded twice
 	// across the write and read paths:
-	//   Input → NormalizeText (decode #1) → stored in DB → AfterFind (decode #2) → output
+	//   Input -> NormalizeText (decode #1) -> stored in DB -> AfterFind (decode #2) -> output.
 
-	// Step 1: NormalizeText decodes once on input
+	// Step 1: NormalizeText decodes once on input.
 	req := &StoryCreateRequest{
 		Title: "&amp;amp;",
 		Text:  "&amp;lt;script&amp;gt;",
@@ -637,7 +637,7 @@ func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
 		t.Errorf("after NormalizeText: Text = %q, want %q", req.Text, "&lt;script&gt;")
 	}
 
-	// Step 2: Simulate DB round-trip - AfterFind decodes again on read
+	// Step 2: simulate a DB round-trip; AfterFind decodes again on read.
 	story := &models.Story{
 		Title: req.Title,
 		Text:  req.Text,

@@ -21,7 +21,7 @@ type Station struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	StationVoices []StationVoice `gorm:"foreignKey:StationID" json:"-"`
 	Bulletins     []Bulletin     `gorm:"foreignKey:StationID" json:"-"`
 }
@@ -54,10 +54,10 @@ type Story struct {
 	UpdatedAt  time.Time          `json:"updated_at"`
 	DeletedAt  gorm.DeletedAt     `gorm:"index" json:"deleted_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 
-	// Computed fields (populated by AfterFind hook, not stored in DB)
+	// Computed fields are populated by AfterFind and not stored in the database.
 	VoiceName string `gorm:"-" json:"voice_name,omitempty"`
 	AudioURL  string `gorm:"-" json:"audio_url"`
 }
@@ -74,7 +74,7 @@ func (s *Story) AfterFind(_ *gorm.DB) error {
 		s.VoiceName = s.Voice.Name
 	}
 
-	// Always generate audio URL (endpoint exists, may return 404 if no file)
+	// Always generate an audio URL; the endpoint may return 404 if no file exists.
 	s.AudioURL = fmt.Sprintf("/stories/%d/audio", s.ID)
 
 	return nil
@@ -94,7 +94,7 @@ type Voice struct {
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	Stories       []Story        `gorm:"foreignKey:VoiceID" json:"-"`
 	StationVoices []StationVoice `gorm:"foreignKey:VoiceID" json:"-"`
 }
@@ -111,11 +111,11 @@ type StationVoice struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	Station *Station `gorm:"foreignKey:StationID" json:"-"`
 	Voice   *Voice   `gorm:"foreignKey:VoiceID" json:"-"`
 
-	// Computed fields (populated by AfterFind hook, not stored in DB)
+	// Computed fields are populated by AfterFind and not stored in the database.
 	StationName string `gorm:"-" json:"station_name,omitempty"`
 	VoiceName   string `gorm:"-" json:"voice_name,omitempty"`
 	AudioURL    string `gorm:"-" json:"audio_url"`
@@ -131,7 +131,7 @@ func (sv *StationVoice) AfterFind(_ *gorm.DB) error {
 		sv.VoiceName = sv.Voice.Name
 	}
 
-	// Always generate audio URL (endpoint exists, may return 404 if no file)
+	// Always generate an audio URL; the endpoint may return 404 if no file exists.
 	sv.AudioURL = fmt.Sprintf("/station-voices/%d/audio", sv.ID)
 
 	return nil
@@ -145,7 +145,7 @@ type User struct {
 	// PasswordHash is the bcrypt hashed password.
 	PasswordHash string  `gorm:"size:255" json:"-"`
 	Email        *string `gorm:"size:255;uniqueIndex" json:"email"`
-	// Role defines the user's access level: admin, editor, or viewer
+	// Role defines the user's access level: admin, editor, or viewer.
 	Role        UserRole       `gorm:"size:20;not null;default:'viewer';index" json:"role"`
 	SuspendedAt *time.Time     `json:"suspended_at,omitempty"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
@@ -206,11 +206,11 @@ type Bulletin struct {
 	Metadata     *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	CreatedAt    time.Time          `gorm:"index" json:"created_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	Station *Station        `gorm:"foreignKey:StationID" json:"-"`
 	Stories []BulletinStory `gorm:"foreignKey:BulletinID" json:"-"`
 
-	// Computed fields (populated by AfterFind hook, not stored in DB)
+	// Computed fields are populated by AfterFind and not stored in the database.
 	StationName string `gorm:"-" json:"station_name,omitempty"`
 	AudioURL    string `gorm:"-" json:"audio_url,omitempty"`
 }
@@ -221,7 +221,7 @@ func (b *Bulletin) AfterFind(_ *gorm.DB) error {
 		b.StationName = b.Station.Name
 	}
 
-	// Only generate audio URL if the file hasn't been purged
+	// Only generate an audio URL if the file has not been purged.
 	if b.FilePurgedAt == nil {
 		b.AudioURL = fmt.Sprintf("/bulletins/%d/audio", b.ID)
 	}
@@ -238,7 +238,7 @@ type BulletinStory struct {
 	StoryOrder int       `gorm:"not null;default:0" json:"story_order"`
 	CreatedAt  time.Time `json:"created_at"`
 
-	// Relations
+	// Relations are loaded by GORM when preloaded.
 	Bulletin *Bulletin `gorm:"foreignKey:BulletinID" json:"-"`
 	Story    *Story    `gorm:"foreignKey:StoryID" json:"-"`
 }

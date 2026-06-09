@@ -85,7 +85,7 @@ func (s *Service) initializeOIDC() error {
 
 	s.config.OIDC.Provider = provider
 
-	// Configure OAuth2
+	// Configure OAuth2 when OIDC is enabled.
 	oauth2Config := &oauth2.Config{
 		ClientID:     s.config.OIDC.ClientID,
 		ClientSecret: s.config.OIDC.ClientSecret,
@@ -94,7 +94,7 @@ func (s *Service) initializeOIDC() error {
 		Scopes:       s.config.OIDC.Scopes,
 	}
 
-	// Override endpoints if specified
+	// Override endpoints when explicit provider URLs are configured.
 	if s.config.OIDC.AuthURL != "" {
 		oauth2Config.Endpoint.AuthURL = s.config.OIDC.AuthURL
 	}
@@ -109,7 +109,7 @@ func (s *Service) initializeOIDC() error {
 
 // initializeRBAC sets up role-based access control using Casbin.
 func (s *Service) initializeRBAC() (*casbin.Enforcer, error) {
-	// Define RBAC model inline
+	// Define the RBAC model inline.
 	modelText := `
 [request_definition]
 r = sub, obj, act
@@ -137,14 +137,14 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		return nil, err
 	}
 
-	// Define default policies
+	// Define default policies.
 	policies := [][]string{
-		// Admins can do everything
+		// Admins can do everything.
 		{"admin", "*", "*"},
 		{"admin", "settings:tts", "read"},
 		{"admin", "settings:tts", "write"},
 
-		// Editors can manage content
+		// Editors can manage content.
 		{"editor", "stations", "read"},
 		{"editor", "stations", "write"},
 		{"editor", "voices", "read"},
@@ -158,7 +158,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"editor", "pronunciation_rules", "read"},
 		{"editor", "pronunciation_rules", "write"},
 
-		// Viewers can only read
+		// Viewers can only read.
 		{"viewer", "stations", "read"},
 		{"viewer", "voices", "read"},
 		{"viewer", "stories", "read"},
@@ -166,7 +166,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "settings:tts", "read"},
 		{"viewer", "pronunciation_rules", "read"},
 
-		// User management: read for editors and admins, write for admins only
+		// User management is readable by editors and admins, and writable by admins only.
 		{"admin", "users", "read"},
 		{"admin", "users", "write"},
 	}
@@ -177,7 +177,7 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 			return nil, fmt.Errorf("failed to add RBAC policy %v: %w", p, err)
 		}
 		if !added {
-			// Policy already exists (from database adapter), this is expected
+			// Existing policies from the database adapter are expected.
 			logger.Debug("RBAC policy already exists", "policy", p)
 		}
 	}
@@ -217,12 +217,12 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 		var count int64
 		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Where("deleted_at IS NULL").Count(&count).Error
 		if err != nil {
-			// On error, assume it might exist and try with suffix
+			// On errors, assume the username might exist and retry with a suffix.
 			logger.Warn("Database error checking username uniqueness, trying next", "error", err)
 			username = fmt.Sprintf("%s_%d", baseUsername, counter)
 			counter++
 			if counter > 100 {
-				// Fallback to timestamp-based username to avoid infinite loop
+				// Fall back to a timestamp-based username to avoid an infinite loop.
 				username = fmt.Sprintf("%s_%d", baseUsername, time.Now().Unix())
 				break
 			}
@@ -233,13 +233,13 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 			break
 		}
 
-		// Username exists, try with numeric suffix
+		// Existing usernames are retried with a numeric suffix.
 		username = fmt.Sprintf("%s_%d", baseUsername, counter)
 		counter++
 
 		// Ensure we don't exceed the max length (100 characters)
 		if len(username) > 100 {
-			// Truncate base and add suffix
+			// Truncate the base username before adding the suffix.
 			maxBaseLen := 100 - len(fmt.Sprintf("_%d", counter))
 			if maxBaseLen < 1 {
 				maxBaseLen = 90
@@ -298,7 +298,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			session.Delete(string(SessKeyUserID))
 			if saveErr := session.Save(c); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
-				// Continue with authentication error - session cleanup failure is secondary
+				// Continue with the authentication error because session cleanup failure is secondary.
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
 			c.Abort()
@@ -609,7 +609,7 @@ func (s *Service) Logout(c *gin.Context) error {
 // CreateSession stores authenticated user identity in the session.
 func (s *Service) CreateSession(c *gin.Context, userID int64, username string, role string, authMethod string) error {
 	session := s.sessions.Get(c)
-	// Use type-safe session helpers
+	// Use type-safe session helpers.
 	SetSessionAuth(session, SessionData{
 		UserID:     userID,
 		Username:   username,

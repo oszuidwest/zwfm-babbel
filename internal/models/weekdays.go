@@ -12,10 +12,10 @@ import (
 // Thursday=16, Friday=32, Saturday=64.
 //
 // Common values:
-//   - 127 = All days (1+2+4+8+16+32+64)
-//   - 62  = Weekdays Mon-Fri (2+4+8+16+32)
-//   - 65  = Weekend Sat+Sun (1+64)
-//   - 0   = No days
+//   - 127 = All days (1+2+4+8+16+32+64).
+//   - 62  = Weekdays Mon-Fri (2+4+8+16+32).
+//   - 65  = Weekend Sat+Sun (1+64).
+//   - 0   = No days.
 type Weekdays uint8
 
 // Weekday bitmask constants for each day.

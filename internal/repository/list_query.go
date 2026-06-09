@@ -83,7 +83,7 @@ type ListQuery struct {
 	Sort    []SortField
 	Filters []FilterCondition
 	Search  string
-	// Trashed controls soft-delete filtering: "" (default, active only), "only", "with"
+	// Trashed controls soft-delete filtering: "" (default, active only), "only", or "with".
 	Trashed string
 }
 
@@ -254,7 +254,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
 
-	// Restrict bitwise operators to allowed fields only
+	// Restrict bitwise operators to allowed fields only.
 	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
 		return nil, &InvalidFilterError{
 			Field:    filter.Field,

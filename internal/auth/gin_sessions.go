@@ -22,20 +22,20 @@ func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error)
 	storeType := config.SessionStoreType(cfg.StoreType)
 	switch storeType {
 	case config.StoreTypeCookie:
-		// Cookie-based sessions (encrypted)
+		// Cookie-based sessions are encrypted.
 		if cfg.SecretKey == "" {
 			return nil, nil, fmt.Errorf("secret key is required for cookie store")
 		}
 		store = cookie.NewStore([]byte(cfg.SecretKey))
 	case config.StoreTypeMemory:
-		// Memory-based sessions (server-side)
+		// Memory-based sessions are stored server-side.
 		store = memstore.NewStore([]byte(cfg.SecretKey))
 	default:
-		// Default to memory store
+		// Unknown store types default to memory storage.
 		store = memstore.NewStore([]byte(cfg.SecretKey))
 	}
 
-	// Configure store options
+	// Configure session store options.
 	sameSite := config.CookieSameSite(cfg.CookieSameSite)
 	store.Options(sessions.Options{
 		Path:     cfg.CookiePath,

@@ -9,7 +9,7 @@ import (
 )
 
 // ProblemDetail represents an RFC 9457 Problem Details response for HTTP APIs.
-// See: https://datatracker.ietf.org/doc/html/rfc9457
+// See RFC 9457: https://datatracker.ietf.org/doc/html/rfc9457.
 type ProblemDetail struct {
 	// Type is a URI that identifies the problem type.
 	Type string `json:"type"`
