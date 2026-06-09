@@ -17,19 +17,30 @@ import (
 )
 
 // MaxPronunciationRules caps the number of inline-IPA rules saved in one set.
+// Must match maxItems in openapi.yaml (PronunciationRulesUpdate).
 const MaxPronunciationRules = 1000
 
 const maxPronunciationFieldRunes = 255
 
+type pronunciationRuleLister interface {
+	List(ctx context.Context) ([]models.PronunciationRule, error)
+}
+
+type pronunciationRuleRepo interface {
+	pronunciationRuleLister
+	ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error
+	MaxUpdatedAt(ctx context.Context) (*time.Time, error)
+}
+
 // PronunciationRulesService manages the global inline-IPA rule table.
 type PronunciationRulesService struct {
-	repo      *repository.PronunciationRuleRepository
+	repo      pronunciationRuleRepo
 	txManager repository.TxManager
 }
 
 // NewPronunciationRulesService binds pronunciation rule validation and persistence.
 func NewPronunciationRulesService(
-	repo *repository.PronunciationRuleRepository,
+	repo pronunciationRuleRepo,
 	txManager repository.TxManager,
 ) *PronunciationRulesService {
 	return &PronunciationRulesService{
@@ -54,7 +65,8 @@ type UpdatePronunciationRulesRequest struct {
 
 // PronunciationRulesResponse is the service-level response for both GET and PUT.
 type PronunciationRulesResponse struct {
-	Rules     []models.PronunciationRule
+	Rules []models.PronunciationRule
+	// UpdatedAt is nil when the rule table is empty.
 	UpdatedAt *time.Time
 }
 
@@ -85,24 +97,29 @@ func (s *PronunciationRulesService) Update(
 	}
 	sortPronunciationRules(rules)
 
+	var persistedRules []models.PronunciationRule
 	var updatedAt *time.Time
 	if err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
 		if err := s.repo.ReplaceAll(ctx, rules); err != nil {
 			return err
 		}
 		var err error
+		persistedRules, err = s.repo.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list_after_replace: %w", err)
+		}
 		updatedAt, err = s.repo.MaxUpdatedAt(ctx)
 		if err != nil {
-			return err
+			return fmt.Errorf("max_updated_at: %w", err)
 		}
 		return nil
 	}); err != nil {
 		return nil, translatePronunciationRulesRepoError(apperrors.OpUpdate, err)
 	}
 
-	logPronunciationRulesAudit(req, len(rules))
+	logPronunciationRulesAudit(req, len(persistedRules))
 	return &PronunciationRulesResponse{
-		Rules:     rules,
+		Rules:     persistedRules,
 		UpdatedAt: updatedAt,
 	}, nil
 }
@@ -244,6 +261,8 @@ func logPronunciationRulesAudit(req *UpdatePronunciationRulesRequest, totalAfter
 	}
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
+	} else {
+		logger.WithFields(fields).Warn("pronunciation rules audit entry has no actor")
 	}
 	logger.WithFields(fields).Info("pronunciation rules updated")
 }

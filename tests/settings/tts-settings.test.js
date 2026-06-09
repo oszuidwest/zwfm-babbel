@@ -97,10 +97,10 @@ describe('TTS Settings', () => {
     ]);
   });
 
-  test('when patching removed or unknown fields, then returns strict bad request errors', async () => {
+  test('when patching unknown fields, then returns strict bad request errors', async () => {
     const cases = [
-      ['model', { model: 'eleven_multilingual_v2' }, 'field has been removed in v3-only release'],
-      ['use_speaker_boost', { use_speaker_boost: true }, 'field has been removed in v3-only release'],
+      ['model', { model: 'eleven_multilingual_v2' }, 'unknown field'],
+      ['use_speaker_boost', { use_speaker_boost: true }, 'unknown field'],
       ['stabilty', { stabilty: 0.5 }, 'unknown field']
     ];
 
@@ -262,14 +262,14 @@ describe('TTS Settings', () => {
     ]));
   });
 
-  test('when PUT pronunciations sends alias, then strict binding returns 400', async () => {
+  test('when PUT pronunciations sends unknown alias field, then strict binding returns 400', async () => {
     const response = await global.api.apiCall('PUT', '/settings/tts/pronunciations', {
       rules: [{ string_to_replace: 'Albert Heijn', alias: 'albert hijn' }]
     });
 
     expect(response.status).toBe(400);
     expect(response.data.errors).toEqual([
-      { field: 'alias', message: "field has been replaced by 'ipa'" }
+      { field: 'alias', message: 'unknown field' }
     ]);
   });
 

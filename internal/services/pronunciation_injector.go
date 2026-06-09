@@ -12,17 +12,21 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// PronunciationInjector wraps matched story text terms in ElevenLabs v3 inline IPA tags.
+// PronunciationInjector wraps matched story text terms in ElevenLabs v3 /<ipa>/ tags.
 type PronunciationInjector struct {
-	repo *repository.PronunciationRuleRepository
+	repo pronunciationRuleLister
 }
 
 // NewPronunciationInjector returns an inline-IPA injector backed by repo.
-func NewPronunciationInjector(repo *repository.PronunciationRuleRepository) *PronunciationInjector {
+func NewPronunciationInjector(repo pronunciationRuleLister) *PronunciationInjector {
+	if repo == nil {
+		panic("services: NewPronunciationInjector requires a non-nil pronunciation rule repository")
+	}
 	return &PronunciationInjector{repo: repo}
 }
 
 // Apply wraps each match of any rule's string_to_replace in /<ipa>/.
+// Empty input skips repository access, and replacements are non-recursive.
 func (p *PronunciationInjector) Apply(ctx context.Context, text string) (string, error) {
 	if text == "" {
 		return "", nil

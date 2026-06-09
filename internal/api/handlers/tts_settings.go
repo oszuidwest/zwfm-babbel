@@ -38,11 +38,7 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 // UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
-	removed := utils.RemovedFields{
-		"model":             "field has been removed in v3-only release",
-		"use_speaker_boost": "field has been removed in v3-only release",
-	}
-	if !utils.BindJSONStrict(c, &req, removed) {
+	if !utils.BindJSONStrict(c, &req) {
 		return
 	}
 

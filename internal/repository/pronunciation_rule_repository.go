@@ -19,7 +19,7 @@ func NewPronunciationRuleRepository(db *gorm.DB) *PronunciationRuleRepository {
 	return &PronunciationRuleRepository{db: db}
 }
 
-// List returns all pronunciation rules in deterministic editor-facing order.
+// List returns all pronunciation rules sorted alphabetically by string_to_replace.
 func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.PronunciationRule, error) {
 	var rules []models.PronunciationRule
 	db := DBFromContext(ctx, r.db)
@@ -32,7 +32,9 @@ func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.Pronun
 }
 
 // ReplaceAll replaces every pronunciation rule. Caller MUST wrap this in
-// txManager.WithTransaction; DELETE+INSERT is not atomic otherwise.
+// txManager.WithTransaction; without a wrapping transaction a concurrent reader
+// can observe the empty intermediate state and a mid-call failure leaves the
+// table empty.
 func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error {
 	db := DBFromContext(ctx, r.db)
 

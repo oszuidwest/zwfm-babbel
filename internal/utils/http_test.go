@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -340,7 +341,6 @@ func TestBindJSONStrict(t *testing.T) {
 	tests := []struct {
 		name       string
 		body       string
-		removed    RemovedFields
 		want       bindExpect
 		wantStatus int
 	}{
@@ -361,13 +361,6 @@ func TestBindJSONStrict(t *testing.T) {
 			body:       `{"stabilty":0.5}`,
 			wantStatus: 400,
 			want:       bindExpect{errField: "stabilty", errMessage: "unknown field"},
-		},
-		{
-			name:       "removed field",
-			body:       `{"model":"eleven_v3"}`,
-			removed:    RemovedFields{"model": "field has been removed in v3-only release"},
-			wantStatus: 400,
-			want:       bindExpect{errField: "model", errMessage: "field has been removed in v3-only release"},
 		},
 		{
 			name:       "type mismatch",
@@ -393,7 +386,7 @@ func TestBindJSONStrict(t *testing.T) {
 			t.Parallel()
 			c, w := newTestContext(t, tt.body)
 			var req strictSettingsRequest
-			ok := BindJSONStrict(c, &req, tt.removed)
+			ok := BindJSONStrict(c, &req)
 
 			want := tt.want
 			want.status = tt.wantStatus
@@ -404,6 +397,45 @@ func TestBindJSONStrict(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBindJSONStrictAcceptsWrappedEOFOnTrailingCheck(t *testing.T) {
+	t.Parallel()
+
+	type strictSettingsRequest struct {
+		Stability *float64 `json:"stability" binding:"required"`
+	}
+
+	c, w := newTestContext(t, "")
+	c.Request.Body = &wrappedEOFAfterJSONReadCloser{data: []byte(`{"stability":0.5}`)}
+
+	var req strictSettingsRequest
+	ok := BindJSONStrict(c, &req)
+	if !ok {
+		t.Fatalf("expected ok=true for wrapped EOF after JSON value; response: %s", w.Body.String())
+	}
+	if req.Stability == nil || *req.Stability != 0.5 {
+		t.Fatalf("stability = %v, want 0.5", req.Stability)
+	}
+}
+
+func TestUnknownJSONFieldMatchesEncodingJSON(t *testing.T) {
+	t.Parallel()
+
+	var req struct {
+		Known string `json:"known"`
+	}
+	dec := json.NewDecoder(strings.NewReader(`{"extra":true}`))
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&req)
+	if err == nil {
+		t.Fatal("Decode() error = nil, want unknown-field error")
+	}
+
+	field, ok := unknownJSONField(err)
+	if !ok || field != "extra" {
+		t.Fatalf("unknownJSONField(%q) = %q, %v; want extra, true", err.Error(), field, ok)
 	}
 }
 
@@ -508,6 +540,21 @@ func TestBindOptionalJSON_NilBodyGuard(t *testing.T) {
 	}
 }
 
+func TestBindOptionalJSONNilContextPanics(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if got := recover(); got != "utils: BindOptionalJSON requires a non-nil gin context" {
+			t.Fatalf("panic = %v, want non-nil gin context message", got)
+		}
+	}()
+
+	var req struct {
+		Date string `json:"date"`
+	}
+	BindOptionalJSON(nil, &req)
+}
+
 func TestBindOptionalJSON_ReadFailure(t *testing.T) {
 	t.Parallel()
 	c, w := newTestContext(t, "")
@@ -533,6 +580,24 @@ func (failingReadCloser) Read(_ []byte) (int, error) {
 }
 
 func (failingReadCloser) Close() error {
+	return nil
+}
+
+type wrappedEOFAfterJSONReadCloser struct {
+	data []byte
+	pos  int
+}
+
+func (r *wrappedEOFAfterJSONReadCloser) Read(p []byte) (int, error) {
+	if r.pos < len(r.data) {
+		n := copy(p, r.data[r.pos:])
+		r.pos += n
+		return n, nil
+	}
+	return 0, errors.Join(io.EOF)
+}
+
+func (r *wrappedEOFAfterJSONReadCloser) Close() error {
 	return nil
 }
 

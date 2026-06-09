@@ -3693,26 +3693,16 @@ components:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
           examples:
-            removed_tts_field:
-              summary: Removed TTS settings field
+            unknown_field:
+              summary: Unknown request field
               value:
                 type: "https://babbel.api/problems/bad-request"
                 title: "Bad Request"
                 status: 400
-                detail: "Request body contains unknown or removed fields"
+                detail: "Request body contains unknown fields"
                 errors:
-                  - field: "model"
-                    message: "field has been removed in v3-only release"
-            replaced_pronunciation_field:
-              summary: Replaced pronunciation field
-              value:
-                type: "https://babbel.api/problems/bad-request"
-                title: "Bad Request"
-                status: 400
-                detail: "Request body contains unknown or removed fields"
-                errors:
-                  - field: "alias"
-                    message: "field has been replaced by 'ipa'"
+                  - field: "unexpected_property"
+                    message: "unknown field"
     Unauthorized:
       description: Unauthorized
       content:

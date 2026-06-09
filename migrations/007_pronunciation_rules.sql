@@ -1,3 +1,4 @@
+-- Create global inline-IPA pronunciation rules table.
 CREATE TABLE pronunciation_rules (
     string_to_replace VARCHAR(255) NOT NULL PRIMARY KEY,
     ipa               VARCHAR(255) NOT NULL,

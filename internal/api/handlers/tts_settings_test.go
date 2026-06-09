@@ -60,19 +60,19 @@ func TestToTTSSettingsServiceRequest_SeedStates(t *testing.T) {
 	}
 }
 
-func TestUpdateTTSSettings_StrictBindingRemovedFields(t *testing.T) {
+func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 	tests := []struct {
 		name      string
 		body      string
 		wantField string
 	}{
 		{
-			name:      "model removed",
+			name:      "model unknown",
 			body:      `{"model":"eleven_multilingual_v2"}`,
 			wantField: "model",
 		},
 		{
-			name:      "speaker boost removed",
+			name:      "speaker boost unknown",
 			body:      `{"use_speaker_boost":true}`,
 			wantField: "use_speaker_boost",
 		},

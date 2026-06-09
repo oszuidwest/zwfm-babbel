@@ -156,14 +156,70 @@ func TestTranslatePronunciationInjectorRepoError(t *testing.T) {
 	}
 }
 
+func TestNewPronunciationInjectorPanicsWithoutRepo(t *testing.T) {
+	defer func() {
+		if got := recover(); got != "services: NewPronunciationInjector requires a non-nil pronunciation rule repository" {
+			t.Fatalf("panic = %v, want non-nil repo message", got)
+		}
+	}()
+
+	NewPronunciationInjector(nil)
+}
+
 func TestPronunciationInjectorApplyEmptyInputSkipsRepo(t *testing.T) {
-	injector := NewPronunciationInjector(nil)
+	repo := &fakePronunciationRuleLister{}
+	injector := NewPronunciationInjector(repo)
 	got, err := injector.Apply(context.Background(), "")
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
 	if got != "" {
 		t.Fatalf("Apply() = %q, want empty", got)
+	}
+	if repo.calls != 0 {
+		t.Fatalf("List calls = %d, want 0", repo.calls)
+	}
+}
+
+func TestPronunciationInjectorApplyUsesRepoRules(t *testing.T) {
+	repo := &fakePronunciationRuleLister{
+		rules: []models.PronunciationRule{rule("PSV", "piː ɛs veː", true, true)},
+	}
+	injector := NewPronunciationInjector(repo)
+
+	got, err := injector.Apply(context.Background(), "PSV wint")
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if got != "/piː ɛs veː/ wint" {
+		t.Fatalf("Apply() = %q, want transformed text", got)
+	}
+	if repo.calls != 1 {
+		t.Fatalf("List calls = %d, want 1", repo.calls)
+	}
+}
+
+func TestPronunciationInjectorApplyNoRulesReturnsInput(t *testing.T) {
+	repo := &fakePronunciationRuleLister{}
+	injector := NewPronunciationInjector(repo)
+
+	got, err := injector.Apply(context.Background(), "PSV wint")
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if got != "PSV wint" {
+		t.Fatalf("Apply() = %q, want unchanged input", got)
+	}
+}
+
+func TestPronunciationInjectorApplyTranslatesRepoError(t *testing.T) {
+	repo := &fakePronunciationRuleLister{err: repository.ErrSchemaUnavailable}
+	injector := NewPronunciationInjector(repo)
+
+	_, err := injector.Apply(context.Background(), "PSV wint")
+	var notInitialized *apperrors.NotInitializedError
+	if !errors.As(err, &notInitialized) {
+		t.Fatalf("Apply() error = %T, want *apperrors.NotInitializedError", err)
 	}
 }
 
@@ -174,4 +230,20 @@ func rule(term, ipa string, caseSensitive, wordBoundaries bool) models.Pronuncia
 		CaseSensitive:   caseSensitive,
 		WordBoundaries:  wordBoundaries,
 	}
+}
+
+type fakePronunciationRuleLister struct {
+	rules []models.PronunciationRule
+	err   error
+	calls int
+}
+
+func (f *fakePronunciationRuleLister) List(context.Context) ([]models.PronunciationRule, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	rules := make([]models.PronunciationRule, len(f.rules))
+	copy(rules, f.rules)
+	return rules, nil
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 )
 
@@ -56,7 +58,7 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 			wantField: "Rules",
 		},
 		{
-			name:      "alias is a removed strict-binding field",
+			name:      "alias is an unknown strict-binding field",
 			body:      `{"rules":[{"string_to_replace":"A","alias":"aa"}]}`,
 			wantCode:  http.StatusBadRequest,
 			wantField: "alias",
@@ -85,6 +87,85 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 			}
 			assertValidationField(t, recorder, tt.wantField)
 		})
+	}
+}
+
+func TestPronunciationRulesHandlers_GetSuccess(t *testing.T) {
+	updatedAt := time.Unix(1717200000, 0).UTC()
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{
+				rules: []models.PronunciationRule{{
+					StringToReplace: "PSV",
+					IPA:             "piː ɛs veː",
+					CaseSensitive:   true,
+					WordBoundaries:  false,
+				}},
+				updatedAt: &updatedAt,
+			},
+			nil,
+		),
+	}
+
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var body pronunciationRulesResponse
+	decodeHandlerJSON(t, recorder, &body)
+	if len(body.Rules) != 1 {
+		t.Fatalf("rules len = %d, want 1", len(body.Rules))
+	}
+	if body.Rules[0].StringToReplace != "PSV" ||
+		body.Rules[0].IPA != "piː ɛs veː" ||
+		!body.Rules[0].CaseSensitive ||
+		body.Rules[0].WordBoundaries {
+		t.Fatalf("rule = %#v, want mapped response", body.Rules[0])
+	}
+	if body.UpdatedAt == nil || !body.UpdatedAt.Equal(updatedAt) {
+		t.Fatalf("updated_at = %v, want %v", body.UpdatedAt, updatedAt)
+	}
+}
+
+func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{listErr: errors.New("database down")},
+			nil,
+		),
+	}
+
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
+	}
+	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/problem+json" {
+		t.Fatalf("content-type = %q, want application/problem+json", contentType)
+	}
+	problem := decodeProblem(t, recorder)
+	if problem.Status != http.StatusInternalServerError || problem.Code != "internal.database_error" {
+		t.Fatalf("problem = %#v, want database problem details", problem)
+	}
+}
+
+func TestPronunciationRulesHandlers_GetNotInitialized(t *testing.T) {
+	h := &Handlers{
+		pronunciationRulesSvc: services.NewPronunciationRulesService(
+			&handlerPronunciationRuleRepo{listErr: repository.ErrSchemaUnavailable},
+			nil,
+		),
+	}
+
+	recorder := performPronunciationRulesHandlerRequest(t, http.MethodGet, "", h.GetPronunciationRules)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusServiceUnavailable, recorder.Body.String())
+	}
+	problem := decodeProblem(t, recorder)
+	if problem.Status != http.StatusServiceUnavailable || problem.Code != "pronunciation_rules.not_initialized" {
+		t.Fatalf("problem = %#v, want not-initialized problem details", problem)
 	}
 }
 
@@ -132,4 +213,31 @@ func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, wa
 	if body.Errors[0].Field != want {
 		t.Fatalf("first field = %q, want %q; body=%s", body.Errors[0].Field, want, recorder.Body.String())
 	}
+}
+
+type handlerPronunciationRuleRepo struct {
+	rules     []models.PronunciationRule
+	listErr   error
+	updatedAt *time.Time
+	maxErr    error
+}
+
+func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.PronunciationRule, error) {
+	if h.listErr != nil {
+		return nil, h.listErr
+	}
+	rules := make([]models.PronunciationRule, len(h.rules))
+	copy(rules, h.rules)
+	return rules, nil
+}
+
+func (h *handlerPronunciationRuleRepo) ReplaceAll(context.Context, []models.PronunciationRule) error {
+	return nil
+}
+
+func (h *handlerPronunciationRuleRepo) MaxUpdatedAt(context.Context) (*time.Time, error) {
+	if h.maxErr != nil {
+		return nil, h.maxErr
+	}
+	return h.updatedAt, nil
 }

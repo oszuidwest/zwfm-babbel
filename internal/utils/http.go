@@ -297,9 +297,6 @@ type textNormalizer interface {
 	NormalizeText()
 }
 
-// RemovedFields lets BindJSONStrict return custom messages for retired fields.
-type RemovedFields map[string]string
-
 // BindAndValidate decodes a JSON request, normalizes text fields, then validates.
 // Normalization runs before validation so that validators like notblank and max
 // operate on the decoded values rather than the raw encoded input.
@@ -316,17 +313,17 @@ func BindAndValidate(c *gin.Context, req any) bool {
 }
 
 // BindJSONStrict decodes JSON with unknown-field rejection, then normalizes and validates.
-func BindJSONStrict(c *gin.Context, req any, removed RemovedFields) bool {
+func BindJSONStrict(c *gin.Context, req any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(req); err != nil {
-		handleStrictJSONDecodeError(c, err, removed)
+		handleStrictJSONDecodeError(c, err)
 		return false
 	}
 
 	var extra any
-	if err := dec.Decode(&extra); err != io.EOF {
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		ProblemBadRequestValidationError(
 			c,
 			"Request body contains invalid JSON",
@@ -360,7 +357,7 @@ func normalizeAndValidate(c *gin.Context, req any) bool {
 	return true
 }
 
-func handleStrictJSONDecodeError(c *gin.Context, err error, removed RemovedFields) {
+func handleStrictJSONDecodeError(c *gin.Context, err error) {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
 		ProblemCustom(
@@ -410,14 +407,10 @@ func handleStrictJSONDecodeError(c *gin.Context, err error, removed RemovedField
 	}
 
 	if field, ok := unknownJSONField(err); ok {
-		message := "unknown field"
-		if removedMessage, removed := removed[field]; removed {
-			message = removedMessage
-		}
 		ProblemBadRequestValidationError(
 			c,
-			"Request body contains unknown or removed fields",
-			[]apperrors.ValidationError{{Field: field, Message: message}},
+			"Request body contains unknown fields",
+			[]apperrors.ValidationError{{Field: field, Message: "unknown field"}},
 		)
 		return
 	}
@@ -430,6 +423,7 @@ func handleStrictJSONDecodeError(c *gin.Context, err error, removed RemovedField
 }
 
 func unknownJSONField(err error) (string, bool) {
+	// TODO: switch to typed error if encoding/json/v2 exposes one.
 	const prefix = "json: unknown field "
 	message := err.Error()
 	if !strings.HasPrefix(message, prefix) {
@@ -471,7 +465,10 @@ func expectedJSONType(t reflect.Type) string {
 // invalid JSON. Parse failures include the underlying error in the response so
 // clients can locate the offending token.
 func BindOptionalJSON(c *gin.Context, req any) bool {
-	if c == nil || c.Request == nil || c.Request.Body == nil {
+	if c == nil {
+		panic("utils: BindOptionalJSON requires a non-nil gin context")
+	}
+	if c.Request == nil || c.Request.Body == nil {
 		return true
 	}
 
