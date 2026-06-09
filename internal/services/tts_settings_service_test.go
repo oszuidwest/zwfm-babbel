@@ -62,10 +62,33 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 			for _, err := range errs {
 				gotFields = append(gotFields, err.Field)
 			}
-			if !slices.Equal(gotFields, tt.wantFields) {
+			if !equalStringsAsSet(gotFields, tt.wantFields) {
 				t.Fatalf("fields = %v, want %v", gotFields, tt.wantFields)
 			}
 		})
+	}
+}
+
+func TestValidateTTSSettingsUpdateEnumMessageIncludesAllowedNormalizations(t *testing.T) {
+	invalidNormalization := "sometimes"
+	errs := validateTTSSettingsUpdate(&UpdateTTSSettingsRequest{
+		ApplyTextNormalization: &invalidNormalization,
+	})
+
+	var gotMessage string
+	for _, err := range errs {
+		if err.Field == "apply_text_normalization" {
+			gotMessage = err.Message
+			break
+		}
+	}
+	if gotMessage == "" {
+		t.Fatalf("missing apply_text_normalization error in %#v", errs)
+	}
+	for _, allowed := range allowedTextNormalizations {
+		if !strings.Contains(gotMessage, allowed) {
+			t.Fatalf("message = %q, want allowed value %q", gotMessage, allowed)
+		}
 	}
 }
 
@@ -221,6 +244,17 @@ func TestBuildTTSSettingsAuditFields_NoChangeReturnsNil(t *testing.T) {
 	if fields := buildTTSSettingsAuditFields(noop, before, after); fields != nil {
 		t.Fatalf("expected nil for no-change update, got %#v", fields)
 	}
+}
+
+func equalStringsAsSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	a = slices.Clone(a)
+	b = slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(a, b)
 }
 
 func ptr[T any](v T) *T {
