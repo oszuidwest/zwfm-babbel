@@ -533,6 +533,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -591,6 +593,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -755,6 +759,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -824,6 +830,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1020,6 +1028,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1248,6 +1258,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '500':
@@ -1315,6 +1327,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1381,6 +1395,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1455,6 +1471,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -1638,6 +1656,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1696,6 +1716,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1764,6 +1786,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
 
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -2413,6 +2437,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2545,6 +2571,8 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
