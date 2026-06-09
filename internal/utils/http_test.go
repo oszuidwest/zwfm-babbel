@@ -384,6 +384,11 @@ func TestBindJSONStrict(t *testing.T) {
 			want:       bindExpect{errField: "request", errMessage: "unexpected trailing content"},
 		},
 		{
+			name:       "oversized body",
+			body:       `{"stability":` + strings.Repeat("1", int(maxJSONRequestBodyBytes)+1) + `}`,
+			wantStatus: 413,
+		},
+		{
 			name: "success",
 			body: `{"stability":0.5}`,
 			want: bindExpect{ok: true},
