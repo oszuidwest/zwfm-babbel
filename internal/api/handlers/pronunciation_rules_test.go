@@ -45,33 +45,6 @@ func TestPronunciationRulesResponseMapping(t *testing.T) {
 	}
 }
 
-func TestPronunciationRulesServiceRequestMapping(t *testing.T) {
-	caseSensitive := false
-	req := pronunciationRulesUpdateRequest{
-		Rules: []pronunciationRuleUpdateRequest{{
-			StringToReplace: "PSV",
-			IPA:             "piː ɛs veː",
-			CaseSensitive:   &caseSensitive,
-		}},
-	}
-
-	got := toPronunciationRulesServiceRequest(req)
-
-	if len(got.Rules) != 1 {
-		t.Fatalf("rules len = %d, want 1", len(got.Rules))
-	}
-	rule := got.Rules[0]
-	if rule.StringToReplace != "PSV" || rule.IPA != "piː ɛs veː" {
-		t.Fatalf("rule text = %#v, want mapped fields", rule)
-	}
-	if rule.CaseSensitive == nil || *rule.CaseSensitive {
-		t.Fatalf("case_sensitive = %v, want explicit false pointer", rule.CaseSensitive)
-	}
-	if rule.WordBoundaries != nil {
-		t.Fatalf("word_boundaries = %v, want nil preserved for service defaulting", rule.WordBoundaries)
-	}
-}
-
 func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -118,28 +91,71 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 	}
 }
 
-func TestPronunciationRulesHandlers_UpdateEmptyRulesSuccess(t *testing.T) {
-	h := &Handlers{
-		pronunciationRulesSvc: services.NewPronunciationRulesService(
-			&handlerPronunciationRuleRepo{},
-			&handlerTxManager{},
-		),
+// TestPronunciationRulesHandlers_UpdateAppliesPointerSemantics drives JSON
+// through the full handler → mapper → service round-trip to verify that
+// *bool fields keep "explicit false" and that omitted flags default to true.
+func TestPronunciationRulesHandlers_UpdateAppliesPointerSemantics(t *testing.T) {
+	tests := []struct {
+		name              string
+		body              string
+		seedRules         []models.PronunciationRule
+		wantLen           int
+		wantCaseSensitive bool
+		wantWordBound     bool
+	}{
+		{
+			name:              "explicit false case_sensitive preserved, missing word_boundaries defaults to true",
+			body:              `{"rules":[{"string_to_replace":"PSV","ipa":"piː ɛs veː","case_sensitive":false}]}`,
+			wantLen:           1,
+			wantCaseSensitive: false,
+			wantWordBound:     true,
+		},
+		{
+			name:              "explicit false word_boundaries preserved, missing case_sensitive defaults to true",
+			body:              `{"rules":[{"string_to_replace":"PSV","ipa":"piː ɛs veː","word_boundaries":false}]}`,
+			wantLen:           1,
+			wantCaseSensitive: true,
+			wantWordBound:     false,
+		},
+		{
+			name:      "empty rules array clears a previously populated table",
+			body:      `{"rules":[]}`,
+			seedRules: []models.PronunciationRule{{StringToReplace: "OLD", IPA: "oʊld"}},
+			wantLen:   0,
+		},
 	}
 
-	recorder := performPronunciationRulesHandlerRequest(
-		t,
-		http.MethodPut,
-		`{"rules":[]}`,
-		h.UpdatePronunciationRules,
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &Handlers{
+				pronunciationRulesSvc: services.NewPronunciationRulesService(
+					&handlerPronunciationRuleRepo{rules: tt.seedRules},
+					&handlerTxManager{},
+				),
+			}
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusOK, recorder.Body.String())
-	}
-	var body pronunciationRulesResponse
-	decodeHandlerJSON(t, recorder, &body)
-	if len(body.Rules) != 0 {
-		t.Fatalf("rules len = %d, want 0", len(body.Rules))
+			recorder := performPronunciationRulesHandlerRequest(
+				t, http.MethodPut, tt.body, h.UpdatePronunciationRules,
+			)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+			}
+			var body pronunciationRulesResponse
+			decodeHandlerJSON(t, recorder, &body)
+			if len(body.Rules) != tt.wantLen {
+				t.Fatalf("rules len = %d, want %d", len(body.Rules), tt.wantLen)
+			}
+			if tt.wantLen == 0 {
+				return
+			}
+			if body.Rules[0].CaseSensitive != tt.wantCaseSensitive {
+				t.Fatalf("case_sensitive = %v, want %v", body.Rules[0].CaseSensitive, tt.wantCaseSensitive)
+			}
+			if body.Rules[0].WordBoundaries != tt.wantWordBound {
+				t.Fatalf("word_boundaries = %v, want %v", body.Rules[0].WordBoundaries, tt.wantWordBound)
+			}
+		})
 	}
 }
 
@@ -284,7 +300,8 @@ func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.Pronuncia
 	return rules, nil
 }
 
-func (h *handlerPronunciationRuleRepo) ReplaceAll(context.Context, []models.PronunciationRule) error {
+func (h *handlerPronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule) error {
+	h.rules = rules
 	return nil
 }
 
@@ -301,6 +318,7 @@ func (h *handlerTxManager) WithTransaction(ctx context.Context, fn func(context.
 	return fn(ctx)
 }
 
+// DB is unused by PronunciationRulesService; nil is safe here.
 func (h *handlerTxManager) DB() *gorm.DB {
 	return nil
 }

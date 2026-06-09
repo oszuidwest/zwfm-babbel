@@ -22,17 +22,6 @@ type pronunciationRulesResponse struct {
 	UpdatedAt *time.Time                  `json:"updated_at"`
 }
 
-type pronunciationRuleUpdateRequest struct {
-	StringToReplace string `json:"string_to_replace"`
-	IPA             string `json:"ipa"`
-	CaseSensitive   *bool  `json:"case_sensitive,omitempty"`
-	WordBoundaries  *bool  `json:"word_boundaries,omitempty"`
-}
-
-type pronunciationRulesUpdateRequest struct {
-	Rules []pronunciationRuleUpdateRequest `json:"rules" binding:"required"`
-}
-
 // GetPronunciationRules returns the local inline-IPA pronunciation rules.
 func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 	result, err := h.pronunciationRulesSvc.Get(c.Request.Context())
@@ -46,7 +35,7 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 
 // UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
-	var req pronunciationRulesUpdateRequest
+	var req utils.PronunciationRulesUpdateRequest
 	if !utils.BindJSONStrict(c, &req) {
 		return
 	}
@@ -66,7 +55,7 @@ func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
 }
 
 func toPronunciationRulesServiceRequest(
-	req pronunciationRulesUpdateRequest,
+	req utils.PronunciationRulesUpdateRequest,
 ) *services.UpdatePronunciationRulesRequest {
 	rules := make([]services.PronunciationRuleUpdate, 0, len(req.Rules))
 	for _, rule := range req.Rules {
