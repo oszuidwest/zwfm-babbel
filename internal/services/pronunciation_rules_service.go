@@ -242,7 +242,7 @@ func logPronunciationRulesAudit(req *UpdatePronunciationRulesRequest, totalAfter
 	fields := map[string]any{
 		"total_after": totalAfter,
 	}
-	if req != nil && req.ActorUserID != nil {
+	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
 	}
 	logger.WithFields(fields).Info("pronunciation rules updated")
