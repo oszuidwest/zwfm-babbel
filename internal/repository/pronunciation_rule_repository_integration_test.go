@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	gormmysql "gorm.io/driver/mysql"
@@ -20,9 +19,6 @@ func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T
 	txManager := NewTxManager(db)
 
 	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		if err := repo.LockSingletonForWrite(ctx); err != nil {
-			return err
-		}
 		return repo.ReplaceAll(ctx, []models.PronunciationRule{{
 			StringToReplace: "PSV",
 			IPA:             "piː ɛs veː",
@@ -46,15 +42,12 @@ func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T
 	}
 }
 
-func TestPronunciationRuleRepositoryIntegration_CaseSensitiveUniqueIndex(t *testing.T) {
+func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testing.T) {
 	db := openIntegrationDB(t)
 	repo := NewPronunciationRuleRepository(db)
 	txManager := NewTxManager(db)
 
 	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		if err := repo.LockSingletonForWrite(ctx); err != nil {
-			return err
-		}
 		return repo.ReplaceAll(ctx, []models.PronunciationRule{
 			{StringToReplace: "PSV", IPA: "one", CaseSensitive: true, WordBoundaries: true},
 			{StringToReplace: "psv", IPA: "two", CaseSensitive: true, WordBoundaries: true},
@@ -71,9 +64,6 @@ func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) 
 	txManager := NewTxManager(db)
 
 	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		if err := repo.LockSingletonForWrite(ctx); err != nil {
-			return err
-		}
 		return repo.ReplaceAll(ctx, nil)
 	})
 	if err != nil {
@@ -86,87 +76,6 @@ func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) 
 	}
 	if updatedAt != nil {
 		t.Fatalf("updatedAt = %v, want nil", updatedAt)
-	}
-}
-
-func TestPronunciationRuleRepositoryIntegration_LockSingletonForWriteBlocksConcurrentWriters(t *testing.T) {
-	db := openIntegrationDB(t)
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatalf("db.DB(): %v", err)
-	}
-	sqlDB.SetMaxOpenConns(5)
-	sqlDB.SetMaxIdleConns(5)
-
-	repo := NewPronunciationRuleRepository(db)
-	txManager := NewTxManager(db)
-
-	parent, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-
-	tx1Locked := make(chan struct{})
-	tx1Err := make(chan error, 1)
-	release := make(chan struct{})
-
-	go func() {
-		tx1Err <- txManager.WithTransaction(parent, func(ctx context.Context) error {
-			if err := repo.LockSingletonForWrite(ctx); err != nil {
-				return err
-			}
-			close(tx1Locked)
-			<-release
-			return nil
-		})
-	}()
-
-	select {
-	case <-tx1Locked:
-	case err := <-tx1Err:
-		t.Fatalf("tx1 failed before lock: %v", err)
-	case <-parent.Done():
-		t.Fatalf("tx1 did not acquire lock: %v", parent.Err())
-	}
-
-	tx2Started := make(chan struct{})
-	tx2Done := make(chan error, 1)
-	go func() {
-		ctx, cancel := context.WithTimeout(parent, 2*time.Second)
-		defer cancel()
-		tx2Done <- txManager.WithTransaction(ctx, func(ctx context.Context) error {
-			close(tx2Started)
-			return repo.LockSingletonForWrite(ctx)
-		})
-	}()
-
-	select {
-	case <-tx2Started:
-	case <-parent.Done():
-		t.Fatalf("tx2 did not start lock attempt: %v", parent.Err())
-	}
-
-	select {
-	case err := <-tx2Done:
-		t.Fatalf("tx2 lock returned before tx1 commit: %v", err)
-	case <-time.After(300 * time.Millisecond):
-	}
-
-	close(release)
-
-	select {
-	case err := <-tx2Done:
-		if err != nil {
-			t.Fatalf("tx2 lock after release error = %v", err)
-		}
-	case <-parent.Done():
-		t.Fatalf("tx2 did not acquire lock after release: %v", parent.Err())
-	}
-
-	select {
-	case err := <-tx1Err:
-		if err != nil {
-			t.Fatalf("tx1 error = %v", err)
-		}
-	default:
 	}
 }
 

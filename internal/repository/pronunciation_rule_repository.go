@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -32,41 +31,18 @@ func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.Pronun
 	return rules, nil
 }
 
-// ReplaceAll atomically replaces every pronunciation rule in the current transaction.
+// ReplaceAll replaces every pronunciation rule, using the caller's transaction when present.
 func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error {
-	tx := TxFromContext(ctx)
-	if tx == nil {
-		return errors.New("replace all pronunciation rules requires an active transaction")
-	}
+	db := DBFromContext(ctx, r.db)
 
-	if err := tx.WithContext(ctx).Exec("DELETE FROM pronunciation_rules").Error; err != nil {
+	if err := db.WithContext(ctx).Exec("DELETE FROM pronunciation_rules").Error; err != nil {
 		return ParseDBError(err)
 	}
 	if len(rules) == 0 {
 		return nil
 	}
-	if err := tx.WithContext(ctx).Create(&rules).Error; err != nil {
+	if err := db.WithContext(ctx).Create(&rules).Error; err != nil {
 		return ParseDBError(err)
-	}
-	return nil
-}
-
-// LockSingletonForWrite serializes pronunciation rule writes through the TTS settings row.
-func (r *PronunciationRuleRepository) LockSingletonForWrite(ctx context.Context) error {
-	tx := TxFromContext(ctx)
-	if tx == nil {
-		return errors.New("lock singleton for write requires an active transaction")
-	}
-
-	var one int
-	result := tx.WithContext(ctx).
-		Raw("SELECT 1 FROM tts_settings WHERE id = ? FOR UPDATE", ttsSettingsSingletonID).
-		Scan(&one)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 || one != 1 {
-		return ErrNotFound
 	}
 	return nil
 }

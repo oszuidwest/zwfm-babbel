@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -11,7 +10,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-func TestPronunciationInjectorApply(t *testing.T) {
+func TestApplyPronunciationRules(t *testing.T) {
 	tests := []struct {
 		name  string
 		rules []models.PronunciationRule
@@ -112,51 +111,22 @@ func TestPronunciationInjectorApply(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			injector := NewPronunciationInjector(&pronunciationRuleListerFake{rules: tt.rules})
-			got, err := injector.Apply(context.Background(), tt.input)
-			if err != nil {
-				t.Fatalf("Apply() error = %v", err)
-			}
+			got := applyPronunciationRules(tt.input, tt.rules)
 			if got != tt.want {
-				t.Fatalf("Apply() = %q, want %q", got, tt.want)
+				t.Fatalf("applyPronunciationRules() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestPronunciationInjectorApplyEmptyInputSkipsRepo(t *testing.T) {
-	lister := &pronunciationRuleListerFake{err: errors.New("should not be called")}
-	injector := NewPronunciationInjector(lister)
-
-	got, err := injector.Apply(context.Background(), "")
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
-	if got != "" {
-		t.Fatalf("Apply() = %q, want empty", got)
-	}
-	if lister.calls != 0 {
-		t.Fatalf("List calls = %d, want 0", lister.calls)
-	}
-}
-
-func TestPronunciationInjectorApplyNoRulesReturnsInput(t *testing.T) {
-	lister := &pronunciationRuleListerFake{}
-	injector := NewPronunciationInjector(lister)
-
-	got, err := injector.Apply(context.Background(), "PSV wint")
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
+func TestApplyPronunciationRulesNoRulesReturnsInput(t *testing.T) {
+	got := applyPronunciationRules("PSV wint", nil)
 	if got != "PSV wint" {
-		t.Fatalf("Apply() = %q, want unchanged input", got)
-	}
-	if lister.calls != 1 {
-		t.Fatalf("List calls = %d, want 1", lister.calls)
+		t.Fatalf("applyPronunciationRules() = %q, want unchanged input", got)
 	}
 }
 
-func TestPronunciationInjectorApplyRepoErrors(t *testing.T) {
+func TestTranslatePronunciationInjectorRepoError(t *testing.T) {
 	tests := []struct {
 		name      string
 		err       error
@@ -168,11 +138,7 @@ func TestPronunciationInjectorApplyRepoErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			injector := NewPronunciationInjector(&pronunciationRuleListerFake{err: tt.err})
-			_, err := injector.Apply(context.Background(), "PSV")
-			if err == nil {
-				t.Fatal("Apply() error = nil")
-			}
+			err := translatePronunciationInjectorRepoError(tt.err)
 
 			switch target := tt.wantError.(type) {
 			case *apperrors.NotInitializedError:
@@ -190,27 +156,15 @@ func TestPronunciationInjectorApplyRepoErrors(t *testing.T) {
 	}
 }
 
-func TestPronunciationInjectorApplyConcurrentSmoke(t *testing.T) {
-	injector := NewPronunciationInjector(&pronunciationRuleListerFake{
-		rules: []models.PronunciationRule{rule("PSV", "piː ɛs veː", true, true)},
-	})
-
-	var wg sync.WaitGroup
-	for range 25 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			got, err := injector.Apply(context.Background(), "PSV wint")
-			if err != nil {
-				t.Errorf("Apply() error = %v", err)
-				return
-			}
-			if got != "/piː ɛs veː/ wint" {
-				t.Errorf("Apply() = %q", got)
-			}
-		}()
+func TestPronunciationInjectorApplyEmptyInputSkipsRepo(t *testing.T) {
+	injector := NewPronunciationInjector(nil)
+	got, err := injector.Apply(context.Background(), "")
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
 	}
-	wg.Wait()
+	if got != "" {
+		t.Fatalf("Apply() = %q, want empty", got)
+	}
 }
 
 func rule(term, ipa string, caseSensitive, wordBoundaries bool) models.PronunciationRule {
@@ -220,22 +174,4 @@ func rule(term, ipa string, caseSensitive, wordBoundaries bool) models.Pronuncia
 		CaseSensitive:   caseSensitive,
 		WordBoundaries:  wordBoundaries,
 	}
-}
-
-type pronunciationRuleListerFake struct {
-	mu    sync.Mutex
-	rules []models.PronunciationRule
-	err   error
-	calls int
-}
-
-func (f *pronunciationRuleListerFake) List(ctx context.Context) ([]models.PronunciationRule, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	f.calls++
-	if f.err != nil {
-		return nil, f.err
-	}
-	return f.rules, nil
 }

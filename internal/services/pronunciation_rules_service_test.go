@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
@@ -193,29 +192,6 @@ func TestMaterializePronunciationRulesMaxRules(t *testing.T) {
 	assertPronunciationValidationField(t, err, "rules")
 }
 
-func TestDiffPronunciationRules(t *testing.T) {
-	before := []models.PronunciationRule{
-		{StringToReplace: "A", IPA: "a", CaseSensitive: true, WordBoundaries: true, ID: 1},
-		{StringToReplace: "B", IPA: "b", CaseSensitive: true, WordBoundaries: true, ID: 2},
-		{StringToReplace: "C", IPA: "c", CaseSensitive: true, WordBoundaries: true, ID: 3},
-	}
-	after := []models.PronunciationRule{
-		{StringToReplace: "A", IPA: "a", CaseSensitive: true, WordBoundaries: true, ID: 100},
-		{StringToReplace: "B", IPA: "bee", CaseSensitive: true, WordBoundaries: true, ID: 101},
-		{StringToReplace: "D", IPA: "d", CaseSensitive: true, WordBoundaries: true, ID: 102},
-	}
-
-	diff := diffPronunciationRules(before, after)
-	if diff.added != 1 ||
-		diff.removed != 1 ||
-		diff.changed != 1 ||
-		diff.unchanged != 1 ||
-		diff.totalBefore != 3 ||
-		diff.totalAfter != 3 {
-		t.Fatalf("diff = %#v", diff)
-	}
-}
-
 func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -225,11 +201,6 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 		{
 			name:      "schema unavailable",
 			err:       repository.ErrSchemaUnavailable,
-			wantError: &apperrors.NotInitializedError{},
-		},
-		{
-			name:      "singleton row missing",
-			err:       repository.ErrNotFound,
 			wantError: &apperrors.NotInitializedError{},
 		},
 		{

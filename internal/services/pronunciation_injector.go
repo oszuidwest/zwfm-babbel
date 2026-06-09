@@ -6,25 +6,19 @@ import (
 	"slices"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// PronunciationRuleLister is the minimal repository dependency for IPA injection.
-type PronunciationRuleLister interface {
-	List(ctx context.Context) ([]models.PronunciationRule, error)
-}
-
 // PronunciationInjector wraps matched story text terms in ElevenLabs v3 inline IPA tags.
 type PronunciationInjector struct {
-	repo PronunciationRuleLister
+	repo *repository.PronunciationRuleRepository
 }
 
 // NewPronunciationInjector returns an inline-IPA injector backed by repo.
-func NewPronunciationInjector(repo PronunciationRuleLister) *PronunciationInjector {
+func NewPronunciationInjector(repo *repository.PronunciationRuleRepository) *PronunciationInjector {
 	return &PronunciationInjector{repo: repo}
 }
 
@@ -42,7 +36,11 @@ func (p *PronunciationInjector) Apply(ctx context.Context, text string) (string,
 		return text, nil
 	}
 
-	sortedRules := sortRulesForMatching(rules)
+	return applyPronunciationRules(text, rules), nil
+}
+
+func applyPronunciationRules(text string, rules []models.PronunciationRule) string {
+	sortedRules := compileRulesForMatching(rules)
 	input := []rune(text)
 	var out strings.Builder
 	out.Grow(len(text))
@@ -52,36 +50,46 @@ func (p *PronunciationInjector) Apply(ctx context.Context, text string) (string,
 			out.WriteByte('/')
 			out.WriteString(rule.IPA)
 			out.WriteByte('/')
-			i += utf8.RuneCountInString(rule.StringToReplace)
+			i += len(rule.pattern)
 			continue
 		}
 		out.WriteRune(input[i])
 		i++
 	}
 
-	return out.String(), nil
+	return out.String()
 }
 
-func sortRulesForMatching(rules []models.PronunciationRule) []models.PronunciationRule {
-	sortedRules := slices.Clone(rules)
-	slices.SortFunc(sortedRules, func(a, b models.PronunciationRule) int {
-		aLen := utf8.RuneCountInString(a.StringToReplace)
-		bLen := utf8.RuneCountInString(b.StringToReplace)
-		if aLen != bLen {
-			return bLen - aLen
+type compiledPronunciationRule struct {
+	models.PronunciationRule
+	pattern []rune
+}
+
+func compileRulesForMatching(rules []models.PronunciationRule) []compiledPronunciationRule {
+	compiled := make([]compiledPronunciationRule, 0, len(rules))
+	for _, rule := range rules {
+		compiled = append(compiled, compiledPronunciationRule{
+			PronunciationRule: rule,
+			pattern:           []rune(rule.StringToReplace),
+		})
+	}
+
+	slices.SortFunc(compiled, func(a, b compiledPronunciationRule) int {
+		if len(a.pattern) != len(b.pattern) {
+			return len(b.pattern) - len(a.pattern)
 		}
 		return strings.Compare(a.StringToReplace, b.StringToReplace)
 	})
-	return sortedRules
+	return compiled
 }
 
 func matchRuleAt(
 	input []rune,
 	pos int,
-	rules []models.PronunciationRule,
-) (models.PronunciationRule, bool) {
+	rules []compiledPronunciationRule,
+) (compiledPronunciationRule, bool) {
 	for _, rule := range rules {
-		if rule.StringToReplace == "" {
+		if len(rule.pattern) == 0 {
 			continue
 		}
 		if !ruleMatchesAt(input, pos, rule) {
@@ -89,20 +97,19 @@ func matchRuleAt(
 		}
 		return rule, true
 	}
-	return models.PronunciationRule{}, false
+	return compiledPronunciationRule{}, false
 }
 
-func ruleMatchesAt(input []rune, pos int, rule models.PronunciationRule) bool {
-	pattern := []rune(rule.StringToReplace)
-	if len(pattern) == 0 || pos+len(pattern) > len(input) {
+func ruleMatchesAt(input []rune, pos int, rule compiledPronunciationRule) bool {
+	if len(rule.pattern) == 0 || pos+len(rule.pattern) > len(input) {
 		return false
 	}
 
-	if rule.WordBoundaries && !hasWordBoundaries(input, pos, len(pattern)) {
+	if rule.WordBoundaries && !hasWordBoundaries(input, pos, len(rule.pattern)) {
 		return false
 	}
 
-	segment := string(input[pos : pos+len(pattern)])
+	segment := string(input[pos : pos+len(rule.pattern)])
 	if rule.CaseSensitive {
 		return segment == rule.StringToReplace
 	}

@@ -30,7 +30,7 @@ type HandlersDeps struct {
 	UserSvc               *services.UserService
 	StationVoiceSvc       *services.StationVoiceService
 	TTSSettingsSvc        *services.TTSSettingsService
-	PronunciationRulesSvc PronunciationRulesService
+	PronunciationRulesSvc *services.PronunciationRulesService
 	TTSEnabled            bool
 }
 
@@ -47,7 +47,7 @@ type Handlers struct {
 	userSvc               *services.UserService
 	stationVoiceSvc       *services.StationVoiceService
 	ttsSettingsSvc        *services.TTSSettingsService
-	pronunciationRulesSvc PronunciationRulesService
+	pronunciationRulesSvc *services.PronunciationRulesService
 	ttsEnabled            bool
 }
 
@@ -296,18 +296,6 @@ func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 		"Text-to-speech is not configured",
 		"tts.not_configured",
 		"Set BABBEL_ELEVENLABS_API_KEY to enable TTS",
-	)
-	return false
-}
-
-// requirePronunciationRulesService guards tests and misconfigured routers from nil dereferences.
-func (h *Handlers) requirePronunciationRulesService(c *gin.Context) bool {
-	if h.pronunciationRulesSvc != nil {
-		return true
-	}
-	utils.ProblemInternalServer(
-		c,
-		"Pronunciation rules service is not configured",
 	)
 	return false
 }

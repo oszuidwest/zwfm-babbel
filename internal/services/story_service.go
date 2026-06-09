@@ -422,13 +422,9 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return err
 	}
 
-	processedText := story.Text
-	if s.pronunciationInjector != nil {
-		processed, err := s.pronunciationInjector.Apply(ctx, story.Text)
-		if err != nil {
-			return err
-		}
-		processedText = processed
+	processedText, err := s.pronunciationInjector.Apply(ctx, story.Text)
+	if err != nil {
+		return err
 	}
 
 	finalText := composeV3TTSText(processedText, settings.TTSStylePrefix)
@@ -474,7 +470,7 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 }
 
 func composeV3TTSText(text, prefix string) string {
-	if strings.TrimSpace(prefix) == "" {
+	if prefix == "" || strings.TrimSpace(prefix) == "" {
 		return text
 	}
 	return prefix + "\n" + text
