@@ -302,7 +302,12 @@ type textNormalizer interface {
 // Normalization runs before validation so that validators like notblank and max
 // operate on the decoded values rather than the raw encoded input.
 func BindAndValidate(c *gin.Context, req any) bool {
-	if err := json.NewDecoder(c.Request.Body).Decode(req); err != nil {
+	if err := newCappedJSONDecoder(c).Decode(req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			ProblemPayloadTooLarge(c)
+			return false
+		}
 		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
 			{Field: "request", Message: "Invalid request format"},
 		})
@@ -314,7 +319,7 @@ func BindAndValidate(c *gin.Context, req any) bool {
 
 // BindJSONStrict decodes JSON with unknown-field rejection, then normalizes and validates.
 func BindJSONStrict(c *gin.Context, req any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
+	dec := newCappedJSONDecoder(c)
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(req); err != nil {
@@ -333,6 +338,10 @@ func BindJSONStrict(c *gin.Context, req any) bool {
 	}
 
 	return normalizeAndValidate(c, req)
+}
+
+func newCappedJSONDecoder(c *gin.Context) *json.Decoder {
+	return json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
 }
 
 func normalizeAndValidate(c *gin.Context, req any) bool {
@@ -358,13 +367,7 @@ func normalizeAndValidate(c *gin.Context, req any) bool {
 func handleStrictJSONDecodeError(c *gin.Context, err error) {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
-		ProblemCustom(
-			c,
-			"https://babbel.api/problems/payload-too-large",
-			"Payload Too Large",
-			http.StatusRequestEntityTooLarge,
-			"Request body too large",
-		)
+		ProblemPayloadTooLarge(c)
 		return
 	}
 
@@ -474,12 +477,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			ProblemCustom(c,
-				"https://babbel.api/problems/payload-too-large",
-				"Payload Too Large",
-				http.StatusRequestEntityTooLarge,
-				"Request body too large",
-			)
+			ProblemPayloadTooLarge(c)
 			return false
 		}
 		ProblemBadRequest(c, fmt.Sprintf("Failed to read request body: %s", err.Error()))

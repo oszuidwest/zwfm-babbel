@@ -155,6 +155,17 @@ func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []ap
 	SendProblem(c, problem)
 }
 
+// ProblemPayloadTooLarge responds with HTTP 413 for JSON request bodies above the size cap.
+func ProblemPayloadTooLarge(c *gin.Context) {
+	ProblemCustom(
+		c,
+		ProblemTypePayloadTooLarge,
+		"Payload Too Large",
+		http.StatusRequestEntityTooLarge,
+		"Request body too large",
+	)
+}
+
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
 	if c == nil {

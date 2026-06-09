@@ -329,6 +329,15 @@ func TestBindAndValidate_StationRequest(t *testing.T) {
 		ok := BindAndValidate(c, &req)
 		checkBindResult(t, w, ok, bindExpect{status: 422})
 	})
+	t.Run("oversized body", func(t *testing.T) {
+		t.Parallel()
+		body := `{"name":"` + strings.Repeat("a", int(maxJSONRequestBodyBytes)+1) +
+			`","max_stories_per_block":5,"pause_seconds":1.5}`
+		c, w := newTestContext(t, body)
+		var req StationRequest
+		ok := BindAndValidate(c, &req)
+		checkBindResult(t, w, ok, bindExpect{status: 413})
+	})
 }
 
 func TestBindJSONStrict(t *testing.T) {
