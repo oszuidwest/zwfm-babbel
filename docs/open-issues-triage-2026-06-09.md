@@ -1,186 +1,143 @@
-# Open Issues Triage - 2026-06-09
+# Open Issues Triage - 2026-06-09 Refresh
 
 Scope:
 
 - Repository: `oszuidwest/zwfm-babbel`
-- Branch checked: `main`
-- Commit checked: `5f64fa90b3b454e5e2cbf48b01b07ad1c6678ca3` (`clean-up: implement TTS v3 pronunciation rules only (#213)`)
-- GitHub REST issue list returned 13 open non-PR issues. All had zero comments at time of fetch.
+- Triage branch: `docs/open-issues-triage-2026-06-09`
+- Base checked: `origin/main`
+- Base commit checked: `78ec7aadaab7` (`fix: cap BindAndValidate JSON bodies (#215)`)
+- Data source: GitHub issues and PRs fetched on 2026-06-09.
+- Current GitHub issue list returned 5 open non-PR issues.
 
 Legend:
 
-- **Aanpakken**: still worth doing now or in the next cleanup/security pass.
-- **Conditioneel**: keep, but do not build until an external trigger/decision is true.
-- **Sluiten**: obsolete, already satisfied, or superseded by current `main`.
+- **Address**: still worth doing now or in the next focused cleanup pass.
+- **Decision needed**: keep open until an operational or compliance decision is recorded.
+- **Watch**: keep only if the documented trigger is useful to track; do not implement proactively.
+- **Closed**: already resolved, obsolete, or superseded by current `main`.
 
 ## Executive Summary
 
-| Issue | Oordeel | Advies |
+| Issue | Status | Assessment | Advice |
+| --- | --- | --- | --- |
+| [#221](https://github.com/oszuidwest/zwfm-babbel/issues/221) | Open | Address | Small but useful audit-integrity test gap. Cover `ActorUserID` propagation from the pronunciation-rules handler into the service request. |
+| [#175](https://github.com/oszuidwest/zwfm-babbel/issues/175) | Open | Address, scoped | The current code has story-specific normalization and true-peak handling, but it still does not meet the original two-pass loudnorm and unusable-audio criteria. |
+| [#201](https://github.com/oszuidwest/zwfm-babbel/issues/201) | Open | Decision needed | Current structured logs include old and new values. Decide whether log retention/searchability is enough before adding a persisted audit table. |
+| [#203](https://github.com/oszuidwest/zwfm-babbel/issues/203) | Open | Watch | No cache exists, but the current singleton read is acceptable until TTS load or DB latency makes it measurable. |
+| [#206](https://github.com/oszuidwest/zwfm-babbel/issues/206) | Open | Watch | The ElevenLabs client still makes one HTTP attempt. Implement retries only after the documented volume or incident trigger. |
+
+Current practical order:
+
+1. **#221** - fastest open cleanup with a concrete regression risk.
+2. **#175** - only substantial feature-hardening item still open.
+3. **#201** - close or implement after an ops/compliance retention decision.
+4. **#203/#206** - leave as watch tickets only if the team wants trigger-based capacity tracking in GitHub.
+
+## What Changed Since The Original Triage
+
+The original document reviewed 13 open issues against `main` at PR `#213`. Most of the actionable cleanup items have since been resolved and closed:
+
+| Issue | Closed by | Current note |
 | --- | --- | --- |
-| [#183](https://github.com/oszuidwest/zwfm-babbel/issues/183) | Aanpakken | Highest-value hardening: `BindAndValidate` still lacks the 1 MiB body cap used by strict/optional binders. |
-| [#214](https://github.com/oszuidwest/zwfm-babbel/issues/214) | Aanpakken | Valid architecture cleanup: pronunciation rules handler still binds directly into a service DTO with HTTP tags. |
-| [#200](https://github.com/oszuidwest/zwfm-babbel/issues/200) | Aanpakken | Cheap defensive safety fix: `int64` to `uint32` conversion still relies on caller contract. |
-| [#207](https://github.com/oszuidwest/zwfm-babbel/issues/207) | Aanpakken | Still valid test-hardening, but update wording from model enum to `apply_text_normalization`. |
-| [#202](https://github.com/oszuidwest/zwfm-babbel/issues/202) | Aanpakken | Tiny docs/runbook task; migration discipline is being followed but not documented. |
-| [#175](https://github.com/oszuidwest/zwfm-babbel/issues/175) | Aanpakken, rescope | Partially implemented; not done against original acceptance criteria. |
-| [#204](https://github.com/oszuidwest/zwfm-babbel/issues/204) | Aanpakken of watch | Still real but low risk. A one-line invariant comment is enough. |
-| [#201](https://github.com/oszuidwest/zwfm-babbel/issues/201) | Conditioneel | Needs ops/compliance decision. Code now logs old/new values, but no persisted audit table exists. |
-| [#203](https://github.com/oszuidwest/zwfm-babbel/issues/203) | Conditioneel | Keep as watch. No cache exists, but current load trigger is not proven. |
-| [#206](https://github.com/oszuidwest/zwfm-babbel/issues/206) | Conditioneel | Keep as watch. One HTTP attempt remains; build retries only on volume/incident trigger. |
-| [#210](https://github.com/oszuidwest/zwfm-babbel/issues/210) | Gesloten 2026-06-09 | Closed: adapter leak resolved by #213. |
-| [#211](https://github.com/oszuidwest/zwfm-babbel/issues/211) | Gesloten 2026-06-09 | Closed: dictionary flow/CAS path removed by #213 + migration 008. |
-| [#205](https://github.com/oszuidwest/zwfm-babbel/issues/205) | Gesloten 2026-06-09 | Closed: only `eleven_v3` remains; migration 008 dropped the `model` column. |
-
-## Recommended Order
-
-1. **#183** - security/resource hardening with broad endpoint impact.
-2. **#214** - architecture cleanup while pronunciation-rules code is fresh.
-3. **#200 + #207 + #202** - small, low-risk cleanup batch.
-4. **#175** - meaningful feature work; keep open but rewrite around what is still missing.
-5. **#204** - either close with an invariant comment or keep as watch.
-6. **#201/#203/#206** - leave open only if the project uses watch/decision tickets deliberately.
-7. ~~**Close #210/#211/#205** with references to #213/current `main`.~~ Done 2026-06-09.
+| [#183](https://github.com/oszuidwest/zwfm-babbel/issues/183) | [#215](https://github.com/oszuidwest/zwfm-babbel/pull/215) | `BindAndValidate` now uses the shared capped JSON decoder and returns 413 for oversized JSON bodies. |
+| [#214](https://github.com/oszuidwest/zwfm-babbel/issues/214) | [#216](https://github.com/oszuidwest/zwfm-babbel/pull/216) | Pronunciation-rules HTTP binding now maps through a handler/request DTO instead of binding directly into the service request. |
+| [#200](https://github.com/oszuidwest/zwfm-babbel/issues/200) | [#217](https://github.com/oszuidwest/zwfm-babbel/pull/217) | `seedUpdateValue` now keeps a defensive bounds check before converting to `uint32`. |
+| [#207](https://github.com/oszuidwest/zwfm-babbel/issues/207) | [#218](https://github.com/oszuidwest/zwfm-babbel/pull/218) | TTS settings validation tests were hardened for enum-message coverage and order-insensitive field checks. |
+| [#202](https://github.com/oszuidwest/zwfm-babbel/issues/202) | [#219](https://github.com/oszuidwest/zwfm-babbel/pull/219) | Migration freeze discipline is now documented. |
+| [#204](https://github.com/oszuidwest/zwfm-babbel/issues/204) | [#220](https://github.com/oszuidwest/zwfm-babbel/pull/220) | The intentional float-equality invariant is documented near the comparison. |
+| [#205](https://github.com/oszuidwest/zwfm-babbel/issues/205) | [#213](https://github.com/oszuidwest/zwfm-babbel/pull/213) | Obsolete after the v3-only simplification removed configurable model branching. |
+| [#210](https://github.com/oszuidwest/zwfm-babbel/issues/210) | [#213](https://github.com/oszuidwest/zwfm-babbel/pull/213) | The pronunciation-rules handler/service no longer leak `internal/tts` rule types. |
+| [#211](https://github.com/oszuidwest/zwfm-babbel/issues/211) | [#213](https://github.com/oszuidwest/zwfm-babbel/pull/213) | Obsolete after the external pronunciation-dictionary flow was removed. |
 
 ## Detailed Triage
 
-### #214 - keep PronunciationRules HTTP binding out of service layer
+### #221 - cover ActorUserID propagation on PUT /settings/tts/pronunciations
 
-**Oordeel: Aanpakken.**
+**Assessment: Address.**
 
-The issue is still current. `internal/api/handlers/pronunciation_rules.go:38-39` still declares `var req services.UpdatePronunciationRulesRequest` and passes it to `utils.BindJSONStrict`. `internal/services/pronunciation_rules_service.go:52-63` still gives the service input JSON tags and a Gin `binding:"required"` tag.
+This is the clearest remaining small follow-up. `UpdatePronunciationRules` builds a service request from the HTTP DTO and then copies the authenticated user ID into `serviceReq.ActorUserID` when `auth.UserID(c)` is present. `logPronunciationRulesAudit` later uses that value to write `user_id` into the audit log.
 
-This is not a runtime bug, but the layering smell remains. It is also now more isolated: #213 removed the old ElevenLabs dictionary adapter coupling, so the remaining cleanup is specifically HTTP binding leakage.
+Current handler tests cover strict binding, pointer/default semantics, response mapping, and service error handling. They do not set an auth context and therefore do not fail if the handler stops copying `ActorUserID`.
 
-Recommended action: introduce a handler-level or utils-level request DTO and map into a tag-free service request. Keep service validation in `materializePronunciationRules`.
+The issue correctly notes the testability friction: `Handlers.pronunciationRulesSvc` is still a concrete `*services.PronunciationRulesService`, so a request-capturing fake cannot be swapped in without a small interface extraction or test-only seam.
 
-### #211 - cleanup orphan ElevenLabs pronunciation dictionaries on CAS loss
+Recommended action:
 
-**Status: Gesloten 2026-06-09.**
+- Introduce a small unexported handlers-package interface for the pronunciation-rules service methods the handlers need: `Get` and `Update`.
+- Keep `services.PronunciationRulesService` satisfying that interface naturally.
+- Add a fake service in `pronunciation_rules_test.go` that captures the `*services.UpdatePronunciationRulesRequest`.
+- Add table-driven tests for auth present and auth absent.
 
-**Oordeel: Sluiten als obsolete/superseded.**
+Done when removing the `serviceReq.ActorUserID = &userID` assignment makes the new test fail.
 
-The issue describes a code path that no longer exists on `main`. Commit #213 deleted `internal/tts/pronunciation_dictionary.go` and `internal/tts/pronunciation_dictionary_test.go`. The current pronunciation rules service stores local DB rows (`internal/services/pronunciation_rules_service.go`) and no longer calls an ElevenLabs pronunciation dictionary API. `migrations/008_drop_legacy_tts_settings_columns.sql` drops `pronunciation_dictionary_id`.
+### #175 - make story audio levels automatically consistent
 
-There is no `PronunciationDictionaryClient`, `ArchiveDictionary`, `CreateDictionaryFromRules`, `SetRules`, or CAS persist path left to fix.
+**Assessment: Address, but keep it scoped as feature hardening.**
 
-Recommended action: close as superseded by #213. If production ever created orphan dictionaries under the previous implementation, that is an ops cleanup note, not this code issue.
+Current `main` has meaningful partial progress:
 
-### #210 - stop leaking internal/tts types through PronunciationRules service and handler
+- `ProcessAudio` routes story uploads through `ConvertStoryToWAV`.
+- Generated TTS audio also enters the story-audio pipeline through `ProcessAudio`.
+- Story audio is converted to mono WAV, 48 kHz, PCM 16-bit.
+- The current filter applies `loudnorm=I=-16:TP=-1:LRA=11`.
+- A true-peak measurement path exists, and an extra volume correction is applied when needed.
 
-**Status: Gesloten 2026-06-09.**
+The issue is still open because the original acceptance criteria are broader than the current implementation:
 
-**Oordeel: Sluiten als already satisfied/superseded.**
+- The implementation does not run FFmpeg `loudnorm` in two-pass mode with explicit `measured_I`, `measured_TP`, `measured_LRA`, `measured_thresh`, and `offset` values.
+- `loudnormStats` only parses `input_tp`; it does not validate integrated loudness, loudness range, threshold, or target offset.
+- Silent or effectively silent input is not rejected. A `-inf` true-peak measurement currently produces zero extra gain rather than an explicit validation failure.
+- Existing tests cover true-peak behavior, but they do not prove quiet and loud inputs converge to comparable integrated loudness around `-16 LUFS`.
+- Jingle handling remains a separate policy question: `ConvertToWAV` still applies loudnorm for non-story uploads, while `ConvertStoryToWAV` is story-specific.
 
-The handler no longer imports `internal/tts`; `internal/api/handlers/pronunciation_rules.go:3-10` imports Gin, auth, models, services, utils only. `PronunciationRulesResponse.Rules` is `[]models.PronunciationRule` in `internal/services/pronunciation_rules_service.go:66-70`. Handler mapping takes `models.PronunciationRule` at `internal/api/handlers/pronunciation_rules.go:67`.
+Recommended action:
 
-The exact acceptance criteria around removing `tts.Rule` leakage are met. The service currently uses `models.PronunciationRule` rather than a separate service-domain struct; that is acceptable for this issue because the adapter leak is gone.
-
-Recommended action: close with a note that #213 removed the adapter dependency.
-
-### #207 - enum-message coverage + field-order brittleness
-
-**Oordeel: Aanpakken, with updated wording.**
-
-Part (a) is still current: `internal/services/tts_settings_service_test.go:65` still uses `slices.Equal(gotFields, tt.wantFields)`, so validator order changes can break the test without behavior changing.
-
-Part (b) is still conceptually current, but the specific enum changed. There is no configurable TTS model enum now; `allowedTextNormalizations` drives `enumMessage` in `internal/services/tts_settings_service.go:156-176`. Current tests assert invalid field names but not that the returned enum message contains every allowed value.
-
-Recommended action: switch field comparison to set equality and add one invalid `apply_text_normalization` test that asserts the message includes `auto`, `on`, and `off`.
-
-### #206 - resilience for ElevenLabs TTS client
-
-**Oordeel: Conditioneel/watch.**
-
-The current client still performs one `s.client.Do(req)` per `GenerateSpeech` call (`internal/tts/elevenlabs.go:127`) and directly returns an `APIError` for non-200 responses. `Retry-After` is captured (`internal/tts/elevenlabs.go:141-145`) and surfaced through service tests, but no retry/backoff/circuit breaker exists.
-
-That matches the issue's watch state. No repo evidence proves the trigger is true: volume over roughly 10 calls/minute or a production 429/5xx incident.
-
-Recommended action: keep as watch if such tickets are useful; otherwise close until a real incident/volume signal exists. Do not implement proactively unless operational evidence changed.
-
-### #204 - float equality in changedTTSSettingsFields
-
-**Oordeel: Low-risk cleanup or keep watch.**
-
-The exact equality checks remain at `internal/services/tts_settings_service.go:254-257`. The issue's risk assessment is still accurate: today both values come from DB reads around an update, and no arithmetic is involved, so equality is deterministic enough for current behavior.
-
-Recommended action: either add the invariant comment near the comparison and close, or keep as watch. `math.Float64bits` would be defensive but not meaningfully stronger for `DECIMAL(3,2)` values read from the same source.
-
-### #205 - refactor model-specific branches to Model type when N >= 3
-
-**Status: Gesloten 2026-06-09.**
-
-**Oordeel: Sluiten als obsolete.**
-
-The original trigger depended on multiple model-specific branches around `settings.Model`. That shape is gone. Current `internal/tts/elevenlabs.go:21-26` declares `ModelV3` as the only supported model. The request always sends `ModelID: ModelV3` at `internal/tts/elevenlabs.go:103-106`. `migrations/008_drop_legacy_tts_settings_columns.sql` drops `model` and `use_speaker_boost`.
-
-Recommended action: close as superseded by the v3-only simplification. Reopen a fresh design issue only if multi-model support returns.
-
-### #203 - in-memory cache for tts_settings singleton
-
-**Oordeel: Conditioneel/watch.**
-
-`StoryService.GenerateTTS` still calls `s.ttsSettingsSvc.Get(ctx)` for every TTS request at `internal/services/story_service.go:443`. No in-memory cache or invalidate-on-PATCH exists in `TTSSettingsService`.
-
-The issue itself says this is acceptable until high TTS load or DB latency pressure appears. That trigger is not inferable from the codebase.
-
-Recommended action: keep as watch only if the team tracks capacity triggers in GitHub. Do not build now without runtime metrics.
-
-### #202 - migration 005 frozen post-merge
-
-**Oordeel: Aanpakken as tiny documentation task.**
-
-The migration discipline appears to be followed: later removal of `model`, `pronunciation_dictionary_id`, and `use_speaker_boost` is represented as `migrations/008_drop_legacy_tts_settings_columns.sql`, not by editing the deployed shape into `005`.
-
-However, the requested "one-line note" is not present in `CLAUDE.md`, README, docs, scripts, or a migrations README. `CLAUDE.md` documents `migrations/` generally but not the "after merge, never rewrite numbered migrations" rule.
-
-Recommended action: add a short `migrations/README.md` or CLAUDE note. This is still opportune because it prevents future accidental history edits.
+- Reframe the issue body, or a follow-up PR description, around the remaining acceptance criteria rather than treating the whole feature as missing.
+- Implement full loudnorm measurement parsing before changing behavior.
+- Add tests for quiet input, loud input, unusable/silent input, and integrated loudness convergence.
+- Keep jingle policy explicitly out of scope unless the team wants to change non-story audio handling too.
 
 ### #201 - persistent audit trail for tts_settings PATCH
 
-**Oordeel: Conditioneel decision ticket.**
+**Assessment: Decision needed.**
 
-The issue text is partly stale. Current `TTSSettingsService.Update` logs richer audit data than "changed_fields only": `buildTTSSettingsAuditFields` records `old_<field>` and `new_<field>` for changed fields (`internal/services/tts_settings_service.go:223-243`). The comment at `internal/services/tts_settings_service.go:75-77` states the log is the system of record.
+The original concern is partly addressed by current code. `TTSSettingsService.Update` logs a structured audit entry after a successful update. `buildTTSSettingsAuditFields` records `changed_fields` and old/new values for each changed setting. The service comment explicitly states that the log is the system of record for who changed what.
 
-There is still no persisted `tts_settings_audit` table or insert path.
+There is still no persisted `tts_settings_audit` table or database insert path.
 
-Recommended action: do not implement by default. Ask ops/compliance whether logs are retained at least 30 days and searchable by `user_id`. If yes, close as won't-do with that rationale. If no, build the audit table.
+Recommended decision:
 
-### #200 - defensive bounds check in seedUpdateValue
+- If production logs are retained for at least 30 days and searchable by `user_id`, close this as won't-do with that rationale.
+- If retention or searchability is not guaranteed, implement the audit table and insert inside `Update` after the successful write and reload.
 
-**Oordeel: Aanpakken.**
+Do not build this by default without the retention decision. A database audit trail has schema and storage cost, and the current log-only design is already explicit.
 
-`seedUpdateValue` still casts `int64` to `uint32` at `internal/services/tts_settings_service.go:147-153` and relies on `validateSeed` having run earlier. `rg` finds only one call site today (`internal/services/tts_settings_service.go:98`), so the risk remains low, but the defensive fix is cheap.
+### #203 - in-memory cache for tts_settings singleton
 
-Recommended action: add the inline bounds check and probably a small unit test. This is a good small cleanup to batch with #207.
+**Assessment: Watch.**
 
-### #183 - Harden BindAndValidate with request body size cap
+`StoryService.GenerateTTS` still calls `ttsSettingsSvc.Get(ctx)` for every TTS generation request. No in-memory cache or invalidate-on-PATCH path exists.
 
-**Oordeel: Aanpakken; highest priority.**
+That is acceptable for the current described usage. The singleton row is read by primary key, and TTS generation is admin-triggered and low frequency. The issue's own trigger remains the right boundary: sustained high TTS load or a tighter DB latency budget.
 
-The issue is still current. `utils.BindAndValidate` decodes directly from `json.NewDecoder(c.Request.Body)` at `internal/utils/http.go:303-305`. By contrast, `BindJSONStrict` wraps the body with `http.MaxBytesReader` at `internal/utils/http.go:317`, and `BindOptionalJSON` uses the same cap at `internal/utils/http.go:475`.
+Recommended action:
 
-Blast radius is broad. `BindAndValidate` is still used by stations, voices, station voices, stories, and users handlers. Oversized scalar JSON can still be materialized before validation.
+- Keep open only if the team wants watch tickets for capacity triggers.
+- Prefer invalidate-on-PATCH over TTL if this is implemented later, because admins should see settings changes immediately.
+- Close without implementation if GitHub should track only work that is already ready to do.
 
-Recommended action: factor a shared capped decoder/reader helper and preserve the existing error shape where tests expect it. Add a targeted oversized-body test for `BindAndValidate`.
+### #206 - resilience for ElevenLabs TTS client
 
-### #175 - Make story audio levels automatically consistent
+**Assessment: Watch.**
 
-**Oordeel: Aanpakken, but rewrite as partial-completion follow-up.**
+`internal/tts/elevenlabs.go` still performs one `s.client.Do(req)` call per `GenerateSpeech` request. The client captures `Retry-After` in `APIError.RetryAfter`, and the service maps 429 responses to a rate-limited application error, but there is no retry, backoff, jitter, or circuit breaker.
 
-Current code has moved significantly toward the goal:
+That still matches the issue's watch state. Implementing retries now would add behavior and test complexity without repo evidence that the trigger has fired.
 
-- `ConvertStoryToWAV` exists and routes story upload/TTS audio through story-specific processing (`internal/audio/audio.go:58-66`, `internal/services/story_service.go:375-377`).
-- `loudnorm=I=-16:TP=-1:LRA=11` is applied (`internal/audio/audio.go:23-25`).
-- There is an additional true-peak correction path and tests for true peak (`internal/audio/audio.go:95-147`, `internal/audio/audio_test.go:84-131`, `tests/stories/stories.test.js:360-390`).
-- TTS output enters the same story audio pipeline (`internal/services/story_service.go:465-476`).
+Recommended action:
 
-But it is not complete against the original acceptance criteria:
-
-- No two-pass loudnorm implementation using `measured_I`, `measured_TP`, `measured_LRA`, `measured_thresh`, and `offset`.
-- Parser/test coverage only reads `input_tp`; it does not validate `input_i`, `input_lra`, `input_thresh`, or `target_offset`.
-- Tests assert true peak but not integrated loudness convergence for quiet and loud inputs.
-- Silent/effectively silent input is not rejected; `storyTruePeakGain` treats `-inf` true peak as zero gain.
-- Jingle handling is not cleanly separated in policy/tests; `ConvertToWAV` still applies loudnorm for station voice jingle uploads.
-
-Recommended action: keep open but update the body/title to "finish story loudness normalization acceptance criteria". Treat the remaining work as non-trivial feature hardening, not a quick bugfix.
+- Keep open if the team wants an explicit incident/volume trigger.
+- Implement retry-on-429 honoring `Retry-After` after the first production burst or volume increase.
+- Add exponential backoff with jitter for transient 5xx responses at the same time.
+- Consider a circuit breaker only if repeated upstream failures become operationally visible.
 
