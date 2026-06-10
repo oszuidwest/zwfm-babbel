@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
@@ -159,6 +160,61 @@ func TestPronunciationRulesHandlers_UpdateAppliesPointerSemantics(t *testing.T) 
 	}
 }
 
+// TestPronunciationRulesHandlers_UpdatePropagatesActorUserID locks in the
+// audit-trail contract: the authenticated user from the gin context must reach
+// the service request as ActorUserID, and an unauthenticated request must leave
+// it nil (the service logs user_id=unknown in that case). A request-capturing
+// fake stands in for the real service so the assertion fails if the handler's
+// auth.UserID -> ActorUserID assignment is dropped or retargeted.
+func TestPronunciationRulesHandlers_UpdatePropagatesActorUserID(t *testing.T) {
+	const userID int64 = 42
+
+	tests := []struct {
+		name         string
+		withAuth     bool
+		wantActorSet bool
+	}{
+		{name: "auth context populates actor user id", withAuth: true, wantActorSet: true},
+		{name: "missing auth context leaves actor user id nil", withAuth: false, wantActorSet: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &capturingPronunciationRulesService{
+				updateResp: &services.PronunciationRulesResponse{},
+			}
+			h := &Handlers{pronunciationRulesSvc: svc}
+
+			var middlewares []gin.HandlerFunc
+			if tt.withAuth {
+				middlewares = append(middlewares, func(c *gin.Context) {
+					auth.SetUserContext(c, auth.UserContext{UserID: userID})
+				})
+			}
+
+			recorder := performPronunciationRulesHandlerRequest(
+				t, http.MethodPut, `{"rules":[]}`, h.UpdatePronunciationRules, middlewares...,
+			)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body.String())
+			}
+			if svc.capturedReq == nil {
+				t.Fatalf("Update was not called")
+			}
+
+			got := svc.capturedReq.ActorUserID
+			if tt.wantActorSet {
+				if got == nil || *got != userID {
+					t.Fatalf("ActorUserID = %v, want %d", got, userID)
+				}
+			} else if got != nil {
+				t.Fatalf("ActorUserID = %d, want nil", *got)
+			}
+		})
+	}
+}
+
 func TestPronunciationRulesHandlers_GetSuccess(t *testing.T) {
 	updatedAt := time.Unix(1717200000, 0).UTC()
 	h := &Handlers{
@@ -243,6 +299,7 @@ func performPronunciationRulesHandlerRequest(
 	method string,
 	body string,
 	handler gin.HandlerFunc,
+	middlewares ...gin.HandlerFunc,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -250,7 +307,8 @@ func performPronunciationRulesHandlerRequest(
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Handle(method, path, handler)
+	chain := append(append([]gin.HandlerFunc{}, middlewares...), handler)
+	router.Handle(method, path, chain...)
 
 	reader := bytes.NewReader([]byte(body))
 	request := httptest.NewRequestWithContext(context.Background(), method, path, reader)
@@ -282,6 +340,26 @@ func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, wa
 	if body.Errors[0].Field != want {
 		t.Fatalf("first field = %q, want %q; body=%s", body.Errors[0].Field, want, recorder.Body.String())
 	}
+}
+
+// capturingPronunciationRulesService records the request passed to Update so a
+// test can assert how the handler populated it (notably ActorUserID).
+type capturingPronunciationRulesService struct {
+	updateResp  *services.PronunciationRulesResponse
+	capturedReq *services.UpdatePronunciationRulesRequest
+}
+
+// Get exists only to satisfy pronunciationRulesService; no test exercises it.
+func (s *capturingPronunciationRulesService) Get(context.Context) (*services.PronunciationRulesResponse, error) {
+	return nil, nil
+}
+
+func (s *capturingPronunciationRulesService) Update(
+	_ context.Context,
+	req *services.UpdatePronunciationRulesRequest,
+) (*services.PronunciationRulesResponse, error) {
+	s.capturedReq = req
+	return s.updateResp, nil
 }
 
 type handlerPronunciationRuleRepo struct {

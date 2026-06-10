@@ -47,7 +47,7 @@ type Handlers struct {
 	userSvc               *services.UserService
 	stationVoiceSvc       *services.StationVoiceService
 	ttsSettingsSvc        *services.TTSSettingsService
-	pronunciationRulesSvc *services.PronunciationRulesService
+	pronunciationRulesSvc pronunciationRulesService
 	ttsEnabled            bool
 }
 
