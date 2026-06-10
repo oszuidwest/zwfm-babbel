@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +10,17 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
+
+// pronunciationRulesService is the slice of PronunciationRulesService the
+// handler depends on. Narrowing to an interface lets tests substitute a
+// request-capturing fake to assert that the authenticated user propagates to
+// the service audit trail.
+type pronunciationRulesService interface {
+	Get(ctx context.Context) (*services.PronunciationRulesResponse, error)
+	Update(ctx context.Context, req *services.UpdatePronunciationRulesRequest) (*services.PronunciationRulesResponse, error)
+}
+
+var _ pronunciationRulesService = (*services.PronunciationRulesService)(nil)
 
 type pronunciationRuleResponse struct {
 	StringToReplace string `json:"string_to_replace"`
