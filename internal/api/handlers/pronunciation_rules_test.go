@@ -345,15 +345,13 @@ func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, wa
 // capturingPronunciationRulesService records the request passed to Update so a
 // test can assert how the handler populated it (notably ActorUserID).
 type capturingPronunciationRulesService struct {
-	getResp     *services.PronunciationRulesResponse
-	getErr      error
 	updateResp  *services.PronunciationRulesResponse
-	updateErr   error
 	capturedReq *services.UpdatePronunciationRulesRequest
 }
 
+// Get exists only to satisfy pronunciationRulesService; no test exercises it.
 func (s *capturingPronunciationRulesService) Get(context.Context) (*services.PronunciationRulesResponse, error) {
-	return s.getResp, s.getErr
+	return nil, nil
 }
 
 func (s *capturingPronunciationRulesService) Update(
@@ -361,7 +359,7 @@ func (s *capturingPronunciationRulesService) Update(
 	req *services.UpdatePronunciationRulesRequest,
 ) (*services.PronunciationRulesResponse, error) {
 	s.capturedReq = req
-	return s.updateResp, s.updateErr
+	return s.updateResp, nil
 }
 
 type handlerPronunciationRuleRepo struct {
