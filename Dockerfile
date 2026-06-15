@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o babbel cmd/babbel/main.go
 
 # Final stage
-FROM alpine:3.23
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-babbel"
 LABEL org.opencontainers.image.description="Headless REST API for generating audio news bulletins for radio stations"
