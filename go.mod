@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/casbin/casbin/v2 v2.135.0
-	github.com/coreos/go-oidc/v3 v3.18.0
+	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/gin-contrib/sessions v1.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/go-playground/validator/v10 v10.30.3
