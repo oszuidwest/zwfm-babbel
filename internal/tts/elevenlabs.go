@@ -157,22 +157,23 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
-		if err != nil {
-			logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, elevenLabsErrorDetail{})
-			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, err)
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
+		var detail elevenLabsErrorDetail
+		if readErr == nil {
+			detail = parseElevenLabsErrorDetail(respBody)
 		}
-		detail := parseElevenLabsErrorDetail(respBody)
+		logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, detail)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, readErr)
+		}
 		if int64(len(respBody)) > maxErrorResponseBytes {
 			respBody = append(respBody[:maxErrorResponseBytes], []byte(" (truncated)")...)
 		}
-		apiErr := &APIError{
+		return nil, &APIError{
 			StatusCode: resp.StatusCode,
 			Body:       string(respBody),
 			RetryAfter: resp.Header.Get("Retry-After"),
 		}
-		logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, detail)
-		return nil, apiErr
 	}
 
 	limitedReader := io.LimitReader(resp.Body, maxAudioResponseBytes+1)
