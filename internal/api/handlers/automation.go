@@ -141,16 +141,14 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
-	defer cancel()
-
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 
 	// Fast path: serve a fresh-enough bulletin without the generation lock so
 	// cache hits are never serialized behind another client's generation or
-	// download speed.
+	// download speed. This lookup runs on the request context; the generation
+	// timeout starts only once the lock is held.
 	if req.maxAgeSeconds > 0 {
-		existing, ok := h.lookupFreshBulletin(c, ctx, req.stationID, maxAge)
+		existing, ok := h.lookupFreshBulletin(c, c.Request.Context(), req.stationID, maxAge)
 		if !ok {
 			return
 		}
@@ -160,7 +158,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		}
 	}
 
-	bulletin, cached, ok := h.getOrGenerateBulletin(c, ctx, req, maxAge)
+	bulletin, cached, ok := h.getOrGenerateBulletin(c, req, maxAge)
 	if !ok {
 		return
 	}
@@ -186,10 +184,15 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 // cache so it reuses the bulletin the lock winner just generated instead of
 // generating again. On failure it writes the error response and reports
 // ok=false.
-func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, ctx context.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
+func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
 	lock := h.getStationLock(req.stationID)
 	lock.Lock()
 	defer lock.Unlock()
+
+	// The generation timeout starts after the lock is acquired so time spent
+	// waiting behind another generation does not eat into it.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
+	defer cancel()
 
 	if req.maxAgeSeconds > 0 {
 		existing, ok := h.lookupFreshBulletin(c, ctx, req.stationID, maxAge)
