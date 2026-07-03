@@ -126,6 +126,43 @@ func TestValidateDatabasePoolConfig(t *testing.T) {
 	}
 }
 
+func TestValidateTTSConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{
+			name: "request timeout is zero",
+			mutate: func(cfg *Config) {
+				cfg.TTS.RequestTimeout = 0
+			},
+			wantErr: "BABBEL_ELEVENLABS_TIMEOUT must be > 0",
+		},
+		{
+			name: "request timeout is negative",
+			mutate: func(cfg *Config) {
+				cfg.TTS.RequestTimeout = -time.Second
+			},
+			wantErr: "BABBEL_ELEVENLABS_TIMEOUT must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestValidateLocalAuthConfig(t *testing.T) {
 	t.Parallel()
 
@@ -327,6 +364,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 		Audio: AudioConfig{
 			FFmpegPath:  ffmpegPath,
 			FFprobePath: ffprobePath,
+		},
+		TTS: TTSConfig{
+			RequestTimeout: 60 * time.Second,
 		},
 		Environment: EnvDevelopment,
 	}
