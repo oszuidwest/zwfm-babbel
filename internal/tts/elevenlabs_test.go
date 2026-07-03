@@ -1,14 +1,20 @@
 package tts
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 type generateSpeechRequestCase struct {
@@ -135,13 +141,11 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	}
 }
 
-func TestService_GenerateSpeech_APIErrorIncludesElevenLabsMetadata(t *testing.T) {
+func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "45")
-		w.Header().Set(headerCurrentConcurrentRequests, "5")
-		w.Header().Set(headerMaximumConcurrentRequests, "5")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"detail":{"type":"rate_limit_error","code":"concurrent_limit_exceeded","request_id":"req_123"}}`))
+		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
 	}))
 	defer server.Close()
 
@@ -166,27 +170,14 @@ func TestService_GenerateSpeech_APIErrorIncludesElevenLabsMetadata(t *testing.T)
 	if apiErr.RetryAfter != "45" {
 		t.Fatalf("RetryAfter = %q, want 45", apiErr.RetryAfter)
 	}
-	if apiErr.ErrorType != "rate_limit_error" {
-		t.Fatalf("ErrorType = %q, want rate_limit_error", apiErr.ErrorType)
-	}
-	if apiErr.ErrorCode != "concurrent_limit_exceeded" {
-		t.Fatalf("ErrorCode = %q, want concurrent_limit_exceeded", apiErr.ErrorCode)
-	}
-	if apiErr.RequestID != "req_123" {
-		t.Fatalf("RequestID = %q, want req_123", apiErr.RequestID)
-	}
-	if apiErr.CurrentConcurrentRequests != "5" {
-		t.Fatalf("CurrentConcurrentRequests = %q, want 5", apiErr.CurrentConcurrentRequests)
-	}
-	if apiErr.MaximumConcurrentRequests != "5" {
-		t.Fatalf("MaximumConcurrentRequests = %q, want 5", apiErr.MaximumConcurrentRequests)
-	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
 	}
 }
 
 func TestParseElevenLabsErrorDetail(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name          string
 		body          string
@@ -208,6 +199,11 @@ func TestParseElevenLabsErrorDetail(t *testing.T) {
 			wantCode: "too_many_concurrent_requests",
 		},
 		{
+			name:     "code preferred over status",
+			body:     `{"detail":{"code":"rate_limit_exceeded","status":"too_many_concurrent_requests"}}`,
+			wantCode: "rate_limit_exceeded",
+		},
+		{
 			name:     "string detail fallback",
 			body:     `{"detail":"system_busy"}`,
 			wantCode: "system_busy",
@@ -217,6 +213,16 @@ func TestParseElevenLabsErrorDetail(t *testing.T) {
 			body: `{"detail":"slow down"}`,
 		},
 		{
+			name:     "request id with control character ignored",
+			body:     `{"detail":{"type":"rate_limit_error","code":"rate_limit_exceeded","request_id":"req\n123"}}`,
+			wantType: "rate_limit_error",
+			wantCode: "rate_limit_exceeded",
+		},
+		{
+			name: "overlong token ignored",
+			body: `{"detail":{"code":"` + strings.Repeat("a", 129) + `"}}`,
+		},
+		{
 			name: "malformed body",
 			body: `not json`,
 		},
@@ -224,6 +230,8 @@ func TestParseElevenLabsErrorDetail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := parseElevenLabsErrorDetail([]byte(tt.body))
 			if got.Type != tt.wantType {
 				t.Fatalf("Type = %q, want %q", got.Type, tt.wantType)
@@ -235,6 +243,171 @@ func TestParseElevenLabsErrorDetail(t *testing.T) {
 				t.Fatalf("RequestID = %q, want %q", got.RequestID, tt.wantRequestID)
 			}
 		})
+	}
+}
+
+func TestConcurrencyHeaderValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "valid count",
+			value: "5",
+			want:  "5",
+		},
+		{
+			name:  "valid count normalized",
+			value: "005",
+			want:  "5",
+		},
+		{
+			name:  "negative count ignored",
+			value: "-1",
+		},
+		{
+			name:  "non numeric count ignored",
+			value: "abc",
+		},
+		{
+			name: "empty count ignored",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			header := http.Header{}
+			if tt.value != "" {
+				header.Set(headerCurrentConcurrentRequests, tt.value)
+			}
+
+			got := concurrencyHeaderValue(header, headerCurrentConcurrentRequests)
+			if got != tt.want {
+				t.Fatalf("concurrencyHeaderValue() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestElevenLabsResponseLogLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		statusCode int
+		want       slog.Level
+	}{
+		{
+			name:       "unauthorized is error",
+			statusCode: http.StatusUnauthorized,
+			want:       slog.LevelError,
+		},
+		{
+			name:       "forbidden is error",
+			statusCode: http.StatusForbidden,
+			want:       slog.LevelError,
+		},
+		{
+			name:       "rate limited is warn",
+			statusCode: http.StatusTooManyRequests,
+			want:       slog.LevelWarn,
+		},
+		{
+			name:       "request timeout is warn",
+			statusCode: http.StatusRequestTimeout,
+			want:       slog.LevelWarn,
+		},
+		{
+			name:       "not found is info",
+			statusCode: http.StatusNotFound,
+			want:       slog.LevelInfo,
+		},
+		{
+			name:       "unprocessable is info",
+			statusCode: http.StatusUnprocessableEntity,
+			want:       slog.LevelInfo,
+		},
+		{
+			name:       "server error is error",
+			statusCode: http.StatusInternalServerError,
+			want:       slog.LevelError,
+		},
+		{
+			name:       "unexpected non error status is warn",
+			statusCode: http.StatusMovedPermanently,
+			want:       slog.LevelWarn,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := elevenLabsResponseLogLevel(tt.statusCode)
+			if got != tt.want {
+				t.Fatalf("elevenLabsResponseLogLevel(%d) = %s, want %s", tt.statusCode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
+	header := http.Header{}
+	header.Set("Retry-After", "45")
+	header.Set(headerCurrentConcurrentRequests, "5")
+	header.Set(headerMaximumConcurrentRequests, "8")
+
+	entry := captureLogEntry(t, func() {
+		logElevenLabsResponse(
+			ContextWithStoryID(context.Background(), 99),
+			http.StatusTooManyRequests,
+			123*time.Millisecond,
+			header,
+			elevenLabsErrorDetail{
+				Type:      "rate_limit_error",
+				Code:      "concurrent_limit_exceeded",
+				RequestID: "req_123",
+			},
+		)
+	})
+
+	assertLogField(t, entry, "level", "WARN")
+	assertLogField(t, entry, "msg", "elevenlabs tts response")
+	assertLogField(t, entry, "status_code", float64(http.StatusTooManyRequests))
+	assertLogField(t, entry, "duration_ms", float64(123))
+	assertLogField(t, entry, "story_id", float64(99))
+	assertLogField(t, entry, "retry_after", "45")
+	assertLogField(t, entry, "elevenlabs_error_type", "rate_limit_error")
+	assertLogField(t, entry, "elevenlabs_error_code", "concurrent_limit_exceeded")
+	assertLogField(t, entry, "elevenlabs_request_id", "req_123")
+	assertLogField(t, entry, "current_concurrent_requests", "5")
+	assertLogField(t, entry, "maximum_concurrent_requests", "8")
+}
+
+func TestContextWithStoryID(t *testing.T) {
+	t.Parallel()
+
+	base := context.Background()
+	ctx := ContextWithStoryID(base, 99)
+
+	storyID, ok := storyIDFromContext(ctx)
+	if !ok {
+		t.Fatal("storyIDFromContext() ok = false, want true")
+	}
+	if storyID != 99 {
+		t.Fatalf("storyIDFromContext() storyID = %d, want 99", storyID)
+	}
+
+	if got := ContextWithStoryID(base, 0); got != base {
+		t.Fatal("ContextWithStoryID() with zero story ID returned child context, want original")
+	}
+	if got := ContextWithStoryID(base, -1); got != base {
+		t.Fatal("ContextWithStoryID() with negative story ID returned child context, want original")
 	}
 }
 
@@ -296,4 +469,63 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 
 func uint32Ptr(v uint32) *uint32 {
 	return &v
+}
+
+func captureLogEntry(t *testing.T, emit func()) map[string]any {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create log capture pipe: %v", err)
+	}
+	defer func() {
+		os.Stdout = originalStdout
+		_ = logger.Initialize("debug", false)
+		_ = reader.Close()
+		_ = writer.Close()
+	}()
+
+	os.Stdout = writer
+	if err := logger.Initialize("debug", false); err != nil {
+		t.Fatalf("initialize capture logger: %v", err)
+	}
+
+	emit()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close log capture writer: %v", err)
+	}
+	os.Stdout = originalStdout
+	if err := logger.Initialize("debug", false); err != nil {
+		t.Fatalf("restore logger: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, reader); err != nil {
+		t.Fatalf("read captured log: %v", err)
+	}
+
+	line := bytes.TrimSpace(buf.Bytes())
+	if len(line) == 0 {
+		t.Fatal("captured log is empty")
+	}
+
+	var entry map[string]any
+	if err := json.Unmarshal(line, &entry); err != nil {
+		t.Fatalf("decode captured log %q: %v", line, err)
+	}
+	return entry
+}
+
+func assertLogField(t *testing.T, entry map[string]any, key string, want any) {
+	t.Helper()
+
+	got, ok := entry[key]
+	if !ok {
+		t.Fatalf("log field %q missing in %#v", key, entry)
+	}
+	if got != want {
+		t.Fatalf("log field %q = %#v, want %#v", key, got, want)
+	}
 }

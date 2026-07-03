@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -36,14 +37,9 @@ const (
 
 // APIError preserves ElevenLabs response details for service-layer translation.
 type APIError struct {
-	StatusCode                int
-	Body                      string
-	RetryAfter                string
-	ErrorType                 string
-	ErrorCode                 string
-	RequestID                 string
-	CurrentConcurrentRequests string
-	MaximumConcurrentRequests string
+	StatusCode int
+	Body       string
+	RetryAfter string
 }
 
 // Error returns the ElevenLabs failure message for the upstream status code.
@@ -116,6 +112,16 @@ type elevenLabsErrorDetail struct {
 	RequestID string
 }
 
+type storyIDContextKey struct{}
+
+// ContextWithStoryID returns a child context that adds story correlation to TTS failure logs.
+func ContextWithStoryID(ctx context.Context, storyID int64) context.Context {
+	if storyID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, storyIDContextKey{}, storyID)
+}
+
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
@@ -153,7 +159,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	if resp.StatusCode != http.StatusOK {
 		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
 		if err != nil {
-			logElevenLabsResponse(resp.StatusCode, time.Since(started), resp.Header, elevenLabsErrorDetail{})
+			logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, elevenLabsErrorDetail{})
 			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, err)
 		}
 		detail := parseElevenLabsErrorDetail(respBody)
@@ -161,16 +167,11 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 			respBody = append(respBody[:maxErrorResponseBytes], []byte(" (truncated)")...)
 		}
 		apiErr := &APIError{
-			StatusCode:                resp.StatusCode,
-			Body:                      string(respBody),
-			RetryAfter:                resp.Header.Get("Retry-After"),
-			ErrorType:                 detail.Type,
-			ErrorCode:                 detail.Code,
-			RequestID:                 detail.RequestID,
-			CurrentConcurrentRequests: concurrencyHeaderValue(resp.Header, headerCurrentConcurrentRequests),
-			MaximumConcurrentRequests: concurrencyHeaderValue(resp.Header, headerMaximumConcurrentRequests),
+			StatusCode: resp.StatusCode,
+			Body:       string(respBody),
+			RetryAfter: resp.Header.Get("Retry-After"),
 		}
-		logElevenLabsResponse(resp.StatusCode, time.Since(started), resp.Header, detail)
+		logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, detail)
 		return nil, apiErr
 	}
 
@@ -219,10 +220,19 @@ func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
 	return elevenLabsErrorDetail{}
 }
 
-func logElevenLabsResponse(statusCode int, duration time.Duration, header http.Header, detail elevenLabsErrorDetail) {
+func logElevenLabsResponse(
+	ctx context.Context,
+	statusCode int,
+	duration time.Duration,
+	header http.Header,
+	detail elevenLabsErrorDetail,
+) {
 	fields := map[string]any{
 		"status_code": statusCode,
 		"duration_ms": duration.Milliseconds(),
+	}
+	if storyID, ok := storyIDFromContext(ctx); ok {
+		fields["story_id"] = storyID
 	}
 	addNonEmptyField(fields, "retry_after", header.Get("Retry-After"))
 	addNonEmptyField(fields, "elevenlabs_error_type", detail.Type)
@@ -231,7 +241,27 @@ func logElevenLabsResponse(statusCode int, duration time.Duration, header http.H
 	addNonEmptyField(fields, "current_concurrent_requests", concurrencyHeaderValue(header, headerCurrentConcurrentRequests))
 	addNonEmptyField(fields, "maximum_concurrent_requests", concurrencyHeaderValue(header, headerMaximumConcurrentRequests))
 
-	logger.WithFields(fields).Warn("elevenlabs tts response")
+	logger.WithFields(fields).Log(ctx, elevenLabsResponseLogLevel(statusCode), "elevenlabs tts response")
+}
+
+func storyIDFromContext(ctx context.Context) (int64, bool) {
+	storyID, ok := ctx.Value(storyIDContextKey{}).(int64)
+	return storyID, ok
+}
+
+func elevenLabsResponseLogLevel(statusCode int) slog.Level {
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		return slog.LevelError
+	case statusCode >= http.StatusInternalServerError:
+		return slog.LevelError
+	case statusCode == http.StatusTooManyRequests || statusCode == http.StatusRequestTimeout:
+		return slog.LevelWarn
+	case statusCode >= http.StatusBadRequest:
+		return slog.LevelInfo
+	default:
+		return slog.LevelWarn
+	}
 }
 
 func concurrencyHeaderValue(header http.Header, key string) string {
