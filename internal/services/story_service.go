@@ -444,7 +444,12 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}
 	options := ttsOptionsFromSettings(settings)
 
-	audioData, err := s.ttsSvc.GenerateSpeech(ctx, finalText, *story.Voice.ElevenLabsVoiceID, options)
+	audioData, err := s.ttsSvc.GenerateSpeech(
+		tts.ContextWithStoryID(ctx, storyID),
+		finalText,
+		*story.Voice.ElevenLabsVoiceID,
+		options,
+	)
 	if err != nil {
 		return translateTTSError(storyID, err)
 	}

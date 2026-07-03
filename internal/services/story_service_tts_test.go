@@ -13,6 +13,8 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
+type generateTTSTestContextKey struct{}
+
 func TestComposeV3TTSText(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -92,7 +94,8 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(context.Background(), 99, false)
+	ctx := context.WithValue(context.Background(), generateTTSTestContextKey{}, "preserved")
+	err := service.GenerateTTS(ctx, 99, false)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -103,6 +106,12 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 	wantText := "[news anchor]\n/piː ɛs ʋeː/ wint"
 	if ttsSvc.text != wantText {
 		t.Fatalf("GenerateSpeech text = %q, want %q", ttsSvc.text, wantText)
+	}
+	if ttsSvc.ctx == ctx {
+		t.Fatal("GenerateSpeech context is original context, want child context with story correlation")
+	}
+	if got := ttsSvc.ctx.Value(generateTTSTestContextKey{}); got != "preserved" {
+		t.Fatalf("GenerateSpeech context preserved value = %v, want preserved", got)
 	}
 }
 
@@ -306,13 +315,15 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
+	ctx   context.Context
 	text  string
 	err   error
 	calls int
 }
 
-func (f *fakeSpeechGenerator) GenerateSpeech(_ context.Context, text, _ string, _ tts.Options) ([]byte, error) {
+func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string, _ tts.Options) ([]byte, error) {
 	f.calls++
+	f.ctx = ctx
 	f.text = text
 	if f.err != nil {
 		return nil, f.err

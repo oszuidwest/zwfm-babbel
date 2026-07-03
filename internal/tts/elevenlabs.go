@@ -7,16 +7,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 const maxAudioResponseBytes int64 = 50 * 1024 * 1024 // 50 MiB safety cap
 const maxErrorResponseBytes int64 = 1024
 const defaultAPIBaseURL = "https://api.elevenlabs.io"
 const outputFormatOpus48k128 = "opus_48000_128"
+
+const (
+	headerCurrentConcurrentRequests = "current-concurrent-requests"
+	headerMaximumConcurrentRequests = "maximum-concurrent-requests"
+)
 
 const (
 	// ModelV3 is the only ElevenLabs model Babbel supports for generated TTS.
@@ -97,6 +106,22 @@ type ttsRequest struct {
 	Seed                   *uint32       `json:"seed,omitempty"`
 }
 
+type elevenLabsErrorDetail struct {
+	Type      string
+	Code      string
+	RequestID string
+}
+
+type storyIDContextKey struct{}
+
+// ContextWithStoryID returns a child context that adds story correlation to TTS failure logs.
+func ContextWithStoryID(ctx context.Context, storyID int64) context.Context {
+	if storyID <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, storyIDContextKey{}, storyID)
+}
+
 // GenerateSpeech converts text to speech audio using the ElevenLabs API.
 // Returns the raw Opus audio bytes.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
@@ -124,6 +149,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	req.Header.Set("xi-api-key", s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
+	started := time.Now()
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("TTS API request failed: %w", err)
@@ -131,9 +157,14 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, err)
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseBytes+1))
+		var detail elevenLabsErrorDetail
+		if readErr == nil {
+			detail = parseElevenLabsErrorDetail(respBody)
+		}
+		logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, detail)
+		if readErr != nil {
+			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, readErr)
 		}
 		if int64(len(respBody)) > maxErrorResponseBytes {
 			respBody = append(respBody[:maxErrorResponseBytes], []byte(" (truncated)")...)
@@ -155,4 +186,116 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	}
 
 	return audio, nil
+}
+
+func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
+	var payload struct {
+		Detail json.RawMessage `json:"detail"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return elevenLabsErrorDetail{}
+	}
+
+	var detail struct {
+		Type      string `json:"type"`
+		Code      string `json:"code"`
+		Status    string `json:"status"`
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(payload.Detail, &detail); err == nil {
+		code := detail.Code
+		if code == "" {
+			code = detail.Status
+		}
+		return elevenLabsErrorDetail{
+			Type:      cleanElevenLabsToken(detail.Type),
+			Code:      cleanElevenLabsToken(code),
+			RequestID: cleanElevenLabsToken(detail.RequestID),
+		}
+	}
+
+	var detailMessage string
+	if err := json.Unmarshal(payload.Detail, &detailMessage); err == nil {
+		return elevenLabsErrorDetail{Code: cleanElevenLabsToken(detailMessage)}
+	}
+	return elevenLabsErrorDetail{}
+}
+
+func logElevenLabsResponse(
+	ctx context.Context,
+	statusCode int,
+	duration time.Duration,
+	header http.Header,
+	detail elevenLabsErrorDetail,
+) {
+	fields := map[string]any{
+		"status_code": statusCode,
+		"duration_ms": duration.Milliseconds(),
+	}
+	if storyID, ok := storyIDFromContext(ctx); ok {
+		fields["story_id"] = storyID
+	}
+	addNonEmptyField(fields, "retry_after", header.Get("Retry-After"))
+	addNonEmptyField(fields, "elevenlabs_error_type", detail.Type)
+	addNonEmptyField(fields, "elevenlabs_error_code", detail.Code)
+	addNonEmptyField(fields, "elevenlabs_request_id", detail.RequestID)
+	addNonEmptyField(fields, "current_concurrent_requests", concurrencyHeaderValue(header, headerCurrentConcurrentRequests))
+	addNonEmptyField(fields, "maximum_concurrent_requests", concurrencyHeaderValue(header, headerMaximumConcurrentRequests))
+
+	logger.WithFields(fields).Log(ctx, elevenLabsResponseLogLevel(statusCode), "elevenlabs tts response")
+}
+
+func storyIDFromContext(ctx context.Context) (int64, bool) {
+	storyID, ok := ctx.Value(storyIDContextKey{}).(int64)
+	return storyID, ok
+}
+
+func elevenLabsResponseLogLevel(statusCode int) slog.Level {
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		return slog.LevelError
+	case statusCode >= http.StatusInternalServerError:
+		return slog.LevelError
+	case statusCode == http.StatusTooManyRequests || statusCode == http.StatusRequestTimeout:
+		return slog.LevelWarn
+	case statusCode >= http.StatusBadRequest:
+		return slog.LevelInfo
+	default:
+		return slog.LevelWarn
+	}
+}
+
+func concurrencyHeaderValue(header http.Header, key string) string {
+	value := header.Get(key)
+	if value == "" {
+		return ""
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 0 {
+		return ""
+	}
+	return strconv.Itoa(count)
+}
+
+func cleanElevenLabsToken(value string) string {
+	if value == "" || len(value) > 128 {
+		return ""
+	}
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.':
+		default:
+			return ""
+		}
+	}
+	return value
+}
+
+func addNonEmptyField(fields map[string]any, key, value string) {
+	if value != "" {
+		fields[key] = value
+	}
 }
