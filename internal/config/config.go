@@ -33,6 +33,8 @@ type Config struct {
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
 	Environment Environment `env:"ENV" envDefault:"development"`
+	// FrontendURL is the frontend base URL used for OAuth redirects.
+	FrontendURL string `env:"FRONTEND_URL"`
 }
 
 // AutomationConfig defines settings for radio automation system integration.
@@ -159,7 +161,6 @@ func (c *Config) EnsureDirectories() error {
 		c.Audio.ProcessedPath,
 		c.Audio.OutputPath,
 		c.Audio.TempPath,
-		"./uploads",
 	}
 	for _, dir := range dirs {
 		// #nosec G301 - 0755 is appropriate for audio directories
@@ -260,6 +261,9 @@ func (c *Config) validateOIDC() error {
 	}
 	if c.Auth.OIDCClientSecret == "" {
 		return errors.New("BABBEL_OIDC_CLIENT_SECRET required when auth method is 'oidc' or 'both'")
+	}
+	if c.FrontendURL == "" {
+		return errors.New("BABBEL_FRONTEND_URL required when auth method is 'oidc' or 'both'")
 	}
 	return nil
 }

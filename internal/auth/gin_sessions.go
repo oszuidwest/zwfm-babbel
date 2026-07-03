@@ -1,10 +1,7 @@
 package auth
 
 import (
-	"fmt"
-
 	"github.com/gin-contrib/sessions"
-	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-contrib/sessions/memstore"
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -15,25 +12,9 @@ type GinSessionStore struct {
 	name string
 }
 
-// NewGinSessionStore creates a new session store.
+// NewGinSessionStore creates a new server-side in-memory session store.
 func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error) {
-	var store sessions.Store
-
-	storeType := config.SessionStoreType(cfg.StoreType)
-	switch storeType {
-	case config.StoreTypeCookie:
-		// Cookie-based sessions are encrypted.
-		if cfg.SecretKey == "" {
-			return nil, nil, fmt.Errorf("secret key is required for cookie store")
-		}
-		store = cookie.NewStore([]byte(cfg.SecretKey))
-	case config.StoreTypeMemory:
-		// Memory-based sessions are stored server-side.
-		store = memstore.NewStore([]byte(cfg.SecretKey))
-	default:
-		// Unknown store types default to memory storage.
-		store = memstore.NewStore([]byte(cfg.SecretKey))
-	}
+	store := memstore.NewStore([]byte(cfg.SecretKey))
 
 	// Configure session store options.
 	sameSite := config.CookieSameSite(cfg.CookieSameSite)
@@ -53,14 +34,12 @@ func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error)
 func (s *GinSessionStore) Get(c *gin.Context) Session {
 	return &ginSession{
 		session: sessions.Default(c),
-		ctx:     c,
 	}
 }
 
 // ginSession implements Session interface.
 type ginSession struct {
 	session sessions.Session
-	ctx     *gin.Context
 }
 
 func (s *ginSession) Get(key string) any {
@@ -79,6 +58,8 @@ func (s *ginSession) Clear() {
 	s.session.Clear()
 }
 
+// Save persists the session. The gin.Context parameter is unused here but
+// required by the Session interface.
 func (s *ginSession) Save(_ *gin.Context) error {
 	return s.session.Save()
 }

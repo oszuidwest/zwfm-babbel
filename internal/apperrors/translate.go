@@ -67,3 +67,14 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		return Database(resource, op.String(), err)
 	}
 }
+
+// TranslateRepoErrorWithID converts repository errors to typed domain errors
+// like TranslateRepoError, but maps repository.ErrNotFound to a NotFoundError
+// carrying the resource ID so responses keep the
+// "<resource> with id N not found" message.
+func TranslateRepoErrorWithID(resource string, id int64, op Operation, err error) error {
+	if errors.Is(err, repository.ErrNotFound) {
+		return NotFoundWithID(resource, id)
+	}
+	return TranslateRepoError(resource, op, err)
+}

@@ -21,8 +21,3 @@ func (s StoryStatus) IsValid() bool {
 	}
 	return false
 }
-
-// String returns the string representation of the status.
-func (s StoryStatus) String() string {
-	return string(s)
-}

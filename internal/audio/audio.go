@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -238,22 +237,9 @@ func (s *Service) CreateBulletin(
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	tempDir := utils.TempBulletinDir(s.config, uuid.New().String())
-	if err := os.MkdirAll(tempDir, 0750); err != nil {
-		return "", fmt.Errorf("failed to create temp directory %s: %w", tempDir, err)
-	}
-	defer cleanupTempDir(tempDir)
-
 	args, filters := s.buildBulletinFFmpegCommand(station, stories, jingle, outputPath)
 
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
-}
-
-// cleanupTempDir removes the temporary directory and logs cleanup failures.
-func cleanupTempDir(tempDir string) {
-	if err := os.RemoveAll(tempDir); err != nil {
-		logger.Warn("Failed to cleanup temp directory", "path", tempDir, "error", err)
-	}
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.

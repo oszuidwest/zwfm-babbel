@@ -29,25 +29,16 @@ type ListResponse struct {
 
 // Success responds with HTTP 200 OK status and the provided data.
 func Success(c *gin.Context, data any) {
-	if c == nil {
-		return
-	}
 	c.JSON(http.StatusOK, data)
 }
 
 // NoContent responds with HTTP 204 No Content.
 func NoContent(c *gin.Context) {
-	if c == nil {
-		return
-	}
 	c.Status(http.StatusNoContent)
 }
 
 // PaginatedResponse responds with paginated data in a consistent format.
 func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int) {
-	if c == nil {
-		return
-	}
 	c.JSON(http.StatusOK, ListResponse{
 		Data:   data,
 		Total:  total,
@@ -60,9 +51,6 @@ func PaginatedResponse(c *gin.Context, data any, total int64, limit, offset int)
 // and sets the Location header per RFC 7231.
 // The resourcePath should be the base path (e.g., "/api/v1/stations"), the ID will be appended.
 func CreatedWithLocation(c *gin.Context, id int64, resourcePath, message string) {
-	if c == nil {
-		return
-	}
 	location := fmt.Sprintf("%s/%d", resourcePath, id)
 	c.Header("Location", location)
 	c.JSON(http.StatusCreated, IDMessageResponse{
@@ -73,9 +61,6 @@ func CreatedWithLocation(c *gin.Context, id int64, resourcePath, message string)
 
 // CreatedWithMessage responds with HTTP 201 Created status and a success message.
 func CreatedWithMessage(c *gin.Context, message string) {
-	if c == nil {
-		return
-	}
 	c.JSON(http.StatusCreated, MessageResponse{Message: message})
 }
 
@@ -83,76 +68,34 @@ func CreatedWithMessage(c *gin.Context, message string) {
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
 func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	if c == nil {
-		return
-	}
-	problem := NewValidationProblem(detail, c.Request.URL.Path, errors)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewValidationProblem(detail, c.Request.URL.Path, errors))
 }
 
 // ProblemNotFound responds with HTTP 404 Not Found.
 func ProblemNotFound(c *gin.Context, resource string) {
-	if c == nil {
-		return
-	}
-	problem := NewNotFoundProblem(resource, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewNotFoundProblem(resource, c.Request.URL.Path))
 }
 
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
 // Per RFC 7235, includes WWW-Authenticate header.
 func ProblemAuthentication(c *gin.Context, detail string) {
-	if c == nil {
-		return
-	}
 	c.Header("WWW-Authenticate", `Session realm="Babbel API"`)
-	problem := NewAuthenticationProblem(detail, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewAuthenticationProblem(detail, c.Request.URL.Path))
 }
 
 // ProblemInternalServer responds with HTTP 500 Internal Server Error.
 func ProblemInternalServer(c *gin.Context, detail string) {
-	if c == nil {
-		return
-	}
-	problem := NewInternalServerProblem(detail, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewInternalServerProblem(detail, c.Request.URL.Path))
 }
 
 // ProblemBadRequest responds with HTTP 400 Bad Request.
 func ProblemBadRequest(c *gin.Context, detail string) {
-	if c == nil {
-		return
-	}
-	problem := NewBadRequestProblem(detail, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewBadRequestProblem(detail, c.Request.URL.Path))
 }
 
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
 func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	if c == nil {
-		return
-	}
-	problem := NewBadRequestValidationProblem(detail, errors, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewBadRequestValidationProblem(detail, errors, c.Request.URL.Path))
 }
 
 // ProblemPayloadTooLarge responds with HTTP 413 for JSON request bodies above the size cap.
@@ -168,22 +111,12 @@ func ProblemPayloadTooLarge(c *gin.Context) {
 
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
-	if c == nil {
-		return
-	}
-	problem := NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path)
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
-	SendProblem(c, problem)
+	SendProblem(c, NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path))
 }
 
 // ProblemExtended responds with an RFC 9457 problem including code and hint fields.
 // This is used by handleServiceError for typed error responses.
 func ProblemExtended(c *gin.Context, status int, detail, code, hint string) {
-	if c == nil {
-		return
-	}
 	problem := NewProblemDetail(
 		"https://babbel.api/problems/"+code,
 		http.StatusText(status),
@@ -193,8 +126,5 @@ func ProblemExtended(c *gin.Context, status int, detail, code, hint string) {
 	)
 	problem.Code = code
 	problem.Hint = hint
-	if traceID := getTraceID(c); traceID != "" {
-		problem.WithTraceID(traceID)
-	}
 	SendProblem(c, problem)
 }

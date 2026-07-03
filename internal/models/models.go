@@ -80,11 +80,6 @@ func (s *Story) AfterFind(_ *gorm.DB) error {
 	return nil
 }
 
-// IsActiveOnWeekday reports whether the story is scheduled for the given weekday.
-func (s *Story) IsActiveOnWeekday(weekday time.Weekday) bool {
-	return s.Weekdays.IsActive(weekday)
-}
-
 // Voice represents a text-to-speech voice configuration.
 type Voice struct {
 	ID   int64  `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -182,11 +177,6 @@ func (r UserRole) IsValid() bool {
 		return true
 	}
 	return false
-}
-
-// String returns the string representation of the role.
-func (r UserRole) String() string {
-	return string(r)
 }
 
 // Bulletin represents a completed audio bulletin generated from multiple stories.

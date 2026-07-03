@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -102,7 +101,7 @@ type UpdateUserRequest struct {
 // Create validates role, password policy, and uniqueness before storing a
 // bcrypt password hash.
 func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
-	if !isValidRole(req.Role) {
+	if !models.UserRole(req.Role).IsValid() {
 		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
 	}
 
@@ -165,7 +164,7 @@ func (s *UserService) applyUsernameUpdate(
 	}
 	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
 	if err != nil {
-		return apperrors.Database("User", "query", err)
+		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 	if taken {
 		return apperrors.Duplicate("User", "username", username)
@@ -188,7 +187,7 @@ func (s *UserService) applyEmailUpdate(
 	}
 	taken, err := s.repo.IsEmailTaken(ctx, *email, &excludeID)
 	if err != nil {
-		return apperrors.Database("User", "query", err)
+		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 	if taken {
 		return apperrors.Duplicate("User", "email", *email)
@@ -224,7 +223,7 @@ func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role strin
 	if role == "" {
 		return nil
 	}
-	if !isValidRole(role) {
+	if !models.UserRole(role).IsValid() {
 		return apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
 	}
 	updates.Role = &role
@@ -251,10 +250,7 @@ func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspe
 		return nil
 	}
 	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("User", id)
-		}
-		return apperrors.Database("User", "update", err)
+		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
 	}
 	return nil
 }
@@ -269,10 +265,7 @@ func hasFieldUpdates(u *repository.UserUpdate) bool {
 // executeFieldUpdates applies field updates to the repository.
 func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates *repository.UserUpdate) error {
 	if err := s.repo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("User", id)
-		}
-		return apperrors.Database("User", "update", err)
+		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
 	}
 	return nil
 }
@@ -371,12 +364,6 @@ func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, er
 	}
 
 	return s.GetByID(ctx, id)
-}
-
-// isValidRole reports whether the given role is valid.
-func isValidRole(role string) bool {
-	validRoles := []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}
-	return slices.Contains(validRoles, role)
 }
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.

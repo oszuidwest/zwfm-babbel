@@ -73,7 +73,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		exists, err := s.stationRepo.Exists(txCtx, req.StationID)
 		if err != nil {
-			return apperrors.Database("StationVoice", "query", err)
+			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 		}
 		if !exists {
 			return apperrors.NotFoundWithID("Station", req.StationID)
@@ -81,7 +81,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 
 		exists, err = s.voiceRepo.Exists(txCtx, req.VoiceID)
 		if err != nil {
-			return apperrors.Database("StationVoice", "query", err)
+			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 		}
 		if !exists {
 			return apperrors.NotFoundWithID("Voice", req.VoiceID)
@@ -89,7 +89,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(txCtx, req.StationID, req.VoiceID, nil)
 		if err != nil {
-			return apperrors.Database("StationVoice", "query", err)
+			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 		}
 		if taken {
 			return apperrors.Duplicate("StationVoice", "station_id/voice_id", fmt.Sprintf("%d/%d", req.StationID, req.VoiceID))
@@ -100,7 +100,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 			if errors.Is(err, repository.ErrDuplicateKey) {
 				return apperrors.Duplicate("StationVoice", "combination", "")
 			}
-			return apperrors.Database("StationVoice", "create", err)
+			return apperrors.TranslateRepoError("StationVoice", apperrors.OpCreate, err)
 		}
 
 		result = stationVoice
@@ -119,10 +119,7 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
 	current, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("StationVoice", id)
-		}
-		return nil, apperrors.Database("StationVoice", "query", err)
+		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
 	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
@@ -140,10 +137,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 	}
 
 	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("StationVoice", id)
-		}
-		return nil, apperrors.Database("StationVoice", "update", err)
+		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 	}
 
 	return s.stationVoiceRepo.GetByID(ctx, id)
@@ -159,7 +153,7 @@ func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stati
 	}
 	exists, err := s.stationRepo.Exists(ctx, *stationID)
 	if err != nil {
-		return apperrors.Database("StationVoice", "query", err)
+		return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 	}
 	if !exists {
 		return apperrors.NotFoundWithID("Station", *stationID)
@@ -177,7 +171,7 @@ func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID
 	}
 	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
 	if err != nil {
-		return apperrors.Database("StationVoice", "query", err)
+		return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 	}
 	if !exists {
 		return apperrors.NotFoundWithID("Voice", *voiceID)
@@ -219,7 +213,7 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 		}
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(ctx, finalStationID, finalVoiceID, &id)
 		if err != nil {
-			return apperrors.Database("StationVoice", "query", err)
+			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 		}
 		if taken {
 			return apperrors.Duplicate("StationVoice", "station_id/voice_id", fmt.Sprintf("%d/%d", finalStationID, finalVoiceID))
@@ -233,10 +227,7 @@ func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int6
 func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	stationVoice, err := s.stationVoiceRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("StationVoice", id)
-		}
-		return nil, apperrors.Database("StationVoice", "query", err)
+		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
 	return stationVoice, nil
@@ -247,18 +238,12 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("StationVoice", id)
-		}
-		return apperrors.Database("StationVoice", "query", err)
+		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
 	err = s.stationVoiceRepo.Delete(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("StationVoice", id)
-		}
-		return apperrors.Database("StationVoice", "delete", err)
+		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
 	}
 
 	if audioFile != "" {
@@ -273,34 +258,26 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessJingle converts an uploaded audio file and associates it with a
-// station-voice relationship. The database stores the canonical filename, not
-// the absolute path returned by the audio converter.
-func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID int64, tempPath string) error {
-	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, stationVoiceID)
-	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("StationVoice", stationVoiceID)
-		}
-		return apperrors.Database("StationVoice", "query", err)
-	}
-
-	outputPath := utils.JinglePath(s.config, stationID, voiceID)
+// ProcessJingle converts an uploaded audio file and associates it with the
+// already-loaded station-voice relationship. The database stores the
+// canonical filename, not the absolute path returned by the audio converter.
+func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
+	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	filename, _, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 2)
 	if err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
-	filenameOnly := utils.JingleFilename(stationID, voiceID)
-	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoiceID, filenameOnly)
+	filenameOnly := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
+	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly)
 	if err != nil {
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
 		}
-		return apperrors.Database("StationVoice", "update", err)
+		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
 
-	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoiceID, "filename", filename)
+	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", filename)
 	return nil
 }
 
@@ -308,7 +285,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoiceID 
 func (s *StationVoiceService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.StationVoice], error) {
 	result, err := s.stationVoiceRepo.List(ctx, query)
 	if err != nil {
-		return nil, apperrors.Database("StationVoice", "query", err)
+		return nil, apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
 	}
 
 	return result, nil

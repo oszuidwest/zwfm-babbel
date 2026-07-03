@@ -116,7 +116,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	if req.VoiceID != nil {
 		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
 		if err != nil {
-			return nil, apperrors.Database("Story", "query", err)
+			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 		}
 		if !exists {
 			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
@@ -170,10 +170,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	if (startDate != nil) != (endDate != nil) {
 		existing, err := s.storyRepo.GetByID(ctx, id)
 		if err != nil {
-			if errors.Is(err, repository.ErrNotFound) {
-				return nil, apperrors.NotFoundWithID("Story", id)
-			}
-			return nil, apperrors.Database("Story", "query", err)
+			return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
 		}
 
 		effectiveStart := existing.StartDate
@@ -200,10 +197,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	}
 
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("Story", id)
-		}
-		return nil, apperrors.TranslateRepoError("Story", apperrors.OpUpdate, err)
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -260,7 +254,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 	if req.VoiceID != nil {
 		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
 		if err != nil {
-			return nil, apperrors.Database("Story", "query", err)
+			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 		}
 		if !exists {
 			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
@@ -304,10 +298,7 @@ func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRe
 func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	story, err := s.storyRepo.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("Story", id)
-		}
-		return nil, apperrors.Database("Story", "query", err)
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
 	}
 
 	return story, nil
@@ -317,7 +308,7 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
 	if err != nil {
-		return false, apperrors.Database("Story", "query", err)
+		return false, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 	return exists, nil
 }
@@ -326,10 +317,7 @@ func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	err := s.storyRepo.SoftDelete(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("Story", id)
-		}
-		return apperrors.Database("Story", "delete", err)
+		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpDelete, err)
 	}
 
 	return nil
@@ -339,10 +327,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	err := s.storyRepo.Restore(ctx, id)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("Story", id)
-		}
-		return apperrors.Database("Story", "update", err)
+		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
 	return nil
@@ -371,10 +356,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 	// Update database with filename and duration before publishing the new file.
 	filenameOnly := utils.StoryFilename(storyID)
 	if err := s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration); err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("Story", storyID)
-		}
-		return apperrors.Database("Story", "update", err)
+		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
 
 	// Move the freshly converted file into place only after the database update succeeded.
@@ -395,10 +377,7 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string
 
 	err := s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return nil, apperrors.NotFoundWithID("Story", id)
-		}
-		return nil, apperrors.Database("Story", "update", err)
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -408,7 +387,7 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string
 func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
 	result, err := s.storyRepo.List(ctx, query)
 	if err != nil {
-		return nil, apperrors.Database("Story", "query", err)
+		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 	return result, nil
 }
@@ -418,10 +397,7 @@ func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*
 func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
 	story, err := s.storyRepo.GetByID(ctx, storyID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			return apperrors.NotFoundWithID("Story", storyID)
-		}
-		return apperrors.Database("Story", "query", err)
+		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
 	}
 
 	if err := validateStoryTTSPrerequisites(story, force); err != nil {

@@ -89,21 +89,15 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sortFields != nil {
-		params.Sort = sortFields
-	}
+	params.Sort = sortFields
 
-	if fields := parseFields(c); fields != nil {
-		params.Fields = fields
-	}
+	params.Fields = parseFields(c)
 
 	filters, err := parseFilters(c)
 	if err != nil {
 		return nil, err
 	}
-	if filters != nil {
-		params.Filters = filters
-	}
+	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
 
@@ -192,75 +186,65 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
-// filterOperatorHandler parses a raw operator value into a ParsedFilter. The
-// Field on the returned ParsedFilter is filled in by parseFilters.
-type filterOperatorHandler func(value string) (ParsedFilter, error)
+// simpleFilterOperators maps operator names whose raw value passes through
+// unchanged to their repository operator. Operators that need parsing or
+// validation (in, between, null, band) are handled in buildFilter.
+var simpleFilterOperators = map[string]repository.FilterOperator{
+	"":     repository.FilterEquals,
+	"eq":   repository.FilterEquals,
+	"ne":   repository.FilterNotEquals,
+	"not":  repository.FilterNotEquals,
+	"gt":   repository.FilterGreaterThan,
+	"gte":  repository.FilterGreaterOrEq,
+	"lt":   repository.FilterLessThan,
+	"lte":  repository.FilterLessOrEq,
+	"like": repository.FilterLike,
+}
 
-// filterOperatorHandlers maps operator names to their handler functions.
-var filterOperatorHandlers = map[string]filterOperatorHandler{
-	"eq": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterEquals, Value: value}, nil
-	},
-	"in": func(value string) (ParsedFilter, error) {
+// buildFilter parses a raw operator value into a ParsedFilter. The Field on
+// the returned ParsedFilter is filled in by parseFilters. known is false when
+// the operator is not recognized.
+func buildFilter(operator, value string) (filter ParsedFilter, known bool, err error) {
+	if op, ok := simpleFilterOperators[operator]; ok {
+		return ParsedFilter{Operator: op, Value: value}, true, nil
+	}
+
+	switch operator {
+	case "in":
 		filterValues := strings.Split(value, ",")
 		for i, v := range filterValues {
 			filterValues[i] = strings.TrimSpace(v)
 		}
-		return ParsedFilter{Operator: repository.FilterIn, Values: filterValues}, nil
-	},
-	"between": func(value string) (ParsedFilter, error) {
+		return ParsedFilter{Operator: repository.FilterIn, Values: filterValues}, true, nil
+	case "between":
 		betweenValues := strings.Split(value, ",")
 		if len(betweenValues) != 2 {
-			return ParsedFilter{}, errors.New("expected two comma-separated values")
+			return ParsedFilter{}, true, errors.New("expected two comma-separated values")
 		}
 		lower := strings.TrimSpace(betweenValues[0])
 		upper := strings.TrimSpace(betweenValues[1])
 		if lower == "" || upper == "" {
-			return ParsedFilter{}, errors.New("expected two non-empty values")
+			return ParsedFilter{}, true, errors.New("expected two non-empty values")
 		}
-		return ParsedFilter{Operator: repository.FilterBetween, Values: []string{lower, upper}}, nil
-	},
-	"like": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterLike, Value: value}, nil
-	},
-	"gte": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterGreaterOrEq, Value: value}, nil
-	},
-	"gt": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterGreaterThan, Value: value}, nil
-	},
-	"lte": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterLessOrEq, Value: value}, nil
-	},
-	"lt": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterLessThan, Value: value}, nil
-	},
-	"ne": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterNotEquals, Value: value}, nil
-	},
-	"not": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterNotEquals, Value: value}, nil
-	},
-	"null": func(value string) (ParsedFilter, error) {
+		return ParsedFilter{Operator: repository.FilterBetween, Values: []string{lower, upper}}, true, nil
+	case "null":
 		isNull, err := strconv.ParseBool(value)
 		if err != nil {
-			return ParsedFilter{}, errors.New("expected boolean")
+			return ParsedFilter{}, true, errors.New("expected boolean")
 		}
 		if isNull {
-			return ParsedFilter{Operator: repository.FilterIsNull}, nil
+			return ParsedFilter{Operator: repository.FilterIsNull}, true, nil
 		}
-		return ParsedFilter{Operator: repository.FilterIsNotNull}, nil
-	},
-	"band": func(value string) (ParsedFilter, error) {
+		return ParsedFilter{Operator: repository.FilterIsNotNull}, true, nil
+	case "band":
 		val, err := strconv.ParseUint(value, 10, 8)
 		if err != nil {
-			return ParsedFilter{}, errors.New("expected integer between 0 and 255")
+			return ParsedFilter{}, true, errors.New("expected integer between 0 and 255")
 		}
-		return ParsedFilter{Operator: repository.FilterBitwiseAnd, Value: uint8(val)}, nil
-	},
-	"": func(value string) (ParsedFilter, error) {
-		return ParsedFilter{Operator: repository.FilterEquals, Value: value}, nil
-	},
+		return ParsedFilter{Operator: repository.FilterBitwiseAnd, Value: uint8(val)}, true, nil
+	default:
+		return ParsedFilter{}, false, nil
+	}
 }
 
 // rejectDuplicateSingleValueParams enforces that every non-filter query key
@@ -328,15 +312,13 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 			}
 		}
 
-		handler, exists := filterOperatorHandlers[operator]
-		if !exists {
+		filter, known, err := buildFilter(operator, values[0])
+		if !known {
 			return nil, &QueryParamError{
 				Field:   key,
 				Message: fmt.Sprintf("unknown operator %q", operator),
 			}
 		}
-
-		filter, err := handler(values[0])
 		if err != nil {
 			return nil, &QueryParamError{
 				Field:   filterKeyLabel(field, operator),
@@ -401,7 +383,7 @@ func FilterStructFields(data any, fields []string) any {
 
 	if value.Kind() == reflect.Slice {
 		result := make([]map[string]any, value.Len())
-		for i := 0; i < value.Len(); i++ {
+		for i := range value.Len() {
 			result[i] = structToFilteredMap(value.Index(i).Interface(), fields)
 		}
 		return result
@@ -437,15 +419,9 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	}
 
 	for field, fieldVal := range value.Fields() {
-		jsonTag := field.Tag.Get("json")
-
-		if jsonTag == "-" {
+		fieldName, visible := jsonFieldName(field)
+		if !visible {
 			continue
-		}
-
-		fieldName := field.Name
-		if jsonTag != "" {
-			fieldName, _, _ = strings.Cut(jsonTag, ",")
 		}
 
 		if fieldSet[fieldName] {
@@ -454,6 +430,23 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	}
 
 	return result
+}
+
+// jsonFieldName returns the JSON key for a struct field: the name portion of
+// its json tag when present and non-empty, falling back to the Go field name.
+// visible is false for fields tagged json:"-".
+func jsonFieldName(field reflect.StructField) (name string, visible bool) {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return "", false
+	}
+	name = field.Name
+	if tag != "" {
+		if before, _, _ := strings.Cut(tag, ","); before != "" {
+			name = before
+		}
+	}
+	return name, true
 }
 
 // supportedFilterOperators is the set of repository.FilterOperator values that
@@ -629,15 +622,9 @@ func jsonFieldNames[T any]() map[string]struct{} {
 		if !field.IsExported() {
 			continue
 		}
-		tag := field.Tag.Get("json")
-		if tag == "-" {
+		name, visible := jsonFieldName(field)
+		if !visible {
 			continue
-		}
-		name := field.Name
-		if tag != "" {
-			if before, _, _ := strings.Cut(tag, ","); before != "" {
-				name = before
-			}
 		}
 		names[name] = struct{}{}
 	}

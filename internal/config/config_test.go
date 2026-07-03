@@ -222,6 +222,7 @@ func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
 	cfg.Auth.OIDCProviderURL = "https://example.com"
 	cfg.Auth.OIDCClientID = "client-id"
 	cfg.Auth.OIDCClientSecret = "client-secret"
+	cfg.FrontendURL = "https://app.example.com"
 	cfg.Auth.Local.MaxLoginAttempts = 0
 	cfg.Auth.Local.LockoutDurationMinutes = 0
 

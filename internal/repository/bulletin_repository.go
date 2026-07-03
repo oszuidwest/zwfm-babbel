@@ -51,18 +51,7 @@ func (r *BulletinRepository) Create(ctx context.Context, params CreateBulletinPa
 
 // GetByID retrieves a bulletin by ID with its associated station.
 func (r *BulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bulletin, error) {
-	var bulletin models.Bulletin
-
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).
-		Joins("Station").
-		First(&bulletin, id).Error
-
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return &bulletin, nil
+	return r.GetByIDWithJoins(ctx, id, "Station")
 }
 
 // GetLatest retrieves the most recent bulletin for a station.
@@ -142,11 +131,6 @@ func (r *BulletinRepository) List(ctx context.Context, query *ListQuery) (*ListR
 	return ApplyListQuery[models.Bulletin](
 		db, query, bulletinFieldMapping, bulletinSearchFields, bulletinDefaultSort,
 	)
-}
-
-// Exists reports whether a bulletin with the given ID exists.
-func (r *BulletinRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	return r.GormRepository.Exists(ctx, id)
 }
 
 // GetBulletinStories retrieves stories included in a specific bulletin with pagination.

@@ -19,17 +19,16 @@ type UserUpdate struct {
 	Email               *string
 	PasswordHash        *string
 	Role                *string
-	LastLoginAt         *time.Time
-	LoginCount          *int
 	FailedLoginAttempts *int
-	LockedUntil         *time.Time
-	PasswordChangedAt   *time.Time
-	Metadata            *datatypes.JSONMap
+	// LockedUntil is never set directly but must exist so ClearLockedUntil
+	// resolves to the locked_until column in BuildUpdateMap.
+	LockedUntil       *time.Time
+	PasswordChangedAt *time.Time
+	Metadata          *datatypes.JSONMap
 
 	// Explicit NULL setting flags (takes precedence over pointer values)
 	ClearEmail       bool
 	ClearLockedUntil bool
-	ClearMetadata    bool
 }
 
 // CreateUserParams holds the parameters for creating a new user.

@@ -39,11 +39,6 @@ const (
 const WeekdaysAll Weekdays = WeekdaySunday | WeekdayMonday | WeekdayTuesday |
 	WeekdayWednesday | WeekdayThursday | WeekdayFriday | WeekdaySaturday
 
-// IsActive reports whether the given weekday is set in the bitmask.
-func (w Weekdays) IsActive(day time.Weekday) bool {
-	return w&(1<<day) != 0
-}
-
 // MarshalJSON implements json.Marshaler to serialize Weekdays as an integer.
 func (w Weekdays) MarshalJSON() ([]byte, error) {
 	return json.Marshal(uint8(w))

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -113,11 +114,43 @@ func ruleMatchesAt(input []rune, pos int, rule compiledPronunciationRule) bool {
 		return false
 	}
 
-	segment := string(input[pos : pos+len(rule.pattern)])
-	if rule.CaseSensitive {
-		return segment == rule.StringToReplace
+	// Compare rune-by-rune against the precompiled pattern instead of
+	// materializing a substring per candidate check.
+	for i, patternRune := range rule.pattern {
+		inputRune := input[pos+i]
+		if rule.CaseSensitive {
+			if inputRune != patternRune {
+				return false
+			}
+			continue
+		}
+		if !runesEqualFold(inputRune, patternRune) {
+			return false
+		}
 	}
-	return strings.EqualFold(segment, rule.StringToReplace)
+	return true
+}
+
+// runesEqualFold reports whether two runes are equal under Unicode simple
+// case folding, mirroring the per-rune comparison of strings.EqualFold.
+func runesEqualFold(sr, tr rune) bool {
+	if sr == tr {
+		return true
+	}
+	if tr < sr {
+		tr, sr = sr, tr
+	}
+	// Fast path for ASCII: only uppercase letters fold to lowercase.
+	if tr < utf8.RuneSelf {
+		return 'A' <= sr && sr <= 'Z' && tr == sr+'a'-'A'
+	}
+	// General case: SimpleFold(x) returns the next rune in the fold orbit,
+	// wrapping around, so walk sr's orbit looking for tr.
+	r := unicode.SimpleFold(sr)
+	for r != sr && r < tr {
+		r = unicode.SimpleFold(r)
+	}
+	return r == tr
 }
 
 func hasWordBoundaries(input []rune, pos, patternLen int) bool {

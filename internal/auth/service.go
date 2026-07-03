@@ -4,7 +4,6 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -32,7 +31,7 @@ type Service struct {
 	db       *gorm.DB
 	enforcer *casbin.Enforcer
 	sessions SessionStore
-	ginStore any
+	ginStore sessions.Store
 }
 
 // IsLocalEnabled reports whether local authentication is enabled.
@@ -86,23 +85,13 @@ func (s *Service) initializeOIDC() error {
 	s.config.OIDC.Provider = provider
 
 	// Configure OAuth2 when OIDC is enabled.
-	oauth2Config := &oauth2.Config{
+	s.config.OIDC.OAuth2Config = &oauth2.Config{
 		ClientID:     s.config.OIDC.ClientID,
 		ClientSecret: s.config.OIDC.ClientSecret,
 		RedirectURL:  s.config.OIDC.RedirectURL,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       s.config.OIDC.Scopes,
 	}
-
-	// Override endpoints when explicit provider URLs are configured.
-	if s.config.OIDC.AuthURL != "" {
-		oauth2Config.Endpoint.AuthURL = s.config.OIDC.AuthURL
-	}
-	if s.config.OIDC.TokenURL != "" {
-		oauth2Config.Endpoint.TokenURL = s.config.OIDC.TokenURL
-	}
-
-	s.config.OIDC.OAuth2Config = oauth2Config
 
 	return nil
 }
@@ -139,10 +128,9 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 	// Define default policies.
 	policies := [][]string{
-		// Admins can do everything.
+		// Admins can do everything: the keyMatch matcher expands "*" to cover
+		// every resource and action, so no per-resource admin rows are needed.
 		{"admin", "*", "*"},
-		{"admin", "settings:tts", "read"},
-		{"admin", "settings:tts", "write"},
 
 		// Editors can manage content.
 		{"editor", "stations", "read"},
@@ -165,10 +153,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 		{"viewer", "bulletins", "read"},
 		{"viewer", "settings:tts", "read"},
 		{"viewer", "pronunciation_rules", "read"},
-
-		// User management is readable by editors and admins, and writable by admins only.
-		{"admin", "users", "read"},
-		{"admin", "users", "write"},
 	}
 
 	for _, p := range policies {
@@ -185,17 +169,19 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	return enforcer, nil
 }
 
+// usernameSanitizeRe matches characters that are not allowed in usernames.
+var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
+
 // sanitizeEmailToUsername converts an email address to a valid username.
 func (s *Service) sanitizeEmailToUsername(email string) string {
 	base, _, _ := strings.Cut(email, "@")
 
-	re := regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-	username := re.ReplaceAllString(base, "_")
+	username := usernameSanitizeRe.ReplaceAllString(base, "_")
 
 	if len(username) < 3 {
 		if _, domainStr, found := strings.Cut(email, "@"); found {
 			domainPart, _, _ := strings.Cut(domainStr, ".")
-			domainPart = re.ReplaceAllString(domainPart, "_")
+			domainPart = usernameSanitizeRe.ReplaceAllString(domainPart, "_")
 			username = username + "_" + domainPart
 		}
 	}
@@ -240,14 +226,8 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 		// Ensure we don't exceed the max length (100 characters)
 		if len(username) > 100 {
 			// Truncate the base username before adding the suffix.
-			maxBaseLen := 100 - len(fmt.Sprintf("_%d", counter))
-			if maxBaseLen < 1 {
-				maxBaseLen = 90
-			}
-			truncatedBase := baseUsername
-			if len(truncatedBase) > maxBaseLen {
-				truncatedBase = truncatedBase[:maxBaseLen]
-			}
+			maxBaseLen := max(100-len(fmt.Sprintf("_%d", counter)), 90)
+			truncatedBase := baseUsername[:min(len(baseUsername), maxBaseLen)]
 			username = fmt.Sprintf("%s_%d", truncatedBase, counter)
 		}
 	}
@@ -255,17 +235,10 @@ func (s *Service) ensureUniqueUsername(baseUsername string) string {
 	return username
 }
 
-// SessionMiddleware returns Gin session middleware when the configured store
-// supports gin-contrib sessions.
+// SessionMiddleware returns the Gin session middleware backed by the
+// configured gin-contrib session store.
 func (s *Service) SessionMiddleware() gin.HandlerFunc {
-	if _, ok := s.sessions.(*GinSessionStore); ok {
-		if store, ok := s.ginStore.(sessions.Store); ok {
-			return sessions.Sessions(s.config.Session.CookieName, store)
-		}
-	}
-	return func(c *gin.Context) {
-		c.Next()
-	}
+	return sessions.Sessions(s.config.Session.CookieName, s.ginStore)
 }
 
 // Middleware loads the authenticated user from the session and attaches the
@@ -283,14 +256,13 @@ func (s *Service) Middleware() gin.HandlerFunc {
 
 		var user struct {
 			ID          int64
-			Username    string
 			Role        string
 			SuspendedAt *time.Time
 		}
 
 		err := s.db.WithContext(c.Request.Context()).
 			Table("users").
-			Select("id, username, role, suspended_at").
+			Select("id, role, suspended_at").
 			Where("id = ?", userID).
 			Where("deleted_at IS NULL").
 			First(&user).Error
@@ -306,9 +278,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		}
 
 		SetUserContext(c, UserContext{
-			UserID:   user.ID,
-			Username: user.Username,
-			Role:     user.Role,
+			UserID: user.ID,
+			Role:   user.Role,
 		})
 
 		c.Next()
@@ -351,9 +322,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 
 	var user struct {
 		ID           int64
-		Username     string
 		PasswordHash string
-		Role         string
 		SuspendedAt  *time.Time
 		LockedUntil  *time.Time
 	}
@@ -361,14 +330,11 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	ctx := c.Request.Context()
 	err := s.db.WithContext(ctx).
 		Table("users").
-		Select("id, username, password_hash, role, suspended_at, locked_until").
+		Select("id, password_hash, suspended_at, locked_until").
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("invalid credentials")
-		}
 		return fmt.Errorf("invalid credentials")
 	}
 
@@ -392,7 +358,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	return s.CreateSession(c, user.ID, user.Username, user.Role, "local")
+	return s.CreateSession(c, user.ID)
 }
 
 // StartOAuthFlow initiates the OAuth/OIDC authentication process.
@@ -402,12 +368,8 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		return
 	}
 
-	state, err := generateState()
-	if err != nil {
-		logger.Error("Failed to generate OAuth state", "error", err)
-		utils.ProblemInternalServer(c, "Failed to initiate OAuth flow")
-		return
-	}
+	// Cryptographically secure random state for OAuth2 CSRF protection.
+	state := rand.Text()
 
 	session := s.sessions.Get(c)
 	SetSessionOAuthState(session, state)
@@ -475,46 +437,37 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	user, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
+	userID, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
 	if err != nil {
 		return err
 	}
 
-	return s.setupOAuthSession(c, user)
+	return s.setupOAuthSession(c, userID)
 }
 
-// oauthUser represents the minimal user information needed for OAuth session setup.
-type oauthUser struct {
-	ID       int64
-	Username string
-}
-
-// findOrCreateOAuthUser resolves an OAuth identity to an active local user.
-func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (*oauthUser, error) {
+// findOrCreateOAuthUser resolves an OAuth identity to an active local user
+// and returns its ID.
+func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (int64, error) {
 	var existingUser struct {
 		ID          int64
-		Username    string
 		SuspendedAt *time.Time
 	}
 
 	err := s.db.WithContext(ctx).
 		Table("users").
-		Select("id, username, suspended_at").
+		Select("id, suspended_at").
 		Where("email = ?", email).
 		Where("deleted_at IS NULL").
 		First(&existingUser).Error
 	if err == nil {
 		if existingUser.SuspendedAt != nil {
-			return nil, fmt.Errorf("account is suspended")
+			return 0, fmt.Errorf("account is suspended")
 		}
-		return &oauthUser{
-			ID:       existingUser.ID,
-			Username: existingUser.Username,
-		}, nil
+		return existingUser.ID, nil
 	}
 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, fmt.Errorf("failed to query user: %w", err)
+		return 0, fmt.Errorf("failed to query user: %w", err)
 	}
 
 	username := s.determineOAuthUsername(preferredUsername, email)
@@ -533,19 +486,16 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, pr
 
 	result := s.db.WithContext(ctx).Table("users").Create(newUser)
 	if result.Error != nil {
-		return nil, fmt.Errorf("failed to create user: %w", result.Error)
+		return 0, fmt.Errorf("failed to create user: %w", result.Error)
 	}
 
 	var id int64
 	err = s.db.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&id).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to get created user ID: %w", err)
+		return 0, fmt.Errorf("failed to get created user ID: %w", err)
 	}
 
-	return &oauthUser{
-		ID:       id,
-		Username: username,
-	}, nil
+	return id, nil
 }
 
 // determineOAuthUsername determines the best username from OAuth claims.
@@ -563,27 +513,12 @@ func (s *Service) determineOAuthUsername(preferredUsername, email string) string
 }
 
 // setupOAuthSession creates a session for an OAuth-authenticated user.
-func (s *Service) setupOAuthSession(c *gin.Context, user *oauthUser) error {
-	ctx := c.Request.Context()
-
-	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
+func (s *Service) setupOAuthSession(c *gin.Context, userID int64) error {
+	if err := s.updateLoginSuccess(c.Request.Context(), userID); err != nil {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	// Read the role after OAuth account resolution so a stale session cannot
-	// retain privileges from an earlier login.
-	var role string
-	if err := s.db.WithContext(ctx).
-		Table("users").
-		Select("role").
-		Where("id = ?", user.ID).
-		Where("deleted_at IS NULL").
-		Scan(&role).Error; err != nil {
-		logger.Error("SECURITY: Failed to get user role", "user_id", user.ID, "error", err)
-		return fmt.Errorf("failed to get user role: %w", err)
-	}
-
-	if err := s.CreateSession(c, user.ID, user.Username, role, "oidc"); err != nil {
+	if err := s.CreateSession(c, userID); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -606,16 +541,12 @@ func (s *Service) Logout(c *gin.Context) error {
 	return nil
 }
 
-// CreateSession stores authenticated user identity in the session.
-func (s *Service) CreateSession(c *gin.Context, userID int64, username string, role string, authMethod string) error {
+// CreateSession stores the authenticated user's ID in the session. All other
+// user attributes (username, role) are re-read from the database per request
+// by Middleware, so only the ID is persisted.
+func (s *Service) CreateSession(c *gin.Context, userID int64) error {
 	session := s.sessions.Get(c)
-	// Use type-safe session helpers.
-	SetSessionAuth(session, SessionData{
-		UserID:     userID,
-		Username:   username,
-		Role:       role,
-		AuthMethod: authMethod,
-	})
+	session.Set(string(SessKeyUserID), userID)
 	return session.Save(c)
 }
 
@@ -681,15 +612,6 @@ WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
 		logger.Error("Failed to update failed login attempts", "error", err)
 	}
 	return err
-}
-
-// generateState generates a cryptographically secure random state for OAuth2 CSRF protection.
-func generateState() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to generate random state: %w", err)
-	}
-	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 // isAllowedFrontendURL reports whether the URL is in the allowed origins list.

@@ -37,9 +37,6 @@ type ProblemDetail struct {
 
 	// Errors contains field-level errors for validation and strict parsing responses.
 	Errors []apperrors.ValidationError `json:"errors,omitempty"`
-
-	// TraceID can be used for request tracing and debugging.
-	TraceID string `json:"trace_id,omitempty"`
 }
 
 // Problem type URIs for common error types.
@@ -144,12 +141,6 @@ func NewBadRequestProblem(detail, instance string) *ProblemDetail {
 	)
 }
 
-// WithTraceID adds a trace ID to the problem detail.
-func (p *ProblemDetail) WithTraceID(traceID string) *ProblemDetail {
-	p.TraceID = traceID
-	return p
-}
-
 // SendProblem sends an RFC 9457 problem details response.
 func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	c.Header("Content-Type", "application/problem+json")
@@ -159,14 +150,4 @@ func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	}
 
 	c.JSON(problem.Status, problem)
-}
-
-// getTraceID extracts the trace ID from the Gin context.
-func getTraceID(c *gin.Context) string {
-	if traceID, exists := c.Get("trace_id"); exists {
-		if id, ok := traceID.(string); ok {
-			return id
-		}
-	}
-	return ""
 }

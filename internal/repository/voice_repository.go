@@ -42,11 +42,6 @@ func (r *VoiceRepository) Create(ctx context.Context, name string, elevenLabsVoi
 	return voice, nil
 }
 
-// GetByID retrieves a voice by its ID.
-func (r *VoiceRepository) GetByID(ctx context.Context, id int64) (*models.Voice, error) {
-	return r.GormRepository.GetByID(ctx, id)
-}
-
 // Update updates an existing voice. Nil pointer fields are skipped.
 func (r *VoiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
 	if u == nil {
@@ -59,16 +54,6 @@ func (r *VoiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) 
 	}
 
 	return r.UpdateByID(ctx, id, updateMap)
-}
-
-// Delete permanently removes a voice by its ID.
-func (r *VoiceRepository) Delete(ctx context.Context, id int64) error {
-	return r.GormRepository.Delete(ctx, id)
-}
-
-// Exists reports whether a voice with the given ID exists.
-func (r *VoiceRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken reports whether a voice name is already in use.

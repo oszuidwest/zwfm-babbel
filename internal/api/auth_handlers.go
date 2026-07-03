@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 	"net/url"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -110,8 +109,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	c.Params = append(c.Params[:0], gin.Param{Key: "id", Value: strconv.FormatInt(userID, 10)})
-	h.handlers.GetUser(c)
+	h.handlers.RespondWithUser(c, userID)
 }
 
 // GetAuthConfig reports the enabled frontend login methods.

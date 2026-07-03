@@ -318,11 +318,8 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 // GetBulletinAudio serves the audio file for a specific bulletin.
 func (h *Handlers) GetBulletinAudio(c *gin.Context) {
 	h.ServeAudio(c, AudioConfig{
-		TableName:   "bulletins",
-		IDColumn:    "id",
-		FileColumn:  "audio_file",
-		FilePrefix:  "bulletin",
-		ContentType: "audio/wav",
-		Directory:   "output",
+		TableName:  "bulletins",
+		FilePrefix: "bulletin",
+		FromOutput: true,
 	})
 }

@@ -35,15 +35,43 @@ func originFromURL(raw string) (string, error) {
 	return canonicalOrigin(parsed), nil
 }
 
-// IsOriginAllowed reports whether origin matches one of the configured bare
-// origins. Invalid candidates or configured entries are treated as non-matches.
-func IsOriginAllowed(origin, allowedOrigins string) bool {
+// OriginChecker matches request origins against a set of allowed origins that
+// is normalized once at construction time, so per-request checks only
+// normalize the incoming value.
+type OriginChecker struct {
+	allowed map[string]struct{}
+}
+
+// NewOriginChecker normalizes the comma-separated allowedOrigins list into a
+// set. Malformed configured entries are skipped: they are rejected at startup
+// by validateAllowedOrigins, so skipping them here is defense-in-depth, not
+// the primary safeguard.
+func NewOriginChecker(allowedOrigins string) *OriginChecker {
+	allowed := make(map[string]struct{})
+	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {
+		normalized, err := normalizeOrigin(allowedOrigin)
+		if err != nil {
+			continue
+		}
+		allowed[normalized] = struct{}{}
+	}
+	return &OriginChecker{allowed: allowed}
+}
+
+// Allowed reports whether origin matches one of the configured bare origins.
+// Invalid candidates are treated as non-matches.
+func (oc *OriginChecker) Allowed(origin string) bool {
 	normalizedOrigin, err := normalizeOrigin(origin)
 	if err != nil {
 		return false
 	}
 
-	return isNormalizedOriginAllowed(normalizedOrigin, allowedOrigins)
+	return oc.contains(normalizedOrigin)
+}
+
+func (oc *OriginChecker) contains(normalizedOrigin string) bool {
+	_, ok := oc.allowed[normalizedOrigin]
+	return ok
 }
 
 // IsURLAllowedByOrigin reports whether rawURL has an origin present in the
@@ -55,21 +83,7 @@ func IsURLAllowedByOrigin(rawURL, allowedOrigins string) bool {
 		return false
 	}
 
-	return isNormalizedOriginAllowed(normalizedOrigin, allowedOrigins)
-}
-
-func isNormalizedOriginAllowed(normalizedOrigin, allowedOrigins string) bool {
-	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {
-		// Malformed configured entries are rejected at startup by
-		// validateAllowedOrigins; skipping them here is defense-in-depth, not the
-		// primary safeguard.
-		normalizedAllowedOrigin, err := normalizeOrigin(allowedOrigin)
-		if err == nil && normalizedOrigin == normalizedAllowedOrigin {
-			return true
-		}
-	}
-
-	return false
+	return NewOriginChecker(allowedOrigins).contains(normalizedOrigin)
 }
 
 func parseAbsoluteURL(raw string) (*url.URL, error) {
