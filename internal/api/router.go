@@ -3,7 +3,6 @@ package api
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -33,7 +32,7 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 		return nil, err
 	}
 
-	if cfg.Environment == "production" {
+	if cfg.Environment.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
 	} else {
 		gin.SetMode(gin.DebugMode)
@@ -119,15 +118,10 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 
-	frontendURL := getEnv("BABBEL_FRONTEND_URL", "")
-	if frontendURL == "" && cfg.Auth.Method.SupportsOIDC() {
-		return nil, fmt.Errorf("BABBEL_FRONTEND_URL is required when OAuth/OIDC is enabled")
-	}
-
 	return &routerDeps{
 		handlers:          h,
 		automationHandler: automationHandler,
-		authHandlers:      NewAuthHandlers(authService, frontendURL, h),
+		authHandlers:      NewAuthHandlers(authService, cfg.FrontendURL, h),
 		authService:       authService,
 	}, nil
 }
@@ -159,12 +153,11 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 			LockoutDurationMinutes: cfg.Auth.Local.LockoutDurationMinutes,
 		},
 		Session: auth.SessionConfig{
-			StoreType:      "memory",
 			MaxAge:         86400,
 			CookieName:     "babbel_session",
 			CookiePath:     "/",
 			CookieDomain:   cfg.Auth.CookieDomain,
-			CookieSecure:   cfg.Environment == "production",
+			CookieSecure:   cfg.Environment.IsProduction(),
 			CookieHTTPOnly: true,
 			CookieSameSite: string(cfg.Auth.CookieSameSite),
 			SecretKey:      cfg.Auth.SessionSecret,
@@ -263,12 +256,8 @@ func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/stories/:id", perm(auth.ResourceStories, auth.ActionRead), h.GetStory)
 	protected.GET("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionRead), func(c *gin.Context) {
 		h.ServeAudio(c, handlers.AudioConfig{
-			TableName:   "stories",
-			IDColumn:    "id",
-			FileColumn:  "audio_file",
-			FilePrefix:  "story",
-			ContentType: "audio/wav",
-			Directory:   "processed",
+			TableName:  "stories",
+			FilePrefix: "story",
 		})
 	})
 	protected.POST("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionWrite), h.UploadStoryAudio)
@@ -301,12 +290,8 @@ func registerStationVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionRead), h.GetStationVoice)
 	protected.GET("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionRead), func(c *gin.Context) {
 		h.ServeAudio(c, handlers.AudioConfig{
-			TableName:   "station_voices",
-			IDColumn:    "id",
-			FileColumn:  "audio_file",
-			FilePrefix:  "jingle",
-			ContentType: "audio/wav",
-			Directory:   "processed",
+			TableName:  "station_voices",
+			FilePrefix: "jingle",
 		})
 	})
 	protected.POST("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionWrite), h.UploadStationVoiceAudio)
@@ -376,7 +361,7 @@ func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 		c.Writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 
 		// HSTS is sent only for production or HTTPS requests.
-		if cfg.Environment == "production" || c.Request.TLS != nil {
+		if cfg.Environment.IsProduction() || c.Request.TLS != nil {
 			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
@@ -385,7 +370,11 @@ func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 }
 
 // corsMiddleware creates a CORS middleware for the configured allowed origins.
+// The allowlist is normalized once at startup; requests only normalize the
+// incoming Origin header.
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
+	originChecker := config.NewOriginChecker(cfg.Server.AllowedOrigins)
+
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
@@ -399,7 +388,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
-		if config.IsOriginAllowed(origin, cfg.Server.AllowedOrigins) {
+		if originChecker.Allowed(origin) {
 			// Replace proxy-supplied CORS headers so the configured allowlist is
 			// the only source of truth.
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
@@ -422,12 +411,4 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// getEnv retrieves an environment variable with fallback to a default value.
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }

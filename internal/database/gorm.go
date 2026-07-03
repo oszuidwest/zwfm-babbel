@@ -23,7 +23,7 @@ func NewGormDB(cfg *config.Config) (*gorm.DB, error) {
 	)
 
 	logLevel := logger.Silent
-	if cfg.Environment == "development" {
+	if cfg.Environment == config.EnvDevelopment {
 		logLevel = logger.Info
 	}
 

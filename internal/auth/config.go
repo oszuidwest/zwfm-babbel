@@ -40,11 +40,6 @@ type OIDCConfig struct {
 	// Scopes lists the OAuth2 scopes requested during login.
 	Scopes []string
 
-	// AuthURL overrides the provider authorization endpoint when discovery is not used.
-	AuthURL string
-	// TokenURL overrides the provider token endpoint when discovery is not used.
-	TokenURL string
-
 	// Provider is the initialized OIDC provider.
 	Provider *oidc.Provider
 
@@ -65,9 +60,6 @@ type LocalConfig struct {
 
 // SessionConfig defines how user sessions are stored and secured.
 type SessionConfig struct {
-	// StoreType selects the session store type; "memory" is the default.
-	StoreType string
-
 	// MaxAge is the session lifetime in seconds.
 	MaxAge int
 

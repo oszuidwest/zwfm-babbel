@@ -33,6 +33,12 @@ func (h *Handlers) GetUser(c *gin.Context) {
 		return
 	}
 
+	h.RespondWithUser(c, id)
+}
+
+// RespondWithUser writes the user with the given ID using the representation
+// shared by GetUser and the current-session endpoint.
+func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
 	user, err := h.userSvc.GetByID(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "User")

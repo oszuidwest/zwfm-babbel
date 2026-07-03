@@ -43,11 +43,6 @@ func (r *StationRepository) Create(ctx context.Context, name string, maxStories 
 	return station, nil
 }
 
-// GetByID retrieves a station by its ID.
-func (r *StationRepository) GetByID(ctx context.Context, id int64) (*models.Station, error) {
-	return r.GormRepository.GetByID(ctx, id)
-}
-
 // Update updates an existing station. Nil pointer fields are skipped.
 func (r *StationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
 	if u == nil {
@@ -60,11 +55,6 @@ func (r *StationRepository) Update(ctx context.Context, id int64, u *StationUpda
 	}
 
 	return r.UpdateByID(ctx, id, updateMap)
-}
-
-// Delete removes a station by its ID.
-func (r *StationRepository) Delete(ctx context.Context, id int64) error {
-	return r.GormRepository.Delete(ctx, id)
 }
 
 // stationFieldMapping maps API field names to database columns for stations.
@@ -84,11 +74,6 @@ var stationSearchFields = []string{"name"}
 func (r *StationRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Station], error) {
 	db := r.db.WithContext(ctx).Model(&models.Station{})
 	return ApplyListQuery[models.Station](db, query, stationFieldMapping, stationSearchFields, []SortField{{Field: "name", Direction: SortAsc}})
-}
-
-// Exists reports whether a station with the given ID exists.
-func (r *StationRepository) Exists(ctx context.Context, id int64) (bool, error) {
-	return r.GormRepository.Exists(ctx, id)
 }
 
 // IsNameTaken reports whether a station name is already in use.

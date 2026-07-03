@@ -10,25 +10,17 @@ import (
 )
 
 // StoryUpdate contains optional fields for updating a story.
-// Nil pointer fields are not updated. Clear* flags explicitly set fields to NULL.
+// Nil pointer fields are not updated.
 type StoryUpdate struct {
-	Title           *string            `gorm:"column:title"`
-	Text            *string            `gorm:"column:text"`
-	VoiceID         *int64             `gorm:"column:voice_id"`
-	Status          *string            `gorm:"column:status"`
-	StartDate       *time.Time         `gorm:"column:start_date"`
-	EndDate         *time.Time         `gorm:"column:end_date"`
-	Weekdays        *models.Weekdays   `gorm:"column:weekdays"`
-	Metadata        *datatypes.JSONMap `gorm:"column:metadata"`
-	AudioFile       *string            `gorm:"column:audio_file"`
-	DurationSeconds *float64           `gorm:"column:duration_seconds"`
-	IsBreaking      *bool              `gorm:"column:is_breaking"`
-
-	// Clear* flags explicitly set nullable columns to NULL.
-	ClearVoiceID         bool `gorm:"-"`
-	ClearAudioFile       bool `gorm:"-"`
-	ClearDurationSeconds bool `gorm:"-"`
-	ClearMetadata        bool `gorm:"-"`
+	Title      *string            `gorm:"column:title"`
+	Text       *string            `gorm:"column:text"`
+	VoiceID    *int64             `gorm:"column:voice_id"`
+	Status     *string            `gorm:"column:status"`
+	StartDate  *time.Time         `gorm:"column:start_date"`
+	EndDate    *time.Time         `gorm:"column:end_date"`
+	Weekdays   *models.Weekdays   `gorm:"column:weekdays"`
+	Metadata   *datatypes.JSONMap `gorm:"column:metadata"`
+	IsBreaking *bool              `gorm:"column:is_breaking"`
 }
 
 // StoryCreateData contains the data for creating a story.
@@ -105,15 +97,7 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 
 // SoftDelete marks a story as deleted without removing it from the database.
 func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Delete(&models.Story{}, id)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return r.Delete(ctx, id)
 }
 
 // Restore clears the deleted_at timestamp.
@@ -133,35 +117,32 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 
 // UpdateAudio updates the audio file and duration.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Story{}).
-		Where("id = ?", id).
-		Updates(map[string]any{
-			"audio_file":       audioFile,
-			"duration_seconds": duration,
-		})
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return r.UpdateByID(ctx, id, map[string]any{
+		"audio_file":       audioFile,
+		"duration_seconds": duration,
+	})
 }
 
 // UpdateStatus updates the story status.
 func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Story{}).
-		Where("id = ?", id).
-		Updates(map[string]any{"status": status})
+	return r.UpdateByID(ctx, id, map[string]any{"status": status})
+}
+
+// ExpireStoriesPastEndDate marks active stories whose end_date has passed as
+// expired and returns the number of stories updated.
+// GORM automatically excludes soft-deleted records (deleted_at IS NULL).
+func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, error) {
+	result := r.db.WithContext(ctx).
+		Model(&models.Story{}).
+		Where("status = ?", models.StoryStatusActive).
+		Where("end_date < CURDATE()").
+		Update("status", models.StoryStatusExpired)
+
 	if result.Error != nil {
-		return ParseDBError(result.Error)
+		return 0, ParseDBError(result.Error)
 	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+
+	return result.RowsAffected, nil
 }
 
 // storyFieldMapping maps API field names to database columns for stories.

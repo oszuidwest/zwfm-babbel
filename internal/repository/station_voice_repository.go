@@ -8,13 +8,11 @@ import (
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
-// Nil pointer fields are not updated. ClearAudioFile explicitly sets audio_file to NULL.
+// Nil pointer fields are not updated.
 type StationVoiceUpdate struct {
-	StationID      *int64   `gorm:"column:station_id"`
-	VoiceID        *int64   `gorm:"column:voice_id"`
-	AudioFile      *string  `gorm:"column:audio_file"`
-	MixPoint       *float64 `gorm:"column:mix_point"`
-	ClearAudioFile bool     // When true, sets audio_file to NULL
+	StationID *int64   `gorm:"column:station_id"`
+	VoiceID   *int64   `gorm:"column:voice_id"`
+	MixPoint  *float64 `gorm:"column:mix_point"`
 }
 
 // StationVoiceRepository provides station-voice relationship data access using GORM.
@@ -69,11 +67,6 @@ func (r *StationVoiceRepository) Update(ctx context.Context, id int64, u *Statio
 	return r.UpdateByID(ctx, id, updateMap)
 }
 
-// Delete removes a station-voice relationship.
-func (r *StationVoiceRepository) Delete(ctx context.Context, id int64) error {
-	return r.GormRepository.Delete(ctx, id)
-}
-
 // IsCombinationTaken reports whether a station-voice combination is already in use.
 func (r *StationVoiceRepository) IsCombinationTaken(ctx context.Context, stationID, voiceID int64, excludeID *int64) (bool, error) {
 	var count int64
@@ -117,21 +110,7 @@ func (r *StationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int6
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
 func (r *StationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).
-		Model(&models.StationVoice{}).
-		Where("id = ?", id).
-		Update("audio_file", audioFile)
-
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-
-	return nil
+	return r.UpdateByID(ctx, id, map[string]any{"audio_file": audioFile})
 }
 
 // stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.

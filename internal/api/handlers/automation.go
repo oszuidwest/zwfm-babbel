@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -140,44 +141,82 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	// Acquire the per-station lock to prevent concurrent generation.
+	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
+
+	// Fast path: serve a fresh-enough bulletin without the generation lock so
+	// cache hits are never serialized behind another client's generation or
+	// download speed. This lookup runs on the request context; the generation
+	// timeout starts only once the lock is held.
+	if req.maxAgeSeconds > 0 {
+		existing, ok := h.lookupFreshBulletin(c, c.Request.Context(), req.stationID, maxAge)
+		if !ok {
+			return
+		}
+		if existing != nil {
+			h.serveBulletinAudio(c, existing.AudioFile, existing.ID, true)
+			return
+		}
+	}
+
+	bulletin, cached, ok := h.getOrGenerateBulletin(c, req, maxAge)
+	if !ok {
+		return
+	}
+
+	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, cached)
+}
+
+// lookupFreshBulletin returns the latest bulletin within maxAge, or nil when
+// none exists. On lookup failure it writes the error response and reports
+// ok=false.
+func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Context, stationID int64, maxAge time.Duration) (*models.Bulletin, bool) {
+	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
+	if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
+		logger.Error("Automation: failed to check existing bulletin", "error", err)
+		utils.ProblemInternalServer(c, "Failed to check existing bulletin")
+		return nil, false
+	}
+	return bulletin, true
+}
+
+// getOrGenerateBulletin produces a bulletin under the per-station lock, which
+// only guards generation. A request that waited on the lock re-checks the
+// cache so it reuses the bulletin the lock winner just generated instead of
+// generating again. On failure it writes the error response and reports
+// ok=false.
+func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
 	lock := h.getStationLock(req.stationID)
 	lock.Lock()
 	defer lock.Unlock()
 
+	// The generation timeout starts after the lock is acquired so time spent
+	// waiting behind another generation does not eat into it.
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
 	defer cancel()
 
-	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 	if req.maxAgeSeconds > 0 {
-		existingBulletin, err := h.bulletinSvc.GetLatest(ctx, req.stationID, &maxAge)
-		if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
-			logger.Error("Automation: failed to check existing bulletin", "error", err)
-			utils.ProblemInternalServer(c, "Failed to check existing bulletin")
-			return
+		existing, ok := h.lookupFreshBulletin(c, ctx, req.stationID, maxAge)
+		if !ok {
+			return nil, false, false
 		}
-		if existingBulletin != nil {
-			if err := h.serveBulletinAudio(c, existingBulletin.AudioFile, existingBulletin.ID, true); err != nil {
-				return
-			}
-			return
+		if existing != nil {
+			return existing, true, true
 		}
 	}
 
 	logger.Info("Automation: generating new bulletin", "station_id", req.stationID, "max_age_s", req.maxAgeSeconds)
 
-	bulletin, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
+	created, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
-		return
+		return nil, false, false
 	}
-
-	_ = h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, false)
+	return created, false, true
 }
 
-// serveBulletinAudio sends the bulletin WAV file as response.
-// Returns an error if the file cannot be served (error response already sent to client).
-func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) error {
+// serveBulletinAudio sends the bulletin WAV file as response, or the
+// appropriate error response when the file is missing or unreadable.
+func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
 
 	if _, err := os.Stat(filePath); err != nil {
@@ -188,11 +227,10 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 			logger.Error("Automation: failed to access audio file", "error", err)
 			utils.ProblemInternalServer(c, "Failed to access audio file")
 		}
-		return err
+		return
 	}
 
 	// Automation clients should not cache public bulletin responses.
 	c.Header("Cache-Control", "no-store")
 	serveAudioFile(c, filePath, audioFile, bulletinID, cached)
-	return nil
 }

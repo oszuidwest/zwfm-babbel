@@ -11,8 +11,8 @@ import (
 // This provides a safe way to look up file paths from various tables
 // without exposing raw SQL to handlers.
 type AudioRepository interface {
-	// GetFilePath returns an audio filename from an allowed table/column pair.
-	GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error)
+	// GetFilePath returns the stored audio filename from an allowed table.
+	GetFilePath(ctx context.Context, tableName string, id int64) (string, error)
 }
 
 // audioRepository implements AudioRepository.
@@ -26,40 +26,27 @@ func NewAudioRepository(db *gorm.DB) AudioRepository {
 }
 
 // allowedTables defines which tables can be queried for audio files.
-// This whitelist prevents SQL injection via table/column names.
-var allowedTables = map[string]map[string]bool{
-	"stories": {
-		"audio_file": true,
-	},
-	"bulletins": {
-		"audio_file": true,
-	},
-	"station_voices": {
-		"audio_file": true,
-	},
+// This whitelist prevents SQL injection via table names; every audio-bearing
+// table stores its filename in the audio_file column keyed by id.
+var allowedTables = map[string]bool{
+	"stories":        true,
+	"bulletins":      true,
+	"station_voices": true,
 }
 
 // GetFilePath returns the stored audio filename for id.
-// Table and column names must be present in allowedTables because GORM cannot
+// The table name must be present in allowedTables because GORM cannot
 // parameterize SQL identifiers.
-func (r *audioRepository) GetFilePath(ctx context.Context, tableName, fileColumn, idColumn string, id int64) (string, error) {
-	tableColumns, ok := allowedTables[tableName]
-	if !ok {
+func (r *audioRepository) GetFilePath(ctx context.Context, tableName string, id int64) (string, error) {
+	if !allowedTables[tableName] {
 		return "", fmt.Errorf("table %s is not allowed for audio lookups", tableName)
-	}
-	if !tableColumns[fileColumn] {
-		return "", fmt.Errorf("column %s is not allowed for table %s", fileColumn, tableName)
-	}
-
-	if idColumn != "id" {
-		return "", fmt.Errorf("id column must be 'id'")
 	}
 
 	var filePath *string
 	err := r.db.WithContext(ctx).
 		Table(tableName).
-		Select(fileColumn).
-		Where(idColumn+" = ?", id).
+		Select("audio_file").
+		Where("id = ?", id).
 		Scan(&filePath).Error
 
 	if err != nil {

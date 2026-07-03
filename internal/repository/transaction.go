@@ -15,9 +15,6 @@ type TxManager interface {
 	// If the function panics, the transaction is rolled back and the panic is re-raised.
 	// If the function succeeds, the transaction is committed.
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
-
-	// DB returns the underlying GORM database connection for non-transactional queries.
-	DB() *gorm.DB
 }
 
 // txManager implements TxManager using GORM.
@@ -28,11 +25,6 @@ type txManager struct {
 // NewTxManager returns a transaction manager backed by db.
 func NewTxManager(db *gorm.DB) TxManager {
 	return &txManager{db: db}
-}
-
-// DB returns the underlying GORM database connection.
-func (m *txManager) DB() *gorm.DB {
-	return m.db
 }
 
 // WithTransaction executes fn within a GORM transaction.

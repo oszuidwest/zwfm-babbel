@@ -3451,7 +3451,7 @@ components:
           type: string
           writeOnly: true
           minLength: 8
-          maxLength: 255
+          maxLength: 128
           description: New password. Must satisfy the configured local password policy.
         email:
           type: [string, 'null']
@@ -3575,10 +3575,6 @@ components:
           type: string
           description: User-friendly suggestion for resolving the error
           example: "Check the resource ID and try again"
-        trace_id:
-          type: string
-          description: Optional trace ID for debugging
-          example: "abc123def456"
         errors:
           type: array
           description: Field-level errors for validation or strict request-parsing responses (400 and 422)

@@ -29,7 +29,10 @@ func TestFilterOperatorHandlers(t *testing.T) {
 	for _, tt := range nullCases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := filterOperatorHandlers["null"](tt.value)
+			got, known, err := buildFilter("null", tt.value)
+			if !known {
+				t.Fatal("null operator should be known")
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -41,16 +44,26 @@ func TestFilterOperatorHandlers(t *testing.T) {
 
 	t.Run("null rejects non-boolean", func(t *testing.T) {
 		t.Parallel()
-		if _, err := filterOperatorHandlers["null"]("not-bool"); err == nil {
+		if _, _, err := buildFilter("null", "not-bool"); err == nil {
 			t.Fatal("expected error")
 		}
 	})
 
-	// LIKE handler stores the raw substring; the repository layer is the only
+	t.Run("unknown operator reported as not known", func(t *testing.T) {
+		t.Parallel()
+		if _, known, _ := buildFilter("bogus", "x"); known {
+			t.Fatal("bogus operator should not be known")
+		}
+	})
+
+	// The LIKE filter stores the raw substring; the repository layer is the only
 	// place that wraps with % wildcards. See list_query_test for that contract.
 	t.Run("like leaves value unwrapped", func(t *testing.T) {
 		t.Parallel()
-		got, err := filterOperatorHandlers["like"]("news")
+		got, known, err := buildFilter("like", "news")
+		if !known {
+			t.Fatal("like operator should be known")
+		}
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}

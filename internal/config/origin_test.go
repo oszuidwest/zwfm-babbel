@@ -70,7 +70,7 @@ func TestOriginFromURL(t *testing.T) {
 	}
 }
 
-func TestIsOriginAllowed(t *testing.T) {
+func TestOriginCheckerAllowed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -95,10 +95,50 @@ func TestIsOriginAllowed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := IsOriginAllowed(tt.origin, tt.allowedOrigins); got != tt.want {
-				t.Fatalf("IsOriginAllowed(%q, %q) = %v, want %v", tt.origin, tt.allowedOrigins, got, tt.want)
+			if got := NewOriginChecker(tt.allowedOrigins).Allowed(tt.origin); got != tt.want {
+				t.Fatalf("NewOriginChecker(%q).Allowed(%q) = %v, want %v", tt.allowedOrigins, tt.origin, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOriginChecker(t *testing.T) {
+	t.Parallel()
+
+	checker := NewOriginChecker("https://app.example.com/, HTTP://LOCALHOST:3000, not-an-origin")
+
+	tests := []struct {
+		name   string
+		origin string
+		want   bool
+	}{
+		{name: "exact origin", origin: "https://app.example.com", want: true},
+		{name: "trailing slash tolerated on candidate", origin: "https://app.example.com/", want: true},
+		{name: "configured entry normalized once", origin: "http://localhost:3000", want: true},
+		{name: "uppercase candidate canonicalized", origin: "HTTPS://APP.EXAMPLE.COM", want: true},
+		{name: "malformed configured entry skipped", origin: "not-an-origin", want: false},
+		{name: "prefix attack rejected", origin: "https://app.example.com.evil.test", want: false},
+		{name: "different scheme rejected", origin: "http://app.example.com", want: false},
+		{name: "empty candidate rejected", origin: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := checker.Allowed(tt.origin); got != tt.want {
+				t.Fatalf("Allowed(%q) = %v, want %v", tt.origin, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOriginCheckerEmptyConfig(t *testing.T) {
+	t.Parallel()
+
+	checker := NewOriginChecker("")
+	if checker.Allowed("https://app.example.com") {
+		t.Fatal("empty configuration must reject every origin")
 	}
 }
 

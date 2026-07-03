@@ -324,12 +324,8 @@ func main() {
 	fmt.Printf("✓ Documentation generated at %s\n", *output)
 }
 
-// resolveParameters resolves $ref parameters from the components section.
-func resolveParameters(params []Parameter, components struct {
-	Schemas         map[string]any       `yaml:"schemas"`
-	SecuritySchemes map[string]any       `yaml:"securitySchemes"`
-	Parameters      map[string]Parameter `yaml:"parameters"`
-}) []Parameter {
+// resolveParameters resolves $ref parameters against the components/parameters map.
+func resolveParameters(params []Parameter, componentParams map[string]Parameter) []Parameter {
 	resolvedParams := make([]Parameter, 0, len(params))
 	for _, param := range params {
 		if param.Ref != "" {
@@ -338,7 +334,7 @@ func resolveParameters(params []Parameter, components struct {
 			parts := strings.Split(param.Ref, "/")
 			if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
 				paramName := parts[3]
-				if resolvedParam, ok := components.Parameters[paramName]; ok {
+				if resolvedParam, ok := componentParams[paramName]; ok {
 					resolvedParams = append(resolvedParams, resolvedParam)
 				}
 			}
@@ -357,7 +353,7 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
 			// Resolve parameter references before rendering.
-			op.Parameters = resolveParameters(op.Parameters, spec.Components)
+			op.Parameters = resolveParameters(op.Parameters, spec.Components.Parameters)
 
 			endpoint := EndpointInfo{
 				Method:    strings.ToUpper(method),
@@ -419,11 +415,17 @@ func formatRequestBodyInfo(rb map[string]any) string {
 	return "Required"
 }
 
+// isSuccessCode determines if the given HTTP status code is a success code
+// (200, 201, or 204).
+func isSuccessCode(code string) bool {
+	return code == "200" || code == "201" || code == "204"
+}
+
 // checkHasSuccessResponse determines if the responses map contains any success
 // status codes (200, 201, 204).
 func checkHasSuccessResponse(responses map[string]any) bool {
 	for code := range responses {
-		if code == "200" || code == "201" || code == "204" {
+		if isSuccessCode(code) {
 			return true
 		}
 	}
@@ -450,7 +452,7 @@ func extractSuccessResponse(responses map[string]any) string {
 // checkHasErrorResponses determines if the responses map contains any error status codes (non-2xx).
 func checkHasErrorResponses(responses map[string]any) bool {
 	for code := range responses {
-		if code != "200" && code != "201" && code != "204" {
+		if isHTTPErrorCode(code) {
 			return true
 		}
 	}
@@ -460,7 +462,7 @@ func checkHasErrorResponses(responses map[string]any) bool {
 // isHTTPErrorCode determines if the given HTTP status code represents an error
 // (not 200, 201, or 204).
 func isHTTPErrorCode(code string) bool {
-	return code != "200" && code != "201" && code != "204"
+	return !isSuccessCode(code)
 }
 
 // extractResponseDescription retrieves the description field from a response

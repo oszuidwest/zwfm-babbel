@@ -3,7 +3,8 @@ package repository
 import (
 	"reflect"
 	"strings"
-	"unicode"
+
+	"gorm.io/gorm/schema"
 )
 
 // BuildUpdateMap converts a struct with pointer fields and Clear* flags into a GORM update map.
@@ -126,14 +127,8 @@ func extractColumnFromTag(tag string) string {
 	return ""
 }
 
-// toSnakeCase converts CamelCase to snake_case.
+// toSnakeCase converts a Go field name to its database column name using
+// GORM's default naming strategy (e.g. "VoiceID" becomes "voice_id").
 func toSnakeCase(s string) string {
-	var result strings.Builder
-	for i, r := range s {
-		if i > 0 && unicode.IsUpper(r) {
-			result.WriteByte('_')
-		}
-		result.WriteRune(unicode.ToLower(r))
-	}
-	return result.String()
+	return schema.NamingStrategy{}.ColumnName("", s)
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -18,64 +17,32 @@ import (
 // Runs as a background service that periodically purges bulletin WAV files older than
 // the configured retention period, while preserving database records as an audit trail.
 type BulletinCleanupService struct {
-	repo     *repository.BulletinRepository
-	config   *config.Config
-	ticker   *time.Ticker
-	done     chan bool
-	stopOnce sync.Once
+	repo   *repository.BulletinRepository
+	config *config.Config
+	runner *runner
 }
 
 // NewBulletinCleanupService returns a stopped cleanup service.
 // Call [BulletinCleanupService.Start] to begin daily purges.
 func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config) *BulletinCleanupService {
-	return &BulletinCleanupService{
+	s := &BulletinCleanupService{
 		repo:   repository.NewBulletinRepository(db),
 		config: cfg,
-		done:   make(chan bool),
 	}
+	s.runner = newRunner("bulletin cleanup service", 24*time.Hour, 5*time.Minute, s.cleanup)
+	return s
 }
 
 // Start runs cleanup immediately and then every 24 hours in a background
 // goroutine.
 func (s *BulletinCleanupService) Start() {
 	logger.Info("Starting bulletin cleanup service (runs daily)", "retention", s.config.Audio.BulletinRetention)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	s.cleanup(ctx)
-
-	s.ticker = time.NewTicker(24 * time.Hour)
-
-	go func() {
-		for {
-			select {
-			case <-s.ticker.C:
-				func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-					defer cancel()
-					s.cleanup(ctx)
-				}()
-			case <-s.done:
-				return
-			}
-		}
-	}()
+	s.runner.Start()
 }
 
 // Stop gracefully shuts down the cleanup service.
-// Uses sync.Once to prevent double-stop race conditions and a timeout to prevent deadlock.
 func (s *BulletinCleanupService) Stop() {
-	s.stopOnce.Do(func() {
-		logger.Info("Stopping bulletin cleanup service")
-		select {
-		case s.done <- true:
-		case <-time.After(5 * time.Second):
-			logger.Info("Bulletin cleanup service shutdown timeout")
-		}
-		if s.ticker != nil {
-			s.ticker.Stop()
-		}
-	})
+	s.runner.Stop()
 }
 
 // cleanup performs the actual file purge logic.

@@ -126,7 +126,7 @@ func (s *BulletinService) generateBulletinAudio(
 	jingle audio.JingleContext,
 ) (string, error) {
 	timestamp := time.Now()
-	bulletinPath, _ := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
+	bulletinPath := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
 
 	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, bulletinPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)

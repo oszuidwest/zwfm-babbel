@@ -12,15 +12,16 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// AudioConfig maps an audio endpoint to the database column and storage
-// directory that contain its WAV filename.
+// AudioConfig maps an audio endpoint to the database table and storage
+// directory that contain its WAV file. All audio-bearing tables store the
+// filename in the audio_file column keyed by id.
 type AudioConfig struct {
-	TableName   string
-	IDColumn    string
-	FileColumn  string
-	FilePrefix  string
-	ContentType string
-	Directory   string // Directory within audio root (e.g. "processed", "output")
+	TableName  string
+	FilePrefix string
+	// FromOutput selects the bulletin output directory; the default is the
+	// processed-audio directory. These match the directories the audio
+	// pipeline writes to (BABBEL_OUTPUT_PATH / BABBEL_PROCESSED_PATH).
+	FromOutput bool
 }
 
 // ServeAudio streams a stored WAV file for the route ID.
@@ -32,7 +33,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	filePath, err := h.audioRepo.GetFilePath(c.Request.Context(), config.TableName, config.FileColumn, config.IDColumn, id)
+	filePath, err := h.audioRepo.GetFilePath(c.Request.Context(), config.TableName, id)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			utils.ProblemNotFound(c, "Audio file")
@@ -42,7 +43,11 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		return
 	}
 
-	audioPath := filepath.Join(h.config.Audio.AppRoot, "audio", config.Directory, filePath)
+	baseDir := h.config.Audio.ProcessedPath
+	if config.FromOutput {
+		baseDir = h.config.Audio.OutputPath
+	}
+	audioPath := filepath.Join(baseDir, filePath)
 
 	if _, err := os.Stat(audioPath); err != nil {
 		if os.IsNotExist(err) {
@@ -52,7 +57,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		}
 		return
 	}
-	c.Header("Content-Type", config.ContentType)
+	c.Header("Content-Type", "audio/wav")
 	c.Header("Content-Disposition",
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))
 
@@ -67,9 +72,13 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		return
 	}
 
-	_, err := h.storySvc.GetByID(c.Request.Context(), id)
+	exists, err := h.storySvc.Exists(c.Request.Context(), id)
 	if err != nil {
 		handleServiceError(c, err, "Story")
+		return
+	}
+	if !exists {
+		handleServiceError(c, apperrors.NotFoundWithID("Story", id), "Story")
 		return
 	}
 
@@ -116,7 +125,7 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "jingle file")()
 
-	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), id, tempPath); err != nil {
+	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice, tempPath); err != nil {
 		handleServiceError(c, err, "Jingle processing")
 		return
 	}

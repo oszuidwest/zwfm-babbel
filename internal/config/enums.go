@@ -72,15 +72,6 @@ const (
 	SameSiteNone CookieSameSite = "none"
 )
 
-// IsValid reports whether the SameSite policy is recognized.
-func (c CookieSameSite) IsValid() bool {
-	switch c {
-	case SameSiteStrict, SameSiteLax, SameSiteNone:
-		return true
-	}
-	return false
-}
-
 // ToHTTP converts the SameSite policy to the http.SameSite type.
 func (c CookieSameSite) ToHTTP() http.SameSite {
 	switch c {
@@ -92,14 +83,3 @@ func (c CookieSameSite) ToHTTP() http.SameSite {
 		return http.SameSiteLaxMode
 	}
 }
-
-// SessionStoreType represents the session storage backend.
-type SessionStoreType string
-
-// Session storage backends supported by the application.
-const (
-	// StoreTypeMemory stores sessions in memory (not suitable for production).
-	StoreTypeMemory SessionStoreType = "memory"
-	// StoreTypeCookie stores sessions in encrypted cookies.
-	StoreTypeCookie SessionStoreType = "cookie"
-)
