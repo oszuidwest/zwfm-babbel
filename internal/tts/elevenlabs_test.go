@@ -135,11 +135,13 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	}
 }
 
-func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
+func TestService_GenerateSpeech_APIErrorIncludesElevenLabsMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "45")
+		w.Header().Set(headerCurrentConcurrentRequests, "5")
+		w.Header().Set(headerMaximumConcurrentRequests, "5")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+		_, _ = w.Write([]byte(`{"detail":{"type":"rate_limit_error","code":"concurrent_limit_exceeded","request_id":"req_123"}}`))
 	}))
 	defer server.Close()
 
@@ -164,8 +166,75 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	if apiErr.RetryAfter != "45" {
 		t.Fatalf("RetryAfter = %q, want 45", apiErr.RetryAfter)
 	}
+	if apiErr.ErrorType != "rate_limit_error" {
+		t.Fatalf("ErrorType = %q, want rate_limit_error", apiErr.ErrorType)
+	}
+	if apiErr.ErrorCode != "concurrent_limit_exceeded" {
+		t.Fatalf("ErrorCode = %q, want concurrent_limit_exceeded", apiErr.ErrorCode)
+	}
+	if apiErr.RequestID != "req_123" {
+		t.Fatalf("RequestID = %q, want req_123", apiErr.RequestID)
+	}
+	if apiErr.CurrentConcurrentRequests != "5" {
+		t.Fatalf("CurrentConcurrentRequests = %q, want 5", apiErr.CurrentConcurrentRequests)
+	}
+	if apiErr.MaximumConcurrentRequests != "5" {
+		t.Fatalf("MaximumConcurrentRequests = %q, want 5", apiErr.MaximumConcurrentRequests)
+	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
+	}
+}
+
+func TestParseElevenLabsErrorDetail(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          string
+		wantType      string
+		wantCode      string
+		wantRequestID string
+	}{
+		{
+			name:          "official detail code",
+			body:          `{"detail":{"type":"rate_limit_error","code":"rate_limit_exceeded","request_id":"req_123"}}`,
+			wantType:      "rate_limit_error",
+			wantCode:      "rate_limit_exceeded",
+			wantRequestID: "req_123",
+		},
+		{
+			name:     "legacy status fallback",
+			body:     `{"detail":{"type":"rate_limit_error","status":"too_many_concurrent_requests"}}`,
+			wantType: "rate_limit_error",
+			wantCode: "too_many_concurrent_requests",
+		},
+		{
+			name:     "string detail fallback",
+			body:     `{"detail":"system_busy"}`,
+			wantCode: "system_busy",
+		},
+		{
+			name: "non-token string detail ignored",
+			body: `{"detail":"slow down"}`,
+		},
+		{
+			name: "malformed body",
+			body: `not json`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseElevenLabsErrorDetail([]byte(tt.body))
+			if got.Type != tt.wantType {
+				t.Fatalf("Type = %q, want %q", got.Type, tt.wantType)
+			}
+			if got.Code != tt.wantCode {
+				t.Fatalf("Code = %q, want %q", got.Code, tt.wantCode)
+			}
+			if got.RequestID != tt.wantRequestID {
+				t.Fatalf("RequestID = %q, want %q", got.RequestID, tt.wantRequestID)
+			}
+		})
 	}
 }
 
