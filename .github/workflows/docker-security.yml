@@ -20,3 +20,7 @@ jobs:
     with:
       event-name: ${{ github.event_name }}
       repository-private: ${{ github.event.repository.private }}
+      # Force the apk upgrade layer to rebuild every run so the scanned image always
+      # contains the latest upstream security patches (avoids stale cached-layer findings).
+      build-args: |
+        CACHEBUST=${{ github.run_id }}

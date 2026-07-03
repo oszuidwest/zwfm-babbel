@@ -31,7 +31,10 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 # Install FFmpeg and timezone data, upgrade to get security patches
 # Update package index first to ensure we get the latest security fixes (e.g., libpng)
-RUN apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
+# CACHEBUST is set to a changing value by CI so this layer always re-runs and pulls in
+# freshly published upstream security patches, even when the base image digest is unchanged.
+ARG CACHEBUST=static
+RUN echo "cachebust: ${CACHEBUST}" >/dev/null && apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
 
 # Create app user
 RUN addgroup -g 1001 -S app \
