@@ -70,14 +70,14 @@ func (r *runner) runOnce() {
 			logger.Error("Scheduler job panicked", "service", r.name, "panic", recovered)
 			r.alerts.Alert(ctx, notify.Event{
 				Key: "scheduler:panic:" + r.name, Summary: "Scheduler job panicked: " + r.name,
-				Details: fmt.Sprint(recovered), Kind: notify.KindImmediate,
+				Details: fmt.Sprint(recovered),
 			})
 		}
 	}()
 	if err := r.fn(ctx); err != nil {
 		r.alerts.Alert(ctx, notify.Event{
-			Key: "scheduler:" + r.name, Summary: "Scheduler job repeatedly fails: " + r.name,
-			Details: err.Error(), Kind: notify.KindContinuous,
+			Key: "scheduler:" + r.name, Summary: "Scheduler job repeatedly fails: " + r.name, Details: err.Error(),
+			RequiresThreshold: true,
 		})
 		return
 	}

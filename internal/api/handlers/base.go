@@ -186,10 +186,10 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Unknown errors fall back to a generic internal problem response.
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	alertRequestFailure(c, notify.Event{
-		Key:     internalAlertKeyPrefix + routeKey(c),
-		Summary: "Unhandled API errors repeatedly occur",
-		Details: fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
-		Kind:    notify.KindContinuous,
+		Key:               internalAlertKeyPrefix + routeKey(c),
+		Summary:           "Unhandled API errors repeatedly occur",
+		Details:           fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
+		RequiresThreshold: true,
 	})
 	utils.ProblemExtended(c, http.StatusInternalServerError,
 		fmt.Sprintf("Failed to process %s", fallbackResource),
@@ -211,10 +211,10 @@ const (
 // requests; NotificationMiddleware resolves it on the route's next success.
 func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 	return notify.Event{
-		Key:     databaseAlertKeyPrefix + routeKey(c),
-		Summary: "Database requests repeatedly fail",
-		Details: details,
-		Kind:    notify.KindContinuous,
+		Key:               databaseAlertKeyPrefix + routeKey(c),
+		Summary:           "Database requests repeatedly fail",
+		Details:           details,
+		RequiresThreshold: true,
 	}
 }
 

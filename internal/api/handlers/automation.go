@@ -78,10 +78,10 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	}
 	if subtle.ConstantTimeCompare([]byte(providedKey), []byte(h.config.Automation.Key)) != 1 {
 		h.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     "security:automation-key",
-			Summary: "Repeated invalid radio automation keys",
-			Details: "Multiple requests to the public bulletin endpoint used an invalid key. The provided key is never logged or e-mailed.",
-			Kind:    notify.KindContinuous,
+			Key:               "security:automation-key",
+			Summary:           "Repeated invalid radio automation keys",
+			Details:           "Multiple requests to the public bulletin endpoint used an invalid key. The provided key is never logged or e-mailed.",
+			RequiresThreshold: true,
 		})
 		utils.ProblemAuthentication(c, "Invalid API key")
 		return nil
@@ -240,7 +240,6 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 			Key:     alertKey,
 			Summary: "Radio automation bulletin file is unavailable",
 			Details: "Bulletin " + strconv.FormatInt(bulletinID, 10) + " could not be served from " + filePath + ": " + err.Error(),
-			Kind:    notify.KindImmediate,
 		})
 		if os.IsNotExist(err) {
 			logger.Error("Automation: audio file not found", "path", filePath)

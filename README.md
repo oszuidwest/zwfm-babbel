@@ -211,7 +211,7 @@ Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage local IPA pron
 
 ### Operational e-mail notifications
 
-Babbel can e-mail administrators when an on-air bulletin is degraded or unavailable, ElevenLabs is continuously unavailable, a background job or database connection fails, or suspicious authentication activity occurs. Delivery uses only Microsoft Graph with the OAuth2 client-credentials flow, matching `zwfm-aerontoolbox`. The Azure app registration needs the application permission `Mail.Send` with admin consent; the sender is the configured shared mailbox or user.
+Babbel can e-mail administrators when an on-air bulletin is degraded or unavailable, ElevenLabs is repeatedly unavailable, a background job or database connection fails, or suspicious authentication activity occurs. Delivery uses only Microsoft Graph with the OAuth2 client-credentials flow, matching `zwfm-aerontoolbox`. The Azure app registration needs the application permission `Mail.Send` with admin consent; the sender is the configured shared mailbox or user.
 
 | Env var | Default | Description |
 |---|---:|---|
@@ -222,9 +222,17 @@ Babbel can e-mail administrators when an on-air bulletin is degraded or unavaila
 | `BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS` | unset | Comma-separated administrator addresses. |
 | `BABBEL_NOTIFICATIONS_COOLDOWN` | `1h` | Minimum interval before the same active condition/resource can send another alert. |
 | `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` | `3` | Transient failures required within the configured window before alerting. |
-| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | Window used to classify failures as continuous. |
+| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | Window in which thresholded failures are counted. |
 
-Leave all five Graph fields empty to disable e-mail. A partial or malformed Graph configuration is rejected at startup. Immediate operational conditions, such as no on-air stories, mixed bulletin voices, missing audio/jingles, scheduler panics, account lockout and invalid OAuth state/token data, alert on the first occurrence. Transient 429, timeout, upstream, database, cleanup and expiration errors use the threshold/window policy. Alerts are grouped by condition and affected resource, deduplicated during the cooldown, and followed by a recovery e-mail when the relevant success path is observed.
+Leave all five Graph fields empty to disable e-mail. A partial or malformed Graph configuration is rejected at startup.
+
+| Trigger policy | Code representation | Delivery |
+|---|---|---|
+| Immediate | Omit `RequiresThreshold` | On the first occurrence. |
+| Thresholded | `RequiresThreshold: true` | After `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` occurrences within `BABBEL_NOTIFICATIONS_FAILURE_WINDOW`. |
+| Critical lifecycle | `SendCritical` | Synchronously before process exit, without threshold or cooldown. |
+
+Immediate operational conditions include no on-air stories, mixed bulletin voices, missing audio/jingles, scheduler panics, account lockout and invalid OAuth state/token data. Transient 429, timeout, upstream, database, cleanup and expiration errors are thresholded. Alerts are grouped by condition and affected resource, deduplicated during the cooldown, and followed by a recovery e-mail when the relevant success path is observed. Alert subjects use `[ALERT] <summary> - Babbel`; recovery subjects use `[RESOLVED] <summary> - Babbel`.
 
 The `/health` endpoint now checks the database and returns HTTP 503 with `status: "unhealthy"` when its ping fails. A background check performs the same database monitoring even when no load balancer polls the endpoint.
 

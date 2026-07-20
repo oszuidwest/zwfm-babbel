@@ -24,7 +24,7 @@ func (a *automationAlertRecorder) Resolve(_ context.Context, key, _, _ string) {
 	a.resolved = append(a.resolved, key)
 }
 
-func TestAutomationHandlerInvalidKeyRaisesContinuousSecurityAlert(t *testing.T) {
+func TestAutomationHandlerInvalidKeyRaisesThresholdedSecurityAlert(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	alerts := &automationAlertRecorder{}
 	handler := NewAutomationHandler(nil, nil, &config.Config{
@@ -44,7 +44,7 @@ func TestAutomationHandlerInvalidKeyRaisesContinuousSecurityAlert(t *testing.T) 
 		t.Fatalf("event count = %d, want 1", len(alerts.events))
 	}
 	event := alerts.events[0]
-	if event.Key != "security:automation-key" || event.Kind != notify.KindContinuous {
+	if event.Key != "security:automation-key" || !event.RequiresThreshold {
 		t.Fatalf("event = %+v", event)
 	}
 }

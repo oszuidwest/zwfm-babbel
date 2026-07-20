@@ -213,8 +213,8 @@ func notifyCritical(alerts *notify.Service, key, summary string, err error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fatalNotificationTimeout)
 	defer cancel()
-	if sendErr := alerts.AlertSync(ctx, notify.Event{
-		Key: key, Summary: summary, Details: err.Error(), Kind: notify.KindImmediate,
+	if sendErr := alerts.SendCritical(ctx, notify.Event{
+		Key: key, Summary: summary, Details: err.Error(),
 	}); sendErr != nil {
 		log.Printf("Failed to send critical notification: %v", sendErr)
 	}

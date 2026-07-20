@@ -256,15 +256,15 @@ func TestTranslateTTSError(t *testing.T) {
 
 func TestStoryServiceAlertTTSError(t *testing.T) {
 	tests := []struct {
-		name     string
-		err      error
-		wantKey  string
-		wantKind notify.Kind
+		name                  string
+		err                   error
+		wantKey               string
+		wantRequiresThreshold bool
 	}{
-		{name: "invalid credentials", err: &tts.APIError{StatusCode: http.StatusUnauthorized}, wantKey: "tts:credentials", wantKind: notify.KindImmediate},
-		{name: "rate limit", err: &tts.APIError{StatusCode: http.StatusTooManyRequests}, wantKey: "tts:rate-limit", wantKind: notify.KindContinuous},
-		{name: "server error", err: &tts.APIError{StatusCode: http.StatusServiceUnavailable}, wantKey: "tts:upstream", wantKind: notify.KindContinuous},
-		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantKind: notify.KindContinuous},
+		{name: "invalid credentials", err: &tts.APIError{StatusCode: http.StatusUnauthorized}, wantKey: "tts:credentials"},
+		{name: "rate limit", err: &tts.APIError{StatusCode: http.StatusTooManyRequests}, wantKey: "tts:rate-limit", wantRequiresThreshold: true},
+		{name: "server error", err: &tts.APIError{StatusCode: http.StatusServiceUnavailable}, wantKey: "tts:upstream", wantRequiresThreshold: true},
+		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
 		{name: "invalid request is user error", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity}},
 	}
@@ -283,8 +283,8 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 			if len(alerts.events) != 1 {
 				t.Fatalf("event count = %d, want 1", len(alerts.events))
 			}
-			if got := alerts.events[0]; got.Key != tt.wantKey || got.Kind != tt.wantKind {
-				t.Fatalf("event = %+v, want key %q kind %v", got, tt.wantKey, tt.wantKind)
+			if got := alerts.events[0]; got.Key != tt.wantKey || got.RequiresThreshold != tt.wantRequiresThreshold {
+				t.Fatalf("event = %+v, want key %q RequiresThreshold %t", got, tt.wantKey, tt.wantRequiresThreshold)
 			}
 		})
 	}

@@ -38,7 +38,7 @@ func TestRunnerRecoversPanicAndAlerts(t *testing.T) {
 		t.Fatalf("event count = %d, want 1", len(alerts.events))
 	}
 	event := alerts.events[0]
-	if event.Key != "scheduler:panic:test job" || event.Kind != notify.KindImmediate {
+	if event.Key != "scheduler:panic:test job" || event.RequiresThreshold {
 		t.Fatalf("event = %+v", event)
 	}
 
@@ -61,7 +61,7 @@ func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
 		t.Fatalf("event count = %d, want 1", len(alerts.events))
 	}
 	event := alerts.events[0]
-	if event.Key != "scheduler:test job" || event.Kind != notify.KindContinuous {
+	if event.Key != "scheduler:test job" || !event.RequiresThreshold {
 		t.Fatalf("event = %+v", event)
 	}
 

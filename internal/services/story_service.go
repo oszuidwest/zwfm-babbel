@@ -452,17 +452,17 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 // alertTTSError maps operational TTS failures to stable alert categories.
 func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
 	event := notify.Event{
-		Key:     "tts:upstream",
-		Summary: "ElevenLabs TTS is repeatedly unavailable",
-		Details: fmt.Sprintf("Story %d: %v", storyID, err),
-		Kind:    notify.KindContinuous,
+		Key:               "tts:upstream",
+		Summary:           "ElevenLabs TTS is repeatedly unavailable",
+		Details:           fmt.Sprintf("Story %d: %v", storyID, err),
+		RequiresThreshold: true,
 	}
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			event.Key = "tts:credentials"
 			event.Summary = "ElevenLabs credentials are invalid or expired"
-			event.Kind = notify.KindImmediate
+			event.RequiresThreshold = false
 		case http.StatusTooManyRequests:
 			event.Key = "tts:rate-limit"
 			event.Summary = "ElevenLabs quota or rate limit is repeatedly exceeded"

@@ -73,7 +73,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 			Key:     fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
 			Summary: fmt.Sprintf("No stories available for station %d", stationID),
 			Details: "No eligible stories are available, so no on-air bulletin can be generated for this station.",
-			Kind:    notify.KindImmediate,
 		})
 		return nil, apperrors.NoStories(stationID)
 	}
@@ -97,15 +96,11 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
-		kind := notify.KindImmediate
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			kind = notify.KindContinuous
-		}
 		s.alerts.Alert(ctx, notify.Event{
-			Key:     fmt.Sprintf("bulletin:generation:station:%d", stationID),
-			Summary: fmt.Sprintf("Bulletin generation failed for station %d", stationID),
-			Details: err.Error(),
-			Kind:    kind,
+			Key:               fmt.Sprintf("bulletin:generation:station:%d", stationID),
+			Summary:           fmt.Sprintf("Bulletin generation failed for station %d", stationID),
+			Details:           err.Error(),
+			RequiresThreshold: errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
 		})
 		return nil, err
 	}
@@ -293,7 +288,6 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 				Key:     fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
 				Summary: fmt.Sprintf("Story audio missing for station %d", stationID),
 				Details: fmt.Sprintf("Story %d exists in the database but its processed audio file is unavailable at %s: %v", story.ID, path, err),
-				Kind:    notify.KindImmediate,
 			})
 			continue
 		}
@@ -334,7 +328,6 @@ func (s *BulletinService) reportVoiceConsistency(
 		Key:     key,
 		Summary: fmt.Sprintf("Multiple voices selected for station %d", stationID),
 		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
-		Kind:    notify.KindImmediate,
 	})
 }
 

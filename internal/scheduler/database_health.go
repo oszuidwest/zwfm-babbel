@@ -22,8 +22,8 @@ func CheckDatabase(ctx context.Context, db *gorm.DB, alerts notify.Alerter) erro
 	if err != nil {
 		logger.Error("Database health check failed", "error", err)
 		alerts.Alert(ctx, notify.Event{
-			Key: "database:connection", Summary: "Database connection repeatedly fails",
-			Details: err.Error(), Kind: notify.KindContinuous,
+			Key: "database:connection", Summary: "Database connection repeatedly fails", Details: err.Error(),
+			RequiresThreshold: true,
 		})
 		return err
 	}

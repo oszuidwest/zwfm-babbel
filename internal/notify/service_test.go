@@ -121,11 +121,11 @@ func newTestService(now *time.Time) (*Service, *recordingMailer) {
 	return svc, mailer
 }
 
-func TestServiceContinuousAlertThresholdCooldownAndRecovery(t *testing.T) {
+func TestServiceThresholdedAlertCooldownAndRecovery(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, mailer := newTestService(&now)
 	defer svc.Close()
-	event := Event{Key: "tts:rate-limit", Summary: "TTS rate limited", Details: "quota", Kind: KindContinuous}
+	event := Event{Key: "tts:rate-limit", Summary: "TTS rate limited", Details: "quota", RequiresThreshold: true}
 
 	svc.Alert(t.Context(), event)
 	svc.Alert(t.Context(), event)
@@ -160,7 +160,7 @@ func TestServiceResolveClearsFailuresBeforeThreshold(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, mailer := newTestService(&now)
 	defer svc.Close()
-	event := Event{Key: "database:connection", Summary: "Database down", Kind: KindContinuous}
+	event := Event{Key: "database:connection", Summary: "Database down", RequiresThreshold: true}
 
 	svc.Alert(t.Context(), event)
 	svc.Alert(t.Context(), event)
@@ -178,7 +178,7 @@ func TestServicePreservesActiveAlertUntilRecovery(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, mailer := newTestService(&now)
 	defer svc.Close()
-	active := Event{Key: "storage:output", Summary: "Storage unavailable", Kind: KindImmediate}
+	active := Event{Key: "storage:output", Summary: "Storage unavailable"}
 
 	svc.Alert(t.Context(), active)
 	mailer.waitForCount(t, 1)
@@ -186,11 +186,11 @@ func TestServicePreservesActiveAlertUntilRecovery(t *testing.T) {
 	// Trigger pruning well beyond the normal retention period with an unrelated,
 	// below-threshold incident. Active state must survive until Resolve observes it.
 	now = now.Add(3 * time.Hour)
-	svc.Alert(t.Context(), Event{Key: "database:other", Summary: "Other failure", Kind: KindContinuous})
+	svc.Alert(t.Context(), Event{Key: "database:other", Summary: "Other failure", RequiresThreshold: true})
 	svc.Resolve(t.Context(), active.Key, "Storage recovered", "output is available again")
 
 	mailer.waitForCount(t, 2)
-	if got := mailer.messages[1].subject; got != "[OK] Storage recovered - Babbel" {
+	if got := mailer.messages[1].subject; got != "[RESOLVED] Storage recovered - Babbel" {
 		t.Fatalf("recovery subject = %q, want active-alert recovery", got)
 	}
 }
@@ -200,8 +200,8 @@ func TestServiceImmediateAlertsAreIsolatedByKey(t *testing.T) {
 	svc, mailer := newTestService(&now)
 	defer svc.Close()
 
-	svc.Alert(t.Context(), Event{Key: "bulletin:no-stories:station:1", Summary: "No stories 1", Kind: KindImmediate})
-	svc.Alert(t.Context(), Event{Key: "bulletin:no-stories:station:2", Summary: "No stories 2", Kind: KindImmediate})
+	svc.Alert(t.Context(), Event{Key: "bulletin:no-stories:station:1", Summary: "No stories 1"})
+	svc.Alert(t.Context(), Event{Key: "bulletin:no-stories:station:2", Summary: "No stories 2"})
 	mailer.waitForCount(t, 2)
 }
 
@@ -211,7 +211,7 @@ func TestServiceFailedDeliveryDoesNotStartCooldown(t *testing.T) {
 	defer svc.Close()
 	flaky := &flakyMailer{inner: recorder, failuresLeft: 1}
 	svc.mailer = flaky
-	event := Event{Key: "storage:output", Summary: "Storage unavailable", Kind: KindImmediate}
+	event := Event{Key: "storage:output", Summary: "Storage unavailable"}
 
 	svc.Alert(t.Context(), event)
 	svc.work.Wait()
@@ -223,14 +223,14 @@ func TestServiceFailedDeliveryDoesNotStartCooldown(t *testing.T) {
 	// the next occurrence retries immediately.
 	svc.Alert(t.Context(), event)
 	recorder.waitForCount(t, 1)
-	if got := recorder.messages[0].subject; got != "[ERROR] Storage unavailable - Babbel" {
+	if got := recorder.messages[0].subject; got != "[ALERT] Storage unavailable - Babbel" {
 		t.Fatalf("retry subject = %q, want alert", got)
 	}
 
 	svc.work.Wait()
 	svc.Resolve(t.Context(), event.Key, "Storage recovered", "")
 	recorder.waitForCount(t, 2)
-	if got := recorder.messages[1].subject; got != "[OK] Storage recovered - Babbel" {
+	if got := recorder.messages[1].subject; got != "[RESOLVED] Storage recovered - Babbel" {
 		t.Fatalf("recovery subject = %q, want recovery", got)
 	}
 }
@@ -241,7 +241,7 @@ func TestServiceSkipsRecoveryForUndeliveredAlert(t *testing.T) {
 	defer svc.Close()
 	flaky := &flakyMailer{inner: recorder, failuresLeft: 100}
 	svc.mailer = flaky
-	event := Event{Key: "storage:output", Summary: "Storage unavailable", Kind: KindImmediate}
+	event := Event{Key: "storage:output", Summary: "Storage unavailable"}
 
 	svc.Alert(t.Context(), event)
 	svc.work.Wait()
@@ -262,7 +262,7 @@ func TestServiceRecoveryIsDeliveredAfterInFlightAlert(t *testing.T) {
 	defer svc.Close()
 	gate := &gatedMailer{inner: recorder, started: make(chan struct{}, 2), release: make(chan struct{})}
 	svc.mailer = gate
-	event := Event{Key: "database:connection", Summary: "Database down", Kind: KindImmediate}
+	event := Event{Key: "database:connection", Summary: "Database down"}
 
 	svc.Alert(t.Context(), event)
 	select {
@@ -279,10 +279,10 @@ func TestServiceRecoveryIsDeliveredAfterInFlightAlert(t *testing.T) {
 
 	close(gate.release)
 	recorder.waitForCount(t, 2)
-	if got := recorder.messages[0].subject; got != "[ERROR] Database down - Babbel" {
+	if got := recorder.messages[0].subject; got != "[ALERT] Database down - Babbel" {
 		t.Fatalf("first message = %q, want alert before recovery", got)
 	}
-	if got := recorder.messages[1].subject; got != "[OK] Database recovered - Babbel" {
+	if got := recorder.messages[1].subject; got != "[RESOLVED] Database recovered - Babbel" {
 		t.Fatalf("second message = %q, want recovery after alert", got)
 	}
 }
@@ -293,7 +293,7 @@ func TestServiceFlappingAlertCancelsQueuedRecovery(t *testing.T) {
 	defer svc.Close()
 	gate := &gatedMailer{inner: recorder, started: make(chan struct{}, 2), release: make(chan struct{})}
 	svc.mailer = gate
-	event := Event{Key: "database:connection", Summary: "Database down", Kind: KindImmediate}
+	event := Event{Key: "database:connection", Summary: "Database down"}
 
 	svc.Alert(t.Context(), event)
 	select {
@@ -316,7 +316,7 @@ func TestServiceFlappingAlertCancelsQueuedRecovery(t *testing.T) {
 	// The incident is still active, so a real recovery still notifies.
 	svc.Resolve(t.Context(), event.Key, "Database recovered", "")
 	recorder.waitForCount(t, 2)
-	if got := recorder.messages[1].subject; got != "[OK] Database recovered - Babbel" {
+	if got := recorder.messages[1].subject; got != "[RESOLVED] Database recovered - Babbel" {
 		t.Fatalf("recovery subject = %q, want recovery", got)
 	}
 }
@@ -331,7 +331,7 @@ func TestServiceIndependentKeysDeliverConcurrently(t *testing.T) {
 	}
 	svc.mailer = gate
 
-	svc.Alert(t.Context(), Event{Key: "database:connection", Summary: "Database down", Kind: KindImmediate})
+	svc.Alert(t.Context(), Event{Key: "database:connection", Summary: "Database down"})
 	select {
 	case <-gate.started:
 	case <-time.After(time.Second):
@@ -339,9 +339,9 @@ func TestServiceIndependentKeysDeliverConcurrently(t *testing.T) {
 	}
 
 	// A different key must not wait behind the blocked delivery.
-	svc.Alert(t.Context(), Event{Key: "storage:output", Summary: "Storage unavailable", Kind: KindImmediate})
+	svc.Alert(t.Context(), Event{Key: "storage:output", Summary: "Storage unavailable"})
 	recorder.waitForCount(t, 1)
-	if got := recorder.messages[0].subject; got != "[ERROR] Storage unavailable - Babbel" {
+	if got := recorder.messages[0].subject; got != "[ALERT] Storage unavailable - Babbel" {
 		t.Fatalf("first delivered message = %q, want unblocked key", got)
 	}
 
@@ -353,7 +353,7 @@ func TestServiceStaleRecoveryNeverFollowsNewAlert(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, recorder := newTestService(&now)
 	defer svc.Close()
-	event := Event{Key: "database:connection", Summary: "Database down", Kind: KindImmediate}
+	event := Event{Key: "database:connection", Summary: "Database down"}
 
 	// First incident: alert delivered and marked active.
 	svc.Alert(t.Context(), event)
@@ -377,10 +377,10 @@ func TestServiceStaleRecoveryNeverFollowsNewAlert(t *testing.T) {
 	if got := recorder.count(); got != 3 {
 		t.Fatalf("delivered messages = %d, want 3", got)
 	}
-	if got := recorder.messages[1].subject; got != "[OK] Database recovered - Babbel" {
+	if got := recorder.messages[1].subject; got != "[RESOLVED] Database recovered - Babbel" {
 		t.Fatalf("second message = %q, want recovery before new alert", got)
 	}
-	if got := recorder.messages[2].subject; got != "[ERROR] Database down - Babbel" {
+	if got := recorder.messages[2].subject; got != "[ALERT] Database down - Babbel" {
 		t.Fatalf("last message = %q, want new alert after stale recovery", got)
 	}
 }
@@ -390,6 +390,6 @@ func TestServiceDisabledWithoutGraphConfiguration(t *testing.T) {
 	if svc.IsConfigured() {
 		t.Fatal("service unexpectedly configured")
 	}
-	svc.Alert(t.Context(), Event{Key: "x", Summary: "x", Kind: KindImmediate})
+	svc.Alert(t.Context(), Event{Key: "x", Summary: "x"})
 	svc.Close()
 }

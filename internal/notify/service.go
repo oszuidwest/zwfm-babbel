@@ -13,22 +13,15 @@ import (
 
 const sendTimeout = 2 * time.Minute
 
-// Kind controls whether a single event alerts or must repeat within a window.
-// The zero value is KindImmediate.
-type Kind int
-
-const (
-	KindImmediate Kind = iota
-	KindContinuous
-)
-
 // Event describes one operational condition. Key must be stable and include
 // the affected resource when alerts should be isolated per resource.
 type Event struct {
 	Key     string
 	Summary string
 	Details string
-	Kind    Kind
+	// RequiresThreshold delays delivery until the configured failure threshold.
+	// Its zero value sends on the first occurrence.
+	RequiresThreshold bool
 }
 
 // Alerter is the shared operational-alert contract used by application layers.
@@ -129,7 +122,7 @@ func (s *Service) Alert(ctx context.Context, event Event) {
 	}
 	state.lastSeen = now
 	// A re-occurrence cancels a recovery still waiting on the in-flight alert
-	// e-mail: the incident never actually cleared, so the [OK] must not go out.
+	// e-mail: the incident never actually cleared, so the recovery must not go out.
 	state.queuedResolve = nil
 	if now.Sub(state.windowStarted) > s.config.FailureWindow {
 		state.windowStarted = now
@@ -137,7 +130,7 @@ func (s *Service) Alert(ctx context.Context, event Event) {
 	}
 	state.count++
 	threshold := 1
-	if event.Kind == KindContinuous {
+	if event.RequiresThreshold {
 		threshold = s.config.FailureThreshold
 	}
 	shouldSend := !state.sendPending && state.count >= threshold &&
@@ -149,7 +142,7 @@ func (s *Service) Alert(ctx context.Context, event Event) {
 	// Enqueue while holding stateMu so the per-key delivery order always
 	// matches the state-transition order.
 	state.sendPending = true
-	subject, body := formatMessage("[ERROR]", event, now, state.count)
+	subject, body := formatMessage("[ALERT]", event, now, state.count)
 	if !s.sendAsync(ctx, event.Key, subject, body, func(err error) { s.finishAlertSend(event.Key, now, err) }) {
 		state.sendPending = false
 	}
@@ -177,17 +170,17 @@ func (s *Service) finishAlertSend(key string, sentAt time.Time, sendErr error) {
 	}
 	delete(s.states, key)
 	if !state.lastSent.IsZero() {
-		subject, body := formatMessage("[OK]", Event{Key: key, Summary: resolve.summary, Details: resolve.details}, resolve.at, 0)
+		subject, body := formatMessage("[RESOLVED]", Event{Key: key, Summary: resolve.summary, Details: resolve.details}, resolve.at, 0)
 		s.sendAsync(resolve.ctx, key, subject, body, nil)
 	}
 }
 
-// AlertSync sends a critical process-lifecycle event before the process exits.
-func (s *Service) AlertSync(ctx context.Context, event Event) error {
+// SendCritical sends a process-lifecycle event before the process exits.
+func (s *Service) SendCritical(ctx context.Context, event Event) error {
 	if !s.IsConfigured() {
 		return nil
 	}
-	subject, body := formatMessage("[ERROR]", event, s.now(), 1)
+	subject, body := formatMessage("[ALERT]", event, s.now(), 1)
 	return s.send(ctx, subject, body)
 }
 
@@ -214,7 +207,7 @@ func (s *Service) Resolve(ctx context.Context, key, summary, details string) {
 
 	// Enqueue while holding stateMu: an Alert racing with this Resolve either
 	// sees the state and is absorbed, or enqueues its alert after this recovery.
-	subject, body := formatMessage("[OK]", Event{Key: key, Summary: summary, Details: details}, s.now(), 0)
+	subject, body := formatMessage("[RESOLVED]", Event{Key: key, Summary: summary, Details: details}, s.now(), 0)
 	s.sendAsync(ctx, key, subject, body, nil)
 }
 

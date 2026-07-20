@@ -135,7 +135,7 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 		logger.Error("Failed to read output directory", "path", outputDir, "error", err)
 		s.alerts.Alert(ctx, notify.Event{
 			Key: "storage:bulletin-output", Summary: "Bulletin output directory is unreadable",
-			Details: fmt.Sprintf("%s: %v", outputDir, err), Kind: notify.KindImmediate,
+			Details: fmt.Sprintf("%s: %v", outputDir, err),
 		})
 		// The storage-specific alert owns this failure and its recovery. Returning
 		// it would also activate the runner's generic cleanup alert.

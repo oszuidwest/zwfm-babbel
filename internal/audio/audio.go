@@ -131,10 +131,10 @@ func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelC
 	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
 	if err != nil {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:     "audio:loudnorm-parse",
-			Summary: "FFmpeg loudnorm output could not be parsed",
-			Details: err.Error(),
-			Kind:    notify.KindContinuous,
+			Key:               "audio:loudnorm-parse",
+			Summary:           "FFmpeg loudnorm output could not be parsed",
+			Details:           err.Error(),
+			RequiresThreshold: true,
 		})
 		return 0, err
 	}
@@ -339,7 +339,6 @@ func (s *Service) addJingleMix(
 			Key:     alertKey,
 			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", station.ID),
 			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
-			Kind:    notify.KindImmediate,
 		})
 		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
@@ -357,7 +356,6 @@ func (s *Service) addJingleMix(
 			Key:     alertKey,
 			Summary: fmt.Sprintf("Jingle missing for station %d", station.ID),
 			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
-			Kind:    notify.KindImmediate,
 		})
 		filters = append(filters, "[messages]anull[mixed]")
 	} else {

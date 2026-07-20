@@ -368,7 +368,6 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 				Key:     accountLockoutAlertKey(user.ID),
 				Summary: "Account locked after repeated failed logins",
 				Details: fmt.Sprintf("User ID %d reached the configured failed-login threshold.", user.ID),
-				Kind:    notify.KindImmediate,
 			})
 		}
 		return fmt.Errorf("invalid credentials")
@@ -425,7 +424,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 			Key:     oauthInvalidStateAlertKey,
 			Summary: "OAuth callback has an invalid CSRF state",
 			Details: "The OAuth callback state was missing or did not match the server-side session.",
-			Kind:    notify.KindImmediate,
 		})
 		return fmt.Errorf("invalid state")
 	}
@@ -446,7 +444,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	if !ok {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key: oauthMissingIDAlertKey, Summary: "OAuth response is missing an ID token",
-			Details: "The identity provider returned no usable id_token.", Kind: notify.KindImmediate,
+			Details: "The identity provider returned no usable id_token.",
 		})
 		return fmt.Errorf("no id_token in response")
 	}
@@ -461,7 +459,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	if err != nil {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key: oauthInvalidTokenAlertKey, Summary: "OAuth ID token verification failed",
-			Details: err.Error(), Kind: notify.KindImmediate,
+			Details: err.Error(),
 		})
 		return fmt.Errorf("failed to verify ID token: %w", err)
 	}
