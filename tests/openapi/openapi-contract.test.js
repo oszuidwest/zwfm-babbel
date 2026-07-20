@@ -242,6 +242,16 @@ describe('OpenAPI Contract', () => {
           expect(response.headers['content-type']).toMatch(/^multipart\/byteranges/);
           return response;
         }, 'GET /api/v1/stories/{id}/audio multi-range'),
+      scenario('GET', '/api/v1/stories/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/stories/{id}/audio',
+            `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
+            { responseType: 'arraybuffer', headers: { 'If-Modified-Since': new Date(Date.now() + 60 * 60 * 1000).toUTCString() } }
+          );
+          expect(response.status).toBe(304);
+          return response;
+        }, 'GET /api/v1/stories/{id}/audio conditional request'),
       uploadScenario('/api/v1/stories/{id}/audio', () => `/stories/${ctx.story.id}/audio`, 'audio', { audio: 'contract.wav' }),
       scenario('POST', '/api/v1/stories/{id}/audio', async () => {
           const oversizedPath = createOversizedWavFixture();

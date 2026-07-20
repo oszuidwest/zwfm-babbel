@@ -495,6 +495,10 @@ describe('openapi.yaml contract invariants', () => {
         (parameter) => parameter.name === 'Range' && parameter.in === 'header'
       );
       expect(rangeParameter).toBeDefined();
+      const ifModifiedSinceParameter = operation.parameters.find(
+        (parameter) => parameter.name === 'If-Modified-Since' && parameter.in === 'header'
+      );
+      expect(ifModifiedSinceParameter).toBeDefined();
     }
   );
 
