@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -22,11 +23,12 @@ type StoryExpirationService struct {
 
 // NewStoryExpirationService returns a stopped expiration service.
 // Call [StoryExpirationService.Start] to begin hourly checks.
-func NewStoryExpirationService(db *gorm.DB) *StoryExpirationService {
+func NewStoryExpirationService(db *gorm.DB, alerts notify.Alerter) *StoryExpirationService {
+	alerts = notify.OrDiscard(alerts)
 	s := &StoryExpirationService{
 		repo: repository.NewStoryRepository(db),
 	}
-	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories)
+	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories, alerts)
 	return s
 }
 
@@ -44,17 +46,18 @@ func (s *StoryExpirationService) Stop() {
 
 // expireStories marks active stories past end_date as expired.
 // Draft stories are not activated automatically because publication remains an
-// editorial decision.
-func (s *StoryExpirationService) expireStories(ctx context.Context) {
+// editorial decision. The runner turns a returned error into an alert.
+func (s *StoryExpirationService) expireStories(ctx context.Context) error {
 	logger.Info("Running story expiration check...")
 
 	count, err := s.repo.ExpireStoriesPastEndDate(ctx)
 	if err != nil {
 		logger.Error("Failed to expire stories", "error", err)
-		return
+		return err
 	}
 
 	if count > 0 {
 		logger.Info("Expired stories past their end date", "count", count)
 	}
+	return nil
 }

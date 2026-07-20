@@ -13,6 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -23,6 +24,7 @@ type AutomationHandler struct {
 	bulletinSvc *services.BulletinService
 	stationSvc  *services.StationService
 	config      *config.Config
+	alerts      notify.Alerter
 
 	// stationLocks provides per-station mutex to prevent concurrent bulletin generation.
 	stationLocks   map[int64]*sync.Mutex
@@ -30,11 +32,12 @@ type AutomationHandler struct {
 }
 
 // NewAutomationHandler creates a public automation endpoint handler.
-func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *services.StationService, cfg *config.Config) *AutomationHandler {
+func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *services.StationService, cfg *config.Config, alerts notify.Alerter) *AutomationHandler {
 	return &AutomationHandler{
 		bulletinSvc:  bulletinSvc,
 		stationSvc:   stationSvc,
 		config:       cfg,
+		alerts:       notify.OrDiscard(alerts),
 		stationLocks: make(map[int64]*sync.Mutex),
 	}
 }
@@ -74,9 +77,17 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		return nil
 	}
 	if subtle.ConstantTimeCompare([]byte(providedKey), []byte(h.config.Automation.Key)) != 1 {
+		h.alerts.Alert(c.Request.Context(), notify.Event{
+			Key:               "security:automation-key",
+			Summary:           "Repeated invalid radio automation keys",
+			Details:           "Multiple requests to the public bulletin endpoint used an invalid key. The provided key is never logged or e-mailed.",
+			RequiresThreshold: true,
+		})
 		utils.ProblemAuthentication(c, "Invalid API key")
 		return nil
 	}
+	h.alerts.Resolve(c.Request.Context(), "security:automation-key",
+		"Radio automation key accepted again", "A request supplied the configured radio automation key.")
 
 	stationIDStr := c.Param("id")
 	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
@@ -133,6 +144,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
 		logger.Error("Automation: failed to check station existence", "error", err)
+		h.alerts.Alert(c.Request.Context(), databaseRequestEvent(c, err.Error()))
 		utils.ProblemInternalServer(c, "Failed to check station")
 		return
 	}
@@ -153,7 +165,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 			return
 		}
 		if existing != nil {
-			h.serveBulletinAudio(c, existing.AudioFile, existing.ID, true)
+			h.serveBulletinAudio(c, existing.AudioFile, existing.ID, req.stationID, true)
 			return
 		}
 	}
@@ -163,7 +175,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, cached)
+	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, req.stationID, cached)
 }
 
 // lookupFreshBulletin returns the latest bulletin within maxAge, or nil when
@@ -173,6 +185,7 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
 	if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
 		logger.Error("Automation: failed to check existing bulletin", "error", err)
+		h.alerts.Alert(ctx, databaseRequestEvent(c, err.Error()))
 		utils.ProblemInternalServer(c, "Failed to check existing bulletin")
 		return nil, false
 	}
@@ -216,10 +229,18 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 
 // serveBulletinAudio sends the bulletin WAV file as response, or the
 // appropriate error response when the file is missing or unreadable.
-func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) {
+func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID, stationID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
+	// Keyed by station so repeats dedupe and the next successful serve resolves
+	// the alert; a per-bulletin key would never recover once a new bulletin exists.
+	alertKey := "bulletin:served-audio:station:" + strconv.FormatInt(stationID, 10)
 
 	if _, err := os.Stat(filePath); err != nil {
+		h.alerts.Alert(c.Request.Context(), notify.Event{
+			Key:     alertKey,
+			Summary: "Radio automation bulletin file is unavailable",
+			Details: "Bulletin " + strconv.FormatInt(bulletinID, 10) + " could not be served from " + filePath + ": " + err.Error(),
+		})
 		if os.IsNotExist(err) {
 			logger.Error("Automation: audio file not found", "path", filePath)
 			utils.ProblemNotFound(c, "Audio file")
@@ -229,6 +250,8 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		}
 		return
 	}
+	h.alerts.Resolve(c.Request.Context(), alertKey,
+		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
 
 	// Automation clients should not cache public bulletin responses.
 	c.Header("Cache-Control", "no-store")

@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/mail"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -29,12 +31,68 @@ type Config struct {
 	Automation AutomationConfig
 	// TTS configures text-to-speech integration with ElevenLabs.
 	TTS TTSConfig `envPrefix:"ELEVENLABS_"`
+	// Notifications configures operational alert e-mails.
+	Notifications NotificationConfig `envPrefix:"NOTIFICATIONS_"`
 	// LogLevel sets the logging verbosity level (0-5, default: 4).
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment specifies the runtime environment (development or production).
 	Environment Environment `env:"ENV" envDefault:"development"`
 	// FrontendURL is the frontend base URL used for OAuth redirects.
 	FrontendURL string `env:"FRONTEND_URL"`
+}
+
+// NotificationConfig defines alert delivery and duplicate-suppression policy.
+type NotificationConfig struct {
+	// Email configures Microsoft Graph mail delivery.
+	Email GraphConfig `envPrefix:"EMAIL_"`
+	// Cooldown suppresses duplicate e-mails for an active alert key.
+	Cooldown time.Duration `env:"COOLDOWN" envDefault:"1h"`
+	// FailureThreshold is the number of transient failures required in FailureWindow.
+	FailureThreshold int `env:"FAILURE_THRESHOLD" envDefault:"3"`
+	// FailureWindow limits how far apart transient failures may occur.
+	FailureWindow time.Duration `env:"FAILURE_WINDOW" envDefault:"10m"`
+}
+
+// GraphConfig defines Microsoft Graph client-credentials mail settings.
+type GraphConfig struct {
+	TenantID     string `env:"TENANT_ID"`
+	ClientID     string `env:"CLIENT_ID"`
+	ClientSecret string `env:"CLIENT_SECRET"`
+	FromAddress  string `env:"FROM_ADDRESS"`
+	Recipients   string `env:"RECIPIENTS"`
+}
+
+// RecipientList returns the trimmed, non-empty recipient addresses.
+func (g *GraphConfig) RecipientList() []string {
+	var recipients []string
+	for recipient := range strings.SplitSeq(g.Recipients, ",") {
+		if recipient = strings.TrimSpace(recipient); recipient != "" {
+			recipients = append(recipients, recipient)
+		}
+	}
+	return recipients
+}
+
+// requiredSettings pairs each Graph environment variable name with its value.
+// It is the single list behind IsComplete, hasGraphConfiguration, and validation.
+func (g *GraphConfig) requiredSettings() []struct{ name, value string } {
+	return []struct{ name, value string }{
+		{name: "TENANT_ID", value: g.TenantID},
+		{name: "CLIENT_ID", value: g.ClientID},
+		{name: "CLIENT_SECRET", value: g.ClientSecret},
+		{name: "FROM_ADDRESS", value: g.FromAddress},
+		{name: "RECIPIENTS", value: g.Recipients},
+	}
+}
+
+// IsComplete reports whether every Microsoft Graph delivery setting is present.
+func (g *GraphConfig) IsComplete() bool {
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) == "" {
+			return false
+		}
+	}
+	return len(g.RecipientList()) > 0
 }
 
 // AutomationConfig defines settings for radio automation system integration.
@@ -182,8 +240,95 @@ func (c *Config) Validate() error {
 	if err := c.validateAllowedOrigins(); err != nil {
 		return err
 	}
+	if err := c.validateNotifications(); err != nil {
+		return err
+	}
 	if err := c.validateAudioTools(); err != nil {
 		return err
+	}
+	return nil
+}
+
+var guidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// validateNotifications permits a completely empty optional configuration,
+// but rejects partial or malformed Microsoft Graph settings.
+func (c *Config) validateNotifications() error {
+	n := &c.Notifications
+	g := &n.Email
+	if !hasGraphConfiguration(g) {
+		return nil
+	}
+	if err := validateGraphIdentifiers(g); err != nil {
+		return err
+	}
+	if err := validateGraphAddresses(g); err != nil {
+		return err
+	}
+	return validateNotificationPolicy(n)
+}
+
+// hasGraphConfiguration reports whether any required Graph setting is present.
+func hasGraphConfiguration(g *GraphConfig) bool {
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// validateGraphIdentifiers requires all Graph settings and validates GUIDs.
+func validateGraphIdentifiers(g *GraphConfig) error {
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) == "" {
+			return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_%s is required when e-mail notifications are configured", setting.name)
+		}
+	}
+	if !guidPattern.MatchString(g.TenantID) {
+		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID must be a valid GUID")
+	}
+	if !guidPattern.MatchString(g.ClientID) {
+		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID must be a valid GUID")
+	}
+	return nil
+}
+
+// validateGraphAddresses validates the sender and recipient mailbox addresses.
+func validateGraphAddresses(g *GraphConfig) error {
+	from, err := mail.ParseAddress(g.FromAddress)
+	if err != nil {
+		return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS must be a valid e-mail address: %w", err)
+	}
+	if from.Address != strings.TrimSpace(g.FromAddress) {
+		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS must contain only the e-mail address")
+	}
+	recipients := g.RecipientList()
+	if len(recipients) == 0 {
+		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain at least one e-mail address")
+	}
+	for _, recipient := range recipients {
+		parsed, err := mail.ParseAddress(recipient)
+		if err != nil {
+			return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS contains an invalid e-mail address: %w", err)
+		}
+		if parsed.Address != recipient {
+			return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain only comma-separated e-mail addresses")
+		}
+	}
+	return nil
+}
+
+// validateNotificationPolicy checks threshold, window, and cooldown bounds.
+func validateNotificationPolicy(n *NotificationConfig) error {
+	if n.Cooldown <= 0 {
+		return errors.New("BABBEL_NOTIFICATIONS_COOLDOWN must be greater than zero")
+	}
+	if n.FailureThreshold < 2 {
+		return errors.New("BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD must be at least 2")
+	}
+	if n.FailureWindow <= 0 {
+		return errors.New("BABBEL_NOTIFICATIONS_FAILURE_WINDOW must be greater than zero")
 	}
 	return nil
 }

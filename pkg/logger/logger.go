@@ -6,12 +6,7 @@ import (
 	"os"
 )
 
-var logger *slog.Logger
-
-// init ensures a default logger is always available, even before Initialize() is called.
-func init() {
-	logger = slog.Default()
-}
+var logger = slog.Default()
 
 // Initialize sets up the logging system with the specified level and mode.
 func Initialize(level string, development bool) error {
@@ -44,12 +39,6 @@ func Info(message string, args ...any) {
 // Error logs error messages with slog key-value attributes.
 func Error(message string, args ...any) {
 	logger.Error(message, args...)
-}
-
-// Fatal logs fatal error messages with slog key-value attributes and terminates the program.
-func Fatal(message string, args ...any) {
-	logger.Error(message, args...)
-	os.Exit(1)
 }
 
 // Debug logs debug messages with slog key-value attributes.

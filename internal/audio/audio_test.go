@@ -112,7 +112,7 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 			FFmpegPath:  ffmpegPath,
 			FFprobePath: ffprobePath,
 		},
-	})
+	}, nil)
 
 	convertedPath, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
 	if err != nil {

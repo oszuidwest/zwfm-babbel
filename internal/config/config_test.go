@@ -163,6 +163,79 @@ func TestValidateTTSConfig(t *testing.T) {
 	}
 }
 
+func TestLoadNotificationConfig(t *testing.T) {
+	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID", "12345678-1234-1234-1234-123456789abc")
+	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID", "abcdefab-1234-5678-90ab-abcdefabcdef")
+	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET", "secret")
+	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS", "babbel@example.com")
+	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS", "admin@example.com,ops@example.com")
+	t.Setenv("BABBEL_NOTIFICATIONS_COOLDOWN", "2h")
+	t.Setenv("BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD", "4")
+	t.Setenv("BABBEL_NOTIFICATIONS_FAILURE_WINDOW", "15m")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Notifications.Email.TenantID; got != "12345678-1234-1234-1234-123456789abc" {
+		t.Fatalf("tenant ID = %q", got)
+	}
+	if got := cfg.Notifications.Email.ClientID; got != "abcdefab-1234-5678-90ab-abcdefabcdef" {
+		t.Fatalf("client ID = %q", got)
+	}
+	if cfg.Notifications.Cooldown != 2*time.Hour || cfg.Notifications.FailureThreshold != 4 || cfg.Notifications.FailureWindow != 15*time.Minute {
+		t.Fatalf("unexpected notification policy: %+v", cfg.Notifications)
+	}
+}
+
+func TestValidateNotifications(t *testing.T) {
+	t.Parallel()
+
+	valid := NotificationConfig{
+		Email: GraphConfig{
+			TenantID:     "12345678-1234-1234-1234-123456789abc",
+			ClientID:     "abcdefab-1234-5678-90ab-abcdefabcdef",
+			ClientSecret: "secret",
+			FromAddress:  "babbel@example.com",
+			Recipients:   "admin@example.com,ops@example.com",
+		},
+		Cooldown:         time.Hour,
+		FailureThreshold: 3,
+		FailureWindow:    10 * time.Minute,
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(*NotificationConfig)
+		wantErr string
+	}{
+		{name: "valid", mutate: func(*NotificationConfig) {}},
+		{name: "partial", mutate: func(n *NotificationConfig) { n.Email.ClientSecret = "" }, wantErr: "CLIENT_SECRET is required"},
+		{name: "invalid tenant", mutate: func(n *NotificationConfig) { n.Email.TenantID = "tenant" }, wantErr: "TENANT_ID must be a valid GUID"},
+		{name: "invalid sender", mutate: func(n *NotificationConfig) { n.Email.FromAddress = "not-an-address" }, wantErr: "FROM_ADDRESS must be a valid e-mail address"},
+		{name: "sender display name", mutate: func(n *NotificationConfig) { n.Email.FromAddress = "Babbel <babbel@example.com>" }, wantErr: "FROM_ADDRESS must contain only"},
+		{name: "empty recipients", mutate: func(n *NotificationConfig) { n.Email.Recipients = ", " }, wantErr: "must contain at least one"},
+		{name: "threshold too low", mutate: func(n *NotificationConfig) { n.FailureThreshold = 1 }, wantErr: "FAILURE_THRESHOLD must be at least 2"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			notifications := valid
+			tt.mutate(&notifications)
+			cfg := &Config{Notifications: notifications}
+			err := cfg.validateNotifications()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestValidateLocalAuthConfig(t *testing.T) {
 	t.Parallel()
 

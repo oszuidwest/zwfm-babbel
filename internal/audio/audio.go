@@ -14,6 +14,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -39,11 +40,13 @@ type JingleContext struct {
 // Service runs FFmpeg operations using configured storage paths and binaries.
 type Service struct {
 	config *config.Config
+	alerts notify.Alerter
 }
 
 // NewService returns an audio service using cfg.
-func NewService(cfg *config.Config) *Service {
-	return &Service{config: cfg}
+func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
+	alerts = notify.OrDiscard(alerts)
+	return &Service{config: cfg, alerts: alerts}
 }
 
 // ConvertToWAV converts uploaded audio files to standardized WAV format with
@@ -127,8 +130,15 @@ func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelC
 
 	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
 	if err != nil {
+		s.alerts.Alert(ctx, notify.Event{
+			Key:               "audio:loudnorm-parse",
+			Summary:           "FFmpeg loudnorm output could not be parsed",
+			Details:           err.Error(),
+			RequiresThreshold: true,
+		})
 		return 0, err
 	}
+	s.alerts.Resolve(ctx, "audio:loudnorm-parse", "FFmpeg loudnorm parsing recovered", "Loudness measurements can be parsed again.")
 	return truePeakDBTP, nil
 }
 
@@ -237,13 +247,14 @@ func (s *Service) CreateBulletin(
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	args, filters := s.buildBulletinFFmpegCommand(station, stories, jingle, outputPath)
+	args, filters := s.buildBulletinFFmpegCommand(ctx, station, stories, jingle, outputPath)
 
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
 func (s *Service) buildBulletinFFmpegCommand(
+	ctx context.Context,
 	station *models.Station,
 	stories []repository.BulletinStoryData,
 	jingle JingleContext,
@@ -258,7 +269,7 @@ func (s *Service) buildBulletinFFmpegCommand(
 
 	filters = s.addMixPointDelay(filters, jingle.MixPoint)
 
-	args, filters = s.addJingleMix(args, filters, station, jingle, len(stories))
+	args, filters = s.addJingleMix(ctx, args, filters, station, jingle, len(stories))
 
 	filters = append(filters, "[mixed]"+loudnessNormalizationFilter+"[out]")
 
@@ -312,30 +323,44 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
-// addJingleMix adds the bed/jingle when present and writes the final stream to
-// [mixed] for loudness normalization.
+// addJingleMix adds the bed/jingle when present, reports the availability
+// decision, and writes the final stream to [mixed] for loudness normalization.
 func (s *Service) addJingleMix(
+	ctx context.Context,
 	args, filters []string,
 	station *models.Station,
 	jingle JingleContext,
 	storyCount int,
 ) ([]string, []string) {
+	alertKey := fmt.Sprintf("bulletin:missing-jingle:station:%d", station.ID)
 	if jingle.VoiceID == nil {
 		logger.Debug("No voice ID in jingle context, generating bulletin without bed")
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     alertKey,
+			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", station.ID),
+			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
+		})
 		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
 	}
 
 	jinglePath := utils.JinglePath(s.config, station.ID, *jingle.VoiceID)
 
-	if _, err := os.Stat(jinglePath); err != nil {
+	if err := validateJingleFile(jinglePath); err != nil {
 		if !os.IsNotExist(err) {
-			logger.Warn("Failed to stat jingle file", "path", jinglePath, "error", err)
+			logger.Warn("Jingle file is not usable", "path", jinglePath, "error", err)
 		} else {
 			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
 		}
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     alertKey,
+			Summary: fmt.Sprintf("Jingle missing for station %d", station.ID),
+			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
+		})
 		filters = append(filters, "[messages]anull[mixed]")
 	} else {
+		s.alerts.Resolve(ctx, alertKey, fmt.Sprintf("Jingle available again for station %d", station.ID),
+			fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image.
@@ -345,6 +370,35 @@ func (s *Service) addJingleMix(
 	}
 
 	return args, filters
+}
+
+// validateJingleFile ensures the path is a readable regular file before an
+// availability incident is resolved and FFmpeg receives it as an input.
+func validateJingleFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("jingle path is not a regular file")
+	}
+
+	file, err := os.Open(path) //nolint:gosec // Path is built internally from the configured storage root and numeric IDs.
+	if err != nil {
+		return fmt.Errorf("open jingle file: %w", err)
+	}
+	openedInfo, statErr := file.Stat()
+	closeErr := file.Close()
+	if statErr != nil {
+		return fmt.Errorf("stat opened jingle file: %w", statErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close jingle file: %w", closeErr)
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return fmt.Errorf("opened jingle path is not a regular file")
+	}
+	return nil
 }
 
 // executeFFmpegCommand runs the FFmpeg command and handles error reporting.

@@ -2,14 +2,19 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/scheduler"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -25,9 +30,10 @@ type routerDeps struct {
 }
 
 // SetupRouter builds the dependency graph, configures Gin, and registers all
-// public and authenticated routes.
-func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
-	deps, err := buildDependencies(db, cfg)
+// public and authenticated routes. alerts must be non-nil; an unconfigured
+// service disables notifications.
+func SetupRouter(db *gorm.DB, cfg *config.Config, alerts *notify.Service) (*gin.Engine, error) {
+	deps, err := buildDependencies(db, cfg, alerts)
 	if err != nil {
 		return nil, err
 	}
@@ -40,16 +46,16 @@ func SetupRouter(db *gorm.DB, cfg *config.Config) (*gin.Engine, error) {
 
 	utils.InitializeValidators()
 
-	r := setupEngine(cfg, deps.authService)
+	r := setupEngine(cfg, deps.authService, alerts)
 	registerPublicRoutes(r, deps)
 	registerAPIRoutes(r, deps)
-	registerHealthRoute(r)
+	registerHealthRoute(r, db, alerts)
 
 	return r, nil
 }
 
 // buildDependencies creates all services and handlers needed by the router.
-func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
+func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
 
 	stationRepo := repository.NewStationRepository(db)
@@ -62,7 +68,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 	ttsSettingsRepo := repository.NewTTSSettingsRepository(db)
 	pronunciationRuleRepo := repository.NewPronunciationRuleRepository(db)
 
-	audioSvc := audio.NewService(cfg)
+	audioSvc := audio.NewService(cfg, alerts)
 	ttsSvc := tts.NewService(&cfg.TTS)
 	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
 	pronunciationInjector := services.NewPronunciationInjector(pronunciationRuleRepo)
@@ -75,6 +81,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		StoryRepo:    storyRepo,
 		AudioSvc:     audioSvc,
 		Config:       cfg,
+		Alerts:       alerts,
 	})
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
 		StoryRepo:             storyRepo,
@@ -84,6 +91,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		TTSSettingsSvc:        ttsSettingsSvc,
 		PronunciationInjector: pronunciationInjector,
 		Config:                cfg,
+		Alerts:                alerts,
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
@@ -111,9 +119,9 @@ func buildDependencies(db *gorm.DB, cfg *config.Config) (*routerDeps, error) {
 		PronunciationRulesSvc: pronunciationRulesSvc,
 		TTSEnabled:            ttsSvc != nil,
 	})
-	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg)
+	automationHandler := handlers.NewAutomationHandler(bulletinSvc, stationSvc, cfg, alerts)
 
-	authService, err := auth.NewService(buildAuthConfig(cfg), db)
+	authService, err := auth.NewService(buildAuthConfig(cfg), db, alerts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
@@ -167,13 +175,17 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 }
 
 // setupEngine creates the Gin engine with global middleware.
-func setupEngine(cfg *config.Config, authService *auth.Service) *gin.Engine {
+func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.Service) *gin.Engine {
 	r := gin.New()
 	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys).
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
+	// Alert bookkeeping per request is only worth it when e-mail can actually send.
+	if alerts.IsConfigured() {
+		r.Use(handlers.NotificationMiddleware(alerts))
+	}
 	// Session middleware must come before any handler that reads session state.
 	r.Use(authService.SessionMiddleware())
 	// Security headers run before CORS because CORS may abort on OPTIONS preflight.
@@ -340,9 +352,16 @@ func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDe
 	)
 }
 
-// registerHealthRoute registers the health check endpoint.
-func registerHealthRoute(r *gin.Engine) {
+// registerHealthRoute registers the health check endpoint. It shares the
+// database check (and its alert state) with the background health service.
+func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 	r.GET("/health", func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		defer cancel()
+		if err := scheduler.CheckDatabase(ctx, db, alerts); err != nil {
+			c.JSON(http.StatusServiceUnavailable, handlers.HealthResponse{Status: "unhealthy", Service: "babbel-api"})
+			return
+		}
 		utils.Success(c, handlers.HealthResponse{
 			Status:  "ok",
 			Service: "babbel-api",

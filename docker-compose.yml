@@ -18,6 +18,12 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
       retries: 10
+    # Docker rotates the log files. Docker keeps a maximum of 3 files of 10 MB.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   babbel:
     build: .
@@ -43,6 +49,15 @@ services:
       # ElevenLabs TTS (leave empty to disable; endpoint returns 501 when unset)
       BABBEL_ELEVENLABS_API_KEY: ${BABBEL_ELEVENLABS_API_KEY:-}
       BABBEL_ELEVENLABS_TIMEOUT: ${BABBEL_ELEVENLABS_TIMEOUT:-60s}
+      # Optional Microsoft Graph operational notifications
+      BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID: ${BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID:-}
+      BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID: ${BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID:-}
+      BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET: ${BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET:-}
+      BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS: ${BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS:-}
+      BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS: ${BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS:-}
+      BABBEL_NOTIFICATIONS_COOLDOWN: ${BABBEL_NOTIFICATIONS_COOLDOWN:-1h}
+      BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD: ${BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD:-3}
+      BABBEL_NOTIFICATIONS_FAILURE_WINDOW: ${BABBEL_NOTIFICATIONS_FAILURE_WINDOW:-10m}
       TZ: Europe/Amsterdam
     ports:
       - "8080:8080"
@@ -53,6 +68,12 @@ services:
       mysql:
         condition: service_healthy
     restart: unless-stopped
+    # Babbel writes the log data to stdout. Docker rotates the log files.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql_data:
