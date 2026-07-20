@@ -56,7 +56,86 @@ describe('OpenAPI Contract', () => {
           expect(loginResponse.status).toBe(201);
           return response;
         }),
-      sparseListScenario('GET', '/api/v1/stations', '/stations?fields=id,name', ['id', 'name']),
+      sparseListScenario('GET', '/api/v1/stations', '/stations', ['id', 'name']),
+      scenario('GET', '/api/v1/stations/{id}', async () => {
+          // id=0 violates the documented minimum, so the contract validator
+          // itself must reject it as an invalid request...
+          expect(() => validator.validateRequestParameters({
+            method: 'GET',
+            operationPath: '/api/v1/stations/{id}',
+            pathParams: { id: '0' }
+          })).toThrow(/path parameter id does not match schema/);
+
+          // ...and the server must answer it with the documented 400 problem.
+          const response = await global.api.apiCall('GET', '/stations/0');
+          validator.validateResponse({ method: 'GET', operationPath: '/api/v1/stations/{id}', response });
+          expect(response.status).toBe(400);
+          expect(response.data.type).toBe('https://babbel.api/problems/bad-request');
+          return response;
+        }, 'GET /api/v1/stations/{id} invalid id'),
+      scenario('GET', '/api/v1/stations', async () => {
+          // limit=0 violates the documented minimum, so the contract validator
+          // itself must reject it as an invalid request...
+          expect(() => validator.validateRequestParameters({
+            method: 'GET',
+            operationPath: '/api/v1/stations',
+            query: { limit: '0' }
+          })).toThrow(/query parameter limit does not match schema/);
+
+          // ...and the server must answer it with the documented 422 problem.
+          const response = await global.api.apiCall('GET', '/stations?limit=0');
+          validator.validateResponse({ method: 'GET', operationPath: '/api/v1/stations', response });
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          expect(response.data.errors[0].field).toBe('limit');
+          return response;
+        }, 'GET /api/v1/stations invalid limit'),
+      scenario('GET', '/api/v1/voices', async () => {
+          const response = await global.api.apiCall('GET', '/voices?sort=bogus_field:asc');
+          validator.validateResponse({ method: 'GET', operationPath: '/api/v1/voices', response });
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          return response;
+        }, 'GET /api/v1/voices invalid sort field'),
+      scenario('GET', '/api/v1/stories', async () => {
+          const response = await global.api.apiCall('GET', '/stories?filter[bogus_field]=x');
+          validator.validateResponse({ method: 'GET', operationPath: '/api/v1/stories', response });
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          return response;
+        }, 'GET /api/v1/stories invalid filter field'),
+      scenario('GET', '/api/v1/users', async () => {
+          // A viewer may not read users; the response must match the documented
+          // insufficient-permissions problem type.
+          const viewer = userBody('forbidden');
+          const createResponse = await global.api.apiCall('POST', '/users', viewer);
+          expect(createResponse.status).toBe(201);
+          global.resources.track('users', createResponse.data.id);
+
+          const viewerLogin = await global.api.apiLogin(viewer.username, viewer.password);
+          expect(viewerLogin.status).toBe(201);
+          try {
+            const response = await global.api.apiCall('GET', '/users');
+            validator.validateResponse({ method: 'GET', operationPath: '/api/v1/users', response });
+            expect(response.status).toBe(403);
+            expect(response.data.type).toBe('https://babbel.api/problems/insufficient-permissions');
+            return response;
+          } finally {
+            const adminLogin = await global.api.apiLogin();
+            expect(adminLogin.status).toBe(201);
+          }
+        }, 'GET /api/v1/users forbidden for viewer'),
+      scenario('POST', '/api/v1/stations', async () => {
+          const response = await apiCall('POST', '/api/v1/stations', '/stations', {
+            name: ctx.station.name,
+            max_stories_per_block: 4,
+            pause_seconds: 1.5
+          });
+          expect(response.status).toBe(409);
+          expect(response.data.type).toBe('https://babbel.api/problems/station.duplicate');
+          expect(response.data.code).toBe('station.duplicate');
+          return response;
+        }, 'POST /api/v1/stations duplicate name'),
       trackedApiScenario('POST', '/api/v1/stations', '/stations', () => stationBody('Contract Created Station'), 'stations'),
       apiScenario('GET', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`),
       apiScenario('PUT', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`, () => stationBody('Contract Updated Station')),
@@ -67,7 +146,7 @@ describe('OpenAPI Contract', () => {
           global.resources.untrack('stations', station.id);
           return response;
         }),
-      sparseListScenario('GET', '/api/v1/voices', '/voices?fields=id,name', ['id', 'name']),
+      sparseListScenario('GET', '/api/v1/voices', '/voices', ['id', 'name']),
       trackedApiScenario('POST', '/api/v1/voices', '/voices', () => voiceBody('Contract Created Voice'), 'voices'),
       apiScenario('GET', '/api/v1/voices/{id}', () => `/voices/${ctx.voice.id}`),
       apiScenario('PUT', '/api/v1/voices/{id}', () => `/voices/${ctx.voice.id}`, () => voiceBody('Contract Updated Voice')),
@@ -78,10 +157,57 @@ describe('OpenAPI Contract', () => {
           global.resources.untrack('voices', voice.id);
           return response;
         }),
-      sparseListScenario('GET', '/api/v1/stories', '/stories?fields=id,title,status', ['id', 'title', 'status']),
+      sparseListScenario('GET', '/api/v1/stories', '/stories', ['id', 'title', 'status']),
       trackedApiScenario('POST', '/api/v1/stories', '/stories', () => storyBody('Contract Created Story'), 'stories'),
       rawScenario('GET', '/api/v1/stories/{id}/audio', () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`, { responseType: 'arraybuffer' }),
+      scenario('GET', '/api/v1/stories/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/stories/{id}/audio',
+            `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
+            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
+          );
+          expect(response.status).toBe(206);
+          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
+          expect(response.headers['accept-ranges']).toBe('bytes');
+          return response;
+        }, 'GET /api/v1/stories/{id}/audio byte range'),
+      scenario('GET', '/api/v1/stories/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/stories/{id}/audio',
+            `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
+            { responseType: 'arraybuffer', headers: { Range: 'bytes=99999999999-' } }
+          );
+          expect(response.status).toBe(416);
+          expect(response.headers['content-range']).toMatch(/^bytes \*\//);
+          return response;
+        }, 'GET /api/v1/stories/{id}/audio unsatisfiable range'),
+      scenario('GET', '/api/v1/stories/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/stories/{id}/audio',
+            `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
+            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-9,20-29' } }
+          );
+          expect(response.status).toBe(206);
+          expect(response.headers['content-type']).toMatch(/^multipart\/byteranges/);
+          return response;
+        }, 'GET /api/v1/stories/{id}/audio multi-range'),
       uploadScenario('/api/v1/stories/{id}/audio', () => `/stories/${ctx.story.id}/audio`, 'audio', { audio: 'contract.wav' }),
+      scenario('POST', '/api/v1/stories/{id}/audio', async () => {
+          const oversizedPath = createOversizedWavFixture();
+          try {
+            const response = await global.api.uploadFile(`/stories/${ctx.story.id}/audio`, {}, oversizedPath, 'audio');
+            validator.validateResponse({ method: 'POST', operationPath: '/api/v1/stories/{id}/audio', response });
+            expect(response.status).toBe(422);
+            expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+            expect(response.data.errors[0].message).toContain('file too large');
+            return response;
+          } finally {
+            cleanupFile(oversizedPath);
+          }
+        }, 'POST /api/v1/stories/{id}/audio oversized upload'),
       apiScenario('POST', '/api/v1/stories/{id}/tts', () => `/stories/${ctx.story.id}/tts`),
       apiScenario('GET', '/api/v1/settings/tts', '/settings/tts'),
       scenario('PATCH', '/api/v1/settings/tts', async () => {
@@ -105,23 +231,37 @@ describe('OpenAPI Contract', () => {
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
         }),
       apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
-      sparseListScenario('GET', '/api/v1/stories/{id}/bulletins', () => `/stories/${ctx.story.id}/bulletins?fields=id,filename,created_at`, ['id', 'filename', 'created_at']),
-      sparseListScenario('GET', '/api/v1/users', '/users?fields=id,username,role', ['id', 'username', 'role']),
+      sparseListScenario('GET', '/api/v1/stories/{id}/bulletins', () => `/stories/${ctx.story.id}/bulletins`, ['id', 'filename', 'created_at']),
+      sparseListScenario('GET', '/api/v1/users', '/users', ['id', 'username', 'role']),
       trackedApiScenario('POST', '/api/v1/users', '/users', () => userBody('created'), 'users'),
       apiScenario('GET', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`),
       apiScenario('PUT', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`, {
           full_name: 'Contract Updated User',
           role: 'editor'
         }),
+      scenario('PUT', '/api/v1/users/{id}', async () => {
+          const onlyNullBody = { email: null, suspended: null };
+          expect(() => validator.validateRequest({
+            method: 'PUT',
+            operationPath: '/api/v1/users/{id}',
+            body: onlyNullBody
+          })).toThrow(/does not match schema/);
+
+          const response = await global.api.apiCall('PUT', `/users/${ctx.user.id}`, onlyNullBody);
+          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/users/{id}', response });
+          expect(response.status).toBe(400);
+          expect(response.data.code).toBe('user.validation_failed');
+          return response;
+        }, 'PUT /api/v1/users/{id} only-null update'),
       scenario('DELETE', '/api/v1/users/{id}', async () => {
           const createResponse = await global.api.apiCall('POST', '/users', userBody('delete'));
           expect(createResponse.status).toBe(201);
           return apiCall('DELETE', '/api/v1/users/{id}', `/users/${createResponse.data.id}`);
         }),
       apiScenario('PATCH', '/api/v1/users/{id}', () => `/users/${ctx.user.id}`, { action: 'suspend' }),
-      sparseListScenario('GET', '/api/v1/bulletins', '/bulletins?filter[file_purged_at][null]=true&fields=id,station_id,created_at', ['id', 'station_id', 'created_at']),
+      sparseListScenario('GET', '/api/v1/bulletins', '/bulletins?filter[file_purged_at][null]=true', ['id', 'station_id', 'created_at']),
       apiScenario('GET', '/api/v1/bulletins/{id}', () => `/bulletins/${ctx.bulletin.id}`),
-      sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins?fields=id,station_id,created_at`, ['id', 'station_id', 'created_at']),
+      sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, ['id', 'station_id', 'created_at']),
       scenario('GET', '/api/v1/stations/{id}/bulletins', async () => {
           // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
           const response = await apiCall(
@@ -135,9 +275,43 @@ describe('OpenAPI Contract', () => {
         }, 'GET /api/v1/stations/{id}/bulletins latest'),
       // Keep this after the latest scenario: generating here creates a newer bulletin for ctx.station.
       apiScenario('POST', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, {}),
+      scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
+          const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
+          expect(station).not.toBeNull();
+          const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/bulletin.no_stories');
+          expect(response.data.code).toBe('bulletin.no_stories');
+          return response;
+        }, 'POST /api/v1/stations/{id}/bulletins without stories'),
+      scenario('PUT', '/api/v1/stories/{id}', async () => {
+          const onlyNullBody = { title: null, text: null };
+          expect(() => validator.validateRequest({
+            method: 'PUT',
+            operationPath: '/api/v1/stories/{id}',
+            body: onlyNullBody
+          })).toThrow(/does not match schema/);
+
+          const response = await global.api.apiCall('PUT', `/stories/${ctx.story.id}`, onlyNullBody);
+          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/stories/{id}', response });
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          return response;
+        }, 'PUT /api/v1/stories/{id} only-null update'),
       rawScenario('GET', '/api/v1/bulletins/{id}/audio', () => `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`, { responseType: 'arraybuffer' }),
+      scenario('GET', '/api/v1/bulletins/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/bulletins/{id}/audio',
+            `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`,
+            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
+          );
+          expect(response.status).toBe(206);
+          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
+          return response;
+        }, 'GET /api/v1/bulletins/{id}/audio byte range'),
       apiScenario('GET', '/api/v1/bulletins/{id}/stories', () => `/bulletins/${ctx.bulletin.id}/stories`),
-      sparseListScenario('GET', '/api/v1/station-voices', '/station-voices?fields=id,station_name,voice_name,mix_point', ['id', 'station_name', 'voice_name', 'mix_point']),
+      sparseListScenario('GET', '/api/v1/station-voices', '/station-voices', ['id', 'station_name', 'voice_name', 'mix_point']),
       scenario('POST', '/api/v1/station-voices', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Post Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Post Voice');
@@ -153,9 +327,34 @@ describe('OpenAPI Contract', () => {
           return response;
         }),
       rawScenario('GET', '/api/v1/station-voices/{id}/audio', () => `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`, { responseType: 'arraybuffer' }),
+      scenario('GET', '/api/v1/station-voices/{id}/audio', async () => {
+          const response = await rawCall(
+            'GET',
+            '/api/v1/station-voices/{id}/audio',
+            `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`,
+            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
+          );
+          expect(response.status).toBe(206);
+          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
+          return response;
+        }, 'GET /api/v1/station-voices/{id}/audio byte range'),
       uploadScenario('/api/v1/station-voices/{id}/audio', () => `/station-voices/${ctx.stationVoice.id}/audio`, 'jingle', { jingle: 'contract.wav' }),
       apiScenario('GET', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`),
       apiScenario('PUT', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`, { mix_point: 2.25 }),
+      scenario('PUT', '/api/v1/station-voices/{id}', async () => {
+          const onlyNullBody = { mix_point: null };
+          expect(() => validator.validateRequest({
+            method: 'PUT',
+            operationPath: '/api/v1/station-voices/{id}',
+            body: onlyNullBody
+          })).toThrow(/does not match schema/);
+
+          const response = await global.api.apiCall('PUT', `/station-voices/${ctx.stationVoice.id}`, onlyNullBody);
+          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/station-voices/{id}', response });
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          return response;
+        }, 'PUT /api/v1/station-voices/{id} only-null update'),
       scenario('DELETE', '/api/v1/station-voices/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Delete Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Delete Voice');
@@ -200,10 +399,23 @@ describe('OpenAPI Contract', () => {
     return scenario('POST', operationPath, () => uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody));
   }
 
+  // Runs the full (schema-validated) list call first, then re-runs the same
+  // query with sparse fieldsets. The sparse response is checked for exact key
+  // selection but not schema-validated: sparse responses intentionally omit
+  // fields the resource schemas mark as required.
   function sparseListScenario(method, operationPath, endpoint, fields) {
     return scenario(method, operationPath, async () => {
       const response = await apiCall(method, operationPath, resolve(endpoint));
-      expectSparseListFields(response, fields);
+
+      const resolvedEndpoint = resolve(endpoint);
+      const separator = resolvedEndpoint.includes('?') ? '&' : '?';
+      const sparseResponse = await global.api.apiCall(
+        method,
+        `${resolvedEndpoint}${separator}fields=${fields.join(',')}`
+      );
+      expect(sparseResponse.status).toBe(200);
+      expectSparseListFields(sparseResponse, fields);
+
       return response;
     });
   }
@@ -212,13 +424,56 @@ describe('OpenAPI Contract', () => {
     if (body !== undefined) {
       validator.validateRequest({ method, operationPath, body });
     }
+    validator.validateRequestParameters({
+      method,
+      operationPath,
+      pathParams: pathParamsFromEndpoint(operationPath, endpoint),
+      query: queryParamsFromEndpoint(endpoint),
+      headers: options.headers || {}
+    });
 
     const response = await global.api.apiCall(method, endpoint, body, options);
     validator.validateResponse({ method, operationPath, response });
     return response;
   }
 
+  function queryParamsFromEndpoint(endpoint) {
+    const queryIndex = endpoint.indexOf('?');
+    if (queryIndex === -1) {
+      return {};
+    }
+    return Object.fromEntries(new URLSearchParams(endpoint.slice(queryIndex + 1)));
+  }
+
+  // Extracts path parameter values by aligning the operation template with the
+  // called endpoint from the right, so prefixes like /api/v1 or a full base
+  // URL path do not need to match.
+  function pathParamsFromEndpoint(operationPath, endpoint) {
+    const templateSegments = operationPath.split('/').filter(Boolean);
+    const endpointSegments = endpoint.split('?')[0].split('/').filter(Boolean);
+    const offset = endpointSegments.length - templateSegments.length;
+
+    const params = {};
+    templateSegments.forEach((segment, index) => {
+      const match = segment.match(/^\{(.+)\}$/);
+      const value = endpointSegments[index + offset];
+      if (match && value !== undefined) {
+        params[match[1]] = value;
+      }
+    });
+    return params;
+  }
+
   async function rawCall(method, operationPath, url, options = {}) {
+    const parsedUrl = new URL(url);
+    validator.validateRequestParameters({
+      method,
+      operationPath,
+      pathParams: pathParamsFromEndpoint(operationPath, parsedUrl.pathname),
+      query: Object.fromEntries(parsedUrl.searchParams),
+      headers: options.headers || {}
+    });
+
     const response = await global.api.http({
       method: method.toLowerCase(),
       url,
@@ -241,6 +496,12 @@ describe('OpenAPI Contract', () => {
       operationPath,
       body: requestBody,
       mediaType: 'multipart/form-data'
+    });
+    validator.validateRequestParameters({
+      method: 'POST',
+      operationPath,
+      pathParams: pathParamsFromEndpoint(operationPath, endpoint),
+      query: queryParamsFromEndpoint(endpoint)
     });
 
     const audioPath = createWavFixture();
@@ -355,6 +616,15 @@ function uniqueName(prefix) {
 function createWavFixture() {
   const filePath = path.join(os.tmpdir(), `babbel-contract-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.wav`);
   fs.writeFileSync(filePath, wavBuffer());
+  return filePath;
+}
+
+// Creates a file just over the documented 100 MB upload limit. The content is
+// irrelevant: the server rejects the upload on size before any processing.
+function createOversizedWavFixture() {
+  const filePath = path.join(os.tmpdir(), `babbel-contract-oversized-${process.pid}-${Date.now()}.wav`);
+  const oversizedBytes = 100 * 1024 * 1024 + 1024;
+  fs.writeFileSync(filePath, Buffer.alloc(oversizedBytes));
   return filePath;
 }
 

@@ -90,6 +90,46 @@ class OpenApiContractValidator {
     }
   }
 
+  // Validates request path/query/header parameters against the operation's
+  // declared parameters. Only the sources the caller provides are validated,
+  // so callers can check e.g. query parameters without supplying resolved
+  // path parameters. Presence is enforced for required parameters of provided
+  // sources; values are coerced from their transport string form before
+  // schema validation. deepObject-style parameters (e.g. filter[field][op])
+  // are skipped because their bracketed keys do not map 1:1 onto a declared
+  // parameter name.
+  validateRequestParameters({ method, operationPath, pathParams, query, headers }) {
+    const operation = this.getOperation(method, operationPath);
+    const declared = operation.parameters || [];
+
+    const sources = {
+      path: pathParams === undefined ? undefined : normalizeKeys(pathParams, false),
+      query: query === undefined ? undefined : normalizeKeys(query, false),
+      header: headers === undefined ? undefined : normalizeKeys(headers, true)
+    };
+
+    for (const parameter of declared) {
+      if (sources[parameter.in] === undefined || parameter.style === 'deepObject') {
+        continue;
+      }
+
+      const lookupKey = parameter.in === 'header' ? parameter.name.toLowerCase() : parameter.name;
+      const value = sources[parameter.in][lookupKey];
+      const label = `${this.operationKey(method, operationPath)} ${parameter.in} parameter ${parameter.name}`;
+
+      if (value === undefined) {
+        if (parameter.required) {
+          throw new Error(`${label} is required`);
+        }
+        continue;
+      }
+
+      if (parameter.schema) {
+        this.validateSchema(label, parameter.schema, this.coerceHeaderValue(label, parameter.schema, value));
+      }
+    }
+  }
+
   validateResponse({ method, operationPath, response }) {
     const operation = this.getOperation(method, operationPath);
     const responseSpec = this.getResponseSpec(operation, response.status);
@@ -137,7 +177,13 @@ class OpenApiContractValidator {
 
       const actual = response.headers?.[headerName.toLowerCase()];
       if (actual === undefined) {
-        throw new Error(`${this.operationKey(method, operationPath)} missing response header ${headerName}`);
+        // Only headers marked required are guaranteed by the server; other
+        // declared headers are conditional (e.g. Content-Range appears on
+        // single-range 206 responses but not on multipart/byteranges ones).
+        if (headerSpec.required) {
+          throw new Error(`${this.operationKey(method, operationPath)} missing response header ${headerName}`);
+        }
+        continue;
       }
 
       if (headerSpec.schema) {
@@ -251,6 +297,14 @@ class OpenApiContractValidator {
     }
     return this.compiledSchemas.get(schema);
   }
+}
+
+function normalizeKeys(source, lowercase) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(source || {})) {
+    normalized[lowercase ? key.toLowerCase() : key] = Array.isArray(value) ? value[0] : value;
+  }
+  return normalized;
 }
 
 module.exports = OpenApiContractValidator;

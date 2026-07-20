@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -233,5 +235,38 @@ func TestNotificationMiddlewareAcceptsNilAlerter(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+func TestHandleServiceError_ContextDeadlineExceededReturnsGatewayTimeout(t *testing.T) {
+	c, rec := newProblemContext(t)
+
+	handleServiceError(c, context.DeadlineExceeded, "Bulletin")
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", rec.Code)
+	}
+	problem := decodeProblem(t, rec)
+	if problem.Status != http.StatusGatewayTimeout {
+		t.Fatalf("problem.status = %d, want 504", problem.Status)
+	}
+	if problem.Code != "internal.timeout" {
+		t.Fatalf("code = %q, want internal.timeout", problem.Code)
+	}
+	if problem.Detail != "Bulletin operation timed out" {
+		t.Fatalf("detail = %q, want Bulletin operation timed out", problem.Detail)
+	}
+}
+
+func TestHandleServiceError_WrappedDeadlineExceededReturnsGatewayTimeout(t *testing.T) {
+	c, rec := newProblemContext(t)
+
+	handleServiceError(c, fmt.Errorf("generate bulletin: %w", context.DeadlineExceeded), "Bulletin")
+
+	if rec.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", rec.Code)
+	}
+	if problem := decodeProblem(t, rec); problem.Code != "internal.timeout" {
+		t.Fatalf("code = %q, want internal.timeout", problem.Code)
 	}
 }
