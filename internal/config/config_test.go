@@ -483,24 +483,32 @@ func shellSingleQuote(s string) string {
 func writeExecutable(t *testing.T, path, contents string) {
 	t.Helper()
 
-	// #nosec G304 - Test helper writes executable scripts under t.TempDir().
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Publish the executable only after its writable file descriptor is closed.
+	// This avoids transient ETXTBSY failures when parallel tests execute it.
+	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
-		t.Fatalf("create executable %s: %v", path, err)
+		t.Fatalf("create temporary executable for %s: %v", path, err)
 	}
+	tempPath := file.Name()
+	t.Cleanup(func() { _ = os.Remove(tempPath) })
 
 	if _, err := file.WriteString(contents); err != nil {
 		_ = file.Close()
-		t.Fatalf("write executable %s: %v", path, err)
-	}
-
-	if err := file.Close(); err != nil {
-		t.Fatalf("close executable %s: %v", path, err)
+		t.Fatalf("write temporary executable for %s: %v", path, err)
 	}
 
 	// #nosec G302 - Test helper makes scripts executable under t.TempDir().
-	if err := os.Chmod(path, 0o700); err != nil {
-		t.Fatalf("chmod executable %s: %v", path, err)
+	if err := file.Chmod(0o700); err != nil {
+		_ = file.Close()
+		t.Fatalf("chmod temporary executable for %s: %v", path, err)
+	}
+
+	if err := file.Close(); err != nil {
+		t.Fatalf("close temporary executable for %s: %v", path, err)
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
+		t.Fatalf("publish executable %s: %v", path, err)
 	}
 }
 
