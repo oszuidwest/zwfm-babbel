@@ -21,9 +21,12 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+const oidcDiscoveryTimeout = 30 * time.Second
 
 // Service handles authentication and authorization.
 type Service struct {
@@ -32,6 +35,7 @@ type Service struct {
 	enforcer *casbin.Enforcer
 	sessions SessionStore
 	ginStore sessions.Store
+	alerts   notify.Alerter
 }
 
 // IsLocalEnabled reports whether local authentication is enabled.
@@ -45,10 +49,15 @@ func (s *Service) IsOAuthEnabled() bool {
 }
 
 // NewService initializes session storage, OIDC, and RBAC for authentication.
-func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
+func NewService(cfg *Config, db *gorm.DB, alerts ...notify.Alerter) (*Service, error) {
+	var alertSink notify.Alerter
+	if len(alerts) > 0 {
+		alertSink = alerts[0]
+	}
 	s := &Service{
 		config: cfg,
 		db:     db,
+		alerts: alertSink,
 	}
 
 	if cfg.Method.SupportsOIDC() {
@@ -75,7 +84,8 @@ func NewService(cfg *Config, db *gorm.DB) (*Service, error) {
 
 // initializeOIDC configures the OIDC provider for OAuth authentication.
 func (s *Service) initializeOIDC() error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), oidcDiscoveryTimeout)
+	defer cancel()
 
 	provider, err := oidc.NewProvider(ctx, s.config.OIDC.ProviderURL)
 	if err != nil {
@@ -348,8 +358,16 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		if updateErr := s.updateLoginFailure(ctx, user.ID, now); updateErr != nil {
+		locked, updateErr := s.updateLoginFailure(ctx, user.ID, now)
+		if updateErr != nil {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
+		} else if locked {
+			s.alert(ctx, notify.Event{
+				Key:     fmt.Sprintf("security:account-lockout:user:%d", user.ID),
+				Summary: "Account locked after repeated failed logins",
+				Details: fmt.Sprintf("User ID %d reached the configured failed-login threshold.", user.ID),
+				Kind:    notify.KindImmediate,
+			})
 		}
 		return fmt.Errorf("invalid credentials")
 	}
@@ -399,6 +417,12 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	state := c.Query("state")
 	savedStateStr, ok := SessionOAuthState(session)
 	if !ok || state != savedStateStr {
+		s.alert(c.Request.Context(), notify.Event{
+			Key:     "security:oauth:invalid-state",
+			Summary: "OAuth callback has an invalid CSRF state",
+			Details: "The OAuth callback state was missing or did not match the server-side session.",
+			Kind:    notify.KindImmediate,
+		})
 		return fmt.Errorf("invalid state")
 	}
 	session.Delete(string(SessKeyOAuthState))
@@ -414,6 +438,10 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
+		s.alert(c.Request.Context(), notify.Event{
+			Key: "security:oauth:missing-id-token", Summary: "OAuth response is missing an ID token",
+			Details: "The identity provider returned no usable id_token.", Kind: notify.KindImmediate,
+		})
 		return fmt.Errorf("no id_token in response")
 	}
 
@@ -423,6 +451,10 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
+		s.alert(c.Request.Context(), notify.Event{
+			Key: "security:oauth:invalid-id-token", Summary: "OAuth ID token verification failed",
+			Details: err.Error(), Kind: notify.KindImmediate,
+		})
 		return fmt.Errorf("failed to verify ID token: %w", err)
 	}
 
@@ -576,7 +608,7 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 // The WHERE clause guard skips any update when the row is already actively
 // locked. This prevents stale pre-lock requests from extending an existing
 // lockout window when concurrent failed logins race past the Go-side check.
-func (s *Service) updateLoginFailure(ctx context.Context, userID int64, now time.Time) error {
+func (s *Service) updateLoginFailure(ctx context.Context, userID int64, now time.Time) (bool, error) {
 	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
 	maxAttempts := s.config.Local.MaxFailedAttempts
 
@@ -610,8 +642,22 @@ WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
 	err := s.db.WithContext(ctx).Exec(query, args...).Error
 	if err != nil {
 		logger.Error("Failed to update failed login attempts", "error", err)
+		return false, err
 	}
-	return err
+
+	var lockState struct {
+		LockedUntil *time.Time
+	}
+	if err := s.db.WithContext(ctx).Table("users").Select("locked_until").Where("id = ?", userID).Scan(&lockState).Error; err != nil {
+		return false, fmt.Errorf("read account lock state: %w", err)
+	}
+	return lockState.LockedUntil != nil && lockState.LockedUntil.After(now), nil
+}
+
+func (s *Service) alert(ctx context.Context, event notify.Event) {
+	if s.alerts != nil {
+		s.alerts.Alert(ctx, event)
+	}
 }
 
 // isAllowedFrontendURL reports whether the URL is in the allowed origins list.

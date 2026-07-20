@@ -10,6 +10,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
@@ -251,6 +252,55 @@ func TestTranslateTTSError(t *testing.T) {
 			tt.assert(t, got)
 		})
 	}
+}
+
+func TestStoryServiceAlertTTSError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantKey  string
+		wantKind notify.Kind
+	}{
+		{name: "invalid credentials", err: &tts.APIError{StatusCode: http.StatusUnauthorized}, wantKey: "tts:credentials", wantKind: notify.KindImmediate},
+		{name: "rate limit", err: &tts.APIError{StatusCode: http.StatusTooManyRequests}, wantKey: "tts:rate-limit", wantKind: notify.KindContinuous},
+		{name: "server error", err: &tts.APIError{StatusCode: http.StatusServiceUnavailable}, wantKey: "tts:upstream", wantKind: notify.KindContinuous},
+		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantKind: notify.KindContinuous},
+		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
+		{name: "invalid request is user error", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			alerts := &capturingAlerter{}
+			service := &StoryService{alerts: alerts}
+			service.alertTTSError(t.Context(), 123, tt.err)
+			if tt.wantKey == "" {
+				if len(alerts.events) != 0 {
+					t.Fatalf("events = %+v, want none", alerts.events)
+				}
+				return
+			}
+			if len(alerts.events) != 1 {
+				t.Fatalf("event count = %d, want 1", len(alerts.events))
+			}
+			if got := alerts.events[0]; got.Key != tt.wantKey || got.Kind != tt.wantKind {
+				t.Fatalf("event = %+v, want key %q kind %v", got, tt.wantKey, tt.wantKind)
+			}
+		})
+	}
+}
+
+type capturingAlerter struct {
+	events   []notify.Event
+	resolved []string
+}
+
+func (a *capturingAlerter) Alert(_ context.Context, event notify.Event) {
+	a.events = append(a.events, event)
+}
+
+func (a *capturingAlerter) Resolve(_ context.Context, key, _, _ string) {
+	a.resolved = append(a.resolved, key)
 }
 
 func newGenerateTTSTestService(

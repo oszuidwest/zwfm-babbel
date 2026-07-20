@@ -46,12 +46,6 @@ func Error(message string, args ...any) {
 	logger.Error(message, args...)
 }
 
-// Fatal logs fatal error messages with slog key-value attributes and terminates the program.
-func Fatal(message string, args ...any) {
-	logger.Error(message, args...)
-	os.Exit(1)
-}
-
 // Debug logs debug messages with slog key-value attributes.
 func Debug(message string, args ...any) {
 	logger.Debug(message, args...)

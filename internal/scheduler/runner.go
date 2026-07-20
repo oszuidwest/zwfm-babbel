@@ -2,9 +2,11 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -16,6 +18,7 @@ type runner struct {
 	interval   time.Duration
 	runTimeout time.Duration
 	fn         func(ctx context.Context)
+	alerts     notify.Alerter
 
 	ticker *time.Ticker
 	done   chan bool
@@ -25,12 +28,13 @@ type runner struct {
 }
 
 // newRunner returns a stopped runner that executes fn every interval.
-func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx context.Context)) *runner {
+func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx context.Context), alerts notify.Alerter) *runner {
 	return &runner{
 		name:       name,
 		interval:   interval,
 		runTimeout: runTimeout,
 		fn:         fn,
+		alerts:     alerts,
 		done:       make(chan bool),
 	}
 }
@@ -58,6 +62,17 @@ func (r *runner) Start() {
 func (r *runner) runOnce() {
 	ctx, cancel := context.WithTimeout(context.Background(), r.runTimeout)
 	defer cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.Error("Scheduler job panicked", "service", r.name, "panic", recovered)
+			if r.alerts != nil {
+				r.alerts.Alert(ctx, notify.Event{
+					Key: "scheduler:panic:" + r.name, Summary: "Scheduler job panicked: " + r.name,
+					Details: fmt.Sprint(recovered), Kind: notify.KindImmediate,
+				})
+			}
+		}
+	}()
 	r.fn(ctx)
 }
 

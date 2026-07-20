@@ -209,6 +209,25 @@ Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer ro
 
 Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage local IPA pronunciation rules. Admins and editors can save rules; viewers can read them. Rules are stored in Babbel's database and injected as inline `/ipa/` spans before the ElevenLabs request.
 
+### Operational e-mail notifications
+
+Babbel can e-mail administrators when an on-air bulletin is degraded or unavailable, ElevenLabs is continuously unavailable, a background job or database connection fails, or suspicious authentication activity occurs. Delivery uses only Microsoft Graph with the OAuth2 client-credentials flow, matching `zwfm-aerontoolbox`. The Azure app registration needs the application permission `Mail.Send` with admin consent; the sender is the configured shared mailbox or user.
+
+| Env var | Default | Description |
+|---|---:|---|
+| `BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID` | unset | Microsoft Entra tenant GUID. |
+| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID` | unset | App-registration client GUID. |
+| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET` | unset | App-registration client secret. |
+| `BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS` | unset | Shared mailbox or user used as sender. |
+| `BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS` | unset | Comma-separated administrator addresses. |
+| `BABBEL_NOTIFICATIONS_COOLDOWN` | `1h` | Minimum interval before the same active condition/resource can send another alert. |
+| `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` | `3` | Transient failures required within the configured window before alerting. |
+| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | Window used to classify failures as continuous. |
+
+Leave all five Graph fields empty to disable e-mail. A partial or malformed Graph configuration is rejected at startup. Immediate operational conditions, such as no on-air stories, mixed bulletin voices, missing audio/jingles, scheduler panics, account lockout and invalid OAuth state/token data, alert on the first occurrence. Transient 429, timeout, upstream, database, cleanup and expiration errors use the threshold/window policy. Alerts are grouped by condition and affected resource, deduplicated during the cooldown, and followed by a recovery e-mail when the relevant success path is observed.
+
+The `/health` endpoint now checks the database and returns HTTP 503 with `status: "unhealthy"` when its ping fails. A background check performs the same database monitoring even when no load balancer polls the endpoint.
+
 ## API Documentation
 
 - **Base URL**: `/api/v1/`

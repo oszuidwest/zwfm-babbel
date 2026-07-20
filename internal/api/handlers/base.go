@@ -12,6 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -172,6 +173,12 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
+		alertRequestFailure(c, notify.Event{
+			Key:     "database:request:" + routeKey(c),
+			Summary: "Database requests repeatedly fail",
+			Details: fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), dbError.Resource, dbError.Unwrap()),
+			Kind:    notify.KindContinuous,
+		})
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -182,11 +189,56 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	// Unknown errors fall back to a generic internal problem response.
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
+	alertRequestFailure(c, notify.Event{
+		Key:     "http:internal:" + routeKey(c),
+		Summary: "Unhandled API errors repeatedly occur",
+		Details: fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
+		Kind:    notify.KindContinuous,
+	})
 	utils.ProblemExtended(c, http.StatusInternalServerError,
 		fmt.Sprintf("Failed to process %s", fallbackResource),
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+const alertContextKey = "babbel.operational-alerts"
+
+// NotificationMiddleware exposes the process alert service to error mapping
+// and clears request-scoped alert state after a successful response.
+func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if alerts != nil {
+			c.Set(alertContextKey, alerts)
+		}
+		c.Next()
+		if alerts == nil || c.Writer.Status() >= http.StatusBadRequest {
+			return
+		}
+		route := routeKey(c)
+		alerts.Resolve(c.Request.Context(), "database:request:"+route,
+			"Database request path recovered", "Requests to "+route+" succeed again.")
+		alerts.Resolve(c.Request.Context(), "http:internal:"+route,
+			"API request path recovered", "Requests to "+route+" succeed again.")
+	}
+}
+
+func alertRequestFailure(c *gin.Context, event notify.Event) {
+	value, ok := c.Get(alertContextKey)
+	if !ok {
+		return
+	}
+	alerts, ok := value.(notify.Alerter)
+	if ok && alerts != nil {
+		alerts.Alert(c.Request.Context(), event)
+	}
+}
+
+func routeKey(c *gin.Context) string {
+	if route := c.FullPath(); route != "" {
+		return c.Request.Method + " " + route
+	}
+	return c.Request.Method + " unmatched"
 }
 
 func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {

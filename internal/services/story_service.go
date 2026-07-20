@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -32,6 +33,7 @@ type StoryServiceDeps struct {
 	TTSSettingsSvc        *TTSSettingsService
 	PronunciationInjector *PronunciationInjector
 	Config                *config.Config
+	Alerts                notify.Alerter
 }
 
 type storyRepository interface {
@@ -64,6 +66,7 @@ type StoryService struct {
 	ttsSettingsSvc        ttsSettingsGetter
 	pronunciationInjector *PronunciationInjector
 	config                *config.Config
+	alerts                notify.Alerter
 }
 
 // NewStoryService wires story business logic to its dependencies.
@@ -79,6 +82,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		ttsSettingsSvc:        deps.TTSSettingsSvc,
 		pronunciationInjector: deps.PronunciationInjector,
 		config:                deps.Config,
+		alerts:                deps.Alerts,
 	}
 }
 
@@ -427,8 +431,10 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		options,
 	)
 	if err != nil {
+		s.alertTTSError(ctx, storyID, err)
 		return translateTTSError(storyID, err)
 	}
+	s.resolveTTSAlerts(ctx)
 
 	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
@@ -441,6 +447,41 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	return s.ProcessAudio(ctx, storyID, tempPath)
+}
+
+func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
+	if s.alerts == nil {
+		return
+	}
+	event := notify.Event{
+		Key:     "tts:upstream",
+		Summary: "ElevenLabs TTS is repeatedly unavailable",
+		Details: fmt.Sprintf("Story %d: %v", storyID, err),
+		Kind:    notify.KindContinuous,
+	}
+	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
+		switch apiErr.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			event.Key = "tts:credentials"
+			event.Summary = "ElevenLabs credentials are invalid or expired"
+			event.Kind = notify.KindImmediate
+		case http.StatusTooManyRequests:
+			event.Key = "tts:rate-limit"
+			event.Summary = "ElevenLabs quota or rate limit is repeatedly exceeded"
+		case http.StatusNotFound, http.StatusUnprocessableEntity:
+			return // Voice/request validation errors are user-actionable, not incidents.
+		}
+	}
+	s.alerts.Alert(ctx, event)
+}
+
+func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
+	if s.alerts == nil {
+		return
+	}
+	s.alerts.Resolve(ctx, "tts:credentials", "ElevenLabs credentials recovered", "TTS generation succeeded again.")
+	s.alerts.Resolve(ctx, "tts:rate-limit", "ElevenLabs capacity recovered", "TTS generation succeeded again.")
+	s.alerts.Resolve(ctx, "tts:upstream", "ElevenLabs service recovered", "TTS generation succeeded again.")
 }
 
 func validateStoryTTSPrerequisites(story *models.Story, force bool) error {

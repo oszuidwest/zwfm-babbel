@@ -7,6 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -18,15 +19,21 @@ import (
 type StoryExpirationService struct {
 	repo   *repository.StoryRepository
 	runner *runner
+	alerts notify.Alerter
 }
 
 // NewStoryExpirationService returns a stopped expiration service.
 // Call [StoryExpirationService.Start] to begin hourly checks.
-func NewStoryExpirationService(db *gorm.DB) *StoryExpirationService {
-	s := &StoryExpirationService{
-		repo: repository.NewStoryRepository(db),
+func NewStoryExpirationService(db *gorm.DB, alerts ...notify.Alerter) *StoryExpirationService {
+	var alertSink notify.Alerter
+	if len(alerts) > 0 {
+		alertSink = alerts[0]
 	}
-	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories)
+	s := &StoryExpirationService{
+		repo:   repository.NewStoryRepository(db),
+		alerts: alertSink,
+	}
+	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories, alertSink)
 	return s
 }
 
@@ -51,7 +58,16 @@ func (s *StoryExpirationService) expireStories(ctx context.Context) {
 	count, err := s.repo.ExpireStoriesPastEndDate(ctx)
 	if err != nil {
 		logger.Error("Failed to expire stories", "error", err)
+		if s.alerts != nil {
+			s.alerts.Alert(ctx, notify.Event{
+				Key: "scheduler:story-expiration", Summary: "Story expiration job repeatedly fails",
+				Details: err.Error(), Kind: notify.KindContinuous,
+			})
+		}
 		return
+	}
+	if s.alerts != nil {
+		s.alerts.Resolve(ctx, "scheduler:story-expiration", "Story expiration job recovered", "Expired stories are being processed again.")
 	}
 
 	if count > 0 {

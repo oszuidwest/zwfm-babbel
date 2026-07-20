@@ -85,6 +85,7 @@ paths:
     get:
       operationId: getHealth
       summary: Health check endpoint
+      description: Checks both the API process and its database connection.
       tags:
         - System
       security: []
@@ -99,6 +100,23 @@ paths:
                   status:
                     type: string
                     example: ok
+                  service:
+                    type: string
+                    example: babbel-api
+        '503':
+          description: Service is unhealthy because the database cannot be reached
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - service
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - unhealthy
                   service:
                     type: string
                     example: babbel-api

@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -25,6 +28,7 @@ type BulletinServiceDeps struct {
 	StoryRepo    *repository.StoryRepository
 	AudioSvc     *audio.Service
 	Config       *config.Config
+	Alerts       notify.Alerter
 }
 
 // BulletinService generates audio bulletins and exposes bulletin read models.
@@ -35,6 +39,7 @@ type BulletinService struct {
 	storyRepo    *repository.StoryRepository
 	audioSvc     *audio.Service
 	config       *config.Config
+	alerts       notify.Alerter
 }
 
 // NewBulletinService returns a bulletin service wired to deps.
@@ -46,6 +51,7 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		storyRepo:    deps.StoryRepo,
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
+		alerts:       deps.Alerts,
 	}
 }
 
@@ -63,8 +69,16 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	if len(stories) == 0 {
+		s.alert(ctx, notify.Event{
+			Key:     fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
+			Summary: fmt.Sprintf("No stories available for station %d", stationID),
+			Details: "The public automation endpoint cannot generate an on-air bulletin for this station.",
+			Kind:    notify.KindImmediate,
+		})
 		return nil, apperrors.NoStories(stationID)
 	}
+	s.resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
+		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
 
 	// Capture jingle context from the highest-priority story (first in SQL order)
 	// before shuffling - jingle selection must be stable regardless of playback order.
@@ -72,18 +86,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		VoiceID:  stories[0].VoiceID,
 		MixPoint: stories[0].MixPoint,
 	}
-
-	if jingle.VoiceID != nil {
-		for _, s := range stories[1:] {
-			if s.VoiceID != nil && *s.VoiceID != *jingle.VoiceID {
-				logger.Debug(
-					"Bulletin uses jingle from one voice; other selected stories use different voices",
-					"station_id", stationID, "jingle_voice_id", *jingle.VoiceID,
-				)
-				break
-			}
-		}
-	}
+	s.reportVoiceConsistency(ctx, stationID, stories)
 
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine which stories are selected;
@@ -94,8 +97,20 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
+		kind := notify.KindImmediate
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			kind = notify.KindContinuous
+		}
+		s.alert(ctx, notify.Event{
+			Key:     fmt.Sprintf("bulletin:generation:station:%d", stationID),
+			Summary: fmt.Sprintf("Bulletin generation failed for station %d", stationID),
+			Details: err.Error(),
+			Kind:    kind,
+		})
 		return nil, err
 	}
+	s.resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
+		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
 
 	var fileSize int64
 	if fi, err := os.Stat(bulletinPath); err == nil {
@@ -236,7 +251,7 @@ func (s *BulletinService) GetStoriesForDate(
 	// absent (manual deletion, failed processing, storage issue). Including such a story would make
 	// FFmpeg fail the entire bulletin with a 500, so drop it here. If none remain, Create returns
 	// NoStories (422) instead of leaking an internal error.
-	stories = s.filterStoriesWithMissingAudio(stories, stationID)
+	stories = s.filterStoriesWithMissingAudio(ctx, stories, stationID)
 
 	if len(stories) > 0 && len(stories) == limit {
 		breakingCount := 0
@@ -266,7 +281,7 @@ func (s *BulletinService) GetStoriesForDate(
 // Generation reads each story file directly via FFmpeg, so a missing file would abort the whole
 // bulletin; skipping the story keeps generation resilient to storage inconsistencies.
 func (s *BulletinService) filterStoriesWithMissingAudio(
-	stories []repository.BulletinStoryData, stationID int64,
+	ctx context.Context, stories []repository.BulletinStoryData, stationID int64,
 ) []repository.BulletinStoryData {
 	kept := make([]repository.BulletinStoryData, 0, len(stories))
 	for _, story := range stories {
@@ -274,11 +289,64 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 		if _, err := os.Stat(path); err != nil {
 			logger.Warn("Skipping story with missing audio file during bulletin generation",
 				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)
+			s.alert(ctx, notify.Event{
+				Key:     fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
+				Summary: fmt.Sprintf("Story audio missing for station %d", stationID),
+				Details: fmt.Sprintf("Story %d exists in the database but its processed audio file is unavailable at %s: %v", story.ID, path, err),
+				Kind:    notify.KindImmediate,
+			})
 			continue
 		}
+		s.resolve(ctx, fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
+			fmt.Sprintf("Story audio recovered for station %d", stationID),
+			fmt.Sprintf("Processed audio for story %d is readable again.", story.ID))
 		kept = append(kept, story)
 	}
 	return kept
+}
+
+func (s *BulletinService) reportVoiceConsistency(
+	ctx context.Context, stationID int64, stories []repository.BulletinStoryData,
+) {
+	key := fmt.Sprintf("bulletin:multiple-voices:station:%d", stationID)
+	seen := make(map[int64]struct{})
+	voiceIDs := make([]int64, 0)
+	for _, story := range stories {
+		if story.VoiceID == nil {
+			continue
+		}
+		if _, exists := seen[*story.VoiceID]; exists {
+			continue
+		}
+		seen[*story.VoiceID] = struct{}{}
+		voiceIDs = append(voiceIDs, *story.VoiceID)
+	}
+
+	if len(voiceIDs) <= 1 {
+		s.resolve(ctx, key, fmt.Sprintf("Bulletin voices aligned for station %d", stationID),
+			"All selected stories use the same voice again.")
+		return
+	}
+
+	logger.Debug("Bulletin uses stories with different voices", "station_id", stationID, "voice_ids", voiceIDs)
+	s.alert(ctx, notify.Event{
+		Key:     key,
+		Summary: fmt.Sprintf("Multiple voices selected for station %d", stationID),
+		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
+		Kind:    notify.KindImmediate,
+	})
+}
+
+func (s *BulletinService) alert(ctx context.Context, event notify.Event) {
+	if s.alerts != nil {
+		s.alerts.Alert(ctx, event)
+	}
+}
+
+func (s *BulletinService) resolve(ctx context.Context, key, summary, details string) {
+	if s.alerts != nil {
+		s.alerts.Resolve(ctx, key, summary, details)
+	}
 }
 
 // ParseTargetDate parses YYYY-MM-DD in the local timezone.

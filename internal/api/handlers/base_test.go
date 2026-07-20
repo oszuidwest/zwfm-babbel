@@ -112,6 +112,46 @@ func TestHandleServiceError_UpstreamRespectsStatus(t *testing.T) {
 	}
 }
 
+func TestHandleServiceErrorAlertsOnlyOperationalFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantEvents int
+		wantKey    string
+	}{
+		{
+			name:       "database error alerts",
+			err:        apperrors.Database("Story", "query", errors.New("connection lost")),
+			wantEvents: 1,
+			wantKey:    "database:request:POST unmatched",
+		},
+		{
+			name: "validation error does not alert",
+			err:  apperrors.Validation("Story", "title", "is required"),
+		},
+		{
+			name: "not found does not alert",
+			err:  apperrors.NotFoundWithID("Story", 9),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newProblemContext(t)
+			alerts := &automationAlertRecorder{}
+			c.Set(alertContextKey, alerts)
+
+			handleServiceError(c, tt.err, "Story")
+			if len(alerts.events) != tt.wantEvents {
+				t.Fatalf("event count = %d, want %d", len(alerts.events), tt.wantEvents)
+			}
+			if tt.wantKey != "" && alerts.events[0].Key != tt.wantKey {
+				t.Fatalf("event key = %q, want %q", alerts.events[0].Key, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestHandleServiceError_NotInitializedUsesCustomCode(t *testing.T) {
 	tests := []struct {
 		name     string
