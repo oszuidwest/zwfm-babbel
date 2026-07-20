@@ -63,7 +63,6 @@ type alertState struct {
 	count         int
 	lastSent      time.Time
 	lastSeen      time.Time
-	isActive      bool
 	sendPending   bool
 	queuedResolve *queuedResolve
 }
@@ -83,7 +82,6 @@ type Service struct {
 	config     *config.NotificationConfig
 	recipients []string
 	mailer     mailer
-	configured bool
 	now        func() time.Time
 
 	stateMu sync.Mutex
@@ -103,23 +101,20 @@ func New(cfg *config.NotificationConfig) *Service {
 		states: make(map[string]*alertState),
 		chains: make(map[string]chan struct{}),
 	}
-	if cfg == nil {
+	if cfg == nil || !cfg.Email.IsComplete() {
 		return s
 	}
 	s.recipients = cfg.Email.RecipientList()
-	s.configured = cfg.Email.IsComplete()
-	if s.configured {
-		s.mailer = NewGraphClient(&cfg.Email)
-	}
+	s.mailer = NewGraphClient(&cfg.Email)
 	return s
 }
 
 // IsConfigured reports whether all Microsoft Graph delivery settings exist.
-func (s *Service) IsConfigured() bool { return s != nil && s.configured }
+func (s *Service) IsConfigured() bool { return s != nil && s.mailer != nil }
 
 // Alert records an occurrence and sends only when its policy permits it.
 func (s *Service) Alert(ctx context.Context, event Event) {
-	if s == nil || !s.configured || event.Key == "" || event.Summary == "" {
+	if !s.IsConfigured() || event.Key == "" || event.Summary == "" {
 		return
 	}
 
@@ -174,7 +169,6 @@ func (s *Service) finishAlertSend(key string, sentAt time.Time, sendErr error) {
 	state.sendPending = false
 	if sendErr == nil {
 		state.lastSent = sentAt
-		state.isActive = true
 	}
 	resolve := state.queuedResolve
 	state.queuedResolve = nil
@@ -182,7 +176,7 @@ func (s *Service) finishAlertSend(key string, sentAt time.Time, sendErr error) {
 		return
 	}
 	delete(s.states, key)
-	if state.isActive {
+	if !state.lastSent.IsZero() {
 		subject, body := formatMessage("[OK]", Event{Key: key, Summary: resolve.summary, Details: resolve.details}, resolve.at, 0)
 		s.sendAsync(resolve.ctx, key, subject, body, nil)
 	}
@@ -190,7 +184,7 @@ func (s *Service) finishAlertSend(key string, sentAt time.Time, sendErr error) {
 
 // AlertSync sends a critical process-lifecycle event before the process exits.
 func (s *Service) AlertSync(ctx context.Context, event Event) error {
-	if s == nil || !s.configured {
+	if !s.IsConfigured() {
 		return nil
 	}
 	subject, body := formatMessage("[ERROR]", event, s.now(), 1)
@@ -199,7 +193,7 @@ func (s *Service) AlertSync(ctx context.Context, event Event) error {
 
 // Resolve sends one recovery message only when an alert was previously active.
 func (s *Service) Resolve(ctx context.Context, key, summary, details string) {
-	if s == nil || !s.configured || key == "" {
+	if !s.IsConfigured() || key == "" {
 		return
 	}
 
@@ -210,11 +204,11 @@ func (s *Service) Resolve(ctx context.Context, key, summary, details string) {
 		return
 	}
 	if state.sendPending {
-		state.queuedResolve = &queuedResolve{ctx: context.WithoutCancel(ctx), summary: summary, details: details, at: s.now()}
+		state.queuedResolve = &queuedResolve{ctx: ctx, summary: summary, details: details, at: s.now()}
 		return
 	}
 	delete(s.states, key)
-	if !state.isActive {
+	if state.lastSent.IsZero() {
 		return
 	}
 
@@ -288,7 +282,7 @@ func (s *Service) sendAsync(parent context.Context, key, subject, body string, o
 func (s *Service) pruneStates(now time.Time) {
 	retention := max(s.config.Cooldown, s.config.FailureWindow) * 2
 	for key, state := range s.states {
-		if !state.isActive && !state.sendPending && now.Sub(state.lastSeen) > retention {
+		if state.lastSent.IsZero() && !state.sendPending && now.Sub(state.lastSeen) > retention {
 			delete(s.states, key)
 		}
 	}

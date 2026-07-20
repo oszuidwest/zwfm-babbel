@@ -6,12 +6,7 @@ import (
 	"os"
 )
 
-var logger *slog.Logger
-
-// init ensures a default logger is always available, even before Initialize() is called.
-func init() {
-	logger = slog.Default()
-}
+var logger = slog.Default()
 
 // Initialize sets up the logging system with the specified level and mode.
 func Initialize(level string, development bool) error {

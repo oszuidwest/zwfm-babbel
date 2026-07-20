@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -43,18 +44,9 @@ func TestRunnerRecoversPanicAndAlerts(t *testing.T) {
 
 	shouldPanic = false
 	runner.runOnce()
-	if !containsString(alerts.resolved, "scheduler:panic:test job") {
+	if !slices.Contains(alerts.resolved, "scheduler:panic:test job") {
 		t.Fatalf("resolved = %v, want scheduler panic recovery", alerts.resolved)
 	}
-}
-
-func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }
 
 func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
@@ -75,7 +67,7 @@ func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
 
 	runner.fn = func(context.Context) error { return nil }
 	runner.runOnce()
-	if !containsString(alerts.resolved, "scheduler:test job") {
+	if !slices.Contains(alerts.resolved, "scheduler:test job") {
 		t.Fatalf("resolved = %v, want scheduler job recovery", alerts.resolved)
 	}
 }

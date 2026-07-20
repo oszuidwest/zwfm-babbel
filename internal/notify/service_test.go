@@ -136,7 +136,7 @@ func TestServiceContinuousAlertThresholdCooldownAndRecovery(t *testing.T) {
 	svc.Alert(t.Context(), event)
 	mailer.waitForCount(t, 1)
 	svc.Alert(t.Context(), event)
-	time.Sleep(10 * time.Millisecond)
+	svc.work.Wait()
 	if got := mailer.count(); got != 1 {
 		t.Fatalf("messages during cooldown = %d, want 1", got)
 	}
@@ -150,7 +150,7 @@ func TestServiceContinuousAlertThresholdCooldownAndRecovery(t *testing.T) {
 	svc.Resolve(t.Context(), event.Key, "TTS recovered", "requests succeed")
 	mailer.waitForCount(t, 3)
 	svc.Resolve(t.Context(), event.Key, "TTS recovered", "requests succeed")
-	time.Sleep(10 * time.Millisecond)
+	svc.work.Wait()
 	if got := mailer.count(); got != 3 {
 		t.Fatalf("messages after duplicate recovery = %d, want 3", got)
 	}
