@@ -16,8 +16,10 @@ type Station struct {
 	Name string `gorm:"size:255;not null;uniqueIndex" json:"name"`
 	// MaxStoriesPerBlock is the maximum stories per bulletin.
 	MaxStoriesPerBlock int `gorm:"not null;default:5" json:"max_stories_per_block"`
-	// PauseSeconds is the pause duration between stories.
-	PauseSeconds float64   `gorm:"not null;default:0" json:"pause_seconds"`
+	// PauseSeconds is the pause duration between stories. No gorm default:
+	// the handler resolves omitted values, and a default tag would make GORM
+	// drop an explicit 0 from the INSERT so the database default wins.
+	PauseSeconds float64   `gorm:"not null" json:"pause_seconds"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 

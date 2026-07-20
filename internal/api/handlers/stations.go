@@ -38,6 +38,19 @@ func (h *Handlers) GetStation(c *gin.Context) {
 	utils.Success(c, station)
 }
 
+// defaultPauseSeconds is the pause between bulletin stories when a station
+// request omits pause_seconds.
+const defaultPauseSeconds = 2.0
+
+// resolvePauseSeconds applies the default pause for omitted pause_seconds
+// while preserving an explicit 0.
+func resolvePauseSeconds(pauseSeconds *float64) float64 {
+	if pauseSeconds == nil {
+		return defaultPauseSeconds
+	}
+	return *pauseSeconds
+}
+
 // CreateStation accepts a JSON station payload and persists a radio station.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
@@ -45,7 +58,7 @@ func (h *Handlers) CreateStation(c *gin.Context) {
 		return
 	}
 
-	station, err := h.stationSvc.Create(c.Request.Context(), req.Name, req.MaxStoriesPerBlock, req.PauseSeconds)
+	station, err := h.stationSvc.Create(c.Request.Context(), req.Name, req.MaxStoriesPerBlock, resolvePauseSeconds(req.PauseSeconds))
 	if err != nil {
 		handleServiceError(c, err, "Station")
 		return
@@ -66,10 +79,11 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 		return
 	}
 
+	pauseSeconds := resolvePauseSeconds(req.PauseSeconds)
 	updateReq := &services.UpdateStationRequest{
 		Name:               &req.Name,
 		MaxStoriesPerBlock: &req.MaxStoriesPerBlock,
-		PauseSeconds:       &req.PauseSeconds,
+		PauseSeconds:       &pauseSeconds,
 	}
 
 	updated, err := h.stationSvc.Update(c.Request.Context(), id, updateReq)
