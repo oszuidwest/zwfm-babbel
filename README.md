@@ -370,6 +370,7 @@ The project has Go unit tests and a full Jest integration test suite:
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security
 
 Run the tests with:
+
 ```bash
 go test ./...           # Run Go unit tests
 make test-all           # Run complete integration test suite
