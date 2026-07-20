@@ -62,6 +62,23 @@ type GraphConfig struct {
 	Recipients   string `env:"RECIPIENTS"`
 }
 
+// RecipientList returns the trimmed, non-empty recipient addresses.
+func (g *GraphConfig) RecipientList() []string {
+	var recipients []string
+	for recipient := range strings.SplitSeq(g.Recipients, ",") {
+		if recipient = strings.TrimSpace(recipient); recipient != "" {
+			recipients = append(recipients, recipient)
+		}
+	}
+	return recipients
+}
+
+// IsComplete reports whether every Microsoft Graph delivery setting is present.
+func (g *GraphConfig) IsComplete() bool {
+	return g.TenantID != "" && g.ClientID != "" && g.ClientSecret != "" &&
+		g.FromAddress != "" && len(g.RecipientList()) > 0
+}
+
 // AutomationConfig defines settings for radio automation system integration.
 type AutomationConfig struct {
 	// Key authenticates automation system requests. Empty disables the endpoint.
@@ -278,12 +295,11 @@ func validateGraphAddresses(g *GraphConfig) error {
 	if from.Address != strings.TrimSpace(g.FromAddress) {
 		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS must contain only the e-mail address")
 	}
-	recipientCount := 0
-	for recipient := range strings.SplitSeq(g.Recipients, ",") {
-		recipient = strings.TrimSpace(recipient)
-		if recipient == "" {
-			continue
-		}
+	recipients := g.RecipientList()
+	if len(recipients) == 0 {
+		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain at least one e-mail address")
+	}
+	for _, recipient := range recipients {
 		parsed, err := mail.ParseAddress(recipient)
 		if err != nil {
 			return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS contains an invalid e-mail address: %w", err)
@@ -291,10 +307,6 @@ func validateGraphAddresses(g *GraphConfig) error {
 		if parsed.Address != recipient {
 			return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain only comma-separated e-mail addresses")
 		}
-		recipientCount++
-	}
-	if recipientCount == 0 {
-		return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain at least one e-mail address")
 	}
 	return nil
 }

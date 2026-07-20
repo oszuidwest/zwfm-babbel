@@ -19,21 +19,18 @@ import (
 type StoryExpirationService struct {
 	repo   *repository.StoryRepository
 	runner *runner
-	alerts notify.Alerter
 }
 
 // NewStoryExpirationService returns a stopped expiration service.
 // Call [StoryExpirationService.Start] to begin hourly checks.
-func NewStoryExpirationService(db *gorm.DB, alerts ...notify.Alerter) *StoryExpirationService {
-	var alertSink notify.Alerter
-	if len(alerts) > 0 {
-		alertSink = alerts[0]
+func NewStoryExpirationService(db *gorm.DB, alerts notify.Alerter) *StoryExpirationService {
+	if alerts == nil {
+		alerts = notify.Discard
 	}
 	s := &StoryExpirationService{
-		repo:   repository.NewStoryRepository(db),
-		alerts: alertSink,
+		repo: repository.NewStoryRepository(db),
 	}
-	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories, alertSink)
+	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories, alerts)
 	return s
 }
 
@@ -51,26 +48,18 @@ func (s *StoryExpirationService) Stop() {
 
 // expireStories marks active stories past end_date as expired.
 // Draft stories are not activated automatically because publication remains an
-// editorial decision.
-func (s *StoryExpirationService) expireStories(ctx context.Context) {
+// editorial decision. The runner turns a returned error into an alert.
+func (s *StoryExpirationService) expireStories(ctx context.Context) error {
 	logger.Info("Running story expiration check...")
 
 	count, err := s.repo.ExpireStoriesPastEndDate(ctx)
 	if err != nil {
 		logger.Error("Failed to expire stories", "error", err)
-		if s.alerts != nil {
-			s.alerts.Alert(ctx, notify.Event{
-				Key: "scheduler:story-expiration", Summary: "Story expiration job repeatedly fails",
-				Details: err.Error(), Kind: notify.KindContinuous,
-			})
-		}
-		return
-	}
-	if s.alerts != nil {
-		s.alerts.Resolve(ctx, "scheduler:story-expiration", "Story expiration job recovered", "Expired stories are being processed again.")
+		return err
 	}
 
 	if count > 0 {
 		logger.Info("Expired stories past their end date", "count", count)
 	}
+	return nil
 }

@@ -30,7 +30,7 @@ func TestGraphClientSendMail(t *testing.T) {
 	defer server.Close()
 
 	client := &GraphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
-	if err := client.SendMail(t.Context(), []string{"one@example.com", " ", "two@example.com"}, "subject", "body"); err != nil {
+	if err := client.SendMail(t.Context(), []string{"one@example.com", "two@example.com"}, "subject", "body"); err != nil {
 		t.Fatalf("SendMail: %v", err)
 	}
 	if request.Message.Subject != "subject" || request.Message.Body.Content != "body" {
@@ -63,7 +63,7 @@ func TestGraphClientRetryStopsOnCancellation(t *testing.T) {
 
 func TestGraphClientRejectsEmptyRecipients(t *testing.T) {
 	client := &GraphClient{}
-	err := client.SendMail(t.Context(), []string{"", "  "}, "subject", "body")
+	err := client.SendMail(t.Context(), nil, "subject", "body")
 	if err == nil || !strings.Contains(err.Error(), "no recipients") {
 		t.Fatalf("SendMail error = %v, want no recipients", err)
 	}

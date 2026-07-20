@@ -44,6 +44,9 @@ type BulletinService struct {
 
 // NewBulletinService returns a bulletin service wired to deps.
 func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
+	if deps.Alerts == nil {
+		deps.Alerts = notify.Discard
+	}
 	return &BulletinService{
 		txManager:    deps.TxManager,
 		bulletinRepo: deps.BulletinRepo,
@@ -69,15 +72,15 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 
 	if len(stories) == 0 {
-		s.alert(ctx, notify.Event{
+		s.alerts.Alert(ctx, notify.Event{
 			Key:     fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
 			Summary: fmt.Sprintf("No stories available for station %d", stationID),
-			Details: "The public automation endpoint cannot generate an on-air bulletin for this station.",
+			Details: "No eligible stories are available, so no on-air bulletin can be generated for this station.",
 			Kind:    notify.KindImmediate,
 		})
 		return nil, apperrors.NoStories(stationID)
 	}
-	s.resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
+	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
 		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
 
 	// Capture jingle context from the highest-priority story (first in SQL order)
@@ -87,6 +90,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		MixPoint: stories[0].MixPoint,
 	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
+	s.reportJingleAvailability(ctx, stationID, jingle)
 
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine which stories are selected;
@@ -101,7 +105,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			kind = notify.KindContinuous
 		}
-		s.alert(ctx, notify.Event{
+		s.alerts.Alert(ctx, notify.Event{
 			Key:     fmt.Sprintf("bulletin:generation:station:%d", stationID),
 			Summary: fmt.Sprintf("Bulletin generation failed for station %d", stationID),
 			Details: err.Error(),
@@ -109,7 +113,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		})
 		return nil, err
 	}
-	s.resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
+	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
 		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
 
 	var fileSize int64
@@ -289,7 +293,7 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 		if _, err := os.Stat(path); err != nil {
 			logger.Warn("Skipping story with missing audio file during bulletin generation",
 				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)
-			s.alert(ctx, notify.Event{
+			s.alerts.Alert(ctx, notify.Event{
 				Key:     fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
 				Summary: fmt.Sprintf("Story audio missing for station %d", stationID),
 				Details: fmt.Sprintf("Story %d exists in the database but its processed audio file is unavailable at %s: %v", story.ID, path, err),
@@ -297,7 +301,7 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 			})
 			continue
 		}
-		s.resolve(ctx, fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
+		s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
 			fmt.Sprintf("Story audio recovered for station %d", stationID),
 			fmt.Sprintf("Processed audio for story %d is readable again.", story.ID))
 		kept = append(kept, story)
@@ -323,13 +327,13 @@ func (s *BulletinService) reportVoiceConsistency(
 	}
 
 	if len(voiceIDs) <= 1 {
-		s.resolve(ctx, key, fmt.Sprintf("Bulletin voices aligned for station %d", stationID),
+		s.alerts.Resolve(ctx, key, fmt.Sprintf("Bulletin voices aligned for station %d", stationID),
 			"All selected stories use the same voice again.")
 		return
 	}
 
 	logger.Debug("Bulletin uses stories with different voices", "station_id", stationID, "voice_ids", voiceIDs)
-	s.alert(ctx, notify.Event{
+	s.alerts.Alert(ctx, notify.Event{
 		Key:     key,
 		Summary: fmt.Sprintf("Multiple voices selected for station %d", stationID),
 		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
@@ -337,16 +341,38 @@ func (s *BulletinService) reportVoiceConsistency(
 	})
 }
 
-func (s *BulletinService) alert(ctx context.Context, event notify.Event) {
-	if s.alerts != nil {
-		s.alerts.Alert(ctx, event)
+// reportJingleAvailability alerts when the bulletin will be generated without a
+// bed, either because the selected story has no voice or because the
+// station-voice jingle file is unreadable. The audio layer itself stays
+// notify-free and silently mixes without a bed in both cases.
+func (s *BulletinService) reportJingleAvailability(ctx context.Context, stationID int64, jingle audio.JingleContext) {
+	noVoiceKey := fmt.Sprintf("bulletin:missing-jingle:station:%d:no-voice", stationID)
+	if jingle.VoiceID == nil {
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     noVoiceKey,
+			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", stationID),
+			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
+			Kind:    notify.KindImmediate,
+		})
+		return
 	}
-}
+	s.alerts.Resolve(ctx, noVoiceKey,
+		fmt.Sprintf("Bulletin voice restored for station %d", stationID),
+		fmt.Sprintf("Voice %d is selected for the bulletin jingle again.", *jingle.VoiceID))
 
-func (s *BulletinService) resolve(ctx context.Context, key, summary, details string) {
-	if s.alerts != nil {
-		s.alerts.Resolve(ctx, key, summary, details)
+	jinglePath := utils.JinglePath(s.config, stationID, *jingle.VoiceID)
+	missingKey := fmt.Sprintf("bulletin:missing-jingle:station:%d:voice:%d", stationID, *jingle.VoiceID)
+	if _, err := os.Stat(jinglePath); err != nil {
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     missingKey,
+			Summary: fmt.Sprintf("Jingle missing for station %d", stationID),
+			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
+			Kind:    notify.KindImmediate,
+		})
+		return
 	}
+	s.alerts.Resolve(ctx, missingKey, fmt.Sprintf("Jingle available again for station %d", stationID),
+		fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 }
 
 // ParseTargetDate parses YYYY-MM-DD in the local timezone.

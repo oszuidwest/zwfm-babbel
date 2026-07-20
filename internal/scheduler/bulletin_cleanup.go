@@ -29,17 +29,16 @@ type BulletinCleanupService struct {
 
 // NewBulletinCleanupService returns a stopped cleanup service.
 // Call [BulletinCleanupService.Start] to begin daily purges.
-func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config, alerts ...notify.Alerter) *BulletinCleanupService {
-	var alertSink notify.Alerter
-	if len(alerts) > 0 {
-		alertSink = alerts[0]
+func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) *BulletinCleanupService {
+	if alerts == nil {
+		alerts = notify.Discard
 	}
 	s := &BulletinCleanupService{
 		repo:   repository.NewBulletinRepository(db),
 		config: cfg,
-		alerts: alertSink,
+		alerts: alerts,
 	}
-	s.runner = newRunner("bulletin cleanup service", 24*time.Hour, 5*time.Minute, s.cleanup, alertSink)
+	s.runner = newRunner("bulletin cleanup service", 24*time.Hour, 5*time.Minute, s.cleanup, alerts)
 	return s
 }
 
@@ -55,16 +54,16 @@ func (s *BulletinCleanupService) Stop() {
 	s.runner.Stop()
 }
 
-// cleanup performs the actual file purge logic.
-func (s *BulletinCleanupService) cleanup(ctx context.Context) {
+// cleanup performs the actual file purge logic. The runner turns a returned
+// error into an alert.
+func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
 	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
 		logger.Error("Failed to query expired bulletins", "error", err)
-		s.alertCleanup(ctx, err, notify.KindContinuous)
-		return
+		return err
 	}
 	stats, purgeErr := s.purgeExpiredBulletins(ctx, bulletins)
 	orphansRemoved, orphanBytes, orphanErr := s.cleanOrphanedFiles(ctx)
@@ -74,11 +73,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) {
 			"files_purged", stats.count, "mb_freed", float64(stats.bytesFreed)/1024/1024,
 			"orphans_removed", orphansRemoved, "orphan_mb_freed", float64(orphanBytes)/1024/1024)
 	}
-	if cleanupErr := errors.Join(purgeErr, orphanErr); cleanupErr != nil {
-		s.alertCleanup(ctx, cleanupErr, notify.KindContinuous)
-	} else if s.alerts != nil {
-		s.alerts.Resolve(ctx, "scheduler:bulletin-cleanup", "Bulletin cleanup recovered", "Old and orphaned bulletin files can be cleaned again.")
-	}
+	return errors.Join(purgeErr, orphanErr)
 }
 
 type purgeStats struct {
@@ -139,17 +134,13 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		logger.Error("Failed to read output directory", "path", outputDir, "error", err)
-		if s.alerts != nil {
-			s.alerts.Alert(ctx, notify.Event{
-				Key: "storage:bulletin-output", Summary: "Bulletin output directory is unreadable",
-				Details: fmt.Sprintf("%s: %v", outputDir, err), Kind: notify.KindImmediate,
-			})
-		}
+		s.alerts.Alert(ctx, notify.Event{
+			Key: "storage:bulletin-output", Summary: "Bulletin output directory is unreadable",
+			Details: fmt.Sprintf("%s: %v", outputDir, err), Kind: notify.KindImmediate,
+		})
 		return 0, 0, err
 	}
-	if s.alerts != nil {
-		s.alerts.Resolve(ctx, "storage:bulletin-output", "Bulletin output directory recovered", "The output directory is readable again.")
-	}
+	s.alerts.Resolve(ctx, "storage:bulletin-output", "Bulletin output directory recovered", "The output directory is readable again.")
 
 	if len(entries) == 0 {
 		return 0, 0, nil
@@ -203,13 +194,4 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 	}
 
 	return removed, bytesFreed, cleanupErr
-}
-
-func (s *BulletinCleanupService) alertCleanup(ctx context.Context, err error, kind notify.Kind) {
-	if s.alerts != nil {
-		s.alerts.Alert(ctx, notify.Event{
-			Key: "scheduler:bulletin-cleanup", Summary: "Bulletin cleanup repeatedly fails",
-			Details: err.Error(), Kind: kind,
-		})
-	}
 }

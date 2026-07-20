@@ -49,15 +49,14 @@ func (s *Service) IsOAuthEnabled() bool {
 }
 
 // NewService initializes session storage, OIDC, and RBAC for authentication.
-func NewService(cfg *Config, db *gorm.DB, alerts ...notify.Alerter) (*Service, error) {
-	var alertSink notify.Alerter
-	if len(alerts) > 0 {
-		alertSink = alerts[0]
+func NewService(cfg *Config, db *gorm.DB, alerts notify.Alerter) (*Service, error) {
+	if alerts == nil {
+		alerts = notify.Discard
 	}
 	s := &Service{
 		config: cfg,
 		db:     db,
-		alerts: alertSink,
+		alerts: alerts,
 	}
 
 	if cfg.Method.SupportsOIDC() {
@@ -362,7 +361,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		if updateErr != nil {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
 		} else if locked {
-			s.alert(ctx, notify.Event{
+			s.alerts.Alert(ctx, notify.Event{
 				Key:     fmt.Sprintf("security:account-lockout:user:%d", user.ID),
 				Summary: "Account locked after repeated failed logins",
 				Details: fmt.Sprintf("User ID %d reached the configured failed-login threshold.", user.ID),
@@ -417,7 +416,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	state := c.Query("state")
 	savedStateStr, ok := SessionOAuthState(session)
 	if !ok || state != savedStateStr {
-		s.alert(c.Request.Context(), notify.Event{
+		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key:     "security:oauth:invalid-state",
 			Summary: "OAuth callback has an invalid CSRF state",
 			Details: "The OAuth callback state was missing or did not match the server-side session.",
@@ -438,7 +437,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		s.alert(c.Request.Context(), notify.Event{
+		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key: "security:oauth:missing-id-token", Summary: "OAuth response is missing an ID token",
 			Details: "The identity provider returned no usable id_token.", Kind: notify.KindImmediate,
 		})
@@ -451,7 +450,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
-		s.alert(c.Request.Context(), notify.Event{
+		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key: "security:oauth:invalid-id-token", Summary: "OAuth ID token verification failed",
 			Details: err.Error(), Kind: notify.KindImmediate,
 		})
@@ -652,12 +651,6 @@ WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
 		return false, fmt.Errorf("read account lock state: %w", err)
 	}
 	return lockState.LockedUntil != nil && lockState.LockedUntil.After(now), nil
-}
-
-func (s *Service) alert(ctx context.Context, event notify.Event) {
-	if s.alerts != nil {
-		s.alerts.Alert(ctx, event)
-	}
 }
 
 // isAllowedFrontendURL reports whether the URL is in the allowed origins list.

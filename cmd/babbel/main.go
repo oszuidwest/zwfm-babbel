@@ -43,9 +43,9 @@ func main() {
 }
 
 func run() error {
-	cfg, err := loadConfig()
+	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return fmt.Errorf("load config: %w", err)
 	}
 	alerts := notify.New(&cfg.Notifications)
 	defer alerts.Close()
@@ -116,14 +116,6 @@ func handleVersionFlag() bool {
 		return true
 	}
 	return false
-}
-
-func loadConfig() (*config.Config, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
-	}
-	return cfg, nil
 }
 
 func validateConfig(cfg *config.Config) error {
@@ -207,7 +199,7 @@ func shutdownServer(srv *http.Server) error {
 }
 
 func notifyCritical(alerts *notify.Service, key, summary string, err error) {
-	if alerts == nil || err == nil {
+	if err == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), fatalNotificationTimeout)

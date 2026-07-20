@@ -206,13 +206,12 @@ const alertContextKey = "babbel.operational-alerts"
 
 // NotificationMiddleware exposes the process alert service to error mapping
 // and clears request-scoped alert state after a successful response.
+// Register it only when notifications are configured.
 func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if alerts != nil {
-			c.Set(alertContextKey, alerts)
-		}
+		c.Set(alertContextKey, alerts)
 		c.Next()
-		if alerts == nil || c.Writer.Status() >= http.StatusBadRequest {
+		if c.Writer.Status() >= http.StatusBadRequest {
 			return
 		}
 		route := routeKey(c)

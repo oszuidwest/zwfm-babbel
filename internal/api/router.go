@@ -14,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/scheduler"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -29,13 +30,10 @@ type routerDeps struct {
 }
 
 // SetupRouter builds the dependency graph, configures Gin, and registers all
-// public and authenticated routes.
-func SetupRouter(db *gorm.DB, cfg *config.Config, alerts ...notify.Alerter) (*gin.Engine, error) {
-	var alertSink notify.Alerter
-	if len(alerts) > 0 {
-		alertSink = alerts[0]
-	}
-	deps, err := buildDependencies(db, cfg, alertSink)
+// public and authenticated routes. alerts must be non-nil; an unconfigured
+// service disables notifications.
+func SetupRouter(db *gorm.DB, cfg *config.Config, alerts *notify.Service) (*gin.Engine, error) {
+	deps, err := buildDependencies(db, cfg, alerts)
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +46,10 @@ func SetupRouter(db *gorm.DB, cfg *config.Config, alerts ...notify.Alerter) (*gi
 
 	utils.InitializeValidators()
 
-	r := setupEngine(cfg, deps.authService, alertSink)
+	r := setupEngine(cfg, deps.authService, alerts)
 	registerPublicRoutes(r, deps)
 	registerAPIRoutes(r, deps)
-	registerHealthRoute(r, db, alertSink)
+	registerHealthRoute(r, db, alerts)
 
 	return r, nil
 }
@@ -177,14 +175,17 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 }
 
 // setupEngine creates the Gin engine with global middleware.
-func setupEngine(cfg *config.Config, authService *auth.Service, alerts notify.Alerter) *gin.Engine {
+func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.Service) *gin.Engine {
 	r := gin.New()
 	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys).
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
-	r.Use(handlers.NotificationMiddleware(alerts))
+	// Alert bookkeeping per request is only worth it when e-mail can actually send.
+	if alerts.IsConfigured() {
+		r.Use(handlers.NotificationMiddleware(alerts))
+	}
 	// Session middleware must come before any handler that reads session state.
 	r.Use(authService.SessionMiddleware())
 	// Security headers run before CORS because CORS may abort on OPTIONS preflight.
@@ -351,27 +352,15 @@ func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDe
 	)
 }
 
-// registerHealthRoute registers the health check endpoint.
+// registerHealthRoute registers the health check endpoint. It shares the
+// database check (and its alert state) with the background health service.
 func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 	r.GET("/health", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
-		sqlDB, err := db.DB()
-		if err == nil {
-			err = sqlDB.PingContext(ctx)
-		}
-		if err != nil {
-			if alerts != nil {
-				alerts.Alert(ctx, notify.Event{
-					Key: "database:connection", Summary: "Database connection repeatedly fails",
-					Details: err.Error(), Kind: notify.KindContinuous,
-				})
-			}
+		if err := scheduler.CheckDatabase(ctx, db, alerts); err != nil {
 			c.JSON(http.StatusServiceUnavailable, handlers.HealthResponse{Status: "unhealthy", Service: "babbel-api"})
 			return
-		}
-		if alerts != nil {
-			alerts.Resolve(ctx, "database:connection", "Database connection recovered", "Database ping succeeds again.")
 		}
 		utils.Success(c, handlers.HealthResponse{
 			Status:  "ok",

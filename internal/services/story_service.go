@@ -74,6 +74,9 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 	if deps.PronunciationInjector == nil {
 		panic("services: NewStoryService requires a non-nil pronunciation injector")
 	}
+	if deps.Alerts == nil {
+		deps.Alerts = notify.Discard
+	}
 	return &StoryService{
 		storyRepo:             deps.StoryRepo,
 		voiceRepo:             deps.VoiceRepo,
@@ -450,9 +453,6 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 }
 
 func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
-	if s.alerts == nil {
-		return
-	}
 	event := notify.Event{
 		Key:     "tts:upstream",
 		Summary: "ElevenLabs TTS is repeatedly unavailable",
@@ -476,9 +476,6 @@ func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err err
 }
 
 func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
-	if s.alerts == nil {
-		return
-	}
 	s.alerts.Resolve(ctx, "tts:credentials", "ElevenLabs credentials recovered", "TTS generation succeeded again.")
 	s.alerts.Resolve(ctx, "tts:rate-limit", "ElevenLabs capacity recovered", "TTS generation succeeded again.")
 	s.alerts.Resolve(ctx, "tts:upstream", "ElevenLabs service recovered", "TTS generation succeeded again.")

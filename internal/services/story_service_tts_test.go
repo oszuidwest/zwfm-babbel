@@ -320,6 +320,7 @@ func newGenerateTTSTestService(
 			rules: rules,
 		}),
 		ttsSvc: ttsSvc,
+		alerts: notify.Discard,
 	}
 }
 

@@ -7,10 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -36,12 +36,10 @@ type GraphClient struct {
 	httpClient  *http.Client
 }
 
-// NewGraphClient returns a Microsoft Graph mail client using OAuth2 client credentials.
-func NewGraphClient(cfg *config.GraphConfig) (*GraphClient, error) {
-	if err := validateGraphCredentials(cfg); err != nil {
-		return nil, err
-	}
-
+// NewGraphClient returns a Microsoft Graph mail client using OAuth2 client
+// credentials. The caller must pass a complete configuration; startup
+// validation in the config package enforces this.
+func NewGraphClient(cfg *config.GraphConfig) *GraphClient {
 	credentials := &clientcredentials.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
@@ -55,7 +53,7 @@ func NewGraphClient(cfg *config.GraphConfig) (*GraphClient, error) {
 		fromAddress: cfg.FromAddress,
 		baseURL:     graphBaseURL,
 		httpClient:  credentials.Client(oauthCtx),
-	}, nil
+	}
 }
 
 type graphMailRequest struct {
@@ -81,17 +79,15 @@ type graphEmailAddress struct {
 	Address string `json:"address"`
 }
 
-// SendMail sends one plain-text message. Context cancellation also stops retries.
+// SendMail sends one plain-text message to already-validated recipient
+// addresses. Context cancellation also stops retries.
 func (c *GraphClient) SendMail(ctx context.Context, recipients []string, subject, body string) error {
+	if len(recipients) == 0 {
+		return fmt.Errorf("no recipients specified")
+	}
 	toRecipients := make([]graphRecipient, 0, len(recipients))
 	for _, address := range recipients {
-		address = strings.TrimSpace(address)
-		if address != "" {
-			toRecipients = append(toRecipients, graphRecipient{EmailAddress: graphEmailAddress{Address: address}})
-		}
-	}
-	if len(toRecipients) == 0 {
-		return fmt.Errorf("no recipients specified")
+		toRecipients = append(toRecipients, graphRecipient{EmailAddress: graphEmailAddress{Address: address}})
 	}
 
 	payload, err := json.Marshal(graphMailRequest{Message: graphMessage{
@@ -107,7 +103,6 @@ func (c *GraphClient) SendMail(ctx context.Context, recipients []string, subject
 
 func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
 	endpoint := fmt.Sprintf("%s/users/%s/sendMail", c.baseURL, url.PathEscape(c.fromAddress))
-	delay := newBackoff(initialRetryWait, maxRetryWait)
 	var lastErr error
 	var retryWait time.Duration
 
@@ -117,7 +112,9 @@ func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
 		}
 		if attempt > 0 {
 			if retryWait <= 0 {
-				retryWait = delay.next()
+				// Exponential backoff with up to 50% jitter, capped at maxRetryWait.
+				retryWait = min(initialRetryWait<<(attempt-1), maxRetryWait)
+				retryWait += rand.N(retryWait / 2) //nolint:gosec // retry jitter is not security-sensitive
 			}
 			if err := sleepWithContext(ctx, retryWait); err != nil {
 				return fmt.Errorf("graph mail retry cancelled: %w", err)
@@ -172,33 +169,4 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-func validateGraphCredentials(cfg *config.GraphConfig) error {
-	if cfg == nil {
-		return fmt.Errorf("graph configuration is required")
-	}
-	if cfg.TenantID == "" {
-		return fmt.Errorf("tenant id is required")
-	}
-	if cfg.ClientID == "" {
-		return fmt.Errorf("client id is required")
-	}
-	if cfg.ClientSecret == "" {
-		return fmt.Errorf("client secret is required")
-	}
-	if cfg.FromAddress == "" {
-		return fmt.Errorf("from address is required")
-	}
-	return nil
-}
-
-func parseRecipients(value string) []string {
-	recipients := make([]string, 0)
-	for recipient := range strings.SplitSeq(value, ",") {
-		if recipient = strings.TrimSpace(recipient); recipient != "" {
-			recipients = append(recipients, recipient)
-		}
-	}
-	return recipients
 }

@@ -14,10 +14,11 @@ import (
 const sendTimeout = 2 * time.Minute
 
 // Kind controls whether a single event alerts or must repeat within a window.
+// The zero value is KindImmediate.
 type Kind int
 
 const (
-	KindImmediate Kind = iota + 1
+	KindImmediate Kind = iota
 	KindContinuous
 )
 
@@ -35,6 +36,14 @@ type Alerter interface {
 	Alert(context.Context, Event)
 	Resolve(context.Context, string, string, string)
 }
+
+// Discard drops every event. Use it where notifications are intentionally absent.
+var Discard Alerter = discardAlerter{}
+
+type discardAlerter struct{}
+
+func (discardAlerter) Alert(context.Context, Event)                    {}
+func (discardAlerter) Resolve(context.Context, string, string, string) {}
 
 type mailer interface {
 	SendMail(context.Context, []string, string, string) error
@@ -56,9 +65,8 @@ type Service struct {
 	configured bool
 	now        func() time.Time
 
-	stateMu  sync.Mutex
-	states   map[string]*alertState
-	clientMu sync.Mutex
+	stateMu sync.Mutex
+	states  map[string]*alertState
 
 	workMu   sync.Mutex
 	work     sync.WaitGroup
@@ -75,9 +83,11 @@ func New(cfg *config.NotificationConfig) *Service {
 	if cfg == nil {
 		return s
 	}
-	s.recipients = parseRecipients(cfg.Email.Recipients)
-	s.configured = cfg.Email.TenantID != "" && cfg.Email.ClientID != "" &&
-		cfg.Email.ClientSecret != "" && cfg.Email.FromAddress != "" && len(s.recipients) > 0
+	s.recipients = cfg.Email.RecipientList()
+	s.configured = cfg.Email.IsComplete()
+	if s.configured {
+		s.mailer = NewGraphClient(&cfg.Email)
+	}
 	return s
 }
 
@@ -88,9 +98,6 @@ func (s *Service) IsConfigured() bool { return s != nil && s.configured }
 func (s *Service) Alert(ctx context.Context, event Event) {
 	if s == nil || !s.configured || event.Key == "" || event.Summary == "" {
 		return
-	}
-	if event.Kind == 0 {
-		event.Kind = KindImmediate
 	}
 
 	now := s.now()
@@ -121,7 +128,7 @@ func (s *Service) Alert(ctx context.Context, event Event) {
 	s.stateMu.Unlock()
 
 	if shouldSend {
-		subject, body := formatAlert(event, now, count)
+		subject, body := formatMessage("[ERROR]", event, now, count)
 		s.sendAsync(ctx, subject, body)
 	}
 }
@@ -131,7 +138,7 @@ func (s *Service) AlertSync(ctx context.Context, event Event) error {
 	if s == nil || !s.configured {
 		return nil
 	}
-	subject, body := formatAlert(event, s.now(), 1)
+	subject, body := formatMessage("[ERROR]", event, s.now(), 1)
 	return s.send(ctx, subject, body)
 }
 
@@ -154,12 +161,8 @@ func (s *Service) Resolve(ctx context.Context, key, summary, details string) {
 		return
 	}
 
-	now := s.now()
-	body := fmt.Sprintf("%s\n\nTimestamp: %s\nAlert key: %s", summary, now.Format(time.RFC3339), key)
-	if details != "" {
-		body += "\n\n" + details
-	}
-	s.sendAsync(ctx, "[OK] "+summary+" - Babbel", body)
+	subject, body := formatMessage("[OK]", Event{Key: key, Summary: summary, Details: details}, s.now(), 0)
+	s.sendAsync(ctx, subject, body)
 }
 
 // Close waits for in-flight alert e-mails and rejects new background sends.
@@ -205,29 +208,21 @@ func (s *Service) pruneStates(now time.Time) {
 }
 
 func (s *Service) send(ctx context.Context, subject, body string) error {
-	s.clientMu.Lock()
-	if s.mailer == nil {
-		client, err := NewGraphClient(&s.config.Email)
-		if err != nil {
-			s.clientMu.Unlock()
-			return fmt.Errorf("create graph mail client: %w", err)
-		}
-		s.mailer = client
-	}
-	client := s.mailer
-	s.clientMu.Unlock()
-	return client.SendMail(ctx, s.recipients, subject, body)
+	return s.mailer.SendMail(ctx, s.recipients, subject, body)
 }
 
-func formatAlert(event Event, timestamp time.Time, count int) (string, string) {
+// formatMessage renders the shared e-mail layout; count 0 omits the occurrence line.
+func formatMessage(prefix string, event Event, timestamp time.Time, count int) (string, string) {
 	var body strings.Builder
-	fmt.Fprintf(&body, "%s\n\nTimestamp: %s\nAlert key: %s\nOccurrences in current window: %d",
-		event.Summary, timestamp.Format(time.RFC3339), event.Key, count)
+	fmt.Fprintf(&body, "%s\n\nTimestamp: %s\nAlert key: %s", event.Summary, timestamp.Format(time.RFC3339), event.Key)
+	if count > 0 {
+		fmt.Fprintf(&body, "\nOccurrences in current window: %d", count)
+	}
 	if event.Details != "" {
 		body.WriteString("\n\n")
 		body.WriteString(event.Details)
 	}
-	return "[ERROR] " + event.Summary + " - Babbel", body.String()
+	return prefix + " " + event.Summary + " - Babbel", body.String()
 }
 
 var _ Alerter = (*Service)(nil)
