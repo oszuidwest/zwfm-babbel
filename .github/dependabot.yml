@@ -10,6 +10,16 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      all-dependencies:
+        patterns:
+          - "*"
+
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
