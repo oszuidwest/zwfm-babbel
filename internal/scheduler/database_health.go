@@ -39,9 +39,7 @@ type DatabaseHealthService struct {
 
 // NewDatabaseHealthService returns a stopped database health monitor.
 func NewDatabaseHealthService(db *gorm.DB, alerts notify.Alerter) *DatabaseHealthService {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
+	alerts = notify.OrDiscard(alerts)
 	s := &DatabaseHealthService{db: db, alerts: alerts}
 	s.runner = newRunner("database health service", time.Minute, 10*time.Second, s.check, alerts)
 	return s

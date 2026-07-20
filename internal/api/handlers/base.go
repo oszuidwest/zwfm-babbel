@@ -173,12 +173,8 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
-		alertRequestFailure(c, notify.Event{
-			Key:     "database:request:" + routeKey(c),
-			Summary: "Database requests repeatedly fail",
-			Details: fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), dbError.Resource, dbError.Unwrap()),
-			Kind:    notify.KindContinuous,
-		})
+		alertRequestFailure(c, databaseRequestEvent(c,
+			fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), dbError.Resource, dbError.Unwrap())))
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -190,7 +186,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Unknown errors fall back to a generic internal problem response.
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	alertRequestFailure(c, notify.Event{
-		Key:     "http:internal:" + routeKey(c),
+		Key:     internalAlertKeyPrefix + routeKey(c),
 		Summary: "Unhandled API errors repeatedly occur",
 		Details: fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
 		Kind:    notify.KindContinuous,
@@ -202,7 +198,25 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	)
 }
 
-const alertContextKey = "babbel.operational-alerts"
+const (
+	alertContextKey = "babbel.operational-alerts"
+
+	// Alert key prefixes shared between failure events and the per-route
+	// Resolve calls in NotificationMiddleware.
+	databaseAlertKeyPrefix = "database:request:"
+	internalAlertKeyPrefix = "http:internal:"
+)
+
+// databaseRequestEvent builds the shared alert for failing database-backed
+// requests; NotificationMiddleware resolves it on the route's next success.
+func databaseRequestEvent(c *gin.Context, details string) notify.Event {
+	return notify.Event{
+		Key:     databaseAlertKeyPrefix + routeKey(c),
+		Summary: "Database requests repeatedly fail",
+		Details: details,
+		Kind:    notify.KindContinuous,
+	}
+}
 
 // NotificationMiddleware exposes the process alert service to error mapping
 // and clears request-scoped alert state after a successful response.
@@ -215,9 +229,9 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 			return
 		}
 		route := routeKey(c)
-		alerts.Resolve(c.Request.Context(), "database:request:"+route,
+		alerts.Resolve(c.Request.Context(), databaseAlertKeyPrefix+route,
 			"Database request path recovered", "Requests to "+route+" succeed again.")
-		alerts.Resolve(c.Request.Context(), "http:internal:"+route,
+		alerts.Resolve(c.Request.Context(), internalAlertKeyPrefix+route,
 			"API request path recovered", "Requests to "+route+" succeed again.")
 	}
 }

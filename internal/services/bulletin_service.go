@@ -44,9 +44,6 @@ type BulletinService struct {
 
 // NewBulletinService returns a bulletin service wired to deps.
 func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
-	if deps.Alerts == nil {
-		deps.Alerts = notify.Discard
-	}
 	return &BulletinService{
 		txManager:    deps.TxManager,
 		bulletinRepo: deps.BulletinRepo,
@@ -54,7 +51,7 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		storyRepo:    deps.StoryRepo,
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
-		alerts:       deps.Alerts,
+		alerts:       notify.OrDiscard(deps.Alerts),
 	}
 }
 

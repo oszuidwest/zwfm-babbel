@@ -73,10 +73,26 @@ func (g *GraphConfig) RecipientList() []string {
 	return recipients
 }
 
+// requiredSettings pairs each Graph environment variable name with its value.
+// It is the single list behind IsComplete, hasGraphConfiguration, and validation.
+func (g *GraphConfig) requiredSettings() []struct{ name, value string } {
+	return []struct{ name, value string }{
+		{name: "TENANT_ID", value: g.TenantID},
+		{name: "CLIENT_ID", value: g.ClientID},
+		{name: "CLIENT_SECRET", value: g.ClientSecret},
+		{name: "FROM_ADDRESS", value: g.FromAddress},
+		{name: "RECIPIENTS", value: g.Recipients},
+	}
+}
+
 // IsComplete reports whether every Microsoft Graph delivery setting is present.
 func (g *GraphConfig) IsComplete() bool {
-	return g.TenantID != "" && g.ClientID != "" && g.ClientSecret != "" &&
-		g.FromAddress != "" && len(g.RecipientList()) > 0
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) == "" {
+			return false
+		}
+	}
+	return len(g.RecipientList()) > 0
 }
 
 // AutomationConfig defines settings for radio automation system integration.
@@ -253,9 +269,8 @@ func (c *Config) validateNotifications() error {
 }
 
 func hasGraphConfiguration(g *GraphConfig) bool {
-	values := []string{g.TenantID, g.ClientID, g.ClientSecret, g.FromAddress, g.Recipients}
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) != "" {
 			return true
 		}
 	}
@@ -263,19 +278,9 @@ func hasGraphConfiguration(g *GraphConfig) bool {
 }
 
 func validateGraphIdentifiers(g *GraphConfig) error {
-	required := []struct {
-		name  string
-		value string
-	}{
-		{name: "TENANT_ID", value: g.TenantID},
-		{name: "CLIENT_ID", value: g.ClientID},
-		{name: "CLIENT_SECRET", value: g.ClientSecret},
-		{name: "FROM_ADDRESS", value: g.FromAddress},
-		{name: "RECIPIENTS", value: g.Recipients},
-	}
-	for _, field := range required {
-		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_%s is required when e-mail notifications are configured", field.name)
+	for _, setting := range g.requiredSettings() {
+		if strings.TrimSpace(setting.value) == "" {
+			return fmt.Errorf("BABBEL_NOTIFICATIONS_EMAIL_%s is required when e-mail notifications are configured", setting.name)
 		}
 	}
 	if !guidPattern.MatchString(g.TenantID) {

@@ -50,9 +50,7 @@ func (s *Service) IsOAuthEnabled() bool {
 
 // NewService initializes session storage, OIDC, and RBAC for authentication.
 func NewService(cfg *Config, db *gorm.DB, alerts notify.Alerter) (*Service, error) {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
+	alerts = notify.OrDiscard(alerts)
 	s := &Service{
 		config: cfg,
 		db:     db,

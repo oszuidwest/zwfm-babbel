@@ -33,14 +33,11 @@ type AutomationHandler struct {
 
 // NewAutomationHandler creates a public automation endpoint handler.
 func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *services.StationService, cfg *config.Config, alerts notify.Alerter) *AutomationHandler {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
 	return &AutomationHandler{
 		bulletinSvc:  bulletinSvc,
 		stationSvc:   stationSvc,
 		config:       cfg,
-		alerts:       alerts,
+		alerts:       notify.OrDiscard(alerts),
 		stationLocks: make(map[int64]*sync.Mutex),
 	}
 }
@@ -145,8 +142,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
 		logger.Error("Automation: failed to check station existence", "error", err)
-		// Shared key with handleServiceError so NotificationMiddleware resolves it on the next success.
-		h.alerts.Alert(c.Request.Context(), notify.Event{Key: "database:request:" + routeKey(c), Summary: "Database requests repeatedly fail", Details: err.Error(), Kind: notify.KindContinuous})
+		h.alerts.Alert(c.Request.Context(), databaseRequestEvent(c, err.Error()))
 		utils.ProblemInternalServer(c, "Failed to check station")
 		return
 	}
@@ -167,7 +163,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 			return
 		}
 		if existing != nil {
-			h.serveBulletinAudio(c, existing.AudioFile, existing.ID, true)
+			h.serveBulletinAudio(c, existing.AudioFile, existing.ID, req.stationID, true)
 			return
 		}
 	}
@@ -177,7 +173,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 		return
 	}
 
-	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, cached)
+	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, req.stationID, cached)
 }
 
 // lookupFreshBulletin returns the latest bulletin within maxAge, or nil when
@@ -187,7 +183,7 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
 	if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
 		logger.Error("Automation: failed to check existing bulletin", "error", err)
-		h.alerts.Alert(ctx, notify.Event{Key: "database:request:" + routeKey(c), Summary: "Database requests repeatedly fail", Details: err.Error(), Kind: notify.KindContinuous})
+		h.alerts.Alert(ctx, databaseRequestEvent(c, err.Error()))
 		utils.ProblemInternalServer(c, "Failed to check existing bulletin")
 		return nil, false
 	}
@@ -231,12 +227,15 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 
 // serveBulletinAudio sends the bulletin WAV file as response, or the
 // appropriate error response when the file is missing or unreadable.
-func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID int64, cached bool) {
+func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID, stationID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
+	// Keyed by station so repeats dedupe and the next successful serve resolves
+	// the alert; a per-bulletin key would never recover once a new bulletin exists.
+	alertKey := "bulletin:served-audio:station:" + strconv.FormatInt(stationID, 10)
 
 	if _, err := os.Stat(filePath); err != nil {
 		h.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     "bulletin:served-audio:" + strconv.FormatInt(bulletinID, 10),
+			Key:     alertKey,
 			Summary: "Radio automation bulletin file is unavailable",
 			Details: "Bulletin " + strconv.FormatInt(bulletinID, 10) + " could not be served from " + filePath + ": " + err.Error(),
 			Kind:    notify.KindImmediate,
@@ -250,7 +249,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		}
 		return
 	}
-	h.alerts.Resolve(c.Request.Context(), "bulletin:served-audio:"+strconv.FormatInt(bulletinID, 10),
+	h.alerts.Resolve(c.Request.Context(), alertKey,
 		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
 
 	// Automation clients should not cache public bulletin responses.

@@ -116,8 +116,10 @@ func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
 				retryWait = min(initialRetryWait<<(attempt-1), maxRetryWait)
 				retryWait += rand.N(retryWait / 2) //nolint:gosec // retry jitter is not security-sensitive
 			}
-			if err := sleepWithContext(ctx, retryWait); err != nil {
-				return fmt.Errorf("graph mail retry cancelled: %w", err)
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("graph mail retry cancelled: %w", ctx.Err())
+			case <-time.After(retryWait):
 			}
 			retryWait = 0
 		}
@@ -158,15 +160,4 @@ func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
 	}
 
 	return fmt.Errorf("graph mail retries exhausted: %w", lastErr)
-}
-
-func sleepWithContext(ctx context.Context, duration time.Duration) error {
-	timer := time.NewTimer(duration)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }

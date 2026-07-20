@@ -74,9 +74,6 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 	if deps.PronunciationInjector == nil {
 		panic("services: NewStoryService requires a non-nil pronunciation injector")
 	}
-	if deps.Alerts == nil {
-		deps.Alerts = notify.Discard
-	}
 	return &StoryService{
 		storyRepo:             deps.StoryRepo,
 		voiceRepo:             deps.VoiceRepo,
@@ -85,7 +82,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		ttsSettingsSvc:        deps.TTSSettingsSvc,
 		pronunciationInjector: deps.PronunciationInjector,
 		config:                deps.Config,
-		alerts:                deps.Alerts,
+		alerts:                notify.OrDiscard(deps.Alerts),
 	}
 }
 

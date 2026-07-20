@@ -24,9 +24,7 @@ type StoryExpirationService struct {
 // NewStoryExpirationService returns a stopped expiration service.
 // Call [StoryExpirationService.Start] to begin hourly checks.
 func NewStoryExpirationService(db *gorm.DB, alerts notify.Alerter) *StoryExpirationService {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
+	alerts = notify.OrDiscard(alerts)
 	s := &StoryExpirationService{
 		repo: repository.NewStoryRepository(db),
 	}

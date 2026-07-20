@@ -40,6 +40,15 @@ type Alerter interface {
 // Discard drops every event. Use it where notifications are intentionally absent.
 var Discard Alerter = discardAlerter{}
 
+// OrDiscard returns Discard when alerts is nil, so constructors can accept an
+// optional alerter without repeating the nil guard.
+func OrDiscard(alerts Alerter) Alerter {
+	if alerts == nil {
+		return Discard
+	}
+	return alerts
+}
+
 type discardAlerter struct{}
 
 func (discardAlerter) Alert(context.Context, Event)                    {}
@@ -178,16 +187,13 @@ func (s *Service) Close() {
 
 func (s *Service) sendAsync(parent context.Context, subject, body string) {
 	s.workMu.Lock()
+	defer s.workMu.Unlock()
 	if s.isClosed {
-		s.workMu.Unlock()
 		logger.Warn("Notification e-mail dropped because service is closed", "subject", subject)
 		return
 	}
-	s.work.Add(1)
-	s.workMu.Unlock()
 
-	go func() {
-		defer s.work.Done()
+	s.work.Go(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), sendTimeout)
 		defer cancel()
 		if err := s.send(ctx, subject, body); err != nil {
@@ -195,7 +201,7 @@ func (s *Service) sendAsync(parent context.Context, subject, body string) {
 			return
 		}
 		logger.Info("Notification e-mail sent", "subject", subject)
-	}()
+	})
 }
 
 func (s *Service) pruneStates(now time.Time) {

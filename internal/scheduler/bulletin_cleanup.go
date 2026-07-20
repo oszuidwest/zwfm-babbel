@@ -30,9 +30,7 @@ type BulletinCleanupService struct {
 // NewBulletinCleanupService returns a stopped cleanup service.
 // Call [BulletinCleanupService.Start] to begin daily purges.
 func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) *BulletinCleanupService {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
+	alerts = notify.OrDiscard(alerts)
 	s := &BulletinCleanupService{
 		repo:   repository.NewBulletinRepository(db),
 		config: cfg,

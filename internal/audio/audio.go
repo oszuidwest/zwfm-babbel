@@ -45,9 +45,7 @@ type Service struct {
 
 // NewService returns an audio service using cfg.
 func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
-	if alerts == nil {
-		alerts = notify.Discard
-	}
+	alerts = notify.OrDiscard(alerts)
 	return &Service{config: cfg, alerts: alerts}
 }
 
