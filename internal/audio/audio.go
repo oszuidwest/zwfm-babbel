@@ -247,13 +247,14 @@ func (s *Service) CreateBulletin(
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	args, filters := s.buildBulletinFFmpegCommand(station, stories, jingle, outputPath)
+	args, filters := s.buildBulletinFFmpegCommand(ctx, station, stories, jingle, outputPath)
 
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
 }
 
 // buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
 func (s *Service) buildBulletinFFmpegCommand(
+	ctx context.Context,
 	station *models.Station,
 	stories []repository.BulletinStoryData,
 	jingle JingleContext,
@@ -268,7 +269,7 @@ func (s *Service) buildBulletinFFmpegCommand(
 
 	filters = s.addMixPointDelay(filters, jingle.MixPoint)
 
-	args, filters = s.addJingleMix(args, filters, station, jingle, len(stories))
+	args, filters = s.addJingleMix(ctx, args, filters, station, jingle, len(stories))
 
 	filters = append(filters, "[mixed]"+loudnessNormalizationFilter+"[out]")
 
@@ -322,17 +323,24 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
-// addJingleMix adds the bed/jingle when present and writes the final stream to
-// [mixed] for loudness normalization. Alerting on a missing jingle is the
-// bulletin service's responsibility, not this FFmpeg command builder's.
+// addJingleMix adds the bed/jingle when present, reports the availability
+// decision, and writes the final stream to [mixed] for loudness normalization.
 func (s *Service) addJingleMix(
+	ctx context.Context,
 	args, filters []string,
 	station *models.Station,
 	jingle JingleContext,
 	storyCount int,
 ) ([]string, []string) {
+	alertKey := fmt.Sprintf("bulletin:missing-jingle:station:%d", station.ID)
 	if jingle.VoiceID == nil {
 		logger.Debug("No voice ID in jingle context, generating bulletin without bed")
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     alertKey,
+			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", station.ID),
+			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
+			Kind:    notify.KindImmediate,
+		})
 		filters = append(filters, "[messages]anull[mixed]")
 		return args, filters
 	}
@@ -345,8 +353,16 @@ func (s *Service) addJingleMix(
 		} else {
 			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
 		}
+		s.alerts.Alert(ctx, notify.Event{
+			Key:     alertKey,
+			Summary: fmt.Sprintf("Jingle missing for station %d", station.ID),
+			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
+			Kind:    notify.KindImmediate,
+		})
 		filters = append(filters, "[messages]anull[mixed]")
 	} else {
+		s.alerts.Resolve(ctx, alertKey, fmt.Sprintf("Jingle available again for station %d", station.ID),
+			fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
 		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image.

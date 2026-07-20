@@ -87,7 +87,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		MixPoint: stories[0].MixPoint,
 	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
-	s.reportJingleAvailability(ctx, stationID, jingle)
 
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine which stories are selected;
@@ -337,36 +336,6 @@ func (s *BulletinService) reportVoiceConsistency(
 		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
 		Kind:    notify.KindImmediate,
 	})
-}
-
-// reportJingleAvailability alerts when the bulletin will be generated without a
-// bed, either because the selected story has no voice or because the
-// station-voice jingle file is unreadable. The audio layer itself stays
-// notify-free and silently mixes without a bed in both cases.
-func (s *BulletinService) reportJingleAvailability(ctx context.Context, stationID int64, jingle audio.JingleContext) {
-	alertKey := fmt.Sprintf("bulletin:missing-jingle:station:%d", stationID)
-	if jingle.VoiceID == nil {
-		s.alerts.Alert(ctx, notify.Event{
-			Key:     alertKey,
-			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", stationID),
-			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
-			Kind:    notify.KindImmediate,
-		})
-		return
-	}
-
-	jinglePath := utils.JinglePath(s.config, stationID, *jingle.VoiceID)
-	if _, err := os.Stat(jinglePath); err != nil {
-		s.alerts.Alert(ctx, notify.Event{
-			Key:     alertKey,
-			Summary: fmt.Sprintf("Jingle missing for station %d", stationID),
-			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
-			Kind:    notify.KindImmediate,
-		})
-		return
-	}
-	s.alerts.Resolve(ctx, alertKey, fmt.Sprintf("Jingle available again for station %d", stationID),
-		fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 }
 
 // ParseTargetDate parses YYYY-MM-DD in the local timezone.
