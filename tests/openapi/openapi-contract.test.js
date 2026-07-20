@@ -208,18 +208,11 @@ describe('OpenAPI Contract', () => {
       sparseListScenario('GET', '/api/v1/stories', '/stories', ['id', 'title', 'status']),
       trackedApiScenario('POST', '/api/v1/stories', '/stories', () => storyBody('Contract Created Story'), 'stories'),
       rawScenario('GET', '/api/v1/stories/{id}/audio', () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`, { responseType: 'arraybuffer' }),
-      scenario('GET', '/api/v1/stories/{id}/audio', async () => {
-          const response = await rawCall(
-            'GET',
-            '/api/v1/stories/{id}/audio',
-            `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
-            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
-          );
-          expect(response.status).toBe(206);
-          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
-          expect(response.headers['accept-ranges']).toBe('bytes');
-          return response;
-        }, 'GET /api/v1/stories/{id}/audio byte range'),
+      byteRangeScenario(
+        '/api/v1/stories/{id}/audio',
+        () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`,
+        response => expect(response.headers['accept-ranges']).toBe('bytes')
+      ),
       scenario('GET', '/api/v1/stories/{id}/audio', async () => {
           const response = await rawCall(
             'GET',
@@ -297,20 +290,12 @@ describe('OpenAPI Contract', () => {
           full_name: 'Contract Updated User',
           role: 'editor'
         }),
-      scenario('PUT', '/api/v1/users/{id}', async () => {
-          const onlyNullBody = { email: null, suspended: null };
-          expect(() => validator.validateRequest({
-            method: 'PUT',
-            operationPath: '/api/v1/users/{id}',
-            body: onlyNullBody
-          })).toThrow(/does not match schema/);
-
-          const response = await global.api.apiCall('PUT', `/users/${ctx.user.id}`, onlyNullBody);
-          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/users/{id}', response });
-          expect(response.status).toBe(400);
-          expect(response.data.code).toBe('user.validation_failed');
-          return response;
-        }, 'PUT /api/v1/users/{id} only-null update'),
+      onlyNullUpdateScenario(
+        '/api/v1/users/{id}',
+        () => `/users/${ctx.user.id}`,
+        { email: null, suspended: null },
+        { status: 400, code: 'user.validation_failed' }
+      ),
       scenario('DELETE', '/api/v1/users/{id}', async () => {
           const createResponse = await global.api.apiCall('POST', '/users', userBody('delete'));
           expect(createResponse.status).toBe(201);
@@ -342,32 +327,14 @@ describe('OpenAPI Contract', () => {
           expect(response.data.code).toBe('bulletin.no_stories');
           return response;
         }, 'POST /api/v1/stations/{id}/bulletins without stories'),
-      scenario('PUT', '/api/v1/stories/{id}', async () => {
-          const onlyNullBody = { title: null, text: null };
-          expect(() => validator.validateRequest({
-            method: 'PUT',
-            operationPath: '/api/v1/stories/{id}',
-            body: onlyNullBody
-          })).toThrow(/does not match schema/);
-
-          const response = await global.api.apiCall('PUT', `/stories/${ctx.story.id}`, onlyNullBody);
-          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/stories/{id}', response });
-          expect(response.status).toBe(422);
-          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
-          return response;
-        }, 'PUT /api/v1/stories/{id} only-null update'),
+      onlyNullUpdateScenario(
+        '/api/v1/stories/{id}',
+        () => `/stories/${ctx.story.id}`,
+        { title: null, text: null },
+        { status: 422, type: 'https://babbel.api/problems/validation-error' }
+      ),
       rawScenario('GET', '/api/v1/bulletins/{id}/audio', () => `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`, { responseType: 'arraybuffer' }),
-      scenario('GET', '/api/v1/bulletins/{id}/audio', async () => {
-          const response = await rawCall(
-            'GET',
-            '/api/v1/bulletins/{id}/audio',
-            `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`,
-            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
-          );
-          expect(response.status).toBe(206);
-          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
-          return response;
-        }, 'GET /api/v1/bulletins/{id}/audio byte range'),
+      byteRangeScenario('/api/v1/bulletins/{id}/audio', () => `${global.api.apiUrl}/bulletins/${ctx.bulletin.id}/audio`),
       apiScenario('GET', '/api/v1/bulletins/{id}/stories', () => `/bulletins/${ctx.bulletin.id}/stories`),
       sparseListScenario('GET', '/api/v1/station-voices', '/station-voices', ['id', 'station_name', 'voice_name', 'mix_point']),
       scenario('POST', '/api/v1/station-voices', async () => {
@@ -385,34 +352,16 @@ describe('OpenAPI Contract', () => {
           return response;
         }),
       rawScenario('GET', '/api/v1/station-voices/{id}/audio', () => `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`, { responseType: 'arraybuffer' }),
-      scenario('GET', '/api/v1/station-voices/{id}/audio', async () => {
-          const response = await rawCall(
-            'GET',
-            '/api/v1/station-voices/{id}/audio',
-            `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`,
-            { responseType: 'arraybuffer', headers: { Range: 'bytes=0-99' } }
-          );
-          expect(response.status).toBe(206);
-          expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
-          return response;
-        }, 'GET /api/v1/station-voices/{id}/audio byte range'),
+      byteRangeScenario('/api/v1/station-voices/{id}/audio', () => `${global.api.apiUrl}/station-voices/${ctx.stationVoice.id}/audio`),
       uploadScenario('/api/v1/station-voices/{id}/audio', () => `/station-voices/${ctx.stationVoice.id}/audio`, 'jingle', { jingle: 'contract.wav' }),
       apiScenario('GET', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`),
       apiScenario('PUT', '/api/v1/station-voices/{id}', () => `/station-voices/${ctx.stationVoice.id}`, { mix_point: 2.25 }),
-      scenario('PUT', '/api/v1/station-voices/{id}', async () => {
-          const onlyNullBody = { mix_point: null };
-          expect(() => validator.validateRequest({
-            method: 'PUT',
-            operationPath: '/api/v1/station-voices/{id}',
-            body: onlyNullBody
-          })).toThrow(/does not match schema/);
-
-          const response = await global.api.apiCall('PUT', `/station-voices/${ctx.stationVoice.id}`, onlyNullBody);
-          validator.validateResponse({ method: 'PUT', operationPath: '/api/v1/station-voices/{id}', response });
-          expect(response.status).toBe(422);
-          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
-          return response;
-        }, 'PUT /api/v1/station-voices/{id} only-null update'),
+      onlyNullUpdateScenario(
+        '/api/v1/station-voices/{id}',
+        () => `/station-voices/${ctx.stationVoice.id}`,
+        { mix_point: null },
+        { status: 422, type: 'https://babbel.api/problems/validation-error' }
+      ),
       scenario('DELETE', '/api/v1/station-voices/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Delete Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Delete Voice');
@@ -457,6 +406,45 @@ describe('OpenAPI Contract', () => {
     return scenario('POST', operationPath, () => uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody));
   }
 
+  function byteRangeScenario(operationPath, url, extraAssertions) {
+    return scenario('GET', operationPath, async () => {
+      const response = await rawCall('GET', operationPath, resolve(url), {
+        responseType: 'arraybuffer',
+        headers: { Range: 'bytes=0-99' }
+      });
+      expect(response.status).toBe(206);
+      expect(response.headers['content-range']).toMatch(/^bytes 0-99\//);
+      if (extraAssertions) {
+        extraAssertions(response);
+      }
+      return response;
+    }, `GET ${operationPath} byte range`);
+  }
+
+  // An update body whose provided values are all null must be rejected both by
+  // the spec (validateRequest throws) and by the server with the documented
+  // problem response.
+  function onlyNullUpdateScenario(operationPath, endpoint, onlyNullBody, { status, type, code }) {
+    return scenario('PUT', operationPath, async () => {
+      expect(() => validator.validateRequest({
+        method: 'PUT',
+        operationPath,
+        body: onlyNullBody
+      })).toThrow(/does not match schema/);
+
+      const response = await global.api.apiCall('PUT', resolve(endpoint), onlyNullBody);
+      validator.validateResponse({ method: 'PUT', operationPath, response });
+      expect(response.status).toBe(status);
+      if (type !== undefined) {
+        expect(response.data.type).toBe(type);
+      }
+      if (code !== undefined) {
+        expect(response.data.code).toBe(code);
+      }
+      return response;
+    }, `PUT ${operationPath} only-null update`);
+  }
+
   // Runs the full (schema-validated) list call first, then re-runs the same
   // query with sparse fieldsets. The sparse response is checked for exact key
   // selection but not schema-validated: sparse responses intentionally omit
@@ -495,17 +483,16 @@ describe('OpenAPI Contract', () => {
     return response;
   }
 
+  // Works for both relative endpoints ('/stations?limit=5') and full URLs.
   function queryParamsFromEndpoint(endpoint) {
-    const queryIndex = endpoint.indexOf('?');
-    if (queryIndex === -1) {
-      return {};
-    }
-    return Object.fromEntries(new URLSearchParams(endpoint.slice(queryIndex + 1)));
+    return Object.fromEntries(new URL(endpoint, 'http://placeholder').searchParams);
   }
 
   // Extracts path parameter values by aligning the operation template with the
   // called endpoint from the right, so prefixes like /api/v1 or a full base
-  // URL path do not need to match.
+  // URL path do not need to match. Literal segments covered by the endpoint
+  // must match, so a scenario wired to the wrong operation fails loudly
+  // instead of validating no parameters at all.
   function pathParamsFromEndpoint(operationPath, endpoint) {
     const templateSegments = operationPath.split('/').filter(Boolean);
     const endpointSegments = endpoint.split('?')[0].split('/').filter(Boolean);
@@ -515,20 +502,23 @@ describe('OpenAPI Contract', () => {
     templateSegments.forEach((segment, index) => {
       const match = segment.match(/^\{(.+)\}$/);
       const value = endpointSegments[index + offset];
-      if (match && value !== undefined) {
-        params[match[1]] = value;
+      if (match) {
+        if (value !== undefined) {
+          params[match[1]] = value;
+        }
+      } else if (index + offset >= 0 && value !== segment) {
+        throw new Error(`endpoint ${endpoint} does not match operation path ${operationPath}`);
       }
     });
     return params;
   }
 
   async function rawCall(method, operationPath, url, options = {}) {
-    const parsedUrl = new URL(url);
     validator.validateRequestParameters({
       method,
       operationPath,
-      pathParams: pathParamsFromEndpoint(operationPath, parsedUrl.pathname),
-      query: Object.fromEntries(parsedUrl.searchParams),
+      pathParams: pathParamsFromEndpoint(operationPath, new URL(url).pathname),
+      query: queryParamsFromEndpoint(url),
       headers: options.headers || {}
     });
 
@@ -678,11 +668,17 @@ function createWavFixture() {
 }
 
 // Creates a file just over the documented 100 MB upload limit. The content is
-// irrelevant: the server rejects the upload on size before any processing.
+// irrelevant (the server rejects the upload on size before any processing), so
+// a sparse file avoids allocating and writing 100 MB of zeroes.
 function createOversizedWavFixture() {
   const filePath = path.join(os.tmpdir(), `babbel-contract-oversized-${process.pid}-${Date.now()}.wav`);
   const oversizedBytes = 100 * 1024 * 1024 + 1024;
-  fs.writeFileSync(filePath, Buffer.alloc(oversizedBytes));
+  const fd = fs.openSync(filePath, 'w');
+  try {
+    fs.ftruncateSync(fd, oversizedBytes);
+  } finally {
+    fs.closeSync(fd);
+  }
   return filePath;
 }
 
