@@ -112,9 +112,13 @@ describe('OpenAPI Contract', () => {
           expect(createResponse.status).toBe(201);
           global.resources.track('users', createResponse.data.id);
 
-          const viewerLogin = await global.api.apiLogin(viewer.username, viewer.password);
-          expect(viewerLogin.status).toBe(201);
+          // The viewer login swaps the shared session, so it must run inside
+          // the try: the finally has to restore the admin session even when
+          // the login itself fails.
           try {
+            const viewerLogin = await global.api.apiLogin(viewer.username, viewer.password);
+            expect(viewerLogin.status).toBe(201);
+
             const response = await global.api.apiCall('GET', '/users');
             validator.validateResponse({ method: 'GET', operationPath: '/api/v1/users', response });
             expect(response.status).toBe(403);
