@@ -86,6 +86,8 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		utils.ProblemAuthentication(c, "Invalid API key")
 		return nil
 	}
+	h.alerts.Resolve(c.Request.Context(), "security:automation-key",
+		"Radio automation key accepted again", "A request supplied the configured radio automation key.")
 
 	stationIDStr := c.Param("id")
 	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)

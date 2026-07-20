@@ -449,6 +449,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	return s.ProcessAudio(ctx, storyID, tempPath)
 }
 
+// alertTTSError maps operational TTS failures to stable alert categories.
 func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
 	event := notify.Event{
 		Key:     "tts:upstream",
@@ -472,6 +473,7 @@ func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err err
 	s.alerts.Alert(ctx, event)
 }
 
+// resolveTTSAlerts clears each TTS incident category after a successful request.
 func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
 	s.alerts.Resolve(ctx, "tts:credentials", "ElevenLabs credentials recovered", "TTS generation succeeded again.")
 	s.alerts.Resolve(ctx, "tts:rate-limit", "ElevenLabs capacity recovered", "TTS generation succeeded again.")

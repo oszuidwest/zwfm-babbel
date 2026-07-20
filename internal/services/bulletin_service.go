@@ -306,6 +306,7 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 	return kept
 }
 
+// reportVoiceConsistency maintains one multi-voice alert per station.
 func (s *BulletinService) reportVoiceConsistency(
 	ctx context.Context, stationID int64, stories []repository.BulletinStoryData,
 ) {
@@ -343,32 +344,28 @@ func (s *BulletinService) reportVoiceConsistency(
 // station-voice jingle file is unreadable. The audio layer itself stays
 // notify-free and silently mixes without a bed in both cases.
 func (s *BulletinService) reportJingleAvailability(ctx context.Context, stationID int64, jingle audio.JingleContext) {
-	noVoiceKey := fmt.Sprintf("bulletin:missing-jingle:station:%d:no-voice", stationID)
+	alertKey := fmt.Sprintf("bulletin:missing-jingle:station:%d", stationID)
 	if jingle.VoiceID == nil {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:     noVoiceKey,
+			Key:     alertKey,
 			Summary: fmt.Sprintf("Bulletin for station %d has no jingle voice", stationID),
 			Details: "The bulletin was generated without a jingle because its selected story has no voice.",
 			Kind:    notify.KindImmediate,
 		})
 		return
 	}
-	s.alerts.Resolve(ctx, noVoiceKey,
-		fmt.Sprintf("Bulletin voice restored for station %d", stationID),
-		fmt.Sprintf("Voice %d is selected for the bulletin jingle again.", *jingle.VoiceID))
 
 	jinglePath := utils.JinglePath(s.config, stationID, *jingle.VoiceID)
-	missingKey := fmt.Sprintf("bulletin:missing-jingle:station:%d:voice:%d", stationID, *jingle.VoiceID)
 	if _, err := os.Stat(jinglePath); err != nil {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:     missingKey,
+			Key:     alertKey,
 			Summary: fmt.Sprintf("Jingle missing for station %d", stationID),
 			Details: fmt.Sprintf("Voice %d has no readable jingle at %s: %v. The bulletin was generated without a bed.", *jingle.VoiceID, jinglePath, err),
 			Kind:    notify.KindImmediate,
 		})
 		return
 	}
-	s.alerts.Resolve(ctx, missingKey, fmt.Sprintf("Jingle available again for station %d", stationID),
+	s.alerts.Resolve(ctx, alertKey, fmt.Sprintf("Jingle available again for station %d", stationID),
 		fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 }
 

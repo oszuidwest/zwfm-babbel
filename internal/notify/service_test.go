@@ -125,6 +125,27 @@ func TestServiceResolveClearsFailuresBeforeThreshold(t *testing.T) {
 	mailer.waitForCount(t, 1)
 }
 
+func TestServicePreservesActiveAlertUntilRecovery(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc, mailer := newTestService(&now)
+	defer svc.Close()
+	active := Event{Key: "storage:output", Summary: "Storage unavailable", Kind: KindImmediate}
+
+	svc.Alert(t.Context(), active)
+	mailer.waitForCount(t, 1)
+
+	// Trigger pruning well beyond the normal retention period with an unrelated,
+	// below-threshold incident. Active state must survive until Resolve observes it.
+	now = now.Add(3 * time.Hour)
+	svc.Alert(t.Context(), Event{Key: "database:other", Summary: "Other failure", Kind: KindContinuous})
+	svc.Resolve(t.Context(), active.Key, "Storage recovered", "output is available again")
+
+	mailer.waitForCount(t, 2)
+	if got := mailer.messages[1].subject; got != "[OK] Storage recovered - Babbel" {
+		t.Fatalf("recovery subject = %q, want active-alert recovery", got)
+	}
+}
+
 func TestServiceImmediateAlertsAreIsolatedByKey(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, mailer := newTestService(&now)

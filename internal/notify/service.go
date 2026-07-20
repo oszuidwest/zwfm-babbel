@@ -185,6 +185,7 @@ func (s *Service) Close() {
 	s.work.Wait()
 }
 
+// sendAsync queues a bounded background delivery that survives request cancellation.
 func (s *Service) sendAsync(parent context.Context, subject, body string) {
 	s.workMu.Lock()
 	defer s.workMu.Unlock()
@@ -204,15 +205,18 @@ func (s *Service) sendAsync(parent context.Context, subject, body string) {
 	})
 }
 
+// pruneStates removes stale inactive incidents while retaining active incidents
+// until their corresponding recovery is observed.
 func (s *Service) pruneStates(now time.Time) {
 	retention := max(s.config.Cooldown, s.config.FailureWindow) * 2
 	for key, state := range s.states {
-		if now.Sub(state.lastSeen) > retention {
+		if !state.isActive && now.Sub(state.lastSeen) > retention {
 			delete(s.states, key)
 		}
 	}
 }
 
+// send delegates a formatted message to the configured mail transport.
 func (s *Service) send(ctx context.Context, subject, body string) error {
 	return s.mailer.SendMail(ctx, s.recipients, subject, body)
 }

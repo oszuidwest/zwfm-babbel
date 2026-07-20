@@ -14,6 +14,7 @@ import (
 // /health endpoint use it, so one connection loss produces one alert/recovery
 // pair regardless of which path observes it first.
 func CheckDatabase(ctx context.Context, db *gorm.DB, alerts notify.Alerter) error {
+	alerts = notify.OrDiscard(alerts)
 	sqlDB, err := db.DB()
 	if err == nil {
 		err = sqlDB.PingContext(ctx)
@@ -51,6 +52,7 @@ func (s *DatabaseHealthService) Start() { s.runner.Start() }
 // Stop gracefully shuts down the health monitor.
 func (s *DatabaseHealthService) Stop() { s.runner.Stop() }
 
+// check delegates database-specific alerting without raising a duplicate runner alert.
 func (s *DatabaseHealthService) check(ctx context.Context) error {
 	// CheckDatabase alerts under the shared "database:connection" key; always
 	// return nil so the runner does not raise a duplicate generic alert.

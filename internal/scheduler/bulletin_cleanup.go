@@ -79,6 +79,7 @@ type purgeStats struct {
 	bytesFreed int64
 }
 
+// purgeExpiredBulletins removes retained files and records independent failures.
 func (s *BulletinCleanupService) purgeExpiredBulletins(
 	ctx context.Context, bulletins []models.Bulletin,
 ) (purgeStats, error) {
@@ -136,7 +137,9 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 			Key: "storage:bulletin-output", Summary: "Bulletin output directory is unreadable",
 			Details: fmt.Sprintf("%s: %v", outputDir, err), Kind: notify.KindImmediate,
 		})
-		return 0, 0, err
+		// The storage-specific alert owns this failure and its recovery. Returning
+		// it would also activate the runner's generic cleanup alert.
+		return 0, 0, nil
 	}
 	s.alerts.Resolve(ctx, "storage:bulletin-output", "Bulletin output directory recovered", "The output directory is readable again.")
 

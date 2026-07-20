@@ -42,6 +42,8 @@ func main() {
 	}
 }
 
+// run initializes the application, serves until shutdown, and closes services
+// in dependency order.
 func run() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -118,6 +120,7 @@ func handleVersionFlag() bool {
 	return false
 }
 
+// validateConfig validates settings and creates the required audio directories.
 func validateConfig(cfg *config.Config) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate configuration: %w", err)
@@ -131,6 +134,7 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
+// initLogger configures structured logging for the selected environment.
 func initLogger(cfg *config.Config) error {
 	logLevel := "info"
 	if cfg.LogLevel >= debugLogLevel {
@@ -142,6 +146,7 @@ func initLogger(cfg *config.Config) error {
 	return nil
 }
 
+// closeDatabase closes the underlying SQL pool and reports shutdown failures.
 func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -165,6 +170,7 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 	}
 }
 
+// startServer serves in the background and reports unexpected listener errors.
 func startServer(srv *http.Server, cfg *config.Config) <-chan error {
 	serverErr := make(chan error, 1)
 	go func() {
@@ -176,6 +182,7 @@ func startServer(srv *http.Server, cfg *config.Config) <-chan error {
 	return serverErr
 }
 
+// waitForShutdown blocks until an OS termination signal or server failure.
 func waitForShutdown(serverErr <-chan error) error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -188,6 +195,7 @@ func waitForShutdown(serverErr <-chan error) error {
 	}
 }
 
+// shutdownServer drains active HTTP requests within the shutdown timeout.
 func shutdownServer(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -198,6 +206,7 @@ func shutdownServer(srv *http.Server) error {
 	return nil
 }
 
+// notifyCritical synchronously reports a fatal lifecycle error before exit.
 func notifyCritical(alerts *notify.Service, key, summary string, err error) {
 	if err == nil {
 		return

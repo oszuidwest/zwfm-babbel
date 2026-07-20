@@ -26,7 +26,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-const oidcDiscoveryTimeout = 30 * time.Second
+const (
+	oidcDiscoveryTimeout      = 30 * time.Second
+	oauthInvalidStateAlertKey = "security:oauth:invalid-state"
+	oauthMissingIDAlertKey    = "security:oauth:missing-id-token"
+	oauthInvalidTokenAlertKey = "security:oauth:invalid-id-token"
+)
 
 // Service handles authentication and authorization.
 type Service struct {
@@ -360,7 +365,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 			logger.Error("Failed to update login failure stats", "error", updateErr)
 		} else if locked {
 			s.alerts.Alert(ctx, notify.Event{
-				Key:     fmt.Sprintf("security:account-lockout:user:%d", user.ID),
+				Key:     accountLockoutAlertKey(user.ID),
 				Summary: "Account locked after repeated failed logins",
 				Details: fmt.Sprintf("User ID %d reached the configured failed-login threshold.", user.ID),
 				Kind:    notify.KindImmediate,
@@ -372,6 +377,8 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
+	s.alerts.Resolve(ctx, accountLockoutAlertKey(user.ID),
+		"Account lockout cleared", fmt.Sprintf("User ID %d successfully logged in again.", user.ID))
 
 	return s.CreateSession(c, user.ID)
 }
@@ -415,13 +422,15 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	savedStateStr, ok := SessionOAuthState(session)
 	if !ok || state != savedStateStr {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     "security:oauth:invalid-state",
+			Key:     oauthInvalidStateAlertKey,
 			Summary: "OAuth callback has an invalid CSRF state",
 			Details: "The OAuth callback state was missing or did not match the server-side session.",
 			Kind:    notify.KindImmediate,
 		})
 		return fmt.Errorf("invalid state")
 	}
+	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
+		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
 	session.Delete(string(SessKeyOAuthState))
 
 	code := c.Query("code")
@@ -436,11 +445,13 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
-			Key: "security:oauth:missing-id-token", Summary: "OAuth response is missing an ID token",
+			Key: oauthMissingIDAlertKey, Summary: "OAuth response is missing an ID token",
 			Details: "The identity provider returned no usable id_token.", Kind: notify.KindImmediate,
 		})
 		return fmt.Errorf("no id_token in response")
 	}
+	s.alerts.Resolve(c.Request.Context(), oauthMissingIDAlertKey,
+		"OAuth ID token restored", "The identity provider returned an ID token again.")
 
 	verifier := s.config.OIDC.Provider.Verifier(&oidc.Config{
 		ClientID: s.config.OIDC.ClientID,
@@ -449,11 +460,13 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
-			Key: "security:oauth:invalid-id-token", Summary: "OAuth ID token verification failed",
+			Key: oauthInvalidTokenAlertKey, Summary: "OAuth ID token verification failed",
 			Details: err.Error(), Kind: notify.KindImmediate,
 		})
 		return fmt.Errorf("failed to verify ID token: %w", err)
 	}
+	s.alerts.Resolve(c.Request.Context(), oauthInvalidTokenAlertKey,
+		"OAuth ID token verification recovered", "The identity provider returned a verifiable ID token again.")
 
 	var claims struct {
 		Email             string `json:"email"`
@@ -594,6 +607,11 @@ func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
 		logger.Error("Failed to update login stats", "error", err)
 	}
 	return err
+}
+
+// accountLockoutAlertKey isolates lockout state per user.
+func accountLockoutAlertKey(userID int64) string {
+	return fmt.Sprintf("security:account-lockout:user:%d", userID)
 }
 
 // updateLoginFailure atomically increments failed login attempts and applies

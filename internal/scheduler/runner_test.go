@@ -24,8 +24,12 @@ func (a *schedulerAlertRecorder) Resolve(_ context.Context, key, _, _ string) {
 
 func TestRunnerRecoversPanicAndAlerts(t *testing.T) {
 	alerts := &schedulerAlertRecorder{}
+	shouldPanic := true
 	runner := newRunner("test job", time.Hour, time.Second, func(context.Context) error {
-		panic("boom")
+		if shouldPanic {
+			panic("boom")
+		}
+		return nil
 	}, alerts)
 
 	runner.runOnce()
@@ -36,6 +40,21 @@ func TestRunnerRecoversPanicAndAlerts(t *testing.T) {
 	if event.Key != "scheduler:panic:test job" || event.Kind != notify.KindImmediate {
 		t.Fatalf("event = %+v", event)
 	}
+
+	shouldPanic = false
+	runner.runOnce()
+	if !containsString(alerts.resolved, "scheduler:panic:test job") {
+		t.Fatalf("resolved = %v, want scheduler panic recovery", alerts.resolved)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
@@ -56,7 +75,7 @@ func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
 
 	runner.fn = func(context.Context) error { return nil }
 	runner.runOnce()
-	if len(alerts.resolved) != 1 || alerts.resolved[0] != "scheduler:test job" {
-		t.Fatalf("resolved = %v, want [scheduler:test job]", alerts.resolved)
+	if !containsString(alerts.resolved, "scheduler:test job") {
+		t.Fatalf("resolved = %v, want scheduler job recovery", alerts.resolved)
 	}
 }

@@ -218,3 +218,20 @@ func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationMiddlewareAcceptsNilAlerter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(NotificationMiddleware(nil))
+	router.GET("/health", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil)
+	router.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}

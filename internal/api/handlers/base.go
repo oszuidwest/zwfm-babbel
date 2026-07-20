@@ -222,6 +222,7 @@ func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 // and clears request-scoped alert state after a successful response.
 // Register it only when notifications are configured.
 func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
+	alerts = notify.OrDiscard(alerts)
 	return func(c *gin.Context) {
 		c.Set(alertContextKey, alerts)
 		c.Next()
@@ -236,6 +237,8 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 	}
 }
 
+// alertRequestFailure reports an operational request failure when middleware
+// installed an alerter in the Gin context.
 func alertRequestFailure(c *gin.Context, event notify.Event) {
 	value, ok := c.Get(alertContextKey)
 	if !ok {
@@ -247,6 +250,7 @@ func alertRequestFailure(c *gin.Context, event notify.Event) {
 	}
 }
 
+// routeKey returns a stable method-and-route key without request parameters.
 func routeKey(c *gin.Context) string {
 	if route := c.FullPath(); route != "" {
 		return c.Request.Method + " " + route

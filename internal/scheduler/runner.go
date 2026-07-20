@@ -83,6 +83,8 @@ func (r *runner) runOnce() {
 	}
 	r.alerts.Resolve(ctx, "scheduler:"+r.name,
 		"Scheduler job recovered: "+r.name, "The "+r.name+" completed successfully again.")
+	r.alerts.Resolve(ctx, "scheduler:panic:"+r.name,
+		"Scheduler job recovered after panic: "+r.name, "The "+r.name+" completed successfully again.")
 }
 
 // Stop gracefully shuts down the runner.

@@ -268,6 +268,7 @@ func (c *Config) validateNotifications() error {
 	return validateNotificationPolicy(n)
 }
 
+// hasGraphConfiguration reports whether any required Graph setting is present.
 func hasGraphConfiguration(g *GraphConfig) bool {
 	for _, setting := range g.requiredSettings() {
 		if strings.TrimSpace(setting.value) != "" {
@@ -277,6 +278,7 @@ func hasGraphConfiguration(g *GraphConfig) bool {
 	return false
 }
 
+// validateGraphIdentifiers requires all Graph settings and validates GUIDs.
 func validateGraphIdentifiers(g *GraphConfig) error {
 	for _, setting := range g.requiredSettings() {
 		if strings.TrimSpace(setting.value) == "" {
@@ -292,6 +294,7 @@ func validateGraphIdentifiers(g *GraphConfig) error {
 	return nil
 }
 
+// validateGraphAddresses validates the sender and recipient mailbox addresses.
 func validateGraphAddresses(g *GraphConfig) error {
 	from, err := mail.ParseAddress(g.FromAddress)
 	if err != nil {
@@ -316,6 +319,7 @@ func validateGraphAddresses(g *GraphConfig) error {
 	return nil
 }
 
+// validateNotificationPolicy checks threshold, window, and cooldown bounds.
 func validateNotificationPolicy(n *NotificationConfig) error {
 	if n.Cooldown <= 0 {
 		return errors.New("BABBEL_NOTIFICATIONS_COOLDOWN must be greater than zero")

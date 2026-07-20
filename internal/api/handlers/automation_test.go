@@ -12,14 +12,17 @@ import (
 )
 
 type automationAlertRecorder struct {
-	events []notify.Event
+	events   []notify.Event
+	resolved []string
 }
 
 func (a *automationAlertRecorder) Alert(_ context.Context, event notify.Event) {
 	a.events = append(a.events, event)
 }
 
-func (a *automationAlertRecorder) Resolve(context.Context, string, string, string) {}
+func (a *automationAlertRecorder) Resolve(_ context.Context, key, _, _ string) {
+	a.resolved = append(a.resolved, key)
+}
 
 func TestAutomationHandlerInvalidKeyRaisesContinuousSecurityAlert(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -43,5 +46,25 @@ func TestAutomationHandlerInvalidKeyRaisesContinuousSecurityAlert(t *testing.T) 
 	event := alerts.events[0]
 	if event.Key != "security:automation-key" || event.Kind != notify.KindContinuous {
 		t.Fatalf("event = %+v", event)
+	}
+}
+
+func TestAutomationHandlerValidKeyResolvesSecurityAlert(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	alerts := &automationAlertRecorder{}
+	handler := NewAutomationHandler(nil, nil, &config.Config{
+		Automation: config.AutomationConfig{Key: "expected"},
+	}, alerts)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Params = gin.Params{{Key: "id", Value: "1"}}
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet,
+		"/public/stations/1/bulletin.wav?key=expected&max_age=0", nil)
+
+	if request := handler.validateBulletinRequest(c); request == nil {
+		t.Fatal("request = nil, want validated request")
+	}
+	if len(alerts.resolved) != 1 || alerts.resolved[0] != "security:automation-key" {
+		t.Fatalf("resolved = %v, want [security:automation-key]", alerts.resolved)
 	}
 }
