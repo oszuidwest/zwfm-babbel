@@ -978,23 +978,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - data
-                  - total
-                  - limit
-                  - offset
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Story'
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                $ref: '#/components/schemas/StoriesListResponse'
               examples:
                 basic_list:
                   summary: Basic story list
@@ -1683,23 +1667,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - data
-                  - total
-                  - limit
-                  - offset
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/User'
-                  total:
-                    type: integer
-                  limit:
-                    type: integer
-                  offset:
-                    type: integer
+                $ref: '#/components/schemas/UsersListResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -3337,6 +3305,8 @@ components:
         null values is rejected.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       not:
+        # Must list every updatable field; a unit test keeps this in sync with
+        # the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           station_id:
@@ -3518,6 +3488,8 @@ components:
         null values is rejected.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       not:
+        # Must list every updatable field; a unit test keeps this in sync with
+        # the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           title:
@@ -3702,6 +3674,8 @@ components:
         object containing only null values is rejected.
       minProperties: 1
       not:
+        # Must list every updatable field; a unit test keeps this in sync with
+        # the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           username:
@@ -4074,6 +4048,52 @@ components:
         total:
           type: integer
           description: Total number of bulletins that included this story
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    StoriesListResponse:
+      type: object
+      description: Paginated response for stories list endpoint
+      required:
+        - data
+        - total
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Story'
+        total:
+          type: integer
+          description: Total number of stories matching the query
+        limit:
+          type: integer
+          description: Maximum number of items per page
+        offset:
+          type: integer
+          description: Number of items skipped for pagination
+
+    UsersListResponse:
+      type: object
+      description: Paginated response for users list endpoint
+      required:
+        - data
+        - total
+        - limit
+        - offset
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+          description: Total number of users matching the query
         limit:
           type: integer
           description: Maximum number of items per page
