@@ -159,6 +159,30 @@ describe('OpenAPI Contract', () => {
           const zeroStation = await apiCall('GET', '/api/v1/stations/{id}', `/stations/${explicitZero.data.id}`);
           expect(zeroStation.data.pause_seconds).toBe(0);
 
+          // PUT applies the same semantics. Start from a non-default value so
+          // both update paths are observable.
+          const stationEndpoint = `/stations/${defaulted.data.id}`;
+          const name = defaultedStation.data.name;
+          const nonDefault = await apiCall('PUT', '/api/v1/stations/{id}', stationEndpoint, {
+            name,
+            max_stories_per_block: 4,
+            pause_seconds: 5
+          });
+          expect(nonDefault.data.pause_seconds).toBe(5);
+
+          const putDefaulted = await apiCall('PUT', '/api/v1/stations/{id}', stationEndpoint, {
+            name,
+            max_stories_per_block: 4
+          });
+          expect(putDefaulted.data.pause_seconds).toBe(2);
+
+          const putZero = await apiCall('PUT', '/api/v1/stations/{id}', stationEndpoint, {
+            name,
+            max_stories_per_block: 4,
+            pause_seconds: 0
+          });
+          expect(putZero.data.pause_seconds).toBe(0);
+
           return defaulted;
         }, 'POST /api/v1/stations pause_seconds default'),
       apiScenario('GET', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`),
