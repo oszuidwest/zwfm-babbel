@@ -103,9 +103,11 @@ class OpenApiContractValidator {
     const declared = operation.parameters || [];
 
     const sources = {
-      path: pathParams === undefined ? undefined : normalizeKeys(pathParams, false),
-      query: query === undefined ? undefined : normalizeKeys(query, false),
-      header: headers === undefined ? undefined : normalizeKeys(headers, true)
+      path: pathParams,
+      query,
+      header: headers && Object.fromEntries(
+        Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
+      )
     };
 
     for (const parameter of declared) {
@@ -125,7 +127,7 @@ class OpenApiContractValidator {
       }
 
       if (parameter.schema) {
-        this.validateSchema(label, parameter.schema, this.coerceHeaderValue(label, parameter.schema, value));
+        this.validateSchema(label, parameter.schema, this.coerceParameterValue(label, parameter.schema, value));
       }
     }
   }
@@ -191,13 +193,15 @@ class OpenApiContractValidator {
         this.validateSchema(
           `${this.operationKey(method, operationPath)} header ${headerName}`,
           headerSpec.schema,
-          this.coerceHeaderValue(`${this.operationKey(method, operationPath)} header ${headerName}`, headerSpec.schema, value)
+          this.coerceParameterValue(`${this.operationKey(method, operationPath)} header ${headerName}`, headerSpec.schema, value)
         );
       }
     }
   }
 
-  coerceHeaderValue(label, schema, value) {
+  // Coerces a parameter or header value from its transport string form to the
+  // primitive type its schema declares.
+  coerceParameterValue(label, schema, value) {
     if (schema.type === 'integer') {
       if (!/^-?\d+$/.test(String(value))) {
         throw new Error(`${label} has invalid integer value ${JSON.stringify(value)}`);
@@ -297,14 +301,6 @@ class OpenApiContractValidator {
     }
     return this.compiledSchemas.get(schema);
   }
-}
-
-function normalizeKeys(source, lowercase) {
-  const normalized = {};
-  for (const [key, value] of Object.entries(source || {})) {
-    normalized[lowercase ? key.toLowerCase() : key] = Array.isArray(value) ? value[0] : value;
-  }
-  return normalized;
 }
 
 module.exports = OpenApiContractValidator;

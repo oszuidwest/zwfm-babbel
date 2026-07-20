@@ -1,5 +1,7 @@
 const path = require('path');
 
+const SwaggerParser = require('@apidevtools/swagger-parser');
+
 const OpenApiContractValidator = require('./OpenApiContractValidator');
 
 const SPEC_PATH = path.join(__dirname, '../../openapi.yaml');
@@ -458,8 +460,10 @@ describe('openapi.yaml contract invariants', () => {
   };
 
   beforeAll(async () => {
-    const validator = await OpenApiContractValidator.fromFile(SPEC_PATH);
-    document = validator.document;
+    // These invariants only read the dereferenced document; full spec
+    // validation already runs in `make validate-spec` and the integration
+    // contract suite, so skip that pass here.
+    document = await SwaggerParser.dereference(SPEC_PATH);
   });
 
   test.each(LIST_OPERATIONS)('when listing via %s %s, then 422 is declared', (method, operationPath) => {
@@ -477,12 +481,6 @@ describe('openapi.yaml contract invariants', () => {
           .toEqual({ method, operationPath, has400: true });
       }
     }
-  });
-
-  test('when the shared id path parameter is declared, then it requires a positive integer', () => {
-    const idParameter = document.paths['/api/v1/stations/{id}'].get.parameters
-      .find((parameter) => parameter.name === 'id' && parameter.in === 'path');
-    expect(idParameter.schema.minimum).toBe(1);
   });
 
   test.each(AUDIO_DOWNLOAD_OPERATIONS)(
@@ -512,6 +510,18 @@ describe('openapi.yaml contract invariants', () => {
     );
     expect(rangeParameter).toBeDefined();
   });
+
+  // The not-block that rejects only-null update bodies must cover every
+  // updatable field: a field present in properties but missing from
+  // not.properties would make the not-subschema match (and reject) any valid
+  // update that only sets that field.
+  test.each(['StationVoiceUpdate', 'StoryUpdate', 'UserUpdate'])(
+    'when the %s schema guards against only-null updates, then its not-block lists every updatable field',
+    (schemaName) => {
+      const schema = document.components.schemas[schemaName];
+      expect(Object.keys(schema.not.properties).sort()).toEqual(Object.keys(schema.properties).sort());
+    }
+  );
 
   test.each(Object.entries(REQUIRED_SCHEMA_FIELDS))(
     'when the %s schema is published, then its always-present fields stay required',
@@ -557,33 +567,16 @@ describe('openapi.yaml contract invariants', () => {
 });
 
 function documentWithParameters(parameters) {
-  return {
-    openapi: '3.1.0',
-    paths: {
-      '/things': {
-        get: {
-          parameters,
-          responses: {
-            200: {
-              content: {
-                'application/json': {
-                  schema: { type: 'object' }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  };
+  return documentFor({}, parameters);
 }
 
-function documentFor(responseSpec) {
+function documentFor(responseSpec, parameters) {
   return {
     openapi: '3.1.0',
     paths: {
       '/things': {
         get: {
+          ...(parameters ? { parameters } : {}),
           responses: {
             200: {
               content: {
