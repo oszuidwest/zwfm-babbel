@@ -1,69 +1,69 @@
 # Babbel
 
-Headless REST API for generating audio news bulletins. Combines news stories with station jingles to create ready-to-air audio files for radio automation systems.
+Babbel is a headless REST API that makes audio news bulletins. Babbel mixes news stories with station jingles. The result is an audio file that is ready for broadcast through a radio automation system.
 
 ## Overview
 
-Babbel is designed for integration with newsroom workflows and radio automation systems. It provides a REST API for managing news bulletin generation for radio stations with station-specific audio branding.
+Babbel connects to newsroom workflows and radio automation systems. It supplies a REST API that controls bulletin generation for radio stations. Each station can have its own audio branding.
 
 ## Features
 
 ### Core Functionality
-- **RESTful API** - Complete REST API with OpenAPI 3.1 specification in `openapi.yaml`
-- **Multi-station support** - Manage multiple radio stations with individual configurations
-- **Voice management** - Multiple newsreaders with station-specific jingles
-- **Text-to-speech** - ElevenLabs integration with global API-managed settings for automated story audio generation
-- **Story scheduling** - Date ranges and weekday-specific scheduling
-- **Bulletin generation** - Automated audio mixing with caching
-- **Direct audio URLs** - Radio automation systems can fetch bulletins directly
+- **RESTful API** - A complete REST API with an OpenAPI 3.1 specification in `openapi.yaml`
+- **Multi-station support** - Control of multiple radio stations, each with its own configuration
+- **Voice management** - Multiple newsreaders, each with jingles for each station
+- **Text-to-speech** - An ElevenLabs connection that makes story audio automatically; the API controls the global settings
+- **Story scheduling** - A date range and a weekday schedule for each story
+- **Bulletin generation** - Automatic audio mixing with a cache
+- **Direct audio URLs** - Radio automation systems can get the bulletins directly
 
 ### Technical Features
-- **Authentication** - Local auth with bcrypt or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta)
-- **Authorization** - Role-based access control with Casbin (admin, editor, viewer roles)
-- **Audio processing** - FFmpeg-based mixing with configurable mix points
-- **Loudness normalization** - EBU R128 s2 compliant (-16 LUFS) for consistent volume
-- **Error handling** - RFC 9457 Problem Details for consistent error responses
-- **Soft delete** - Stories and users support soft deletion with restoration
-- **Session management** - Secure encrypted cookie sessions
+- **Authentication** - Local accounts with bcrypt, or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta)
+- **Authorization** - Role-based access control with Casbin (admin, editor, and viewer roles)
+- **Audio processing** - Audio mixing with FFmpeg and configurable mix points
+- **Loudness normalization** - Audio levels that agree with EBU R128 s2 (-16 LUFS)
+- **Error handling** - Error responses in the RFC 9457 Problem Details format
+- **Soft delete** - You can delete stories and users temporarily, and you can restore them
+- **Session management** - Sessions in encrypted cookies
 - **CORS support** - Configurable cross-origin resource sharing
 
 ## Installation
 
-See [QUICKSTART.md](QUICKSTART.md) for installation instructions.
+Refer to [QUICKSTART.md](QUICKSTART.md) for the installation instructions.
 
 ## Newsroom Workflow
 
-1. **Setup**: Configure your stations, newsreaders, and optional ElevenLabs TTS settings
-2. **Upload jingles**: Add station-specific intro/outro jingles
-3. **Create stories**: Upload audio or use text-to-speech to generate it
-4. **Generate**: API creates bulletins with appropriate jingles
-5. **Broadcast**: Automation systems fetch bulletins via HTTP
+1. **Setup**: Configure the stations, the newsreaders, and the optional ElevenLabs TTS settings.
+2. **Upload jingles**: Add the intro and outro jingles for each station.
+3. **Create stories**: Upload audio files, or use text-to-speech to make them.
+4. **Generate**: The API makes bulletins with the correct jingles.
+5. **Broadcast**: The automation systems get the bulletins through HTTP.
 
 ## Story Selection
 
-Babbel uses breaking news priority combined with fair rotation to select stories for bulletins. Breaking news is always included when slots are available; remaining slots are filled using rotation to ensure equal airtime.
+Babbel selects stories with breaking-news priority and fair rotation. Babbel always includes breaking news when slots are open. Babbel fills the other slots with the rotation. The rotation gives each story an equal quantity of airtime.
 
 ### How it works
 
-When generating a bulletin, stories are selected in this priority order:
+Babbel selects the stories for a bulletin in this sequence:
 
-1. **Breaking news first** - Stories marked as `is_breaking` are selected before all others, newest by start date preferred. Normal eligibility rules (date range, weekday schedule, active status, audio required) still apply.
-2. **Fresh stories next** - Non-breaking stories that haven't been used yet today get priority, newest by start date preferred
-3. **Least-recently-used fallback** - If all non-breaking stories have already aired today, the ones that aired longest ago are chosen
-4. **Random tiebreaker** - When stories have equal priority, random selection adds variety
+1. **Breaking news first** - Babbel selects stories with the `is_breaking` flag before all other stories. The newest start date has priority. The usual conditions (date range, weekday schedule, active status, available audio) continue to apply.
+2. **Fresh stories next** - Babbel then selects the stories that did not air today. The newest start date has priority.
+3. **Least-recently-used fallback** - If all stories aired today, Babbel selects the stories that aired the longest time ago.
+4. **Random tiebreaker** - If stories have the same priority, Babbel makes a random selection.
 
-After selection, the playback order is shuffled randomly for natural radio flow - breaking priority only affects *which* stories are included, not their position in the bulletin audio.
+After the selection, Babbel puts the stories in a random sequence. This gives a natural radio flow. The breaking-news priority controls which stories are in the bulletin. It does not control their position in the audio.
 
 ### Key characteristics
 
-- **Daily reset** - The rotation resets at midnight (server's local timezone). Every day starts fresh.
-- **Per-station isolation** - Each station has its own rotation. A story airing on Station A doesn't affect its priority for Station B.
-- **Automatic balancing** - No manual intervention needed. The system distributes airtime across all non-breaking stories.
-- **Breaking stories consume slots** - A station's `max_stories_per_block` limit applies to all stories. If breaking stories fill all slots, non-breaking stories are excluded.
+- **Daily reset** - The rotation starts again at midnight (the local timezone of the server).
+- **Per-station isolation** - Each station has its own rotation. The airtime of a story on station A has no effect on its priority for station B.
+- **Automatic balance** - Manual work is not necessary. Babbel divides the airtime across all stories that are not breaking news.
+- **Breaking stories use slots** - The `max_stories_per_block` limit of a station applies to all stories. If breaking stories fill all slots, Babbel does not include the other stories.
 
 ### Example (fair rotation for non-breaking stories)
 
-Scenario: 13 non-breaking stories, 4 per bulletin, hourly from 07:30-18:30 (12 bulletins).
+Scenario: 13 stories that are not breaking news, 4 stories for each bulletin, one bulletin each hour from 07:30 to 18:30 (12 bulletins).
 
 | Time | Pool state | Selected | Reason |
 |------|------------|----------|--------|
@@ -97,20 +97,20 @@ Scenario: 13 non-breaking stories, 4 per bulletin, hourly from 07:30-18:30 (12 b
 | 12 | 4× | 08:30, 11:30, 14:30, 17:30 |
 | 13 | 4× | 09:30, 12:30, 15:30, 18:30 |
 
-All 13 stories air 3-4 times across 12 bulletins (48 total slots). The RAND() ensures varying combinations.
+All 13 stories air 3 or 4 times in 12 bulletins (48 slots). The `RAND()` function makes different combinations.
 
 ## Bulletin File Cleanup
 
-Bulletin WAV files (~15MB each) can accumulate quickly. A background service automatically purges old files while preserving database records as an audit trail.
+Each bulletin WAV file uses approximately 15 MB. A background service deletes the old files automatically. The database records stay as an audit trail.
 
-- Runs daily, deleting bulletin audio files older than the retention period
-- Always keeps the latest bulletin per station available for serving
-- Removes orphaned files that have no matching database record
-- Configure retention via `BABBEL_BULLETIN_RETENTION` (default: `168h` / 7 days)
+- The service operates one time each day. It deletes the bulletin audio files that are older than the retention period.
+- The service always keeps the latest bulletin of each station.
+- The service removes the files that have no database record.
+- Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days).
 
 ## Loudness Normalization
 
-All audio is normalized using [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) via FFmpeg's `loudnorm` filter:
+Babbel normalizes all audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with the FFmpeg `loudnorm` filter:
 
 | Parameter | Value |
 |-----------|-------|
@@ -118,39 +118,39 @@ All audio is normalized using [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) vi
 | True Peak | -1 dBTP |
 | Loudness Range | 11 LU |
 
-Normalization is applied to:
-- Story audio (during upload/TTS processing), with an additional true-peak normalization pass to -1 dBTP
-- Final bulletin mix (after combining stories with jingle)
+Babbel normalizes:
+- The story audio, during the upload or the TTS process. A second pass sets the true peak to -1 dBTP.
+- The final bulletin mix, after Babbel adds the jingle.
 
-The -16 LUFS target (rather than the traditional -23 LUFS) prevents radio automation systems from incorrectly triggering mix points due to low audio levels
+The target is -16 LUFS, not the usual -23 LUFS. Low audio levels can cause a radio automation system to start a mix point at the incorrect time. The -16 LUFS target prevents this.
 
 ## Radio Automation Integration
 
 ### Public Endpoint (Recommended)
 
-For unattended automation systems, use the public endpoint with API key authentication:
+Use the public endpoint with an API key for automation systems that operate without personnel:
 
 ```
 GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
 ```
 
 **Setup:**
-1. Generate a secure key: `openssl rand -hex 32`
-2. Set `BABBEL_AUTOMATION_KEY` in your environment
-3. Configure your automation system to fetch the URL
+1. Make a safe key: `openssl rand -hex 32`.
+2. Set `BABBEL_AUTOMATION_KEY` in the environment.
+3. Configure the automation system to get the URL.
 
 **Parameters:**
-- `key` - Your API key (required)
-- `max_age` - Maximum bulletin age in seconds. Use `0` for always fresh, `3600` for up to 1 hour old
+- `key` - The API key (required).
+- `max_age` - The maximum age of the bulletin in seconds. Use `0` for a new bulletin each time. Use `3600` for a bulletin with a maximum age of 1 hour.
 
 **Features:**
-- No session/cookie authentication needed
-- Auto-generates new bulletin if cached one is too old
-- Returns 404 if endpoint is disabled (no key configured)
+- Session or cookie authentication is not necessary.
+- If the available bulletin is too old, Babbel makes a new bulletin.
+- If no key is set, the endpoint is not available and returns 404.
 
 ### Authenticated Endpoint
 
-For systems that support session authentication:
+Use this endpoint for systems that have session authentication:
 ```
 GET /api/v1/stations/{station_id}/bulletins?latest=true
 ```
@@ -162,79 +162,108 @@ GET /api/v1/stations/{station_id}/bulletins?latest=true
 - PlayoutONE (Network audio)
 - StationPlaylist (Remote files)
 - RTV AudioDownload Tool
-- Any system that supports HTTP audio fetching
+- Each system that can get audio through HTTP
 
 ## Requirements
 
 - Docker and Docker Compose
-- 2GB RAM minimum
-- 20GB disk space
-- Linux server recommended
+- 2 GB RAM minimum
+- 20 GB disk space
+- A Linux server (recommended)
 
 ## Configuration
 
 ### Database connection pool
 
-Babbel configures the Go SQL connection pool from environment variables. The defaults match the previously hard-coded runtime values and only need to be set when tuning is required.
+Babbel configures the Go SQL connection pool from environment variables. The default values are the same as the values that were in the code before. Set these variables only if the pool must be different.
 
 | Env var | Default | Description |
 |---|---:|---|
-| `BABBEL_DB_MAX_OPEN_CONNS` | `100` | Maximum number of open database connections. |
-| `BABBEL_DB_MAX_IDLE_CONNS` | `10` | Maximum number of idle database connections kept in the pool. |
-| `BABBEL_DB_CONN_MAX_LIFETIME` | `1h` | Maximum lifetime for a reused database connection. |
+| `BABBEL_DB_MAX_OPEN_CONNS` | `100` | The maximum number of open database connections. |
+| `BABBEL_DB_MAX_IDLE_CONNS` | `10` | The maximum number of idle database connections in the pool. |
+| `BABBEL_DB_CONN_MAX_LIFETIME` | `1h` | The maximum lifetime of a database connection that Babbel uses again. |
 
 ### Audio tools
 
-Babbel uses FFmpeg for audio mixing, loudness normalization, and audio analysis. The executable paths can be configured for custom runtimes, alternative FFmpeg builds, or local development environments where the binaries are not available under the default names.
+Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the audio analysis. You can set the paths of the executables. Do this for custom runtimes, alternative FFmpeg builds, or local development environments with different binary names.
 
 | Env var | Default | Description |
 |---|---|---|
-| `BABBEL_FFMPEG_PATH` | `ffmpeg` | FFmpeg executable used for mixing and loudness normalization. Resolved via PATH at startup. |
-| `BABBEL_FFPROBE_PATH` | `ffprobe` | ffprobe executable used for audio analysis. Resolved via PATH at startup. |
+| `BABBEL_FFMPEG_PATH` | `ffmpeg` | The FFmpeg executable for the mixing and the loudness normalization. Babbel finds it through PATH at startup. |
+| `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
 
-Both executables are resolved at startup and validated by running `<tool> -version`. If either cannot be found or does not run successfully, the process exits with a descriptive error that names the corresponding environment variable.
+Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
 
 ### Text-to-speech
 
-TTS is enabled by configuring an ElevenLabs API key. Runtime credentials stay in environment variables. Babbel always uses ElevenLabs `eleven_v3`; voice-generation options are stored in the `tts_settings` singleton row and exposed through the API.
+To enable TTS, set an ElevenLabs API key. The credentials stay in environment variables. Babbel always uses the ElevenLabs `eleven_v3` model. The voice options are in the `tts_settings` singleton row. The API gives access to these options.
 
 | Env var | Default | Description |
 |---|---|---|
-| `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS when set. If unset, `POST /api/v1/stories/{id}/tts` returns 501. |
-| `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | Timeout for ElevenLabs API calls. |
+| `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS. If not set, `POST /api/v1/stories/{id}/tts` returns 501. |
+| `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | The timeout for calls to the ElevenLabs API. |
 
-The initial settings row uses stability `0.80`, similarity boost `0.80`, style `0.25`, speed `1.00`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`.
+The initial settings row has stability `0.80`, similarity boost `0.80`, style `0.25`, speed `1.00`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`.
 
-Use `GET /api/v1/settings/tts` to inspect settings. Admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to update voice settings, text normalization, seed, or `tts_style_prefix`. The prefix is prepended to story text before the `eleven_v3` request.
+Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to change the voice settings, the text normalization, the seed, or `tts_style_prefix`. Babbel puts the prefix before the story text in the `eleven_v3` request.
 
-Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to manage local IPA pronunciation rules. Admins and editors can save rules; viewers can read them. Rules are stored in Babbel's database and injected as inline `/ipa/` spans before the ElevenLabs request.
+Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA pronunciation rules. Admins and editors can save the rules. Viewers can read them. Babbel keeps the rules in its database. Babbel puts the rules in the text as `/ipa/` spans before the ElevenLabs request.
 
 ### Operational e-mail notifications
 
-Babbel can e-mail administrators when an on-air bulletin is degraded or unavailable, ElevenLabs is repeatedly unavailable, a background job or database connection fails, or suspicious authentication activity occurs. Delivery uses only Microsoft Graph with the OAuth2 client-credentials flow, matching `zwfm-aerontoolbox`. The Azure app registration needs the application permission `Mail.Send` with admin consent; the sender is the configured shared mailbox or user.
+Babbel can send alert e-mails to administrators. Babbel sends the e-mails only through Microsoft Graph. Babbel uses the OAuth2 client-credentials flow. The tool `zwfm-aerontoolbox` uses the same flow.
+
+Do these steps to configure the e-mails:
+
+1. Give the Azure app registration the application permission `Mail.Send`.
+2. Give admin consent to this permission.
+3. Set the eight environment variables that follow.
 
 | Env var | Default | Description |
 |---|---:|---|
-| `BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID` | unset | Microsoft Entra tenant GUID. |
-| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID` | unset | App-registration client GUID. |
-| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET` | unset | App-registration client secret. |
-| `BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS` | unset | Shared mailbox or user used as sender. |
-| `BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS` | unset | Comma-separated administrator addresses. |
-| `BABBEL_NOTIFICATIONS_COOLDOWN` | `1h` | Minimum interval before the same active condition/resource can send another alert. |
-| `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` | `3` | Transient failures required within the configured window before alerting. |
-| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | Window in which thresholded failures are counted. |
+| `BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID` | unset | The GUID of the Microsoft Entra tenant. |
+| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID` | unset | The GUID of the app registration. |
+| `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET` | unset | The client secret of the app registration. |
+| `BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS` | unset | The shared mailbox or user that sends the e-mails. |
+| `BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS` | unset | The addresses of the administrators, with commas between them. |
+| `BABBEL_NOTIFICATIONS_COOLDOWN` | `1h` | The minimum time between two alerts for the same active condition and resource. |
+| `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` | `3` | The number of transient failures that starts an alert. The minimum value is 2. |
+| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | The time in which Babbel counts the transient failures. |
 
-Leave all five Graph fields empty to disable e-mail. A partial or malformed Graph configuration is rejected at startup.
+To disable the e-mails, keep the five `BABBEL_NOTIFICATIONS_EMAIL_*` values empty. If the configuration is not complete or not correct, Babbel does not start.
 
-| Trigger policy | Code representation | Delivery |
-|---|---|---|
-| Immediate | Omit `RequiresThreshold` | On the first occurrence. |
-| Thresholded | `RequiresThreshold: true` | After `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` occurrences within `BABBEL_NOTIFICATIONS_FAILURE_WINDOW`. |
-| Critical lifecycle | `SendCritical` | Synchronously before process exit, without threshold or cooldown. |
+Each condition has one of these three policies:
 
-Immediate operational conditions include no on-air stories, mixed bulletin voices, missing audio/jingles, scheduler panics, account lockout and invalid OAuth state/token data. Transient 429, timeout, upstream, database, cleanup and expiration errors are thresholded. Alerts are grouped by condition and affected resource, deduplicated during the cooldown, and followed by a recovery e-mail when the relevant success path is observed. Alert subjects use `[ALERT] <summary> - Babbel`; recovery subjects use `[RESOLVED] <summary> - Babbel`.
+| Policy | When Babbel sends the alert |
+|---|---|
+| Immediate | When the condition occurs the first time. |
+| Thresholded | When the condition occurs `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` times in `BABBEL_NOTIFICATIONS_FAILURE_WINDOW`. |
+| Critical | Immediately before the process stops. The cooldown and the threshold do not apply. |
 
-The `/health` endpoint now checks the database and returns HTTP 503 with `status: "unhealthy"` when its ping fails. A background check performs the same database monitoring even when no load balancer polls the endpoint.
+These conditions cause an immediate alert:
+
+- There are no stories for a bulletin.
+- The stories in a bulletin do not use the same voice.
+- The audio file of a story is missing, or a jingle is missing.
+- Bulletin generation fails, and the cause is not a timeout.
+- Babbel cannot read the bulletin output directory.
+- The ElevenLabs credentials are not valid.
+- A scheduler job stops because of a panic.
+- Babbel locks a user account after too many bad login attempts.
+- The OAuth state or the OAuth token data is not valid.
+
+These conditions cause a thresholded alert:
+
+- ElevenLabs sends error 429 or an upstream error, or does not reply in time.
+- Bulletin generation stops because of a timeout.
+- A database request or the database connection fails.
+- The bulletin cleanup job or the story expiration job fails.
+- Babbel cannot parse the FFmpeg loudnorm output.
+- Requests to the public bulletin endpoint use a bad automation key.
+
+Babbel groups the alerts by condition and by resource. In the cooldown time, Babbel does not send the same alert again. When the condition stops, Babbel sends a recovery e-mail. The subject of an alert is `[ALERT] <summary> - Babbel`. The subject of a recovery is `[RESOLVED] <summary> - Babbel`.
+
+The `/health` endpoint also does a database check. If the database ping fails, the endpoint returns HTTP 503 with `status: "unhealthy"`. A background monitor does the same database check each minute. This monitor also operates when no load balancer polls the endpoint.
 
 ## API Documentation
 
@@ -313,6 +342,7 @@ internal/
   config/               # Configuration management
   database/             # Database connection
   models/               # Data models
+  notify/               # Operational alert e-mails (Microsoft Graph)
   repository/           # Data access layer (GORM)
   scheduler/            # Background tasks
   services/             # Business logic layer
@@ -325,21 +355,21 @@ openapi.yaml           # API specification
 
 ## Tech Stack
 
-- **Backend**: Go 1.26+ with Gin web framework
-- **Database**: MySQL 8.4 with GORM ORM
-- **Audio**: FFmpeg for audio mixing and processing
+- **Backend**: Go 1.26+ with the Gin web framework
+- **Database**: MySQL 8.4 with the GORM ORM
+- **Audio**: FFmpeg for the audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
 - **Testing**: Jest integration test suite
 - **Deployment**: Docker and Docker Compose
 
 ## Testing
 
-The project includes a comprehensive Jest integration test suite:
+The project has a full Jest integration test suite:
 - **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, TTS settings, bulletins, bulletin cleanup, automation, users, validation
-- **Test generators**: Declarative schema-driven generators for CRUD, query, and validation tests
+- **Test generators**: Schema-driven generators for the CRUD, query, and validation tests
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security
 
-Run tests with:
+Run the tests with:
 ```bash
 make test-all           # Run complete test suite
 npm test -- --verbose   # Run with detailed output
@@ -347,16 +377,16 @@ npm test -- --verbose   # Run with detailed output
 
 ## Contributing
 
-Contributions are welcome! Please ensure:
-1. All tests pass (`make test-all`)
-2. Code follows Go best practices (`make lint`)
-3. API changes are reflected in `openapi.yaml`
-4. Documentation is updated accordingly
+Contributions are welcome. Before you open a pull request:
+1. Make sure that all tests pass (`make test-all`).
+2. Make sure that the code obeys the Go best practices (`make lint`).
+3. Put API changes also in `openapi.yaml`.
+4. Update the related documentation.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE).
+MIT License - refer to [LICENSE](LICENSE).
 
 ## Credits
 
-Developed by Streekomroep ZuidWest for newsroom operations across multiple local radio stations in the Netherlands.
+Streekomroep ZuidWest made Babbel for newsroom operations at multiple local radio stations in the Netherlands.
