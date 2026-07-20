@@ -346,9 +346,9 @@ func (s *Service) addJingleMix(
 
 	jinglePath := utils.JinglePath(s.config, station.ID, *jingle.VoiceID)
 
-	if _, err := os.Stat(jinglePath); err != nil {
+	if err := validateJingleFile(jinglePath); err != nil {
 		if !os.IsNotExist(err) {
-			logger.Warn("Failed to stat jingle file", "path", jinglePath, "error", err)
+			logger.Warn("Jingle file is not usable", "path", jinglePath, "error", err)
 		} else {
 			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
 		}
@@ -370,6 +370,35 @@ func (s *Service) addJingleMix(
 	}
 
 	return args, filters
+}
+
+// validateJingleFile ensures the path is a readable regular file before an
+// availability incident is resolved and FFmpeg receives it as an input.
+func validateJingleFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("jingle path is not a regular file")
+	}
+
+	file, err := os.Open(path) //nolint:gosec // Path is built internally from the configured storage root and numeric IDs.
+	if err != nil {
+		return fmt.Errorf("open jingle file: %w", err)
+	}
+	openedInfo, statErr := file.Stat()
+	closeErr := file.Close()
+	if statErr != nil {
+		return fmt.Errorf("stat opened jingle file: %w", statErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close jingle file: %w", closeErr)
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return fmt.Errorf("opened jingle path is not a regular file")
+	}
+	return nil
 }
 
 // executeFFmpegCommand runs the FFmpeg command and handles error reporting.

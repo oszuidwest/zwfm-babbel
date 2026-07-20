@@ -68,3 +68,31 @@ func TestAddJingleMixResolvesAcrossVoiceChanges(t *testing.T) {
 		t.Fatalf("resolved = %v, want stable station jingle key", alerts.resolved)
 	}
 }
+
+func TestAddJingleMixRejectsNonRegularJingle(t *testing.T) {
+	processedPath := t.TempDir()
+	alerts := &alertRecorder{}
+	service := NewService(&config.Config{Audio: config.AudioConfig{ProcessedPath: processedPath}}, alerts)
+	voiceID := int64(10)
+	jinglePath := filepath.Join(processedPath, "station_3_voice_10_jingle.wav")
+	if err := os.Mkdir(jinglePath, 0o700); err != nil {
+		t.Fatalf("create jingle directory: %v", err)
+	}
+
+	args, filters := service.addJingleMix(
+		t.Context(), nil, nil, &models.Station{ID: 3}, JingleContext{VoiceID: &voiceID}, 1,
+	)
+
+	if len(args) != 0 {
+		t.Fatalf("args = %v, want no jingle input", args)
+	}
+	if len(filters) != 1 || filters[0] != "[messages]anull[mixed]" {
+		t.Fatalf("filters = %v", filters)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:missing-jingle:station:3" {
+		t.Fatalf("events = %+v", alerts.events)
+	}
+	if len(alerts.resolved) != 0 {
+		t.Fatalf("resolved = %v, want no recovery", alerts.resolved)
+	}
+}
