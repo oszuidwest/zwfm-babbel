@@ -137,6 +137,30 @@ describe('OpenAPI Contract', () => {
           return response;
         }, 'POST /api/v1/stations duplicate name'),
       trackedApiScenario('POST', '/api/v1/stations', '/stations', () => stationBody('Contract Created Station'), 'stations'),
+      scenario('POST', '/api/v1/stations', async () => {
+          // Omitted pause_seconds applies the documented default of 2 seconds;
+          // an explicit 0 must be preserved.
+          const defaulted = await apiCall('POST', '/api/v1/stations', '/stations', {
+            name: uniqueName('Contract Default Pause'),
+            max_stories_per_block: 4
+          });
+          expect(defaulted.status).toBe(201);
+          global.resources.track('stations', defaulted.data.id);
+          const defaultedStation = await apiCall('GET', '/api/v1/stations/{id}', `/stations/${defaulted.data.id}`);
+          expect(defaultedStation.data.pause_seconds).toBe(2);
+
+          const explicitZero = await apiCall('POST', '/api/v1/stations', '/stations', {
+            name: uniqueName('Contract Zero Pause'),
+            max_stories_per_block: 4,
+            pause_seconds: 0
+          });
+          expect(explicitZero.status).toBe(201);
+          global.resources.track('stations', explicitZero.data.id);
+          const zeroStation = await apiCall('GET', '/api/v1/stations/{id}', `/stations/${explicitZero.data.id}`);
+          expect(zeroStation.data.pause_seconds).toBe(0);
+
+          return defaulted;
+        }, 'POST /api/v1/stations pause_seconds default'),
       apiScenario('GET', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`),
       apiScenario('PUT', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`, () => stationBody('Contract Updated Station')),
       scenario('DELETE', '/api/v1/stations/{id}', async () => {

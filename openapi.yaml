@@ -3031,8 +3031,11 @@ components:
           format: float
           minimum: 0
           maximum: 60
-          default: 0
-          description: Pause time in seconds between messages in bulletin. Defaults to 0 when omitted.
+          default: 2.0
+          description: |
+            Pause time in seconds between messages in bulletin. Omitting the
+            field applies the default of 2 seconds; an explicit 0 disables the
+            pause.
 
     Voice:
       type: object
