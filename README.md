@@ -359,20 +359,21 @@ openapi.yaml           # API specification
 - **Database**: MySQL 8.4 with the GORM ORM
 - **Audio**: FFmpeg for the audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords
-- **Testing**: Jest integration test suite
+- **Testing**: Go unit tests and a Jest integration test suite
 - **Deployment**: Docker and Docker Compose
 
 ## Testing
 
-The project has a full Jest integration test suite:
+The project has Go unit tests and a full Jest integration test suite:
 - **Test categories**: Authentication, permissions, stations, voices, station-voices, stories, TTS, TTS settings, bulletins, bulletin cleanup, automation, users, validation
 - **Test generators**: Schema-driven generators for the CRUD, query, and validation tests
 - **Coverage**: All API endpoints, RBAC, file uploads, audio processing, and security
 
 Run the tests with:
 ```bash
-make test-all           # Run complete test suite
-npm test -- --verbose   # Run with detailed output
+go test ./...           # Run Go unit tests
+make test-all           # Run complete integration test suite
+npm test -- --verbose   # Run integration tests with detailed output
 ```
 
 ## Contributing
