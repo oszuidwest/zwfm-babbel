@@ -18,6 +18,7 @@ services:
       timeout: 20s
       retries: 10
     restart: always
+    # Docker rotates the log files. Docker keeps a maximum of 3 files of 10 MB.
     logging:
       driver: "json-file"
       options:
@@ -77,6 +78,8 @@ services:
       timeout: 10s
       retries: 3
     restart: always
+    # Babbel writes the log data to stdout. Docker rotates the log files.
+    # Docker keeps a maximum of 5 files of 50 MB.
     logging:
       driver: "json-file"
       options:

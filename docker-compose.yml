@@ -18,6 +18,12 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
       retries: 10
+    # Docker rotates the log files. Docker keeps a maximum of 3 files of 10 MB.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   babbel:
     build: .
@@ -62,6 +68,12 @@ services:
       mysql:
         condition: service_healthy
     restart: unless-stopped
+    # Babbel writes the log data to stdout. Docker rotates the log files.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   mysql_data:
