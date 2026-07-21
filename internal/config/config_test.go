@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 func TestValidateRequiresAudioToolPaths(t *testing.T) {
 	t.Parallel()
+	runnablePath := testRunnablePath(t)
 
 	tests := []struct {
 		name    string
@@ -18,12 +20,12 @@ func TestValidateRequiresAudioToolPaths(t *testing.T) {
 	}{
 		{
 			name:    "empty ffmpeg path",
-			config:  validConfigWithAudioTools("", writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffprobe"))),
+			config:  validConfigWithAudioTools("", runnablePath),
 			wantErr: "BABBEL_FFMPEG_PATH must not be empty",
 		},
 		{
 			name:    "empty ffprobe path",
-			config:  validConfigWithAudioTools(writeVersionExecutable(t, filepath.Join(t.TempDir(), "ffmpeg")), ""),
+			config:  validConfigWithAudioTools(runnablePath, ""),
 			wantErr: "BABBEL_FFPROBE_PATH must not be empty",
 		},
 	}
@@ -51,8 +53,12 @@ func TestValidateRequiresFFprobe(t *testing.T) {
 }
 
 func TestValidateAcceptsConfiguredAudioTools(t *testing.T) {
-	t.Parallel()
-	cfg := validTestConfig(t)
+	// Keep tests that create executables sequential. A concurrent fork can inherit
+	// their writable descriptor and make an immediate exec fail with ETXTBSY.
+	dir := t.TempDir()
+	ffmpegPath := writeVersionExecutable(t, filepath.Join(dir, "ffmpeg"))
+	ffprobePath := writeVersionExecutable(t, filepath.Join(dir, "ffprobe"))
+	cfg := validConfigWithAudioTools(ffmpegPath, ffprobePath)
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -305,8 +311,8 @@ func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
 }
 
 func TestValidateRequiresRunnableAudioTools(t *testing.T) {
-	t.Parallel()
-
+	// Keep tests that create executables sequential. A concurrent fork can inherit
+	// their writable descriptor and make an immediate exec fail with ETXTBSY.
 	tests := []struct {
 		name         string
 		config       *Config
@@ -342,8 +348,6 @@ func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
 			err := tt.config.Validate()
 			assertErrorContains(t, err, tt.wantContains...)
 		})
@@ -408,11 +412,20 @@ func TestValidateAllowedOrigins(t *testing.T) {
 func validTestConfig(t *testing.T) *Config {
 	t.Helper()
 
-	dir := t.TempDir()
-	ffmpegPath := writeVersionExecutable(t, filepath.Join(dir, "ffmpeg"))
-	ffprobePath := writeVersionExecutable(t, filepath.Join(dir, "ffprobe"))
+	runnablePath := testRunnablePath(t)
+	return validConfigWithAudioTools(runnablePath, runnablePath)
+}
 
-	return validConfigWithAudioTools(ffmpegPath, ffprobePath)
+func testRunnablePath(t *testing.T) string {
+	t.Helper()
+
+	// Reuse an existing executable in parallel config tests instead of creating
+	// one that can race with the subprocesses started by Config.Validate.
+	path, err := exec.LookPath("true")
+	if err != nil {
+		t.Fatalf("find test executable: %v", err)
+	}
+	return path
 }
 
 func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
@@ -483,8 +496,8 @@ func shellSingleQuote(s string) string {
 func writeExecutable(t *testing.T, path, contents string) {
 	t.Helper()
 
-	// Publish the executable only after its writable file descriptor is closed.
-	// This avoids transient ETXTBSY failures when parallel tests execute it.
+	// Publish the executable only after its writable file descriptor is closed,
+	// so callers cannot execute a partially written script.
 	file, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
 		t.Fatalf("create temporary executable for %s: %v", path, err)
