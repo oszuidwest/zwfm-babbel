@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
-    "@redocly/cli": "^2.39.0",
+    "@redocly/cli": "^2.40.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "axios": "^1.18.1",
