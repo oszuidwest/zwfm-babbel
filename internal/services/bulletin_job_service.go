@@ -57,6 +57,7 @@ func NewBulletinJobService(
 // normal claiming, so starting one replica never disturbs another replica.
 func (s *BulletinJobService) Start(parent context.Context) error {
 	s.startOnce.Do(func() {
+		// #nosec G118 -- Stop retains and invokes cancel during graceful shutdown.
 		workerCtx, cancel := context.WithCancel(parent)
 		s.cancel = cancel
 		go s.run(workerCtx)
