@@ -89,6 +89,8 @@ func validateAudioRange(c *gin.Context, size int64) bool {
 
 // validByteRange mirrors net/http's byte-range validation so invalid ranges
 // can use the API's Problem Details response before file serving begins.
+//
+//nolint:gocyclo // Keeping the range grammar linear makes its edge cases auditable.
 func validByteRange(header string, size int64) bool {
 	if header == "" {
 		return true
