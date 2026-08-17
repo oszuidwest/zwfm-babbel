@@ -443,6 +443,28 @@ describe('openapi.yaml contract invariants', () => {
     ['get', '/api/v1/station-voices/{id}/audio']
   ];
 
+  const TYPED_FILTER_OPERATIONS = [
+    ['get', '/api/v1/stations', ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at']],
+    ['get', '/api/v1/voices', ['id', 'name', 'elevenlabs_voice_id', 'created_at', 'updated_at']],
+    ['get', '/api/v1/stories', [
+      'id', 'title', 'text', 'voice_id', 'audio_url', 'has_audio', 'status', 'start_date', 'end_date',
+      'duration_seconds', 'weekdays', 'is_breaking', 'created_at', 'updated_at', 'deleted_at'
+    ]],
+    ['get', '/api/v1/users', ['id', 'username', 'full_name', 'email', 'role', 'created_at', 'updated_at']],
+    ['get', '/api/v1/bulletins', [
+      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
+    ]],
+    ['get', '/api/v1/stations/{id}/bulletins', [
+      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
+    ]],
+    ['get', '/api/v1/stories/{id}/bulletins', [
+      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
+    ]],
+    ['get', '/api/v1/station-voices', [
+      'id', 'station_id', 'voice_id', 'audio_url', 'has_audio', 'mix_point', 'created_at', 'updated_at'
+    ]]
+  ];
+
   const REQUIRED_SCHEMA_FIELDS = {
     Station: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at'],
     Voice: ['id', 'name', 'created_at', 'updated_at'],
@@ -468,6 +490,27 @@ describe('openapi.yaml contract invariants', () => {
 
   test.each(LIST_OPERATIONS)('when listing via %s %s, then 422 is declared', (method, operationPath) => {
     expect(Object.keys(document.paths[operationPath][method].responses)).toContain('422');
+  });
+
+  test.each(TYPED_FILTER_OPERATIONS)(
+    'when filtering via %s %s, then only endpoint-specific fields are accepted',
+    (method, operationPath, expectedFields) => {
+      const operation = document.paths[operationPath][method];
+      const filter = operation.parameters.find((parameter) => parameter.name === 'filter');
+
+      expect(filter.style).toBe('deepObject');
+      expect(filter.schema.additionalProperties).toBe(false);
+      expect(Object.keys(filter.schema.properties).sort()).toEqual([...expectedFields].sort());
+    }
+  );
+
+  test('when filtering numeric IDs and audio presence, then generated types are numeric and boolean', () => {
+    const storyOperation = document.paths['/api/v1/stories'].get;
+    const filter = storyOperation.parameters.find((parameter) => parameter.name === 'filter');
+
+    expect(filter.schema.properties.id.oneOf[0].type).toBe('integer');
+    expect(filter.schema.properties.voice_id.oneOf[0].type).toBe('integer');
+    expect(filter.schema.properties.has_audio.oneOf[0].type).toBe('boolean');
   });
 
   test('when an operation uses the shared id path parameter, then 400 is declared', () => {

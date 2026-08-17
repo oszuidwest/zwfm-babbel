@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/mysql"
@@ -28,7 +29,7 @@ const (
 // (they are linked - cases that pin the operator must also pin the field).
 func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{"name": "name", "id": "id"}
+	mapping := FieldMapping{"name": "name", "id": "id", "has_audio": "audio_file"}
 
 	tests := []struct {
 		name      string
@@ -45,6 +46,8 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1"}}, errKind: errKindInvalid},
 		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: errKindInvalid},
 		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: errKindInvalid},
+		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
+		{name: "has audio rejects ordering", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Value: true}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterGreaterThan},
 	}
 
 	for _, tt := range tests {
@@ -70,6 +73,44 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 				}
 			default:
 				t.Fatalf("unknown errKind %q - add a case or fix the typo", tt.errKind)
+			}
+		})
+	}
+}
+
+func TestApplyFilterCondition_HasAudio(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operator  FilterOperator
+		value     any
+		wantSQL   string
+		wantValue string
+	}{
+		{name: "has audio", operator: FilterEquals, value: true, wantSQL: "audio_file != ?", wantValue: ""},
+		{name: "has no audio", operator: FilterEquals, value: false, wantSQL: "audio_file = ?", wantValue: ""},
+		{name: "not has audio", operator: FilterNotEquals, value: true, wantSQL: "audio_file = ?", wantValue: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
+				Field:    "has_audio",
+				Operator: tt.operator,
+				Value:    tt.value,
+			}, FieldMapping{"has_audio": "audio_file"})
+			if err != nil {
+				t.Fatalf("applyFilterCondition: %v", err)
+			}
+
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
+				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
+			}
+			if got := stmt.Vars; len(got) != 1 || got[0] != tt.wantValue {
+				t.Fatalf("bind vars = %#v, want [%q]", got, tt.wantValue)
 			}
 		})
 	}

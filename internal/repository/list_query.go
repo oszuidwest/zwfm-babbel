@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -266,6 +267,24 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
+	}
+
+	if filter.Field == "has_audio" {
+		hasAudio, err := strconv.ParseBool(fmt.Sprint(filter.Value))
+		if err != nil || (filter.Operator != FilterEquals && filter.Operator != FilterNotEquals) {
+			return nil, &InvalidFilterError{
+				Field:    filter.Field,
+				Operator: filter.Operator,
+				Reason:   "expected a boolean value with eq or ne",
+			}
+		}
+		if filter.Operator == FilterNotEquals {
+			hasAudio = !hasAudio
+		}
+		if hasAudio {
+			return db.Where(dbField+" != ?", ""), nil
+		}
+		return db.Where(dbField+" = ?", ""), nil
 	}
 
 	// Restrict bitwise operators to allowed fields only.
