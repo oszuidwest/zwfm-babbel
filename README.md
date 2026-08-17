@@ -191,6 +191,7 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 |---|---|---|
 | `BABBEL_FFMPEG_PATH` | `ffmpeg` | The FFmpeg executable for the mixing and the loudness normalization. Babbel finds it through PATH at startup. |
 | `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
+| `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one authenticated asynchronous bulletin-generation attempt. |
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
 

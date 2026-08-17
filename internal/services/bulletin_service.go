@@ -58,14 +58,30 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 // Create selects eligible stories, renders the WAV file, and persists the
 // bulletin plus story links for a station/date.
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
+	bulletinID, err := s.create(ctx, stationID, targetDate, nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetByID(ctx, bulletinID)
+}
+
+// create renders and stores a bulletin. finalize runs in the same transaction
+// as the bulletin and story links, allowing asynchronous jobs to commit their
+// result atomically.
+func (s *BulletinService) create(
+	ctx context.Context,
+	stationID int64,
+	targetDate time.Time,
+	finalize func(context.Context, int64) error,
+) (int64, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
+		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if len(stories) == 0 {
@@ -74,7 +90,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 			Summary: fmt.Sprintf("No stories available for station %d", stationID),
 			Details: "No eligible stories are available, so no on-air bulletin can be generated for this station.",
 		})
-		return nil, apperrors.NoStories(stationID)
+		return 0, apperrors.NoStories(stationID)
 	}
 	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
 		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
@@ -102,7 +118,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 			Details:           err.Error(),
 			RequiresThreshold: errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
 		})
-		return nil, err
+		return 0, err
 	}
 	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
 		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
@@ -119,12 +135,12 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 		Duration:     totalDuration,
 		FileSize:     fileSize,
 		Stories:      stories,
-	})
+	}, finalize)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return s.GetByID(ctx, bulletinID)
+	return bulletinID, nil
 }
 
 // generateBulletinAudio renders a bulletin with one timestamp shared by the
@@ -137,9 +153,18 @@ func (s *BulletinService) generateBulletinAudio(
 ) (string, error) {
 	timestamp := time.Now()
 	bulletinPath := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
+	temporaryPath := bulletinPath + ".tmp.wav"
+	defer func() {
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("Failed to remove temporary bulletin audio", "path", temporaryPath, "error", err)
+		}
+	}()
 
-	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, bulletinPath); err != nil {
+	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, temporaryPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
+	}
+	if err := os.Rename(temporaryPath, bulletinPath); err != nil {
+		return "", apperrors.Audio("Bulletin", "publish", err)
 	}
 
 	return bulletinPath, nil
@@ -180,7 +205,11 @@ type saveBulletinParams struct {
 
 // saveBulletinToDatabase stores the bulletin and its story links in one
 // transaction.
-func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params saveBulletinParams) (int64, error) {
+func (s *BulletinService) saveBulletinToDatabase(
+	ctx context.Context,
+	params saveBulletinParams,
+	finalize func(context.Context, int64) error,
+) (int64, error) {
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
@@ -205,6 +234,11 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params sav
 
 		if err := s.bulletinRepo.LinkStories(txCtx, bulletinID, storyIDs); err != nil {
 			return err
+		}
+		if finalize != nil {
+			if err := finalize(txCtx, bulletinID); err != nil {
+				return err
+			}
 		}
 
 		return nil

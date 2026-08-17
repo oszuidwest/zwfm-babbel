@@ -143,7 +143,9 @@ db-reset:
 		echo "babbel-mysql container not running. Start with: docker-compose up -d"; \
 		exit 1; \
 	fi
+	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel -e 'DROP TABLE IF EXISTS bulletin_jobs'
 	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < migrations/001_complete_schema.sql
+	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < migrations/009_bulletin_jobs.sql
 
 test-all:
 	@if ! command -v node >/dev/null 2>&1; then \

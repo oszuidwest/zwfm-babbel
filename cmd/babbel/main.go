@@ -74,8 +74,10 @@ func run() error {
 	}
 	defer closeDatabase(db, alerts)
 
-	router, err := api.SetupRouter(db, cfg, alerts)
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	router, shutdownRouter, err := api.SetupRouter(appCtx, db, cfg, alerts)
 	if err != nil {
+		cancelApp()
 		notifyCritical(alerts, "startup:router", "Babbel router or authentication startup failed", err)
 		return fmt.Errorf("setup router: %w", err)
 	}
@@ -99,6 +101,10 @@ func run() error {
 	cleanupService.Stop()
 	expirationService.Stop()
 	shutdownErr := shutdownServer(srv)
+	cancelApp()
+	workerCtx, cancelWorkers := context.WithTimeout(context.Background(), shutdownTimeout)
+	workerShutdownErr := shutdownRouter(workerCtx)
+	cancelWorkers()
 	logger.Info("Server exited")
 
 	if serveErr != nil {
@@ -107,7 +113,10 @@ func run() error {
 	if shutdownErr != nil {
 		notifyCritical(alerts, "shutdown:http-server", "Babbel graceful shutdown failed", shutdownErr)
 	}
-	return errors.Join(serveErr, shutdownErr)
+	if workerShutdownErr != nil {
+		notifyCritical(alerts, "shutdown:bulletin-worker", "Bulletin worker shutdown failed", workerShutdownErr)
+	}
+	return errors.Join(serveErr, shutdownErr, workerShutdownErr)
 }
 
 func handleVersionFlag() bool {

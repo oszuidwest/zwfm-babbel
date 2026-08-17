@@ -14,6 +14,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./migrations/001_complete_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./migrations/009_bulletin_jobs.sql:/docker-entrypoint-initdb.d/09-bulletin-jobs.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       timeout: 20s
@@ -46,6 +47,7 @@ services:
       BABBEL_COOKIE_SAMESITE: "lax"
       # Radio automation API key (leave empty to disable public endpoint)
       BABBEL_AUTOMATION_KEY: "test-automation-key-for-integration-tests"
+      BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT: ${BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT:-120s}
       # ElevenLabs TTS (leave empty to disable; endpoint returns 501 when unset)
       BABBEL_ELEVENLABS_API_KEY: ${BABBEL_ELEVENLABS_API_KEY:-}
       BABBEL_ELEVENLABS_TIMEOUT: ${BABBEL_ELEVENLABS_TIMEOUT:-60s}

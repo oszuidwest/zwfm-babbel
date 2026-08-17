@@ -6,7 +6,25 @@ const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelp
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
-  const generateBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
+  const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
+  const waitForBulletinJob = async jobId => {
+    const deadline = Date.now() + 45000;
+    while (Date.now() < deadline) {
+      const response = await global.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
+      if (['succeeded', 'failed'].includes(response.data.status)) return response;
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    throw new Error(`Bulletin job ${jobId} did not finish within 45 seconds`);
+  };
+  const generateBulletin = async (stationId, body = {}) => {
+    const accepted = await enqueueBulletin(stationId, body);
+    if (accepted.status !== 202) return accepted;
+    const jobResponse = await waitForBulletinJob(accepted.data.id);
+    if (jobResponse.data.status === 'failed') {
+      return { ...jobResponse, status: 422 };
+    }
+    return global.api.apiCall('GET', `/bulletins/${jobResponse.data.bulletin_id}`);
+  };
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
@@ -94,27 +112,30 @@ describe('Bulletins', () => {
     });
 
     test.each([
-      ['when generating with missing body, then succeeds', () => postBulletinHttp(stationId), 200, true],
-      ['when generating with whitespace body, then succeeds', () => postJsonBulletinHttp(stationId, {}, {
+      ['when generating with missing body, then queues', () => postBulletinHttp(stationId), 202, true],
+      ['when generating with whitespace body, then queues', () => postJsonBulletinHttp(stationId, {}, {
         data: ' \n\t ',
         transformRequest: [data => data]
-      }), 200, true],
+      }), 202, true],
       ['when generating with malformed JSON body, then returns 422', () => postJsonBulletinHttp(stationId, {}, {
         data: '{invalid json}',
         transformRequest: [data => data]
       }), 422, false],
-      ['when generating with non-json content type and JSON body, then succeeds', () => postBulletinHttp(stationId, {
+      ['when generating with non-json content type and JSON body, then queues', () => postBulletinHttp(stationId, {
         data: '{}',
         headers: { 'Content-Type': 'text/plain' }
-      }), 200, true],
+      }), 202, true],
       ['when generating with oversized body, then returns 413', () => postJsonBulletinHttp(stationId, {}, {
         data: 'a'.repeat(1024 * 1024 + 1),
         transformRequest: [data => data]
       }), 413, false]
-    ])('%s', async (_name, request, status, hasBulletin) => {
+    ])('%s', async (_name, request, status, hasJob) => {
       const response = await request();
       expect(response.status).toBe(status);
-      if (hasBulletin) expect(response.data).toHaveProperty('id');
+      if (hasJob) {
+        expect(response.data).toHaveProperty('id');
+        expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
+      }
     });
 
     test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
@@ -398,7 +419,7 @@ describe('Bulletins', () => {
     });
   });
 
-  describe('Bulletin Cache-Control', () => {
+  describe('Asynchronous Bulletin Jobs', () => {
     let stationId;
 
     beforeAll(async () => {
@@ -410,60 +431,32 @@ describe('Bulletins', () => {
       });
       stationId = station.id;
 
-      // Warm the cache once so the HIT scenarios have something to serve.
-      const warmup = await generateBulletin(stationId);
-      expect(warmup.status).toBe(200);
     });
 
-    test('when generating without cache header, then returns MISS', async () => {
-      // Act
-      const response = await generateBulletin(stationId);
+    test('when generation is enqueued, then polling resolves to the created bulletin', async () => {
+      const accepted = await enqueueBulletin(stationId);
+      expect(accepted.status).toBe(202);
+      expect(accepted.headers.location).toBe(`/api/v1/bulletin-jobs/${accepted.data.id}`);
+      expect(['queued', 'running']).toContain(accepted.data.status);
 
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['x-cache']).toBe('MISS');
+      const completed = await waitForBulletinJob(accepted.data.id);
+      expect(completed.status).toBe(200);
+      expect(completed.data.status).toBe('succeeded');
+      expect(completed.data.bulletin_id).toEqual(expect.any(Number));
+
+      const bulletin = await global.api.apiCall('GET', `/bulletins/${completed.data.bulletin_id}`);
+      expect(bulletin.status).toBe(200);
     });
 
-    test('when Cache-Control max-age allows reuse, then returns HIT', async () => {
-      // Act
-      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'max-age=3600' });
+    test('when generation has no eligible stories, then the asynchronous job fails safely', async () => {
+      const emptyStation = await global.helpers.createStation(global.resources, 'AsyncEmptyStation');
+      const accepted = await enqueueBulletin(emptyStation.id);
+      expect(accepted.status).toBe(202);
 
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['x-cache']).toBe('HIT');
-      expect(response.headers['age']).toBeDefined();
-    });
-
-    test('when Cache-Control no-cache, then forces regeneration and returns MISS', async () => {
-      // Act
-      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'no-cache' });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['x-cache']).toBe('MISS');
-    });
-
-    test('when Accept audio/wav with warm cache, then serves cached binary', async () => {
-      // Act
-      const response = await postJsonBulletinHttp(stationId, {
-        'Accept': 'audio/wav',
-        'Cache-Control': 'max-age=3600'
-      }, { responseType: 'arraybuffer' });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['content-type']).toMatch(/audio\/wav/);
-      expect(response.headers['x-bulletin-cached']).toBe('true');
-      expect(response.headers['x-cache']).toBe('HIT');
-    });
-
-    test('when Cache-Control max-age is invalid, then falls back to fresh generation', async () => {
-      // Act
-      const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'max-age=garbage' });
-
-      // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['x-cache']).toBe('MISS');
+      const completed = await waitForBulletinJob(accepted.data.id);
+      expect(completed.data.status).toBe('failed');
+      expect(completed.data.error_code).toBe('bulletin.no_stories');
+      expect(completed.data.bulletin_id).toBeNull();
     });
   });
 

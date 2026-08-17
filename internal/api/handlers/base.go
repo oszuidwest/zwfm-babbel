@@ -25,6 +25,7 @@ type HandlersDeps struct {
 	AudioSvc              *audio.Service
 	Config                *config.Config
 	BulletinSvc           *services.BulletinService
+	BulletinJobSvc        *services.BulletinJobService
 	StorySvc              *services.StoryService
 	StationSvc            *services.StationService
 	VoiceSvc              *services.VoiceService
@@ -42,6 +43,7 @@ type Handlers struct {
 	config    *config.Config
 	// Domain services are injected by NewHandlers.
 	bulletinSvc           *services.BulletinService
+	bulletinJobSvc        *services.BulletinJobService
 	storySvc              *services.StoryService
 	stationSvc            *services.StationService
 	voiceSvc              *services.VoiceService
@@ -59,6 +61,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 		audioSvc:              deps.AudioSvc,
 		config:                deps.Config,
 		bulletinSvc:           deps.BulletinSvc,
+		bulletinJobSvc:        deps.BulletinJobSvc,
 		storySvc:              deps.StorySvc,
 		stationSvc:            deps.StationSvc,
 		voiceSvc:              deps.VoiceSvc,

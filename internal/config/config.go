@@ -29,6 +29,8 @@ type Config struct {
 	Audio AudioConfig
 	// Automation configures radio automation integration.
 	Automation AutomationConfig
+	// BulletinJobs configures authenticated asynchronous generation.
+	BulletinJobs BulletinJobConfig `envPrefix:"BULLETIN_JOBS_"`
 	// TTS configures text-to-speech integration with ElevenLabs.
 	TTS TTSConfig `envPrefix:"ELEVENLABS_"`
 	// Notifications configures operational alert e-mails.
@@ -101,6 +103,12 @@ type AutomationConfig struct {
 	Key string `env:"AUTOMATION_KEY"`
 	// GenerationTimeout limits bulletin generation duration (default: 120s).
 	GenerationTimeout time.Duration `env:"AUTOMATION_TIMEOUT" envDefault:"120s"`
+}
+
+// BulletinJobConfig defines asynchronous bulletin worker settings.
+type BulletinJobConfig struct {
+	// GenerationTimeout limits one background generation attempt.
+	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
 }
 
 // ServerConfig defines HTTP server and CORS settings.

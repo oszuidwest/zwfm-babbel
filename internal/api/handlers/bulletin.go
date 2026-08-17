@@ -2,20 +2,17 @@ package handlers
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// GenerateBulletin returns a station bulletin as metadata or WAV audio.
-// Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
-// serve an existing bulletin if it is still fresh enough.
+// GenerateBulletin queues durable asynchronous bulletin generation.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
@@ -35,76 +32,38 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	forceNew := c.GetHeader("Cache-Control") == "no-cache"
-	download := c.GetHeader("Accept") == "audio/wav"
-
-	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
-	if !forceNew && maxAge != nil {
-		if h.tryServeCachedBulletin(c, stationID, download, maxAge) {
-			return
-		}
-	}
-
-	bulletin, err := h.bulletinSvc.Create(c.Request.Context(), stationID, targetDate)
+	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
 	if err != nil {
-		handleServiceError(c, err, "Bulletin")
+		handleServiceError(c, err, "Station")
+		return
+	}
+	if !exists {
+		utils.ProblemNotFound(c, "Station")
 		return
 	}
 
-	h.serveNewBulletin(c, bulletin, download)
-}
-
-// parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
-// Returns nil if max-age is not present or invalid.
-func parseCacheControlMaxAge(cacheControl string) *time.Duration {
-	_, after, found := strings.Cut(cacheControl, "max-age=")
-	if !found {
-		return nil
-	}
-
-	maxAgeStr, _, _ := strings.Cut(after, ",")
-	maxAgeStr = strings.TrimSpace(maxAgeStr)
-
-	maxAge, err := time.ParseDuration(maxAgeStr + "s")
-	if err != nil || maxAge <= 0 {
-		return nil
-	}
-
-	return &maxAge
-}
-
-// tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
-// Returns true if a cached bulletin was served, false otherwise.
-func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, download bool, maxAge *time.Duration) bool {
-	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
+	job, err := h.bulletinJobSvc.Enqueue(c.Request.Context(), stationID, targetDate)
 	if err != nil {
-		return false
-	}
-
-	setCacheHeaders(c, existingBulletin.CreatedAt, true)
-
-	if download {
-		serveAudioFile(c,
-			utils.BulletinPath(h.config, existingBulletin.AudioFile),
-			existingBulletin.Filename, existingBulletin.ID, true,
-		)
-		return true
-	}
-
-	utils.Success(c, existingBulletin)
-	return true
-}
-
-// serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
-func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, download bool) {
-	setCacheHeaders(c, time.Time{}, false)
-
-	if download {
-		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, bulletin.ID, false)
+		handleServiceError(c, err, "Bulletin job")
 		return
 	}
 
-	utils.Success(c, bulletin)
+	c.Header("Location", fmt.Sprintf("/api/v1/bulletin-jobs/%d", job.ID))
+	c.JSON(http.StatusAccepted, job)
+}
+
+// GetBulletinJob returns the current state of an asynchronous generation job.
+func (h *Handlers) GetBulletinJob(c *gin.Context) {
+	id, ok := utils.IDParam(c)
+	if !ok {
+		return
+	}
+	job, err := h.bulletinJobSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin job")
+		return
+	}
+	utils.Success(c, job)
 }
 
 // setCacheHeaders sets standardized cache response headers.

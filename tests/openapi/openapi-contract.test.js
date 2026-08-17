@@ -320,15 +320,31 @@ describe('OpenAPI Contract', () => {
           expect(response.data.id).toBe(ctx.bulletin.id);
           return response;
         }, 'GET /api/v1/stations/{id}/bulletins latest'),
-      // Keep this after the latest scenario: generating here creates a newer bulletin for ctx.station.
-      apiScenario('POST', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, {}),
+      // Keep this after the latest scenario: this job creates a newer bulletin for ctx.station.
+      scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
+          const response = await apiCall(
+            'POST',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins`,
+            {}
+          );
+          expect(response.status).toBe(202);
+          expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
+          ctx.generationJobId = response.data.id;
+          return response;
+        }),
+      scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
+          const job = await waitForBulletinJob(ctx.generationJobId);
+          return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
+        }),
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
           expect(station).not.toBeNull();
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
-          expect(response.status).toBe(422);
-          expect(response.data.type).toBe('https://babbel.api/problems/bulletin.no_stories');
-          expect(response.data.code).toBe('bulletin.no_stories');
+          expect(response.status).toBe(202);
+          const job = await waitForBulletinJob(response.data.id);
+          expect(job.status).toBe('failed');
+          expect(job.error_code).toBe('bulletin.no_stories');
           return response;
         }, 'POST /api/v1/stations/{id}/bulletins without stories'),
       onlyNullUpdateScenario(
@@ -592,9 +608,12 @@ async function createContractContext() {
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);
 
-  const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+  const accepted = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+  expect(accepted.status).toBe(202);
+  const job = await waitForBulletinJob(accepted.data.id);
+  expect(job.status).toBe('succeeded');
+  const bulletinResponse = await global.api.apiCall('GET', `/bulletins/${job.bulletin_id}`);
   expect(bulletinResponse.status).toBe(200);
-  expect(bulletinResponse.data?.id).toBeDefined();
 
   const userResponse = await global.api.apiCall('POST', '/users', userBody('base'));
   expect(userResponse.status).toBe(201);
@@ -608,6 +627,16 @@ async function createContractContext() {
     bulletin: bulletinResponse.data,
     user: { id: userResponse.data.id }
   };
+}
+
+async function waitForBulletinJob(jobId) {
+  const deadline = Date.now() + 45000;
+  while (Date.now() < deadline) {
+    const response = await global.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
+    if (['succeeded', 'failed'].includes(response.data.status)) return response.data;
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  throw new Error(`Bulletin job ${jobId} did not finish within 45 seconds`);
 }
 
 async function uploadFixture(endpoint, fileFieldName) {

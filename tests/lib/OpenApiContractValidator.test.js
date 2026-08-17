@@ -456,7 +456,11 @@ describe('openapi.yaml contract invariants', () => {
       'login_count', 'deleted_at', 'created_at', 'updated_at'
     ],
     StationVoice: ['id', 'station_id', 'voice_id', 'audio_file', 'audio_url', 'mix_point', 'created_at', 'updated_at'],
-    BulletinResponse: ['id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'created_at']
+    BulletinResponse: ['id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'created_at'],
+    BulletinJob: [
+      'id', 'station_id', 'target_date', 'status', 'attempt', 'bulletin_id',
+      'started_at', 'completed_at', 'created_at', 'updated_at'
+    ]
   };
 
   beforeAll(async () => {
@@ -500,15 +504,12 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
-  test('when generating a bulletin with an audio/wav Accept header, then byte-range responses are declared', () => {
-    // POST bulletins serves the WAV through the same file-serving path, but 304
-    // does not apply: conditional If-Modified-Since handling is GET/HEAD only.
+  test('when generating a bulletin, then an asynchronous polling contract is declared', () => {
     const operation = document.paths['/api/v1/stations/{id}/bulletins'].post;
-    expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(['206', '416']));
-    const rangeParameter = operation.parameters.find(
-      (parameter) => parameter.name === 'Range' && parameter.in === 'header'
-    );
-    expect(rangeParameter).toBeDefined();
+    expect(Object.keys(operation.responses)).toContain('202');
+    expect(operation.responses['202'].headers.Location.required).toBe(true);
+    expect(operation.responses['202'].content['application/json'].schema.type).toBe('object');
+    expect(document.paths['/api/v1/bulletin-jobs/{id}'].get.responses['200']).toBeDefined();
   });
 
   // The not-block that rejects only-null update bodies must cover every
@@ -534,7 +535,6 @@ describe('openapi.yaml contract invariants', () => {
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
-      ['post', '/api/v1/stations/{id}/bulletins'],
       ['post', '/api/v1/stories/{id}/tts']
     ]) {
       const response = document.paths[operationPath][method].responses['504'];
@@ -551,11 +551,10 @@ describe('openapi.yaml contract invariants', () => {
     expect(example.type).toBe('https://babbel.api/problems/insufficient-permissions');
   });
 
-  test('when no stories are available, then the example uses the bulletin.no_stories type', () => {
-    const unprocessable = document.paths['/api/v1/stations/{id}/bulletins'].post.responses['422'];
-    const example = unprocessable.content['application/problem+json'].examples.no_stories.value;
-    expect(example.type).toBe('https://babbel.api/problems/bulletin.no_stories');
-    expect(example.code).toBe('bulletin.no_stories');
+  test('when asynchronous generation fails, then the job schema declares stable error fields', () => {
+    const schema = document.components.schemas.BulletinJob;
+    expect(schema.properties.error_code.type).toBe('string');
+    expect(schema.properties.error_detail.type).toBe('string');
   });
 
   test('when a conflict occurs, then examples use resource-specific problem types', () => {

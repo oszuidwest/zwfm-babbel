@@ -20,7 +20,7 @@ func JingleFilename(stationID, voiceID int64) string {
 
 // BulletinFilename returns the output filename for a generated station bulletin.
 func BulletinFilename(stationID int64, timestamp time.Time) string {
-	return fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405"))
+	return fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405.000000000"))
 }
 
 // GenerateBulletinPaths returns the absolute write path for a bulletin.

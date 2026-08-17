@@ -207,6 +207,33 @@ type Bulletin struct {
 	AudioURL    string `gorm:"-" json:"audio_url,omitempty"`
 }
 
+// BulletinJobStatus describes asynchronous bulletin generation progress.
+type BulletinJobStatus string
+
+const (
+	BulletinJobQueued    BulletinJobStatus = "queued"
+	BulletinJobRunning   BulletinJobStatus = "running"
+	BulletinJobSucceeded BulletinJobStatus = "succeeded"
+	BulletinJobFailed    BulletinJobStatus = "failed"
+)
+
+// BulletinJob is a durable asynchronous bulletin-generation request.
+type BulletinJob struct {
+	ID          int64             `gorm:"primaryKey;autoIncrement" json:"id"`
+	StationID   int64             `gorm:"not null;index" json:"station_id"`
+	TargetDate  time.Time         `gorm:"type:date;not null" json:"target_date"`
+	Status      BulletinJobStatus `gorm:"size:20;not null;index" json:"status"`
+	Attempt     int               `gorm:"not null;default:0" json:"attempt"`
+	BulletinID  *int64            `gorm:"index" json:"bulletin_id"`
+	ErrorCode   string            `gorm:"size:100;not null;default:''" json:"error_code,omitempty"`
+	ErrorDetail string            `gorm:"size:1000;not null;default:''" json:"error_detail,omitempty"`
+	LeaseUntil  *time.Time        `gorm:"index" json:"-"`
+	StartedAt   *time.Time        `json:"started_at"`
+	CompletedAt *time.Time        `json:"completed_at"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}
+
 // AfterFind populates computed fields from preloaded relations.
 func (b *Bulletin) AfterFind(_ *gorm.DB) error {
 	if b.Station != nil {
