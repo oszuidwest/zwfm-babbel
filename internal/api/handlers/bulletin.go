@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -120,6 +121,19 @@ func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
 
 // serveAudioFile sets headers and serves an audio file for download.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) {
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
+		return
+	}
+	if !validateAudioRange(c, fileInfo.Size()) {
+		return
+	}
+
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))

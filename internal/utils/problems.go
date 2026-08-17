@@ -21,7 +21,7 @@ type ProblemDetail struct {
 	Status int `json:"status"`
 
 	// Detail is a human-readable explanation specific to this occurrence of the problem.
-	Detail string `json:"detail,omitempty"`
+	Detail string `json:"detail"`
 
 	// Instance is a URI that identifies the specific occurrence of the problem.
 	Instance string `json:"instance,omitempty"`

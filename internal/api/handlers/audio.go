@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -49,7 +51,8 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	}
 	audioPath := filepath.Join(baseDir, filePath)
 
-	if _, err := os.Stat(audioPath); err != nil {
+	fileInfo, err := os.Stat(audioPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
@@ -57,11 +60,87 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		}
 		return
 	}
+	if !validateAudioRange(c, fileInfo.Size()) {
+		return
+	}
 	c.Header("Content-Type", "audio/wav")
 	c.Header("Content-Disposition",
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))
 
 	c.File(audioPath)
+}
+
+func validateAudioRange(c *gin.Context, size int64) bool {
+	if validByteRange(c.GetHeader("Range"), size) {
+		return true
+	}
+	if size > 0 {
+		c.Header("Content-Range", fmt.Sprintf("bytes */%d", size))
+	}
+	utils.ProblemCustom(
+		c,
+		"https://babbel.api/problems/range-not-satisfiable",
+		"Range Not Satisfiable",
+		416,
+		"The requested byte range is invalid or does not overlap the audio file",
+	)
+	return false
+}
+
+// validByteRange mirrors net/http's byte-range validation so invalid ranges
+// can use the API's Problem Details response before file serving begins.
+func validByteRange(header string, size int64) bool {
+	if header == "" {
+		return true
+	}
+	const prefix = "bytes="
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+
+	validRanges := 0
+	noOverlap := false
+	for value := range strings.SplitSeq(header[len(prefix):], ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		start, end, ok := strings.Cut(value, "-")
+		if !ok {
+			return false
+		}
+		start = strings.TrimSpace(start)
+		end = strings.TrimSpace(end)
+		if start == "" {
+			if end == "" || strings.HasPrefix(end, "-") {
+				return false
+			}
+			suffix, err := strconv.ParseInt(end, 10, 64)
+			if err != nil || suffix < 0 {
+				return false
+			}
+			validRanges++
+			continue
+		}
+
+		first, err := strconv.ParseInt(start, 10, 64)
+		if err != nil || first < 0 {
+			return false
+		}
+		if first >= size {
+			noOverlap = true
+			continue
+		}
+		if end != "" {
+			last, err := strconv.ParseInt(end, 10, 64)
+			if err != nil || first > last {
+				return false
+			}
+		}
+		validRanges++
+	}
+
+	return size == 0 || !noOverlap || validRanges > 0
 }
 
 // UploadStoryAudio validates and converts an uploaded story file.
