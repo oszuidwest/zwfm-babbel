@@ -48,6 +48,20 @@ func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
 	utils.Success(c, user)
 }
 
+// RespondWithCurrentUser writes the current user and their effective permissions.
+func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions map[string][]string) {
+	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return
+	}
+
+	utils.Success(c, CurrentSessionResponse{
+		User:        user,
+		Permissions: permissions,
+	})
+}
+
 // CreateUser accepts a JSON account payload and returns the created user ID.
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req utils.UserCreateRequest

@@ -1,5 +1,7 @@
 package auth
 
+import "fmt"
+
 // Resource represents a protected resource type.
 type Resource string
 
@@ -20,6 +22,40 @@ const (
 	// ResourcePronunciationRules represents ElevenLabs pronunciation rules.
 	ResourcePronunciationRules Resource = "pronunciation_rules"
 )
+
+// PermissionSet maps API resources to the actions the current subject may perform.
+type PermissionSet map[string][]string
+
+var permissionCatalog = []struct {
+	resource Resource
+	actions  []Action
+}{
+	{resource: ResourceStations, actions: []Action{ActionRead, ActionWrite}},
+	{resource: ResourceVoices, actions: []Action{ActionRead, ActionWrite}},
+	{resource: ResourceStories, actions: []Action{ActionRead, ActionWrite}},
+	{resource: ResourceBulletins, actions: []Action{ActionRead, ActionGenerate}},
+	{resource: ResourceUsers, actions: []Action{ActionRead, ActionWrite}},
+	{resource: ResourceSettingsTTS, actions: []Action{ActionRead, ActionWrite}},
+	{resource: ResourcePronunciationRules, actions: []Action{ActionRead, ActionWrite}},
+}
+
+// EffectivePermissions expands wildcard policies into concrete resource actions.
+func (s *Service) EffectivePermissions(subject string) (PermissionSet, error) {
+	permissions := PermissionSet{}
+	for _, capability := range permissionCatalog {
+		for _, action := range capability.actions {
+			allowed, err := s.enforcer.Enforce(subject, string(capability.resource), string(action))
+			if err != nil {
+				return nil, fmt.Errorf("evaluate %s/%s permission: %w", capability.resource, action, err)
+			}
+			if allowed {
+				resource := string(capability.resource)
+				permissions[resource] = append(permissions[resource], string(action))
+			}
+		}
+	}
+	return permissions, nil
+}
 
 // Action represents an operation on a resource.
 type Action string

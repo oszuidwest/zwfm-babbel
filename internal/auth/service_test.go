@@ -2,6 +2,86 @@ package auth
 
 import "testing"
 
+func TestEffectivePermissions(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{}
+	enforcer, err := service.initializeRBAC()
+	if err != nil {
+		t.Fatalf("initialize RBAC: %v", err)
+	}
+	service.enforcer = enforcer
+
+	tests := []struct {
+		name string
+		role string
+		want PermissionSet
+	}{
+		{
+			name: "admin wildcard is expanded",
+			role: "admin",
+			want: PermissionSet{
+				"stations":            {"read", "write"},
+				"voices":              {"read", "write"},
+				"stories":             {"read", "write"},
+				"bulletins":           {"read", "generate"},
+				"users":               {"read", "write"},
+				"settings:tts":        {"read", "write"},
+				"pronunciation_rules": {"read", "write"},
+			},
+		},
+		{
+			name: "editor",
+			role: "editor",
+			want: PermissionSet{
+				"stations":            {"read", "write"},
+				"voices":              {"read", "write"},
+				"stories":             {"read", "write"},
+				"bulletins":           {"read", "generate"},
+				"users":               {"read"},
+				"settings:tts":        {"read"},
+				"pronunciation_rules": {"read", "write"},
+			},
+		},
+		{
+			name: "unknown role has no permissions",
+			role: "unknown",
+			want: PermissionSet{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := service.EffectivePermissions(tt.role)
+			if err != nil {
+				t.Fatalf("EffectivePermissions(%q): %v", tt.role, err)
+			}
+			if diff := diffPermissionSets(got, tt.want); diff != "" {
+				t.Fatalf("EffectivePermissions(%q) mismatch: %s", tt.role, diff)
+			}
+		})
+	}
+}
+
+func diffPermissionSets(got, want PermissionSet) string {
+	if len(got) != len(want) {
+		return "resource count differs"
+	}
+	for resource, wantActions := range want {
+		gotActions, ok := got[resource]
+		if !ok || len(gotActions) != len(wantActions) {
+			return "actions differ for " + resource
+		}
+		for i, wantAction := range wantActions {
+			if gotActions[i] != wantAction {
+				return "actions differ for " + resource
+			}
+		}
+	}
+	return ""
+}
+
 func TestIsAllowedFrontendURL(t *testing.T) {
 	t.Parallel()
 

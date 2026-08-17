@@ -531,6 +531,20 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
+  test('when the current session is returned, then effective permissions are required and typed', () => {
+    const schema = document.paths['/api/v1/sessions/current'].get.responses['200']
+      .content['application/json'].schema;
+    const sessionExtension = schema.allOf.find((part) => part.properties?.permissions);
+    const permissions = sessionExtension.properties.permissions;
+
+    expect(sessionExtension.required).toContain('permissions');
+    expect(permissions.additionalProperties).toBe(false);
+    expect(Object.keys(permissions.properties).sort()).toEqual([
+      'bulletins', 'pronunciation_rules', 'settings:tts', 'stations', 'stories', 'users', 'voices'
+    ]);
+    expect(permissions.properties.bulletins.items.enum).toEqual(['read', 'generate']);
+  });
+
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],

@@ -109,7 +109,18 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	h.handlers.RespondWithUser(c, userID)
+	role, ok := auth.UserRole(c)
+	if !ok {
+		utils.ProblemAuthentication(c, "Invalid session")
+		return
+	}
+	permissions, err := h.authService.EffectivePermissions(string(role))
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to resolve permissions")
+		return
+	}
+
+	h.handlers.RespondWithCurrentUser(c, userID, permissions)
 }
 
 // GetAuthConfig reports the enabled frontend login methods.

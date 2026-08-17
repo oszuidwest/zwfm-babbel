@@ -426,14 +426,14 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the complete user object for the authenticated user, including full_name, email, and login statistics.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
       responses:
         '200':
           description: Current user information
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -3621,6 +3621,40 @@ components:
           type: [string, 'null']
           format: date-time
           description: Soft delete timestamp (null for active users)
+
+    CurrentSession:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          required:
+            - permissions
+          properties:
+            permissions:
+              type: object
+              additionalProperties: false
+              description: Effective actions per resource. Resources with no allowed actions are omitted.
+              properties:
+                stations:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                voices:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                stories:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                bulletins:
+                  type: array
+                  items: { type: string, enum: [read, generate] }
+                users:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                'settings:tts':
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                pronunciation_rules:
+                  type: array
+                  items: { type: string, enum: [read, write] }
 
     UserInput:
       type: object
