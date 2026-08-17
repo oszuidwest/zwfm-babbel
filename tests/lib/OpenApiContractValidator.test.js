@@ -531,6 +531,25 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
+  test('when an operation returns created JSON, then every documented field is required', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        const schema = operation.responses?.['201']?.content?.['application/json']?.schema;
+        if (!schema) continue;
+
+        expect({
+          method,
+          operationPath,
+          required: [...(schema.required || [])].sort()
+        }).toEqual({
+          method,
+          operationPath,
+          required: Object.keys(schema.properties || {}).sort()
+        });
+      }
+    }
+  });
+
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
