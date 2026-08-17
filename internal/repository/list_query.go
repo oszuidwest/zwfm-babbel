@@ -270,21 +270,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	}
 
 	if filter.Field == "has_audio" {
-		hasAudio, err := strconv.ParseBool(fmt.Sprint(filter.Value))
-		if err != nil || (filter.Operator != FilterEquals && filter.Operator != FilterNotEquals) {
-			return nil, &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected a boolean value with eq or ne",
-			}
-		}
-		if filter.Operator == FilterNotEquals {
-			hasAudio = !hasAudio
-		}
-		if hasAudio {
-			return db.Where(dbField+" != ?", ""), nil
-		}
-		return db.Where(dbField+" = ?", ""), nil
+		return applyHasAudioFilter(db, dbField, filter)
 	}
 
 	// Restrict bitwise operators to allowed fields only.
@@ -339,4 +325,22 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		Operator: filter.Operator,
 		Reason:   "unsupported operator",
 	}
+}
+
+func applyHasAudioFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
+	hasAudio, err := strconv.ParseBool(fmt.Sprint(filter.Value))
+	if err != nil || (filter.Operator != FilterEquals && filter.Operator != FilterNotEquals) {
+		return nil, &InvalidFilterError{
+			Field:    filter.Field,
+			Operator: filter.Operator,
+			Reason:   "expected a boolean value with eq or ne",
+		}
+	}
+	if filter.Operator == FilterNotEquals {
+		hasAudio = !hasAudio
+	}
+	if hasAudio {
+		return db.Where(dbField+" != ?", ""), nil
+	}
+	return db.Where(dbField+" = ?", ""), nil
 }
