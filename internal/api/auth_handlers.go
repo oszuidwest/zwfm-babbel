@@ -114,7 +114,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		utils.ProblemAuthentication(c, "Invalid session")
 		return
 	}
-	permissions, err := h.authService.EffectivePermissions(string(role))
+	permissions, err := h.authService.EffectivePermissions(role)
 	if err != nil {
 		utils.ProblemInternalServer(c, "Failed to resolve permissions")
 		return
