@@ -500,15 +500,20 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
-  test('when generating a bulletin with an audio/wav Accept header, then byte-range responses are declared', () => {
-    // POST bulletins serves the WAV through the same file-serving path, but 304
-    // does not apply: conditional If-Modified-Since handling is GET/HEAD only.
+  test('when generating a bulletin, then only JSON metadata is declared', () => {
     const operation = document.paths['/api/v1/stations/{id}/bulletins'].post;
-    expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(['206', '416']));
-    const rangeParameter = operation.parameters.find(
-      (parameter) => parameter.name === 'Range' && parameter.in === 'header'
-    );
-    expect(rangeParameter).toBeDefined();
+    expect(Object.keys(operation.responses['200'].content)).toEqual(['application/json']);
+    expect(operation.parameters.some((parameter) => parameter.name === 'Accept')).toBe(false);
+    expect(operation.parameters.some((parameter) => parameter.name === 'Range')).toBe(false);
+  });
+
+  test('when listing station bulletins, then latest has a separate response operation', () => {
+    const listOperation = document.paths['/api/v1/stations/{id}/bulletins'].get;
+    const latestOperation = document.paths['/api/v1/stations/{id}/bulletins/latest'].get;
+
+    expect(listOperation.responses['200'].content['application/json'].schema.type).toBe('object');
+    expect(listOperation.parameters.some((parameter) => parameter.name === 'latest')).toBe(false);
+    expect(latestOperation.responses['200'].content['application/json'].schema.required).toContain('id');
   });
 
   // The not-block that rejects only-null update bodies must cover every
