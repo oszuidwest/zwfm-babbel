@@ -81,8 +81,8 @@ func acceptsJSON(header string) bool {
 
 		quality := 1.0
 		if value, ok := params["q"]; ok {
-			quality, err = strconv.ParseFloat(value, 64)
-			if err != nil || quality < 0 || quality > 1 {
+			quality, ok = parseQuality(value)
+			if !ok {
 				continue
 			}
 		}
@@ -101,6 +101,28 @@ func acceptsJSON(header string) bool {
 	}
 
 	return acceptable
+}
+
+func parseQuality(value string) (float64, bool) {
+	switch value {
+	case "0":
+		return 0, true
+	case "1":
+		return 1, true
+	}
+
+	integer, fraction, found := strings.Cut(value, ".")
+	if !found || len(fraction) > 3 || (integer != "0" && integer != "1") {
+		return 0, false
+	}
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' || (integer == "1" && digit != '0') {
+			return 0, false
+		}
+	}
+
+	quality, err := strconv.ParseFloat(value, 64)
+	return quality, err == nil
 }
 
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.

@@ -54,6 +54,9 @@ func TestAcceptsJSON(t *testing.T) {
 			want:   true,
 		},
 		{name: "malformed quality", header: "application/json;q=invalid"},
+		{name: "exponent quality", header: "application/json;q=1e-1"},
+		{name: "leading plus quality", header: "application/json;q=+0.5"},
+		{name: "excessive quality precision", header: "application/json;q=0.0001"},
 	}
 
 	for _, tt := range tests {
