@@ -540,7 +540,7 @@ describe('openapi.yaml contract invariants', () => {
         expect({
           method,
           operationPath,
-          required: [...(schema.required || [])].sort()
+          required: (schema.required || []).sort()
         }).toEqual({
           method,
           operationPath,

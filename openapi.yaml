@@ -566,16 +566,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - message
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station:
                   summary: Newly created station
@@ -798,16 +789,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - message
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_voice:
                   summary: Newly created voice
@@ -1053,16 +1035,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - message
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_story:
                   summary: Newly created story
@@ -1711,16 +1684,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - message
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_user:
                   summary: Newly created user
@@ -2519,16 +2483,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - message
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station_voice:
                   summary: Newly created station-voice relationship
@@ -2980,6 +2935,19 @@ components:
           summary: "Filter stories that play on Monday (bitwise AND)"
 
   schemas:
+    IDMessageResponse:
+      type: object
+      description: Identifier and confirmation message returned when a resource is created
+      required:
+        - id
+        - message
+      properties:
+        id:
+          type: integer
+          format: int64
+        message:
+          type: string
+
     Station:
       type: object
       required:
