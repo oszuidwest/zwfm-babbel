@@ -321,6 +321,7 @@ func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/bulletins/:id", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletin)
 	protected.POST("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionGenerate), h.GenerateBulletin)
 	protected.GET("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionRead), h.GetStationBulletins)
+	protected.GET("/stations/:id/bulletins/latest", perm(auth.ResourceBulletins, auth.ActionRead), h.GetLatestStationBulletin)
 	protected.GET("/bulletins/:id/audio", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)
 	protected.GET("/stories/:id/bulletins", perm(auth.ResourceStories, auth.ActionRead), h.GetStoryBulletinHistory)
 	protected.GET("/bulletins/:id/stories", perm(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)

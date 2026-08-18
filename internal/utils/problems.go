@@ -57,6 +57,8 @@ const (
 	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
 	// ProblemTypePayloadTooLarge identifies a request body that exceeds the API limit.
 	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
+	// ProblemTypeNotAcceptable identifies an Accept header that excludes the response media type.
+	ProblemTypeNotAcceptable = "https://babbel.api/problems/not-acceptable"
 	// ProblemTypeRangeNotSatisfiable identifies an invalid or non-overlapping byte range.
 	ProblemTypeRangeNotSatisfiable = "https://babbel.api/problems/range-not-satisfiable"
 )

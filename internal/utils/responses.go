@@ -109,6 +109,17 @@ func ProblemPayloadTooLarge(c *gin.Context) {
 	)
 }
 
+// ProblemNotAcceptable responds with HTTP 406 when the Accept header excludes the response media type.
+func ProblemNotAcceptable(c *gin.Context, detail string) {
+	ProblemCustom(
+		c,
+		ProblemTypeNotAcceptable,
+		"Not Acceptable",
+		http.StatusNotAcceptable,
+		detail,
+	)
+}
+
 // ProblemCustom responds with a custom problem type.
 func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
 	SendProblem(c, NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path))

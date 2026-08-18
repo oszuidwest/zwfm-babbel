@@ -2,21 +2,27 @@ package handlers
 
 import (
 	"fmt"
+	"mime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// GenerateBulletin returns a station bulletin as metadata or WAV audio.
+// GenerateBulletin returns station bulletin metadata.
 // Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
 // serve an existing bulletin if it is still fresh enough.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
+	if !acceptsJSON(strings.Join(c.Request.Header.Values("Accept"), ",")) {
+		utils.ProblemNotAcceptable(c, "Bulletin generation returns application/json; fetch audio from the bulletin audio URL")
+		return
+	}
+
 	stationID, ok := utils.IDParam(c)
 	if !ok {
 		return
@@ -36,11 +42,11 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	}
 
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
-	download := c.GetHeader("Accept") == "audio/wav"
-
 	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
 	if !forceNew && maxAge != nil {
-		if h.tryServeCachedBulletin(c, stationID, download, maxAge) {
+		if cached, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge); err == nil {
+			setCacheHeaders(c, cached.CreatedAt, true)
+			utils.Success(c, cached)
 			return
 		}
 	}
@@ -51,7 +57,72 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	h.serveNewBulletin(c, bulletin, download)
+	setCacheHeaders(c, time.Time{}, false)
+	utils.Success(c, bulletin)
+}
+
+func acceptsJSON(header string) bool {
+	if header == "" {
+		return true
+	}
+
+	bestSpecificity := -1
+	acceptable := false
+	for mediaRange := range strings.SplitSeq(header, ",") {
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(mediaRange))
+		if err != nil {
+			continue
+		}
+
+		specificity := slices.Index([]string{"*/*", "application/*", gin.MIMEJSON}, mediaType)
+		if specificity < 0 {
+			continue
+		}
+
+		quality := 1.0
+		if value, ok := params["q"]; ok {
+			quality, ok = parseQuality(value)
+			if !ok {
+				continue
+			}
+		}
+
+		if mediaType == gin.MIMEJSON && quality > 0 {
+			return true
+		}
+		if specificity < bestSpecificity {
+			continue
+		}
+		if specificity > bestSpecificity {
+			bestSpecificity = specificity
+			acceptable = false
+		}
+		acceptable = acceptable || quality > 0
+	}
+
+	return acceptable
+}
+
+func parseQuality(value string) (float64, bool) {
+	switch value {
+	case "0":
+		return 0, true
+	case "1":
+		return 1, true
+	}
+
+	integer, fraction, found := strings.Cut(value, ".")
+	if !found || len(fraction) > 3 || (integer != "0" && integer != "1") {
+		return 0, false
+	}
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' || (integer == "1" && digit != '0') {
+			return 0, false
+		}
+	}
+
+	quality, err := strconv.ParseFloat(value, 64)
+	return quality, err == nil
 }
 
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
@@ -71,40 +142,6 @@ func parseCacheControlMaxAge(cacheControl string) *time.Duration {
 	}
 
 	return &maxAge
-}
-
-// tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
-// Returns true if a cached bulletin was served, false otherwise.
-func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, download bool, maxAge *time.Duration) bool {
-	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
-	if err != nil {
-		return false
-	}
-
-	setCacheHeaders(c, existingBulletin.CreatedAt, true)
-
-	if download {
-		serveAudioFile(c,
-			utils.BulletinPath(h.config, existingBulletin.AudioFile),
-			existingBulletin.Filename, existingBulletin.ID, true,
-		)
-		return true
-	}
-
-	utils.Success(c, existingBulletin)
-	return true
-}
-
-// serveNewBulletin serves a newly generated bulletin either as audio file or metadata.
-func (h *Handlers) serveNewBulletin(c *gin.Context, bulletin *models.Bulletin, download bool) {
-	setCacheHeaders(c, time.Time{}, false)
-
-	if download {
-		serveAudioFile(c, utils.BulletinPath(h.config, bulletin.AudioFile), bulletin.Filename, bulletin.ID, false)
-		return
-	}
-
-	utils.Success(c, bulletin)
 }
 
 // setCacheHeaders sets standardized cache response headers.
@@ -164,10 +201,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
-// GetStationBulletins returns a station's bulletins.
-// The latest=true shortcut is intentionally stricter than normal listing:
-// filter, sort, search, fields, trashed, offset, and limit values other than 1
-// are rejected because the shortcut returns at most one bulletin.
+// GetStationBulletins returns a station's bulletins in a list envelope.
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
@@ -184,29 +218,15 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := utils.ParseListQuery(c)
-	if !ok {
+	if _, present := c.GetQuery("latest"); present {
+		utils.ProblemValidationError(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.ValidationError{
+			{Field: "latest", Message: "parameter is no longer supported on the list endpoint"},
+		})
 		return
 	}
 
-	// The latest-bulletin shortcut returns before repository-side whitelist
-	// enforcement runs, so ParseListQuery alone cannot catch unknown
-	// filter/sort/fields. Reject those here so latest=true&filter[bogus]=1 does
-	// not silently succeed. `limit=1` is the trigger so it remains allowed;
-	// everything else must be absent.
-	if c.Query("latest") == "true" || c.Query("limit") == "1" {
-		if !rejectIfNotPureLatest(c, params) {
-			return
-		}
-		bulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, nil)
-		if err != nil {
-			utils.ProblemNotFound(c, "No bulletin found for this station")
-			return
-		}
-
-		setCacheHeaders(c, bulletin.CreatedAt, true)
-
-		utils.Success(c, bulletin)
+	params, query, ok := utils.ParseListQuery(c)
+	if !ok {
 		return
 	}
 
@@ -219,39 +239,31 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// rejectIfNotPureLatest enforces that the latest-bulletin shortcut sees no
-// list-query parameters beyond the trigger itself (?latest=true and/or
-// limit=1). Returns false after writing a 422 response on violation.
-func rejectIfNotPureLatest(c *gin.Context, params *utils.QueryParams) bool {
-	var unsupported []apperrors.ValidationError
-	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported with latest=true"})
+// GetLatestStationBulletin returns the most recently generated bulletin.
+func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
+	stationID, ok := utils.IDParam(c)
+	if !ok {
+		return
 	}
-	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported with latest=true"})
+
+	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
+	if err != nil {
+		handleServiceError(c, err, "Station")
+		return
 	}
-	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported with latest=true"})
+	if !exists {
+		utils.ProblemNotFound(c, "Station")
+		return
 	}
-	if params.Search != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported with latest=true"})
+
+	bulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, nil)
+	if err != nil {
+		handleServiceError(c, err, "Bulletin")
+		return
 	}
-	if params.Trashed != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported with latest=true"})
-	}
-	if params.Offset != 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "offset", Message: "not supported with latest=true"})
-	}
-	// Explicit limit must be exactly "1" or absent. limit=2 with latest=true
-	// is contradictory because the shortcut only returns one bulletin.
-	if raw := c.Query("limit"); raw != "" && raw != "1" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "limit", Message: "must be 1 (or omitted) when latest=true"})
-	}
-	if len(unsupported) > 0 {
-		utils.ProblemValidationError(c, "latest=true returns a single bulletin; remove other query parameters", unsupported)
-		return false
-	}
-	return true
+
+	setCacheHeaders(c, bulletin.CreatedAt, true)
+	utils.Success(c, bulletin)
 }
 
 // ListBulletins returns a paginated list of bulletins with modern query parameter support.
