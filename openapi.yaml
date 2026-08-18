@@ -2140,20 +2140,9 @@ paths:
           description: Bulletin generated successfully
           headers:
             X-Cache:
-              required: true
-              schema:
-                type: string
-                enum: [HIT, MISS]
-              description: |
-                Cache status indicator:
-                - `HIT` - Bulletin served from cache (existing bulletin reused)
-                - `MISS` - Bulletin freshly generated
+              $ref: '#/components/headers/XCache'
             Age:
-              required: true
-              schema:
-                type: integer
-                minimum: 0
-              description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+              $ref: '#/components/headers/Age'
           content:
             application/json:
               schema:
@@ -2188,11 +2177,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '406':
-          description: The requested response media type is not available from this operation
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
+          $ref: '#/components/responses/NotAcceptable'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -2219,15 +2204,13 @@ paths:
           description: Latest station bulletin
           headers:
             X-Cache:
+              description: Always `HIT`; the latest bulletin is served from the existing store
               required: true
               schema:
                 type: string
                 const: HIT
             Age:
-              required: true
-              schema:
-                type: integer
-                minimum: 0
+              $ref: '#/components/headers/Age'
           content:
             application/json:
               schema:
@@ -2713,6 +2696,21 @@ components:
       schema:
         type: string
         example: "bytes 0-1023/2048000"
+    XCache:
+      description: |
+        Cache status indicator:
+        - `HIT` - Bulletin served from cache (existing bulletin reused)
+        - `MISS` - Bulletin freshly generated
+      required: true
+      schema:
+        type: string
+        enum: [HIT, MISS]
+    Age:
+      description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+      required: true
+      schema:
+        type: integer
+        minimum: 0
 
   parameters:
     id:
@@ -4100,6 +4098,12 @@ components:
                 instance: "/api/v1/users"
     NotFound:
       description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    NotAcceptable:
+      description: The requested response media type is not available from this operation
       content:
         application/problem+json:
           schema:

@@ -16,14 +16,8 @@ import (
 // Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
 // serve an existing bulletin if it is still fresh enough.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
-	if !acceptsJSON(c.GetHeader("Accept")) {
-		utils.ProblemCustom(
-			c,
-			"https://babbel.api/problems/not-acceptable",
-			"Not Acceptable",
-			406,
-			"Bulletin generation returns application/json; fetch audio from the bulletin audio URL",
-		)
+	if c.NegotiateFormat(gin.MIMEJSON) == "" {
+		utils.ProblemNotAcceptable(c, "Bulletin generation returns application/json; fetch audio from the bulletin audio URL")
 		return
 	}
 
@@ -48,7 +42,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	forceNew := c.GetHeader("Cache-Control") == "no-cache"
 	maxAge := parseCacheControlMaxAge(c.GetHeader("Cache-Control"))
 	if !forceNew && maxAge != nil {
-		if h.tryServeCachedBulletin(c, stationID, maxAge) {
+		if cached, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge); err == nil {
+			setCacheHeaders(c, cached.CreatedAt, true)
+			utils.Success(c, cached)
 			return
 		}
 	}
@@ -61,21 +57,6 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 	setCacheHeaders(c, time.Time{}, false)
 	utils.Success(c, bulletin)
-}
-
-func acceptsJSON(accept string) bool {
-	if accept == "" {
-		return true
-	}
-
-	for value := range strings.SplitSeq(accept, ",") {
-		mediaType, _, _ := strings.Cut(strings.TrimSpace(value), ";")
-		switch mediaType {
-		case "*/*", "application/*", "application/json":
-			return true
-		}
-	}
-	return false
 }
 
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.
@@ -95,20 +76,6 @@ func parseCacheControlMaxAge(cacheControl string) *time.Duration {
 	}
 
 	return &maxAge
-}
-
-// tryServeCachedBulletin attempts to serve a cached bulletin if one exists within the max-age.
-// Returns true if a cached bulletin was served, false otherwise.
-func (h *Handlers) tryServeCachedBulletin(c *gin.Context, stationID int64, maxAge *time.Duration) bool {
-	existingBulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, maxAge)
-	if err != nil {
-		return false
-	}
-
-	setCacheHeaders(c, existingBulletin.CreatedAt, true)
-
-	utils.Success(c, existingBulletin)
-	return true
 }
 
 // setCacheHeaders sets standardized cache response headers.
@@ -221,7 +188,7 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 
 	bulletin, err := h.bulletinSvc.GetLatest(c.Request.Context(), stationID, nil)
 	if err != nil {
-		utils.ProblemNotFound(c, "No bulletin found for this station")
+		handleServiceError(c, err, "Bulletin")
 		return
 	}
 

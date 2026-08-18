@@ -445,10 +445,7 @@ describe('Bulletins', () => {
 
     test('when Accept audio/wav is requested, then directs clients to the audio endpoint', async () => {
       // Act
-      const response = await postJsonBulletinHttp(stationId, {
-        'Accept': 'audio/wav',
-        'Cache-Control': 'max-age=3600'
-      });
+      const response = await postJsonBulletinHttp(stationId, { 'Accept': 'audio/wav' });
 
       // Assert
       expect(response.status).toBe(406);
