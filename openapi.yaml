@@ -2398,7 +2398,7 @@ paths:
         - `id` - Station-voice relationship ID
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_url` - Filter by audio presence (maps to audio_file column)
+        - `audio_url` - Filter by audio presence (deprecated, use `has_audio`)
         - `has_audio` - Boolean jingle-audio presence
         - `mix_point` - Mix point in seconds
         - `created_at` - Creation timestamp
@@ -2901,7 +2901,7 @@ components:
         properties:
           id: { $ref: '#/components/schemas/IntegerFilter' }
           name: { $ref: '#/components/schemas/StringFilter' }
-          elevenlabs_voice_id: { $ref: '#/components/schemas/StringFilter' }
+          elevenlabs_voice_id: { $ref: '#/components/schemas/NullableStringFilter' }
           created_at: { $ref: '#/components/schemas/DateTimeFilter' }
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
     storyFilter:
@@ -2918,11 +2918,11 @@ components:
           title: { $ref: '#/components/schemas/StringFilter' }
           text: { $ref: '#/components/schemas/StringFilter' }
           voice_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
-          audio_url: { $ref: '#/components/schemas/StringFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
           has_audio: { $ref: '#/components/schemas/BooleanFilter' }
           status: { $ref: '#/components/schemas/StoryStatusFilter' }
-          start_date: { $ref: '#/components/schemas/DateTimeFilter' }
-          end_date: { $ref: '#/components/schemas/DateTimeFilter' }
+          start_date: { $ref: '#/components/schemas/DateFilter' }
+          end_date: { $ref: '#/components/schemas/DateFilter' }
           duration_seconds: { $ref: '#/components/schemas/NullableNumberFilter' }
           weekdays: { $ref: '#/components/schemas/BitmaskFilter' }
           is_breaking: { $ref: '#/components/schemas/BooleanFilter' }
@@ -2977,7 +2977,7 @@ components:
           id: { $ref: '#/components/schemas/IntegerFilter' }
           station_id: { $ref: '#/components/schemas/IntegerFilter' }
           voice_id: { $ref: '#/components/schemas/IntegerFilter' }
-          audio_url: { $ref: '#/components/schemas/StringFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
           has_audio: { $ref: '#/components/schemas/BooleanFilter' }
           mix_point: { $ref: '#/components/schemas/NumberFilter' }
           created_at: { $ref: '#/components/schemas/DateTimeFilter' }
@@ -3088,40 +3088,63 @@ components:
         in: { type: string, description: Comma-separated numbers. }
         between: { type: string, description: Two comma-separated inclusive numeric bounds. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
-    DateTimeFilter:
+    DateFilter:
       oneOf:
         - type: string
+          format: date
+        - $ref: '#/components/schemas/DateFilterOperators'
+    DateFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string, format: date }
+        ne: { type: string, format: date }
+        not: { type: string, format: date, description: Alias for `ne`. }
+        gt: { type: string, format: date }
+        gte: { type: string, format: date }
+        lt: { type: string, format: date }
+        lte: { type: string, format: date }
+        in: { type: string, description: Comma-separated dates. }
+        between: { type: string, description: Two comma-separated inclusive date bounds. }
+    DateTimeValue:
+      description: RFC 3339 date-time, or a bare date compared as midnight.
+      anyOf:
+        - type: string
           format: date-time
+        - type: string
+          format: date
+    DateTimeFilter:
+      oneOf:
+        - $ref: '#/components/schemas/DateTimeValue'
         - $ref: '#/components/schemas/DateTimeFilterOperators'
     NullableDateTimeFilter:
       oneOf:
-        - type: string
-          format: date-time
+        - $ref: '#/components/schemas/DateTimeValue'
         - $ref: '#/components/schemas/NullableDateTimeFilterOperators'
     DateTimeFilterOperators:
       type: object
       additionalProperties: false
       properties:
-        eq: { type: string, format: date-time }
-        ne: { type: string, format: date-time }
-        not: { type: string, format: date-time, description: Alias for `ne`. }
-        gt: { type: string, format: date-time }
-        gte: { type: string, format: date-time }
-        lt: { type: string, format: date-time }
-        lte: { type: string, format: date-time }
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
         in: { type: string, description: Comma-separated date-time values. }
         between: { type: string, description: Two comma-separated inclusive date-time bounds. }
     NullableDateTimeFilterOperators:
       type: object
       additionalProperties: false
       properties:
-        eq: { type: string, format: date-time }
-        ne: { type: string, format: date-time }
-        not: { type: string, format: date-time, description: Alias for `ne`. }
-        gt: { type: string, format: date-time }
-        gte: { type: string, format: date-time }
-        lt: { type: string, format: date-time }
-        lte: { type: string, format: date-time }
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
         in: { type: string, description: Comma-separated date-time values. }
         between: { type: string, description: Two comma-separated inclusive date-time bounds. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
@@ -3138,14 +3161,14 @@ components:
       oneOf:
         - type: integer
           minimum: 0
-          maximum: 255
+          maximum: 127
         - type: object
           additionalProperties: false
           properties:
-            eq: { type: integer, minimum: 0, maximum: 255 }
-            ne: { type: integer, minimum: 0, maximum: 255 }
-            not: { type: integer, minimum: 0, maximum: 255, description: Alias for `ne`. }
-            band: { type: integer, minimum: 0, maximum: 255, description: Selects rows where field & value is non-zero. }
+            eq: { type: integer, minimum: 0, maximum: 127 }
+            ne: { type: integer, minimum: 0, maximum: 127 }
+            not: { type: integer, minimum: 0, maximum: 127, description: Alias for `ne`. }
+            band: { type: integer, minimum: 0, maximum: 127, description: Selects rows where field & value is non-zero. }
     StoryStatusFilter:
       oneOf:
         - type: string

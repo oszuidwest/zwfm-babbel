@@ -34,7 +34,9 @@ const (
 	// FilterEquals selects records whose field equals the supplied value.
 	FilterEquals FilterOperator = "eq"
 	// FilterNotEquals selects records whose field differs from the supplied value.
-	FilterNotEquals FilterOperator = "neq"
+	// The value must match the public `ne` syntax: it is rendered verbatim in
+	// 422 error field labels like filter[has_audio][ne].
+	FilterNotEquals FilterOperator = "ne"
 	// FilterGreaterThan selects records whose field is greater than the supplied value.
 	FilterGreaterThan FilterOperator = "gt"
 	// FilterGreaterOrEq selects records whose field is greater than or equal to the supplied value.
@@ -177,6 +179,14 @@ var presenceFilterFields = map[string]bool{
 	"has_audio": true,
 }
 
+// booleanFilterFields are filter fields backed by BOOLEAN (TINYINT) columns.
+// MySQL coerces non-numeric strings to 0 in numeric comparisons, so a raw
+// "true" would silently match FALSE rows; values must be normalized to
+// "1"/"0" before binding.
+var booleanFilterFields = map[string]bool{
+	"is_breaking": true,
+}
+
 // operatorFormats maps filter operators to their SQL format strings.
 var operatorFormats = map[FilterOperator]string{
 	FilterEquals:      "%s = ?",
@@ -281,6 +291,14 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return applyPresenceFilter(db, dbField, filter)
 	}
 
+	if booleanFilterFields[filter.Field] {
+		normalized, err := normalizeBooleanFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+		filter = normalized
+	}
+
 	// Restrict bitwise operators to allowed fields only.
 	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
 		return nil, &InvalidFilterError{
@@ -335,16 +353,64 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	}
 }
 
+// normalizeBooleanFilter implements the booleanFilterFields contract: every
+// string value (single or list) is parsed as a boolean and rewritten to
+// "1"/"0" so MySQL compares numerically. Non-string values (null operator's
+// nil, band's uint8) pass through untouched for the generic handling.
+func normalizeBooleanFilter(filter FilterCondition) (FilterCondition, error) {
+	toSQL := func(raw string) (string, error) {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return "", &InvalidFilterError{
+				Field:    filter.Field,
+				Operator: filter.Operator,
+				Reason:   "expected a boolean value",
+			}
+		}
+		if b {
+			return "1", nil
+		}
+		return "0", nil
+	}
+
+	switch v := filter.Value.(type) {
+	case string:
+		normalized, err := toSQL(v)
+		if err != nil {
+			return filter, err
+		}
+		filter.Value = normalized
+	case []string:
+		normalized := make([]string, len(v))
+		for i, raw := range v {
+			value, err := toSQL(raw)
+			if err != nil {
+				return filter, err
+			}
+			normalized[i] = value
+		}
+		filter.Value = normalized
+	}
+	return filter, nil
+}
+
 // applyPresenceFilter implements the presenceFilterFields contract. Values
 // arrive from the query layer as strings; a non-string value fails ParseBool.
 func applyPresenceFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
-	value, _ := filter.Value.(string)
-	present, err := strconv.ParseBool(value)
-	if err != nil || (filter.Operator != FilterEquals && filter.Operator != FilterNotEquals) {
+	if filter.Operator != FilterEquals && filter.Operator != FilterNotEquals {
 		return nil, &InvalidFilterError{
 			Field:    filter.Field,
 			Operator: filter.Operator,
-			Reason:   "expected a boolean value with eq or ne",
+			Reason:   "operator must be eq or ne",
+		}
+	}
+	value, _ := filter.Value.(string)
+	present, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, &InvalidFilterError{
+			Field:    filter.Field,
+			Operator: filter.Operator,
+			Reason:   "expected a boolean value",
 		}
 	}
 	if filter.Operator == FilterNotEquals {
@@ -353,5 +419,7 @@ func applyPresenceFilter(db *gorm.DB, dbField string, filter FilterCondition) (*
 	if present {
 		return db.Where(dbField+" != ?", ""), nil
 	}
-	return db.Where(dbField+" = ?", ""), nil
+	// COALESCE: stories.audio_file is nullable, and a NULL row must land in
+	// the "absent" partition rather than escaping both.
+	return db.Where("COALESCE("+dbField+", '') = ?", ""), nil
 }

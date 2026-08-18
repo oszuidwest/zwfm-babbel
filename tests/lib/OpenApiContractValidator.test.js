@@ -510,6 +510,14 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.id.oneOf[0].type).toBe('integer');
     expect(filter.schema.properties.voice_id.oneOf[0].type).toBe('integer');
     expect(filter.schema.properties.has_audio.oneOf[0].type).toBe('boolean');
+    expect(filter.schema.properties.start_date.oneOf[0].format).toBe('date');
+    expect(filter.schema.properties.end_date.oneOf[0].format).toBe('date');
+    expect(filter.schema.properties.audio_url.deprecated).toBe(true);
+    // Documented examples use bare dates against datetime columns, so the
+    // datetime value schema must accept both formats.
+    expect(filter.schema.properties.created_at.oneOf[0].anyOf.map((s) => s.format).sort()).toEqual(['date', 'date-time']);
+    // Weekdays is a 7-bit mask (Sun=1 ... Sat=64).
+    expect(filter.schema.properties.weekdays.oneOf[0].maximum).toBe(127);
   });
 
   test('when an operation uses the shared id path parameter, then 400 is declared', () => {

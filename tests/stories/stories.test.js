@@ -2,6 +2,7 @@ const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
+const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 const STORY_TRUE_PEAK_TARGET_DBTP = -1.0;
 const TRUE_PEAK_TOLERANCE_DB = 0.3;
@@ -395,6 +396,88 @@ describe('Stories', () => {
     });
   });
 
+  describe('Audio Presence Filter', () => {
+    const testAudio = '/tmp/test_has_audio_filter.wav';
+    // Unique prefix scopes every list query to this block's fixtures.
+    const titlePrefix = `HasAudioFilter_${Date.now()}`;
+    let withAudioId, withoutAudioId, nullAudioId;
+
+    beforeAll(async () => {
+      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
+        console.warn('Audio presence filter tests will be skipped (ffmpeg not available)');
+        return;
+      }
+
+      const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1', 'HasAudioStation1');
+      const withoutAudio = await createStoryWithDeps(`${titlePrefix} empty`, 'Without audio', 'HasAudioVoice2', 'HasAudioStation2');
+      const nullAudio = await createStoryWithDeps(`${titlePrefix} null`, 'NULL audio', 'HasAudioVoice3', 'HasAudioStation3');
+      expect(withAudio).not.toBeNull();
+      expect(withoutAudio).not.toBeNull();
+      expect(nullAudio).not.toBeNull();
+
+      const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
+      expect(uploadResponse.status).toBe(201);
+
+      // The API never writes NULL (the model field is a plain string), but the
+      // column is nullable and legacy/imported rows can hold NULL. Force one
+      // via SQL to pin that has_audio=false catches it.
+      createMySQLExecutor().execSQL(
+        `UPDATE stories SET audio_file = NULL WHERE id = ${sqlInteger(nullAudio.id, 'story ID')}`
+      );
+
+      withAudioId = withAudio.id;
+      withoutAudioId = withoutAudio.id;
+      nullAudioId = nullAudio.id;
+    });
+
+    afterAll(() => {
+      global.helpers.cleanupTempFile(testAudio);
+    });
+
+    const listScopedIds = async (hasAudio) => {
+      const response = await global.api.apiCall(
+        'GET',
+        `/stories?filter[title][like]=${titlePrefix}&filter[has_audio]=${hasAudio}`
+      );
+      expect(response.status).toBe(200);
+      return response.data.data.map((story) => story.id);
+    };
+
+    test('when filtering has_audio=true, then returns only stories with audio', async () => {
+      if (!withAudioId) return;
+
+      expect(await listScopedIds('true')).toEqual([withAudioId]);
+    });
+
+    test('when filtering has_audio=false, then includes empty and NULL audio stories', async () => {
+      if (!withAudioId) return;
+
+      expect((await listScopedIds('false')).sort()).toEqual([withoutAudioId, nullAudioId].sort());
+    });
+
+    test('when filtering has_audio with non-boolean value, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[has_audio]=maybe');
+      expect(response.status).toBe(422);
+    });
+
+    test('when filtering has_audio ne with non-boolean value, then error reports the public ne operator', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[has_audio][ne]=maybe');
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('filter[has_audio][ne]');
+    });
+
+    test('when sorting by has_audio, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', '/stories?sort=has_audio');
+      expect(response.status).toBe(422);
+    });
+
+    test('when filtering has_audio null=false, then error reports the public null operator', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[has_audio][null]=false');
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('filter[has_audio][null]');
+    });
+  });
+
   describe('Story Metadata', () => {
     test('when creating with metadata, then stored', async () => {
       // Arrange
@@ -539,6 +622,40 @@ describe('Stories', () => {
       expect(stories.length).toBeGreaterThan(0);
       const allNonBreaking = stories.every(s => s.is_breaking === false);
       expect(allNonBreaking).toBe(true);
+    });
+
+    // Textual booleans are what generated OpenAPI clients send; MySQL would
+    // coerce an unnormalized "true" to 0 and return the WRONG partition.
+    test('when filtering by is_breaking=true, then returns only breaking stories', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=true');
+
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      expect(stories.every(s => s.is_breaking === true)).toBe(true);
+    });
+
+    test('when filtering by is_breaking=false, then returns only non-breaking stories', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=false');
+
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      expect(stories.every(s => s.is_breaking === false)).toBe(true);
+    });
+
+    test('when filtering by is_breaking ne=false, then returns only breaking stories', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking][ne]=false');
+
+      expect(response.status).toBe(200);
+      const stories = response.data.data || [];
+      expect(stories.length).toBeGreaterThan(0);
+      expect(stories.every(s => s.is_breaking === true)).toBe(true);
+    });
+
+    test('when filtering is_breaking with non-boolean value, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=maybe');
+      expect(response.status).toBe(422);
     });
   });
 
