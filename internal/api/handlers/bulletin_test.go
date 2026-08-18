@@ -1,6 +1,32 @@
 package handlers
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+)
+
+func TestGenerateBulletinCombinesAcceptHeaders(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		"/api/v1/stations/invalid/bulletins",
+		nil,
+	)
+	context.Request.Header.Add("Accept", "text/html")
+	context.Request.Header.Add("Accept", gin.MIMEJSON)
+	context.Params = gin.Params{{Key: "id", Value: "invalid"}}
+
+	(&Handlers{}).GenerateBulletin(context)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("GenerateBulletin() status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+}
 
 func TestAcceptsJSON(t *testing.T) {
 	tests := []struct {

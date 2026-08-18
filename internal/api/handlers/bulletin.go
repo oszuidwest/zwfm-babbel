@@ -18,7 +18,7 @@ import (
 // Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
 // serve an existing bulletin if it is still fresh enough.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
-	if !acceptsJSON(c.GetHeader("Accept")) {
+	if !acceptsJSON(strings.Join(c.Request.Header.Values("Accept"), ",")) {
 		utils.ProblemNotAcceptable(c, "Bulletin generation returns application/json; fetch audio from the bulletin audio URL")
 		return
 	}
