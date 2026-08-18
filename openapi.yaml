@@ -106,20 +106,17 @@ paths:
         '503':
           description: The service is unhealthy because it cannot connect to the database
           content:
-            application/json:
+            application/problem+json:
               schema:
-                type: object
-                required:
-                  - status
-                  - service
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - unhealthy
-                  service:
-                    type: string
-                    example: babbel-api
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/health.database_unavailable"
+                title: "Service Unavailable"
+                status: 503
+                detail: "The health check could not connect to the database"
+                instance: "/health"
+                code: "health.database_unavailable"
+                hint: "Restore the database connection and retry the health check"
 
   /public/stations/{id}/bulletin.wav:
     get:
@@ -428,14 +425,14 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the complete user object for the authenticated user, including full_name, email, and login statistics.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
       responses:
         '200':
           description: Current user information
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -3613,6 +3610,40 @@ components:
           format: date-time
           description: Soft delete timestamp (null for active users)
 
+    CurrentSession:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          required:
+            - permissions
+          properties:
+            permissions:
+              type: object
+              additionalProperties: false
+              description: Effective actions per resource. Resources with no allowed actions are omitted.
+              properties:
+                stations:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                voices:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                stories:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                bulletins:
+                  type: array
+                  items: { type: string, enum: [read, generate] }
+                users:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                'settings:tts':
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                pronunciation_rules:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+
     UserInput:
       type: object
       required:
@@ -3805,6 +3836,7 @@ components:
         - type
         - title
         - status
+        - detail
       properties:
         type:
           type: string
@@ -4324,7 +4356,7 @@ components:
         Not Modified. Returned for conditional requests (e.g. `If-Modified-Since`)
         when the audio file has not changed. The response has no body.
     RangeNotSatisfiable:
-      description: The requested byte range cannot be satisfied. The plain-text body describes the error.
+      description: The requested byte range is invalid or cannot be satisfied.
       headers:
         Content-Range:
           description: The full file size in the form `bytes */{size}`
@@ -4333,4 +4365,6 @@ components:
             type: string
             example: "bytes */2048000"
       content:
-        text/plain: {}
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'

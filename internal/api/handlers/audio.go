@@ -3,8 +3,11 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -49,12 +52,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	}
 	audioPath := filepath.Join(baseDir, filePath)
 
-	if _, err := os.Stat(audioPath); err != nil {
-		if os.IsNotExist(err) {
-			utils.ProblemNotFound(c, "Audio file")
-		} else {
-			utils.ProblemInternalServer(c, "Failed to access audio file")
-		}
+	if !validateAudioFile(c, audioPath) {
 		return
 	}
 	c.Header("Content-Type", "audio/wav")
@@ -62,6 +60,110 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))
 
 	c.File(audioPath)
+}
+
+// validateAudioFile stats an audio file and validates any Range header against
+// its size, writing the Problem Details response when either check fails.
+func validateAudioFile(c *gin.Context, path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
+		return false
+	}
+	return validateAudioRange(c, fileInfo.Size())
+}
+
+func validateAudioRange(c *gin.Context, size int64) bool {
+	if validByteRange(c.GetHeader("Range"), size) {
+		return true
+	}
+	c.Header("Content-Range", fmt.Sprintf("bytes */%d", size))
+	utils.ProblemCustom(
+		c,
+		utils.ProblemTypeRangeNotSatisfiable,
+		"Range Not Satisfiable",
+		http.StatusRequestedRangeNotSatisfiable,
+		"The requested byte range is invalid or does not overlap the audio file",
+	)
+	return false
+}
+
+// validByteRange mirrors net/http's byte-range validation (parseRange in
+// net/http/fs.go) so invalid ranges can use the API's Problem Details
+// response before file serving begins.
+func validByteRange(header string, size int64) bool {
+	if header == "" {
+		return true
+	}
+	const prefix = "bytes="
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+
+	sawOverlap := false
+	noOverlap := false
+	for value := range strings.SplitSeq(header[len(prefix):], ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		overlaps, ok := validRangeSpec(value, size)
+		if !ok {
+			return false
+		}
+		if overlaps {
+			sawOverlap = true
+		} else {
+			noOverlap = true
+		}
+	}
+
+	if noOverlap && !sawOverlap {
+		// net/http forgives non-overlapping ranges on empty files.
+		return size == 0
+	}
+	return true
+}
+
+// validRangeSpec validates a single byte-range spec ("start-end" or "-suffix")
+// and reports whether it overlaps a file of the given size. A start past the
+// end of the file is not an error on its own, only when no spec overlaps.
+func validRangeSpec(value string, size int64) (overlaps, ok bool) {
+	start, end, found := strings.Cut(value, "-")
+	if !found {
+		return false, false
+	}
+	start = strings.TrimSpace(start)
+	end = strings.TrimSpace(end)
+	if start == "" {
+		if end == "" || strings.HasPrefix(end, "-") {
+			return false, false
+		}
+		suffix, err := strconv.ParseInt(end, 10, 64)
+		if err != nil || suffix <= 0 {
+			return false, false
+		}
+		return true, true
+	}
+
+	first, err := strconv.ParseInt(start, 10, 64)
+	if err != nil || first < 0 {
+		return false, false
+	}
+	if first >= size {
+		return false, true
+	}
+	if end != "" {
+		last, err := strconv.ParseInt(end, 10, 64)
+		if err != nil || first > last {
+			return false, false
+		}
+	}
+	return true, true
 }
 
 // UploadStoryAudio validates and converts an uploaded story file.
