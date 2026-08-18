@@ -100,8 +100,8 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser returns the authenticated user's profile through the same
-// representation as GetUser.
+// GetCurrentUser returns the authenticated user's profile augmented with the
+// effective permissions for their role.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID, ok := auth.UserID(c)
 	if !ok {
@@ -109,7 +109,18 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		return
 	}
 
-	h.handlers.RespondWithUser(c, userID)
+	role, ok := auth.UserRole(c)
+	if !ok {
+		utils.ProblemAuthentication(c, "Invalid session")
+		return
+	}
+	permissions, err := h.authService.EffectivePermissions(role)
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to resolve permissions")
+		return
+	}
+
+	h.handlers.RespondWithCurrentUser(c, userID, permissions)
 }
 
 // GetAuthConfig reports the enabled frontend login methods.

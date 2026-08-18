@@ -90,6 +90,8 @@ describe('Authentication', () => {
       // Assert
       expect(sessionInfo).not.toBeNull();
       expect(sessionInfo).toHaveProperty('username');
+      expect(sessionInfo).toHaveProperty('permissions');
+      expect(sessionInfo.permissions.stations).toContain('read');
     });
 
     test('when logging out, then session destroyed', async () => {
