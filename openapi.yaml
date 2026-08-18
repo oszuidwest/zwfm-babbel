@@ -2984,6 +2984,11 @@ components:
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
+    # The Nullable*FilterOperators schemas deliberately repeat their base
+    # schema's operators instead of composing via allOf: additionalProperties:
+    # false does not see properties merged in through allOf, and the
+    # unevaluatedProperties alternative has patchy tooling support. When
+    # changing an operator list, update the base and Nullable variant together.
     StringFilter:
       oneOf:
         - type: string

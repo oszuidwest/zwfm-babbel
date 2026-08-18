@@ -47,7 +47,8 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: errKindInvalid},
 		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: errKindInvalid},
 		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
-		{name: "has audio rejects ordering", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Value: true}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterGreaterThan},
+		{name: "has audio requires string value", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: true}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
+		{name: "has audio rejects ordering", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Value: "true"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterGreaterThan},
 	}
 
 	for _, tt := range tests {
@@ -81,16 +82,18 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 func TestApplyFilterCondition_HasAudio(t *testing.T) {
 	t.Parallel()
 
+	// Values are strings because that is what the query-parsing layer
+	// (internal/utils/query.go) hands the repository. The bind variable is
+	// always the empty string: presence is expressed as (non-)emptiness.
 	tests := []struct {
-		name      string
-		operator  FilterOperator
-		value     any
-		wantSQL   string
-		wantValue string
+		name     string
+		operator FilterOperator
+		value    string
+		wantSQL  string
 	}{
-		{name: "has audio", operator: FilterEquals, value: true, wantSQL: "audio_file != ?", wantValue: ""},
-		{name: "has no audio", operator: FilterEquals, value: false, wantSQL: "audio_file = ?", wantValue: ""},
-		{name: "not has audio", operator: FilterNotEquals, value: true, wantSQL: "audio_file = ?", wantValue: ""},
+		{name: "has audio", operator: FilterEquals, value: "true", wantSQL: "audio_file != ?"},
+		{name: "has no audio", operator: FilterEquals, value: "false", wantSQL: "audio_file = ?"},
+		{name: "not has audio", operator: FilterNotEquals, value: "true", wantSQL: "audio_file = ?"},
 	}
 
 	for _, tt := range tests {
@@ -109,10 +112,27 @@ func TestApplyFilterCondition_HasAudio(t *testing.T) {
 			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
 				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
 			}
-			if got := stmt.Vars; len(got) != 1 || got[0] != tt.wantValue {
-				t.Fatalf("bind vars = %#v, want [%q]", got, tt.wantValue)
+			if got := stmt.Vars; len(got) != 1 || got[0] != "" {
+				t.Fatalf("bind vars = %#v, want [\"\"]", got)
 			}
 		})
+	}
+}
+
+// TestApplySorting_RejectsPresenceFields pins that a presence filter field in
+// the FieldMapping does not leak into the sort whitelist: sorting by the
+// backing audio_file column would be a meaningless lexicographic path sort.
+func TestApplySorting_RejectsPresenceFields(t *testing.T) {
+	t.Parallel()
+	mapping := FieldMapping{"has_audio": "audio_file", "created_at": "created_at"}
+
+	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, mapping)
+	var e *UnknownFieldError
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
+	}
+	if e.Kind != "sort" || e.Field != "has_audio" {
+		t.Fatalf("got %+v, want sort/has_audio", e)
 	}
 }
 

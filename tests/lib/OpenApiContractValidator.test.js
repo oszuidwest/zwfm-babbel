@@ -443,6 +443,11 @@ describe('openapi.yaml contract invariants', () => {
     ['get', '/api/v1/station-voices/{id}/audio']
   ];
 
+  // All three bulletin listings $ref the same bulletinFilter parameter.
+  const BULLETIN_FILTER_FIELDS = [
+    'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
+  ];
+
   const TYPED_FILTER_OPERATIONS = [
     ['get', '/api/v1/stations', ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at']],
     ['get', '/api/v1/voices', ['id', 'name', 'elevenlabs_voice_id', 'created_at', 'updated_at']],
@@ -451,15 +456,9 @@ describe('openapi.yaml contract invariants', () => {
       'duration_seconds', 'weekdays', 'is_breaking', 'created_at', 'updated_at', 'deleted_at'
     ]],
     ['get', '/api/v1/users', ['id', 'username', 'full_name', 'email', 'role', 'created_at', 'updated_at']],
-    ['get', '/api/v1/bulletins', [
-      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
-    ]],
-    ['get', '/api/v1/stations/{id}/bulletins', [
-      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
-    ]],
-    ['get', '/api/v1/stories/{id}/bulletins', [
-      'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
-    ]],
+    ['get', '/api/v1/bulletins', BULLETIN_FILTER_FIELDS],
+    ['get', '/api/v1/stations/{id}/bulletins', BULLETIN_FILTER_FIELDS],
+    ['get', '/api/v1/stories/{id}/bulletins', BULLETIN_FILTER_FIELDS],
     ['get', '/api/v1/station-voices', [
       'id', 'station_id', 'voice_id', 'audio_url', 'has_audio', 'mix_point', 'created_at', 'updated_at'
     ]]

@@ -169,6 +169,14 @@ var bitwiseAllowedFields = map[string]bool{
 	"weekdays": true,
 }
 
+// presenceFilterFields are virtual boolean filter fields: true selects rows
+// whose mapped column is non-empty ("" means absent). They are filter-only —
+// applySorting rejects them because ordering by the backing column would be
+// a meaningless lexicographic sort on file paths.
+var presenceFilterFields = map[string]bool{
+	"has_audio": true,
+}
+
 // operatorFormats maps filter operators to their SQL format strings.
 var operatorFormats = map[FilterOperator]string{
 	FilterEquals:      "%s = ?",
@@ -230,7 +238,7 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 	}
 	for _, sf := range userSort {
 		dbField, ok := fieldMapping[sf.Field]
-		if !ok {
+		if !ok || presenceFilterFields[sf.Field] {
 			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
 		}
 		db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
@@ -269,8 +277,8 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
 
-	if filter.Field == "has_audio" {
-		return applyHasAudioFilter(db, dbField, filter)
+	if presenceFilterFields[filter.Field] {
+		return applyPresenceFilter(db, dbField, filter)
 	}
 
 	// Restrict bitwise operators to allowed fields only.
@@ -327,8 +335,11 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	}
 }
 
-func applyHasAudioFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
-	hasAudio, err := strconv.ParseBool(fmt.Sprint(filter.Value))
+// applyPresenceFilter implements the presenceFilterFields contract. Values
+// arrive from the query layer as strings; a non-string value fails ParseBool.
+func applyPresenceFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
+	value, _ := filter.Value.(string)
+	present, err := strconv.ParseBool(value)
 	if err != nil || (filter.Operator != FilterEquals && filter.Operator != FilterNotEquals) {
 		return nil, &InvalidFilterError{
 			Field:    filter.Field,
@@ -337,9 +348,9 @@ func applyHasAudioFilter(db *gorm.DB, dbField string, filter FilterCondition) (*
 		}
 	}
 	if filter.Operator == FilterNotEquals {
-		hasAudio = !hasAudio
+		present = !present
 	}
-	if hasAudio {
+	if present {
 		return db.Where(dbField+" != ?", ""), nil
 	}
 	return db.Where(dbField+" = ?", ""), nil
