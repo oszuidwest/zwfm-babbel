@@ -81,9 +81,7 @@ func validateAudioRange(c *gin.Context, size int64) bool {
 	if validByteRange(c.GetHeader("Range"), size) {
 		return true
 	}
-	if size > 0 {
-		c.Header("Content-Range", fmt.Sprintf("bytes */%d", size))
-	}
+	c.Header("Content-Range", fmt.Sprintf("bytes */%d", size))
 	utils.ProblemCustom(
 		c,
 		utils.ProblemTypeRangeNotSatisfiable,
@@ -146,7 +144,7 @@ func validRangeSpec(value string, size int64) (overlaps, ok bool) {
 			return false, false
 		}
 		suffix, err := strconv.ParseInt(end, 10, 64)
-		if err != nil || suffix < 0 {
+		if err != nil || suffix <= 0 {
 			return false, false
 		}
 		return true, true
