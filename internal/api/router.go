@@ -359,7 +359,13 @@ func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
 		if err := scheduler.CheckDatabase(ctx, db, alerts); err != nil {
-			c.JSON(http.StatusServiceUnavailable, handlers.HealthResponse{Status: "unhealthy", Service: "babbel-api"})
+			utils.ProblemExtended(
+				c,
+				http.StatusServiceUnavailable,
+				"The health check could not connect to the database",
+				"health.database_unavailable",
+				"Restore the database connection and retry the health check",
+			)
 			return
 		}
 		utils.Success(c, handlers.HealthResponse{
