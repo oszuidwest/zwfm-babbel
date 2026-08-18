@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"fmt"
+	"mime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +18,7 @@ import (
 // Cache-Control: no-cache forces regeneration; Cache-Control: max-age=N may
 // serve an existing bulletin if it is still fresh enough.
 func (h *Handlers) GenerateBulletin(c *gin.Context) {
-	if c.NegotiateFormat(gin.MIMEJSON) == "" {
+	if !acceptsJSON(c.GetHeader("Accept")) {
 		utils.ProblemNotAcceptable(c, "Bulletin generation returns application/json; fetch audio from the bulletin audio URL")
 		return
 	}
@@ -57,6 +59,48 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 
 	setCacheHeaders(c, time.Time{}, false)
 	utils.Success(c, bulletin)
+}
+
+func acceptsJSON(header string) bool {
+	if header == "" {
+		return true
+	}
+
+	bestSpecificity := -1
+	acceptable := false
+	for mediaRange := range strings.SplitSeq(header, ",") {
+		mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(mediaRange))
+		if err != nil {
+			continue
+		}
+
+		specificity := slices.Index([]string{"*/*", "application/*", gin.MIMEJSON}, mediaType)
+		if specificity < 0 {
+			continue
+		}
+
+		quality := 1.0
+		if value, ok := params["q"]; ok {
+			quality, err = strconv.ParseFloat(value, 64)
+			if err != nil || quality < 0 || quality > 1 {
+				continue
+			}
+		}
+
+		if mediaType == gin.MIMEJSON && quality > 0 {
+			return true
+		}
+		if specificity < bestSpecificity {
+			continue
+		}
+		if specificity > bestSpecificity {
+			bestSpecificity = specificity
+			acceptable = false
+		}
+		acceptable = acceptable || quality > 0
+	}
+
+	return acceptable
 }
 
 // parseCacheControlMaxAge extracts max-age duration from Cache-Control header.

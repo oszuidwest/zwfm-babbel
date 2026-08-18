@@ -452,6 +452,16 @@ describe('Bulletins', () => {
       expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
     });
 
+    test.each([
+      'application/json;q=0',
+      '*/*;q=0'
+    ])('when Accept %s excludes JSON, then returns 406', async accept => {
+      const response = await postJsonBulletinHttp(stationId, { 'Accept': accept });
+
+      expect(response.status).toBe(406);
+      expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+    });
+
     test('when Cache-Control max-age is invalid, then falls back to fresh generation', async () => {
       // Act
       const response = await postJsonBulletinHttp(stationId, { 'Cache-Control': 'max-age=garbage' });
