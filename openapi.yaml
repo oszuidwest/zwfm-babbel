@@ -494,7 +494,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/stationFilter'
       responses:
         '200':
           description: List of stations with pagination metadata
@@ -711,7 +711,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/voiceFilter'
       responses:
         '200':
           description: List of voices with pagination metadata
@@ -935,9 +935,9 @@ paths:
         - `filter[voice_id][null]=true` - Stories without voice
 
         ## Audio Filtering
-        Filter stories by audio presence using the `audio_url` field:
-        - `filter[audio_url]=` - Stories WITHOUT audio (empty value)
-        - `filter[audio_url][ne]=` - Stories WITH audio (not empty)
+        Filter stories by audio presence with an explicit boolean:
+        - `filter[has_audio]=false` - Stories without audio
+        - `filter[has_audio]=true` - Stories with audio
 
         Use cases:
         - Quality control: Find stories missing audio before publication
@@ -958,7 +958,7 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/trashed'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/storyFilter'
       responses:
         '200':
           description: List of stories
@@ -1585,7 +1585,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
           description: Story bulletin history with pagination metadata
@@ -1645,7 +1645,7 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/trashed'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/userFilter'
       responses:
         '200':
           description: List of users
@@ -1888,7 +1888,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
           description: List of bulletins with pagination metadata
@@ -2026,7 +2026,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
           description: Station bulletins in a paginated list envelope
@@ -2317,15 +2317,16 @@ paths:
         - `id` - Station-voice relationship ID
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_url` - Filter by audio presence (maps to audio_file column)
+        - `audio_url` - Filter by audio presence (deprecated, use `has_audio`)
+        - `has_audio` - Boolean jingle-audio presence
         - `mix_point` - Mix point in seconds
         - `created_at` - Creation timestamp
         - `updated_at` - Last update timestamp
 
         ## Audio Filtering
         Filter station-voices by jingle audio presence:
-        - `filter[audio_url]=` - Station-voices WITHOUT jingle audio
-        - `filter[audio_url][ne]=` - Station-voices WITH jingle audio
+        - `filter[has_audio]=false` - Station-voices without jingle audio
+        - `filter[has_audio]=true` - Station-voices with jingle audio
 
         ## Sort Fields
         Available sort fields:
@@ -2350,7 +2351,7 @@ paths:
         - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/stationVoiceFilter'
       responses:
         '200':
           description: List of station-voice relationships with pagination metadata
@@ -2802,91 +2803,334 @@ components:
         - (omitted) - only non-deleted records (default)
         - `only` - only soft-deleted records
         - `with` - all records including deleted
-    filter:
+    stationFilter:
       name: filter
       in: query
       style: deepObject
       explode: true
+      description: Typed station filters using `filter[field]` or `filter[field][operator]`.
       schema:
         type: object
-        additionalProperties:
-          oneOf:
-            - type: string
-            - type: object
-              properties:
-                eq:
-                  type: string
-                  description: Equals
-                ne:
-                  type: string
-                  description: Not equals
-                not:
-                  type: string
-                  description: Alias for ne (not equals)
-                gt:
-                  type: string
-                  description: Greater than
-                gte:
-                  type: string
-                  description: Greater than or equal
-                lt:
-                  type: string
-                  description: Less than
-                lte:
-                  type: string
-                  description: Less than or equal
-                like:
-                  type: string
-                  description: Case-sensitive substring match (contains); value matched literally
-                in:
-                  type: string
-                  description: Comma-separated list of values
-                between:
-                  type: string
-                  description: Two comma-separated inclusive bounds
-                'null':
-                  type: boolean
-                  description: Is null (true) or not null (false)
-                band:
-                  type: integer
-                  description: Bitwise AND (for bitmask fields like weekdays)
-      description: |
-        Advanced filtering using field-based operators.
-
-        Basic usage: `filter[field]=value`
-
-        Advanced operators: `filter[field][op]=value`
-
-        Supported operators:
-        - `eq` - equals (default)
-        - `ne` - not equals
-        - `not` - alias for `ne` (not equals)
-        - `gt`, `gte`, `lt`, `lte` - comparisons
-        - `like` - case-sensitive substring match (contains)
-        - `in` - comma-separated values
-        - `between` - two comma-separated inclusive bounds
-        - `null` - is/isn't null
-        - `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
-
-        **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
-      examples:
-        basic:
-          value: { "name": "Radio Station" }
-          summary: "Filter by exact name match"
-        comparison:
-          value: { "created_at": { "gte": "2024-01-01", "lte": "2024-12-31" } }
-          summary: "Filter by date range"
-        pattern:
-          value: { "name": { "like": "radio" } }
-          summary: "Filter by name (contains)"
-        multiple:
-          value: { "status": "active", "voice_id": { "null": false } }
-          summary: "Multiple filter conditions"
-        bitwise:
-          value: { "weekdays": { "band": 2 } }
-          summary: "Filter stories that play on Monday (bitwise AND)"
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          name: { $ref: '#/components/schemas/StringFilter' }
+          max_stories_per_block: { $ref: '#/components/schemas/IntegerFilter' }
+          pause_seconds: { $ref: '#/components/schemas/NumberFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    voiceFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed voice filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          name: { $ref: '#/components/schemas/StringFilter' }
+          elevenlabs_voice_id: { $ref: '#/components/schemas/NullableStringFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    storyFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed story filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          title: { $ref: '#/components/schemas/StringFilter' }
+          text: { $ref: '#/components/schemas/StringFilter' }
+          voice_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
+          has_audio: { $ref: '#/components/schemas/PresenceFilter' }
+          status: { $ref: '#/components/schemas/StoryStatusFilter' }
+          start_date: { $ref: '#/components/schemas/DateFilter' }
+          end_date: { $ref: '#/components/schemas/DateFilter' }
+          duration_seconds: { $ref: '#/components/schemas/NullableNumberFilter' }
+          weekdays: { $ref: '#/components/schemas/BitmaskFilter' }
+          is_breaking: { $ref: '#/components/schemas/BooleanFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          deleted_at: { $ref: '#/components/schemas/NullableDateTimeFilter' }
+    userFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed user filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          username: { $ref: '#/components/schemas/StringFilter' }
+          full_name: { $ref: '#/components/schemas/StringFilter' }
+          email: { $ref: '#/components/schemas/NullableStringFilter' }
+          role: { $ref: '#/components/schemas/UserRoleFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    bulletinFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed bulletin filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          station_id: { $ref: '#/components/schemas/IntegerFilter' }
+          filename: { $ref: '#/components/schemas/StringFilter' }
+          duration_seconds: { $ref: '#/components/schemas/NumberFilter' }
+          file_size: { $ref: '#/components/schemas/IntegerFilter' }
+          story_count: { $ref: '#/components/schemas/IntegerFilter' }
+          file_purged_at: { $ref: '#/components/schemas/NullableDateTimeFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    stationVoiceFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed station-voice filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          station_id: { $ref: '#/components/schemas/IntegerFilter' }
+          voice_id: { $ref: '#/components/schemas/IntegerFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
+          has_audio: { $ref: '#/components/schemas/PresenceFilter' }
+          mix_point: { $ref: '#/components/schemas/NumberFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
+    # The Nullable*FilterOperators schemas deliberately repeat their base
+    # schema's operators instead of composing via allOf: additionalProperties:
+    # false does not see properties merged in through allOf, and the
+    # unevaluatedProperties alternative has patchy tooling support. When
+    # changing an operator list, update the base and Nullable variant together.
+    StringFilter:
+      oneOf:
+        - type: string
+        - $ref: '#/components/schemas/StringFilterOperators'
+    NullableStringFilter:
+      oneOf:
+        - type: string
+        - $ref: '#/components/schemas/NullableStringFilterOperators'
+    StringFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string }
+        ne: { type: string }
+        not: { type: string, description: Alias for `ne`. }
+        like: { type: string, description: Case-sensitive literal substring match. }
+        in: { type: string, description: Comma-separated values. }
+    NullableStringFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string }
+        ne: { type: string }
+        not: { type: string, description: Alias for `ne`. }
+        like: { type: string, description: Case-sensitive literal substring match. }
+        in: { type: string, description: Comma-separated values. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    IntegerFilter:
+      oneOf:
+        - type: integer
+          format: int64
+        - $ref: '#/components/schemas/IntegerFilterOperators'
+    NullableIntegerFilter:
+      oneOf:
+        - type: integer
+          format: int64
+        - $ref: '#/components/schemas/NullableIntegerFilterOperators'
+    IntegerFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: integer, format: int64 }
+        ne: { type: integer, format: int64 }
+        not: { type: integer, format: int64, description: Alias for `ne`. }
+        gt: { type: integer, format: int64 }
+        gte: { type: integer, format: int64 }
+        lt: { type: integer, format: int64 }
+        lte: { type: integer, format: int64 }
+        in: { type: string, description: Comma-separated integers. }
+        between: { type: string, description: Two comma-separated inclusive integer bounds. }
+    NullableIntegerFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: integer, format: int64 }
+        ne: { type: integer, format: int64 }
+        not: { type: integer, format: int64, description: Alias for `ne`. }
+        gt: { type: integer, format: int64 }
+        gte: { type: integer, format: int64 }
+        lt: { type: integer, format: int64 }
+        lte: { type: integer, format: int64 }
+        in: { type: string, description: Comma-separated integers. }
+        between: { type: string, description: Two comma-separated inclusive integer bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    NumberFilter:
+      oneOf:
+        - type: number
+        - $ref: '#/components/schemas/NumberFilterOperators'
+    NullableNumberFilter:
+      oneOf:
+        - type: number
+        - $ref: '#/components/schemas/NullableNumberFilterOperators'
+    NumberFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: number }
+        ne: { type: number }
+        not: { type: number, description: Alias for `ne`. }
+        gt: { type: number }
+        gte: { type: number }
+        lt: { type: number }
+        lte: { type: number }
+        in: { type: string, description: Comma-separated numbers. }
+        between: { type: string, description: Two comma-separated inclusive numeric bounds. }
+    NullableNumberFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: number }
+        ne: { type: number }
+        not: { type: number, description: Alias for `ne`. }
+        gt: { type: number }
+        gte: { type: number }
+        lt: { type: number }
+        lte: { type: number }
+        in: { type: string, description: Comma-separated numbers. }
+        between: { type: string, description: Two comma-separated inclusive numeric bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    DateFilter:
+      oneOf:
+        - type: string
+          format: date
+        - $ref: '#/components/schemas/DateFilterOperators'
+    DateFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string, format: date }
+        ne: { type: string, format: date }
+        not: { type: string, format: date, description: Alias for `ne`. }
+        gt: { type: string, format: date }
+        gte: { type: string, format: date }
+        lt: { type: string, format: date }
+        lte: { type: string, format: date }
+        in: { type: string, description: Comma-separated dates. }
+        between: { type: string, description: Two comma-separated inclusive date bounds. }
+    DateTimeValue:
+      description: RFC 3339 date-time, or a bare date compared as midnight.
+      anyOf:
+        - type: string
+          format: date-time
+        - type: string
+          format: date
+    DateTimeFilter:
+      oneOf:
+        - $ref: '#/components/schemas/DateTimeValue'
+        - $ref: '#/components/schemas/DateTimeFilterOperators'
+    NullableDateTimeFilter:
+      oneOf:
+        - $ref: '#/components/schemas/DateTimeValue'
+        - $ref: '#/components/schemas/NullableDateTimeFilterOperators'
+    DateTimeFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
+        in: { type: string, description: Comma-separated date-time values. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+    NullableDateTimeFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
+        in: { type: string, description: Comma-separated date-time values. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    BooleanFilter:
+      oneOf:
+        - type: boolean
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: boolean }
+            ne: { type: boolean }
+            not: { type: boolean, description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated boolean values. }
+    PresenceFilter:
+      oneOf:
+        - type: boolean
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: boolean }
+            ne: { type: boolean }
+            not: { type: boolean, description: Alias for `ne`. }
+    BitmaskFilter:
+      oneOf:
+        - type: integer
+          minimum: 0
+          maximum: 127
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: integer, minimum: 0, maximum: 127 }
+            ne: { type: integer, minimum: 0, maximum: 127 }
+            not: { type: integer, minimum: 0, maximum: 127, description: Alias for `ne`. }
+            band: { type: integer, minimum: 0, maximum: 127, description: Selects rows where field & value is non-zero. }
+    StoryStatusFilter:
+      oneOf:
+        - type: string
+          enum: [draft, active, expired]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [draft, active, expired] }
+            ne: { type: string, enum: [draft, active, expired] }
+            not: { type: string, enum: [draft, active, expired], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated status values. }
+    UserRoleFilter:
+      oneOf:
+        - type: string
+          enum: [admin, editor, viewer]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [admin, editor, viewer] }
+            ne: { type: string, enum: [admin, editor, viewer] }
+            not: { type: string, enum: [admin, editor, viewer], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated role values. }
     IDMessageResponse:
       type: object
       description: Identifier and confirmation message returned when a resource is created

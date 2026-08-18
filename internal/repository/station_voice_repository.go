@@ -119,6 +119,7 @@ var stationVoiceFieldMapping = FieldMapping{
 	"station_id": "station_voices.station_id",
 	"voice_id":   "station_voices.voice_id",
 	"audio_url":  "station_voices.audio_file", // Maps API field to DB column for filtering
+	"has_audio":  "station_voices.audio_file",
 	"mix_point":  "station_voices.mix_point",
 	"created_at": "station_voices.created_at",
 	"updated_at": "station_voices.updated_at",

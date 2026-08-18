@@ -132,6 +132,53 @@ describe('Station-Voices', () => {
       expect(typeof getResponse.data.audio_url).toBe('string');
       expect(getResponse.data).toHaveProperty('audio_file');
     });
+
+    test('when filtering has_audio, then partitions by jingle presence', async () => {
+      if (!audioAvailable) return;
+
+      // Arrange: two voices on one station, only one with a jingle
+      const station = await global.helpers.createStation(global.resources, 'HasAudioFilterStation');
+      const voiceWith = await global.helpers.createVoice(global.resources, 'HasAudioFilterVoice1');
+      const voiceWithout = await global.helpers.createVoice(global.resources, 'HasAudioFilterVoice2');
+
+      const withJingle = await global.api.apiCall('POST', '/station-voices', {
+        station_id: station.id,
+        voice_id: voiceWith.id,
+        mix_point: 1.0
+      });
+      const withoutJingle = await global.api.apiCall('POST', '/station-voices', {
+        station_id: station.id,
+        voice_id: voiceWithout.id,
+        mix_point: 1.0
+      });
+      expect(withJingle.status).toBe(201);
+      expect(withoutJingle.status).toBe(201);
+      global.resources.track('stationVoices', withJingle.data.id);
+      global.resources.track('stationVoices', withoutJingle.data.id);
+
+      const uploadResponse = await global.api.uploadFile(
+        `/station-voices/${withJingle.data.id}/audio`,
+        {},
+        testAudio,
+        'jingle'
+      );
+      expect(uploadResponse.status).toBe(201);
+
+      // Act + Assert: has_audio partitions the station's pairs
+      const withResponse = await global.api.apiCall(
+        'GET',
+        `/station-voices?filter[station_id]=${station.id}&filter[has_audio]=true`
+      );
+      expect(withResponse.status).toBe(200);
+      expect(withResponse.data.data.map((sv) => sv.id)).toEqual([withJingle.data.id]);
+
+      const withoutResponse = await global.api.apiCall(
+        'GET',
+        `/station-voices?filter[station_id]=${station.id}&filter[has_audio]=false`
+      );
+      expect(withoutResponse.status).toBe(200);
+      expect(withoutResponse.data.data.map((sv) => sv.id)).toEqual([withoutJingle.data.id]);
+    });
   });
 
   describe('Foreign Key Validation', () => {

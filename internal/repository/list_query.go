@@ -2,6 +2,7 @@ package repository
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -33,7 +34,9 @@ const (
 	// FilterEquals selects records whose field equals the supplied value.
 	FilterEquals FilterOperator = "eq"
 	// FilterNotEquals selects records whose field differs from the supplied value.
-	FilterNotEquals FilterOperator = "neq"
+	// The value must match the public `ne` syntax: it is rendered verbatim in
+	// 422 error field labels like filter[has_audio][ne].
+	FilterNotEquals FilterOperator = "ne"
 	// FilterGreaterThan selects records whose field is greater than the supplied value.
 	FilterGreaterThan FilterOperator = "gt"
 	// FilterGreaterOrEq selects records whose field is greater than or equal to the supplied value.
@@ -168,6 +171,22 @@ var bitwiseAllowedFields = map[string]bool{
 	"weekdays": true,
 }
 
+// presenceFilterFields are virtual boolean filter fields: true selects rows
+// whose mapped column is non-empty ("" means absent). They are filter-only —
+// applySorting rejects them because ordering by the backing column would be
+// a meaningless lexicographic sort on file paths.
+var presenceFilterFields = map[string]bool{
+	"has_audio": true,
+}
+
+// booleanFilterFields are filter fields backed by BOOLEAN (TINYINT) columns.
+// MySQL coerces non-numeric strings to 0 in numeric comparisons, so a raw
+// "true" would silently match FALSE rows; values must be normalized to
+// "1"/"0" before binding.
+var booleanFilterFields = map[string]bool{
+	"is_breaking": true,
+}
+
 // operatorFormats maps filter operators to their SQL format strings.
 var operatorFormats = map[FilterOperator]string{
 	FilterEquals:      "%s = ?",
@@ -229,7 +248,7 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 	}
 	for _, sf := range userSort {
 		dbField, ok := fieldMapping[sf.Field]
-		if !ok {
+		if !ok || presenceFilterFields[sf.Field] {
 			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
 		}
 		db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
@@ -266,6 +285,18 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	dbField, ok := fieldMapping[filter.Field]
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
+	}
+
+	if presenceFilterFields[filter.Field] {
+		return applyPresenceFilter(db, dbField, filter)
+	}
+
+	if booleanFilterFields[filter.Field] {
+		normalized, err := normalizeBooleanFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+		filter = normalized
 	}
 
 	// Restrict bitwise operators to allowed fields only.
@@ -320,4 +351,75 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		Operator: filter.Operator,
 		Reason:   "unsupported operator",
 	}
+}
+
+// normalizeBooleanFilter implements the booleanFilterFields contract: every
+// string value (single or list) is parsed as a boolean and rewritten to
+// "1"/"0" so MySQL compares numerically. Non-string values (null operator's
+// nil, band's uint8) pass through untouched for the generic handling.
+func normalizeBooleanFilter(filter FilterCondition) (FilterCondition, error) {
+	toSQL := func(raw string) (string, error) {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			return "", &InvalidFilterError{
+				Field:    filter.Field,
+				Operator: filter.Operator,
+				Reason:   "expected a boolean value",
+			}
+		}
+		if b {
+			return "1", nil
+		}
+		return "0", nil
+	}
+
+	switch v := filter.Value.(type) {
+	case string:
+		normalized, err := toSQL(v)
+		if err != nil {
+			return filter, err
+		}
+		filter.Value = normalized
+	case []string:
+		normalized := make([]string, len(v))
+		for i, raw := range v {
+			value, err := toSQL(raw)
+			if err != nil {
+				return filter, err
+			}
+			normalized[i] = value
+		}
+		filter.Value = normalized
+	}
+	return filter, nil
+}
+
+// applyPresenceFilter implements the presenceFilterFields contract. Values
+// arrive from the query layer as strings; a non-string value fails ParseBool.
+func applyPresenceFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
+	if filter.Operator != FilterEquals && filter.Operator != FilterNotEquals {
+		return nil, &InvalidFilterError{
+			Field:    filter.Field,
+			Operator: filter.Operator,
+			Reason:   "operator must be eq or ne",
+		}
+	}
+	value, _ := filter.Value.(string)
+	present, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, &InvalidFilterError{
+			Field:    filter.Field,
+			Operator: filter.Operator,
+			Reason:   "expected a boolean value",
+		}
+	}
+	if filter.Operator == FilterNotEquals {
+		present = !present
+	}
+	if present {
+		return db.Where(dbField+" != ?", ""), nil
+	}
+	// COALESCE: stories.audio_file is nullable, and a NULL row must land in
+	// the "absent" partition rather than escaping both.
+	return db.Where("COALESCE("+dbField+", '') = ?", ""), nil
 }

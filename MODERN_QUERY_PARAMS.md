@@ -72,22 +72,22 @@ The `band` (bitwise AND) operator is restricted to specific fields for security:
 #### Audio Presence Filtering
 ```http
 # Stories WITHOUT audio (for bulk TTS generation, quality control)
-GET /api/v1/stories?filter[audio_url]=
+GET /api/v1/stories?filter[has_audio]=false
 
 # Stories WITH audio
-GET /api/v1/stories?filter[audio_url][ne]=
+GET /api/v1/stories?filter[has_audio]=true
 
 # Station-voices WITHOUT jingle audio
-GET /api/v1/station-voices?filter[audio_url]=
+GET /api/v1/station-voices?filter[has_audio]=false
 
 # Station-voices WITH jingle audio
-GET /api/v1/station-voices?filter[audio_url][ne]=
+GET /api/v1/station-voices?filter[has_audio]=true
 
 # Combined: active stories without audio, sorted by creation date
-GET /api/v1/stories?filter[status]=active&filter[audio_url]=&sort=-created_at
+GET /api/v1/stories?filter[status]=active&filter[has_audio]=false&sort=-created_at
 ```
 
-The `audio_url` filter maps to the internal `audio_file` database column. An empty value (`=`) matches records without audio, while `[ne]=` (not equals empty) matches records with audio. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
+`has_audio` is a virtual boolean field backed by the internal `audio_file` database column: it supports `eq` (the default), `ne`, and the `not` alias with a boolean value, and cannot be used for sorting. The legacy empty-string idiom on `audio_url` (`filter[audio_url]=` for absent, `filter[audio_url][ne]=` for present) still works but is deprecated — use `has_audio` instead. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
 > **Note:** The `ilike` operator is not implemented. Use `like` for case-sensitive substring (contains) matching.
 
@@ -352,7 +352,7 @@ Potential additions for future versions:
 ### Mobile App Optimization
 ```http
 # Minimal fields for mobile list view
-GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[audio_url][ne]=&sort=-created_at
+GET /api/v1/stories?fields=id,title,voice_name&limit=10&filter[has_audio]=true&sort=-created_at
 ```
 
 ### Admin Dashboard
@@ -370,7 +370,7 @@ GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lte]
 ### Integration Testing
 ```http
 # Comprehensive query for testing
-GET /api/v1/stories?filter[voice_id][in]=1,2&filter[audio_url][ne]=&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
+GET /api/v1/stories?filter[voice_id][in]=1,2&filter[has_audio]=true&search=test&sort=-created_at,+title&fields=id,title,status,created_at&limit=5
 ```
 
 This modern query parameter system provides a robust, scalable foundation for API querying while maintaining backward compatibility and following 2024 REST API best practices.

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"gorm.io/driver/mysql"
@@ -28,7 +29,7 @@ const (
 // (they are linked - cases that pin the operator must also pin the field).
 func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{"name": "name", "id": "id"}
+	mapping := FieldMapping{"name": "name", "id": "id", "has_audio": "audio_file", "is_breaking": "is_breaking"}
 
 	tests := []struct {
 		name      string
@@ -45,6 +46,11 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1"}}, errKind: errKindInvalid},
 		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: errKindInvalid},
 		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: errKindInvalid},
+		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
+		{name: "is breaking requires boolean", cond: FilterCondition{Field: "is_breaking", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "is_breaking", wantOp: FilterEquals},
+		{name: "is breaking in requires booleans", cond: FilterCondition{Field: "is_breaking", Operator: FilterIn, Value: []string{"true", "maybe"}}, errKind: errKindInvalid, wantField: "is_breaking", wantOp: FilterIn},
+		{name: "has audio requires string value", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: true}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
+		{name: "has audio rejects ordering", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Value: "true"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterGreaterThan},
 	}
 
 	for _, tt := range tests {
@@ -72,6 +78,115 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 				t.Fatalf("unknown errKind %q - add a case or fix the typo", tt.errKind)
 			}
 		})
+	}
+}
+
+func TestApplyFilterCondition_HasAudio(t *testing.T) {
+	t.Parallel()
+
+	// Values are strings because that is what the query-parsing layer
+	// (internal/utils/query.go) hands the repository. The bind variable is
+	// always the empty string: presence is expressed as (non-)emptiness.
+	tests := []struct {
+		name     string
+		operator FilterOperator
+		value    string
+		wantSQL  string
+	}{
+		{name: "has audio", operator: FilterEquals, value: "true", wantSQL: "audio_file != ?"},
+		{name: "has no audio", operator: FilterEquals, value: "false", wantSQL: "COALESCE(audio_file, '') = ?"},
+		{name: "not has audio", operator: FilterNotEquals, value: "true", wantSQL: "COALESCE(audio_file, '') = ?"},
+		{name: "not has no audio", operator: FilterNotEquals, value: "false", wantSQL: "audio_file != ?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
+				Field:    "has_audio",
+				Operator: tt.operator,
+				Value:    tt.value,
+			}, FieldMapping{"has_audio": "audio_file"})
+			if err != nil {
+				t.Fatalf("applyFilterCondition: %v", err)
+			}
+
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
+				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
+			}
+			if got := stmt.Vars; len(got) != 1 || got[0] != "" {
+				t.Fatalf("bind vars = %#v, want [\"\"]", got)
+			}
+		})
+	}
+}
+
+// TestApplyFilterCondition_BooleanFields pins the booleanFilterFields
+// contract: textual booleans are rewritten to "1"/"0" before binding, because
+// MySQL coerces "true"/"false" to 0 in numeric comparisons — an unnormalized
+// filter[is_breaking]=true would silently select the FALSE rows.
+func TestApplyFilterCondition_BooleanFields(t *testing.T) {
+	t.Parallel()
+	mapping := FieldMapping{"is_breaking": "is_breaking"}
+
+	tests := []struct {
+		name     string
+		operator FilterOperator
+		value    any
+		wantSQL  string
+		wantVars []any
+	}{
+		{name: "eq true", operator: FilterEquals, value: "true", wantSQL: "is_breaking = ?", wantVars: []any{"1"}},
+		{name: "eq false", operator: FilterEquals, value: "false", wantSQL: "is_breaking = ?", wantVars: []any{"0"}},
+		{name: "ne true", operator: FilterNotEquals, value: "true", wantSQL: "is_breaking != ?", wantVars: []any{"1"}},
+		{name: "numeric passthrough", operator: FilterEquals, value: "1", wantSQL: "is_breaking = ?", wantVars: []any{"1"}},
+		{name: "in normalizes list", operator: FilterIn, value: []string{"true", "false"}, wantSQL: "is_breaking IN", wantVars: []any{"1", "0"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
+				Field:    "is_breaking",
+				Operator: tt.operator,
+				Value:    tt.value,
+			}, mapping)
+			if err != nil {
+				t.Fatalf("applyFilterCondition: %v", err)
+			}
+
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
+				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
+			}
+			if got := stmt.Vars; len(got) != len(tt.wantVars) {
+				t.Fatalf("bind vars = %#v, want %#v", got, tt.wantVars)
+			} else {
+				for i := range got {
+					if got[i] != tt.wantVars[i] {
+						t.Fatalf("bind vars = %#v, want %#v", got, tt.wantVars)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestApplySorting_RejectsPresenceFields pins that a presence filter field in
+// the FieldMapping does not leak into the sort whitelist: sorting by the
+// backing audio_file column would be a meaningless lexicographic path sort.
+func TestApplySorting_RejectsPresenceFields(t *testing.T) {
+	t.Parallel()
+	mapping := FieldMapping{"has_audio": "audio_file", "created_at": "created_at"}
+
+	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, mapping)
+	var e *UnknownFieldError
+	if !errors.As(err, &e) {
+		t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
+	}
+	if e.Kind != "sort" || e.Field != "has_audio" {
+		t.Fatalf("got %+v, want sort/has_audio", e)
 	}
 }
 
