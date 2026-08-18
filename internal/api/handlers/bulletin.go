@@ -91,6 +91,10 @@ func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
 
 // serveAudioFile sets headers and serves an audio file for download.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) {
+	if !validateAudioFile(c, filePath) {
+		return
+	}
+
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))

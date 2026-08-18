@@ -536,6 +536,48 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
+  test('when an operation returns created JSON, then every documented field is required', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        const schema = operation.responses?.['201']?.content?.['application/json']?.schema;
+        if (!schema) continue;
+
+        // Composed schemas can hide properties from this top-level invariant.
+        expect({
+          method,
+          operationPath,
+          composition: ['allOf', 'oneOf', 'anyOf'].filter((keyword) => keyword in schema),
+          required: (schema.required || []).sort()
+        }).toEqual({
+          method,
+          operationPath,
+          composition: [],
+          required: Object.keys(schema.properties || {}).sort()
+        });
+      }
+    }
+  });
+
+  test('when the current session is returned, then effective permissions are required and typed', () => {
+    const schema = document.paths['/api/v1/sessions/current'].get.responses['200']
+      .content['application/json'].schema;
+    const sessionExtension = schema.allOf.find((part) => part.properties?.permissions);
+    const permissions = sessionExtension.properties.permissions;
+
+    expect(sessionExtension.required).toContain('permissions');
+    expect(permissions.additionalProperties).toBe(false);
+
+    const resources = Object.values(permissions.properties);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const resource of resources) {
+      expect(resource.type).toBe('array');
+      expect(resource.items.enum.length).toBeGreaterThan(0);
+      for (const action of resource.items.enum) {
+        expect(['read', 'write', 'generate']).toContain(action);
+      }
+    }
+  });
+
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
@@ -547,6 +589,23 @@ describe('openapi.yaml contract invariants', () => {
       const example = response.content['application/problem+json'].example;
       expect(example.status).toBe(504);
       expect(example.code).toBe('internal.timeout');
+    }
+  });
+
+  test('when an operation declares an error response, then it uses Problem Details', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        for (const [status, response] of Object.entries(operation.responses || {})) {
+          if (Number(status) < 400) continue;
+
+          expect({ method, operationPath, status, mediaTypes: Object.keys(response.content || {}) })
+            .toEqual({ method, operationPath, status, mediaTypes: ['application/problem+json'] });
+          const schema = response.content['application/problem+json'].schema;
+          const required = schema.required || schema.allOf?.flatMap((part) => part.required || []) || [];
+          expect(required)
+            .toEqual(expect.arrayContaining(['type', 'title', 'status', 'detail']));
+        }
+      }
     }
   });
 

@@ -21,7 +21,7 @@ type ProblemDetail struct {
 	Status int `json:"status"`
 
 	// Detail is a human-readable explanation specific to this occurrence of the problem.
-	Detail string `json:"detail,omitempty"`
+	Detail string `json:"detail"`
 
 	// Instance is a URI that identifies the specific occurrence of the problem.
 	Instance string `json:"instance,omitempty"`
@@ -59,6 +59,8 @@ const (
 	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
 	// ProblemTypeNotAcceptable identifies an Accept header that excludes the response media type.
 	ProblemTypeNotAcceptable = "https://babbel.api/problems/not-acceptable"
+	// ProblemTypeRangeNotSatisfiable identifies an invalid or non-overlapping byte range.
+	ProblemTypeRangeNotSatisfiable = "https://babbel.api/problems/range-not-satisfiable"
 )
 
 // NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
