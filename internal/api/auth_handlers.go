@@ -100,8 +100,8 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser returns the authenticated user's profile through the same
-// representation as GetUser.
+// GetCurrentUser returns the authenticated user's profile augmented with the
+// effective permissions for their role.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID, ok := auth.UserID(c)
 	if !ok {

@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"maps"
+	"slices"
+	"testing"
+)
 
 func TestEffectivePermissions(t *testing.T) {
 	t.Parallel()
@@ -57,29 +61,35 @@ func TestEffectivePermissions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("EffectivePermissions(%q): %v", tt.role, err)
 			}
-			if diff := diffPermissionSets(got, tt.want); diff != "" {
-				t.Fatalf("EffectivePermissions(%q) mismatch: %s", tt.role, diff)
+			if !maps.EqualFunc(got, tt.want, slices.Equal) {
+				t.Fatalf("EffectivePermissions(%q) = %v, want %v", tt.role, got, tt.want)
 			}
 		})
 	}
 }
 
-func diffPermissionSets(got, want PermissionSet) string {
-	if len(got) != len(want) {
-		return "resource count differs"
+func TestPermissionCatalogCoversPolicies(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{}
+	enforcer, err := service.initializeRBAC()
+	if err != nil {
+		t.Fatalf("initialize RBAC: %v", err)
 	}
-	for resource, wantActions := range want {
-		gotActions, ok := got[resource]
-		if !ok || len(gotActions) != len(wantActions) {
-			return "actions differ for " + resource
+
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		t.Fatalf("get policies: %v", err)
+	}
+	for _, policy := range policies {
+		resource, action := policy[1], policy[2]
+		if resource == "*" || action == "*" {
+			continue
 		}
-		for i, wantAction := range wantActions {
-			if gotActions[i] != wantAction {
-				return "actions differ for " + resource
-			}
+		if !slices.Contains(permissionCatalog[Resource(resource)], Action(action)) {
+			t.Errorf("policy %v is missing from permissionCatalog; the session endpoint would never expose it", policy)
 		}
 	}
-	return ""
 }
 
 func TestIsAllowedFrontendURL(t *testing.T) {

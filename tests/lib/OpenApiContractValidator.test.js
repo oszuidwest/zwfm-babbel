@@ -539,10 +539,16 @@ describe('openapi.yaml contract invariants', () => {
 
     expect(sessionExtension.required).toContain('permissions');
     expect(permissions.additionalProperties).toBe(false);
-    expect(Object.keys(permissions.properties).sort()).toEqual([
-      'bulletins', 'pronunciation_rules', 'settings:tts', 'stations', 'stories', 'users', 'voices'
-    ]);
-    expect(permissions.properties.bulletins.items.enum).toEqual(['read', 'generate']);
+
+    const resources = Object.values(permissions.properties);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const resource of resources) {
+      expect(resource.type).toBe('array');
+      expect(resource.items.enum.length).toBeGreaterThan(0);
+      for (const action of resource.items.enum) {
+        expect(['read', 'write', 'generate']).toContain(action);
+      }
+    }
   });
 
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {

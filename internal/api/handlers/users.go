@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -36,12 +37,10 @@ func (h *Handlers) GetUser(c *gin.Context) {
 	h.RespondWithUser(c, id)
 }
 
-// RespondWithUser writes the user with the given ID using the representation
-// shared by GetUser and the current-session endpoint.
+// RespondWithUser writes the user with the given ID.
 func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
-	user, err := h.userSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
+	user, ok := h.fetchUser(c, id)
+	if !ok {
 		return
 	}
 
@@ -49,10 +48,9 @@ func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
 }
 
 // RespondWithCurrentUser writes the current user and their effective permissions.
-func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions map[string][]string) {
-	user, err := h.userSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
+func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions auth.PermissionSet) {
+	user, ok := h.fetchUser(c, id)
+	if !ok {
 		return
 	}
 
@@ -60,6 +58,17 @@ func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions 
 		User:        user,
 		Permissions: permissions,
 	})
+}
+
+// fetchUser loads the user by ID, writing the error response on failure.
+func (h *Handlers) fetchUser(c *gin.Context, id int64) (*models.User, bool) {
+	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
+		return nil, false
+	}
+
+	return user, true
 }
 
 // CreateUser accepts a JSON account payload and returns the created user ID.

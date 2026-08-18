@@ -26,31 +26,30 @@ const (
 // PermissionSet maps API resources to the actions the current subject may perform.
 type PermissionSet map[string][]string
 
-var permissionCatalog = []struct {
-	resource Resource
-	actions  []Action
-}{
-	{resource: ResourceStations, actions: []Action{ActionRead, ActionWrite}},
-	{resource: ResourceVoices, actions: []Action{ActionRead, ActionWrite}},
-	{resource: ResourceStories, actions: []Action{ActionRead, ActionWrite}},
-	{resource: ResourceBulletins, actions: []Action{ActionRead, ActionGenerate}},
-	{resource: ResourceUsers, actions: []Action{ActionRead, ActionWrite}},
-	{resource: ResourceSettingsTTS, actions: []Action{ActionRead, ActionWrite}},
-	{resource: ResourcePronunciationRules, actions: []Action{ActionRead, ActionWrite}},
+// permissionCatalog enumerates every (resource, action) pair the API exposes.
+// Wildcard policies carry no resource/action universe of their own, so this
+// list must stay in sync with the policies in initializeRBAC.
+var permissionCatalog = map[Resource][]Action{
+	ResourceStations:           {ActionRead, ActionWrite},
+	ResourceVoices:             {ActionRead, ActionWrite},
+	ResourceStories:            {ActionRead, ActionWrite},
+	ResourceBulletins:          {ActionRead, ActionGenerate},
+	ResourceUsers:              {ActionRead, ActionWrite},
+	ResourceSettingsTTS:        {ActionRead, ActionWrite},
+	ResourcePronunciationRules: {ActionRead, ActionWrite},
 }
 
 // EffectivePermissions expands wildcard policies into concrete resource actions.
 func (s *Service) EffectivePermissions(subject string) (PermissionSet, error) {
 	permissions := PermissionSet{}
-	for _, capability := range permissionCatalog {
-		for _, action := range capability.actions {
-			allowed, err := s.enforcer.Enforce(subject, string(capability.resource), string(action))
+	for resource, actions := range permissionCatalog {
+		for _, action := range actions {
+			allowed, err := s.enforcer.Enforce(subject, string(resource), string(action))
 			if err != nil {
-				return nil, fmt.Errorf("evaluate %s/%s permission: %w", capability.resource, action, err)
+				return nil, fmt.Errorf("evaluate %s/%s permission: %w", resource, action, err)
 			}
 			if allowed {
-				resource := string(capability.resource)
-				permissions[resource] = append(permissions[resource], string(action))
+				permissions[string(resource)] = append(permissions[string(resource)], string(action))
 			}
 		}
 	}
