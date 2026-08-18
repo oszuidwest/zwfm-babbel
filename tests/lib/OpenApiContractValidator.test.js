@@ -537,6 +537,7 @@ describe('openapi.yaml contract invariants', () => {
         const schema = operation.responses?.['201']?.content?.['application/json']?.schema;
         if (!schema) continue;
 
+        // Composed schemas can hide properties from this top-level invariant.
         expect({
           method,
           operationPath,
