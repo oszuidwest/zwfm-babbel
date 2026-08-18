@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -51,16 +52,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	}
 	audioPath := filepath.Join(baseDir, filePath)
 
-	fileInfo, err := os.Stat(audioPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			utils.ProblemNotFound(c, "Audio file")
-		} else {
-			utils.ProblemInternalServer(c, "Failed to access audio file")
-		}
-		return
-	}
-	if !validateAudioRange(c, fileInfo.Size()) {
+	if !validateAudioFile(c, audioPath) {
 		return
 	}
 	c.Header("Content-Type", "audio/wav")
@@ -68,6 +60,21 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))
 
 	c.File(audioPath)
+}
+
+// validateAudioFile stats an audio file and validates any Range header against
+// its size, writing the Problem Details response when either check fails.
+func validateAudioFile(c *gin.Context, path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
+		return false
+	}
+	return validateAudioRange(c, fileInfo.Size())
 }
 
 func validateAudioRange(c *gin.Context, size int64) bool {
@@ -79,18 +86,17 @@ func validateAudioRange(c *gin.Context, size int64) bool {
 	}
 	utils.ProblemCustom(
 		c,
-		"https://babbel.api/problems/range-not-satisfiable",
+		utils.ProblemTypeRangeNotSatisfiable,
 		"Range Not Satisfiable",
-		416,
+		http.StatusRequestedRangeNotSatisfiable,
 		"The requested byte range is invalid or does not overlap the audio file",
 	)
 	return false
 }
 
-// validByteRange mirrors net/http's byte-range validation so invalid ranges
-// can use the API's Problem Details response before file serving begins.
-//
-//nolint:gocyclo // Keeping the range grammar linear makes its edge cases auditable.
+// validByteRange mirrors net/http's byte-range validation (parseRange in
+// net/http/fs.go) so invalid ranges can use the API's Problem Details
+// response before file serving begins.
 func validByteRange(header string, size int64) bool {
 	if header == "" {
 		return true
@@ -100,49 +106,66 @@ func validByteRange(header string, size int64) bool {
 		return false
 	}
 
-	validRanges := 0
+	sawOverlap := false
 	noOverlap := false
 	for value := range strings.SplitSeq(header[len(prefix):], ",") {
 		value = strings.TrimSpace(value)
 		if value == "" {
 			continue
 		}
-		start, end, ok := strings.Cut(value, "-")
+		overlaps, ok := validRangeSpec(value, size)
 		if !ok {
 			return false
 		}
-		start = strings.TrimSpace(start)
-		end = strings.TrimSpace(end)
-		if start == "" {
-			if end == "" || strings.HasPrefix(end, "-") {
-				return false
-			}
-			suffix, err := strconv.ParseInt(end, 10, 64)
-			if err != nil || suffix < 0 {
-				return false
-			}
-			validRanges++
-			continue
-		}
-
-		first, err := strconv.ParseInt(start, 10, 64)
-		if err != nil || first < 0 {
-			return false
-		}
-		if first >= size {
+		if overlaps {
+			sawOverlap = true
+		} else {
 			noOverlap = true
-			continue
 		}
-		if end != "" {
-			last, err := strconv.ParseInt(end, 10, 64)
-			if err != nil || first > last {
-				return false
-			}
-		}
-		validRanges++
 	}
 
-	return size == 0 || !noOverlap || validRanges > 0
+	if noOverlap && !sawOverlap {
+		// net/http forgives non-overlapping ranges on empty files.
+		return size == 0
+	}
+	return true
+}
+
+// validRangeSpec validates a single byte-range spec ("start-end" or "-suffix")
+// and reports whether it overlaps a file of the given size. A start past the
+// end of the file is not an error on its own, only when no spec overlaps.
+func validRangeSpec(value string, size int64) (overlaps, ok bool) {
+	start, end, found := strings.Cut(value, "-")
+	if !found {
+		return false, false
+	}
+	start = strings.TrimSpace(start)
+	end = strings.TrimSpace(end)
+	if start == "" {
+		if end == "" || strings.HasPrefix(end, "-") {
+			return false, false
+		}
+		suffix, err := strconv.ParseInt(end, 10, 64)
+		if err != nil || suffix < 0 {
+			return false, false
+		}
+		return true, true
+	}
+
+	first, err := strconv.ParseInt(start, 10, 64)
+	if err != nil || first < 0 {
+		return false, false
+	}
+	if first >= size {
+		return false, true
+	}
+	if end != "" {
+		last, err := strconv.ParseInt(end, 10, 64)
+		if err != nil || first > last {
+			return false, false
+		}
+	}
+	return true, true
 }
 
 // UploadStoryAudio validates and converts an uploaded story file.

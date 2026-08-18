@@ -57,6 +57,8 @@ const (
 	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
 	// ProblemTypePayloadTooLarge identifies a request body that exceeds the API limit.
 	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
+	// ProblemTypeRangeNotSatisfiable identifies an invalid or non-overlapping byte range.
+	ProblemTypeRangeNotSatisfiable = "https://babbel.api/problems/range-not-satisfiable"
 )
 
 // NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
