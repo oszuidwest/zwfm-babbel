@@ -510,6 +510,8 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.id.oneOf[0].type).toBe('integer');
     expect(filter.schema.properties.voice_id.oneOf[0].type).toBe('integer');
     expect(filter.schema.properties.has_audio.oneOf[0].type).toBe('boolean');
+    expect(filter.schema.properties.has_audio.oneOf[1].properties.in).toBeUndefined();
+    expect(filter.schema.properties.is_breaking.oneOf[1].properties.in.type).toBe('string');
     expect(filter.schema.properties.start_date.oneOf[0].format).toBe('date');
     expect(filter.schema.properties.end_date.oneOf[0].format).toBe('date');
     expect(filter.schema.properties.audio_url.deprecated).toBe(true);
