@@ -531,6 +531,28 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
+  test('when an operation returns created JSON, then every documented field is required', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        const schema = operation.responses?.['201']?.content?.['application/json']?.schema;
+        if (!schema) continue;
+
+        // Composed schemas can hide properties from this top-level invariant.
+        expect({
+          method,
+          operationPath,
+          composition: ['allOf', 'oneOf', 'anyOf'].filter((keyword) => keyword in schema),
+          required: (schema.required || []).sort()
+        }).toEqual({
+          method,
+          operationPath,
+          composition: [],
+          required: Object.keys(schema.properties || {}).sort()
+        });
+      }
+    }
+  });
+
   test('when the current session is returned, then effective permissions are required and typed', () => {
     const schema = document.paths['/api/v1/sessions/current'].get.responses['200']
       .content['application/json'].schema;
