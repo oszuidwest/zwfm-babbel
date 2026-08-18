@@ -321,6 +321,7 @@ func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/bulletins/:id", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletin)
 	protected.POST("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionGenerate), h.GenerateBulletin)
 	protected.GET("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionRead), h.GetStationBulletins)
+	protected.GET("/stations/:id/bulletins/latest", perm(auth.ResourceBulletins, auth.ActionRead), h.GetLatestStationBulletin)
 	protected.GET("/bulletins/:id/audio", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)
 	protected.GET("/stories/:id/bulletins", perm(auth.ResourceStories, auth.ActionRead), h.GetStoryBulletinHistory)
 	protected.GET("/bulletins/:id/stories", perm(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)
@@ -359,7 +360,13 @@ func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
 		if err := scheduler.CheckDatabase(ctx, db, alerts); err != nil {
-			c.JSON(http.StatusServiceUnavailable, handlers.HealthResponse{Status: "unhealthy", Service: "babbel-api"})
+			utils.ProblemExtended(
+				c,
+				http.StatusServiceUnavailable,
+				"The health check could not connect to the database",
+				"health.database_unavailable",
+				"Restore the database connection and retry the health check",
+			)
 			return
 		}
 		utils.Success(c, handlers.HealthResponse{

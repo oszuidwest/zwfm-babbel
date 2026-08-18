@@ -443,18 +443,23 @@ describe('Bulletins', () => {
       expect(response.headers['x-cache']).toBe('MISS');
     });
 
-    test('when Accept audio/wav with warm cache, then serves cached binary', async () => {
+    test('when Accept audio/wav is requested, then directs clients to the audio endpoint', async () => {
       // Act
-      const response = await postJsonBulletinHttp(stationId, {
-        'Accept': 'audio/wav',
-        'Cache-Control': 'max-age=3600'
-      }, { responseType: 'arraybuffer' });
+      const response = await postJsonBulletinHttp(stationId, { 'Accept': 'audio/wav' });
 
       // Assert
-      expect(response.status).toBe(200);
-      expect(response.headers['content-type']).toMatch(/audio\/wav/);
-      expect(response.headers['x-bulletin-cached']).toBe('true');
-      expect(response.headers['x-cache']).toBe('HIT');
+      expect(response.status).toBe(406);
+      expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+    });
+
+    test.each([
+      'application/json;q=0',
+      '*/*;q=0'
+    ])('when Accept %s excludes JSON, then returns 406', async accept => {
+      const response = await postJsonBulletinHttp(stationId, { 'Accept': accept });
+
+      expect(response.status).toBe(406);
+      expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
     });
 
     test('when Cache-Control max-age is invalid, then falls back to fresh generation', async () => {
@@ -562,17 +567,24 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('data');
     });
 
-    test.each([
-      ['when latest=true combined with unknown filter, then returns 422', 'latest=true&filter[__bogus__]=1', 422],
-      ['when latest=true combined with unknown sort, then returns 422', 'latest=true&sort=__bogus__', 422],
-      ['when latest=true combined with unknown fields, then returns 422', 'latest=true&fields=id,__bogus__', 422],
-      ['when latest=true combined with extra known query params, then returns 422', 'latest=true&sort=-created_at', 422],
-      ['when latest=true combined with limit other than 1, then returns 422', 'latest=true&limit=2', 422],
-      ['when latest=true combined with limit=1, then returns 200', 'latest=true&limit=1', 200],
-      ['when limit appears twice, then returns 422 regardless of which wins', 'latest=true&limit=1&limit=2', 422]
-    ])('%s', async (_name, query, status) => {
-      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?${query}`);
-      expect(response.status).toBe(status);
+    test('when requesting the latest bulletin, then returns a single resource', async () => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins/latest`);
+      expect(response.status).toBe(200);
+      expect(response.data).not.toHaveProperty('data');
+      expect(response.data).toHaveProperty('id');
+    });
+
+    test('when limiting the list to one, then keeps the list envelope', async () => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?limit=1`);
+      expect(response.status).toBe(200);
+      expect(response.data).toHaveProperty('data');
+      expect(response.data.data).toHaveLength(1);
+    });
+
+    test('when using the removed latest parameter, then returns 422 with migration guidance', async () => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?latest=true`);
+      expect(response.status).toBe(422);
+      expect(response.data.detail).toContain('/stations/{id}/bulletins/latest');
     });
   });
 

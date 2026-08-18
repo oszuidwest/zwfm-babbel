@@ -106,20 +106,17 @@ paths:
         '503':
           description: The service is unhealthy because it cannot connect to the database
           content:
-            application/json:
+            application/problem+json:
               schema:
-                type: object
-                required:
-                  - status
-                  - service
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - unhealthy
-                  service:
-                    type: string
-                    example: babbel-api
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/health.database_unavailable"
+                title: "Service Unavailable"
+                status: 503
+                detail: "The health check could not connect to the database"
+                instance: "/health"
+                code: "health.database_unavailable"
+                hint: "Restore the database connection and retry the health check"
 
   /public/stations/{id}/bulletin.wav:
     get:
@@ -312,6 +309,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -426,14 +425,14 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the complete user object for the authenticated user, including full_name, email, and login statistics.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
       responses:
         '200':
           description: Current user information
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -564,13 +563,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station:
                   summary: Newly created station
@@ -793,13 +786,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_voice:
                   summary: Newly created voice
@@ -1045,13 +1032,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_story:
                   summary: Newly created story
@@ -1152,6 +1133,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -1213,6 +1196,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -1696,13 +1681,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_user:
                   summary: Newly created user
@@ -2027,18 +2006,12 @@ paths:
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
 
-        ## Special Parameters
-        - `latest=true` - Returns the latest bulletin object directly with `X-Cache` and `Age` headers
-        - `limit=1` - Also triggers the same single-bulletin response as `latest=true`
-
-        When the latest shortcut is active, the only other accepted query parameter is `limit=1`.
-        `filter`, `sort`, `fields`, `search`, `trashed`, `offset`, and `limit!=1` are rejected with 422.
-
         ## Notes
+        To retrieve one latest bulletin, use GET /stations/{id}/bulletins/latest.
+        `limit=1` keeps this endpoint's list envelope intact.
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
         ## Examples
-        - Latest bulletin: `?latest=true`
         - Search by filename: `?search=bulletin_2024`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
@@ -2054,24 +2027,13 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/bulletinFilter'
-        - name: latest
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Return only the latest bulletin for this station (equivalent to limit=1)
       responses:
         '200':
-          description: |
-            Station bulletins. Returns a paginated list by default, or a single
-            BulletinResponse object when `latest=true` or `limit=1` is used.
+          description: Station bulletins in a paginated list envelope
           content:
             application/json:
               schema:
-                anyOf:
-                  - $ref: '#/components/schemas/BulletinsListResponse'
-                  - $ref: '#/components/schemas/BulletinResponse'
+                $ref: '#/components/schemas/BulletinsListResponse'
               examples:
                 basic_list:
                   summary: Basic bulletin list for station
@@ -2098,18 +2060,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-                latest_bulletin:
-                  summary: Latest bulletin (latest=true)
-                  value:
-                    id: 150
-                    station_id: 1
-                    station_name: "Radio Station 1"
-                    filename: "bulletin_150_20240120_140500.wav"
-                    audio_url: "/bulletins/150/audio"
-                    duration_seconds: 185.4
-                    file_size: 2965440
-                    story_count: 4
-                    created_at: "2024-01-20T14:05:00Z"
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2126,34 +2076,23 @@ paths:
       operationId: postStationsIdBulletins
       summary: Generate news bulletin for a station
       description: |
-        Generates a news bulletin for a specific station with smart caching and flexible response options.
+        Generates a news bulletin for a specific station and always returns JSON metadata.
         
         ## HTTP Headers for Control
-        - `Accept: audio/wav` - Return WAV file directly instead of JSON response
         - `Cache-Control: no-cache` - Force new generation ignoring cache
         - `Cache-Control: max-age=N` - Reuse existing bulletin if created within N seconds
-        - `Range` - Byte-range requests apply to the `audio/wav` response variant:
-          a satisfiable range returns 206 Partial Content, an unsatisfiable range 416
         
         ## Response Headers
         - `X-Cache: HIT|MISS` - Indicates if bulletin was served from cache or freshly generated
         - `Age: N` - Age of the bulletin in seconds (0 for fresh bulletins)
         
         ## Notes
+        Download audio from the returned `audio_url`, or from GET /bulletins/{id}/audio.
         To get story information, use the separate GET /bulletins/{id}/stories endpoint after bulletin generation.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-        - name: Accept
-          in: header
-          required: false
-          schema:
-            type: string
-            enum: [application/json, audio/wav]
-            default: application/json
-          description: Response format - use 'audio/wav' to download file directly
-        - $ref: '#/components/parameters/rangeHeader'
         - name: Cache-Control
           in: header
           required: false
@@ -2177,67 +2116,16 @@ paths:
                   description: Date for bulletin in YYYY-MM-DD format (defaults to today)
       responses:
         '200':
-          description: Bulletin generated successfully or WAV file if download=true
+          description: Bulletin generated successfully
           headers:
             X-Cache:
-              required: true
-              schema:
-                type: string
-                enum: [HIT, MISS]
-              description: |
-                Cache status indicator:
-                - `HIT` - Bulletin served from cache (existing bulletin reused)
-                - `MISS` - Bulletin freshly generated
+              $ref: '#/components/headers/XCache'
             Age:
-              required: true
-              schema:
-                type: integer
-                minimum: 0
-              description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+              $ref: '#/components/headers/Age'
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - id
-                  - station_id
-                  - filename
-                  - created_at
-                  - duration_seconds
-                  - file_size
-                  - story_count
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                    description: Bulletin ID (if saved to database)
-                  station_id:
-                    type: integer
-                    description: Station ID
-                  station_name:
-                    type: string
-                    description: Station name
-                  audio_url:
-                    type: string
-                    description: URL to download the audio file
-                  filename:
-                    type: string
-                    description: Bulletin filename
-                  created_at:
-                    type: string
-                    format: date-time
-                    description: When the bulletin was created
-                  duration_seconds:
-                    type: number
-                    format: float
-                    description: Duration in seconds
-                  file_size:
-                    type: integer
-                    format: int64
-                    description: File size in bytes
-                  story_count:
-                    type: integer
-                    description: Number of stories in the bulletin
+                $ref: '#/components/schemas/BulletinResponse'
               examples:
                 fresh_bulletin:
                   summary: Newly generated bulletin
@@ -2263,19 +2151,12 @@ paths:
                     duration_seconds: 178.2
                     file_size: 2845568
                     story_count: 3
-            audio/wav:
-              schema:
-                type: string
-                format: binary
-                description: WAV audio file (when download=true)
-        '206':
-          $ref: '#/components/responses/AudioPartialContent'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
-        '416':
-          $ref: '#/components/responses/RangeNotSatisfiable'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -2288,6 +2169,44 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '504':
           $ref: '#/components/responses/GatewayTimeout'
+
+  /api/v1/stations/{id}/bulletins/latest:
+    get:
+      operationId: getStationsIdBulletinsLatest
+      summary: Get the latest bulletin for a station
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Latest station bulletin
+          headers:
+            X-Cache:
+              description: Always `HIT`; the latest bulletin is served from the existing store
+              required: true
+              schema:
+                type: string
+                const: HIT
+            Age:
+              $ref: '#/components/headers/Age'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulletinResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
   /api/v1/bulletins/{id}/audio:
     get:
       operationId: getBulletinsIdAudio
@@ -2502,13 +2421,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station_voice:
                   summary: Newly created station-voice relationship
@@ -2610,6 +2523,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -2759,6 +2674,21 @@ components:
       schema:
         type: string
         example: "bytes 0-1023/2048000"
+    XCache:
+      description: |
+        Cache status indicator:
+        - `HIT` - Bulletin served from cache (existing bulletin reused)
+        - `MISS` - Bulletin freshly generated
+      required: true
+      schema:
+        type: string
+        enum: [HIT, MISS]
+    Age:
+      description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+      required: true
+      schema:
+        type: integer
+        minimum: 0
 
   parameters:
     id:
@@ -3191,6 +3121,18 @@ components:
             ne: { type: string, enum: [admin, editor, viewer] }
             not: { type: string, enum: [admin, editor, viewer], description: Alias for `ne`. }
             in: { type: string, description: Comma-separated role values. }
+    IDMessageResponse:
+      type: object
+      description: Identifier and confirmation message returned when a resource is created
+      required:
+        - id
+        - message
+      properties:
+        id:
+          type: integer
+          format: int64
+        message:
+          type: string
 
     Station:
       type: object
@@ -3857,6 +3799,40 @@ components:
           format: date-time
           description: Soft delete timestamp (null for active users)
 
+    CurrentSession:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          required:
+            - permissions
+          properties:
+            permissions:
+              type: object
+              additionalProperties: false
+              description: Effective actions per resource. Resources with no allowed actions are omitted.
+              properties:
+                stations:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                voices:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                stories:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                bulletins:
+                  type: array
+                  items: { type: string, enum: [read, generate] }
+                users:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                'settings:tts':
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                pronunciation_rules:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+
     UserInput:
       type: object
       required:
@@ -4049,6 +4025,7 @@ components:
         - type
         - title
         - status
+        - detail
       properties:
         type:
           type: string
@@ -4384,6 +4361,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+    NotAcceptable:
+      description: The requested response media type is not available from this operation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
     Conflict:
       description: |
         Resource conflict (duplicate, constraint violation).
@@ -4568,7 +4551,7 @@ components:
         Not Modified. Returned for conditional requests (e.g. `If-Modified-Since`)
         when the audio file has not changed. The response has no body.
     RangeNotSatisfiable:
-      description: The requested byte range cannot be satisfied. The plain-text body describes the error.
+      description: The requested byte range is invalid or cannot be satisfied.
       headers:
         Content-Range:
           description: The full file size in the form `bytes */{size}`
@@ -4577,4 +4560,6 @@ components:
             type: string
             example: "bytes */2048000"
       content:
-        text/plain: {}
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
