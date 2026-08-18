@@ -565,6 +565,23 @@ describe('openapi.yaml contract invariants', () => {
     }
   });
 
+  test('when an operation declares an error response, then it uses Problem Details', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        for (const [status, response] of Object.entries(operation.responses || {})) {
+          if (Number(status) < 400) continue;
+
+          expect({ method, operationPath, status, mediaTypes: Object.keys(response.content || {}) })
+            .toEqual({ method, operationPath, status, mediaTypes: ['application/problem+json'] });
+          const schema = response.content['application/problem+json'].schema;
+          const required = schema.required || schema.allOf?.flatMap((part) => part.required || []) || [];
+          expect(required)
+            .toEqual(expect.arrayContaining(['type', 'title', 'status', 'detail']));
+        }
+      }
+    }
+  });
+
   test('when permission is denied, then the forbidden example uses the insufficient-permissions type', () => {
     const forbidden = document.paths['/api/v1/stations'].get.responses['403'];
     const example = forbidden.content['application/problem+json'].examples.insufficient_permissions.value;
