@@ -60,6 +60,9 @@ class TestHelpers {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const response = await this.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
+      if (response.status !== 200) {
+        throw new Error(`Bulletin job ${jobId} poll returned HTTP ${response.status}`);
+      }
       if (['succeeded', 'failed'].includes(response.data.status)) {
         return response;
       }

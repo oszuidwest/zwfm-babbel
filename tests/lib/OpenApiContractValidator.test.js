@@ -640,6 +640,7 @@ describe('openapi.yaml contract invariants', () => {
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
+      ['post', '/api/v1/stations/{id}/bulletins'],
       ['post', '/api/v1/stories/{id}/tts']
     ]) {
       const response = document.paths[operationPath][method].responses['504'];

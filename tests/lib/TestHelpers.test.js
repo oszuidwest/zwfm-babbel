@@ -123,6 +123,18 @@ describe('TestHelpers', () => {
     expect(helpers.sleep).toHaveBeenCalledWith(250);
   });
 
+  test('when bulletin job polling returns an HTTP error, then throws immediately', async () => {
+    const api = { apiCall: jest.fn().mockResolvedValue({ status: 500, data: { status: 500 } }) };
+    const helpers = new TestHelpers(api);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForBulletinJob(42)).rejects.toThrow(
+      'Bulletin job 42 poll returned HTTP 500'
+    );
+    expect(api.apiCall).toHaveBeenCalledTimes(1);
+    expect(helpers.sleep).not.toHaveBeenCalled();
+  });
+
   test('when bulletin job polling times out, then throws', async () => {
     const api = { apiCall: jest.fn().mockResolvedValue({ status: 200, data: { status: 'running' } }) };
     const helpers = new TestHelpers(api);
