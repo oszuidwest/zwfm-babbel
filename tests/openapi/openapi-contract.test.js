@@ -309,17 +309,17 @@ describe('OpenAPI Contract', () => {
       sparseListScenario('GET', '/api/v1/bulletins', '/bulletins?filter[file_purged_at][null]=true', ['id', 'station_id', 'created_at']),
       apiScenario('GET', '/api/v1/bulletins/{id}', () => `/bulletins/${ctx.bulletin.id}`),
       sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, ['id', 'station_id', 'created_at']),
-      scenario('GET', '/api/v1/stations/{id}/bulletins', async () => {
+      scenario('GET', '/api/v1/stations/{id}/bulletins/latest', async () => {
           // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
           const response = await apiCall(
             'GET',
-            '/api/v1/stations/{id}/bulletins',
-            `/stations/${ctx.station.id}/bulletins?latest=true`
+            '/api/v1/stations/{id}/bulletins/latest',
+            `/stations/${ctx.station.id}/bulletins/latest`
           );
           expect(response.data).not.toHaveProperty('data');
           expect(response.data.id).toBe(ctx.bulletin.id);
           return response;
-        }, 'GET /api/v1/stations/{id}/bulletins latest'),
+        }),
       // Keep this after the latest scenario: this job creates a newer bulletin for ctx.station.
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const response = await apiCall(

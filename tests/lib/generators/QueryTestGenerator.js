@@ -91,12 +91,18 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.filterableFields?.length > 0) {
       describe('Filtering', () => {
         query.filterableFields.forEach(field => {
+          // Boolean columns reject non-boolean filter values with 422, so
+          // they need boolean payloads. not=true excludes the TRUE rows and
+          // keeps matching the (default false) query fixtures.
+          const isBoolean = query.booleanFields?.includes(field);
+          const inValues = isBoolean ? 'true,false' : '1,2,3';
+          const notValue = isBoolean ? 'true' : '999999';
           test.each([
             [`when filtering ${field} exact, then matches`, `filter[${field}]=1`, null],
-            [`when filtering ${field} with in, then matches`, `filter[${field}][in]=1,2,3`, null],
-            [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=999999`, response => {
+            [`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null],
+            [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=${notValue}`, response => {
               expect(response.data.total).toBeGreaterThan(0);
-              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe('999999'));
+              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
             }]
           ])('%s', async (_name, qs, verify) => {
             expect.hasAssertions();

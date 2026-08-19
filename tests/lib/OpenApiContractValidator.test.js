@@ -443,6 +443,27 @@ describe('openapi.yaml contract invariants', () => {
     ['get', '/api/v1/station-voices/{id}/audio']
   ];
 
+  // All three bulletin listings $ref the same bulletinFilter parameter.
+  const BULLETIN_FILTER_FIELDS = [
+    'id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'file_purged_at', 'created_at'
+  ];
+
+  const TYPED_FILTER_OPERATIONS = [
+    ['get', '/api/v1/stations', ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at']],
+    ['get', '/api/v1/voices', ['id', 'name', 'elevenlabs_voice_id', 'created_at', 'updated_at']],
+    ['get', '/api/v1/stories', [
+      'id', 'title', 'text', 'voice_id', 'audio_url', 'has_audio', 'status', 'start_date', 'end_date',
+      'duration_seconds', 'weekdays', 'is_breaking', 'created_at', 'updated_at', 'deleted_at'
+    ]],
+    ['get', '/api/v1/users', ['id', 'username', 'full_name', 'email', 'role', 'created_at', 'updated_at']],
+    ['get', '/api/v1/bulletins', BULLETIN_FILTER_FIELDS],
+    ['get', '/api/v1/stations/{id}/bulletins', BULLETIN_FILTER_FIELDS],
+    ['get', '/api/v1/stories/{id}/bulletins', BULLETIN_FILTER_FIELDS],
+    ['get', '/api/v1/station-voices', [
+      'id', 'station_id', 'voice_id', 'audio_url', 'has_audio', 'mix_point', 'created_at', 'updated_at'
+    ]]
+  ];
+
   const REQUIRED_SCHEMA_FIELDS = {
     Station: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at'],
     Voice: ['id', 'name', 'created_at', 'updated_at'],
@@ -472,6 +493,37 @@ describe('openapi.yaml contract invariants', () => {
 
   test.each(LIST_OPERATIONS)('when listing via %s %s, then 422 is declared', (method, operationPath) => {
     expect(Object.keys(document.paths[operationPath][method].responses)).toContain('422');
+  });
+
+  test.each(TYPED_FILTER_OPERATIONS)(
+    'when filtering via %s %s, then only endpoint-specific fields are accepted',
+    (method, operationPath, expectedFields) => {
+      const operation = document.paths[operationPath][method];
+      const filter = operation.parameters.find((parameter) => parameter.name === 'filter');
+
+      expect(filter.style).toBe('deepObject');
+      expect(filter.schema.additionalProperties).toBe(false);
+      expect(Object.keys(filter.schema.properties).sort()).toEqual([...expectedFields].sort());
+    }
+  );
+
+  test('when filtering numeric IDs and audio presence, then generated types are numeric and boolean', () => {
+    const storyOperation = document.paths['/api/v1/stories'].get;
+    const filter = storyOperation.parameters.find((parameter) => parameter.name === 'filter');
+
+    expect(filter.schema.properties.id.oneOf[0].type).toBe('integer');
+    expect(filter.schema.properties.voice_id.oneOf[0].type).toBe('integer');
+    expect(filter.schema.properties.has_audio.oneOf[0].type).toBe('boolean');
+    expect(filter.schema.properties.has_audio.oneOf[1].properties.in).toBeUndefined();
+    expect(filter.schema.properties.is_breaking.oneOf[1].properties.in.type).toBe('string');
+    expect(filter.schema.properties.start_date.oneOf[0].format).toBe('date');
+    expect(filter.schema.properties.end_date.oneOf[0].format).toBe('date');
+    expect(filter.schema.properties.audio_url.deprecated).toBe(true);
+    // Documented examples use bare dates against datetime columns, so the
+    // datetime value schema must accept both formats.
+    expect(filter.schema.properties.created_at.oneOf[0].anyOf.map((s) => s.format).sort()).toEqual(['date', 'date-time']);
+    // Weekdays is a 7-bit mask (Sun=1 ... Sat=64).
+    expect(filter.schema.properties.weekdays.oneOf[0].maximum).toBe(127);
   });
 
   test('when an operation uses the shared id path parameter, then 400 is declared', () => {
@@ -508,8 +560,19 @@ describe('openapi.yaml contract invariants', () => {
     const operation = document.paths['/api/v1/stations/{id}/bulletins'].post;
     expect(Object.keys(operation.responses)).toContain('202');
     expect(operation.responses['202'].headers.Location.required).toBe(true);
-    expect(operation.responses['202'].content['application/json'].schema.type).toBe('object');
+    expect(Object.keys(operation.responses['202'].content)).toEqual(['application/json']);
+    expect(operation.parameters.some((parameter) => parameter.name === 'Accept')).toBe(false);
+    expect(operation.parameters.some((parameter) => parameter.name === 'Range')).toBe(false);
     expect(document.paths['/api/v1/bulletin-jobs/{id}'].get.responses['200']).toBeDefined();
+  });
+
+  test('when listing station bulletins, then latest has a separate response operation', () => {
+    const listOperation = document.paths['/api/v1/stations/{id}/bulletins'].get;
+    const latestOperation = document.paths['/api/v1/stations/{id}/bulletins/latest'].get;
+
+    expect(listOperation.responses['200'].content['application/json'].schema.type).toBe('object');
+    expect(listOperation.parameters.some((parameter) => parameter.name === 'latest')).toBe(false);
+    expect(latestOperation.responses['200'].content['application/json'].schema.required).toContain('id');
   });
 
   // The not-block that rejects only-null update bodies must cover every
@@ -532,6 +595,48 @@ describe('openapi.yaml contract invariants', () => {
     }
   );
 
+  test('when an operation returns created JSON, then every documented field is required', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        const schema = operation.responses?.['201']?.content?.['application/json']?.schema;
+        if (!schema) continue;
+
+        // Composed schemas can hide properties from this top-level invariant.
+        expect({
+          method,
+          operationPath,
+          composition: ['allOf', 'oneOf', 'anyOf'].filter((keyword) => keyword in schema),
+          required: (schema.required || []).sort()
+        }).toEqual({
+          method,
+          operationPath,
+          composition: [],
+          required: Object.keys(schema.properties || {}).sort()
+        });
+      }
+    }
+  });
+
+  test('when the current session is returned, then effective permissions are required and typed', () => {
+    const schema = document.paths['/api/v1/sessions/current'].get.responses['200']
+      .content['application/json'].schema;
+    const sessionExtension = schema.allOf.find((part) => part.properties?.permissions);
+    const permissions = sessionExtension.properties.permissions;
+
+    expect(sessionExtension.required).toContain('permissions');
+    expect(permissions.additionalProperties).toBe(false);
+
+    const resources = Object.values(permissions.properties);
+    expect(resources.length).toBeGreaterThan(0);
+    for (const resource of resources) {
+      expect(resource.type).toBe('array');
+      expect(resource.items.enum.length).toBeGreaterThan(0);
+      for (const action of resource.items.enum) {
+        expect(['read', 'write', 'generate']).toContain(action);
+      }
+    }
+  });
+
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
@@ -542,6 +647,23 @@ describe('openapi.yaml contract invariants', () => {
       const example = response.content['application/problem+json'].example;
       expect(example.status).toBe(504);
       expect(example.code).toBe('internal.timeout');
+    }
+  });
+
+  test('when an operation declares an error response, then it uses Problem Details', () => {
+    for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+      for (const [method, operation] of Object.entries(pathItem)) {
+        for (const [status, response] of Object.entries(operation.responses || {})) {
+          if (Number(status) < 400) continue;
+
+          expect({ method, operationPath, status, mediaTypes: Object.keys(response.content || {}) })
+            .toEqual({ method, operationPath, status, mediaTypes: ['application/problem+json'] });
+          const schema = response.content['application/problem+json'].schema;
+          const required = schema.required || schema.allOf?.flatMap((part) => part.required || []) || [];
+          expect(required)
+            .toEqual(expect.arrayContaining(['type', 'title', 'status', 'detail']));
+        }
+      }
     }
   });
 

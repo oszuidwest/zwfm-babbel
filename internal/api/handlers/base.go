@@ -275,12 +275,23 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	if errors.As(err, &invalidFilter) {
 		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
 		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
-			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
+			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, publicFilterOperator(invalidFilter.Operator)), Message: invalidFilter.Reason},
 		})
 		return true
 	}
 
 	return false
+}
+
+// publicFilterOperator translates internal operator names back to the public
+// query syntax for error labels. Both null variants originate from the single
+// public operator filter[field][null]=true|false, so the internal "not_null"
+// must not leak to clients.
+func publicFilterOperator(op repository.FilterOperator) string {
+	if op == repository.FilterIsNotNull {
+		return string(repository.FilterIsNull)
+	}
+	return string(op)
 }
 
 func handleConflictError(c *gin.Context, err error) bool {

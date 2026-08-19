@@ -106,20 +106,17 @@ paths:
         '503':
           description: The service is unhealthy because it cannot connect to the database
           content:
-            application/json:
+            application/problem+json:
               schema:
-                type: object
-                required:
-                  - status
-                  - service
-                properties:
-                  status:
-                    type: string
-                    enum:
-                      - unhealthy
-                  service:
-                    type: string
-                    example: babbel-api
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/health.database_unavailable"
+                title: "Service Unavailable"
+                status: 503
+                detail: "The health check could not connect to the database"
+                instance: "/health"
+                code: "health.database_unavailable"
+                hint: "Restore the database connection and retry the health check"
 
   /public/stations/{id}/bulletin.wav:
     get:
@@ -312,6 +309,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -426,14 +425,14 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the complete user object for the authenticated user, including full_name, email, and login statistics.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
       responses:
         '200':
           description: Current user information
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
+                $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -495,7 +494,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/stationFilter'
       responses:
         '200':
           description: List of stations with pagination metadata
@@ -564,13 +563,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station:
                   summary: Newly created station
@@ -718,7 +711,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/voiceFilter'
       responses:
         '200':
           description: List of voices with pagination metadata
@@ -793,13 +786,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_voice:
                   summary: Newly created voice
@@ -948,9 +935,9 @@ paths:
         - `filter[voice_id][null]=true` - Stories without voice
 
         ## Audio Filtering
-        Filter stories by audio presence using the `audio_url` field:
-        - `filter[audio_url]=` - Stories WITHOUT audio (empty value)
-        - `filter[audio_url][ne]=` - Stories WITH audio (not empty)
+        Filter stories by audio presence with an explicit boolean:
+        - `filter[has_audio]=false` - Stories without audio
+        - `filter[has_audio]=true` - Stories with audio
 
         Use cases:
         - Quality control: Find stories missing audio before publication
@@ -971,7 +958,7 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/trashed'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/storyFilter'
       responses:
         '200':
           description: List of stories
@@ -1045,13 +1032,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_story:
                   summary: Newly created story
@@ -1152,6 +1133,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -1213,6 +1196,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -1600,7 +1585,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
           description: Story bulletin history with pagination metadata
@@ -1660,7 +1645,7 @@ paths:
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
         - $ref: '#/components/parameters/trashed'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/userFilter'
       responses:
         '200':
           description: List of users
@@ -1696,13 +1681,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_user:
                   summary: Newly created user
@@ -1909,7 +1888,7 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
           description: List of bulletins with pagination metadata
@@ -2027,18 +2006,12 @@ paths:
         - `file_purged_at` - File cleanup timestamp
         - `created_at` - Creation timestamp (default: descending)
 
-        ## Special Parameters
-        - `latest=true` - Returns the latest bulletin object directly with `X-Cache` and `Age` headers
-        - `limit=1` - Also triggers the same single-bulletin response as `latest=true`
-
-        When the latest shortcut is active, the only other accepted query parameter is `limit=1`.
-        `filter`, `sort`, `fields`, `search`, `trashed`, `offset`, and `limit!=1` are rejected with 422.
-
         ## Notes
+        To retrieve one latest bulletin, use GET /stations/{id}/bulletins/latest.
+        `limit=1` keeps this endpoint's list envelope intact.
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
         ## Examples
-        - Latest bulletin: `?latest=true`
         - Search by filename: `?search=bulletin_2024`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
@@ -2053,25 +2026,14 @@ paths:
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
         - $ref: '#/components/parameters/search'
-        - $ref: '#/components/parameters/filter'
-        - name: latest
-          in: query
-          required: false
-          schema:
-            type: boolean
-            default: false
-          description: Return only the latest bulletin for this station (equivalent to limit=1)
+        - $ref: '#/components/parameters/bulletinFilter'
       responses:
         '200':
-          description: |
-            Station bulletins. Returns a paginated list by default, or a single
-            BulletinResponse object when `latest=true` or `limit=1` is used.
+          description: Station bulletins in a paginated list envelope
           content:
             application/json:
               schema:
-                anyOf:
-                  - $ref: '#/components/schemas/BulletinsListResponse'
-                  - $ref: '#/components/schemas/BulletinResponse'
+                $ref: '#/components/schemas/BulletinsListResponse'
               examples:
                 basic_list:
                   summary: Basic bulletin list for station
@@ -2098,18 +2060,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-                latest_bulletin:
-                  summary: Latest bulletin (latest=true)
-                  value:
-                    id: 150
-                    station_id: 1
-                    station_name: "Radio Station 1"
-                    filename: "bulletin_150_20240120_140500.wav"
-                    audio_url: "/bulletins/150/audio"
-                    duration_seconds: 185.4
-                    file_size: 2965440
-                    story_count: 4
-                    created_at: "2024-01-20T14:05:00Z"
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2163,6 +2113,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -2202,6 +2154,44 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/stations/{id}/bulletins/latest:
+    get:
+      operationId: getStationsIdBulletinsLatest
+      summary: Get the latest bulletin for a station
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Latest station bulletin
+          headers:
+            X-Cache:
+              description: Always `HIT`; the latest bulletin is served from the existing store
+              required: true
+              schema:
+                type: string
+                const: HIT
+            Age:
+              $ref: '#/components/headers/Age'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulletinResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+
   /api/v1/bulletins/{id}/audio:
     get:
       operationId: getBulletinsIdAudio
@@ -2312,15 +2302,16 @@ paths:
         - `id` - Station-voice relationship ID
         - `station_id` - Station ID
         - `voice_id` - Voice ID
-        - `audio_url` - Filter by audio presence (maps to audio_file column)
+        - `audio_url` - Filter by audio presence (deprecated, use `has_audio`)
+        - `has_audio` - Boolean jingle-audio presence
         - `mix_point` - Mix point in seconds
         - `created_at` - Creation timestamp
         - `updated_at` - Last update timestamp
 
         ## Audio Filtering
         Filter station-voices by jingle audio presence:
-        - `filter[audio_url]=` - Station-voices WITHOUT jingle audio
-        - `filter[audio_url][ne]=` - Station-voices WITH jingle audio
+        - `filter[has_audio]=false` - Station-voices without jingle audio
+        - `filter[has_audio]=true` - Station-voices with jingle audio
 
         ## Sort Fields
         Available sort fields:
@@ -2345,7 +2336,7 @@ paths:
         - $ref: '#/components/parameters/offset'
         - $ref: '#/components/parameters/sort'
         - $ref: '#/components/parameters/fields'
-        - $ref: '#/components/parameters/filter'
+        - $ref: '#/components/parameters/stationVoiceFilter'
       responses:
         '200':
           description: List of station-voice relationships with pagination metadata
@@ -2415,13 +2406,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    type: integer
-                    format: int64
-                  message:
-                    type: string
+                $ref: '#/components/schemas/IDMessageResponse'
               examples:
                 created_station_voice:
                   summary: Newly created station-voice relationship
@@ -2523,6 +2508,8 @@ paths:
             application/json:
               schema:
                 type: object
+                required:
+                  - message
                 properties:
                   message:
                     type: string
@@ -2672,6 +2659,12 @@ components:
       schema:
         type: string
         example: "bytes 0-1023/2048000"
+    Age:
+      description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+      required: true
+      schema:
+        type: integer
+        minimum: 0
 
   parameters:
     id:
@@ -2786,91 +2779,347 @@ components:
         - (omitted) - only non-deleted records (default)
         - `only` - only soft-deleted records
         - `with` - all records including deleted
-    filter:
+    stationFilter:
       name: filter
       in: query
       style: deepObject
       explode: true
+      description: Typed station filters using `filter[field]` or `filter[field][operator]`.
       schema:
         type: object
-        additionalProperties:
-          oneOf:
-            - type: string
-            - type: object
-              properties:
-                eq:
-                  type: string
-                  description: Equals
-                ne:
-                  type: string
-                  description: Not equals
-                not:
-                  type: string
-                  description: Alias for ne (not equals)
-                gt:
-                  type: string
-                  description: Greater than
-                gte:
-                  type: string
-                  description: Greater than or equal
-                lt:
-                  type: string
-                  description: Less than
-                lte:
-                  type: string
-                  description: Less than or equal
-                like:
-                  type: string
-                  description: Case-sensitive substring match (contains); value matched literally
-                in:
-                  type: string
-                  description: Comma-separated list of values
-                between:
-                  type: string
-                  description: Two comma-separated inclusive bounds
-                'null':
-                  type: boolean
-                  description: Is null (true) or not null (false)
-                band:
-                  type: integer
-                  description: Bitwise AND (for bitmask fields like weekdays)
-      description: |
-        Advanced filtering using field-based operators.
-
-        Basic usage: `filter[field]=value`
-
-        Advanced operators: `filter[field][op]=value`
-
-        Supported operators:
-        - `eq` - equals (default)
-        - `ne` - not equals
-        - `not` - alias for `ne` (not equals)
-        - `gt`, `gte`, `lt`, `lte` - comparisons
-        - `like` - case-sensitive substring match (contains)
-        - `in` - comma-separated values
-        - `between` - two comma-separated inclusive bounds
-        - `null` - is/isn't null
-        - `band` - bitwise AND (for bitmask fields, returns records where field & value != 0)
-
-        **URL Encoding:** Bracket characters `[` and `]` must be URL-encoded as `%5B` and `%5D` when using HTTP clients like curl. Most modern HTTP libraries (axios, fetch, etc.) handle this encoding automatically.
-      examples:
-        basic:
-          value: { "name": "Radio Station" }
-          summary: "Filter by exact name match"
-        comparison:
-          value: { "created_at": { "gte": "2024-01-01", "lte": "2024-12-31" } }
-          summary: "Filter by date range"
-        pattern:
-          value: { "name": { "like": "radio" } }
-          summary: "Filter by name (contains)"
-        multiple:
-          value: { "status": "active", "voice_id": { "null": false } }
-          summary: "Multiple filter conditions"
-        bitwise:
-          value: { "weekdays": { "band": 2 } }
-          summary: "Filter stories that play on Monday (bitwise AND)"
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          name: { $ref: '#/components/schemas/StringFilter' }
+          max_stories_per_block: { $ref: '#/components/schemas/IntegerFilter' }
+          pause_seconds: { $ref: '#/components/schemas/NumberFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    voiceFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed voice filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          name: { $ref: '#/components/schemas/StringFilter' }
+          elevenlabs_voice_id: { $ref: '#/components/schemas/NullableStringFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    storyFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed story filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          title: { $ref: '#/components/schemas/StringFilter' }
+          text: { $ref: '#/components/schemas/StringFilter' }
+          voice_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
+          has_audio: { $ref: '#/components/schemas/PresenceFilter' }
+          status: { $ref: '#/components/schemas/StoryStatusFilter' }
+          start_date: { $ref: '#/components/schemas/DateFilter' }
+          end_date: { $ref: '#/components/schemas/DateFilter' }
+          duration_seconds: { $ref: '#/components/schemas/NullableNumberFilter' }
+          weekdays: { $ref: '#/components/schemas/BitmaskFilter' }
+          is_breaking: { $ref: '#/components/schemas/BooleanFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          deleted_at: { $ref: '#/components/schemas/NullableDateTimeFilter' }
+    userFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed user filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          username: { $ref: '#/components/schemas/StringFilter' }
+          full_name: { $ref: '#/components/schemas/StringFilter' }
+          email: { $ref: '#/components/schemas/NullableStringFilter' }
+          role: { $ref: '#/components/schemas/UserRoleFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    bulletinFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed bulletin filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          station_id: { $ref: '#/components/schemas/IntegerFilter' }
+          filename: { $ref: '#/components/schemas/StringFilter' }
+          duration_seconds: { $ref: '#/components/schemas/NumberFilter' }
+          file_size: { $ref: '#/components/schemas/IntegerFilter' }
+          story_count: { $ref: '#/components/schemas/IntegerFilter' }
+          file_purged_at: { $ref: '#/components/schemas/NullableDateTimeFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    stationVoiceFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Typed station-voice filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          station_id: { $ref: '#/components/schemas/IntegerFilter' }
+          voice_id: { $ref: '#/components/schemas/IntegerFilter' }
+          audio_url: { $ref: '#/components/schemas/StringFilter', deprecated: true, description: 'Use `has_audio` for presence filtering.' }
+          has_audio: { $ref: '#/components/schemas/PresenceFilter' }
+          mix_point: { $ref: '#/components/schemas/NumberFilter' }
+          created_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
+    # The Nullable*FilterOperators schemas deliberately repeat their base
+    # schema's operators instead of composing via allOf: additionalProperties:
+    # false does not see properties merged in through allOf, and the
+    # unevaluatedProperties alternative has patchy tooling support. When
+    # changing an operator list, update the base and Nullable variant together.
+    StringFilter:
+      oneOf:
+        - type: string
+        - $ref: '#/components/schemas/StringFilterOperators'
+    NullableStringFilter:
+      oneOf:
+        - type: string
+        - $ref: '#/components/schemas/NullableStringFilterOperators'
+    StringFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string }
+        ne: { type: string }
+        not: { type: string, description: Alias for `ne`. }
+        like: { type: string, description: Case-sensitive literal substring match. }
+        in: { type: string, description: Comma-separated values. }
+    NullableStringFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string }
+        ne: { type: string }
+        not: { type: string, description: Alias for `ne`. }
+        like: { type: string, description: Case-sensitive literal substring match. }
+        in: { type: string, description: Comma-separated values. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    IntegerFilter:
+      oneOf:
+        - type: integer
+          format: int64
+        - $ref: '#/components/schemas/IntegerFilterOperators'
+    NullableIntegerFilter:
+      oneOf:
+        - type: integer
+          format: int64
+        - $ref: '#/components/schemas/NullableIntegerFilterOperators'
+    IntegerFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: integer, format: int64 }
+        ne: { type: integer, format: int64 }
+        not: { type: integer, format: int64, description: Alias for `ne`. }
+        gt: { type: integer, format: int64 }
+        gte: { type: integer, format: int64 }
+        lt: { type: integer, format: int64 }
+        lte: { type: integer, format: int64 }
+        in: { type: string, description: Comma-separated integers. }
+        between: { type: string, description: Two comma-separated inclusive integer bounds. }
+    NullableIntegerFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: integer, format: int64 }
+        ne: { type: integer, format: int64 }
+        not: { type: integer, format: int64, description: Alias for `ne`. }
+        gt: { type: integer, format: int64 }
+        gte: { type: integer, format: int64 }
+        lt: { type: integer, format: int64 }
+        lte: { type: integer, format: int64 }
+        in: { type: string, description: Comma-separated integers. }
+        between: { type: string, description: Two comma-separated inclusive integer bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    NumberFilter:
+      oneOf:
+        - type: number
+        - $ref: '#/components/schemas/NumberFilterOperators'
+    NullableNumberFilter:
+      oneOf:
+        - type: number
+        - $ref: '#/components/schemas/NullableNumberFilterOperators'
+    NumberFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: number }
+        ne: { type: number }
+        not: { type: number, description: Alias for `ne`. }
+        gt: { type: number }
+        gte: { type: number }
+        lt: { type: number }
+        lte: { type: number }
+        in: { type: string, description: Comma-separated numbers. }
+        between: { type: string, description: Two comma-separated inclusive numeric bounds. }
+    NullableNumberFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: number }
+        ne: { type: number }
+        not: { type: number, description: Alias for `ne`. }
+        gt: { type: number }
+        gte: { type: number }
+        lt: { type: number }
+        lte: { type: number }
+        in: { type: string, description: Comma-separated numbers. }
+        between: { type: string, description: Two comma-separated inclusive numeric bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    DateFilter:
+      oneOf:
+        - type: string
+          format: date
+        - $ref: '#/components/schemas/DateFilterOperators'
+    DateFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { type: string, format: date }
+        ne: { type: string, format: date }
+        not: { type: string, format: date, description: Alias for `ne`. }
+        gt: { type: string, format: date }
+        gte: { type: string, format: date }
+        lt: { type: string, format: date }
+        lte: { type: string, format: date }
+        in: { type: string, description: Comma-separated dates. }
+        between: { type: string, description: Two comma-separated inclusive date bounds. }
+    DateTimeValue:
+      description: RFC 3339 date-time, or a bare date compared as midnight.
+      anyOf:
+        - type: string
+          format: date-time
+        - type: string
+          format: date
+    DateTimeFilter:
+      oneOf:
+        - $ref: '#/components/schemas/DateTimeValue'
+        - $ref: '#/components/schemas/DateTimeFilterOperators'
+    NullableDateTimeFilter:
+      oneOf:
+        - $ref: '#/components/schemas/DateTimeValue'
+        - $ref: '#/components/schemas/NullableDateTimeFilterOperators'
+    DateTimeFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
+        in: { type: string, description: Comma-separated date-time values. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+    NullableDateTimeFilterOperators:
+      type: object
+      additionalProperties: false
+      properties:
+        eq: { $ref: '#/components/schemas/DateTimeValue' }
+        ne: { $ref: '#/components/schemas/DateTimeValue' }
+        not: { $ref: '#/components/schemas/DateTimeValue', description: Alias for `ne`. }
+        gt: { $ref: '#/components/schemas/DateTimeValue' }
+        gte: { $ref: '#/components/schemas/DateTimeValue' }
+        lt: { $ref: '#/components/schemas/DateTimeValue' }
+        lte: { $ref: '#/components/schemas/DateTimeValue' }
+        in: { type: string, description: Comma-separated date-time values. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        'null': { type: boolean, description: True selects null values; false selects non-null values. }
+    BooleanFilter:
+      oneOf:
+        - type: boolean
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: boolean }
+            ne: { type: boolean }
+            not: { type: boolean, description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated boolean values. }
+    PresenceFilter:
+      oneOf:
+        - type: boolean
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: boolean }
+            ne: { type: boolean }
+            not: { type: boolean, description: Alias for `ne`. }
+    BitmaskFilter:
+      oneOf:
+        - type: integer
+          minimum: 0
+          maximum: 127
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: integer, minimum: 0, maximum: 127 }
+            ne: { type: integer, minimum: 0, maximum: 127 }
+            not: { type: integer, minimum: 0, maximum: 127, description: Alias for `ne`. }
+            band: { type: integer, minimum: 0, maximum: 127, description: Selects rows where field & value is non-zero. }
+    StoryStatusFilter:
+      oneOf:
+        - type: string
+          enum: [draft, active, expired]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [draft, active, expired] }
+            ne: { type: string, enum: [draft, active, expired] }
+            not: { type: string, enum: [draft, active, expired], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated status values. }
+    UserRoleFilter:
+      oneOf:
+        - type: string
+          enum: [admin, editor, viewer]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [admin, editor, viewer] }
+            ne: { type: string, enum: [admin, editor, viewer] }
+            not: { type: string, enum: [admin, editor, viewer], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated role values. }
+    IDMessageResponse:
+      type: object
+      description: Identifier and confirmation message returned when a resource is created
+      required:
+        - id
+        - message
+      properties:
+        id:
+          type: integer
+          format: int64
+        message:
+          type: string
+
     Station:
       type: object
       required:
@@ -3536,6 +3785,40 @@ components:
           format: date-time
           description: Soft delete timestamp (null for active users)
 
+    CurrentSession:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          required:
+            - permissions
+          properties:
+            permissions:
+              type: object
+              additionalProperties: false
+              description: Effective actions per resource. Resources with no allowed actions are omitted.
+              properties:
+                stations:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                voices:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                stories:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                bulletins:
+                  type: array
+                  items: { type: string, enum: [read, generate] }
+                users:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                'settings:tts':
+                  type: array
+                  items: { type: string, enum: [read, write] }
+                pronunciation_rules:
+                  type: array
+                  items: { type: string, enum: [read, write] }
+
     UserInput:
       type: object
       required:
@@ -3784,6 +4067,7 @@ components:
         - type
         - title
         - status
+        - detail
       properties:
         type:
           type: string
@@ -4119,6 +4403,12 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
+    NotAcceptable:
+      description: The requested response media type is not available from this operation
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
     Conflict:
       description: |
         Resource conflict (duplicate, constraint violation).
@@ -4303,7 +4593,7 @@ components:
         Not Modified. Returned for conditional requests (e.g. `If-Modified-Since`)
         when the audio file has not changed. The response has no body.
     RangeNotSatisfiable:
-      description: The requested byte range cannot be satisfied. The plain-text body describes the error.
+      description: The requested byte range is invalid or cannot be satisfied.
       headers:
         Content-Range:
           description: The full file size in the form `bytes */{size}`
@@ -4312,4 +4602,6 @@ components:
             type: string
             example: "bytes */2048000"
       content:
-        text/plain: {}
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'

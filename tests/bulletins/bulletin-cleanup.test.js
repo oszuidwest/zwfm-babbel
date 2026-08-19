@@ -149,7 +149,7 @@ describe('Bulletin Cleanup', () => {
       markBulletinPurged(thirdBulletinId);
 
       // Act
-      const latestResponse = await global.api.apiCall('GET', `/stations/${testStationId}/bulletins?latest=true`);
+      const latestResponse = await global.api.apiCall('GET', `/stations/${testStationId}/bulletins/latest`);
 
       // Assert
       expect(latestResponse.status).toBe(200);

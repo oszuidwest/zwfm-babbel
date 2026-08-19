@@ -1,6 +1,96 @@
 package auth
 
-import "testing"
+import (
+	"maps"
+	"slices"
+	"testing"
+)
+
+func TestEffectivePermissions(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{}
+	enforcer, err := service.initializeRBAC()
+	if err != nil {
+		t.Fatalf("initialize RBAC: %v", err)
+	}
+	service.enforcer = enforcer
+
+	tests := []struct {
+		name string
+		role string
+		want PermissionSet
+	}{
+		{
+			name: "admin wildcard is expanded",
+			role: "admin",
+			want: PermissionSet{
+				"stations":            {"read", "write"},
+				"voices":              {"read", "write"},
+				"stories":             {"read", "write"},
+				"bulletins":           {"read", "generate"},
+				"users":               {"read", "write"},
+				"settings:tts":        {"read", "write"},
+				"pronunciation_rules": {"read", "write"},
+			},
+		},
+		{
+			name: "editor",
+			role: "editor",
+			want: PermissionSet{
+				"stations":            {"read", "write"},
+				"voices":              {"read", "write"},
+				"stories":             {"read", "write"},
+				"bulletins":           {"read", "generate"},
+				"users":               {"read"},
+				"settings:tts":        {"read"},
+				"pronunciation_rules": {"read", "write"},
+			},
+		},
+		{
+			name: "unknown role has no permissions",
+			role: "unknown",
+			want: PermissionSet{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := service.EffectivePermissions(tt.role)
+			if err != nil {
+				t.Fatalf("EffectivePermissions(%q): %v", tt.role, err)
+			}
+			if !maps.EqualFunc(got, tt.want, slices.Equal) {
+				t.Fatalf("EffectivePermissions(%q) = %v, want %v", tt.role, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPermissionCatalogCoversPolicies(t *testing.T) {
+	t.Parallel()
+
+	service := &Service{}
+	enforcer, err := service.initializeRBAC()
+	if err != nil {
+		t.Fatalf("initialize RBAC: %v", err)
+	}
+
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		t.Fatalf("get policies: %v", err)
+	}
+	for _, policy := range policies {
+		resource, action := policy[1], policy[2]
+		if resource == "*" || action == "*" {
+			continue
+		}
+		if !slices.Contains(permissionCatalog[Resource(resource)], Action(action)) {
+			t.Errorf("policy %v is missing from permissionCatalog; the session endpoint would never expose it", policy)
+		}
+	}
+}
 
 func TestIsAllowedFrontendURL(t *testing.T) {
 	t.Parallel()
