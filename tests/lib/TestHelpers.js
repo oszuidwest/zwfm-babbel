@@ -49,6 +49,25 @@ class TestHelpers {
     return false;
   }
 
+  /**
+   * Polls a bulletin job until it succeeds or fails.
+   * @param {number} jobId - Bulletin job ID to check.
+   * @param {number} timeoutMs - Max wait time (default: 45000).
+   * @param {number} intervalMs - Poll interval (default: 250).
+   * @returns {Promise<Object>} The terminal API response.
+   */
+  async waitForBulletinJob(jobId, timeoutMs = 45000, intervalMs = 250) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const response = await this.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
+      if (['succeeded', 'failed'].includes(response.data.status)) {
+        return response;
+      }
+      await this.sleep(intervalMs);
+    }
+    throw new Error(`Bulletin job ${jobId} did not finish within ${timeoutMs / 1000} seconds`);
+  }
+
   // -------------------------------------------------------------------------
   // FFmpeg Utilities
   // -------------------------------------------------------------------------

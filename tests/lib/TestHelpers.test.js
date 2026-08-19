@@ -111,6 +111,32 @@ describe('TestHelpers', () => {
     expect(api.apiCall).toHaveBeenCalledWith('GET', '/stories/40');
   });
 
+  test('when bulletin job reaches a terminal state, then returns the API response', async () => {
+    const queued = { status: 200, data: { status: 'queued' } };
+    const failed = { status: 200, data: { status: 'failed', error_code: 'bulletin.no_stories' } };
+    const api = { apiCall: jest.fn().mockResolvedValueOnce(queued).mockResolvedValueOnce(failed) };
+    const helpers = new TestHelpers(api);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForBulletinJob(42)).resolves.toBe(failed);
+    expect(api.apiCall).toHaveBeenCalledTimes(2);
+    expect(helpers.sleep).toHaveBeenCalledWith(250);
+  });
+
+  test('when bulletin job polling times out, then throws', async () => {
+    const api = { apiCall: jest.fn().mockResolvedValue({ status: 200, data: { status: 'running' } }) };
+    const helpers = new TestHelpers(api);
+    jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(4);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForBulletinJob(42, 3, 1)).rejects.toThrow(
+      'Bulletin job 42 did not finish within 0.003 seconds'
+    );
+  });
+
   test('when station voice IDs are unsafe, then API is not called', async () => {
     const api = { apiCall: jest.fn() };
     const helpers = new TestHelpers(api);

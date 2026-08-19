@@ -334,7 +334,7 @@ describe('OpenAPI Contract', () => {
           return response;
         }),
       scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
-          const job = await waitForBulletinJob(ctx.generationJobId);
+          const job = (await global.helpers.waitForBulletinJob(ctx.generationJobId)).data;
           return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
         }),
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
@@ -342,7 +342,7 @@ describe('OpenAPI Contract', () => {
           expect(station).not.toBeNull();
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
           expect(response.status).toBe(202);
-          const job = await waitForBulletinJob(response.data.id);
+          const job = (await global.helpers.waitForBulletinJob(response.data.id)).data;
           expect(job.status).toBe('failed');
           expect(job.error_code).toBe('bulletin.no_stories');
           return response;
@@ -610,7 +610,7 @@ async function createContractContext() {
 
   const accepted = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
   expect(accepted.status).toBe(202);
-  const job = await waitForBulletinJob(accepted.data.id);
+  const job = (await global.helpers.waitForBulletinJob(accepted.data.id)).data;
   expect(job.status).toBe('succeeded');
   const bulletinResponse = await global.api.apiCall('GET', `/bulletins/${job.bulletin_id}`);
   expect(bulletinResponse.status).toBe(200);
@@ -627,16 +627,6 @@ async function createContractContext() {
     bulletin: bulletinResponse.data,
     user: { id: userResponse.data.id }
   };
-}
-
-async function waitForBulletinJob(jobId) {
-  const deadline = Date.now() + 45000;
-  while (Date.now() < deadline) {
-    const response = await global.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
-    if (['succeeded', 'failed'].includes(response.data.status)) return response.data;
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  throw new Error(`Bulletin job ${jobId} did not finish within 45 seconds`);
 }
 
 async function uploadFixture(endpoint, fileFieldName) {

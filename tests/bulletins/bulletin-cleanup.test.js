@@ -17,18 +17,11 @@ describe('Bulletin Cleanup', () => {
   const generateBulletin = async stationId => {
     const accepted = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
     expect(accepted.status).toBe(202);
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      const job = await global.api.apiCall('GET', `/bulletin-jobs/${accepted.data.id}`);
-      if (job.data.status === 'failed') {
-        throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code}`);
-      }
-      if (job.data.status === 'succeeded') {
-        return global.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
-      }
-      await global.helpers.sleep(250);
+    const job = await global.helpers.waitForBulletinJob(accepted.data.id);
+    if (job.data.status === 'failed') {
+      throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code}`);
     }
-    throw new Error(`Bulletin job ${accepted.data.id} did not finish within 45 seconds`);
+    return global.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
   };
 
   const markBulletinPurged = (bulletinId) => {

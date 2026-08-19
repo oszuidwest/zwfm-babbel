@@ -7,21 +7,12 @@ describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
   const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const waitForBulletinJob = async jobId => {
-    const deadline = Date.now() + 45000;
-    while (Date.now() < deadline) {
-      const response = await global.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
-      if (['succeeded', 'failed'].includes(response.data.status)) return response;
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    throw new Error(`Bulletin job ${jobId} did not finish within 45 seconds`);
-  };
   const generateBulletin = async (stationId, body = {}) => {
     const accepted = await enqueueBulletin(stationId, body);
     if (accepted.status !== 202) return accepted;
-    const jobResponse = await waitForBulletinJob(accepted.data.id);
+    const jobResponse = await global.helpers.waitForBulletinJob(accepted.data.id);
     if (jobResponse.data.status === 'failed') {
-      return { ...jobResponse, status: 422 };
+      throw new Error(`Bulletin job ${accepted.data.id} failed: ${jobResponse.data.error_code}`);
     }
     return global.api.apiCall('GET', `/bulletins/${jobResponse.data.bulletin_id}`);
   };
@@ -439,7 +430,7 @@ describe('Bulletins', () => {
       expect(accepted.headers.location).toBe(`/api/v1/bulletin-jobs/${accepted.data.id}`);
       expect(['queued', 'running']).toContain(accepted.data.status);
 
-      const completed = await waitForBulletinJob(accepted.data.id);
+      const completed = await global.helpers.waitForBulletinJob(accepted.data.id);
       expect(completed.status).toBe(200);
       expect(completed.data.status).toBe('succeeded');
       expect(completed.data.bulletin_id).toEqual(expect.any(Number));
@@ -453,7 +444,7 @@ describe('Bulletins', () => {
       const accepted = await enqueueBulletin(emptyStation.id);
       expect(accepted.status).toBe(202);
 
-      const completed = await waitForBulletinJob(accepted.data.id);
+      const completed = await global.helpers.waitForBulletinJob(accepted.data.id);
       expect(completed.data.status).toBe('failed');
       expect(completed.data.error_code).toBe('bulletin.no_stories');
       expect(completed.data.bulletin_id).toBeNull();
