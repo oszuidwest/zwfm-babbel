@@ -13,41 +13,39 @@ import (
 )
 
 const (
-	bulletinJobPollInterval   = time.Second
-	bulletinJobUpdateTimeout  = 5 * time.Second
-	defaultBulletinJobTimeout = 2 * time.Minute
+	// bulletinJobPollInterval paces idle cross-replica pickup and expired-lease
+	// reclaim; same-process enqueues wake the worker immediately via s.wake.
+	bulletinJobPollInterval  = 5 * time.Second
+	bulletinJobUpdateTimeout = 5 * time.Second
+
+	jobCodeGenerationFailed   = "internal.generation_failed"
+	jobDetailGenerationFailed = "Bulletin generation failed"
 )
 
 // BulletinJobService queues, processes, and exposes durable generation jobs.
 type BulletinJobService struct {
-	repo       *repository.BulletinJobRepository
-	bulletins  *BulletinService
-	timeout    time.Duration
-	leaseFor   time.Duration
-	pollEvery  time.Duration
-	wake       chan struct{}
-	done       chan struct{}
-	cancel     context.CancelFunc
-	startOnce  sync.Once
-	stopOnce   sync.Once
-	startupErr error
+	repo      *repository.BulletinJobRepository
+	bulletins *BulletinService
+	timeout   time.Duration
+	leaseFor  time.Duration
+	wake      chan struct{}
+	done      chan struct{}
+	cancel    context.CancelFunc
+	startOnce sync.Once
 }
 
-// NewBulletinJobService creates an asynchronous bulletin worker.
+// NewBulletinJobService creates an asynchronous bulletin worker. timeout must
+// be positive; config validation enforces this at startup.
 func NewBulletinJobService(
 	repo *repository.BulletinJobRepository,
 	bulletins *BulletinService,
 	timeout time.Duration,
 ) *BulletinJobService {
-	if timeout <= 0 {
-		timeout = defaultBulletinJobTimeout
-	}
 	return &BulletinJobService{
 		repo:      repo,
 		bulletins: bulletins,
 		timeout:   timeout,
 		leaseFor:  timeout + (2 * bulletinJobUpdateTimeout),
-		pollEvery: bulletinJobPollInterval,
 		wake:      make(chan struct{}, 1),
 		done:      make(chan struct{}),
 	}
@@ -55,14 +53,13 @@ func NewBulletinJobService(
 
 // Start starts the single bounded worker. Expired leases are reclaimed during
 // normal claiming, so starting one replica never disturbs another replica.
-func (s *BulletinJobService) Start(parent context.Context) error {
+func (s *BulletinJobService) Start() {
 	s.startOnce.Do(func() {
 		// #nosec G118 -- Stop retains and invokes cancel during graceful shutdown.
-		workerCtx, cancel := context.WithCancel(parent)
+		workerCtx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 		go s.run(workerCtx)
 	})
-	return s.startupErr
 }
 
 // Stop cancels active generation and waits for the worker to exit.
@@ -70,7 +67,7 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 	if s.cancel == nil {
 		return nil
 	}
-	s.stopOnce.Do(s.cancel)
+	s.cancel()
 	select {
 	case <-s.done:
 		return nil
@@ -87,7 +84,7 @@ func (s *BulletinJobService) Enqueue(
 ) (*models.BulletinJob, error) {
 	job, err := s.repo.Create(ctx, stationID, targetDate)
 	if err != nil {
-		return nil, apperrors.Database("Bulletin job", "create", err)
+		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
 	}
 	select {
 	case s.wake <- struct{}{}:
@@ -100,14 +97,14 @@ func (s *BulletinJobService) Enqueue(
 func (s *BulletinJobService) GetByID(ctx context.Context, id int64) (*models.BulletinJob, error) {
 	job, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
+		return nil, apperrors.TranslateRepoErrorWithID("Bulletin job", id, apperrors.OpQuery, err)
 	}
 	return job, nil
 }
 
 func (s *BulletinJobService) run(ctx context.Context) {
 	defer close(s.done)
-	ticker := time.NewTicker(s.pollEvery)
+	ticker := time.NewTicker(bulletinJobPollInterval)
 	defer ticker.Stop()
 
 	for {
@@ -146,7 +143,7 @@ func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.B
 				s.releaseInterrupted(workerCtx, job)
 				return
 			}
-			s.recordFailure(workerCtx, job, "internal.generation_failed", "Bulletin generation failed")
+			s.recordFailure(workerCtx, job, jobCodeGenerationFailed, jobDetailGenerationFailed)
 		}
 	}()
 
@@ -194,10 +191,10 @@ func (s *BulletinJobService) releaseInterrupted(parent context.Context, job *mod
 
 func bulletinJobError(err error) (code, detail string) {
 	if _, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
-		return "bulletin.no_stories", "No eligible stories are available for bulletin generation"
+		return apperrors.CodeBulletinNoStories, "No eligible stories are available for bulletin generation"
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "internal.timeout", "Bulletin generation exceeded the server-side time limit"
+		return apperrors.CodeTimeout, "Bulletin generation exceeded the server-side time limit"
 	}
-	return "internal.generation_failed", "Bulletin generation failed"
+	return jobCodeGenerationFailed, jobDetailGenerationFailed
 }

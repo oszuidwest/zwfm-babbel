@@ -34,12 +34,11 @@ type routerDeps struct {
 // public and authenticated routes. alerts must be non-nil; an unconfigured
 // service disables notifications.
 func SetupRouter(
-	appCtx context.Context,
 	db *gorm.DB,
 	cfg *config.Config,
 	alerts *notify.Service,
 ) (*gin.Engine, func(context.Context) error, error) {
-	deps, err := buildDependencies(appCtx, db, cfg, alerts)
+	deps, err := buildDependencies(db, cfg, alerts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,12 +60,7 @@ func SetupRouter(
 }
 
 // buildDependencies creates all services and handlers needed by the router.
-func buildDependencies(
-	appCtx context.Context,
-	db *gorm.DB,
-	cfg *config.Config,
-	alerts notify.Alerter,
-) (*routerDeps, error) {
+func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
 
 	stationRepo := repository.NewStationRepository(db)
@@ -143,9 +137,7 @@ func buildDependencies(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
-	if err := bulletinJobSvc.Start(appCtx); err != nil {
-		return nil, fmt.Errorf("failed to start bulletin job service: %w", err)
-	}
+	bulletinJobSvc.Start()
 
 	return &routerDeps{
 		handlers:          h,

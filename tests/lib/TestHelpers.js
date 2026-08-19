@@ -71,6 +71,25 @@ class TestHelpers {
     throw new Error(`Bulletin job ${jobId} did not finish within ${timeoutMs / 1000} seconds`);
   }
 
+  /**
+   * Generates a bulletin through the asynchronous job flow: enqueues the job,
+   * polls it to completion, and fetches the created bulletin.
+   * Non-202 enqueue responses are returned unchanged for error-path assertions.
+   * @param {number} stationId - Station to generate a bulletin for.
+   * @param {Object} body - Optional request body (e.g. { date }).
+   * @returns {Promise<Object>} The GET /bulletins/{id} response, or the raw
+   *   enqueue response when it was not accepted.
+   */
+  async generateBulletin(stationId, body = {}) {
+    const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`, body);
+    if (accepted.status !== 202) return accepted;
+    const job = await this.waitForBulletinJob(accepted.data.id);
+    if (job.data.status === 'failed') {
+      throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code}`);
+    }
+    return this.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
+  }
+
   // -------------------------------------------------------------------------
   // FFmpeg Utilities
   // -------------------------------------------------------------------------

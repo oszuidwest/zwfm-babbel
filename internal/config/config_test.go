@@ -169,6 +169,43 @@ func TestValidateTTSConfig(t *testing.T) {
 	}
 }
 
+func TestValidateBulletinJobConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{
+			name: "generation timeout is zero",
+			mutate: func(cfg *Config) {
+				cfg.BulletinJobs.GenerationTimeout = 0
+			},
+			wantErr: "BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0",
+		},
+		{
+			name: "generation timeout is negative",
+			mutate: func(cfg *Config) {
+				cfg.BulletinJobs.GenerationTimeout = -time.Second
+			},
+			wantErr: "BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			tt.mutate(cfg)
+
+			err := cfg.Validate()
+			assertErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func TestLoadNotificationConfig(t *testing.T) {
 	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID", "12345678-1234-1234-1234-123456789abc")
 	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID", "abcdefab-1234-5678-90ab-abcdefabcdef")
@@ -454,6 +491,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 		},
 		TTS: TTSConfig{
 			RequestTimeout: 60 * time.Second,
+		},
+		BulletinJobs: BulletinJobConfig{
+			GenerationTimeout: 120 * time.Second,
 		},
 		Environment: EnvDevelopment,
 	}

@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -16,12 +15,12 @@ var ErrBulletinJobLeaseLost = errors.New("bulletin job lease lost")
 
 // BulletinJobRepository stores and atomically claims generation jobs.
 type BulletinJobRepository struct {
-	db *gorm.DB
+	*GormRepository[models.BulletinJob]
 }
 
 // NewBulletinJobRepository creates a bulletin job repository.
 func NewBulletinJobRepository(db *gorm.DB) *BulletinJobRepository {
-	return &BulletinJobRepository{db: db}
+	return &BulletinJobRepository{GormRepository: NewGormRepository[models.BulletinJob](db)}
 }
 
 // Create queues a durable bulletin generation job.
@@ -35,19 +34,10 @@ func (r *BulletinJobRepository) Create(
 		TargetDate: targetDate,
 		Status:     models.BulletinJobQueued,
 	}
-	if err := r.db.WithContext(ctx).Create(job).Error; err != nil {
+	if err := DBFromContext(ctx, r.db).WithContext(ctx).Create(job).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 	return job, nil
-}
-
-// GetByID returns one job by ID.
-func (r *BulletinJobRepository) GetByID(ctx context.Context, id int64) (*models.BulletinJob, error) {
-	var job models.BulletinJob
-	if err := r.db.WithContext(ctx).First(&job, id).Error; err != nil {
-		return nil, ParseDBError(err)
-	}
-	return &job, nil
 }
 
 // ClaimNext atomically leases the oldest queued or expired job. Claiming is
@@ -151,11 +141,10 @@ func checkedJobUpdate(result *gorm.DB) error {
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
-	if result.RowsAffected == 0 {
-		return ErrBulletinJobLeaseLost
-	}
+	// Callers filter on the primary key, so anything but one row means the
+	// lease was reclaimed or finalized by another worker.
 	if result.RowsAffected != 1 {
-		return fmt.Errorf("updated %d bulletin jobs: %w", result.RowsAffected, ErrBulletinJobLeaseLost)
+		return ErrBulletinJobLeaseLost
 	}
 	return nil
 }

@@ -74,10 +74,8 @@ func run() error {
 	}
 	defer closeDatabase(db, alerts)
 
-	appCtx, cancelApp := context.WithCancel(context.Background())
-	router, shutdownRouter, err := api.SetupRouter(appCtx, db, cfg, alerts)
+	router, shutdownRouter, err := api.SetupRouter(db, cfg, alerts)
 	if err != nil {
-		cancelApp()
 		notifyCritical(alerts, "startup:router", "Babbel router or authentication startup failed", err)
 		return fmt.Errorf("setup router: %w", err)
 	}
@@ -101,7 +99,6 @@ func run() error {
 	cleanupService.Stop()
 	expirationService.Stop()
 	shutdownErr := shutdownServer(srv)
-	cancelApp()
 	workerCtx, cancelWorkers := context.WithTimeout(context.Background(), shutdownTimeout)
 	workerShutdownErr := shutdownRouter(workerCtx)
 	cancelWorkers()

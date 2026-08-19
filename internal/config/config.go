@@ -378,6 +378,9 @@ func (c *Config) validateCore() error {
 	if c.TTS.RequestTimeout <= 0 {
 		return fmt.Errorf("BABBEL_ELEVENLABS_TIMEOUT must be > 0 (got %s)", c.TTS.RequestTimeout)
 	}
+	if c.BulletinJobs.GenerationTimeout <= 0 {
+		return fmt.Errorf("BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.GenerationTimeout)
+	}
 	return nil
 }
 

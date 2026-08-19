@@ -138,15 +138,10 @@ func parseQuality(value string) (float64, bool) {
 	return quality, err == nil
 }
 
-// setCacheHeaders sets standardized cache response headers.
-func setCacheHeaders(c *gin.Context, createdAt time.Time, hit bool) {
-	if hit {
-		c.Header("X-Cache", "HIT")
-		c.Header("Age", strconv.Itoa(int(time.Since(createdAt).Seconds())))
-	} else {
-		c.Header("X-Cache", "MISS")
-		c.Header("Age", "0")
-	}
+// setCacheHeaders marks a response served from the existing bulletin store.
+func setCacheHeaders(c *gin.Context, createdAt time.Time) {
+	c.Header("X-Cache", "HIT")
+	c.Header("Age", strconv.Itoa(int(time.Since(createdAt).Seconds())))
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
@@ -256,7 +251,7 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 		return
 	}
 
-	setCacheHeaders(c, bulletin.CreatedAt, true)
+	setCacheHeaders(c, bulletin.CreatedAt)
 	utils.Success(c, bulletin)
 }
 

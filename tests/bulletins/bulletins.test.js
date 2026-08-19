@@ -7,15 +7,7 @@ describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
   const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const generateBulletin = async (stationId, body = {}) => {
-    const accepted = await enqueueBulletin(stationId, body);
-    if (accepted.status !== 202) return accepted;
-    const jobResponse = await global.helpers.waitForBulletinJob(accepted.data.id);
-    if (jobResponse.data.status === 'failed') {
-      throw new Error(`Bulletin job ${accepted.data.id} failed: ${jobResponse.data.error_code}`);
-    }
-    return global.api.apiCall('GET', `/bulletins/${jobResponse.data.bulletin_id}`);
-  };
+  const generateBulletin = (stationId, body = {}) => global.helpers.generateBulletin(stationId, body);
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,

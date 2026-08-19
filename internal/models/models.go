@@ -227,7 +227,7 @@ type BulletinJob struct {
 	BulletinID  *int64            `gorm:"index" json:"bulletin_id"`
 	ErrorCode   string            `gorm:"size:100;not null;default:''" json:"error_code,omitempty"`
 	ErrorDetail string            `gorm:"size:1000;not null;default:''" json:"error_detail,omitempty"`
-	LeaseUntil  *time.Time        `gorm:"index" json:"-"`
+	LeaseUntil  *time.Time        `json:"-"`
 	StartedAt   *time.Time        `json:"started_at"`
 	CompletedAt *time.Time        `json:"completed_at"`
 	CreatedAt   time.Time         `json:"created_at"`

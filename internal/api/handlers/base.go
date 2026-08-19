@@ -81,7 +81,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logger.Error("Request timeout", "error", err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
-			"internal.timeout",
+			apperrors.CodeTimeout,
 			"The request took too long. Please try again.",
 		)
 		return
@@ -158,7 +158,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logError("bulletin", "no_stories", err)
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
 			noStories.Error(),
-			"bulletin.no_stories",
+			apperrors.CodeBulletinNoStories,
 			"Add active stories with audio before generating a bulletin",
 		)
 		return

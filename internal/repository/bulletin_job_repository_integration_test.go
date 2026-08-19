@@ -9,14 +9,16 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"gorm.io/gorm"
 )
 
-func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
-	db := openIntegrationDB(t)
+// createBulletinJobStation creates a uniquely named station and registers
+// cleanup of the station and its jobs.
+func createBulletinJobStation(t *testing.T, db *gorm.DB) models.Station {
+	t.Helper()
 	station := models.Station{
-		Name:               fmt.Sprintf("bulletin-job-lease-%d", time.Now().UnixNano()),
+		Name:               fmt.Sprintf("bulletin-job-%s-%d", t.Name(), time.Now().UnixNano()),
 		MaxStoriesPerBlock: 5,
-		PauseSeconds:       0,
 	}
 	if err := db.Create(&station).Error; err != nil {
 		t.Fatalf("create station: %v", err)
@@ -29,6 +31,12 @@ func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
 			t.Errorf("delete station: %v", err)
 		}
 	})
+	return station
+}
+
+func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
+	db := openIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
 	job, err := repo.Create(t.Context(), station.ID, time.Now())
@@ -65,18 +73,7 @@ func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
 
 func TestBulletinJobRepositoryIntegration_OneActiveJobPerStation(t *testing.T) {
 	db := openIntegrationDB(t)
-	station := models.Station{
-		Name:               fmt.Sprintf("bulletin-job-station-%d", time.Now().UnixNano()),
-		MaxStoriesPerBlock: 5,
-		PauseSeconds:       0,
-	}
-	if err := db.Create(&station).Error; err != nil {
-		t.Fatalf("create station: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = db.Where("station_id = ?", station.ID).Delete(&models.BulletinJob{}).Error
-		_ = db.Delete(&station).Error
-	})
+	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
 	for range 2 {

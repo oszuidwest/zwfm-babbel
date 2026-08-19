@@ -287,6 +287,13 @@ func Audio(resource, operation string, cause error) *AudioError {
 	return &AudioError{Resource: resource, Operation: operation, cause: cause}
 }
 
+// Stable client-facing failure codes shared by the HTTP problem mapping
+// (handleServiceError) and the asynchronous bulletin job worker.
+const (
+	CodeBulletinNoStories = "bulletin.no_stories"
+	CodeTimeout           = "internal.timeout"
+)
+
 // NoStoriesError indicates no stories are available for bulletin generation.
 type NoStoriesError struct {
 	StationID int64

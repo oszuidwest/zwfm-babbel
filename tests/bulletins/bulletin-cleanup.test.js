@@ -14,16 +14,6 @@ describe('Bulletin Cleanup', () => {
   let purgedBulletinId = null;
   let unpurgedBulletinId = null;
 
-  const generateBulletin = async stationId => {
-    const accepted = await global.api.apiCall('POST', `/stations/${stationId}/bulletins`, {});
-    expect(accepted.status).toBe(202);
-    const job = await global.helpers.waitForBulletinJob(accepted.data.id);
-    if (job.data.status === 'failed') {
-      throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code}`);
-    }
-    return global.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
-  };
-
   const markBulletinPurged = (bulletinId) => {
     const id = sqlInteger(bulletinId, 'bulletin ID');
 
@@ -58,7 +48,7 @@ describe('Bulletin Cleanup', () => {
     testStationId = station.id;
 
     // Generate first bulletin
-    const bulletin1 = await generateBulletin(testStationId);
+    const bulletin1 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin1.status).toBe(200);
     purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
@@ -67,7 +57,7 @@ describe('Bulletin Cleanup', () => {
     await global.helpers.sleep(1000);
 
     // Generate second bulletin
-    const bulletin2 = await generateBulletin(testStationId);
+    const bulletin2 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin2.status).toBe(200);
     unpurgedBulletinId = bulletin2.data.id;
     global.resources.track('bulletins', unpurgedBulletinId);
@@ -141,7 +131,7 @@ describe('Bulletin Cleanup', () => {
 
     test('when requesting latest bulletin, then skips purged', async () => {
       // Arrange: generate a third bulletin and purge it (making it the newest)
-      const thirdResponse = await generateBulletin(testStationId);
+      const thirdResponse = await global.helpers.generateBulletin(testStationId);
       expect(thirdResponse.status).toBe(200);
       const thirdBulletinId = thirdResponse.data.id;
       global.resources.track('bulletins', thirdBulletinId);

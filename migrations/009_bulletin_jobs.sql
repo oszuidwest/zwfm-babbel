@@ -16,8 +16,9 @@ CREATE TABLE bulletin_jobs (
     CONSTRAINT chk_bulletin_jobs_status CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
     CONSTRAINT fk_bulletin_jobs_station FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
     CONSTRAINT fk_bulletin_jobs_bulletin FOREIGN KEY (bulletin_id) REFERENCES bulletins(id) ON DELETE SET NULL,
-    INDEX idx_bulletin_jobs_status_created (status, created_at),
-    INDEX idx_bulletin_jobs_lease_until (lease_until),
-    INDEX idx_bulletin_jobs_station (station_id),
+    -- (station_id, status) serves the one-active-job-per-station claim guard
+    -- and the station FK; (status) serves the queued/expired claim scan.
+    INDEX idx_bulletin_jobs_station_status (station_id, status),
+    INDEX idx_bulletin_jobs_status (status),
     INDEX idx_bulletin_jobs_bulletin (bulletin_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

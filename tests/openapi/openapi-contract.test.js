@@ -608,11 +608,7 @@ async function createContractContext() {
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);
 
-  const accepted = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
-  expect(accepted.status).toBe(202);
-  const job = (await global.helpers.waitForBulletinJob(accepted.data.id)).data;
-  expect(job.status).toBe('succeeded');
-  const bulletinResponse = await global.api.apiCall('GET', `/bulletins/${job.bulletin_id}`);
+  const bulletinResponse = await global.helpers.generateBulletin(station.id);
   expect(bulletinResponse.status).toBe(200);
 
   const userResponse = await global.api.apiCall('POST', '/users', userBody('base'));
