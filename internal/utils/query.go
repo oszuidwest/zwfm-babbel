@@ -563,8 +563,7 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 }
 
 func emitQueryError(c *gin.Context, err error) {
-	var qpe *QueryParamError
-	if errors.As(err, &qpe) {
+	if qpe, ok := errors.AsType[*QueryParamError](err); ok {
 		ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: qpe.Field, Message: qpe.Message},
 		})
@@ -617,8 +616,7 @@ func jsonFieldNames[T any]() map[string]struct{} {
 		return nil
 	}
 	names := make(map[string]struct{}, typ.NumField())
-	for i := range typ.NumField() {
-		field := typ.Field(i)
+	for field := range typ.Fields() {
 		if !field.IsExported() {
 			continue
 		}

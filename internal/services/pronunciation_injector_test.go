@@ -217,8 +217,7 @@ func TestPronunciationInjectorApplyTranslatesRepoError(t *testing.T) {
 	injector := NewPronunciationInjector(repo)
 
 	_, err := injector.Apply(context.Background(), "PSV wint")
-	var notInitialized *apperrors.NotInitializedError
-	if !errors.As(err, &notInitialized) {
+	if _, ok := errors.AsType[*apperrors.NotInitializedError](err); !ok {
 		t.Fatalf("Apply() error = %T, want *apperrors.NotInitializedError", err)
 	}
 }

@@ -1,12 +1,9 @@
-FROM golang:1.26.6-alpine3.23 AS builder
+FROM golang:1.27.0-alpine3.24 AS builder
 
 # Build arguments
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
-
-# Install FFmpeg
-RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
 
@@ -19,6 +16,7 @@ COPY . .
 
 # Build the application with version information
 RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
     -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=${BUILD_TIME}" \
     -o babbel cmd/babbel/main.go
 
@@ -49,12 +47,15 @@ COPY --from=builder /app/babbel .
 COPY migrations/ ./migrations/
 
 # Create required directories
-RUN mkdir -p uploads audio/{processed,output,temp} \
+RUN mkdir -p uploads audio/processed audio/output audio/temp \
     && chown -R app:app /app
 
 USER app
 
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD ["wget", "--spider", "-q", "http://localhost:8080/health"]
 
 # Environment variables (including CORS) are configured via docker-compose
 # See docker-compose.yml and .env.example for configuration options
