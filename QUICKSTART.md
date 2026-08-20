@@ -138,13 +138,16 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/audio \
 ## Step 8: Generate Bulletin
 
 ```bash
-# Generate bulletin for station 1
+# Queue bulletin generation for station 1 (returns 202 with a job id)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/stations/1/bulletins \
   -H "Content-Type: application/json" \
   -d '{}'
 
+# Poll the job until status is "succeeded" (replace 1 with the job id from the response)
+curl -b cookies.txt http://localhost:8080/api/v1/bulletin-jobs/1
+
 # Get latest bulletin info
-curl -b cookies.txt "http://localhost:8080/api/v1/stations/1/bulletins?latest=true"
+curl -b cookies.txt "http://localhost:8080/api/v1/stations/1/bulletins/latest"
 
 # Download bulletin audio directly (replace 1 with actual ID from previous response)
 curl -b cookies.txt http://localhost:8080/api/v1/bulletins/1/audio \

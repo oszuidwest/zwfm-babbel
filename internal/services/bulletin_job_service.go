@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
@@ -18,47 +20,79 @@ const (
 	bulletinJobPollInterval  = 5 * time.Second
 	bulletinJobUpdateTimeout = 5 * time.Second
 
-	jobCodeGenerationFailed   = "internal.generation_failed"
+	// bulletinJobMaxAttempts bounds lease-reclaim retries: ClaimNext never
+	// claims a job at this cap, so a job whose process keeps dying
+	// mid-generation (OOM, kill -9) is terminally failed instead of re-running
+	// forever and starving its station's queue.
+	bulletinJobMaxAttempts = 3
+
 	jobDetailGenerationFailed = "Bulletin generation failed"
+
+	claimAlertKey = "bulletin-jobs:claim"
 )
 
 // BulletinJobService queues, processes, and exposes durable generation jobs.
 type BulletinJobService struct {
-	repo      *repository.BulletinJobRepository
-	bulletins *BulletinService
-	timeout   time.Duration
-	leaseFor  time.Duration
-	wake      chan struct{}
-	done      chan struct{}
-	cancel    context.CancelFunc
-	startOnce sync.Once
+	repo         *repository.BulletinJobRepository
+	locks        *repository.NamedLockManager
+	bulletins    *BulletinService
+	alerts       notify.Alerter
+	timeout      time.Duration
+	queueTimeout time.Duration
+	workers      int
+	leaseFor     time.Duration
+	wake         chan struct{}
+	done         chan struct{}
+	cancel       context.CancelFunc
+	startOnce    sync.Once
 }
 
-// NewBulletinJobService creates an asynchronous bulletin worker. timeout must
-// be positive; config validation enforces this at startup.
+// NewBulletinJobService creates an asynchronous bulletin worker. cfg must be
+// validated (positive timeouts, at least one worker); config validation
+// enforces this at startup.
 func NewBulletinJobService(
 	repo *repository.BulletinJobRepository,
+	locks *repository.NamedLockManager,
 	bulletins *BulletinService,
-	timeout time.Duration,
+	cfg config.BulletinJobConfig,
+	alerts notify.Alerter,
 ) *BulletinJobService {
 	return &BulletinJobService{
-		repo:      repo,
-		bulletins: bulletins,
-		timeout:   timeout,
-		leaseFor:  timeout + (2 * bulletinJobUpdateTimeout),
-		wake:      make(chan struct{}, 1),
-		done:      make(chan struct{}),
+		repo:         repo,
+		locks:        locks,
+		bulletins:    bulletins,
+		alerts:       notify.OrDiscard(alerts),
+		timeout:      cfg.GenerationTimeout,
+		queueTimeout: cfg.QueueTimeout,
+		workers:      cfg.Workers,
+		// The lease must outlive one full generation attempt plus the finalize
+		// or failure write, or another claimer could reclaim a live job.
+		leaseFor: cfg.GenerationTimeout + (2 * bulletinJobUpdateTimeout),
+		wake:     make(chan struct{}, 1),
+		done:     make(chan struct{}),
 	}
 }
 
-// Start starts the single bounded worker. Expired leases are reclaimed during
-// normal claiming, so starting one replica never disturbs another replica.
+// Start launches the configured number of worker goroutines. Claims serialize
+// on the database row lock and the one-active-job-per-station guard, so extra
+// workers only add throughput across stations. Expired leases are reclaimed
+// during normal claiming, so starting one replica never disturbs another.
 func (s *BulletinJobService) Start() {
 	s.startOnce.Do(func() {
-		// #nosec G118 -- Stop retains and invokes cancel during graceful shutdown.
 		workerCtx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
-		go s.run(workerCtx)
+		var wg sync.WaitGroup
+		for range s.workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				s.run(workerCtx)
+			}()
+		}
+		go func() {
+			wg.Wait()
+			close(s.done)
+		}()
 	})
 }
 
@@ -76,12 +110,29 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 	}
 }
 
-// Enqueue persists a generation request before waking the worker.
+// Enqueue persists a generation request before waking the worker. Repeated
+// requests for the same station and date coalesce onto the existing queued or
+// running job, so client retries do not pile up duplicate generations. The
+// enqueue lock makes the find-then-create pair atomic across replicas.
 func (s *BulletinJobService) Enqueue(
 	ctx context.Context,
 	stationID int64,
 	targetDate time.Time,
 ) (*models.BulletinJob, error) {
+	release, err := s.locks.LockEnqueue(ctx, stationID)
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
+	}
+	defer release()
+
+	existing, err := s.repo.FindActive(ctx, stationID, targetDate)
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
 	job, err := s.repo.Create(ctx, stationID, targetDate)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
@@ -103,13 +154,23 @@ func (s *BulletinJobService) GetByID(ctx context.Context, id int64) (*models.Bul
 }
 
 func (s *BulletinJobService) run(ctx context.Context) {
-	defer close(s.done)
 	ticker := time.NewTicker(bulletinJobPollInterval)
 	defer ticker.Stop()
 
 	for {
-		if err := s.processQueued(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		err := s.processQueued(ctx)
+		switch {
+		case err == nil:
+			s.alerts.Resolve(ctx, claimAlertKey, "Bulletin job worker recovered",
+				"The worker is claiming and processing jobs again.")
+		case !errors.Is(err, context.Canceled):
 			logger.Error("Bulletin job worker failed to claim work", "error", err)
+			s.alerts.Alert(ctx, notify.Event{
+				Key:               claimAlertKey,
+				Summary:           "Bulletin job worker cannot claim work",
+				Details:           err.Error(),
+				RequiresThreshold: true,
+			})
 		}
 
 		select {
@@ -122,8 +183,11 @@ func (s *BulletinJobService) run(ctx context.Context) {
 }
 
 func (s *BulletinJobService) processQueued(ctx context.Context) error {
+	if err := s.failExhausted(ctx); err != nil {
+		return err
+	}
 	for ctx.Err() == nil {
-		job, err := s.repo.ClaimNext(ctx, s.leaseFor)
+		job, err := s.repo.ClaimNext(ctx, s.leaseFor, bulletinJobMaxAttempts)
 		if err != nil {
 			return err
 		}
@@ -135,6 +199,30 @@ func (s *BulletinJobService) processQueued(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// failExhausted terminally fails jobs at the attempt cap and never-picked-up
+// jobs past the queue-wait SLA each cycle, so no job can poll as pending
+// forever. The attempt guard in ClaimNext keeps over-cap jobs unclaimable in
+// the window between sweeps.
+func (s *BulletinJobService) failExhausted(ctx context.Context) error {
+	exhausted, err := s.repo.FailExhausted(ctx, bulletinJobMaxAttempts,
+		apperrors.CodeRetriesExhausted,
+		"Bulletin generation was interrupted repeatedly and will not be retried")
+	if err != nil {
+		return err
+	}
+	stale, err := s.repo.FailStaleQueued(ctx, s.queueTimeout,
+		apperrors.CodeQueueTimeout,
+		"The job was not picked up in time; retry the generation request")
+	if err != nil {
+		return err
+	}
+	if exhausted > 0 || stale > 0 {
+		logger.Warn("Terminally failed exhausted bulletin jobs",
+			"exhausted", exhausted, "stale_queued", stale)
+	}
+	return nil
+}
+
 func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.BulletinJob) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -143,20 +231,22 @@ func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.B
 				s.releaseInterrupted(workerCtx, job)
 				return
 			}
-			s.recordFailure(workerCtx, job, jobCodeGenerationFailed, jobDetailGenerationFailed)
+			s.recordFailure(workerCtx, job, apperrors.CodeGenerationFailed, jobDetailGenerationFailed)
 		}
 	}()
 
 	jobCtx, cancel := context.WithTimeout(workerCtx, s.timeout)
+	defer cancel()
 	bulletinID, err := s.bulletins.create(jobCtx, job.StationID, job.TargetDate, func(
 		txCtx context.Context,
 		createdBulletinID int64,
 	) error {
 		return s.repo.Complete(txCtx, job.ID, job.Attempt, createdBulletinID)
 	})
-	cancel()
 	if err != nil {
 		if workerCtx.Err() != nil {
+			logger.Warn("Bulletin job interrupted during shutdown; requeueing",
+				"job_id", job.ID, "attempt", job.Attempt, "error", err)
 			s.releaseInterrupted(workerCtx, job)
 			return
 		}
@@ -196,5 +286,8 @@ func bulletinJobError(err error) (code, detail string) {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return apperrors.CodeTimeout, "Bulletin generation exceeded the server-side time limit"
 	}
-	return jobCodeGenerationFailed, jobDetailGenerationFailed
+	if _, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		return apperrors.CodeAudioProcessingFailed, "Audio processing failed during bulletin generation"
+	}
+	return apperrors.CodeGenerationFailed, jobDetailGenerationFailed
 }

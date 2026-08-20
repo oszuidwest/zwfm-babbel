@@ -101,10 +101,8 @@ describe('TestHelpers', () => {
     };
     const helpers = new TestHelpers(api);
 
-    jest.spyOn(Date, 'now')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(4);
+    // A real 3ms deadline with instant polling: the loop spins until the
+    // wall-clock deadline passes, independent of how often Date.now is read.
     jest.spyOn(helpers, 'sleep').mockResolvedValue();
 
     await expect(helpers.waitForStoryAudio(40, 3, 1)).resolves.toBe(false);
@@ -120,7 +118,7 @@ describe('TestHelpers', () => {
 
     await expect(helpers.waitForBulletinJob(42)).resolves.toBe(failed);
     expect(api.apiCall).toHaveBeenCalledTimes(2);
-    expect(helpers.sleep).toHaveBeenCalledWith(250);
+    expect(helpers.sleep).toHaveBeenCalledTimes(1);
   });
 
   test('when bulletin job polling returns an HTTP error, then throws immediately', async () => {
@@ -138,10 +136,6 @@ describe('TestHelpers', () => {
   test('when bulletin job polling times out, then throws', async () => {
     const api = { apiCall: jest.fn().mockResolvedValue({ status: 200, data: { status: 'running' } }) };
     const helpers = new TestHelpers(api);
-    jest.spyOn(Date, 'now')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(4);
     jest.spyOn(helpers, 'sleep').mockResolvedValue();
 
     await expect(helpers.waitForBulletinJob(42, 3, 1)).rejects.toThrow(

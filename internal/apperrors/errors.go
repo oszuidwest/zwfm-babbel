@@ -290,8 +290,12 @@ func Audio(resource, operation string, cause error) *AudioError {
 // Stable client-facing failure codes shared by the HTTP problem mapping
 // (handleServiceError) and the asynchronous bulletin job worker.
 const (
-	CodeBulletinNoStories = "bulletin.no_stories"
-	CodeTimeout           = "internal.timeout"
+	CodeBulletinNoStories     = "bulletin.no_stories"
+	CodeTimeout               = "internal.timeout"
+	CodeAudioProcessingFailed = "audio.processing_failed"
+	CodeGenerationFailed      = "internal.generation_failed"
+	CodeRetriesExhausted      = "internal.retries_exhausted"
+	CodeQueueTimeout          = "internal.queue_timeout"
 )
 
 // NoStoriesError indicates no stories are available for bulletin generation.

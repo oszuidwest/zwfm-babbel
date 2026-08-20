@@ -26,6 +26,7 @@ type BulletinServiceDeps struct {
 	BulletinRepo *repository.BulletinRepository
 	StationRepo  *repository.StationRepository
 	StoryRepo    *repository.StoryRepository
+	Locks        *repository.NamedLockManager
 	AudioSvc     *audio.Service
 	Config       *config.Config
 	Alerts       notify.Alerter
@@ -37,6 +38,7 @@ type BulletinService struct {
 	bulletinRepo *repository.BulletinRepository
 	stationRepo  *repository.StationRepository
 	storyRepo    *repository.StoryRepository
+	locks        *repository.NamedLockManager
 	audioSvc     *audio.Service
 	config       *config.Config
 	alerts       notify.Alerter
@@ -49,6 +51,7 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		bulletinRepo: deps.BulletinRepo,
 		stationRepo:  deps.StationRepo,
 		storyRepo:    deps.StoryRepo,
+		locks:        deps.Locks,
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
 		alerts:       notify.OrDiscard(deps.Alerts),
@@ -74,6 +77,17 @@ func (s *BulletinService) create(
 	targetDate time.Time,
 	finalize func(context.Context, int64) error,
 ) (int64, error) {
+	// The database lock serializes generation per station, both within this
+	// process (worker goroutines and the synchronous automation path) and
+	// across replicas, so fair-rotation state is never read concurrently.
+	// Unlike a local mutex, waiting on it stays bounded by the context
+	// deadline.
+	release, err := s.locks.LockStationGeneration(ctx, stationID)
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
 		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
@@ -106,6 +120,7 @@ func (s *BulletinService) create(
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine which stories are selected;
 	// playback order is randomized so breaking stories appear in varied positions.
+	// #nosec G404 -- playback-order shuffle, not security-sensitive randomness.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
 	})

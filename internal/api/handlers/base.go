@@ -168,7 +168,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
-			"audio.processing_failed",
+			apperrors.CodeAudioProcessingFailed,
 			"Check the audio file format and try again",
 		)
 		return

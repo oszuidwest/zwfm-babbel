@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -32,13 +33,15 @@ type routerDeps struct {
 
 // SetupRouter builds the dependency graph, configures Gin, and registers all
 // public and authenticated routes. alerts must be non-nil; an unconfigured
-// service disables notifications.
+// service disables notifications. The returned bulletin job worker is stopped;
+// the caller owns its Start/Stop lifecycle alongside the scheduler services.
 func SetupRouter(
 	db *gorm.DB,
+	lockDB *sql.DB,
 	cfg *config.Config,
 	alerts *notify.Service,
-) (*gin.Engine, func(context.Context) error, error) {
-	deps, err := buildDependencies(db, cfg, alerts)
+) (*gin.Engine, *services.BulletinJobService, error) {
+	deps, err := buildDependencies(db, lockDB, cfg, alerts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -56,12 +59,13 @@ func SetupRouter(
 	registerAPIRoutes(r, deps)
 	registerHealthRoute(r, db, alerts)
 
-	return r, deps.bulletinJobSvc.Stop, nil
+	return r, deps.bulletinJobSvc, nil
 }
 
 // buildDependencies creates all services and handlers needed by the router.
-func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
+func buildDependencies(db *gorm.DB, lockDB *sql.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
+	locks := repository.NewNamedLockManager(lockDB)
 
 	stationRepo := repository.NewStationRepository(db)
 	voiceRepo := repository.NewVoiceRepository(db)
@@ -85,14 +89,17 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		BulletinRepo: bulletinRepo,
 		StationRepo:  stationRepo,
 		StoryRepo:    storyRepo,
+		Locks:        locks,
 		AudioSvc:     audioSvc,
 		Config:       cfg,
 		Alerts:       alerts,
 	})
 	bulletinJobSvc := services.NewBulletinJobService(
 		bulletinJobRepo,
+		locks,
 		bulletinSvc,
-		cfg.BulletinJobs.GenerationTimeout,
+		cfg.BulletinJobs,
+		alerts,
 	)
 	storySvc := services.NewStoryService(services.StoryServiceDeps{
 		StoryRepo:             storyRepo,
@@ -137,8 +144,6 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
-	bulletinJobSvc.Start()
-
 	return &routerDeps{
 		handlers:          h,
 		automationHandler: automationHandler,

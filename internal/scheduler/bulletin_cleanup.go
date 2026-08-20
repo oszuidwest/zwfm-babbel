@@ -20,8 +20,11 @@ import (
 // BulletinCleanupService handles automatic deletion of old bulletin audio files.
 // Runs as a background service that periodically purges bulletin WAV files older than
 // the configured retention period, while preserving database records as an audit trail.
+// Finished bulletin job records past retention are deleted outright; they are
+// polling state, not audit history.
 type BulletinCleanupService struct {
 	repo   *repository.BulletinRepository
+	jobs   *repository.BulletinJobRepository
 	config *config.Config
 	runner *runner
 	alerts notify.Alerter
@@ -33,6 +36,7 @@ func NewBulletinCleanupService(db *gorm.DB, cfg *config.Config, alerts notify.Al
 	alerts = notify.OrDiscard(alerts)
 	s := &BulletinCleanupService{
 		repo:   repository.NewBulletinRepository(db),
+		jobs:   repository.NewBulletinJobRepository(db),
 		config: cfg,
 		alerts: alerts,
 	}
@@ -66,12 +70,18 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	stats, purgeErr := s.purgeExpiredBulletins(ctx, bulletins)
 	orphansRemoved, orphanBytes, orphanErr := s.cleanOrphanedFiles(ctx)
 
-	if stats.count > 0 || orphansRemoved > 0 {
+	jobsDeleted, jobsErr := s.jobs.DeleteTerminalBefore(ctx, cutoff)
+	if jobsErr != nil {
+		logger.Error("Failed to prune bulletin job records", "error", jobsErr)
+	}
+
+	if stats.count > 0 || orphansRemoved > 0 || jobsDeleted > 0 {
 		logger.Info("Bulletin cleanup complete",
 			"files_purged", stats.count, "mb_freed", float64(stats.bytesFreed)/1024/1024,
-			"orphans_removed", orphansRemoved, "orphan_mb_freed", float64(orphanBytes)/1024/1024)
+			"orphans_removed", orphansRemoved, "orphan_mb_freed", float64(orphanBytes)/1024/1024,
+			"job_records_deleted", jobsDeleted)
 	}
-	return errors.Join(purgeErr, orphanErr)
+	return errors.Join(purgeErr, orphanErr, jobsErr)
 }
 
 type purgeStats struct {

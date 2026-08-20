@@ -191,6 +191,20 @@ func TestValidateBulletinJobConfig(t *testing.T) {
 			},
 			wantErr: "BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0",
 		},
+		{
+			name: "queue timeout is zero",
+			mutate: func(cfg *Config) {
+				cfg.BulletinJobs.QueueTimeout = 0
+			},
+			wantErr: "BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT must be > 0",
+		},
+		{
+			name: "workers is zero",
+			mutate: func(cfg *Config) {
+				cfg.BulletinJobs.Workers = 0
+			},
+			wantErr: "BABBEL_BULLETIN_JOBS_WORKERS must be >= 1",
+		},
 	}
 
 	for _, tt := range tests {
@@ -494,6 +508,8 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 		},
 		BulletinJobs: BulletinJobConfig{
 			GenerationTimeout: 120 * time.Second,
+			QueueTimeout:      15 * time.Minute,
+			Workers:           1,
 		},
 		Environment: EnvDevelopment,
 	}

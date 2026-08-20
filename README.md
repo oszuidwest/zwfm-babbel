@@ -152,7 +152,7 @@ GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
 
 Use this endpoint for systems that have session authentication:
 ```
-GET /api/v1/stations/{station_id}/bulletins?latest=true
+GET /api/v1/stations/{station_id}/bulletins/latest
 ```
 
 ### Compatible Systems
@@ -191,9 +191,18 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 |---|---|---|
 | `BABBEL_FFMPEG_PATH` | `ffmpeg` | The FFmpeg executable for the mixing and the loudness normalization. Babbel finds it through PATH at startup. |
 | `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
-| `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one authenticated asynchronous bulletin-generation attempt. |
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
+
+### Asynchronous bulletin generation
+
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Repeated requests for the same station and date coalesce onto the active job.
+
+| Env var | Default | Description |
+|---|---|---|
+| `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one asynchronous bulletin-generation attempt. |
+| `BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT` | `15m` | Queue-wait SLA: a job no worker picked up within this window fails with `internal.queue_timeout`. Size it to cover the worst-case backlog (roughly stations × generation timeout ÷ workers). |
+| `BABBEL_BULLETIN_JOBS_WORKERS` | `4` | Number of jobs that generate concurrently. Jobs for the same station always run one at a time; extra workers add throughput across stations. |
 
 ### Text-to-speech
 
@@ -298,8 +307,9 @@ GET    /api/v1/settings/tts/pronunciations # Inspect managed pronunciation rules
 PUT    /api/v1/settings/tts/pronunciations # Replace managed pronunciation rules
 
 # Bulletin Generation
-POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
-GET    /api/v1/stations/{id}/bulletins?latest=true # Get latest bulletin
+POST   /api/v1/stations/{id}/bulletins         # Queue bulletin generation (202 + polling URL)
+GET    /api/v1/bulletin-jobs/{id}              # Poll generation job status
+GET    /api/v1/stations/{id}/bulletins/latest  # Get latest bulletin
 GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 ```
 

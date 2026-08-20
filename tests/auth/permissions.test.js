@@ -223,6 +223,17 @@ describe('Permissions', () => {
       expect(response.status).toBe(200);
     });
 
+    test('when viewer polls a bulletin job, then read is permitted', async () => {
+      // Arrange: Viewer session from beforeAll; a 404 (not 403) proves the
+      // route is registered with bulletins read permission.
+
+      // Act
+      const response = await global.api.apiCall('GET', '/bulletin-jobs/99999');
+
+      // Assert
+      expect(response.status).toBe(404);
+    });
+
     test.each([
       ['when viewer creates station, then forbidden', 'POST', '/stations', () => ({
         name: `ViewerStation_${Date.now()}`,

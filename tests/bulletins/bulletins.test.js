@@ -431,6 +431,43 @@ describe('Bulletins', () => {
       expect(bulletin.status).toBe(200);
     });
 
+    test('when the same generation is requested twice, then requests coalesce onto one job', async () => {
+      const first = await enqueueBulletin(stationId);
+      expect(first.status).toBe(202);
+
+      const second = await enqueueBulletin(stationId);
+      expect(second.status).toBe(202);
+      expect(second.data.id).toBe(first.data.id);
+
+      const completed = await global.helpers.waitForBulletinJob(first.data.id);
+      expect(completed.data.status).toBe('succeeded');
+
+      // A finished job no longer coalesces; a new request queues a new job.
+      const third = await enqueueBulletin(stationId);
+      expect(third.status).toBe(202);
+      expect(third.data.id).not.toBe(first.data.id);
+      await global.helpers.waitForBulletinJob(third.data.id);
+    });
+
+    test('when the same generation is requested concurrently, then both requests coalesce onto one job', async () => {
+      // The enqueue lock serializes simultaneous requests, so coalescing is
+      // atomic rather than best effort: parallel POSTs must never create two
+      // jobs for the same station and date.
+      const responses = await Promise.all([
+        enqueueBulletin(stationId),
+        enqueueBulletin(stationId),
+        enqueueBulletin(stationId)
+      ]);
+
+      for (const response of responses) {
+        expect(response.status).toBe(202);
+      }
+      const jobIds = new Set(responses.map((response) => response.data.id));
+      expect(jobIds.size).toBe(1);
+
+      await global.helpers.waitForBulletinJob(responses[0].data.id);
+    });
+
     test('when generation has no eligible stories, then the asynchronous job fails safely', async () => {
       const emptyStation = await global.helpers.createStation(global.resources, 'AsyncEmptyStation');
       const accepted = await enqueueBulletin(emptyStation.id);
@@ -579,7 +616,8 @@ describe('Bulletins', () => {
   describe('Bulletin Error Cases', () => {
     test.each([
       ['when station non-existent, then returns 404', 'POST', '/stations/99999/bulletins', {}],
-      ['when bulletin audio non-existent, then returns 404', 'GET', '/bulletins/99999/audio', undefined]
+      ['when bulletin audio non-existent, then returns 404', 'GET', '/bulletins/99999/audio', undefined],
+      ['when bulletin job non-existent, then returns 404', 'GET', '/bulletin-jobs/99999', undefined]
     ])('%s', async (_name, method, endpoint, body) => {
       const response = await global.api.apiCall(method, endpoint, body);
       expect(response.status).toBe(404);

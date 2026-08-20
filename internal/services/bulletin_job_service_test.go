@@ -30,6 +30,12 @@ func TestBulletinJobError(t *testing.T) {
 			wantDetail: "Bulletin generation exceeded the server-side time limit",
 		},
 		{
+			name:       "audio failure",
+			err:        apperrors.Audio("Bulletin", "generate", errors.New("ffmpeg exit status 1")),
+			wantCode:   "audio.processing_failed",
+			wantDetail: "Audio processing failed during bulletin generation",
+		},
+		{
 			name:       "internal error",
 			err:        errors.New("sensitive renderer failure"),
 			wantCode:   "internal.generation_failed",

@@ -342,9 +342,12 @@ describe('OpenAPI Contract', () => {
           expect(station).not.toBeNull();
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
           expect(response.status).toBe(202);
-          const job = (await global.helpers.waitForBulletinJob(response.data.id)).data;
-          expect(job.status).toBe('failed');
-          expect(job.error_code).toBe('bulletin.no_stories');
+          await global.helpers.waitForBulletinJob(response.data.id);
+          // Re-fetch through apiCall so the failed-job shape is validated
+          // against the BulletinJob schema, not just field-asserted.
+          const job = await apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${response.data.id}`);
+          expect(job.data.status).toBe('failed');
+          expect(job.data.error_code).toBe('bulletin.no_stories');
           return response;
         }, 'POST /api/v1/stations/{id}/bulletins without stories'),
       onlyNullUpdateScenario(

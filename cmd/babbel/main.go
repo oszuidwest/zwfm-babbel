@@ -74,7 +74,20 @@ func run() error {
 	}
 	defer closeDatabase(db, alerts)
 
-	router, shutdownRouter, err := api.SetupRouter(db, cfg, alerts)
+	// Named locks get their own pool so held locks can never starve the query
+	// pool of connections; see database.NewLockDB.
+	lockDB, err := database.NewLockDB(cfg)
+	if err != nil {
+		notifyCritical(alerts, "startup:database", "Babbel database startup failed", err)
+		return fmt.Errorf("open lock connection pool: %w", err)
+	}
+	defer func() {
+		if err := lockDB.Close(); err != nil {
+			logger.Error("Failed to close lock connection pool", "error", err)
+		}
+	}()
+
+	router, bulletinWorker, err := api.SetupRouter(db, lockDB, cfg, alerts)
 	if err != nil {
 		notifyCritical(alerts, "startup:router", "Babbel router or authentication startup failed", err)
 		return fmt.Errorf("setup router: %w", err)
@@ -82,6 +95,8 @@ func run() error {
 
 	srv := newServer(cfg, router)
 	serverErr := startServer(srv, cfg)
+
+	bulletinWorker.Start()
 
 	expirationService := scheduler.NewStoryExpirationService(db, alerts)
 	expirationService.Start()
@@ -100,7 +115,7 @@ func run() error {
 	expirationService.Stop()
 	shutdownErr := shutdownServer(srv)
 	workerCtx, cancelWorkers := context.WithTimeout(context.Background(), shutdownTimeout)
-	workerShutdownErr := shutdownRouter(workerCtx)
+	workerShutdownErr := bulletinWorker.Stop(workerCtx)
 	cancelWorkers()
 	logger.Info("Server exited")
 
