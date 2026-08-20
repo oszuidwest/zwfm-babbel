@@ -131,8 +131,7 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 	)
 
 	err := service.GenerateTTS(context.Background(), 99, false)
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(err, &validationErr) {
+	if _, ok := errors.AsType[*apperrors.ValidationProblemError](err); !ok {
 		t.Fatalf("GenerateTTS() error = %T, want *apperrors.ValidationProblemError", err)
 	}
 	if ttsSvc.calls != 0 {
@@ -231,8 +230,7 @@ func TestTranslateTTSError(t *testing.T) {
 			err:  errors.New("encoder failed"),
 			assert: func(t *testing.T, got error) {
 				t.Helper()
-				var audioErr *apperrors.AudioError
-				if !errors.As(got, &audioErr) {
+				if _, ok := errors.AsType[*apperrors.AudioError](got); !ok {
 					t.Fatalf("error type = %T, want *apperrors.AudioError", got)
 				}
 			},

@@ -355,7 +355,7 @@ openapi.yaml           # API specification
 
 ## Tech Stack
 
-- **Backend**: Go 1.26+ with the Gin web framework
+- **Backend**: Go 1.27+ with the Gin web framework
 - **Database**: MySQL 8.4 with the GORM ORM
 - **Audio**: FFmpeg for the audio mixing and processing
 - **Authentication**: Casbin for RBAC, bcrypt for passwords

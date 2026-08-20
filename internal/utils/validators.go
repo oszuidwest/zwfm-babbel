@@ -22,7 +22,7 @@ func InitializeValidators() {
 	// Optional[string] exposes its inner value to binding tags; absent/null
 	// fields return "" so omitempty can skip validation.
 	v.RegisterCustomTypeFunc(func(field reflect.Value) any {
-		if opt, ok := field.Interface().(Optional[string]); ok && opt.HasValue() {
+		if opt, ok := reflect.TypeAssert[Optional[string]](field); ok && opt.HasValue() {
 			return *opt.Value
 		}
 		return ""
@@ -78,7 +78,7 @@ func parseDateField(field reflect.Value) (dateParseResult, bool) {
 
 	switch {
 	case field.Type() == reflect.TypeFor[time.Time]():
-		timeVal, ok := field.Interface().(time.Time)
+		timeVal, ok := reflect.TypeAssert[time.Time](field)
 		if !ok {
 			result.FailValidation = true
 			return result, true

@@ -49,7 +49,7 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 					Speed:           0.7,
 				},
 				ApplyTextNormalization: "off",
-				Seed:                   uint32Ptr(123),
+				Seed:                   new(uint32(123)),
 			},
 			wantSeedPresent:       true,
 			wantNormalizationMode: "off",
@@ -466,11 +466,6 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 		t.Fatalf("escaped path = %q, want %q", capturedPath, want)
 	}
 }
-
-func uint32Ptr(v uint32) *uint32 {
-	return &v
-}
-
 func captureLogEntry(t *testing.T, emit func()) map[string]any {
 	t.Helper()
 

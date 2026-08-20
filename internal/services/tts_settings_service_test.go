@@ -32,8 +32,8 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 				Stability:              &validZero,
 				Speed:                  &validSpeed,
 				Seed:                   &maxSeed,
-				ApplyTextNormalization: ptr(TTSNormalizationAuto),
-				TTSStylePrefix:         ptr(strings.Repeat("é", maxTTSStylePrefixRunes)),
+				ApplyTextNormalization: new(TTSNormalizationAuto),
+				TTSStylePrefix:         new(strings.Repeat("é", maxTTSStylePrefixRunes)),
 			},
 		},
 		{
@@ -108,17 +108,17 @@ func TestSeedUpdateValue(t *testing.T) {
 		},
 		{
 			name: "zero",
-			seed: ptr(int64(0)),
-			want: ptr(uint32(0)),
+			seed: new(int64(0)),
+			want: new(uint32(0)),
 		},
 		{
 			name: "max uint32",
 			seed: &maxSeed,
-			want: ptr(uint32(maxElevenLabsSeedUint32)),
+			want: new(uint32(maxElevenLabsSeedUint32)),
 		},
 		{
 			name: "negative",
-			seed: ptr(int64(-1)),
+			seed: new(int64(-1)),
 			want: nil,
 		},
 		{
@@ -255,8 +255,4 @@ func equalStringsAsSet(a, b []string) bool {
 	slices.Sort(a)
 	slices.Sort(b)
 	return slices.Equal(a, b)
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }

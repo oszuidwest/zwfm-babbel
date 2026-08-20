@@ -1,6 +1,6 @@
 module github.com/oszuidwest/zwfm-babbel
 
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/caarlos0/env/v11 v11.4.1
@@ -66,7 +66,7 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	honnef.co/go/tools v0.7.0 // indirect
+	honnef.co/go/tools v0.8.0-rc.1 // indirect
 )
 
 tool (

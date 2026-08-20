@@ -90,6 +90,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	// Shuffle story order for natural radio flow.
 	// Breaking priority and fair rotation determine which stories are selected;
 	// playback order is randomized so breaking stories appear in varied positions.
+	//nolint:gosec // Playback order is not security-sensitive; pseudorandomness is intentional.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
 	})
