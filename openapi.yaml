@@ -2081,8 +2081,8 @@ paths:
         `failed`. A successful job contains `bulletin_id`; retrieve that
         bulletin and its audio through the regular bulletin endpoints.
 
-        Every request creates a generation job. Jobs for the same station run
-        one at a time.
+        Every request creates a generation job. A single background worker
+        processes jobs one at a time in submission order.
       tags:
         - Bulletin
       parameters:
@@ -4021,7 +4021,9 @@ components:
         attempt:
           type: integer
           minimum: 0
-          description: Number of worker attempts, including the current attempt
+          description: >-
+            Number of generation attempts, including the current attempt.
+            Jobs interrupted by restarts are retried a limited number of times
         bulletin_id:
           type: [integer, 'null']
           format: int64
