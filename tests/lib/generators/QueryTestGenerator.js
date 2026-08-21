@@ -1,12 +1,7 @@
 /**
- * QueryTestGenerator - Generates query parameter tests for API resources.
- * Covers search, sort, filter, pagination, field selection, and combined queries.
- */
-
-/**
- * Generates query parameter tests based on resource schema.
- * @param {Object} schema - Resource schema with query configuration.
- * @param {Function} [setupFn] - Optional async setup for resource-specific test data.
+ * Generates list-query contract tests from a resource schema.
+ * @param {Object} schema
+ * @param {Function|null} [setupFn]
  */
 function generateQueryTests(schema, setupFn = null) {
   const { endpoint, name, query } = schema;
@@ -35,7 +30,6 @@ function generateQueryTests(schema, setupFn = null) {
       if (setupFn) await setupFn();
     });
 
-    // Search tests apply only to resources that declare searchable columns.
     if (query.searchFields?.length > 0) {
       describe('Search', () => {
         test('when searching, then returns 200', async () => {
@@ -51,7 +45,6 @@ function generateQueryTests(schema, setupFn = null) {
       });
     }
 
-    // Sorting is validated per declared field in both directions.
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
@@ -86,8 +79,6 @@ function generateQueryTests(schema, setupFn = null) {
       });
     }
 
-    // Filter cases are generated from the schema so each resource keeps the
-    // same API contract checks without hand-written duplication.
     if (query.filterableFields?.length > 0) {
       describe('Filtering', () => {
         query.filterableFields.forEach(field => {
@@ -149,7 +140,6 @@ function generateQueryTests(schema, setupFn = null) {
       });
     }
 
-    // Pagination applies to all list endpoints, regardless of other query options.
     describe('Pagination', () => {
       test.each([
         ['when paginating with limit, then respects limit', 'limit=2', 200, response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
@@ -174,7 +164,6 @@ function generateQueryTests(schema, setupFn = null) {
       });
     });
 
-    // Field selection checks sparse responses and validates unknown fields.
     if (query.selectableFields?.length > 0) {
       describe('Field Selection', () => {
         test('when selecting fields, then returns only those', async () => {
@@ -184,10 +173,7 @@ function generateQueryTests(schema, setupFn = null) {
           expect(response.data.data.length).toBeGreaterThan(0);
           const first = response.data.data[0];
 
-          requestedFields.forEach(field => expect(first).toHaveProperty(field));
-          (schema.excludeOnFieldSelect || [])
-            .filter(excluded => !requestedFields.includes(excluded))
-            .forEach(excluded => expect(first).not.toHaveProperty(excluded));
+          expect(Object.keys(first).sort()).toEqual([...requestedFields].sort());
         });
 
         test('when selecting timestamps, then includes them', async () => {

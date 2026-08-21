@@ -152,7 +152,7 @@ GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
 
 Use this endpoint for systems that have session authentication:
 ```
-GET /api/v1/stations/{station_id}/bulletins?latest=true
+GET /api/v1/stations/{station_id}/bulletins/latest
 ```
 
 ### Compatible Systems
@@ -193,6 +193,16 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 | `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
+
+### Asynchronous bulletin generation
+
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Every request creates a generation job. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+
+Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
+
+| Env var | Default | Description |
+|---|---|---|
+| `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one asynchronous bulletin-generation attempt. |
 
 ### Text-to-speech
 
@@ -297,8 +307,9 @@ GET    /api/v1/settings/tts/pronunciations # Inspect managed pronunciation rules
 PUT    /api/v1/settings/tts/pronunciations # Replace managed pronunciation rules
 
 # Bulletin Generation
-POST   /api/v1/stations/{id}/bulletins         # Generate bulletin
-GET    /api/v1/stations/{id}/bulletins?latest=true # Get latest bulletin
+POST   /api/v1/stations/{id}/bulletins         # Queue bulletin generation (202 + polling URL)
+GET    /api/v1/bulletin-jobs/{id}              # Poll generation job status
+GET    /api/v1/stations/{id}/bulletins/latest  # Get latest bulletin
 GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 ```
 

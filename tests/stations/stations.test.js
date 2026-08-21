@@ -15,7 +15,7 @@ describe('Stations', () => {
     let voiceId;
 
     beforeAll(async () => {
-      // Arrange: Create station and voice for dependency testing
+      // Create station and voice for dependency testing
       const station = await global.helpers.createStation(
         global.resources,
         'DependencyTestStation',
@@ -31,7 +31,7 @@ describe('Stations', () => {
     });
 
     test('when deleting station with station-voices, then protected or cascades', async () => {
-      // Arrange: Create station-voice relationship
+      // Create station-voice relationship
       const svResponse = await global.api.apiCall('POST', '/station-voices', {
         station_id: stationId,
         voice_id: voiceId,
@@ -41,10 +41,9 @@ describe('Stations', () => {
 
       global.resources.track('stationVoices', svResponse.data.id);
 
-      // Act
       const deleteResponse = await global.api.apiCall('DELETE', `/stations/${stationId}`);
 
-      // Assert: Should either protect (409) or cascade delete (204)
+      // Should either protect (409) or cascade delete (204)
       expect([204, 409]).toContain(deleteResponse.status);
 
       // Cleanup: Untrack if deleted
@@ -56,17 +55,14 @@ describe('Stations', () => {
 
   describe('Station Configuration Limits', () => {
     test('when max_stories_per_block at maximum, then accepted', async () => {
-      // Arrange
       const data = {
         name: `MaxStoriesTest_${Date.now()}`,
         max_stories_per_block: 50,
         pause_seconds: 2.0
       };
 
-      // Act
       const response = await global.api.apiCall('POST', '/stations', data);
 
-      // Assert
       expect(response.status).toBe(201);
 
       // Cleanup
@@ -76,17 +72,14 @@ describe('Stations', () => {
     });
 
     test('when pause_seconds at maximum, then accepted', async () => {
-      // Arrange
       const data = {
         name: `MaxPauseTest_${Date.now()}`,
         max_stories_per_block: 5,
         pause_seconds: 60.0
       };
 
-      // Act
       const response = await global.api.apiCall('POST', '/stations', data);
 
-      // Assert
       expect(response.status).toBe(201);
 
       // Cleanup
@@ -96,17 +89,14 @@ describe('Stations', () => {
     });
 
     test('when values at minimum, then accepted', async () => {
-      // Arrange
       const data = {
         name: `MinValuesTest_${Date.now()}`,
         max_stories_per_block: 1,
         pause_seconds: 0
       };
 
-      // Act
       const response = await global.api.apiCall('POST', '/stations', data);
 
-      // Assert
       expect(response.status).toBe(201);
 
       // Cleanup

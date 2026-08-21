@@ -59,6 +59,13 @@ func CreatedWithLocation(c *gin.Context, id int64, resourcePath, message string)
 	})
 }
 
+// AcceptedWithLocation responds with HTTP 202 Accepted and a Location header
+// pointing at the resource to poll for completion.
+func AcceptedWithLocation(c *gin.Context, id int64, resourcePath string, body any) {
+	c.Header("Location", fmt.Sprintf("%s/%d", resourcePath, id))
+	c.JSON(http.StatusAccepted, body)
+}
+
 // CreatedWithMessage responds with HTTP 201 Created status and a success message.
 func CreatedWithMessage(c *gin.Context, message string) {
 	c.JSON(http.StatusCreated, MessageResponse{Message: message})

@@ -1,7 +1,3 @@
-/**
- * Voice resource schema for test generation.
- */
-
 module.exports = {
   name: 'Voice',
   namePlural: 'voices',
@@ -22,8 +18,6 @@ module.exports = {
     numericFields: ['id'],
     selectableFields: ['id', 'name', 'created_at', 'updated_at']
   },
-
-  excludeOnFieldSelect: [],
 
   validation: {
     fields: {

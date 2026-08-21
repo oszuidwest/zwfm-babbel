@@ -1,23 +1,15 @@
-// Resource manager for Babbel API tests.
-// Handles tracking and cleanup of test resources in the correct order.
+// Tracks integration-test resources for dependency-safe cleanup.
 
 class ResourceManager {
-  /**
-   * Cleanup order based on foreign key constraints.
-   * Resources that reference other resources must be deleted first.
-   */
   static CLEANUP_ORDER = [
-    'bulletins',      // References stories
-    'stories',        // References voices; stations linked via target_stations field
-    'stationVoices',  // References voices, stations
-    'voices',         // No dependencies on other tracked resources
-    'stations',       // Base resource
-    'users'           // Independent (casbin rules cascade on delete)
+    'bulletins',
+    'stories',
+    'stationVoices',
+    'voices',
+    'stations',
+    'users'
   ];
 
-  /**
-   * Maps resource type to API endpoint.
-   */
   static ENDPOINTS = {
     bulletins: '/bulletins',
     stories: '/stories',
@@ -40,9 +32,8 @@ class ResourceManager {
   }
 
   /**
-   * Tracks a resource for cleanup.
-   * @param {string} type - Resource type (stations, voices, stories, stationVoices, bulletins, users).
-   * @param {string|number} id - Resource ID.
+   * @param {string} type
+   * @param {string|number} id
    */
   track(type, id) {
     if (!this.tracked[type]) {
@@ -52,10 +43,7 @@ class ResourceManager {
     this.tracked[type].add(String(id));
   }
 
-  /**
-   * Cleans up all tracked resources in the correct order.
-   * @returns {Promise<{deleted: number, failed: number}>} Cleanup statistics.
-   */
+  /** @returns {Promise<{deleted: number, failed: number}>} */
   async cleanupAll() {
     let deleted = 0;
     let failed = 0;
@@ -70,9 +58,8 @@ class ResourceManager {
   }
 
   /**
-   * Cleans up all resources of a specific type.
-   * @param {string} type - Resource type to clean up.
-   * @returns {Promise<{deleted: number, failed: number}>} Cleanup statistics.
+   * @param {string} type
+   * @returns {Promise<{deleted: number, failed: number}>}
    */
   async cleanupType(type) {
     const ids = this.tracked[type];
@@ -93,27 +80,24 @@ class ResourceManager {
         const response = await this.api.apiCall('DELETE', `${endpoint}/${id}`);
 
         if (response.status === 204 || response.status === 200 || response.status === 404) {
-          // 404 means already deleted, consider it a success
+          // Already absent is a successful cleanup.
           deleted++;
         } else {
           failed++;
         }
       } catch (error) {
         failed++;
-        // Ignore cleanup errors but count them
       }
     }
 
-    // Clear tracked IDs after cleanup
     this.tracked[type].clear();
 
     return { deleted, failed };
   }
 
   /**
-   * Removes a specific ID from tracking (e.g., after manual deletion in test).
-   * @param {string} type - Resource type.
-   * @param {string|number} id - Resource ID.
+   * @param {string} type
+   * @param {string|number} id
    */
   untrack(type, id) {
     if (this.tracked[type]) {

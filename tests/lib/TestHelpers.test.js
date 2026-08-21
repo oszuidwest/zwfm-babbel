@@ -101,14 +101,46 @@ describe('TestHelpers', () => {
     };
     const helpers = new TestHelpers(api);
 
-    jest.spyOn(Date, 'now')
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(4);
+    // Eliminate poll delays while the wall clock expires.
     jest.spyOn(helpers, 'sleep').mockResolvedValue();
 
     await expect(helpers.waitForStoryAudio(40, 3, 1)).resolves.toBe(false);
     expect(api.apiCall).toHaveBeenCalledWith('GET', '/stories/40');
+  });
+
+  test('when bulletin job reaches a terminal state, then returns the API response', async () => {
+    const queued = { status: 200, data: { status: 'queued' } };
+    const failed = { status: 200, data: { status: 'failed', error_code: 'bulletin.no_stories' } };
+    const api = { apiCall: jest.fn().mockResolvedValueOnce(queued).mockResolvedValueOnce(failed) };
+    const helpers = new TestHelpers(api);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForBulletinJob(42)).resolves.toBe(failed);
+    expect(api.apiCall).toHaveBeenCalledTimes(2);
+    expect(helpers.sleep).toHaveBeenCalledTimes(1);
+  });
+
+  test('when bulletin job polling returns an HTTP error, then throws immediately', async () => {
+    const api = { apiCall: jest.fn().mockResolvedValue({ status: 500, data: { status: 500 } }) };
+    const helpers = new TestHelpers(api);
+    jest.spyOn(helpers, 'sleep').mockResolvedValue();
+
+    await expect(helpers.waitForBulletinJob(42)).rejects.toThrow(
+      'Bulletin job 42 poll returned HTTP 500'
+    );
+    expect(api.apiCall).toHaveBeenCalledTimes(1);
+    expect(helpers.sleep).not.toHaveBeenCalled();
+  });
+
+  test('when bulletin job fails, then generateBulletin throws', async () => {
+    const accepted = { status: 202, data: { id: 7 } };
+    const failed = { status: 200, data: { status: 'failed', error_code: 'bulletin.no_stories' } };
+    const api = { apiCall: jest.fn().mockResolvedValueOnce(accepted).mockResolvedValueOnce(failed) };
+    const helpers = new TestHelpers(api);
+
+    await expect(helpers.generateBulletin(3)).rejects.toThrow(
+      'Bulletin job 7 failed: bulletin.no_stories'
+    );
   });
 
   test('when station voice IDs are unsafe, then API is not called', async () => {

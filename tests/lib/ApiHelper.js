@@ -1,8 +1,4 @@
-/**
- * ApiHelper - HTTP client for Babbel API tests
- * Handles cookie-based session management, file uploads, and authentication.
- * Extracted from BaseTest.js for use with Jest.
- */
+/** HTTP client with cookie sessions for integration tests. */
 const axios = require('axios');
 const FormData = require('form-data');
 const { CookieJar } = require('tough-cookie');
@@ -16,22 +12,18 @@ class ApiHelper {
     this.apiUrl = `${this.apiBase}/api/v1`;
     this.audioDir = path.join(__dirname, '../../audio');
 
-    // Initialize cookie jar and HTTP client
     this.cookieJar = new CookieJar();
     this.http = wrapper(axios.create({
       jar: this.cookieJar,
-      validateStatus: () => true, // Don't throw on HTTP errors
+      validateStatus: () => true, // Return error responses for assertions.
       timeout: 30000
     }));
 
-    // Default credentials
     this.defaultAdminUsername = 'admin';
     this.defaultAdminPassword = 'admin';
   }
 
-  /**
-   * Clears all cookies and reinitializes the HTTP client.
-   */
+  /** Clears cookies and resets the HTTP client. */
   clearCookies() {
     this.cookieJar = new CookieJar();
     this.http = wrapper(axios.create({
@@ -41,17 +33,15 @@ class ApiHelper {
     }));
   }
 
-  // -------------------------------------------------------------------------
-  // HTTP Request Methods
-  // -------------------------------------------------------------------------
+  // Requests
 
   /**
-   * Makes API call with automatic cookie handling.
-   * @param {string} method - HTTP method (GET, POST, etc.)
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} data - Request data (optional)
-   * @param {Object} options - Additional axios options (optional)
-   * @returns {Promise<Object>} Response object with status, data, and headers
+   * Sends a request without throwing on HTTP error responses.
+   * @param {string} method
+   * @param {string} endpoint
+   * @param {*} [data]
+   * @param {Object} [options]
+   * @returns {Promise<Object>}
    */
   async apiCall(method, endpoint, data = null, options = {}) {
     const config = {
@@ -80,23 +70,20 @@ class ApiHelper {
   }
 
   /**
-   * Uploads file using multipart form data.
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} formFields - Form field data
-   * @param {string} filePath - Path to file to upload (optional)
-   * @param {string} fileFieldName - Name of file field (default: 'file')
-   * @param {string} method - HTTP method (default: 'POST')
-   * @returns {Promise<Object>} Response object with status, data, and headers
+   * @param {string} endpoint
+   * @param {Object} formFields
+   * @param {string|null} [filePath]
+   * @param {string} [fileFieldName]
+   * @param {string} [method]
+   * @returns {Promise<Object>}
    */
   async uploadFile(endpoint, formFields, filePath = null, fileFieldName = 'file', method = 'POST') {
     const form = new FormData();
 
-    // Add regular form fields
     for (const [key, value] of Object.entries(formFields)) {
       form.append(key, value);
     }
 
-    // Add file if provided
     if (filePath) {
       if (!fsSync.existsSync(filePath)) {
         throw new Error(`Upload file not found: ${filePath}`);
@@ -122,13 +109,12 @@ class ApiHelper {
   }
 
   /**
-   * Downloads a file from API endpoint.
-   * @param {string} endpoint - API endpoint path
-   * @param {string} outputPath - Local path to save file
-   * @param {string} method - HTTP method (default: 'GET')
-   * @param {Object} data - Request data (optional)
-   * @param {Object} headers - Custom headers (optional)
-   * @returns {Promise<number>} HTTP status code
+   * @param {string} endpoint
+   * @param {string} outputPath
+   * @param {string} [method]
+   * @param {*} [data]
+   * @param {Object} [headers]
+   * @returns {Promise<number>} HTTP status.
    */
   async downloadFile(endpoint, outputPath, method = 'GET', data = null, headers = {}) {
     const config = {
@@ -170,15 +156,12 @@ class ApiHelper {
     return response.status;
   }
 
-  // -------------------------------------------------------------------------
-  // Authentication Methods
-  // -------------------------------------------------------------------------
+  // Authentication
 
   /**
-   * Authenticates with the API using provided credentials.
-   * @param {string} username - Username (optional, defaults to admin)
-   * @param {string} password - Password (optional, defaults to admin)
-   * @returns {Promise<Object>} Response object with status and data
+   * @param {string|null} username Defaults to the configured admin.
+   * @param {string|null} password Defaults to the configured admin password.
+   * @returns {Promise<Object>}
    */
   async apiLogin(username = null, password = null) {
     username = username || this.defaultAdminUsername;
@@ -189,20 +172,14 @@ class ApiHelper {
     return this.apiCall('POST', '/sessions', { username, password });
   }
 
-  /**
-   * Logs out from the API and clears session cookies.
-   * @returns {Promise<Object>} Response object with status
-   */
+  /** @returns {Promise<Object>} */
   async apiLogout() {
     const response = await this.apiCall('DELETE', '/sessions/current');
     this.clearCookies();
     return response;
   }
 
-  /**
-   * Retrieves current session information.
-   * @returns {Promise<Object|null>} Session data or null if not authenticated
-   */
+  /** @returns {Promise<Object|null>} */
   async getCurrentSession() {
     const response = await this.apiCall('GET', '/sessions/current');
 
@@ -212,10 +189,7 @@ class ApiHelper {
     return null;
   }
 
-  /**
-   * Checks if there is an active session.
-   * @returns {Promise<boolean>} True if session is active
-   */
+  /** @returns {Promise<boolean>} */
   async isSessionActive() {
     const session = await this.getCurrentSession();
     return session !== null;

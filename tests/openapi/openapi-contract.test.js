@@ -310,7 +310,6 @@ describe('OpenAPI Contract', () => {
       apiScenario('GET', '/api/v1/bulletins/{id}', () => `/bulletins/${ctx.bulletin.id}`),
       sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, ['id', 'station_id', 'created_at']),
       scenario('GET', '/api/v1/stations/{id}/bulletins/latest', async () => {
-          // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
           const response = await apiCall(
             'GET',
             '/api/v1/stations/{id}/bulletins/latest',
@@ -320,15 +319,34 @@ describe('OpenAPI Contract', () => {
           expect(response.data.id).toBe(ctx.bulletin.id);
           return response;
         }),
-      // Keep this after the latest scenario: generating here creates a newer bulletin for ctx.station.
-      apiScenario('POST', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, {}),
+      // Must follow the latest-bulletin check because it creates a newer one.
+      scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
+          const response = await apiCall(
+            'POST',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins`,
+            {}
+          );
+          expect(response.status).toBe(202);
+          expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
+          ctx.generationJobId = response.data.id;
+          return response;
+        }),
+      scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
+          const job = (await global.helpers.waitForBulletinJob(ctx.generationJobId)).data;
+          expect(job.status).toBe('succeeded');
+          return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
+        }),
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
           expect(station).not.toBeNull();
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
-          expect(response.status).toBe(422);
-          expect(response.data.type).toBe('https://babbel.api/problems/bulletin.no_stories');
-          expect(response.data.code).toBe('bulletin.no_stories');
+          expect(response.status).toBe(202);
+          await global.helpers.waitForBulletinJob(response.data.id);
+          // apiCall validates the failed job against the OpenAPI schema.
+          const job = await apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${response.data.id}`);
+          expect(job.data.status).toBe('failed');
+          expect(job.data.error_code).toBe('bulletin.no_stories');
           return response;
         }, 'POST /api/v1/stations/{id}/bulletins without stories'),
       onlyNullUpdateScenario(
@@ -592,9 +610,8 @@ async function createContractContext() {
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);
 
-  const bulletinResponse = await global.api.apiCall('POST', `/stations/${station.id}/bulletins`, {});
+  const bulletinResponse = await global.helpers.generateBulletin(station.id);
   expect(bulletinResponse.status).toBe(200);
-  expect(bulletinResponse.data?.id).toBeDefined();
 
   const userResponse = await global.api.apiCall('POST', '/users', userBody('base'));
   expect(userResponse.status).toBe(201);

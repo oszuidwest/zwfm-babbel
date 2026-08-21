@@ -19,38 +19,30 @@ const audioToolVersionCheckTimeout = 5 * time.Second
 
 // Config is the environment-backed runtime configuration.
 type Config struct {
-	// Server configures HTTP server and CORS settings.
-	Server ServerConfig
-	// Database configures database connection settings.
-	Database DatabaseConfig `envPrefix:"DB_"`
-	// Auth configures authentication and session settings.
-	Auth AuthConfig
-	// Audio configures audio processing and file storage paths.
-	Audio AudioConfig
-	// Automation configures radio automation integration.
-	Automation AutomationConfig
-	// TTS configures text-to-speech integration with ElevenLabs.
-	TTS TTSConfig `envPrefix:"ELEVENLABS_"`
-	// Notifications configures operational alert e-mails.
+	Server        ServerConfig
+	Database      DatabaseConfig `envPrefix:"DB_"`
+	Auth          AuthConfig
+	Audio         AudioConfig
+	Automation    AutomationConfig
+	BulletinJobs  BulletinJobConfig  `envPrefix:"BULLETIN_JOBS_"`
+	TTS           TTSConfig          `envPrefix:"ELEVENLABS_"`
 	Notifications NotificationConfig `envPrefix:"NOTIFICATIONS_"`
-	// LogLevel sets the logging verbosity level (0-5, default: 4).
+	// LogLevel values of 5 or higher enable debug logging; lower values log at info.
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
-	// Environment specifies the runtime environment (development or production).
+	// Environment accepts development or production.
 	Environment Environment `env:"ENV" envDefault:"development"`
-	// FrontendURL is the frontend base URL used for OAuth redirects.
+	// FrontendURL is the OAuth post-login redirect base.
 	FrontendURL string `env:"FRONTEND_URL"`
 }
 
 // NotificationConfig defines alert delivery and duplicate-suppression policy.
 type NotificationConfig struct {
-	// Email configures Microsoft Graph mail delivery.
 	Email GraphConfig `envPrefix:"EMAIL_"`
-	// Cooldown suppresses duplicate e-mails for an active alert key.
+	// Cooldown suppresses repeats for an active alert key.
 	Cooldown time.Duration `env:"COOLDOWN" envDefault:"1h"`
-	// FailureThreshold is the number of transient failures required in FailureWindow.
-	FailureThreshold int `env:"FAILURE_THRESHOLD" envDefault:"3"`
-	// FailureWindow limits how far apart transient failures may occur.
-	FailureWindow time.Duration `env:"FAILURE_WINDOW" envDefault:"10m"`
+	// FailureThreshold failures within FailureWindow trigger an alert.
+	FailureThreshold int           `env:"FAILURE_THRESHOLD" envDefault:"3"`
+	FailureWindow    time.Duration `env:"FAILURE_WINDOW" envDefault:"10m"`
 }
 
 // GraphConfig defines Microsoft Graph client-credentials mail settings.
@@ -59,7 +51,8 @@ type GraphConfig struct {
 	ClientID     string `env:"CLIENT_ID"`
 	ClientSecret string `env:"CLIENT_SECRET"`
 	FromAddress  string `env:"FROM_ADDRESS"`
-	Recipients   string `env:"RECIPIENTS"`
+	// Recipients is a comma-separated address list.
+	Recipients string `env:"RECIPIENTS"`
 }
 
 // RecipientList returns the trimmed, non-empty recipient addresses.
@@ -98,104 +91,81 @@ func (g *GraphConfig) IsComplete() bool {
 // AutomationConfig defines settings for radio automation system integration.
 type AutomationConfig struct {
 	// Key authenticates automation system requests. Empty disables the endpoint.
-	Key string `env:"AUTOMATION_KEY"`
-	// GenerationTimeout limits bulletin generation duration (default: 120s).
+	Key               string        `env:"AUTOMATION_KEY"`
 	GenerationTimeout time.Duration `env:"AUTOMATION_TIMEOUT" envDefault:"120s"`
+}
+
+// BulletinJobConfig defines asynchronous bulletin worker settings.
+type BulletinJobConfig struct {
+	// GenerationTimeout applies to one generation attempt.
+	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
 }
 
 // ServerConfig defines HTTP server and CORS settings.
 type ServerConfig struct {
-	// Address specifies the HTTP server listen address (default: ":8080").
 	Address string `env:"SERVER_ADDRESS" envDefault:":8080"`
-	// AllowedOrigins lists CORS-permitted origins as comma-separated values.
+	// AllowedOrigins is a comma-separated CORS allowlist.
 	AllowedOrigins string `env:"ALLOWED_ORIGINS"`
 }
 
 // DatabaseConfig defines MySQL database connection parameters.
 type DatabaseConfig struct {
-	// Host specifies the MySQL server hostname or IP address.
-	Host string `env:"HOST" envDefault:"localhost"`
-	// Port specifies the MySQL server port number (default: 3306).
-	Port int `env:"PORT" envDefault:"3306"`
-	// User specifies the MySQL database username.
-	User string `env:"USER" envDefault:"babbel"`
-	// Password specifies the MySQL database password.
-	Password string `env:"PASSWORD" envDefault:"babbel"`
-	// Database specifies the MySQL database name.
-	Database string `env:"NAME" envDefault:"babbel"`
-	// MigrationsPath specifies the filesystem path to migration files.
-	MigrationsPath string `env:"-"`
-	// MaxOpenConns limits open database connections (default: 100).
-	MaxOpenConns int `env:"MAX_OPEN_CONNS" envDefault:"100"`
-	// MaxIdleConns limits idle database connections (default: 10).
-	MaxIdleConns int `env:"MAX_IDLE_CONNS" envDefault:"10"`
-	// ConnMaxLifetime limits database connection lifetime (default: 1h).
+	Host            string        `env:"HOST" envDefault:"localhost"`
+	Port            int           `env:"PORT" envDefault:"3306"`
+	User            string        `env:"USER" envDefault:"babbel"`
+	Password        string        `env:"PASSWORD" envDefault:"babbel"`
+	Database        string        `env:"NAME" envDefault:"babbel"`
+	MigrationsPath  string        `env:"-"`
+	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
+	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
 // LocalAuthConfig defines password policy and lockout rules for local authentication.
 type LocalAuthConfig struct {
-	// MinPasswordLength sets the minimum required password length (8-128, default: 8).
-	MinPasswordLength int `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
-	// RequireUppercase enforces uppercase letter requirement (default: true).
-	RequireUppercase bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
-	// RequireLowercase enforces lowercase letter requirement (default: true).
-	RequireLowercase bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
-	// RequireNumber enforces numeric character requirement (default: true).
-	RequireNumber bool `env:"REQUIRE_NUMBER" envDefault:"true"`
-	// RequireSpecialChar enforces special character requirement (default: false).
-	RequireSpecialChar bool `env:"REQUIRE_SPECIAL" envDefault:"false"`
-	// MaxLoginAttempts limits failed attempts before lockout (default: 5).
-	MaxLoginAttempts int `env:"MAX_LOGIN_ATTEMPTS" envDefault:"5"`
-	// LockoutDurationMinutes sets account lockout duration (default: 15).
-	LockoutDurationMinutes int `env:"LOCKOUT_MINUTES" envDefault:"15"`
+	// MinPasswordLength must be between 8 and 128.
+	MinPasswordLength      int  `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
+	RequireUppercase       bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
+	RequireLowercase       bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
+	RequireNumber          bool `env:"REQUIRE_NUMBER" envDefault:"true"`
+	RequireSpecialChar     bool `env:"REQUIRE_SPECIAL" envDefault:"false"`
+	MaxLoginAttempts       int  `env:"MAX_LOGIN_ATTEMPTS" envDefault:"5"`
+	LockoutDurationMinutes int  `env:"LOCKOUT_MINUTES" envDefault:"15"`
 }
 
 // AuthConfig defines authentication and session settings.
 type AuthConfig struct {
-	// Method specifies the authentication method (local, oidc, or both).
 	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
 	// SessionSecret provides the key for session encryption (min 32 characters).
 	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
-	// CookieDomain sets the domain scope for session cookies.
-	CookieDomain string `env:"COOKIE_DOMAIN"`
-	// CookieSameSite controls the SameSite cookie attribute (strict, lax, or none).
-	CookieSameSite CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
-	// OIDCProviderURL specifies the OpenID Connect provider's base URL.
-	OIDCProviderURL string `env:"OIDC_PROVIDER_URL"`
-	// OIDCClientID specifies the OAuth/OIDC client identifier.
-	OIDCClientID string `env:"OIDC_CLIENT_ID"`
-	// OIDCClientSecret specifies the OAuth/OIDC client secret.
-	OIDCClientSecret string `env:"OIDC_CLIENT_SECRET"`
-	// OIDCRedirectURL specifies the OAuth callback URL for this application.
-	OIDCRedirectURL string `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/oauth/callback"`
-	// Local configures password policy and lockout rules.
-	Local LocalAuthConfig `envPrefix:"AUTH_"`
+	CookieDomain  string `env:"COOKIE_DOMAIN"`
+	// CookieSameSite accepts strict, lax, or none.
+	CookieSameSite   CookieSameSite  `env:"COOKIE_SAMESITE" envDefault:"lax"`
+	OIDCProviderURL  string          `env:"OIDC_PROVIDER_URL"`
+	OIDCClientID     string          `env:"OIDC_CLIENT_ID"`
+	OIDCClientSecret string          `env:"OIDC_CLIENT_SECRET"`
+	OIDCRedirectURL  string          `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/oauth/callback"`
+	Local            LocalAuthConfig `envPrefix:"AUTH_"`
 }
 
 // TTSConfig defines text-to-speech integration settings for ElevenLabs.
 type TTSConfig struct {
 	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
-	APIKey string `env:"API_KEY"`
-	// RequestTimeout limits TTS API request duration (default: 60s).
+	APIKey         string        `env:"API_KEY"`
 	RequestTimeout time.Duration `env:"TIMEOUT" envDefault:"60s"`
 }
 
 // AudioConfig defines audio processing and file storage settings.
 type AudioConfig struct {
-	// FFmpegPath specifies the path to the FFmpeg binary.
-	FFmpegPath string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
-	// FFprobePath specifies the path to the FFprobe binary.
-	FFprobePath string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
-	// ProcessedPath specifies the directory for processed audio files.
+	FFmpegPath    string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
+	FFprobePath   string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
-	// OutputPath specifies the directory for generated bulletin files.
-	OutputPath string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	// TempPath specifies the directory for temporary audio files.
-	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	// AppRoot specifies the application root directory path.
+	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
+	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
+	// AppRoot resolves application-relative assets.
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
-	// BulletinRetention is how long bulletin audio files are kept before cleanup (default: 7 days).
+	// BulletinRetention controls when bulletin audio files and finished job
+	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
 }
 
@@ -369,6 +339,9 @@ func (c *Config) validateCore() error {
 	}
 	if c.TTS.RequestTimeout <= 0 {
 		return fmt.Errorf("BABBEL_ELEVENLABS_TIMEOUT must be > 0 (got %s)", c.TTS.RequestTimeout)
+	}
+	if c.BulletinJobs.GenerationTimeout <= 0 {
+		return fmt.Errorf("BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.GenerationTimeout)
 	}
 	return nil
 }

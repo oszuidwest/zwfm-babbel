@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -19,8 +20,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// BulletinServiceDeps groups the collaborators required for selecting,
-// rendering, and persisting bulletins.
+// BulletinServiceDeps contains bulletin generation dependencies.
 type BulletinServiceDeps struct {
 	TxManager    repository.TxManager
 	BulletinRepo *repository.BulletinRepository
@@ -40,6 +40,11 @@ type BulletinService struct {
 	audioSvc     *audio.Service
 	config       *config.Config
 	alerts       notify.Alerter
+
+	// stationLocks serializes generation per station between the job worker
+	// and the synchronous automation path.
+	stationLocks   map[int64]chan struct{}
+	stationLocksMu sync.Mutex
 }
 
 // NewBulletinService returns a bulletin service wired to deps.
@@ -52,20 +57,59 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
 		alerts:       notify.OrDiscard(deps.Alerts),
+		stationLocks: make(map[int64]chan struct{}),
+	}
+}
+
+// LockStation serializes bulletin generation for one station. It blocks until
+// the lock is free or ctx ends; the returned function releases the lock.
+// Callers start their generation timeout after acquisition so time spent
+// waiting behind another generation does not consume it.
+func (s *BulletinService) LockStation(ctx context.Context, stationID int64) (func(), error) {
+	s.stationLocksMu.Lock()
+	lock, ok := s.stationLocks[stationID]
+	if !ok {
+		lock = make(chan struct{}, 1)
+		s.stationLocks[stationID] = lock
+	}
+	s.stationLocksMu.Unlock()
+
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
 // Create selects eligible stories, renders the WAV file, and persists the
-// bulletin plus story links for a station/date.
+// bulletin plus story links for a station/date. Callers must hold the station
+// lock (LockStation).
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
+	bulletinID, err := s.create(ctx, stationID, targetDate, nil)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetByID(ctx, bulletinID)
+}
+
+// create renders and stores a bulletin; finalize joins the persistence
+// transaction. Callers must hold the station lock (LockStation) so story
+// selection and fair-rotation updates never interleave per station.
+func (s *BulletinService) create(
+	ctx context.Context,
+	stationID int64,
+	targetDate time.Time,
+	finalize func(context.Context, int64) error,
+) (int64, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
-		return nil, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
+		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
 	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if len(stories) == 0 {
@@ -74,7 +118,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 			Summary: fmt.Sprintf("No stories available for station %d", stationID),
 			Details: "No eligible stories are available, so no on-air bulletin can be generated for this station.",
 		})
-		return nil, apperrors.NoStories(stationID)
+		return 0, apperrors.NoStories(stationID)
 	}
 	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
 		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
@@ -87,9 +131,8 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
 
-	// Shuffle story order for natural radio flow.
-	// Breaking priority and fair rotation determine which stories are selected;
-	// playback order is randomized so breaking stories appear in varied positions.
+	// Selection priority chooses stories; shuffling changes only playback order.
+	// #nosec G404 -- playback-order shuffle, not security-sensitive randomness.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
 	})
@@ -102,7 +145,7 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 			Details:           err.Error(),
 			RequiresThreshold: errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
 		})
-		return nil, err
+		return 0, err
 	}
 	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
 		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
@@ -113,18 +156,13 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	}
 	totalDuration := s.calculateBulletinDuration(station, stories, jingle.MixPoint)
 
-	bulletinID, err := s.saveBulletinToDatabase(ctx, saveBulletinParams{
+	return s.saveBulletinToDatabase(ctx, saveBulletinParams{
 		StationID:    stationID,
 		BulletinPath: bulletinPath,
 		Duration:     totalDuration,
 		FileSize:     fileSize,
 		Stories:      stories,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return s.GetByID(ctx, bulletinID)
+	}, finalize)
 }
 
 // generateBulletinAudio renders a bulletin with one timestamp shared by the
@@ -137,15 +175,24 @@ func (s *BulletinService) generateBulletinAudio(
 ) (string, error) {
 	timestamp := time.Now()
 	bulletinPath := utils.GenerateBulletinPaths(s.config, station.ID, timestamp)
+	temporaryPath := bulletinPath + ".tmp.wav"
+	defer func() {
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("Failed to remove temporary bulletin audio", "path", temporaryPath, "error", err)
+		}
+	}()
 
-	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, bulletinPath); err != nil {
+	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, temporaryPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
+	}
+	if err := os.Rename(temporaryPath, bulletinPath); err != nil {
+		return "", apperrors.Audio("Bulletin", "publish", err)
 	}
 
 	return bulletinPath, nil
 }
 
-// calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
+// calculateBulletinDuration mirrors FFmpeg timing.
 func (s *BulletinService) calculateBulletinDuration(
 	station *models.Station, stories []repository.BulletinStoryData, mixPoint float64,
 ) float64 {
@@ -160,7 +207,6 @@ func (s *BulletinService) calculateBulletinDuration(
 		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
 	}
 
-	// Keep stored duration aligned with the FFmpeg path, which only delays for positive mix points.
 	if mixPoint > 0 {
 		return storiesDuration + mixPoint
 	}
@@ -168,8 +214,6 @@ func (s *BulletinService) calculateBulletinDuration(
 	return storiesDuration
 }
 
-// saveBulletinParams groups the values stored when a generated bulletin is
-// committed.
 type saveBulletinParams struct {
 	StationID    int64
 	BulletinPath string
@@ -178,9 +222,12 @@ type saveBulletinParams struct {
 	Stories      []repository.BulletinStoryData
 }
 
-// saveBulletinToDatabase stores the bulletin and its story links in one
-// transaction.
-func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params saveBulletinParams) (int64, error) {
+// saveBulletinToDatabase stores the bulletin and story links atomically.
+func (s *BulletinService) saveBulletinToDatabase(
+	ctx context.Context,
+	params saveBulletinParams,
+	finalize func(context.Context, int64) error,
+) (int64, error) {
 	var bulletinID int64
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
@@ -205,6 +252,11 @@ func (s *BulletinService) saveBulletinToDatabase(ctx context.Context, params sav
 
 		if err := s.bulletinRepo.LinkStories(txCtx, bulletinID, storyIDs); err != nil {
 			return err
+		}
+		if finalize != nil {
+			if err := finalize(txCtx, bulletinID); err != nil {
+				return err
+			}
 		}
 
 		return nil

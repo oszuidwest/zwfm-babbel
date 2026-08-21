@@ -59,7 +59,7 @@ describe('Story Date Validation', () => {
   let stationId, voiceId;
 
   beforeAll(async () => {
-    // Arrange: Create dependencies for date validation tests
+    // Create dependencies for date validation tests
     const station = await global.helpers.createStation(global.resources, 'DateValidationStation');
     const voice = await global.helpers.createVoice(global.resources, 'DateValidationVoice');
     stationId = station.id;

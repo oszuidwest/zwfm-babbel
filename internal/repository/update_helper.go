@@ -7,23 +7,9 @@ import (
 	"gorm.io/gorm/schema"
 )
 
-// BuildUpdateMap converts a struct with pointer fields and Clear* flags into a GORM update map.
-//
-// Convention:
-//   - Pointer fields: nil = skip, non-nil = update with dereferenced value
-//   - Clear* bool fields: true = set corresponding field to NULL (takes precedence)
-//   - Column names from gorm:"column:..." tag, or snake_case of field name
-//   - Fields tagged gorm:"-" are skipped
-//
-// Example:
-//
-//	type StoryUpdate struct {
-//	    Title        *string `gorm:"column:title"`
-//	    VoiceID      *int64  `gorm:"column:voice_id"`
-//	    ClearVoiceID bool    `gorm:"-"`  // Sets voice_id to NULL.
-//	}
-//
-//	updateMap := BuildUpdateMap(u)  // Handles all fields automatically.
+// BuildUpdateMap converts pointer, map, and Clear* fields to GORM updates.
+// Nil pointers and empty maps are skipped; ClearX takes precedence and stores
+// NULL. GORM column tags override the default snake_case name.
 func BuildUpdateMap(update any) map[string]any {
 	result := make(map[string]any)
 
@@ -50,9 +36,7 @@ func BuildUpdateMap(update any) map[string]any {
 	return result
 }
 
-// collectClearFields scans struct for Clear* bool fields set to true.
-// Returns a map of target field names that should be set to NULL.
-// For example, ClearVoiceID=true results in map["VoiceID"]=true.
+// collectClearFields returns the targets of enabled Clear* fields.
 func collectClearFields(v reflect.Value) map[string]bool {
 	clearFields := make(map[string]bool)
 
@@ -66,7 +50,6 @@ func collectClearFields(v reflect.Value) map[string]bool {
 		if !fieldVal.Bool() {
 			continue
 		}
-		// ClearVoiceID maps to VoiceID.
 		targetName := strings.TrimPrefix(field.Name, "Clear")
 		clearFields[targetName] = true
 	}
@@ -103,12 +86,10 @@ func processField(fieldVal reflect.Value, fieldType reflect.StructField, clearFi
 	return "", nil, false
 }
 
-// shouldSkipGormField reports whether the gorm tag indicates the field should be skipped.
 func shouldSkipGormField(gormTag string) bool {
 	return gormTag == "-" || strings.HasPrefix(gormTag, "-,") || strings.Contains(gormTag, ",-")
 }
 
-// getColumnName extracts the column name from struct field tags or derives it from field name.
 func getColumnName(fieldType reflect.StructField) string {
 	if col := extractColumnFromTag(fieldType.Tag.Get("gorm")); col != "" {
 		return col

@@ -44,10 +44,8 @@ describe('Account Lockout', () => {
   });
 
   test('when wrong password attempts stay below threshold, then each returns 401 and account remains usable', async () => {
-    // Arrange
     const attempts = MAX_LOGIN_ATTEMPTS - 1;
 
-    // Act
     for (let i = 0; i < attempts; i++) {
       const response = await global.api.apiCall('POST', '/sessions', {
         username,
@@ -56,7 +54,7 @@ describe('Account Lockout', () => {
       expect(response.status).toBe(401);
     }
 
-    // Assert: correct credentials still work because threshold was not reached.
+    // Correct credentials still work because threshold was not reached.
     const loginResponse = await global.api.apiLogin(username, password);
     expect(loginResponse.status).toBe(201);
 
@@ -65,7 +63,7 @@ describe('Account Lockout', () => {
   });
 
   test('when wrong password attempts reach threshold, then account is locked and correct password is also rejected', async () => {
-    // Arrange: exhaust the threshold.
+    // Exhaust the threshold.
     for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
       const response = await global.api.apiCall('POST', '/sessions', {
         username,
@@ -74,18 +72,17 @@ describe('Account Lockout', () => {
       expect(response.status).toBe(401);
     }
 
-    // Act: try the correct password against the now-locked account.
+    // Try the correct password against the now-locked account.
     const response = await global.api.apiCall('POST', '/sessions', {
       username,
       password
     });
 
-    // Assert
     expect(response.status).toBe(401);
   });
 
   test('when locked account is spammed with parallel wrong-password attempts, then locked_until is not extended', async () => {
-    // Arrange: account is already locked from the previous test. Capture the
+    // Account is already locked from the previous test. Capture the
     // initial lockout timestamp, then wait long enough that a missing guard
     // would push locked_until into the next TIMESTAMP second.
     const lockedUntilBefore = readLockedUntilUnix(username);
@@ -93,7 +90,7 @@ describe('Account Lockout', () => {
 
     await sleep(2000);
 
-    // Act: fire concurrent wrong-password attempts. Without the WHERE-clause
+    // Fire concurrent wrong-password attempts. Without the WHERE-clause
     // guard each would recompute locked_until = now + lockout_duration.
     const spamCount = 10;
     const responses = await Promise.all(
@@ -105,7 +102,7 @@ describe('Account Lockout', () => {
       )
     );
 
-    // Assert: every attempt rejected with 401, and locked_until is unchanged.
+    // Every attempt rejected with 401, and locked_until is unchanged.
     for (const response of responses) {
       expect(response.status).toBe(401);
     }
