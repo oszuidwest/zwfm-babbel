@@ -99,7 +99,7 @@ type AutomationConfig struct {
 type BulletinJobConfig struct {
 	// GenerationTimeout applies to one worker attempt.
 	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
-	// QueueTimeout bounds how long an unclaimed job may wait.
+	// QueueTimeout bounds each stay in the queued state.
 	QueueTimeout time.Duration `env:"QUEUE_TIMEOUT" envDefault:"15m"`
 	// Workers limits cross-station generation concurrency.
 	Workers int `env:"WORKERS" envDefault:"4"`

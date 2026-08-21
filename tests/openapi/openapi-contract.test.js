@@ -334,6 +334,7 @@ describe('OpenAPI Contract', () => {
         }),
       scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
           const job = (await global.helpers.waitForBulletinJob(ctx.generationJobId)).data;
+          expect(job.status).toBe('succeeded');
           return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
         }),
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {

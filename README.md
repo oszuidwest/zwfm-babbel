@@ -201,7 +201,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 | Env var | Default | Description |
 |---|---|---|
 | `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one asynchronous bulletin-generation attempt. |
-| `BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT` | `15m` | Queue-wait SLA: a job no worker picked up within this window fails with `internal.queue_timeout`. Size it to cover the worst-case backlog (roughly stations × generation timeout ÷ workers). |
+| `BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT` | `15m` | Queue-wait SLA: a job that stays queued for this window fails with `internal.queue_timeout`. The window resets after an interrupted attempt is requeued. Size it to cover the worst-case backlog (roughly stations × generation timeout ÷ workers). |
 | `BABBEL_BULLETIN_JOBS_WORKERS` | `4` | Number of jobs that generate concurrently. Jobs for the same station always run one at a time; extra workers add throughput across stations. |
 
 ### Text-to-speech

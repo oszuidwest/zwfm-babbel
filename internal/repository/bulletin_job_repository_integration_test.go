@@ -158,6 +158,11 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 	if err != nil || claimed == nil {
 		t.Fatalf("ClaimNext() = %#v, %v", claimed, err)
 	}
+	oldQueueEntry := time.Now().Add(-time.Hour)
+	if err := db.Model(&models.BulletinJob{}).Where("id = ?", claimed.ID).
+		UpdateColumn("updated_at", oldQueueEntry).Error; err != nil {
+		t.Fatalf("age running job: %v", err)
+	}
 
 	if err := repo.Release(t.Context(), claimed.ID, claimed.Attempt); err != nil {
 		t.Fatalf("Release() error = %v", err)
@@ -170,8 +175,11 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 	if released.Status != models.BulletinJobQueued || released.LeaseUntil != nil || released.StartedAt != nil {
 		t.Fatalf("released job = %#v, want queued without lease or start time", released)
 	}
+	if !released.UpdatedAt.After(oldQueueEntry) {
+		t.Fatalf("released job updated_at = %s, want after %s", released.UpdatedAt, oldQueueEntry)
+	}
 
-	reclaimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
+	reclaimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute)
 	if err != nil {
 		t.Fatalf("reclaim ClaimNext() error = %v", err)
 	}
@@ -248,16 +256,15 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", stale.ID).
-		Update("created_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		Update("updated_at", time.Now().Add(-time.Hour)).Error; err != nil {
 		t.Fatalf("age stale job: %v", err)
 	}
-	// QueueTimeout excludes requeued jobs; maxAttempts bounds them.
 	requeued, err := repo.Create(t.Context(), station.ID, time.Now())
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", requeued.ID).
-		Updates(map[string]any{"created_at": time.Now().Add(-time.Hour), "attempt": 1}).Error; err != nil {
+		Updates(map[string]any{"updated_at": time.Now().Add(-time.Hour), "attempt": 1}).Error; err != nil {
 		t.Fatalf("age requeued job: %v", err)
 	}
 
@@ -265,18 +272,16 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FailStaleQueued() error = %v", err)
 	}
-	if failed != 1 {
-		t.Fatalf("FailStaleQueued() = %d, want 1", failed)
+	if failed != 2 {
+		t.Fatalf("FailStaleQueued() = %d, want 2", failed)
 	}
 
-	for name, id := range map[string]int64{"fresh": fresh.ID, "requeued": requeued.ID} {
-		var kept models.BulletinJob
-		if err := db.First(&kept, id).Error; err != nil {
-			t.Fatalf("load %s job: %v", name, err)
-		}
-		if kept.Status != models.BulletinJobQueued {
-			t.Fatalf("%s job status = %q, want queued", name, kept.Status)
-		}
+	var kept models.BulletinJob
+	if err := db.First(&kept, fresh.ID).Error; err != nil {
+		t.Fatalf("load fresh job: %v", err)
+	}
+	if kept.Status != models.BulletinJobQueued {
+		t.Fatalf("fresh job status = %q, want queued", kept.Status)
 	}
 }
 
@@ -290,7 +295,7 @@ func TestBulletinJobRepositoryIntegration_StaleQueuedIsNotClaimable(t *testing.T
 		t.Fatalf("Create() error = %v", err)
 	}
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
-		Update("created_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		Update("updated_at", time.Now().Add(-time.Hour)).Error; err != nil {
 		t.Fatalf("age job: %v", err)
 	}
 
@@ -298,9 +303,8 @@ func TestBulletinJobRepositoryIntegration_StaleQueuedIsNotClaimable(t *testing.T
 		t.Fatalf("ClaimNext() past queue SLA = %#v, %v; want nil, nil", stale, err)
 	}
 
-	// Requeued jobs are exempt from QueueTimeout.
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
-		Update("attempt", 1).Error; err != nil {
+		Updates(map[string]any{"attempt": 1, "updated_at": time.Now()}).Error; err != nil {
 		t.Fatalf("mark job requeued: %v", err)
 	}
 	claimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute)

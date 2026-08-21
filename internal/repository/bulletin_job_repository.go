@@ -41,7 +41,7 @@ func (r *BulletinJobRepository) Create(
 }
 
 // ClaimNext leases the oldest queued or expired job under a row lock. It skips
-// exhausted jobs, stale never-claimed jobs, and stations with a live job.
+// exhausted jobs, stale queued jobs, and stations with a live job.
 func (r *BulletinJobRepository) ClaimNext(
 	ctx context.Context,
 	leaseDuration time.Duration,
@@ -57,7 +57,7 @@ func (r *BulletinJobRepository) ClaimNext(
 				(bulletin_jobs.status = ? OR (bulletin_jobs.status = ?
 					AND (bulletin_jobs.lease_until IS NULL OR bulletin_jobs.lease_until < ?)))
 				AND bulletin_jobs.attempt < ?
-				AND NOT (bulletin_jobs.status = ? AND bulletin_jobs.attempt = 0 AND bulletin_jobs.created_at < ?)
+				AND NOT (bulletin_jobs.status = ? AND bulletin_jobs.updated_at < ?)
 				AND NOT EXISTS (
 					SELECT 1 FROM bulletin_jobs AS active
 					WHERE active.station_id = bulletin_jobs.station_id
@@ -146,7 +146,7 @@ func (r *BulletinJobRepository) FailExhausted(
 	return result.RowsAffected, nil
 }
 
-// FailStaleQueued fails jobs not claimed within maxQueuedAge.
+// FailStaleQueued fails jobs that exceed maxQueuedAge after entering the queue.
 func (r *BulletinJobRepository) FailStaleQueued(
 	ctx context.Context,
 	maxQueuedAge time.Duration,
@@ -154,7 +154,7 @@ func (r *BulletinJobRepository) FailStaleQueued(
 ) (int64, error) {
 	now := time.Now()
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("status = ? AND attempt = 0 AND created_at < ?",
+		Where("status = ? AND updated_at < ?",
 			models.BulletinJobQueued, now.Add(-maxQueuedAge)).
 		Updates(map[string]any{
 			"status":       models.BulletinJobFailed,
@@ -212,12 +212,14 @@ func (r *BulletinJobRepository) Fail(ctx context.Context, id int64, attempt int,
 
 // Release returns an interrupted attempt to the queue during graceful shutdown.
 func (r *BulletinJobRepository) Release(ctx context.Context, id int64, attempt int) error {
+	// Queued jobs use updated_at as their queue-entry timestamp.
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
 		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
 		Updates(map[string]any{
 			"status":      models.BulletinJobQueued,
 			"lease_until": nil,
 			"started_at":  nil,
+			"updated_at":  time.Now(),
 		})
 	return checkedJobUpdate(result)
 }
