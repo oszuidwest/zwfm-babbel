@@ -26,6 +26,7 @@ test:
 test-integration:
 	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }
 	docker compose up -d mysql
+	docker compose stop babbel
 	@echo "Waiting for MySQL to be healthy..."
 	@i=0; until docker compose ps mysql | grep -q healthy; do \
 		i=$$((i+1)); \
