@@ -219,13 +219,18 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil || next != nil {
 		t.Fatalf("ClaimNext() before sweep = %#v, %v; want nil, nil for jobs at cap", next, err)
 	}
+	kept, err := repo.Create(t.Context(), otherStation.ID, time.Now())
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := db.Model(&models.BulletinJob{}).Where("id = ?", kept.ID).
+		Update("attempt", 2).Error; err != nil {
+		t.Fatalf("set job below cap: %v", err)
+	}
 
-	failed, err := repo.FailExhausted(t.Context(), 3, "internal.retries_exhausted", "expected")
+	_, err = repo.FailExhausted(t.Context(), 3, "internal.retries_exhausted", "expected")
 	if err != nil {
 		t.Fatalf("FailExhausted() error = %v", err)
-	}
-	if failed != 2 {
-		t.Fatalf("FailExhausted() = %d, want 2", failed)
 	}
 
 	for _, id := range []int64{job.ID, requeued.ID} {
@@ -237,8 +242,12 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 			t.Fatalf("job %d = %#v, want failed with retries_exhausted and completed_at set", id, terminal)
 		}
 	}
-	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil || next != nil {
-		t.Fatalf("ClaimNext() after cap = %#v, %v; want nil, nil", next, err)
+	var belowCap models.BulletinJob
+	if err := db.First(&belowCap, kept.ID).Error; err != nil {
+		t.Fatalf("load job below cap: %v", err)
+	}
+	if belowCap.Status != models.BulletinJobQueued {
+		t.Fatalf("job below cap status = %q, want queued", belowCap.Status)
 	}
 }
 
@@ -268,12 +277,9 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 		t.Fatalf("age requeued job: %v", err)
 	}
 
-	failed, err := repo.FailStaleQueued(t.Context(), 15*time.Minute, "internal.queue_timeout", "expected")
+	_, err = repo.FailStaleQueued(t.Context(), 15*time.Minute, "internal.queue_timeout", "expected")
 	if err != nil {
 		t.Fatalf("FailStaleQueued() error = %v", err)
-	}
-	if failed != 2 {
-		t.Fatalf("FailStaleQueued() = %d, want 2", failed)
 	}
 
 	var kept models.BulletinJob
@@ -282,6 +288,15 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 	}
 	if kept.Status != models.BulletinJobQueued {
 		t.Fatalf("fresh job status = %q, want queued", kept.Status)
+	}
+	for _, id := range []int64{stale.ID, requeued.ID} {
+		var terminal models.BulletinJob
+		if err := db.First(&terminal, id).Error; err != nil {
+			t.Fatalf("load stale job %d: %v", id, err)
+		}
+		if terminal.Status != models.BulletinJobFailed || terminal.ErrorCode != "internal.queue_timeout" || terminal.CompletedAt == nil {
+			t.Fatalf("stale job %d = %#v, want failed with queue_timeout and completed_at set", id, terminal)
+		}
 	}
 }
 
@@ -310,45 +325,5 @@ func TestBulletinJobRepositoryIntegration_StaleQueuedIsNotClaimable(t *testing.T
 	claimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute)
 	if err != nil || claimed == nil || claimed.ID != job.ID {
 		t.Fatalf("ClaimNext() for requeued job = %#v, %v; want job %d", claimed, err, job.ID)
-	}
-}
-
-func TestBulletinJobRepositoryIntegration_FindActiveCoalesces(t *testing.T) {
-	db := openIntegrationDB(t)
-	station := createBulletinJobStation(t, db)
-
-	repo := NewBulletinJobRepository(db)
-	today := time.Now()
-
-	if none, err := repo.FindActive(t.Context(), station.ID, today); err != nil || none != nil {
-		t.Fatalf("FindActive() on empty queue = %#v, %v; want nil, nil", none, err)
-	}
-
-	job, err := repo.Create(t.Context(), station.ID, today)
-	if err != nil {
-		t.Fatalf("Create() error = %v", err)
-	}
-	found, err := repo.FindActive(t.Context(), station.ID, today)
-	if err != nil || found == nil || found.ID != job.ID {
-		t.Fatalf("FindActive() = %#v, %v; want queued job %d", found, err, job.ID)
-	}
-
-	if _, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil {
-		t.Fatalf("ClaimNext() error = %v", err)
-	}
-	running, err := repo.FindActive(t.Context(), station.ID, today)
-	if err != nil || running == nil || running.ID != job.ID {
-		t.Fatalf("FindActive() while running = %#v, %v; want job %d", running, err, job.ID)
-	}
-
-	if other, err := repo.FindActive(t.Context(), station.ID, today.AddDate(0, 0, 1)); err != nil || other != nil {
-		t.Fatalf("FindActive() for another date = %#v, %v; want nil, nil", other, err)
-	}
-
-	if err := repo.Fail(t.Context(), job.ID, 1, "test.failure", "expected"); err != nil {
-		t.Fatalf("Fail() error = %v", err)
-	}
-	if terminal, err := repo.FindActive(t.Context(), station.ID, today); err != nil || terminal != nil {
-		t.Fatalf("FindActive() after terminal state = %#v, %v; want nil, nil", terminal, err)
 	}
 }

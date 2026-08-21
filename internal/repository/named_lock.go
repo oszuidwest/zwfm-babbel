@@ -15,9 +15,6 @@ import (
 const (
 	namedLockReleaseTimeout = 5 * time.Second
 
-	// Enqueue locks protect one lookup and insert.
-	enqueueLockWait = 5 * time.Second
-
 	// Bound callers that omit a deadline.
 	generationLockFallbackWait = time.Minute
 )
@@ -44,12 +41,6 @@ func (m *NamedLockManager) LockStationGeneration(ctx context.Context, stationID 
 		return nil, context.DeadlineExceeded
 	}
 	return m.acquire(ctx, fmt.Sprintf("babbel:bulletin:generate:station:%d", stationID), wait)
-}
-
-// LockEnqueue serializes a station's find-create pair across replicas. The
-// returned function releases the lock.
-func (m *NamedLockManager) LockEnqueue(ctx context.Context, stationID int64) (func(), error) {
-	return m.acquire(ctx, fmt.Sprintf("babbel:bulletin-jobs:enqueue:station:%d", stationID), enqueueLockWait)
 }
 
 func (m *NamedLockManager) acquire(ctx context.Context, name string, wait time.Duration) (func(), error) {

@@ -100,29 +100,6 @@ func (r *BulletinJobRepository) ClaimNext(
 	return claimed, nil
 }
 
-// FindActive returns the newest non-terminal job for a station and date.
-// Lock the find-create pair to prevent duplicate enqueues.
-func (r *BulletinJobRepository) FindActive(
-	ctx context.Context,
-	stationID int64,
-	targetDate time.Time,
-) (*models.BulletinJob, error) {
-	var job models.BulletinJob
-	err := r.db.WithContext(ctx).
-		Where("station_id = ? AND target_date = DATE(?) AND status IN ?",
-			stationID, targetDate,
-			[]models.BulletinJobStatus{models.BulletinJobQueued, models.BulletinJobRunning}).
-		Order("id DESC").
-		First(&job).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-	return &job, nil
-}
-
 // FailExhausted fails expired or requeued jobs at the attempt cap.
 func (r *BulletinJobRepository) FailExhausted(
 	ctx context.Context,

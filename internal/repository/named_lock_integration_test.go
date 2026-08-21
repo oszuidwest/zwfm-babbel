@@ -102,9 +102,10 @@ func TestNamedLockIntegration_HeldLockDoesNotStarveQueryPool(t *testing.T) {
 	sqlDB.SetMaxOpenConns(1)
 
 	locks := NewNamedLockManager(openIntegrationLockDB(t))
-	release, err := locks.LockEnqueue(t.Context(), 424242)
+	name := fmt.Sprintf("babbel:test:%d:dedicated-pool", time.Now().UnixNano())
+	release, err := locks.acquire(t.Context(), name, time.Second)
 	if err != nil {
-		t.Fatalf("LockEnqueue() error = %v", err)
+		t.Fatalf("acquire() error = %v", err)
 	}
 	defer release()
 

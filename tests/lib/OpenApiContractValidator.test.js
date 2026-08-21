@@ -637,7 +637,6 @@ describe('openapi.yaml contract invariants', () => {
     }
   });
 
-  // Async enqueue can time out while acquiring its coalescing lock.
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],

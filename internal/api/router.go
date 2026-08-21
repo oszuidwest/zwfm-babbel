@@ -92,7 +92,6 @@ func buildDependencies(db *gorm.DB, lockDB *sql.DB, cfg *config.Config, alerts n
 	})
 	bulletinJobSvc := services.NewBulletinJobService(
 		bulletinJobRepo,
-		locks,
 		bulletinSvc,
 		cfg.BulletinJobs,
 		alerts,

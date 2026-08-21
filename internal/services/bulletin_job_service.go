@@ -35,7 +35,6 @@ const (
 // BulletinJobService queues, processes, and exposes durable generation jobs.
 type BulletinJobService struct {
 	repo      *repository.BulletinJobRepository
-	locks     *repository.NamedLockManager
 	bulletins *BulletinService
 	alerts    notify.Alerter
 	cfg       config.BulletinJobConfig
@@ -49,14 +48,12 @@ type BulletinJobService struct {
 // NewBulletinJobService returns a stopped worker; cfg must be validated.
 func NewBulletinJobService(
 	repo *repository.BulletinJobRepository,
-	locks *repository.NamedLockManager,
 	bulletins *BulletinService,
 	cfg config.BulletinJobConfig,
 	alerts notify.Alerter,
 ) *BulletinJobService {
 	return &BulletinJobService{
 		repo:      repo,
-		locks:     locks,
 		bulletins: bulletins,
 		alerts:    notify.OrDiscard(alerts),
 		cfg:       cfg,
@@ -99,36 +96,12 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 	}
 }
 
-// Enqueue returns an active station-date job or persists and wakes a new one.
+// Enqueue persists a generation request and wakes a worker.
 func (s *BulletinJobService) Enqueue(
 	ctx context.Context,
 	stationID int64,
 	targetDate time.Time,
 ) (*models.BulletinJob, error) {
-	// Avoid the cross-replica lock when the job is already visible.
-	existing, err := s.repo.FindActive(ctx, stationID, targetDate)
-	if err != nil {
-		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
-	}
-	if existing != nil {
-		return existing, nil
-	}
-
-	// Preserve DeadlineExceeded so HTTP mapping returns 504.
-	release, err := s.locks.LockEnqueue(ctx, stationID)
-	if err != nil {
-		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
-	}
-	defer release()
-
-	existing, err = s.repo.FindActive(ctx, stationID, targetDate)
-	if err != nil {
-		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
-	}
-	if existing != nil {
-		return existing, nil
-	}
-
 	job, err := s.repo.Create(ctx, stationID, targetDate)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)

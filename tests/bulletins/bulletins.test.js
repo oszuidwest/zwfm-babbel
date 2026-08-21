@@ -410,24 +410,7 @@ describe('Bulletins', () => {
       expect(bulletin.status).toBe(200);
     });
 
-    test('when the same generation is requested twice, then requests coalesce onto one job', async () => {
-      const first = await enqueueBulletin(stationId);
-      expect(first.status).toBe(202);
-
-      const second = await enqueueBulletin(stationId);
-      expect(second.status).toBe(202);
-      expect(second.data.id).toBe(first.data.id);
-
-      const completed = await global.helpers.waitForBulletinJob(first.data.id);
-      expect(completed.data.status).toBe('succeeded');
-
-      const third = await enqueueBulletin(stationId);
-      expect(third.status).toBe(202);
-      expect(third.data.id).not.toBe(first.data.id);
-      await global.helpers.waitForBulletinJob(third.data.id);
-    });
-
-    test('when the same generation is requested concurrently, then both requests coalesce onto one job', async () => {
+    test('when the same generation is requested concurrently, then each request creates a job', async () => {
       const responses = await Promise.all([
         enqueueBulletin(stationId),
         enqueueBulletin(stationId),
@@ -438,9 +421,14 @@ describe('Bulletins', () => {
         expect(response.status).toBe(202);
       }
       const jobIds = new Set(responses.map((response) => response.data.id));
-      expect(jobIds.size).toBe(1);
+      expect(jobIds.size).toBe(responses.length);
 
-      await global.helpers.waitForBulletinJob(responses[0].data.id);
+      const completed = await Promise.all(
+        responses.map((response) => global.helpers.waitForBulletinJob(response.data.id))
+      );
+      for (const response of completed) {
+        expect(response.data.status).toBe('succeeded');
+      }
     });
 
     test('when generation has no eligible stories, then the asynchronous job fails safely', async () => {

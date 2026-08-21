@@ -2081,12 +2081,8 @@ paths:
         `failed`. A successful job contains `bulletin_id`; retrieve that
         bulletin and its audio through the regular bulletin endpoints.
 
-        Repeated requests for the same station and date coalesce onto the
-        existing queued or running job, so retries do not queue duplicate
-        generations; the response then describes that job. Coalescing is
-        serialized per station; if that briefly times out under heavy
-        concurrent enqueueing, the request fails with 504 and can simply be
-        retried.
+        Every request creates a generation job. Jobs for the same station run
+        one at a time.
       tags:
         - Bulletin
       parameters:
