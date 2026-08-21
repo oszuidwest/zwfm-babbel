@@ -119,22 +119,8 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	return &bulletinRequest{stationID: stationID, maxAgeSeconds: maxAgeSeconds}
 }
 
-// GetPublicBulletin serves bulletin audio for radio automation systems.
-// This endpoint is public but requires a valid API key.
-//
-// GET /public/stations/:id/bulletin.wav?key=xxx&max_age=3600
-//
-// Query parameters:
-//   - key: Required. The automation API key configured in BABBEL_AUTOMATION_KEY.
-//   - max_age: Required. Maximum age in seconds. If the latest bulletin is older,
-//     a new one will be generated. Use 0 to always generate a fresh bulletin.
-//
-// Response:
-//   - 200 OK: WAV audio file.
-//   - 400 Bad Request: Missing or invalid parameters.
-//   - 401 Unauthorized: Invalid API key.
-//   - 404 Not Found: Station not found, no stories available, or endpoint disabled.
-//   - 500 Internal Server Error: Generation failed.
+// GetPublicBulletin serves API-key-authenticated audio to automation clients.
+// max_age=0 forces generation; larger values permit a fresh cached bulletin.
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	req := h.validateBulletinRequest(c)
 	if req == nil {

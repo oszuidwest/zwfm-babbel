@@ -1,4 +1,3 @@
-// Jest global teardown - cleanup after all tests
 const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -11,7 +10,6 @@ async function globalTeardown() {
   console.log('  Test Cleanup');
   console.log('========================================\n');
 
-  // Clean up cookie file
   try {
     if (fs.existsSync(COOKIE_FILE)) {
       fs.unlinkSync(COOKIE_FILE);
@@ -21,7 +19,6 @@ async function globalTeardown() {
     console.warn(`Failed to clean up cookie file ${COOKIE_FILE}: ${error.message}`);
   }
 
-  // Optionally stop Docker (controlled by env var)
   if (process.env.JEST_STOP_DOCKER === 'true') {
     console.log('Stopping Docker containers...');
     try {

@@ -1,15 +1,11 @@
 #!/usr/bin/env node
 
-// Load test fixtures into the database.
-// This script populates the database with test data for consistent testing.
-
 const path = require('path');
 const fs = require('fs');
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 const fixtureFile = path.join(__dirname, 'test-data.sql');
 
-// Verify that the test data fixture file exists.
 if (!fs.existsSync(fixtureFile)) {
     console.error('[ERROR] Fixture file not found:', fixtureFile);
     process.exit(1);

@@ -7,7 +7,7 @@ const { commandErrorMessage } = require('./MySQLHelper');
 const { parseFiniteNumber, parseSafeInteger } = require('./numeric');
 
 class TestHelpers {
-  /** Automation key matching docker-compose BABBEL_AUTOMATION_KEY */
+  // Must match the integration environment.
   static AUTOMATION_KEY = process.env.BABBEL_AUTOMATION_KEY || 'test-automation-key-for-integration-tests';
 
   constructor(apiHelper) {
@@ -17,22 +17,17 @@ class TestHelpers {
 
   // General utilities
 
-  /**
-   * Delays execution for the specified number of milliseconds.
-   * @param {number} ms - Milliseconds to wait.
-   * @returns {Promise<void>}
-   */
+  /** @param {number} ms */
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
-   * Polls a story endpoint until audio_url is available.
-   * Replaces magic sleep() calls after audio upload.
-   * @param {number} storyId - Story ID to check.
-   * @param {number} timeoutMs - Max wait time (default: 10000).
-   * @param {number} intervalMs - Poll interval (default: 500).
-   * @returns {Promise<boolean>} True if audio became available within timeout.
+   * Polls instead of assuming audio processing latency.
+   * @param {number} storyId
+   * @param {number} [timeoutMs]
+   * @param {number} [intervalMs]
+   * @returns {Promise<boolean>}
    */
   async waitForStoryAudio(storyId, timeoutMs = 10000, intervalMs = 500) {
     const deadline = Date.now() + timeoutMs;
@@ -46,7 +41,13 @@ class TestHelpers {
     return false;
   }
 
-  /** Polls a job to a terminal state; throws on HTTP errors or timeout. */
+  /**
+   * Polls to a terminal state; throws on HTTP errors or timeout.
+   * @param {number} jobId
+   * @param {number} [timeoutMs]
+   * @param {number} [intervalMs]
+   * @returns {Promise<Object>}
+   */
   async waitForBulletinJob(jobId, timeoutMs = 45000, intervalMs = 250) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -62,7 +63,12 @@ class TestHelpers {
     throw new Error(`Bulletin job ${jobId} did not finish within ${timeoutMs / 1000} seconds`);
   }
 
-  /** Enqueues and resolves a bulletin; non-202 responses pass through. */
+  /**
+   * Enqueues and resolves a bulletin; non-202 responses pass through.
+   * @param {number} stationId
+   * @param {Object} [body]
+   * @returns {Promise<Object>}
+   */
   async generateBulletin(stationId, body = {}) {
     const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`, body);
     if (accepted.status !== 202) return accepted;
@@ -75,11 +81,7 @@ class TestHelpers {
 
   // FFmpeg
 
-  /**
-   * Checks if ffmpeg is available on the system.
-   * Result is cached for performance.
-   * @returns {boolean} True if ffmpeg is available.
-   */
+  /** @returns {boolean} Cached FFmpeg availability. */
   isFFmpegAvailable() {
     if (this._ffmpegAvailable === null) {
       try {
@@ -94,11 +96,10 @@ class TestHelpers {
   }
 
   /**
-   * Creates a test audio file using ffmpeg.
-   * @param {string} outputPath - Path to write the audio file.
-   * @param {number} duration - Duration in seconds (default: 3).
-   * @param {number} frequency - Sine wave frequency in Hz (default: 440).
-   * @returns {boolean} True if file was created successfully.
+   * @param {string} outputPath
+   * @param {number} [duration=3]
+   * @param {number} [frequency=440]
+   * @returns {boolean}
    */
   createTestAudioFile(outputPath, duration = 3, frequency = 440) {
     const numericDuration = parseFiniteNumber(duration, 'audio duration');
@@ -132,10 +133,7 @@ class TestHelpers {
     }
   }
 
-  /**
-   * Cleans up a temporary file if it exists.
-   * @param {string} filePath - Path to the file to remove.
-   */
+  /** @param {string} filePath */
   cleanupTempFile(filePath) {
     try {
       fsSync.unlinkSync(filePath);
@@ -149,21 +147,19 @@ class TestHelpers {
   // Resource creation
 
   /**
-   * Generates a unique name for test resources.
-   * @param {string} baseName - Base name for the resource.
-   * @returns {string} Unique name with timestamp and process ID.
+   * @param {string} baseName
+   * @returns {string}
    */
   uniqueName(baseName) {
     return `${baseName}_${Date.now()}_${process.pid}`;
   }
 
   /**
-   * Creates a test station.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string} name - Base name for the station.
-   * @param {number} maxStories - Max stories per block (default: 4).
-   * @param {number} pauseSeconds - Pause between stories (default: 2.0).
-   * @returns {Promise<{id: number, name: string}|null>} Station data or null if failed.
+   * @param {Object} resourceManager
+   * @param {string} name
+   * @param {number} [maxStories]
+   * @param {number} [pauseSeconds]
+   * @returns {Promise<{id: number, name: string}|null>}
    */
   async createStation(resourceManager, name, maxStories = 4, pauseSeconds = 2.0) {
     const uniqueName = this.uniqueName(name);
@@ -183,10 +179,9 @@ class TestHelpers {
   }
 
   /**
-   * Creates a test voice.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string} name - Base name for the voice.
-   * @returns {Promise<{id: number, name: string}|null>} Voice data or null if failed.
+   * @param {Object} resourceManager
+   * @param {string} name
+   * @returns {Promise<{id: number, name: string}|null>}
    */
   async createVoice(resourceManager, name) {
     const uniqueName = this.uniqueName(name);
@@ -204,11 +199,10 @@ class TestHelpers {
   }
 
   /**
-   * Creates a test story without audio.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {Object} data - Story data (title, text, voice_id, etc.).
-   * @param {Array<number>} targetStations - Array of station IDs to target.
-   * @returns {Promise<{id: number}|null>} Story data or null if failed.
+   * @param {Object} resourceManager
+   * @param {Object} data
+   * @param {number[]} targetStations
+   * @returns {Promise<{id: number}|null>}
    */
   async createStory(resourceManager, data, targetStations) {
     if (!targetStations || targetStations.length === 0) {
@@ -244,11 +238,10 @@ class TestHelpers {
   }
 
   /**
-   * Creates a test story with audio file.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {Object} data - Story data (title, text, voice_id, etc.).
-   * @param {Array<number>} targetStations - Array of station IDs to target.
-   * @returns {Promise<{id: number}|null>} Story data or null if failed.
+   * @param {Object} resourceManager
+   * @param {Object} data
+   * @param {number[]} targetStations
+   * @returns {Promise<{id: number}|null>}
    */
   async createStoryWithAudio(resourceManager, data, targetStations) {
     if (!this.isFFmpegAvailable()) {
@@ -282,11 +275,10 @@ class TestHelpers {
   }
 
   /**
-   * Creates a test story with audio and waits until the API exposes it.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {Object} data - Story data (title, text, voice_id, etc.).
-   * @param {Array<number>} targetStations - Array of station IDs to target.
-   * @returns {Promise<{id: number}|null>} Story data or null if failed.
+   * @param {Object} resourceManager
+   * @param {Object} data
+   * @param {number[]} targetStations
+   * @returns {Promise<{id: number}|null>}
    */
   async createStoryWithReadyAudio(resourceManager, data, targetStations) {
     const story = await this.createStoryWithAudio(resourceManager, data, targetStations);
@@ -299,12 +291,11 @@ class TestHelpers {
   }
 
   /**
-   * Creates a required test story with ready audio.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {Object} data - Story data (title, text, voice_id, etc.).
-   * @param {Array<number>} targetStations - Array of station IDs to target.
-   * @returns {Promise<{id: number}>} Story data.
-   * @throws {Error} When the story or its audio cannot be prepared.
+   * Fails fast when the fixture cannot be prepared.
+   * @param {Object} resourceManager
+   * @param {Object} data
+   * @param {number[]} targetStations
+   * @returns {Promise<{id: number}>}
    */
   async requireStoryWithReadyAudio(resourceManager, data, targetStations) {
     const story = await this.createStoryWithReadyAudio(resourceManager, data, targetStations);
@@ -315,12 +306,12 @@ class TestHelpers {
   }
 
   /**
-   * Creates multiple ready audio stories for one station/voice pair.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string|number} stationId - Station ID.
-   * @param {string|number} voiceId - Voice ID.
-   * @param {Array<Object>} stories - Story overrides.
-   * @returns {Promise<Array<{id: number}>|null>} Created stories in input order, or null if any failed.
+   * Returns null, never a partial result.
+   * @param {Object} resourceManager
+   * @param {string|number} stationId
+   * @param {string|number} voiceId
+   * @param {Object[]} stories
+   * @returns {Promise<Array<{id: number}>|null>}
    */
   async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
     const safeStationId = parseSafeInteger(stationId, 'station ID');
@@ -346,13 +337,11 @@ class TestHelpers {
   }
 
   /**
-   * Creates required ready audio stories for one station/voice pair.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string|number} stationId - Station ID.
-   * @param {string|number} voiceId - Voice ID.
-   * @param {Array<Object>} stories - Story overrides.
-   * @returns {Promise<Array<{id: number}>>} Created stories in input order.
-   * @throws {Error} When any story or its audio cannot be prepared.
+   * @param {Object} resourceManager
+   * @param {string|number} stationId
+   * @param {string|number} voiceId
+   * @param {Object[]} stories
+   * @returns {Promise<Array<{id: number}>>}
    */
   async requireStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
     const created = await this.createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories);
@@ -363,12 +352,11 @@ class TestHelpers {
   }
 
   /**
-   * Creates a station-voice relationship without jingle.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string|number} stationId - Station ID.
-   * @param {string|number} voiceId - Voice ID.
-   * @param {number} mixPoint - Mix point in seconds (default: 3.0).
-   * @returns {Promise<{id: number}|null>} Station-voice data or null if failed.
+   * @param {Object} resourceManager
+   * @param {string|number} stationId
+   * @param {string|number} voiceId
+   * @param {number} [mixPoint]
+   * @returns {Promise<{id: number}|null>}
    */
   async createStationVoice(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const response = await this.api.apiCall('POST', '/station-voices', {
@@ -386,12 +374,11 @@ class TestHelpers {
   }
 
   /**
-   * Creates a station-voice relationship with jingle audio.
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {string|number} stationId - Station ID.
-   * @param {string|number} voiceId - Voice ID.
-   * @param {number} mixPoint - Mix point in seconds (default: 3.0).
-   * @returns {Promise<{id: number}|null>} Station-voice data or null if failed.
+   * @param {Object} resourceManager
+   * @param {string|number} stationId
+   * @param {string|number} voiceId
+   * @param {number} [mixPoint]
+   * @returns {Promise<{id: number}|null>}
    */
   async createStationVoiceWithJingle(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const safeStationId = parseSafeInteger(stationId, 'station ID');
@@ -433,11 +420,9 @@ class TestHelpers {
   }
 
   /**
-   * Creates the common station -> voice -> jingle -> story-with-audio fixture
-   * needed by bulletin and automation integration tests.
-   *
-   * @param {Object} resourceManager - ResourceManager instance for tracking.
-   * @param {Object} options - Fixture options.
+   * Creates the complete fixture required to generate a bulletin.
+   * @param {Object} resourceManager
+   * @param {Object} [options]
    * @returns {Promise<{station: Object, voice: Object, stationVoice: Object, story: Object}>}
    */
   async createBroadcastFixture(resourceManager, options = {}) {
@@ -484,9 +469,8 @@ class TestHelpers {
   // Public endpoints
 
   /**
-   * Makes a public bulletin request (bypasses authentication).
-   * @param {string|number} stationId - Station ID.
-   * @param {Object} queryParams - Query parameters (key, max_age, etc.).
+   * @param {string|number} stationId
+   * @param {Object} [queryParams]
    * @returns {Promise<{status: number, data: *, headers: Object, contentType: string}>}
    */
   async publicBulletinRequest(stationId, queryParams = {}) {

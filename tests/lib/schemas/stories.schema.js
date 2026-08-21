@@ -1,16 +1,10 @@
-/**
- * Story resource schema for test generation.
- * Note: Stories have complex dependencies (voice_id, target_stations) that require
- * setup functions in the actual tests. This schema covers the basic structure.
- */
+// Tests supply voice_id and target_stations through their fixture setup.
 
 module.exports = {
   name: 'Story',
   namePlural: 'stories',
   endpoint: '/stories',
 
-  // Note: This requires voiceId and stationId to be set up externally
-  // Use createValidDataWithDeps in actual tests
   createValidData: (suffix = '') => ({
     title: `Test Story ${suffix || Date.now()}_${process.pid}`,
     text: 'This is test story content for automated testing.',
@@ -18,7 +12,6 @@ module.exports = {
     weekdays: 127, // All days (binary: 1111111)
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    // voice_id and target_stations must be added by test setup
   }),
 
   updateData: () => ({
@@ -35,9 +28,6 @@ module.exports = {
     booleanFields: ['is_breaking'],
     selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'is_breaking', 'start_date', 'end_date', 'created_at', 'updated_at']
   },
-
-  // Note: Story API doesn't properly exclude fields on field selection
-  excludeOnFieldSelect: [],
 
   validation: {
     fields: {

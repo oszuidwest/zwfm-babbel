@@ -35,7 +35,14 @@ class ApiHelper {
 
   // Requests
 
-  /** Sends an API request without throwing on HTTP error responses. */
+  /**
+   * Sends a request without throwing on HTTP error responses.
+   * @param {string} method
+   * @param {string} endpoint
+   * @param {*} [data]
+   * @param {Object} [options]
+   * @returns {Promise<Object>}
+   */
   async apiCall(method, endpoint, data = null, options = {}) {
     const config = {
       method: method.toLowerCase(),
@@ -62,7 +69,14 @@ class ApiHelper {
     };
   }
 
-  /** Sends multipart form data with an optional file. */
+  /**
+   * @param {string} endpoint
+   * @param {Object} formFields
+   * @param {string|null} [filePath]
+   * @param {string} [fileFieldName]
+   * @param {string} [method]
+   * @returns {Promise<Object>}
+   */
   async uploadFile(endpoint, formFields, filePath = null, fileFieldName = 'file', method = 'POST') {
     const form = new FormData();
 
@@ -95,13 +109,12 @@ class ApiHelper {
   }
 
   /**
-   * Downloads a file from API endpoint.
-   * @param {string} endpoint - API endpoint path
-   * @param {string} outputPath - Local path to save file
-   * @param {string} method - HTTP method (default: 'GET')
-   * @param {Object} data - Request data (optional)
-   * @param {Object} headers - Custom headers (optional)
-   * @returns {Promise<number>} HTTP status code
+   * @param {string} endpoint
+   * @param {string} outputPath
+   * @param {string} [method]
+   * @param {*} [data]
+   * @param {Object} [headers]
+   * @returns {Promise<number>} HTTP status.
    */
   async downloadFile(endpoint, outputPath, method = 'GET', data = null, headers = {}) {
     const config = {
@@ -146,10 +159,9 @@ class ApiHelper {
   // Authentication
 
   /**
-   * Authenticates with the API using provided credentials.
-   * @param {string} username - Username (optional, defaults to admin)
-   * @param {string} password - Password (optional, defaults to admin)
-   * @returns {Promise<Object>} Response object with status and data
+   * @param {string|null} username Defaults to the configured admin.
+   * @param {string|null} password Defaults to the configured admin password.
+   * @returns {Promise<Object>}
    */
   async apiLogin(username = null, password = null) {
     username = username || this.defaultAdminUsername;
@@ -160,20 +172,14 @@ class ApiHelper {
     return this.apiCall('POST', '/sessions', { username, password });
   }
 
-  /**
-   * Logs out from the API and clears session cookies.
-   * @returns {Promise<Object>} Response object with status
-   */
+  /** @returns {Promise<Object>} */
   async apiLogout() {
     const response = await this.apiCall('DELETE', '/sessions/current');
     this.clearCookies();
     return response;
   }
 
-  /**
-   * Retrieves current session information.
-   * @returns {Promise<Object|null>} Session data or null if not authenticated
-   */
+  /** @returns {Promise<Object|null>} */
   async getCurrentSession() {
     const response = await this.apiCall('GET', '/sessions/current');
 
@@ -183,10 +189,7 @@ class ApiHelper {
     return null;
   }
 
-  /**
-   * Checks if there is an active session.
-   * @returns {Promise<boolean>} True if session is active
-   */
+  /** @returns {Promise<boolean>} */
   async isSessionActive() {
     const session = await this.getCurrentSession();
     return session !== null;

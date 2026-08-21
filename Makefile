@@ -13,15 +13,13 @@ help:
 	@echo "  docker    - Build Docker image"
 	@echo "  db-reset  - Reset database"
 
-# Build the application
+# Development
 build:
 	go build -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=dev -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=$$(git rev-parse --short HEAD) -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=$$(date -u +%FT%TZ)" -o babbel cmd/babbel/main.go
 
-# Run the application
 run:
 	go run cmd/babbel/main.go
 
-# Run tests
 test:
 	go test ./... -v
 
@@ -38,7 +36,7 @@ test-integration:
 	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local' \
 		go test -tags=integration ./internal/...
 
-# Run linters
+# Quality
 lint:
 	go fmt ./...
 	go vet ./...
@@ -52,7 +50,6 @@ lint:
 		echo "golangci-lint not installed, skipping"; \
 	fi
 
-# Run code quality checks (including dead code detection)
 quality: lint
 	@echo "Running unit tests..."
 	@go test -race -shuffle=on ./...
@@ -71,13 +68,12 @@ quality: lint
 	@go tool staticcheck ./...
 	@echo "✅ staticcheck passed!"
 
-# Clean build artifacts
 clean:
 	rm -f babbel
 	rm -rf ./audio/output/*
 	rm -rf ./audio/temp/*
 
-# Generate API documentation
+# Documentation
 docs:
 	@echo "Generating API documentation..."
 	@mkdir -p docs
@@ -92,7 +88,6 @@ docs:
 docs-all: docs
 	@echo "✓ Complete documentation suite generated"
 
-# Validate OpenAPI spec
 validate-spec:
 	@if command -v redocly >/dev/null 2>&1; then \
 		redocly lint openapi.yaml; \
@@ -100,7 +95,7 @@ validate-spec:
 		npx -y @redocly/cli@2.0.1 lint openapi.yaml; \
 	fi
 
-# Docker commands
+# Docker
 docker:
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "Docker not installed"; \
