@@ -86,9 +86,7 @@ CREATE TABLE bulletin_stories (
     INDEX idx_bulletin_stories_story_id (story_id)
 );
 
--- Persist asynchronous bulletin-generation jobs for polling and restart
--- recovery. Keep this definition identical to 009_bulletin_jobs.sql, the
--- delta migration for databases that predate this table.
+-- Keep this definition aligned with 009_bulletin_jobs.sql.
 CREATE TABLE bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,

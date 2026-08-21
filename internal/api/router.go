@@ -31,10 +31,7 @@ type routerDeps struct {
 	bulletinJobSvc    *services.BulletinJobService
 }
 
-// SetupRouter builds the dependency graph, configures Gin, and registers all
-// public and authenticated routes. alerts must be non-nil; an unconfigured
-// service disables notifications. The returned bulletin job worker is stopped;
-// the caller owns its Start/Stop lifecycle alongside the scheduler services.
+// SetupRouter wires routes and returns the stopped bulletin worker; alerts must be non-nil.
 func SetupRouter(
 	db *gorm.DB,
 	lockDB *sql.DB,
@@ -62,7 +59,6 @@ func SetupRouter(
 	return r, deps.bulletinJobSvc, nil
 }
 
-// buildDependencies creates all services and handlers needed by the router.
 func buildDependencies(db *gorm.DB, lockDB *sql.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
 	locks := repository.NewNamedLockManager(lockDB)

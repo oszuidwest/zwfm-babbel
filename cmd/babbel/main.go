@@ -74,8 +74,6 @@ func run() error {
 	}
 	defer closeDatabase(db, alerts)
 
-	// Named locks get their own pool so held locks can never starve the query
-	// pool of connections; see database.NewLockDB.
 	lockDB, err := database.NewLockDB(cfg)
 	if err != nil {
 		notifyCritical(alerts, "startup:database", "Babbel database startup failed", err)

@@ -13,12 +13,7 @@ import (
 	pkglogger "github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// Lock pool sizing: each held named lock pins one connection for as long as
-// it is held (up to a full bulletin generation), so the pool must fit every
-// concurrent lock holder. It is sized as all configured bulletin workers plus
-// headroom for automation-endpoint generations and short-lived enqueue locks.
-// Acquirers past the cap wait inside this pool, bounded by their lock wait,
-// and can never starve the query pool.
+// Reserve one lock connection per worker plus automation and enqueue headroom.
 const (
 	lockPoolHeadroom     = 16
 	lockPoolMaxIdleConns = 2
@@ -34,11 +29,7 @@ func mysqlDSN(cfg *config.Config) string {
 	)
 }
 
-// NewLockDB opens a dedicated connection pool for MySQL named locks. Advisory
-// locks pin their connection for as long as they are held, so sharing the
-// query pool would let lock holders starve regular queries of connections —
-// with BABBEL_DB_MAX_OPEN_CONNS=1 that deadlocks outright, since the queries
-// the lock protects then wait forever on the connection the lock pins.
+// NewLockDB isolates connection-bound MySQL locks from application queries.
 func NewLockDB(cfg *config.Config) (*sql.DB, error) {
 	db, err := sql.Open("mysql", mysqlDSN(cfg))
 	if err != nil {
@@ -50,7 +41,7 @@ func NewLockDB(cfg *config.Config) (*sql.DB, error) {
 	return db, nil
 }
 
-// NewGormDB creates a new GORM database connection using the provided configuration.
+// NewGormDB opens the application query pool.
 func NewGormDB(cfg *config.Config) (*gorm.DB, error) {
 	dsn := mysqlDSN(cfg)
 
@@ -61,13 +52,12 @@ func NewGormDB(cfg *config.Config) (*gorm.DB, error) {
 
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger:                 logger.Default.LogMode(logLevel),
-		SkipDefaultTransaction: true, // Better performance for read operations
+		SkipDefaultTransaction: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	// Configure the connection pool.
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)

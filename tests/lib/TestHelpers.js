@@ -1,5 +1,4 @@
-// Centralized test helper functions for Babbel API tests.
-// Eliminates code duplication across test files by providing unified helper methods.
+// Shared integration-test helpers.
 
 const { execFileSync } = require('child_process');
 const fsSync = require('fs');
@@ -16,9 +15,7 @@ class TestHelpers {
     this._ffmpegAvailable = null;
   }
 
-  // -------------------------------------------------------------------------
-  // General Utilities
-  // -------------------------------------------------------------------------
+  // General utilities
 
   /**
    * Delays execution for the specified number of milliseconds.
@@ -49,13 +46,7 @@ class TestHelpers {
     return false;
   }
 
-  /**
-   * Polls a bulletin job until it succeeds or fails.
-   * @param {number} jobId - Bulletin job ID to check.
-   * @param {number} timeoutMs - Max wait time (default: 45000).
-   * @param {number} intervalMs - Poll interval (default: 250).
-   * @returns {Promise<Object>} The terminal API response.
-   */
+  /** Polls a job to a terminal state; throws on HTTP errors or timeout. */
   async waitForBulletinJob(jobId, timeoutMs = 45000, intervalMs = 250) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -71,15 +62,7 @@ class TestHelpers {
     throw new Error(`Bulletin job ${jobId} did not finish within ${timeoutMs / 1000} seconds`);
   }
 
-  /**
-   * Generates a bulletin through the asynchronous job flow: enqueues the job,
-   * polls it to completion, and fetches the created bulletin.
-   * Non-202 enqueue responses are returned unchanged for error-path assertions.
-   * @param {number} stationId - Station to generate a bulletin for.
-   * @param {Object} body - Optional request body (e.g. { date }).
-   * @returns {Promise<Object>} The GET /bulletins/{id} response, or the raw
-   *   enqueue response when it was not accepted.
-   */
+  /** Enqueues and resolves a bulletin; non-202 responses pass through. */
   async generateBulletin(stationId, body = {}) {
     const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`, body);
     if (accepted.status !== 202) return accepted;
@@ -90,9 +73,7 @@ class TestHelpers {
     return this.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
   }
 
-  // -------------------------------------------------------------------------
-  // FFmpeg Utilities
-  // -------------------------------------------------------------------------
+  // FFmpeg
 
   /**
    * Checks if ffmpeg is available on the system.
@@ -165,9 +146,7 @@ class TestHelpers {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Resource Creation Helpers
-  // -------------------------------------------------------------------------
+  // Resource creation
 
   /**
    * Generates a unique name for test resources.
@@ -502,9 +481,7 @@ class TestHelpers {
     return { station, voice, stationVoice, story };
   }
 
-  // -------------------------------------------------------------------------
-  // Public Endpoint Helpers
-  // -------------------------------------------------------------------------
+  // Public endpoints
 
   /**
    * Makes a public bulletin request (bypasses authentication).

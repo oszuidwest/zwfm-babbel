@@ -19,8 +19,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// BulletinServiceDeps groups the collaborators required for selecting,
-// rendering, and persisting bulletins.
+// BulletinServiceDeps contains bulletin generation dependencies.
 type BulletinServiceDeps struct {
 	TxManager    repository.TxManager
 	BulletinRepo *repository.BulletinRepository
@@ -68,20 +67,14 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	return s.GetByID(ctx, bulletinID)
 }
 
-// create renders and stores a bulletin. finalize runs in the same transaction
-// as the bulletin and story links, allowing asynchronous jobs to commit their
-// result atomically.
+// create renders and stores a bulletin; finalize joins the persistence transaction.
 func (s *BulletinService) create(
 	ctx context.Context,
 	stationID int64,
 	targetDate time.Time,
 	finalize func(context.Context, int64) error,
 ) (int64, error) {
-	// The database lock serializes generation per station, both within this
-	// process (worker goroutines and the synchronous automation path) and
-	// across replicas, so fair-rotation state is never read concurrently.
-	// Unlike a local mutex, waiting on it stays bounded by the context
-	// deadline.
+	// Serialize selection and fair-rotation updates per station across replicas.
 	release, err := s.locks.LockStationGeneration(ctx, stationID)
 	if err != nil {
 		return 0, err
@@ -117,9 +110,7 @@ func (s *BulletinService) create(
 	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
 
-	// Shuffle story order for natural radio flow.
-	// Breaking priority and fair rotation determine which stories are selected;
-	// playback order is randomized so breaking stories appear in varied positions.
+	// Selection priority chooses stories; shuffling changes only playback order.
 	// #nosec G404 -- playback-order shuffle, not security-sensitive randomness.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]
@@ -180,7 +171,7 @@ func (s *BulletinService) generateBulletinAudio(
 	return bulletinPath, nil
 }
 
-// calculateBulletinDuration computes the total duration including stories, pauses, and mix points.
+// calculateBulletinDuration mirrors FFmpeg timing.
 func (s *BulletinService) calculateBulletinDuration(
 	station *models.Station, stories []repository.BulletinStoryData, mixPoint float64,
 ) float64 {
@@ -195,7 +186,6 @@ func (s *BulletinService) calculateBulletinDuration(
 		storiesDuration += station.PauseSeconds * float64(len(stories)-1)
 	}
 
-	// Keep stored duration aligned with the FFmpeg path, which only delays for positive mix points.
 	if mixPoint > 0 {
 		return storiesDuration + mixPoint
 	}
@@ -203,8 +193,6 @@ func (s *BulletinService) calculateBulletinDuration(
 	return storiesDuration
 }
 
-// saveBulletinParams groups the values stored when a generated bulletin is
-// committed.
 type saveBulletinParams struct {
 	StationID    int64
 	BulletinPath string
@@ -213,8 +201,7 @@ type saveBulletinParams struct {
 	Stories      []repository.BulletinStoryData
 }
 
-// saveBulletinToDatabase stores the bulletin and its story links in one
-// transaction.
+// saveBulletinToDatabase stores the bulletin and story links atomically.
 func (s *BulletinService) saveBulletinToDatabase(
 	ctx context.Context,
 	params saveBulletinParams,

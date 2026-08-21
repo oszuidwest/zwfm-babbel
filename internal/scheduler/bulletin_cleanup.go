@@ -17,11 +17,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// BulletinCleanupService handles automatic deletion of old bulletin audio files.
-// Runs as a background service that periodically purges bulletin WAV files older than
-// the configured retention period, while preserving database records as an audit trail.
-// Finished bulletin job records past retention are deleted outright; they are
-// polling state, not audit history.
+// BulletinCleanupService purges expired audio and terminal job state while retaining bulletins.
 type BulletinCleanupService struct {
 	repo   *repository.BulletinRepository
 	jobs   *repository.BulletinJobRepository
@@ -56,8 +52,6 @@ func (s *BulletinCleanupService) Stop() {
 	s.runner.Stop()
 }
 
-// cleanup performs the actual file purge logic. The runner turns a returned
-// error into an alert.
 func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 

@@ -101,8 +101,7 @@ describe('TestHelpers', () => {
     };
     const helpers = new TestHelpers(api);
 
-    // A real 3ms deadline with instant polling: the loop spins until the
-    // wall-clock deadline passes, independent of how often Date.now is read.
+    // Eliminate poll delays while the wall clock expires.
     jest.spyOn(helpers, 'sleep').mockResolvedValue();
 
     await expect(helpers.waitForStoryAudio(40, 3, 1)).resolves.toBe(false);

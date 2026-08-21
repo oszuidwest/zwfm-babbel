@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -13,37 +15,26 @@ import (
 const (
 	namedLockReleaseTimeout = 5 * time.Second
 
-	// enqueueLockWait bounds how long an enqueue waits on a concurrent enqueue
-	// for the same station; the critical section is one lookup and one insert,
-	// so real contention resolves in milliseconds.
+	// Enqueue locks protect one lookup and insert.
 	enqueueLockWait = 5 * time.Second
 
-	// generationLockFallbackWait bounds the generation lock wait when the
-	// caller's context carries no deadline; both production paths (job worker
-	// and automation endpoint) pass generation-timeout contexts, so this only
-	// guards misuse.
+	// Bound callers that omit a deadline.
 	generationLockFallbackWait = time.Minute
 )
 
-// NamedLockManager acquires MySQL named locks (GET_LOCK) on a dedicated
-// connection pool. Named locks pin their connection while held, so they must
-// never draw from the regular query pool: the queries a lock protects would
-// then compete with the lock itself for connections, which deadlocks outright
-// when BABBEL_DB_MAX_OPEN_CONNS is exhausted by lock holders.
+// NamedLockManager acquires connection-bound MySQL locks.
 type NamedLockManager struct {
 	db *sql.DB
 }
 
-// NewNamedLockManager creates a lock manager on the dedicated lock pool from
-// database.NewLockDB.
+// NewNamedLockManager uses db as its dedicated lock pool.
 func NewNamedLockManager(db *sql.DB) *NamedLockManager {
 	return &NamedLockManager{db: db}
 }
 
-// LockStationGeneration takes the cross-replica generation lock for a station,
-// so two processes can never run story selection and fair-rotation updates for
-// the same station concurrently. Waiting is bounded by the context deadline;
-// the returned release function must be called when generation completes.
+// LockStationGeneration serializes station generation across replicas. It waits
+// until the context deadline, or up to one minute when none is set. The returned
+// function releases the lock.
 func (m *NamedLockManager) LockStationGeneration(ctx context.Context, stationID int64) (func(), error) {
 	wait := generationLockFallbackWait
 	if deadline, ok := ctx.Deadline(); ok {
@@ -55,25 +46,14 @@ func (m *NamedLockManager) LockStationGeneration(ctx context.Context, stationID 
 	return m.acquire(ctx, fmt.Sprintf("babbel:bulletin:generate:station:%d", stationID), wait)
 }
 
-// LockEnqueue serializes enqueues for a station across all replicas, making
-// the find-then-create pair in BulletinJobService.Enqueue atomic so concurrent
-// requests coalesce instead of racing into duplicate jobs. The returned
-// release function must be called when the enqueue completes.
+// LockEnqueue serializes a station's find-create pair across replicas. The
+// returned function releases the lock.
 func (m *NamedLockManager) LockEnqueue(ctx context.Context, stationID int64) (func(), error) {
 	return m.acquire(ctx, fmt.Sprintf("babbel:bulletin-jobs:enqueue:station:%d", stationID), enqueueLockWait)
 }
 
-// acquire takes a MySQL named lock and returns a release function. The lock is
-// held on a dedicated pooled connection that stays pinned until release; if
-// the process or connection dies, MySQL releases the lock server-side. Waiting
-// is bounded by wait and by ctx cancellation.
 func (m *NamedLockManager) acquire(ctx context.Context, name string, wait time.Duration) (func(), error) {
-	// wait bounds the whole acquisition: waiting for a free pool connection
-	// first, then the server-side GET_LOCK wait. Without the combined budget,
-	// a lock pool exhausted by long-held generation locks would stall
-	// acquirers far beyond their advertised timeout. The context only governs
-	// acquisition, so canceling it on return does not affect the held
-	// connection.
+	// One timeout covers pool acquisition and GET_LOCK; the held connection outlives it.
 	lockCtx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 
@@ -94,14 +74,26 @@ func (m *NamedLockManager) acquire(ctx context.Context, name string, wait time.D
 	}
 
 	release := func() {
-		// The lock must be dropped before the connection returns to the pool;
-		// on a broken connection the server has already released it.
+		// Discard the session unless release is confirmed.
 		releaseCtx, cancel := context.WithTimeout(context.Background(), namedLockReleaseTimeout)
 		defer cancel()
-		if _, err := conn.ExecContext(releaseCtx, "DO RELEASE_LOCK(?)", name); err != nil {
-			logger.Error("Failed to release named lock", "lock", name, "error", err)
+
+		var released sql.NullInt64
+		err := conn.QueryRowContext(releaseCtx, "SELECT RELEASE_LOCK(?)", name).Scan(&released)
+		if err != nil || !released.Valid || released.Int64 != 1 {
+			if err != nil {
+				logger.Error("Failed to release named lock", "lock", name, "error", err)
+			} else {
+				logger.Error("Named lock release was not confirmed", "lock", name,
+					"result", released.Int64, "valid", released.Valid)
+			}
+			if discardErr := conn.Raw(func(any) error { return driver.ErrBadConn }); discardErr != nil &&
+				!errors.Is(discardErr, driver.ErrBadConn) &&
+				!errors.Is(discardErr, sql.ErrConnDone) {
+				logger.Error("Failed to discard named lock connection", "lock", name, "error", discardErr)
+			}
 		}
-		if err := conn.Close(); err != nil {
+		if err := conn.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
 			logger.Error("Failed to close named lock connection", "lock", name, "error", err)
 		}
 	}

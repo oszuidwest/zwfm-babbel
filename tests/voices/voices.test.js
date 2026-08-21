@@ -15,7 +15,7 @@ describe('Voices', () => {
     let voiceId;
 
     beforeAll(async () => {
-      // Arrange: Create station and voice for dependency testing
+      // Create station and voice for dependency testing
       const station = await global.helpers.createStation(
         global.resources,
         'VoiceTestStation',
@@ -31,7 +31,7 @@ describe('Voices', () => {
     });
 
     test('when deleting voice with stories, then protected or cascades', async () => {
-      // Arrange: Create story with voice dependency
+      // Create story with voice dependency
       const storyData = {
         title: 'Voice Association Test Story',
         text: 'Test content for voice association.',
@@ -48,10 +48,9 @@ describe('Voices', () => {
 
       global.resources.track('stories', storyResponse.data.id);
 
-      // Act
       const deleteResponse = await global.api.apiCall('DELETE', `/voices/${voiceId}`);
 
-      // Assert: Should either protect (409) or cascade delete (204)
+      // Should either protect (409) or cascade delete (204)
       expect([204, 409]).toContain(deleteResponse.status);
 
       // Cleanup: Untrack if deleted

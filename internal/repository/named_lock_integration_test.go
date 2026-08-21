@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// openIntegrationLockDB opens a dedicated connection pool for named locks,
-// mirroring the production wiring where locks never share the query pool.
 func openIntegrationLockDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -58,8 +56,6 @@ func TestNamedLockIntegration_StationGenerationLockRespectsDeadline(t *testing.T
 	}
 	defer release()
 
-	// A second acquirer derives its wait from the context deadline and must
-	// give up once it expires instead of queueing behind generation forever.
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	if _, err := locks.LockStationGeneration(ctx, 424242); !errors.Is(err, context.DeadlineExceeded) {
@@ -67,11 +63,6 @@ func TestNamedLockIntegration_StationGenerationLockRespectsDeadline(t *testing.T
 	}
 }
 
-// TestNamedLockIntegration_WaitBoundsPoolAcquisition guards the acquisition
-// budget: wait covers waiting for a free pool connection, not just the
-// server-side GET_LOCK wait. With the lock pool exhausted by held locks, a
-// second acquirer must give up within its wait instead of stalling until a
-// connection frees up.
 func TestNamedLockIntegration_WaitBoundsPoolAcquisition(t *testing.T) {
 	lockDB := openIntegrationLockDB(t)
 	lockDB.SetMaxOpenConns(1)
@@ -83,8 +74,7 @@ func TestNamedLockIntegration_WaitBoundsPoolAcquisition(t *testing.T) {
 		t.Fatalf("first acquire() error = %v", err)
 	}
 
-	// A different lock name, so only the exhausted pool can block this
-	// acquirer; the MySQL lock itself is free.
+	// Use another name so only pool exhaustion can block acquisition.
 	start := time.Now()
 	_, err = locks.acquire(t.Context(), fmt.Sprintf("babbel:test:%d:b", base), 300*time.Millisecond)
 	elapsed := time.Since(start)
@@ -103,11 +93,6 @@ func TestNamedLockIntegration_WaitBoundsPoolAcquisition(t *testing.T) {
 	again()
 }
 
-// TestNamedLockIntegration_HeldLockDoesNotStarveQueryPool reproduces the
-// deadlock that motivated the dedicated lock pool: with a query pool capped at
-// one connection, a held lock drawn from that same pool would block the very
-// queries it protects. With separate pools the query must succeed while the
-// lock is held.
 func TestNamedLockIntegration_HeldLockDoesNotStarveQueryPool(t *testing.T) {
 	db := openIntegrationDB(t)
 	sqlDB, err := db.DB()

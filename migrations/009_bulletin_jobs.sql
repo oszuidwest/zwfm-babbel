@@ -1,6 +1,4 @@
--- Persist asynchronous bulletin-generation jobs for polling and restart recovery.
--- Delta for databases that predate this table; fresh databases already get it
--- from the 001 snapshot, so this is a no-op there.
+-- Adds bulletin jobs to databases created before the 001 snapshot included them.
 CREATE TABLE IF NOT EXISTS bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,

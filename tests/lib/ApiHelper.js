@@ -1,8 +1,4 @@
-/**
- * ApiHelper - HTTP client for Babbel API tests
- * Handles cookie-based session management, file uploads, and authentication.
- * Extracted from BaseTest.js for use with Jest.
- */
+/** HTTP client with cookie sessions for integration tests. */
 const axios = require('axios');
 const FormData = require('form-data');
 const { CookieJar } = require('tough-cookie');
@@ -16,22 +12,18 @@ class ApiHelper {
     this.apiUrl = `${this.apiBase}/api/v1`;
     this.audioDir = path.join(__dirname, '../../audio');
 
-    // Initialize cookie jar and HTTP client
     this.cookieJar = new CookieJar();
     this.http = wrapper(axios.create({
       jar: this.cookieJar,
-      validateStatus: () => true, // Don't throw on HTTP errors
+      validateStatus: () => true, // Return error responses for assertions.
       timeout: 30000
     }));
 
-    // Default credentials
     this.defaultAdminUsername = 'admin';
     this.defaultAdminPassword = 'admin';
   }
 
-  /**
-   * Clears all cookies and reinitializes the HTTP client.
-   */
+  /** Clears cookies and resets the HTTP client. */
   clearCookies() {
     this.cookieJar = new CookieJar();
     this.http = wrapper(axios.create({
@@ -41,18 +33,9 @@ class ApiHelper {
     }));
   }
 
-  // -------------------------------------------------------------------------
-  // HTTP Request Methods
-  // -------------------------------------------------------------------------
+  // Requests
 
-  /**
-   * Makes API call with automatic cookie handling.
-   * @param {string} method - HTTP method (GET, POST, etc.)
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} data - Request data (optional)
-   * @param {Object} options - Additional axios options (optional)
-   * @returns {Promise<Object>} Response object with status, data, and headers
-   */
+  /** Sends an API request without throwing on HTTP error responses. */
   async apiCall(method, endpoint, data = null, options = {}) {
     const config = {
       method: method.toLowerCase(),
@@ -79,24 +62,14 @@ class ApiHelper {
     };
   }
 
-  /**
-   * Uploads file using multipart form data.
-   * @param {string} endpoint - API endpoint path
-   * @param {Object} formFields - Form field data
-   * @param {string} filePath - Path to file to upload (optional)
-   * @param {string} fileFieldName - Name of file field (default: 'file')
-   * @param {string} method - HTTP method (default: 'POST')
-   * @returns {Promise<Object>} Response object with status, data, and headers
-   */
+  /** Sends multipart form data with an optional file. */
   async uploadFile(endpoint, formFields, filePath = null, fileFieldName = 'file', method = 'POST') {
     const form = new FormData();
 
-    // Add regular form fields
     for (const [key, value] of Object.entries(formFields)) {
       form.append(key, value);
     }
 
-    // Add file if provided
     if (filePath) {
       if (!fsSync.existsSync(filePath)) {
         throw new Error(`Upload file not found: ${filePath}`);
@@ -170,9 +143,7 @@ class ApiHelper {
     return response.status;
   }
 
-  // -------------------------------------------------------------------------
-  // Authentication Methods
-  // -------------------------------------------------------------------------
+  // Authentication
 
   /**
    * Authenticates with the API using provided credentials.

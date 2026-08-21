@@ -17,20 +17,14 @@ import (
 )
 
 const (
-	// bulletinJobPollInterval paces idle cross-replica pickup and expired-lease
-	// reclaim; same-process enqueues wake the worker immediately via s.wake.
+	// Poll for cross-replica enqueues and expired leases; local enqueues wake workers.
 	bulletinJobPollInterval  = 5 * time.Second
 	bulletinJobUpdateTimeout = 5 * time.Second
 
-	// bulletinJobSweepInterval paces the terminal-failure sweeps. The claim
-	// predicate keeps over-cap jobs unclaimable between sweeps and the queue
-	// SLA is minutes, so sweeping faster than this only burns database writes.
+	// Claims exclude terminal candidates between sweeps.
 	bulletinJobSweepInterval = time.Minute
 
-	// bulletinJobMaxAttempts bounds lease-reclaim retries: ClaimNext never
-	// claims a job at this cap, so a job whose process keeps dying
-	// mid-generation (OOM, kill -9) is terminally failed instead of re-running
-	// forever and starving its station's queue.
+	// Bound crash-loop retries so one job cannot starve its station.
 	bulletinJobMaxAttempts = 3
 
 	jobDetailGenerationFailed = "Bulletin generation failed"
@@ -52,9 +46,7 @@ type BulletinJobService struct {
 	startOnce sync.Once
 }
 
-// NewBulletinJobService creates an asynchronous bulletin worker. cfg must be
-// validated (positive timeouts, at least one worker); config validation
-// enforces this at startup.
+// NewBulletinJobService returns a stopped worker; cfg must be validated.
 func NewBulletinJobService(
 	repo *repository.BulletinJobRepository,
 	locks *repository.NamedLockManager,
@@ -73,10 +65,7 @@ func NewBulletinJobService(
 	}
 }
 
-// Start launches the configured number of worker goroutines. Claims serialize
-// on the database row lock and the one-active-job-per-station guard, so extra
-// workers only add throughput across stations. Expired leases are reclaimed
-// during normal claiming, so starting one replica never disturbs another.
+// Start launches configured workers; extra workers add cross-station throughput.
 func (s *BulletinJobService) Start() {
 	s.startOnce.Do(func() {
 		workerCtx, cancel := context.WithCancel(context.Background())
@@ -96,7 +85,7 @@ func (s *BulletinJobService) Start() {
 	})
 }
 
-// Stop cancels active generation and waits for the worker to exit.
+// Stop cancels active generation and waits for all workers to exit.
 func (s *BulletinJobService) Stop(ctx context.Context) error {
 	if s.cancel == nil {
 		return nil
@@ -110,18 +99,13 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 	}
 }
 
-// Enqueue persists a generation request before waking the worker. Repeated
-// requests for the same station and date coalesce onto the existing queued or
-// running job, so client retries do not pile up duplicate generations. The
-// enqueue lock makes the find-then-create pair atomic across replicas.
+// Enqueue returns an active station-date job or persists and wakes a new one.
 func (s *BulletinJobService) Enqueue(
 	ctx context.Context,
 	stationID int64,
 	targetDate time.Time,
 ) (*models.BulletinJob, error) {
-	// Lock-free fast path: an already-active job coalesces without paying for
-	// the cross-replica lock. Missing a job that is being created concurrently
-	// is fine; the locked re-check below still prevents duplicates.
+	// Avoid the cross-replica lock when the job is already visible.
 	existing, err := s.repo.FindActive(ctx, stationID, targetDate)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
@@ -130,8 +114,7 @@ func (s *BulletinJobService) Enqueue(
 		return existing, nil
 	}
 
-	// An expired lock wait carries context.DeadlineExceeded through the
-	// DatabaseError wrap and still maps to 504, telling the client to retry.
+	// Preserve DeadlineExceeded so HTTP mapping returns 504.
 	release, err := s.locks.LockEnqueue(ctx, stationID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
@@ -199,8 +182,7 @@ func (s *BulletinJobService) processQueued(ctx context.Context) error {
 	if err := s.sweepIfDue(ctx); err != nil {
 		return err
 	}
-	// The lease must outlive one full generation attempt plus the finalize or
-	// failure write, or another claimer could reclaim a live job.
+	// Leave time to persist the result before another worker may reclaim the lease.
 	leaseFor := s.cfg.GenerationTimeout + (2 * bulletinJobUpdateTimeout)
 	for ctx.Err() == nil {
 		job, err := s.repo.ClaimNext(ctx, leaseFor, bulletinJobMaxAttempts, s.cfg.QueueTimeout)
@@ -210,8 +192,7 @@ func (s *BulletinJobService) processQueued(ctx context.Context) error {
 		if job == nil {
 			return nil
 		}
-		// Hand remaining queued work to an idle worker instead of letting it
-		// wait behind this generation until the next poll tick.
+		// Wake an idle worker for remaining queued jobs.
 		select {
 		case s.wake <- struct{}{}:
 		default:
@@ -221,11 +202,7 @@ func (s *BulletinJobService) processQueued(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// sweepIfDue runs the terminal-failure sweeps at most once per
-// bulletinJobSweepInterval across all workers; every worker cycle re-running
-// two table-wide updates would be wasted writes at idle. Delaying the sweep is
-// safe because the ClaimNext predicate already keeps over-cap and past-SLA
-// jobs unclaimable; the sweep only finalizes their polled status.
+// sweepIfDue limits terminal-state sweeps to one per interval across all workers.
 func (s *BulletinJobService) sweepIfDue(ctx context.Context) error {
 	now := time.Now().UnixNano()
 	last := s.lastSweep.Load()
@@ -233,18 +210,13 @@ func (s *BulletinJobService) sweepIfDue(ctx context.Context) error {
 		return nil
 	}
 	if err := s.failExhausted(ctx); err != nil {
-		// Roll back so the next cycle retries instead of waiting out the
-		// interval with jobs stuck in a non-terminal status.
+		// Let the next cycle retry immediately.
 		s.lastSweep.Store(last)
 		return err
 	}
 	return nil
 }
 
-// failExhausted terminally fails jobs at the attempt cap and never-picked-up
-// jobs past the queue-wait SLA, so no job can poll as pending forever. The
-// attempt guard in ClaimNext keeps over-cap jobs unclaimable in the window
-// between sweeps.
 func (s *BulletinJobService) failExhausted(ctx context.Context) error {
 	exhausted, err := s.repo.FailExhausted(ctx, bulletinJobMaxAttempts,
 		apperrors.CodeRetriesExhausted,
@@ -265,8 +237,6 @@ func (s *BulletinJobService) failExhausted(ctx context.Context) error {
 	return nil
 }
 
-// processJob runs one claimed attempt and finalizes its outcome: requeue when
-// shutdown interrupted it, otherwise record success or a client-safe failure.
 func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.BulletinJob) {
 	bulletinID, err := s.generate(workerCtx, job)
 	switch {
@@ -283,8 +253,7 @@ func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.B
 	}
 }
 
-// generate runs one bounded generation attempt, converting a panic into an
-// ordinary error so processJob has a single finalize decision.
+// generate bounds one attempt and converts panics to errors for normal finalization.
 func (s *BulletinJobService) generate(workerCtx context.Context, job *models.BulletinJob) (_ int64, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

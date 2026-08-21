@@ -18,7 +18,7 @@ type BulletinJobRepository struct {
 	*GormRepository[models.BulletinJob]
 }
 
-// NewBulletinJobRepository creates a bulletin job repository.
+// NewBulletinJobRepository uses db for job persistence and claims.
 func NewBulletinJobRepository(db *gorm.DB) *BulletinJobRepository {
 	return &BulletinJobRepository{GormRepository: NewGormRepository[models.BulletinJob](db)}
 }
@@ -40,15 +40,8 @@ func (r *BulletinJobRepository) Create(
 	return job, nil
 }
 
-// ClaimNext atomically leases the oldest queued or expired job. The attempt
-// guard is the hard retry cap: jobs at or over maxAttempts are never claimable
-// and can only be terminally failed by FailExhausted. The maxQueuedAge guard
-// is the hard queue-wait SLA: never-picked-up jobs (attempt = 0) older than it
-// are never claimable and can only be terminally failed by FailStaleQueued,
-// so a delayed sweep cannot let an expired job start anyway. The NOT EXISTS
-// guard skips stations that already have a live running job, and concurrent
-// claimers serialize on the candidate row lock. Generation itself is
-// additionally serialized per station by BulletinService.
+// ClaimNext leases the oldest queued or expired job under a row lock. It skips
+// exhausted jobs, stale never-claimed jobs, and stations with a live job.
 func (r *BulletinJobRepository) ClaimNext(
 	ctx context.Context,
 	leaseDuration time.Duration,
@@ -107,11 +100,8 @@ func (r *BulletinJobRepository) ClaimNext(
 	return claimed, nil
 }
 
-// FindActive returns the newest queued or running job for a station and date
-// so repeated generation requests coalesce onto one job, or nil when none
-// exists. Callers hold NamedLockManager.LockEnqueue around the
-// find-then-create pair so concurrent enqueues cannot race into duplicate
-// jobs.
+// FindActive returns the newest non-terminal job for a station and date.
+// Lock the find-create pair to prevent duplicate enqueues.
 func (r *BulletinJobRepository) FindActive(
 	ctx context.Context,
 	stationID int64,
@@ -133,11 +123,7 @@ func (r *BulletinJobRepository) FindActive(
 	return &job, nil
 }
 
-// FailExhausted terminally fails jobs that reached the attempt cap: running
-// jobs whose lease expired (crash loops) and queued jobs requeued while their
-// final attempt was interrupted. ClaimNext never claims jobs at the cap, so
-// this sweep is their only exit and a crashing job cannot retry forever.
-// It returns the number of jobs failed with the given client-safe error.
+// FailExhausted fails expired or requeued jobs at the attempt cap.
 func (r *BulletinJobRepository) FailExhausted(
 	ctx context.Context,
 	maxAttempts int,
@@ -160,12 +146,7 @@ func (r *BulletinJobRepository) FailExhausted(
 	return result.RowsAffected, nil
 }
 
-// FailStaleQueued terminally fails queued jobs no worker ever picked up
-// (attempt = 0) within maxQueuedAge, so clients never poll a dead queue
-// forever. Jobs requeued after an interrupted attempt keep their original
-// created_at but have attempt > 0, so they are exempt here and bounded by the
-// attempt cap instead. It returns the number of jobs failed with the given
-// client-safe error.
+// FailStaleQueued fails jobs not claimed within maxQueuedAge.
 func (r *BulletinJobRepository) FailStaleQueued(
 	ctx context.Context,
 	maxQueuedAge time.Duration,
@@ -187,9 +168,7 @@ func (r *BulletinJobRepository) FailStaleQueued(
 	return result.RowsAffected, nil
 }
 
-// DeleteTerminalBefore removes succeeded and failed job records finished
-// before cutoff. Job rows are polling state, not audit history; bulletins
-// remain the audit trail.
+// DeleteTerminalBefore removes expired polling state; bulletins remain the audit trail.
 func (r *BulletinJobRepository) DeleteTerminalBefore(ctx context.Context, cutoff time.Time) (int64, error) {
 	result := r.db.WithContext(ctx).
 		Where("status IN ? AND completed_at < ?",
@@ -247,8 +226,7 @@ func checkedJobUpdate(result *gorm.DB) error {
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
-	// Callers filter on the primary key, so anything but one row means the
-	// lease was reclaimed or finalized by another worker.
+	// Any other row count means another worker reclaimed or finalized the lease.
 	if result.RowsAffected != 1 {
 		return ErrBulletinJobLeaseLost
 	}

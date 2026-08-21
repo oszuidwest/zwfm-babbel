@@ -637,12 +637,11 @@ describe('openapi.yaml contract invariants', () => {
     }
   });
 
-  // POST /api/v1/stations/{id}/bulletins does not generate (that timeout
-  // surfaces as error_code internal.timeout on the job), but its per-station
-  // enqueue coalescing lock can time out under heavy concurrency.
+  // Async enqueue can time out while acquiring its coalescing lock.
   test('when a timeout can occur, then 504 is declared with the internal.timeout problem example', () => {
     for (const [method, operationPath] of [
       ['get', '/public/stations/{id}/bulletin.wav'],
+      ['get', '/api/v1/bulletin-jobs/{id}'],
       ['post', '/api/v1/stories/{id}/tts'],
       ['post', '/api/v1/stations/{id}/bulletins']
     ]) {

@@ -5,6 +5,7 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,8 +13,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// createBulletinJobStation creates a uniquely named station and registers
-// cleanup of the station and its jobs.
 func createBulletinJobStation(t *testing.T, db *gorm.DB) models.Station {
 	t.Helper()
 	station := models.Station{
@@ -93,8 +92,6 @@ func TestBulletinJobRepositoryIntegration_OneActiveJobPerStation(t *testing.T) {
 		t.Fatalf("second claim = %#v, want nil while first job is leased", second)
 	}
 
-	// The queue must drain: once the running job finalizes, the next queued
-	// job for the same station becomes claimable.
 	if err := repo.Fail(t.Context(), first.ID, first.Attempt, "test.failure", "expected"); err != nil {
 		t.Fatalf("Fail() error = %v", err)
 	}
@@ -104,6 +101,47 @@ func TestBulletinJobRepositoryIntegration_OneActiveJobPerStation(t *testing.T) {
 	}
 	if third == nil || third.ID == first.ID {
 		t.Fatalf("third claim = %#v, want the second queued job after the first finalized", third)
+	}
+}
+
+func TestBulletinJobRepositoryIntegration_ConcurrentClaimsKeepOneActiveJobPerStation(t *testing.T) {
+	db := openIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
+	repo := NewBulletinJobRepository(db)
+
+	for range 2 {
+		if _, err := repo.Create(t.Context(), station.ID, time.Now()); err != nil {
+			t.Fatalf("Create() error = %v", err)
+		}
+	}
+
+	start := make(chan struct{})
+	results := make([]*models.BulletinJob, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Go(func() {
+			<-start
+			results[i], errs[i] = repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	claimed := 0
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("ClaimNext() call %d error = %v", i, err)
+		}
+		if results[i] != nil {
+			claimed++
+			if results[i].StationID != station.ID {
+				t.Fatalf("ClaimNext() call %d station = %d, want %d", i, results[i].StationID, station.ID)
+			}
+		}
+	}
+	if claimed != 1 {
+		t.Fatalf("concurrent ClaimNext() calls claimed %d jobs, want exactly 1", claimed)
 	}
 }
 
@@ -159,8 +197,7 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 		Updates(map[string]any{"lease_until": time.Now().Add(-time.Minute), "attempt": 3}).Error; err != nil {
 		t.Fatalf("expire lease at cap: %v", err)
 	}
-	// A queued job released while its final attempt was interrupted also sits
-	// at the cap and must be swept, not reclaimed.
+	// Interrupted final attempts requeue at the cap.
 	requeued, err := repo.Create(t.Context(), otherStation.ID, time.Now())
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -170,8 +207,7 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 		t.Fatalf("set requeued job at cap: %v", err)
 	}
 
-	// The claim predicate itself is the hard cap: expired or queued jobs at
-	// the cap must never be claimable, even before the sweep runs.
+	// Jobs at the cap remain unclaimable before the sweep.
 	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil || next != nil {
 		t.Fatalf("ClaimNext() before sweep = %#v, %v; want nil, nil for jobs at cap", next, err)
 	}
@@ -215,9 +251,7 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 		Update("created_at", time.Now().Add(-time.Hour)).Error; err != nil {
 		t.Fatalf("age stale job: %v", err)
 	}
-	// A job requeued after an interrupted attempt keeps its original
-	// created_at but has attempt > 0; the queue-wait SLA only covers jobs no
-	// worker ever picked up, so it must survive the sweep.
+	// QueueTimeout excludes requeued jobs; maxAttempts bounds them.
 	requeued, err := repo.Create(t.Context(), station.ID, time.Now())
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -260,15 +294,11 @@ func TestBulletinJobRepositoryIntegration_StaleQueuedIsNotClaimable(t *testing.T
 		t.Fatalf("age job: %v", err)
 	}
 
-	// The claim predicate itself is the hard queue SLA: a job no worker ever
-	// picked up within maxQueuedAge must never start, even in the window
-	// before the FailStaleQueued sweep finalizes it.
 	if stale, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute); err != nil || stale != nil {
 		t.Fatalf("ClaimNext() past queue SLA = %#v, %v; want nil, nil", stale, err)
 	}
 
-	// A requeued job with the same age but attempt > 0 is exempt from the SLA
-	// and stays claimable; it is bounded by the attempt cap instead.
+	// Requeued jobs are exempt from QueueTimeout.
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
 		Update("attempt", 1).Error; err != nil {
 		t.Fatalf("mark job requeued: %v", err)

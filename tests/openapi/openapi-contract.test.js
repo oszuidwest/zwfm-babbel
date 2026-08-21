@@ -310,7 +310,6 @@ describe('OpenAPI Contract', () => {
       apiScenario('GET', '/api/v1/bulletins/{id}', () => `/bulletins/${ctx.bulletin.id}`),
       sparseListScenario('GET', '/api/v1/stations/{id}/bulletins', () => `/stations/${ctx.station.id}/bulletins`, ['id', 'station_id', 'created_at']),
       scenario('GET', '/api/v1/stations/{id}/bulletins/latest', async () => {
-          // This asserts the setup bulletin is still latest before the POST scenario below creates a newer one.
           const response = await apiCall(
             'GET',
             '/api/v1/stations/{id}/bulletins/latest',
@@ -320,7 +319,7 @@ describe('OpenAPI Contract', () => {
           expect(response.data.id).toBe(ctx.bulletin.id);
           return response;
         }),
-      // Keep this after the latest scenario: this job creates a newer bulletin for ctx.station.
+      // Must follow the latest-bulletin check because it creates a newer one.
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const response = await apiCall(
             'POST',
@@ -343,8 +342,7 @@ describe('OpenAPI Contract', () => {
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
           expect(response.status).toBe(202);
           await global.helpers.waitForBulletinJob(response.data.id);
-          // Re-fetch through apiCall so the failed-job shape is validated
-          // against the BulletinJob schema, not just field-asserted.
+          // apiCall validates the failed job against the OpenAPI schema.
           const job = await apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${response.data.id}`);
           expect(job.data.status).toBe('failed');
           expect(job.data.error_code).toBe('bulletin.no_stories');

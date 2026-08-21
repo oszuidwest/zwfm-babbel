@@ -109,14 +109,9 @@ type AutomationConfig struct {
 type BulletinJobConfig struct {
 	// GenerationTimeout limits one background generation attempt.
 	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
-	// QueueTimeout is the queue-wait SLA: a job no worker picked up within it
-	// fails with internal.queue_timeout. Size it to cover the worst-case
-	// backlog, roughly stations x GenerationTimeout / Workers.
+	// QueueTimeout limits how long an unclaimed job may wait.
 	QueueTimeout time.Duration `env:"QUEUE_TIMEOUT" envDefault:"15m"`
-	// Workers sets how many bulletin jobs generate concurrently. Jobs for the
-	// same station always run one at a time; extra workers only add throughput
-	// across stations. The default keeps a full station roster within the
-	// default QueueTimeout.
+	// Workers limits concurrent generation across stations.
 	Workers int `env:"WORKERS" envDefault:"4"`
 }
 

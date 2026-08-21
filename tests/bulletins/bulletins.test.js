@@ -69,12 +69,10 @@ describe('Bulletins', () => {
     });
 
     test('when generating bulletin, then returns complete data', async () => {
-      // Arrange: Uses station setup from beforeAll
+      // Uses station setup from beforeAll
 
-      // Act
       const response = await generateBulletin(stationId);
 
-      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('id');
       expect(response.data).toHaveProperty('audio_url');
@@ -84,13 +82,10 @@ describe('Bulletins', () => {
     });
 
     test('when generating with specific date, then succeeds', async () => {
-      // Arrange
       const today = new Date().toISOString().split('T')[0];
 
-      // Act
       const response = await generateBulletin(stationId, { date: today });
 
-      // Assert
       expect(response.status).toBe(200);
     });
 
@@ -128,7 +123,7 @@ describe('Bulletins', () => {
       // so we generate multiple bulletins and assert ALL are consistent.
       // With 5 runs the false-pass probability drops to ~3%.
 
-      // Arrange: two voices with very different mix points
+      // Two voices with very different mix points
       const station = await global.helpers.createStation(global.resources, 'JingleCtxStation', 2, 0);
       const highPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceHigh');
       const lowPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceLow');
@@ -162,7 +157,7 @@ describe('Bulletins', () => {
         is_breaking: false
       }, [station.id]);
 
-      // Act: generate 5 bulletins - each shuffle is independent
+      // Generate 5 bulletins - each shuffle is independent
       const runs = 5;
       const durations = [];
       for (let i = 0; i < runs; i++) {
@@ -172,7 +167,7 @@ describe('Bulletins', () => {
         durations.push(response.data.duration_seconds);
       }
 
-      // Assert: every bulletin must use the 5.0s mix point from the breaking
+      // Every bulletin must use the 5.0s mix point from the breaking
       // story's voice. Each test story is ~3s audio, pause_seconds is 0,
       // so total about 3 + 3 + 5.0 = 11.0s.
       // If the wrong mix point were used, total about 3 + 3 + 0.5 = 6.5s.
@@ -187,7 +182,6 @@ describe('Bulletins', () => {
     });
 
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
-      // Arrange
       const { station, voice } = await createStationVoiceFixture('BreakingPriorityStation', 'BreakingPriorityVoice', 2);
 
       const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.requireStationStoriesWithReadyAudio(
@@ -201,10 +195,8 @@ describe('Bulletins', () => {
         ]
       );
 
-      // Act
       const bulletinResponse = await generateBulletin(station.id);
 
-      // Assert
       expect(bulletinResponse.status).toBe(200);
 
       const { response: bulletinStoriesResponse, ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
@@ -217,7 +209,7 @@ describe('Bulletins', () => {
     });
 
     test('when breaking and non-breaking stories compete for slots, then breaking always included', async () => {
-      // Arrange: station with 3 slots, 1 breaking + 4 non-breaking stories
+      // Station with 3 slots, 1 breaking + 4 non-breaking stories
       const { station, voice } = await createStationVoiceFixture('BreakingAlwaysStation', 'BreakingAlwaysVoice', 3);
 
       const [breakingStory] = await global.helpers.requireStationStoriesWithReadyAudio(
@@ -241,7 +233,7 @@ describe('Bulletins', () => {
         regularStoryIds.push(story.id);
       }
 
-      // Act: generate 5 bulletins - fair rotation will vary the non-breaking stories
+      // Generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
       for (let i = 0; i < runs; i++) {
         const bulletinResponse = await generateBulletin(station.id);
@@ -250,10 +242,10 @@ describe('Bulletins', () => {
 
         const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
-        // Assert: breaking story is in every single bulletin
+        // Breaking story is in every single bulletin
         expect(includedStoryIds).toContain(breakingStory.id);
 
-        // Assert: remaining 2 slots are filled by non-breaking stories
+        // Remaining 2 slots are filled by non-breaking stories
         const nonBreakingIncluded = includedStoryIds.filter(id => id !== breakingStory.id);
         expect(nonBreakingIncluded).toHaveLength(2);
         nonBreakingIncluded.forEach(id => {
@@ -263,7 +255,7 @@ describe('Bulletins', () => {
     });
 
     test('when breaking story is ineligible, then excluded from bulletin despite flag', async () => {
-      // Arrange: station with stories that are breaking but fail eligibility
+      // Station with stories that are breaking but fail eligibility
       const { station, voice } = await createStationVoiceFixture('BreakingEligStation', 'BreakingEligVoice', 3);
 
       // Current weekday bitmask: Sunday=1, Monday=2, Tuesday=4, etc.
@@ -289,10 +281,8 @@ describe('Bulletins', () => {
           { title: `BreakingEligRegular_${Date.now()}`, text: 'Eligible regular story', is_breaking: false }
         ]);
 
-      // Act
       const bulletinResponse = await generateBulletin(station.id);
 
-      // Assert
       expect(bulletinResponse.status).toBe(200);
 
       const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
@@ -307,7 +297,7 @@ describe('Bulletins', () => {
     });
 
     test('when multiple breaking stories compete for limited slots, then newest by start_date selected', async () => {
-      // Arrange: station with 2 slots, 3 breaking stories with different start_dates
+      // Station with 2 slots, 3 breaking stories with different start_dates
       const { station, voice } = await createStationVoiceFixture('BreakingNewestStation', 'BreakingNewestVoice', 2);
 
       const [oldBreaking, midBreaking, newBreaking] = await global.helpers.requireStationStoriesWithReadyAudio(
@@ -339,10 +329,8 @@ describe('Bulletins', () => {
         ]
       );
 
-      // Act
       const bulletinResponse = await generateBulletin(station.id);
 
-      // Assert
       expect(bulletinResponse.status).toBe(200);
       expect(bulletinResponse.data.story_count).toBe(2);
 
@@ -357,41 +345,33 @@ describe('Bulletins', () => {
 
   describe('Bulletin Retrieval', () => {
     test('when fetching single bulletin, then returns data', async () => {
-      // Arrange
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (listResponse.data.data.length > 0) {
         const bulletinId = listResponse.data.data[0].id;
 
-        // Act
         const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
 
-        // Assert
         expect(response.status).toBe(200);
         expect(response.data.id).toBe(bulletinId);
       }
     });
 
     test('when fetching non-existent bulletin, then returns 404', async () => {
-      // Act
       const response = await global.api.apiCall('GET', '/bulletins/999999999');
 
-      // Assert
       expect(response.status).toBe(404);
     });
 
     test('when fetching bulletin, then has correct field types', async () => {
-      // Arrange
       const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (listResponse.data.data.length > 0) {
         const bulletinId = listResponse.data.data[0].id;
 
-        // Act
         const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
         const bulletin = response.data;
 
-        // Assert
         expect(typeof bulletin.id).toBe('number');
         expect(typeof bulletin.station_id).toBe('number');
         expect(typeof bulletin.station_name).toBe('string');
@@ -441,7 +421,6 @@ describe('Bulletins', () => {
       const completed = await global.helpers.waitForBulletinJob(first.data.id);
       expect(completed.data.status).toBe('succeeded');
 
-      // A finished job no longer coalesces; a new request queues a new job.
       const third = await enqueueBulletin(stationId);
       expect(third.status).toBe(202);
       expect(third.data.id).not.toBe(first.data.id);
@@ -449,9 +428,6 @@ describe('Bulletins', () => {
     });
 
     test('when the same generation is requested concurrently, then both requests coalesce onto one job', async () => {
-      // The enqueue lock serializes simultaneous requests, so coalescing is
-      // atomic rather than best effort: parallel POSTs must never create two
-      // jobs for the same station and date.
       const responses = await Promise.all([
         enqueueBulletin(stationId),
         enqueueBulletin(stationId),
@@ -469,6 +445,7 @@ describe('Bulletins', () => {
 
     test('when generation has no eligible stories, then the asynchronous job fails safely', async () => {
       const emptyStation = await global.helpers.createStation(global.resources, 'AsyncEmptyStation');
+      expect(emptyStation).not.toBeNull();
       const accepted = await enqueueBulletin(emptyStation.id);
       expect(accepted.status).toBe(202);
 
@@ -513,10 +490,8 @@ describe('Bulletins', () => {
     });
 
     test('when called with only pagination, then returns 200', async () => {
-      // Act
       const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?limit=10&offset=0`);
 
-      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
     });
@@ -534,17 +509,14 @@ describe('Bulletins', () => {
 
   describe('Bulletin Audio Download', () => {
     test('when downloading audio, then file is valid', async () => {
-      // Arrange
       const response = await global.api.apiCall('GET', '/bulletins?limit=1');
 
       if (response.data.data.length > 0) {
         const bulletinId = response.data.data[0].id;
         const downloadPath = '/tmp/test_bulletin_download.wav';
 
-        // Act
         const downloadResponse = await global.api.downloadFile(`/bulletins/${bulletinId}/audio`, downloadPath);
 
-        // Assert
         if (downloadResponse === 200) {
           expect(fs.existsSync(downloadPath)).toBe(true);
           const stats = fs.statSync(downloadPath);
@@ -571,22 +543,18 @@ describe('Bulletins', () => {
     });
 
     test('when generating station bulletin, then succeeds', async () => {
-      // Arrange: Uses station setup from beforeAll
+      // Uses station setup from beforeAll
 
-      // Act
       const response = await generateBulletin(stationId);
 
-      // Assert
       expect(response.status).toBe(200);
     });
 
     test('when listing station bulletins, then returns data', async () => {
-      // Arrange: Uses station setup from beforeAll
+      // Uses station setup from beforeAll
 
-      // Act
       const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins`);
 
-      // Assert
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('data');
     });
@@ -625,10 +593,8 @@ describe('Bulletins', () => {
 
   describe('Bulletin History', () => {
     test('when listing with sort, then ordered by date', async () => {
-      // Act
       const response = await global.api.apiCall('GET', '/bulletins?sort=-created_at');
 
-      // Assert
       expect(response.status).toBe(200);
       const bulletins = response.data.data || [];
       if (bulletins.length > 1) {
