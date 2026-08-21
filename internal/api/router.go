@@ -3,7 +3,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"time"
@@ -34,11 +33,10 @@ type routerDeps struct {
 // SetupRouter wires routes and returns the stopped bulletin worker; alerts must be non-nil.
 func SetupRouter(
 	db *gorm.DB,
-	lockDB *sql.DB,
 	cfg *config.Config,
 	alerts *notify.Service,
 ) (*gin.Engine, *services.BulletinJobService, error) {
-	deps, err := buildDependencies(db, lockDB, cfg, alerts)
+	deps, err := buildDependencies(db, cfg, alerts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -59,9 +57,8 @@ func SetupRouter(
 	return r, deps.bulletinJobSvc, nil
 }
 
-func buildDependencies(db *gorm.DB, lockDB *sql.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
+func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (*routerDeps, error) {
 	txManager := repository.NewTxManager(db)
-	locks := repository.NewNamedLockManager(lockDB)
 
 	stationRepo := repository.NewStationRepository(db)
 	voiceRepo := repository.NewVoiceRepository(db)
@@ -85,7 +82,6 @@ func buildDependencies(db *gorm.DB, lockDB *sql.DB, cfg *config.Config, alerts n
 		BulletinRepo: bulletinRepo,
 		StationRepo:  stationRepo,
 		StoryRepo:    storyRepo,
-		Locks:        locks,
 		AudioSvc:     audioSvc,
 		Config:       cfg,
 		Alerts:       alerts,

@@ -3,7 +3,6 @@ package handlers
 import (
 	"fmt"
 	"mime"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -50,8 +49,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	c.Header("Location", fmt.Sprintf("/api/v1/bulletin-jobs/%d", job.ID))
-	c.JSON(http.StatusAccepted, job)
+	utils.AcceptedWithLocation(c, job.ID, "/api/v1/bulletin-jobs", job)
 }
 
 // GetBulletinJob returns the current state of an asynchronous generation job.
@@ -132,8 +130,8 @@ func parseQuality(value string) (float64, bool) {
 	return quality, err == nil
 }
 
-// requireStation writes a 404 or error response and returns false when the
-// station does not exist.
+// requireStation returns false after writing a response when the station
+// lookup fails or the station does not exist.
 func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
 	if err != nil {

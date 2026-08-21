@@ -4025,7 +4025,9 @@ components:
         bulletin_id:
           type: [integer, 'null']
           format: int64
-          description: Created bulletin ID when status is succeeded
+          description: >-
+            Created bulletin ID when status is succeeded; null when the
+            bulletin has since been deleted
         error_code:
           type: string
           description: |

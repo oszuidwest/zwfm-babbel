@@ -4,6 +4,7 @@ package audio
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -19,6 +20,16 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+// commandError surfaces context cancellation hidden behind the process error:
+// exec returns the kill signal ("signal: killed"), not ctx.Err(), when the
+// context ends a run, and callers classify shutdown by matching ctx errors.
+func commandError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(ctxErr, err)
+	}
+	return err
+}
 
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
@@ -83,7 +94,7 @@ func (s *Service) convertToWAV(
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	if err := cmd.Run(); err != nil {
-		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", err)
+		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
 	}
 
 	duration, err := s.Duration(ctx, outputPath)
@@ -125,7 +136,7 @@ func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelC
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("ffmpeg failed to measure true peak: %w. output: %s", err, string(output))
+		return 0, fmt.Errorf("ffmpeg failed to measure true peak: %w. output: %s", commandError(ctx, err), string(output))
 	}
 
 	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
@@ -220,7 +231,7 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("ffprobe failed: %w", err)
+		return 0, fmt.Errorf("ffprobe failed: %w", commandError(ctx, err))
 	}
 
 	var duration float64
@@ -430,7 +441,7 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 		if readErr != nil {
 			stderrStr = fmt.Sprintf("(stderr read failed: %v)", readErr)
 		}
-		return "", fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", err, stderrStr)
+		return "", fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", commandError(ctx, err), stderrStr)
 	}
 
 	return outputPath, nil

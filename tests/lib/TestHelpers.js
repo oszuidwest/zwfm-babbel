@@ -74,7 +74,10 @@ class TestHelpers {
     if (accepted.status !== 202) return accepted;
     const job = await this.waitForBulletinJob(accepted.data.id);
     if (job.data.status === 'failed') {
-      throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code}`);
+      throw new Error(`Bulletin job ${accepted.data.id} failed: ${job.data.error_code} (${job.data.error_detail})`);
+    }
+    if (!Number.isInteger(job.data.bulletin_id)) {
+      throw new Error(`Bulletin job ${accepted.data.id} succeeded without a bulletin_id`);
     }
     return this.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
   }

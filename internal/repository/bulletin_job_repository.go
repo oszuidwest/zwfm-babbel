@@ -13,14 +13,22 @@ import (
 // ErrBulletinJobLeaseLost means another worker reclaimed or finalized a job.
 var ErrBulletinJobLeaseLost = errors.New("bulletin job lease lost")
 
-// BulletinJobRepository stores and atomically claims generation jobs.
+// BulletinJobRepository stores and atomically claims generation jobs. The
+// generic base is deliberately not embedded: unguarded helpers such as
+// UpdateByID and Delete would bypass the status and attempt fencing.
 type BulletinJobRepository struct {
-	*GormRepository[models.BulletinJob]
+	db   *gorm.DB
+	base *GormRepository[models.BulletinJob]
 }
 
 // NewBulletinJobRepository uses db for job persistence and claims.
 func NewBulletinJobRepository(db *gorm.DB) *BulletinJobRepository {
-	return &BulletinJobRepository{GormRepository: NewGormRepository[models.BulletinJob](db)}
+	return &BulletinJobRepository{db: db, base: NewGormRepository[models.BulletinJob](db)}
+}
+
+// GetByID retrieves a job by its primary key.
+func (r *BulletinJobRepository) GetByID(ctx context.Context, id int64) (*models.BulletinJob, error) {
+	return r.base.GetByID(ctx, id)
 }
 
 // Create queues a durable bulletin generation job.
@@ -40,9 +48,39 @@ func (r *BulletinJobRepository) Create(
 	return job, nil
 }
 
+// claimDeadlockAttempts bounds total executions of the claim transaction (one
+// initial attempt plus transparent restarts): the locking scan can deadlock
+// against another concurrent claim, and InnoDB resolves that by rolling back
+// one of the transactions, which is then safe to rerun.
+const claimDeadlockAttempts = 3
+
 // ClaimNext leases the oldest queued or expired job under a row lock. It skips
-// exhausted jobs, stale queued jobs, and stations with a live job.
+// exhausted jobs, stale queued jobs, and stations with a live job. The
+// one-live-job-per-station subquery is deliberately a consistent read: adding
+// FOR UPDATE deadlocks against concurrent claims far more often. Its
+// snapshot can in rare interleavings miss a just-committed claim, so treat the
+// guard as best-effort scheduling rather than a hard invariant: jobs that slip
+// through wait serialized behind the in-process station lock, temporarily
+// occupying another worker but causing neither concurrent generation nor
+// corruption.
 func (r *BulletinJobRepository) ClaimNext(
+	ctx context.Context,
+	leaseDuration time.Duration,
+	maxAttempts int,
+	maxQueuedAge time.Duration,
+) (*models.BulletinJob, error) {
+	var job *models.BulletinJob
+	var err error
+	for range claimDeadlockAttempts {
+		job, err = r.claimNext(ctx, leaseDuration, maxAttempts, maxQueuedAge)
+		if !isDeadlock(err) {
+			break
+		}
+	}
+	return job, err
+}
+
+func (r *BulletinJobRepository) claimNext(
 	ctx context.Context,
 	leaseDuration time.Duration,
 	maxAttempts int,
@@ -155,6 +193,17 @@ func (r *BulletinJobRepository) DeleteTerminalBefore(ctx context.Context, cutoff
 		return 0, ParseDBError(result.Error)
 	}
 	return result.RowsAffected, nil
+}
+
+// ExtendLease re-arms a running attempt's lease so it covers the generation
+// window after time spent waiting for the station lock. It returns
+// ErrBulletinJobLeaseLost when another worker reclaimed or finalized the job
+// in the meantime, so the caller can stand down without generating.
+func (r *BulletinJobRepository) ExtendLease(ctx context.Context, id int64, attempt int, leaseFor time.Duration) error {
+	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
+		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
+		Update("lease_until", time.Now().Add(leaseFor))
+	return checkedJobUpdate(result)
 }
 
 // Complete records the generated bulletin and marks the leased attempt

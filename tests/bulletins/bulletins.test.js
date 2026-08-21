@@ -47,7 +47,11 @@ describe('Bulletins', () => {
     });
 
     const response = await generateBulletin(station.id);
-    return response.status === 200 && response.data.id ? [response.data.id] : [];
+    // A failed fixture must fail the suite; pre-seeded rows would otherwise
+    // keep the generated query tests green without exercising this data.
+    expect(response.status).toBe(200);
+    expect(response.data.id).toBeDefined();
+    return [response.data.id];
   };
 
   // Generate query parameter tests

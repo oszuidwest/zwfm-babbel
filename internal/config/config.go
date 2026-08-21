@@ -27,7 +27,7 @@ type Config struct {
 	BulletinJobs  BulletinJobConfig  `envPrefix:"BULLETIN_JOBS_"`
 	TTS           TTSConfig          `envPrefix:"ELEVENLABS_"`
 	Notifications NotificationConfig `envPrefix:"NOTIFICATIONS_"`
-	// LogLevel ranges from 0 (silent) to 5 (trace).
+	// LogLevel values of 5 or higher enable debug logging; lower values log at info.
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment accepts development or production.
 	Environment Environment `env:"ENV" envDefault:"development"`
@@ -168,7 +168,8 @@ type AudioConfig struct {
 	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
 	// AppRoot resolves application-relative assets.
 	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
-	// BulletinRetention controls when audio files, not records, are purged.
+	// BulletinRetention controls when bulletin audio files and finished job
+	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
 }
 

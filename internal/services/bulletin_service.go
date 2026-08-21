@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -25,7 +26,6 @@ type BulletinServiceDeps struct {
 	BulletinRepo *repository.BulletinRepository
 	StationRepo  *repository.StationRepository
 	StoryRepo    *repository.StoryRepository
-	Locks        *repository.NamedLockManager
 	AudioSvc     *audio.Service
 	Config       *config.Config
 	Alerts       notify.Alerter
@@ -37,10 +37,14 @@ type BulletinService struct {
 	bulletinRepo *repository.BulletinRepository
 	stationRepo  *repository.StationRepository
 	storyRepo    *repository.StoryRepository
-	locks        *repository.NamedLockManager
 	audioSvc     *audio.Service
 	config       *config.Config
 	alerts       notify.Alerter
+
+	// stationLocks serializes generation per station within this process; the
+	// job claim guard already serializes worker against worker in the database.
+	stationLocks   map[int64]chan struct{}
+	stationLocksMu sync.Mutex
 }
 
 // NewBulletinService returns a bulletin service wired to deps.
@@ -50,15 +54,37 @@ func NewBulletinService(deps BulletinServiceDeps) *BulletinService {
 		bulletinRepo: deps.BulletinRepo,
 		stationRepo:  deps.StationRepo,
 		storyRepo:    deps.StoryRepo,
-		locks:        deps.Locks,
 		audioSvc:     deps.AudioSvc,
 		config:       deps.Config,
 		alerts:       notify.OrDiscard(deps.Alerts),
+		stationLocks: make(map[int64]chan struct{}),
+	}
+}
+
+// LockStation serializes bulletin generation for one station. It blocks until
+// the lock is free or ctx ends; the returned function releases the lock.
+// Callers start their generation timeout after acquisition so time spent
+// waiting behind another generation does not consume it.
+func (s *BulletinService) LockStation(ctx context.Context, stationID int64) (func(), error) {
+	s.stationLocksMu.Lock()
+	lock, ok := s.stationLocks[stationID]
+	if !ok {
+		lock = make(chan struct{}, 1)
+		s.stationLocks[stationID] = lock
+	}
+	s.stationLocksMu.Unlock()
+
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
 // Create selects eligible stories, renders the WAV file, and persists the
-// bulletin plus story links for a station/date.
+// bulletin plus story links for a station/date. Callers must hold the station
+// lock (LockStation).
 func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
 	bulletinID, err := s.create(ctx, stationID, targetDate, nil)
 	if err != nil {
@@ -67,20 +93,15 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 	return s.GetByID(ctx, bulletinID)
 }
 
-// create renders and stores a bulletin; finalize joins the persistence transaction.
+// create renders and stores a bulletin; finalize joins the persistence
+// transaction. Callers must hold the station lock (LockStation) so story
+// selection and fair-rotation updates never interleave per station.
 func (s *BulletinService) create(
 	ctx context.Context,
 	stationID int64,
 	targetDate time.Time,
 	finalize func(context.Context, int64) error,
 ) (int64, error) {
-	// Serialize selection and fair-rotation updates per station across replicas.
-	release, err := s.locks.LockStationGeneration(ctx, stationID)
-	if err != nil {
-		return 0, err
-	}
-	defer release()
-
 	station, err := s.stationRepo.GetByID(ctx, stationID)
 	if err != nil {
 		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)

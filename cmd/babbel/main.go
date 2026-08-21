@@ -74,18 +74,7 @@ func run() error {
 	}
 	defer closeDatabase(db, alerts)
 
-	lockDB, err := database.NewLockDB(cfg)
-	if err != nil {
-		notifyCritical(alerts, "startup:database", "Babbel database startup failed", err)
-		return fmt.Errorf("open lock connection pool: %w", err)
-	}
-	defer func() {
-		if err := lockDB.Close(); err != nil {
-			logger.Error("Failed to close lock connection pool", "error", err)
-		}
-	}()
-
-	router, bulletinWorker, err := api.SetupRouter(db, lockDB, cfg, alerts)
+	router, bulletinWorker, err := api.SetupRouter(db, cfg, alerts)
 	if err != nil {
 		notifyCritical(alerts, "startup:router", "Babbel router or authentication startup failed", err)
 		return fmt.Errorf("setup router: %w", err)
