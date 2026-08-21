@@ -40,13 +40,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
-	if err != nil {
-		handleServiceError(c, err, "Station")
-		return
-	}
-	if !exists {
-		utils.ProblemNotFound(c, "Station")
+	if !h.requireStation(c, stationID) {
 		return
 	}
 
@@ -138,10 +132,19 @@ func parseQuality(value string) (float64, bool) {
 	return quality, err == nil
 }
 
-// setCacheHeaders marks a response served from the existing bulletin store.
-func setCacheHeaders(c *gin.Context, createdAt time.Time) {
-	c.Header("X-Cache", "HIT")
-	c.Header("Age", strconv.Itoa(int(time.Since(createdAt).Seconds())))
+// requireStation writes a 404 or error response and returns false when the
+// station does not exist.
+func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
+	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
+	if err != nil {
+		handleServiceError(c, err, "Station")
+		return false
+	}
+	if !exists {
+		utils.ProblemNotFound(c, "Station")
+		return false
+	}
+	return true
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
@@ -197,13 +200,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
-	if err != nil {
-		handleServiceError(c, err, "Station")
-		return
-	}
-	if !exists {
-		utils.ProblemNotFound(c, "Station")
+	if !h.requireStation(c, stationID) {
 		return
 	}
 
@@ -235,13 +232,7 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 		return
 	}
 
-	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
-	if err != nil {
-		handleServiceError(c, err, "Station")
-		return
-	}
-	if !exists {
-		utils.ProblemNotFound(c, "Station")
+	if !h.requireStation(c, stationID) {
 		return
 	}
 
@@ -251,7 +242,8 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 		return
 	}
 
-	setCacheHeaders(c, bulletin.CreatedAt)
+	c.Header("X-Cache", "HIT")
+	c.Header("Age", strconv.Itoa(int(time.Since(bulletin.CreatedAt).Seconds())))
 	utils.Success(c, bulletin)
 }
 

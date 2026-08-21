@@ -3,7 +3,9 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -20,6 +22,11 @@ const (
 	bulletinJobPollInterval  = 5 * time.Second
 	bulletinJobUpdateTimeout = 5 * time.Second
 
+	// bulletinJobSweepInterval paces the terminal-failure sweeps. The claim
+	// predicate keeps over-cap jobs unclaimable between sweeps and the queue
+	// SLA is minutes, so sweeping faster than this only burns database writes.
+	bulletinJobSweepInterval = time.Minute
+
 	// bulletinJobMaxAttempts bounds lease-reclaim retries: ClaimNext never
 	// claims a job at this cap, so a job whose process keeps dying
 	// mid-generation (OOM, kill -9) is terminally failed instead of re-running
@@ -33,18 +40,16 @@ const (
 
 // BulletinJobService queues, processes, and exposes durable generation jobs.
 type BulletinJobService struct {
-	repo         *repository.BulletinJobRepository
-	locks        *repository.NamedLockManager
-	bulletins    *BulletinService
-	alerts       notify.Alerter
-	timeout      time.Duration
-	queueTimeout time.Duration
-	workers      int
-	leaseFor     time.Duration
-	wake         chan struct{}
-	done         chan struct{}
-	cancel       context.CancelFunc
-	startOnce    sync.Once
+	repo      *repository.BulletinJobRepository
+	locks     *repository.NamedLockManager
+	bulletins *BulletinService
+	alerts    notify.Alerter
+	cfg       config.BulletinJobConfig
+	lastSweep atomic.Int64
+	wake      chan struct{}
+	done      chan struct{}
+	cancel    context.CancelFunc
+	startOnce sync.Once
 }
 
 // NewBulletinJobService creates an asynchronous bulletin worker. cfg must be
@@ -58,18 +63,13 @@ func NewBulletinJobService(
 	alerts notify.Alerter,
 ) *BulletinJobService {
 	return &BulletinJobService{
-		repo:         repo,
-		locks:        locks,
-		bulletins:    bulletins,
-		alerts:       notify.OrDiscard(alerts),
-		timeout:      cfg.GenerationTimeout,
-		queueTimeout: cfg.QueueTimeout,
-		workers:      cfg.Workers,
-		// The lease must outlive one full generation attempt plus the finalize
-		// or failure write, or another claimer could reclaim a live job.
-		leaseFor: cfg.GenerationTimeout + (2 * bulletinJobUpdateTimeout),
-		wake:     make(chan struct{}, 1),
-		done:     make(chan struct{}),
+		repo:      repo,
+		locks:     locks,
+		bulletins: bulletins,
+		alerts:    notify.OrDiscard(alerts),
+		cfg:       cfg,
+		wake:      make(chan struct{}, 1),
+		done:      make(chan struct{}),
 	}
 }
 
@@ -82,7 +82,7 @@ func (s *BulletinJobService) Start() {
 		workerCtx, cancel := context.WithCancel(context.Background())
 		s.cancel = cancel
 		var wg sync.WaitGroup
-		for range s.workers {
+		for range s.cfg.Workers {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -119,13 +119,26 @@ func (s *BulletinJobService) Enqueue(
 	stationID int64,
 	targetDate time.Time,
 ) (*models.BulletinJob, error) {
+	// Lock-free fast path: an already-active job coalesces without paying for
+	// the cross-replica lock. Missing a job that is being created concurrently
+	// is fine; the locked re-check below still prevents duplicates.
+	existing, err := s.repo.FindActive(ctx, stationID, targetDate)
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	// An expired lock wait carries context.DeadlineExceeded through the
+	// DatabaseError wrap and still maps to 504, telling the client to retry.
 	release, err := s.locks.LockEnqueue(ctx, stationID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
 	}
 	defer release()
 
-	existing, err := s.repo.FindActive(ctx, stationID, targetDate)
+	existing, err = s.repo.FindActive(ctx, stationID, targetDate)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpQuery, err)
 	}
@@ -183,26 +196,55 @@ func (s *BulletinJobService) run(ctx context.Context) {
 }
 
 func (s *BulletinJobService) processQueued(ctx context.Context) error {
-	if err := s.failExhausted(ctx); err != nil {
+	if err := s.sweepIfDue(ctx); err != nil {
 		return err
 	}
+	// The lease must outlive one full generation attempt plus the finalize or
+	// failure write, or another claimer could reclaim a live job.
+	leaseFor := s.cfg.GenerationTimeout + (2 * bulletinJobUpdateTimeout)
 	for ctx.Err() == nil {
-		job, err := s.repo.ClaimNext(ctx, s.leaseFor, bulletinJobMaxAttempts)
+		job, err := s.repo.ClaimNext(ctx, leaseFor, bulletinJobMaxAttempts, s.cfg.QueueTimeout)
 		if err != nil {
 			return err
 		}
 		if job == nil {
 			return nil
 		}
+		// Hand remaining queued work to an idle worker instead of letting it
+		// wait behind this generation until the next poll tick.
+		select {
+		case s.wake <- struct{}{}:
+		default:
+		}
 		s.processJob(ctx, job)
 	}
 	return ctx.Err()
 }
 
+// sweepIfDue runs the terminal-failure sweeps at most once per
+// bulletinJobSweepInterval across all workers; every worker cycle re-running
+// two table-wide updates would be wasted writes at idle. Delaying the sweep is
+// safe because the ClaimNext predicate already keeps over-cap and past-SLA
+// jobs unclaimable; the sweep only finalizes their polled status.
+func (s *BulletinJobService) sweepIfDue(ctx context.Context) error {
+	now := time.Now().UnixNano()
+	last := s.lastSweep.Load()
+	if now-last < int64(bulletinJobSweepInterval) || !s.lastSweep.CompareAndSwap(last, now) {
+		return nil
+	}
+	if err := s.failExhausted(ctx); err != nil {
+		// Roll back so the next cycle retries instead of waiting out the
+		// interval with jobs stuck in a non-terminal status.
+		s.lastSweep.Store(last)
+		return err
+	}
+	return nil
+}
+
 // failExhausted terminally fails jobs at the attempt cap and never-picked-up
-// jobs past the queue-wait SLA each cycle, so no job can poll as pending
-// forever. The attempt guard in ClaimNext keeps over-cap jobs unclaimable in
-// the window between sweeps.
+// jobs past the queue-wait SLA, so no job can poll as pending forever. The
+// attempt guard in ClaimNext keeps over-cap jobs unclaimable in the window
+// between sweeps.
 func (s *BulletinJobService) failExhausted(ctx context.Context) error {
 	exhausted, err := s.repo.FailExhausted(ctx, bulletinJobMaxAttempts,
 		apperrors.CodeRetriesExhausted,
@@ -210,7 +252,7 @@ func (s *BulletinJobService) failExhausted(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	stale, err := s.repo.FailStaleQueued(ctx, s.queueTimeout,
+	stale, err := s.repo.FailStaleQueued(ctx, s.cfg.QueueTimeout,
 		apperrors.CodeQueueTimeout,
 		"The job was not picked up in time; retry the generation request")
 	if err != nil {
@@ -223,39 +265,41 @@ func (s *BulletinJobService) failExhausted(ctx context.Context) error {
 	return nil
 }
 
+// processJob runs one claimed attempt and finalizes its outcome: requeue when
+// shutdown interrupted it, otherwise record success or a client-safe failure.
 func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.BulletinJob) {
+	bulletinID, err := s.generate(workerCtx, job)
+	switch {
+	case err == nil:
+		logger.Info("Bulletin generation job completed", "job_id", job.ID, "bulletin_id", bulletinID)
+	case workerCtx.Err() != nil:
+		logger.Warn("Bulletin job interrupted during shutdown; requeueing",
+			"job_id", job.ID, "attempt", job.Attempt, "error", err)
+		s.releaseInterrupted(workerCtx, job)
+	default:
+		code, detail := bulletinJobError(err)
+		logger.Error("Bulletin generation job failed", "job_id", job.ID, "station_id", job.StationID, "error", err)
+		s.recordFailure(workerCtx, job, code, detail)
+	}
+}
+
+// generate runs one bounded generation attempt, converting a panic into an
+// ordinary error so processJob has a single finalize decision.
+func (s *BulletinJobService) generate(workerCtx context.Context, job *models.BulletinJob) (_ int64, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			logger.Error("Bulletin generation job panicked", "job_id", job.ID, "panic", recovered)
-			if workerCtx.Err() != nil {
-				s.releaseInterrupted(workerCtx, job)
-				return
-			}
-			s.recordFailure(workerCtx, job, apperrors.CodeGenerationFailed, jobDetailGenerationFailed)
+			err = fmt.Errorf("bulletin generation panicked: %v", recovered)
 		}
 	}()
 
-	jobCtx, cancel := context.WithTimeout(workerCtx, s.timeout)
+	jobCtx, cancel := context.WithTimeout(workerCtx, s.cfg.GenerationTimeout)
 	defer cancel()
-	bulletinID, err := s.bulletins.create(jobCtx, job.StationID, job.TargetDate, func(
+	return s.bulletins.create(jobCtx, job.StationID, job.TargetDate, func(
 		txCtx context.Context,
 		createdBulletinID int64,
 	) error {
 		return s.repo.Complete(txCtx, job.ID, job.Attempt, createdBulletinID)
 	})
-	if err != nil {
-		if workerCtx.Err() != nil {
-			logger.Warn("Bulletin job interrupted during shutdown; requeueing",
-				"job_id", job.ID, "attempt", job.Attempt, "error", err)
-			s.releaseInterrupted(workerCtx, job)
-			return
-		}
-		code, detail := bulletinJobError(err)
-		logger.Error("Bulletin generation job failed", "job_id", job.ID, "station_id", job.StationID, "error", err)
-		s.recordFailure(workerCtx, job, code, detail)
-		return
-	}
-	logger.Info("Bulletin generation job completed", "job_id", job.ID, "bulletin_id", bulletinID)
 }
 
 func (s *BulletinJobService) recordFailure(

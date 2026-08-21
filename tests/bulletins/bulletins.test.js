@@ -407,13 +407,12 @@ describe('Bulletins', () => {
 
     beforeAll(async () => {
       const { station } = await global.helpers.createBroadcastFixture(global.resources, {
-        stationName: 'CacheCtrlStation',
-        voiceName: 'CacheCtrlVoice',
-        storyTitle: 'CacheCtrlStory',
-        storyText: 'Cache control test story'
+        stationName: 'AsyncJobStation',
+        voiceName: 'AsyncJobVoice',
+        storyTitle: 'AsyncJobStory',
+        storyText: 'Asynchronous job test story'
       });
       stationId = station.id;
-
     });
 
     test('when generation is enqueued, then polling resolves to the created bulletin', async () => {

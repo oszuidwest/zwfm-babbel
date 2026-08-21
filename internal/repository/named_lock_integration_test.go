@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 )
@@ -17,14 +16,7 @@ import (
 func openIntegrationLockDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
-	if dsn == "" {
-		if os.Getenv("CI") == "true" {
-			t.Fatal("BABBEL_TEST_DB_DSN is required in CI")
-		}
-		t.Skip("BABBEL_TEST_DB_DSN not set")
-	}
-	lockDB, err := sql.Open("mysql", dsn)
+	lockDB, err := sql.Open("mysql", integrationTestDSN(t))
 	if err != nil {
 		t.Fatalf("sql.Open(): %v", err)
 	}

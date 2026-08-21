@@ -43,7 +43,7 @@ func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	first, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	first, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil {
 		t.Fatalf("first ClaimNext() error = %v", err)
 	}
@@ -55,7 +55,7 @@ func TestBulletinJobRepositoryIntegration_ExpiredLeaseIsFenced(t *testing.T) {
 		Update("lease_until", time.Now().Add(-time.Minute)).Error; err != nil {
 		t.Fatalf("expire lease: %v", err)
 	}
-	second, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	second, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil {
 		t.Fatalf("second ClaimNext() error = %v", err)
 	}
@@ -81,11 +81,11 @@ func TestBulletinJobRepositoryIntegration_OneActiveJobPerStation(t *testing.T) {
 			t.Fatalf("Create() error = %v", err)
 		}
 	}
-	first, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	first, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil || first == nil {
 		t.Fatalf("first ClaimNext() = %#v, %v", first, err)
 	}
-	second, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	second, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil {
 		t.Fatalf("second ClaimNext() error = %v", err)
 	}
@@ -98,7 +98,7 @@ func TestBulletinJobRepositoryIntegration_OneActiveJobPerStation(t *testing.T) {
 	if err := repo.Fail(t.Context(), first.ID, first.Attempt, "test.failure", "expected"); err != nil {
 		t.Fatalf("Fail() error = %v", err)
 	}
-	third, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	third, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil {
 		t.Fatalf("third ClaimNext() error = %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	claimed, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	claimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil || claimed == nil {
 		t.Fatalf("ClaimNext() = %#v, %v", claimed, err)
 	}
@@ -133,7 +133,7 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 		t.Fatalf("released job = %#v, want queued without lease or start time", released)
 	}
 
-	reclaimed, err := repo.ClaimNext(t.Context(), time.Minute, 3)
+	reclaimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour)
 	if err != nil {
 		t.Fatalf("reclaim ClaimNext() error = %v", err)
 	}
@@ -152,7 +152,7 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	if _, err := repo.ClaimNext(t.Context(), time.Minute, 3); err != nil {
+	if _, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil {
 		t.Fatalf("ClaimNext() error = %v", err)
 	}
 	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
@@ -172,7 +172,7 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 
 	// The claim predicate itself is the hard cap: expired or queued jobs at
 	// the cap must never be claimable, even before the sweep runs.
-	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3); err != nil || next != nil {
+	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil || next != nil {
 		t.Fatalf("ClaimNext() before sweep = %#v, %v; want nil, nil for jobs at cap", next, err)
 	}
 
@@ -193,7 +193,7 @@ func TestBulletinJobRepositoryIntegration_FailExhaustedAtAttemptCap(t *testing.T
 			t.Fatalf("job %d = %#v, want failed with retries_exhausted and completed_at set", id, terminal)
 		}
 	}
-	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3); err != nil || next != nil {
+	if next, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil || next != nil {
 		t.Fatalf("ClaimNext() after cap = %#v, %v; want nil, nil", next, err)
 	}
 }
@@ -246,6 +246,39 @@ func TestBulletinJobRepositoryIntegration_FailStaleQueued(t *testing.T) {
 	}
 }
 
+func TestBulletinJobRepositoryIntegration_StaleQueuedIsNotClaimable(t *testing.T) {
+	db := openIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
+
+	repo := NewBulletinJobRepository(db)
+	job, err := repo.Create(t.Context(), station.ID, time.Now())
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
+		Update("created_at", time.Now().Add(-time.Hour)).Error; err != nil {
+		t.Fatalf("age job: %v", err)
+	}
+
+	// The claim predicate itself is the hard queue SLA: a job no worker ever
+	// picked up within maxQueuedAge must never start, even in the window
+	// before the FailStaleQueued sweep finalizes it.
+	if stale, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute); err != nil || stale != nil {
+		t.Fatalf("ClaimNext() past queue SLA = %#v, %v; want nil, nil", stale, err)
+	}
+
+	// A requeued job with the same age but attempt > 0 is exempt from the SLA
+	// and stays claimable; it is bounded by the attempt cap instead.
+	if err := db.Model(&models.BulletinJob{}).Where("id = ?", job.ID).
+		Update("attempt", 1).Error; err != nil {
+		t.Fatalf("mark job requeued: %v", err)
+	}
+	claimed, err := repo.ClaimNext(t.Context(), time.Minute, 3, 15*time.Minute)
+	if err != nil || claimed == nil || claimed.ID != job.ID {
+		t.Fatalf("ClaimNext() for requeued job = %#v, %v; want job %d", claimed, err, job.ID)
+	}
+}
+
 func TestBulletinJobRepositoryIntegration_FindActiveCoalesces(t *testing.T) {
 	db := openIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
@@ -266,7 +299,7 @@ func TestBulletinJobRepositoryIntegration_FindActiveCoalesces(t *testing.T) {
 		t.Fatalf("FindActive() = %#v, %v; want queued job %d", found, err, job.ID)
 	}
 
-	if _, err := repo.ClaimNext(t.Context(), time.Minute, 3); err != nil {
+	if _, err := repo.ClaimNext(t.Context(), time.Minute, 3, time.Hour); err != nil {
 		t.Fatalf("ClaimNext() error = %v", err)
 	}
 	running, err := repo.FindActive(t.Context(), station.ID, today)

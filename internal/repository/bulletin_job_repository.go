@@ -42,14 +42,18 @@ func (r *BulletinJobRepository) Create(
 
 // ClaimNext atomically leases the oldest queued or expired job. The attempt
 // guard is the hard retry cap: jobs at or over maxAttempts are never claimable
-// and can only be terminally failed by FailExhausted. The NOT EXISTS guard
-// skips stations that already have a live running job, and concurrent claimers
-// serialize on the candidate row lock. Generation itself is additionally
-// serialized per station by BulletinService.
+// and can only be terminally failed by FailExhausted. The maxQueuedAge guard
+// is the hard queue-wait SLA: never-picked-up jobs (attempt = 0) older than it
+// are never claimable and can only be terminally failed by FailStaleQueued,
+// so a delayed sweep cannot let an expired job start anyway. The NOT EXISTS
+// guard skips stations that already have a live running job, and concurrent
+// claimers serialize on the candidate row lock. Generation itself is
+// additionally serialized per station by BulletinService.
 func (r *BulletinJobRepository) ClaimNext(
 	ctx context.Context,
 	leaseDuration time.Duration,
 	maxAttempts int,
+	maxQueuedAge time.Duration,
 ) (*models.BulletinJob, error) {
 	var claimed *models.BulletinJob
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -60,6 +64,7 @@ func (r *BulletinJobRepository) ClaimNext(
 				(bulletin_jobs.status = ? OR (bulletin_jobs.status = ?
 					AND (bulletin_jobs.lease_until IS NULL OR bulletin_jobs.lease_until < ?)))
 				AND bulletin_jobs.attempt < ?
+				AND NOT (bulletin_jobs.status = ? AND bulletin_jobs.attempt = 0 AND bulletin_jobs.created_at < ?)
 				AND NOT EXISTS (
 					SELECT 1 FROM bulletin_jobs AS active
 					WHERE active.station_id = bulletin_jobs.station_id
@@ -67,7 +72,8 @@ func (r *BulletinJobRepository) ClaimNext(
 						AND active.status = ?
 						AND (active.lease_until IS NULL OR active.lease_until >= ?)
 				)
-			`, models.BulletinJobQueued, models.BulletinJobRunning, now, maxAttempts, models.BulletinJobRunning, now).
+			`, models.BulletinJobQueued, models.BulletinJobRunning, now, maxAttempts,
+				models.BulletinJobQueued, now.Add(-maxQueuedAge), models.BulletinJobRunning, now).
 			Order("bulletin_jobs.id ASC").
 			First(&job).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {

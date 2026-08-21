@@ -144,18 +144,13 @@ func (s *BulletinService) create(
 	}
 	totalDuration := s.calculateBulletinDuration(station, stories, jingle.MixPoint)
 
-	bulletinID, err := s.saveBulletinToDatabase(ctx, saveBulletinParams{
+	return s.saveBulletinToDatabase(ctx, saveBulletinParams{
 		StationID:    stationID,
 		BulletinPath: bulletinPath,
 		Duration:     totalDuration,
 		FileSize:     fileSize,
 		Stories:      stories,
 	}, finalize)
-	if err != nil {
-		return 0, err
-	}
-
-	return bulletinID, nil
 }
 
 // generateBulletinAudio renders a bulletin with one timestamp shared by the

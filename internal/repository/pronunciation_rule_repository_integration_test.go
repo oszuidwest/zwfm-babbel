@@ -79,7 +79,9 @@ func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) 
 	}
 }
 
-func openIntegrationDB(t *testing.T) *gorm.DB {
+// integrationTestDSN returns the shared integration database DSN, failing in
+// CI and skipping locally when it is not configured.
+func integrationTestDSN(t *testing.T) string {
 	t.Helper()
 
 	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
@@ -89,7 +91,13 @@ func openIntegrationDB(t *testing.T) *gorm.DB {
 		}
 		t.Skip("BABBEL_TEST_DB_DSN not set")
 	}
+	return dsn
+}
 
+func openIntegrationDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	dsn := integrationTestDSN(t)
 	db, err := gorm.Open(
 		gormmysql.Open(dsn),
 		&gorm.Config{SkipDefaultTransaction: true},
