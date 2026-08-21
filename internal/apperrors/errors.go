@@ -295,7 +295,6 @@ const (
 	CodeAudioProcessingFailed = "audio.processing_failed"
 	CodeGenerationFailed      = "internal.generation_failed"
 	CodeRetriesExhausted      = "internal.retries_exhausted"
-	CodeQueueTimeout          = "internal.queue_timeout"
 )
 
 // NoStoriesError indicates no stories are available for bulletin generation.

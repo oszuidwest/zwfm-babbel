@@ -4033,8 +4033,7 @@ components:
           description: |
             Stable failure code when status is failed: `bulletin.no_stories`,
             `internal.timeout`, `audio.processing_failed`,
-            `internal.retries_exhausted`, `internal.queue_timeout`, or
-            `internal.generation_failed`
+            `internal.retries_exhausted`, or `internal.generation_failed`
         error_detail:
           type: string
           description: Client-safe failure detail when status is failed

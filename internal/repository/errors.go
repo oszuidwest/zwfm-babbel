@@ -75,13 +75,6 @@ func ParseDBError(err error) error {
 	}
 }
 
-// isDeadlock reports whether InnoDB rolled the statement's transaction back as
-// a deadlock victim (ER_LOCK_DEADLOCK); such transactions are safe to restart.
-func isDeadlock(err error) bool {
-	mysqlErr, ok := errors.AsType[*mysql.MySQLError](err)
-	return ok && mysqlErr.Number == 1213
-}
-
 func isTableMissingMessage(message string) bool {
 	return strings.Contains(message, "no such table:") ||
 		(strings.HasPrefix(message, "Table '") && strings.Contains(message, "' doesn't exist"))

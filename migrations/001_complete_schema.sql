@@ -96,7 +96,6 @@ CREATE TABLE bulletin_jobs (
     bulletin_id  INT NULL,
     error_code   VARCHAR(100) NOT NULL DEFAULT '',
     error_detail VARCHAR(1000) NOT NULL DEFAULT '',
-    lease_until  DATETIME(6) NULL,
     started_at   DATETIME NULL,
     completed_at DATETIME NULL,
     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -104,10 +103,9 @@ CREATE TABLE bulletin_jobs (
     CONSTRAINT chk_bulletin_jobs_status CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
     CONSTRAINT fk_bulletin_jobs_station FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
     CONSTRAINT fk_bulletin_jobs_bulletin FOREIGN KEY (bulletin_id) REFERENCES bulletins(id) ON DELETE SET NULL,
-    -- (station_id, status) serves the one-active-job-per-station claim guard
-    -- and the station FK; (status) serves the queued/expired claim scan.
-    INDEX idx_bulletin_jobs_station_status (station_id, status),
+    -- (status) serves the queued claim scan; (station_id) serves the station FK.
     INDEX idx_bulletin_jobs_status (status),
+    INDEX idx_bulletin_jobs_station (station_id),
     INDEX idx_bulletin_jobs_bulletin (bulletin_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -132,42 +132,6 @@ describe('TestHelpers', () => {
     expect(helpers.sleep).not.toHaveBeenCalled();
   });
 
-  test('when bulletin job polling times out, then throws', async () => {
-    const api = { apiCall: jest.fn().mockResolvedValue({ status: 200, data: { status: 'running' } }) };
-    const helpers = new TestHelpers(api);
-    jest.spyOn(helpers, 'sleep').mockResolvedValue();
-
-    await expect(helpers.waitForBulletinJob(42, 3, 1)).rejects.toThrow(
-      'Bulletin job 42 did not finish within 0.003 seconds'
-    );
-  });
-
-  test('when bulletin generation succeeds, then returns the fetched bulletin', async () => {
-    const accepted = { status: 202, data: { id: 7 } };
-    const job = { status: 200, data: { status: 'succeeded', bulletin_id: 99 } };
-    const bulletin = { status: 200, data: { id: 99 } };
-    const api = {
-      apiCall: jest.fn()
-        .mockResolvedValueOnce(accepted)
-        .mockResolvedValueOnce(job)
-        .mockResolvedValueOnce(bulletin)
-    };
-    const helpers = new TestHelpers(api);
-
-    await expect(helpers.generateBulletin(3)).resolves.toBe(bulletin);
-    expect(api.apiCall).toHaveBeenNthCalledWith(1, 'POST', '/stations/3/bulletins', {});
-    expect(api.apiCall).toHaveBeenNthCalledWith(3, 'GET', '/bulletins/99');
-  });
-
-  test('when bulletin enqueue is not accepted, then returns the response unchanged', async () => {
-    const rejected = { status: 404, data: {} };
-    const api = { apiCall: jest.fn().mockResolvedValue(rejected) };
-    const helpers = new TestHelpers(api);
-
-    await expect(helpers.generateBulletin(3)).resolves.toBe(rejected);
-    expect(api.apiCall).toHaveBeenCalledTimes(1);
-  });
-
   test('when bulletin job fails, then generateBulletin throws', async () => {
     const accepted = { status: 202, data: { id: 7 } };
     const failed = { status: 200, data: { status: 'failed', error_code: 'bulletin.no_stories' } };

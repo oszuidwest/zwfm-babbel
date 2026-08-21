@@ -97,12 +97,8 @@ type AutomationConfig struct {
 
 // BulletinJobConfig defines asynchronous bulletin worker settings.
 type BulletinJobConfig struct {
-	// GenerationTimeout applies to one worker attempt.
+	// GenerationTimeout applies to one generation attempt.
 	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
-	// QueueTimeout bounds each stay in the queued state.
-	QueueTimeout time.Duration `env:"QUEUE_TIMEOUT" envDefault:"15m"`
-	// Workers limits cross-station generation concurrency.
-	Workers int `env:"WORKERS" envDefault:"4"`
 }
 
 // ServerConfig defines HTTP server and CORS settings.
@@ -346,12 +342,6 @@ func (c *Config) validateCore() error {
 	}
 	if c.BulletinJobs.GenerationTimeout <= 0 {
 		return fmt.Errorf("BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.GenerationTimeout)
-	}
-	if c.BulletinJobs.QueueTimeout <= 0 {
-		return fmt.Errorf("BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.QueueTimeout)
-	}
-	if c.BulletinJobs.Workers < 1 {
-		return fmt.Errorf("BABBEL_BULLETIN_JOBS_WORKERS must be >= 1 (got %d)", c.BulletinJobs.Workers)
 	}
 	return nil
 }

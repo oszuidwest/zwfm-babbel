@@ -196,13 +196,13 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 ### Asynchronous bulletin generation
 
-`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Every request creates a generation job.
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Every request creates a generation job. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+
+Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
 
 | Env var | Default | Description |
 |---|---|---|
 | `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one asynchronous bulletin-generation attempt. |
-| `BABBEL_BULLETIN_JOBS_QUEUE_TIMEOUT` | `15m` | Queue-wait SLA: a job that stays queued for this window fails with `internal.queue_timeout`. The window resets after an interrupted attempt is requeued. Size it to cover the worst-case backlog (roughly stations × generation timeout ÷ workers). |
-| `BABBEL_BULLETIN_JOBS_WORKERS` | `4` | Number of jobs that generate concurrently. Jobs for the same station always run one at a time; extra workers add throughput across stations. |
 
 ### Text-to-speech
 

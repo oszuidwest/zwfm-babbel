@@ -7,15 +7,18 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-// ErrBulletinJobLeaseLost means another worker reclaimed or finalized a job.
-var ErrBulletinJobLeaseLost = errors.New("bulletin job lease lost")
+// ErrBulletinJobStateConflict means a job update found the job missing or not
+// in the status the transition requires; the write was not applied.
+var ErrBulletinJobStateConflict = errors.New("bulletin job state conflict")
 
-// BulletinJobRepository stores and atomically claims generation jobs. The
-// generic base is deliberately not embedded: unguarded helpers such as
-// UpdateByID and Delete would bypass the status and attempt fencing.
+// BulletinJobRepository stores durable bulletin generation jobs. A single
+// worker goroutine owns every claimed job from claim to finalization; status
+// transitions are still guarded (queued -> running -> succeeded/failed) so a
+// lost commit response or misconfigured second instance can never overwrite a
+// terminal job. The generic base is deliberately not embedded: unguarded
+// helpers such as UpdateByID and Delete would bypass the status lifecycle.
 type BulletinJobRepository struct {
 	db   *gorm.DB
 	base *GormRepository[models.BulletinJob]
@@ -48,112 +51,49 @@ func (r *BulletinJobRepository) Create(
 	return job, nil
 }
 
-// claimDeadlockAttempts bounds total executions of the claim transaction (one
-// initial attempt plus transparent restarts): the locking scan can deadlock
-// against another concurrent claim, and InnoDB resolves that by rolling back
-// one of the transactions, which is then safe to rerun.
-const claimDeadlockAttempts = 3
-
-// ClaimNext leases the oldest queued or expired job under a row lock. It skips
-// exhausted jobs, stale queued jobs, and stations with a live job. The
-// one-live-job-per-station subquery is deliberately a consistent read: adding
-// FOR UPDATE deadlocks against concurrent claims far more often. Its
-// snapshot can in rare interleavings miss a just-committed claim, so treat the
-// guard as best-effort scheduling rather than a hard invariant: jobs that slip
-// through wait serialized behind the in-process station lock, temporarily
-// occupying another worker but causing neither concurrent generation nor
-// corruption.
-func (r *BulletinJobRepository) ClaimNext(
-	ctx context.Context,
-	leaseDuration time.Duration,
-	maxAttempts int,
-	maxQueuedAge time.Duration,
-) (*models.BulletinJob, error) {
-	var job *models.BulletinJob
-	var err error
-	for range claimDeadlockAttempts {
-		job, err = r.claimNext(ctx, leaseDuration, maxAttempts, maxQueuedAge)
-		if !isDeadlock(err) {
-			break
-		}
+// ClaimNext marks the oldest queued job running and returns it, or nil when
+// the queue is empty. Jobs at the attempt cap stay unclaimable; startup
+// recovery terminally fails them.
+func (r *BulletinJobRepository) ClaimNext(ctx context.Context, maxAttempts int) (*models.BulletinJob, error) {
+	var job models.BulletinJob
+	err := r.db.WithContext(ctx).
+		Where("status = ? AND attempt < ?", models.BulletinJobQueued, maxAttempts).
+		Order("id ASC").
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
 	}
-	return job, err
-}
-
-func (r *BulletinJobRepository) claimNext(
-	ctx context.Context,
-	leaseDuration time.Duration,
-	maxAttempts int,
-	maxQueuedAge time.Duration,
-) (*models.BulletinJob, error) {
-	var claimed *models.BulletinJob
-	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		now := time.Now()
-		var job models.BulletinJob
-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where(`
-				(bulletin_jobs.status = ? OR (bulletin_jobs.status = ?
-					AND (bulletin_jobs.lease_until IS NULL OR bulletin_jobs.lease_until < ?)))
-				AND bulletin_jobs.attempt < ?
-				AND NOT (bulletin_jobs.status = ? AND bulletin_jobs.updated_at < ?)
-				AND NOT EXISTS (
-					SELECT 1 FROM bulletin_jobs AS active
-					WHERE active.station_id = bulletin_jobs.station_id
-						AND active.id <> bulletin_jobs.id
-						AND active.status = ?
-						AND (active.lease_until IS NULL OR active.lease_until >= ?)
-				)
-			`, models.BulletinJobQueued, models.BulletinJobRunning, now, maxAttempts,
-				models.BulletinJobQueued, now.Add(-maxQueuedAge), models.BulletinJobRunning, now).
-			Order("bulletin_jobs.id ASC").
-			First(&job).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		leaseUntil := now.Add(leaseDuration)
-		attempt := job.Attempt + 1
-		result := tx.Model(&job).Updates(map[string]any{
-			"status":      models.BulletinJobRunning,
-			"attempt":     attempt,
-			"lease_until": leaseUntil,
-			"started_at":  now,
-		})
-		if result.Error != nil {
-			return result.Error
-		}
-		job.Status = models.BulletinJobRunning
-		job.Attempt = attempt
-		job.LeaseUntil = &leaseUntil
-		job.StartedAt = &now
-		claimed = &job
-		return nil
-	})
 	if err != nil {
 		return nil, ParseDBError(err)
 	}
-	return claimed, nil
+
+	now := time.Now()
+	attempt := job.Attempt + 1
+	result := r.db.WithContext(ctx).Model(&job).
+		Where("status = ?", models.BulletinJobQueued).
+		Updates(map[string]any{
+			"status":     models.BulletinJobRunning,
+			"attempt":    attempt,
+			"started_at": now,
+		})
+	if err := checkedJobUpdate(result); err != nil {
+		return nil, err
+	}
+	job.Status = models.BulletinJobRunning
+	job.Attempt = attempt
+	job.StartedAt = &now
+	return &job, nil
 }
 
-// FailExhausted fails expired or requeued jobs at the attempt cap.
-func (r *BulletinJobRepository) FailExhausted(
-	ctx context.Context,
-	maxAttempts int,
-	code, detail string,
-) (int64, error) {
-	now := time.Now()
+// RequeueInterrupted returns jobs an unclean shutdown left running to the
+// queue. It must run before the worker claims, so recovered state can never
+// belong to a live attempt.
+func (r *BulletinJobRepository) RequeueInterrupted(ctx context.Context) (int64, error) {
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("attempt >= ? AND (status = ? OR (status = ? AND (lease_until IS NULL OR lease_until < ?)))",
-			maxAttempts, models.BulletinJobQueued, models.BulletinJobRunning, now).
+		Where("status = ?", models.BulletinJobRunning).
 		Updates(map[string]any{
-			"status":       models.BulletinJobFailed,
-			"error_code":   code,
-			"error_detail": detail,
-			"lease_until":  nil,
-			"completed_at": now,
+			"status":     models.BulletinJobQueued,
+			"started_at": nil,
 		})
 	if result.Error != nil {
 		return 0, ParseDBError(result.Error)
@@ -161,21 +101,20 @@ func (r *BulletinJobRepository) FailExhausted(
 	return result.RowsAffected, nil
 }
 
-// FailStaleQueued fails jobs that exceed maxQueuedAge after entering the queue.
-func (r *BulletinJobRepository) FailStaleQueued(
+// FailExhausted terminally fails queued jobs whose attempt budget is spent,
+// so a job that keeps getting interrupted cannot retry forever.
+func (r *BulletinJobRepository) FailExhausted(
 	ctx context.Context,
-	maxQueuedAge time.Duration,
+	maxAttempts int,
 	code, detail string,
 ) (int64, error) {
-	now := time.Now()
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("status = ? AND updated_at < ?",
-			models.BulletinJobQueued, now.Add(-maxQueuedAge)).
+		Where("status = ? AND attempt >= ?", models.BulletinJobQueued, maxAttempts).
 		Updates(map[string]any{
 			"status":       models.BulletinJobFailed,
 			"error_code":   code,
 			"error_detail": detail,
-			"completed_at": now,
+			"completed_at": time.Now(),
 		})
 	if result.Error != nil {
 		return 0, ParseDBError(result.Error)
@@ -195,57 +134,40 @@ func (r *BulletinJobRepository) DeleteTerminalBefore(ctx context.Context, cutoff
 	return result.RowsAffected, nil
 }
 
-// ExtendLease re-arms a running attempt's lease so it covers the generation
-// window after time spent waiting for the station lock. It returns
-// ErrBulletinJobLeaseLost when another worker reclaimed or finalized the job
-// in the meantime, so the caller can stand down without generating.
-func (r *BulletinJobRepository) ExtendLease(ctx context.Context, id int64, attempt int, leaseFor time.Duration) error {
-	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
-		Update("lease_until", time.Now().Add(leaseFor))
-	return checkedJobUpdate(result)
-}
-
-// Complete records the generated bulletin and marks the leased attempt
+// Complete records the generated bulletin and marks the running job
 // successful. It participates in a transaction stored in ctx when present.
-func (r *BulletinJobRepository) Complete(ctx context.Context, id int64, attempt int, bulletinID int64) error {
-	now := time.Now()
+func (r *BulletinJobRepository) Complete(ctx context.Context, id int64, bulletinID int64) error {
 	result := DBFromContext(ctx, r.db).WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
+		Where("id = ? AND status = ?", id, models.BulletinJobRunning).
 		Updates(map[string]any{
 			"status":       models.BulletinJobSucceeded,
 			"bulletin_id":  bulletinID,
-			"lease_until":  nil,
-			"completed_at": now,
+			"completed_at": time.Now(),
 		})
 	return checkedJobUpdate(result)
 }
 
 // Fail marks a running job failed with a client-safe error.
-func (r *BulletinJobRepository) Fail(ctx context.Context, id int64, attempt int, code, detail string) error {
-	now := time.Now()
+func (r *BulletinJobRepository) Fail(ctx context.Context, id int64, code, detail string) error {
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
+		Where("id = ? AND status = ?", id, models.BulletinJobRunning).
 		Updates(map[string]any{
 			"status":       models.BulletinJobFailed,
 			"error_code":   code,
 			"error_detail": detail,
-			"lease_until":  nil,
-			"completed_at": now,
+			"completed_at": time.Now(),
 		})
 	return checkedJobUpdate(result)
 }
 
-// Release returns an interrupted attempt to the queue during graceful shutdown.
-func (r *BulletinJobRepository) Release(ctx context.Context, id int64, attempt int) error {
-	// Queued jobs use updated_at as their queue-entry timestamp.
+// Release returns an interrupted running attempt to the queue during graceful
+// shutdown.
+func (r *BulletinJobRepository) Release(ctx context.Context, id int64) error {
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
-		Where("id = ? AND status = ? AND attempt = ?", id, models.BulletinJobRunning, attempt).
+		Where("id = ? AND status = ?", id, models.BulletinJobRunning).
 		Updates(map[string]any{
-			"status":      models.BulletinJobQueued,
-			"lease_until": nil,
-			"started_at":  nil,
-			"updated_at":  time.Now(),
+			"status":     models.BulletinJobQueued,
+			"started_at": nil,
 		})
 	return checkedJobUpdate(result)
 }
@@ -254,9 +176,8 @@ func checkedJobUpdate(result *gorm.DB) error {
 	if result.Error != nil {
 		return ParseDBError(result.Error)
 	}
-	// Any other row count means another worker reclaimed or finalized the lease.
 	if result.RowsAffected != 1 {
-		return ErrBulletinJobLeaseLost
+		return ErrBulletinJobStateConflict
 	}
 	return nil
 }

@@ -41,8 +41,8 @@ type BulletinService struct {
 	config       *config.Config
 	alerts       notify.Alerter
 
-	// stationLocks serializes generation per station within this process; the
-	// job claim guard already serializes worker against worker in the database.
+	// stationLocks serializes generation per station between the job worker
+	// and the synchronous automation path.
 	stationLocks   map[int64]chan struct{}
 	stationLocksMu sync.Mutex
 }
