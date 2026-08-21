@@ -51,7 +51,11 @@ func TestNamedLockReleaseConnectionReuse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("db.Conn() error = %v", err)
 			}
-			defer conn.Close()
+			t.Cleanup(func() {
+				if err := conn.Close(); err != nil {
+					t.Errorf("conn.Close() error = %v", err)
+				}
+			})
 
 			gotConnID := 0
 			if err := conn.Raw(func(raw any) error {
