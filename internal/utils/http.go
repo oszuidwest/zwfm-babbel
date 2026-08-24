@@ -322,8 +322,7 @@ type textNormalizer interface {
 // operate on the decoded values rather than the raw encoded input.
 func BindAndValidate(c *gin.Context, req any) bool {
 	if err := newCappedJSONDecoder(c).Decode(req); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			ProblemPayloadTooLarge(c)
 			return false
 		}
@@ -384,8 +383,7 @@ func normalizeAndValidate(c *gin.Context, req any) bool {
 }
 
 func handleStrictJSONDecodeError(c *gin.Context, err error) {
-	var maxBytesErr *http.MaxBytesError
-	if errors.As(err, &maxBytesErr) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		ProblemPayloadTooLarge(c)
 		return
 	}
@@ -399,8 +397,7 @@ func handleStrictJSONDecodeError(c *gin.Context, err error) {
 		return
 	}
 
-	var syntaxErr *json.SyntaxError
-	if errors.As(err, &syntaxErr) {
+	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
 		ProblemBadRequestValidationError(
 			c,
 			"Request body contains invalid JSON",
@@ -409,8 +406,7 @@ func handleStrictJSONDecodeError(c *gin.Context, err error) {
 		return
 	}
 
-	var typeErr *json.UnmarshalTypeError
-	if errors.As(err, &typeErr) {
+	if typeErr, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
 		field := typeErr.Field
 		if field == "" {
 			field = "request"
@@ -494,8 +490,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 
 	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
 	if err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			ProblemPayloadTooLarge(c)
 			return false
 		}

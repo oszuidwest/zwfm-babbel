@@ -42,8 +42,8 @@ func TestMaterializePronunciationRulesPreservesFalseFlags(t *testing.T) {
 		Rules: []PronunciationRuleUpdate{{
 			StringToReplace: "PSV",
 			IPA:             "piː ɛs veː",
-			CaseSensitive:   ptr(false),
-			WordBoundaries:  ptr(false),
+			CaseSensitive:   new(false),
+			WordBoundaries:  new(false),
 		}},
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 		{
 			name: "case insensitive shadow",
 			rules: []PronunciationRuleUpdate{
-				{StringToReplace: "PSV", IPA: "one", CaseSensitive: ptr(false)},
+				{StringToReplace: "PSV", IPA: "one", CaseSensitive: new(false)},
 				{StringToReplace: "psv", IPA: "two"},
 			},
 			wantField:   "rules[0].string_to_replace",
@@ -333,8 +333,7 @@ func TestPronunciationRulesServiceUpdateReplaceAllErrorRollsBack(t *testing.T) {
 		Rules: []PronunciationRuleUpdate{{StringToReplace: "PSV", IPA: "piː ɛs veː"}},
 	})
 
-	var dbErr *apperrors.DatabaseError
-	if !errors.As(err, &dbErr) {
+	if _, ok := errors.AsType[*apperrors.DatabaseError](err); !ok {
 		t.Fatalf("Update() error = %T, want *apperrors.DatabaseError", err)
 	}
 	if !tx.rolledBack || tx.committed {

@@ -262,8 +262,7 @@ func routeKey(c *gin.Context) string {
 }
 
 func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
-	var unknownField *repository.UnknownFieldError
-	if errors.As(err, &unknownField) {
+	if unknownField, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
 		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
 		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: unknownField.Kind, Message: unknownField.Error()},
@@ -271,8 +270,7 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 		return true
 	}
 
-	var invalidFilter *repository.InvalidFilterError
-	if errors.As(err, &invalidFilter) {
+	if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
 		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
 		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, publicFilterOperator(invalidFilter.Operator)), Message: invalidFilter.Reason},

@@ -15,10 +15,6 @@ ignored:
   # Usually handled in multi-stage builds or combined RUN statements
   - DL3009
 
-  # SC3009: Brace expansion is undefined in POSIX sh
-  # Alpine uses busybox ash which supports brace expansion
-  - SC3009
-
 trustedRegistries:
   - docker.io
   - ghcr.io

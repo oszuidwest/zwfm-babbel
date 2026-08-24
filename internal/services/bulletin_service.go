@@ -131,7 +131,9 @@ func (s *BulletinService) create(
 	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
 
-	// Selection priority chooses stories; shuffling changes only playback order.
+	// Shuffle story order for natural radio flow.
+	// Breaking priority and fair rotation determine which stories are selected;
+	// playback order is randomized so breaking stories appear in varied positions.
 	// #nosec G404 -- playback-order shuffle, not security-sensitive randomness.
 	rand.Shuffle(len(stories), func(i, j int) {
 		stories[i], stories[j] = stories[j], stories[i]

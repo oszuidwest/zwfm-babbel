@@ -15,16 +15,16 @@ func TestValidateElevenLabsVoiceID(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "nil is allowed", input: nil},
-		{name: "empty string is allowed", input: ptr("")},
-		{name: "valid 20-char alphanumeric", input: ptr("21m00Tcm4TlvDq8ikWAM")},
-		{name: "valid with hyphen", input: ptr("voice-abcd1234")},
-		{name: "valid with underscore", input: ptr("voice_abcd1234")},
-		{name: "too short", input: ptr("short"), wantErr: true},
-		{name: "too long", input: ptr(strings.Repeat("a", 65)), wantErr: true},
-		{name: "rejects path separator", input: ptr("voice/../etc"), wantErr: true},
-		{name: "rejects query separator", input: ptr("voice?evil=1"), wantErr: true},
-		{name: "rejects whitespace", input: ptr("voice id 1234"), wantErr: true},
-		{name: "rejects url-encoded", input: ptr("voice%2Fevil"), wantErr: true},
+		{name: "empty string is allowed", input: new("")},
+		{name: "valid 20-char alphanumeric", input: new("21m00Tcm4TlvDq8ikWAM")},
+		{name: "valid with hyphen", input: new("voice-abcd1234")},
+		{name: "valid with underscore", input: new("voice_abcd1234")},
+		{name: "too short", input: new("short"), wantErr: true},
+		{name: "too long", input: new(strings.Repeat("a", 65)), wantErr: true},
+		{name: "rejects path separator", input: new("voice/../etc"), wantErr: true},
+		{name: "rejects query separator", input: new("voice?evil=1"), wantErr: true},
+		{name: "rejects whitespace", input: new("voice id 1234"), wantErr: true},
+		{name: "rejects url-encoded", input: new("voice%2Fevil"), wantErr: true},
 	}
 
 	for _, tt := range tests {

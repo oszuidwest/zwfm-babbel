@@ -37,13 +37,11 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 	// so handleServiceError can surface them via ProblemValidationError (422),
 	// keeping the response shape and status consistent with parse-time query
 	// failures from utils/query.go.
-	var unknownField *repository.UnknownFieldError
-	if errors.As(err, &unknownField) {
+	if _, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
 		return err
 	}
 
-	var invalidFilter *repository.InvalidFilterError
-	if errors.As(err, &invalidFilter) {
+	if _, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
 		return err
 	}
 
