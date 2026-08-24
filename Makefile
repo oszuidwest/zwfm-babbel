@@ -125,11 +125,6 @@ docker-logs:
 	fi
 	docker-compose logs -f
 
-install-tools:
-	@echo "Installing Go tools..."
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0 || echo "Failed to install golangci-lint"
-	@echo "✅ Tool installation complete (deadcode and staticcheck use go.mod tool directives; govulncheck is pinned in CI)"
-
 db-reset:
 	@if ! command -v docker >/dev/null 2>&1; then \
 		echo "Docker not installed"; \
