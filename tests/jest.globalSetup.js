@@ -1,5 +1,4 @@
-// Jest global setup - Docker orchestration
-// Starts Docker containers before any tests run
+// Starts the integration environment and waits for API readiness.
 const { execFileSync } = require('child_process');
 const axios = require('axios');
 const path = require('path');
@@ -39,7 +38,6 @@ async function waitForApi(maxRetries = 30, retryDelay = 2000) {
 }
 
 async function globalSetup() {
-  // Check for quick mode (skip Docker)
   if (process.env.JEST_SKIP_DOCKER === 'true') {
     console.log('\nSkipping Docker setup (JEST_SKIP_DOCKER=true)');
     console.log('Checking API readiness...');
@@ -58,28 +56,24 @@ async function globalSetup() {
   console.log('========================================\n');
 
   try {
-    // Step 1: Stop and clean existing containers
     console.log('Step 1/4: Cleaning Docker environment...');
     execFileSync('docker', ['compose', 'down', '-v'], {
       cwd: PROJECT_ROOT,
       stdio: 'inherit'
     });
 
-    // Step 2: Build fresh images
     console.log('\nStep 2/4: Building Docker images...');
     execFileSync('docker', ['compose', 'build'], {
       cwd: PROJECT_ROOT,
       stdio: 'inherit'
     });
 
-    // Step 3: Start containers
     console.log('\nStep 3/4: Starting Docker containers...');
     execFileSync('docker', ['compose', 'up', '-d'], {
       cwd: PROJECT_ROOT,
       stdio: 'inherit'
     });
 
-    // Step 4: Wait for API
     console.log('\nStep 4/4: Waiting for API to be ready...');
     await waitForApi();
 
@@ -90,7 +84,6 @@ async function globalSetup() {
   } catch (error) {
     console.error('\nDocker setup failed:', error.message);
 
-    // Show logs for debugging
     try {
       console.log('\n--- Docker logs ---');
       execFileSync('docker', ['compose', 'logs', '--tail=50'], {

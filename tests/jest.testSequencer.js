@@ -1,9 +1,7 @@
-// Custom test sequencer to enforce test execution order
-// Tests must run in dependency order (auth first, validation last)
+// Shared database state requires dependency-ordered suites.
 const Sequencer = require('@jest/test-sequencer').default;
 
 class CustomSequencer extends Sequencer {
-  // Define execution order matching the original run-all.js
   static ORDER = [
     'auth/auth.test.js',
     'auth/permissions.test.js',

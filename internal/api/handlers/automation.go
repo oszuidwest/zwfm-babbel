@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,35 +24,16 @@ type AutomationHandler struct {
 	stationSvc  *services.StationService
 	config      *config.Config
 	alerts      notify.Alerter
-
-	// stationLocks provides per-station mutex to prevent concurrent bulletin generation.
-	stationLocks   map[int64]*sync.Mutex
-	stationLocksMu sync.Mutex
 }
 
 // NewAutomationHandler creates a public automation endpoint handler.
 func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *services.StationService, cfg *config.Config, alerts notify.Alerter) *AutomationHandler {
 	return &AutomationHandler{
-		bulletinSvc:  bulletinSvc,
-		stationSvc:   stationSvc,
-		config:       cfg,
-		alerts:       notify.OrDiscard(alerts),
-		stationLocks: make(map[int64]*sync.Mutex),
+		bulletinSvc: bulletinSvc,
+		stationSvc:  stationSvc,
+		config:      cfg,
+		alerts:      notify.OrDiscard(alerts),
 	}
-}
-
-// getStationLock returns a station mutex, creating it on first use.
-func (h *AutomationHandler) getStationLock(stationID int64) *sync.Mutex {
-	h.stationLocksMu.Lock()
-	defer h.stationLocksMu.Unlock()
-
-	if lock, exists := h.stationLocks[stationID]; exists {
-		return lock
-	}
-
-	lock := &sync.Mutex{}
-	h.stationLocks[stationID] = lock
-	return lock
 }
 
 // bulletinRequest holds validated request parameters for public bulletin endpoint.
@@ -119,22 +99,8 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	return &bulletinRequest{stationID: stationID, maxAgeSeconds: maxAgeSeconds}
 }
 
-// GetPublicBulletin serves bulletin audio for radio automation systems.
-// This endpoint is public but requires a valid API key.
-//
-// GET /public/stations/:id/bulletin.wav?key=xxx&max_age=3600
-//
-// Query parameters:
-//   - key: Required. The automation API key configured in BABBEL_AUTOMATION_KEY.
-//   - max_age: Required. Maximum age in seconds. If the latest bulletin is older,
-//     a new one will be generated. Use 0 to always generate a fresh bulletin.
-//
-// Response:
-//   - 200 OK: WAV audio file.
-//   - 400 Bad Request: Missing or invalid parameters.
-//   - 401 Unauthorized: Invalid API key.
-//   - 404 Not Found: Station not found, no stories available, or endpoint disabled.
-//   - 500 Internal Server Error: Generation failed.
+// GetPublicBulletin serves API-key-authenticated audio to automation clients.
+// max_age=0 forces generation; larger values permit a fresh cached bulletin.
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	req := h.validateBulletinRequest(c)
 	if req == nil {
@@ -198,9 +164,13 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 // generating again. On failure it writes the error response and reports
 // ok=false.
 func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
-	lock := h.getStationLock(req.stationID)
-	lock.Lock()
-	defer lock.Unlock()
+	release, err := h.bulletinSvc.LockStation(c.Request.Context(), req.stationID)
+	if err != nil {
+		// Only a vanished client interrupts the wait; the response is best-effort.
+		utils.ProblemInternalServer(c, "Bulletin generation was interrupted")
+		return nil, false, false
+	}
+	defer release()
 
 	// The generation timeout starts after the lock is acquired so time spent
 	// waiting behind another generation does not eat into it.

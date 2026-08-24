@@ -46,6 +46,7 @@ services:
       BABBEL_COOKIE_SAMESITE: "lax"
       # Radio automation API key (leave empty to disable public endpoint)
       BABBEL_AUTOMATION_KEY: "test-automation-key-for-integration-tests"
+      BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT: ${BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT:-120s}
       # ElevenLabs TTS (leave empty to disable; endpoint returns 501 when unset)
       BABBEL_ELEVENLABS_API_KEY: ${BABBEL_ELEVENLABS_API_KEY:-}
       BABBEL_ELEVENLABS_TIMEOUT: ${BABBEL_ELEVENLABS_TIMEOUT:-60s}

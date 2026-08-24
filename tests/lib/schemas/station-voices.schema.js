@@ -1,17 +1,11 @@
-/**
- * Station-Voice relationship resource schema for test generation.
- * Note: This is a junction resource that requires station_id and voice_id.
- */
-
 module.exports = {
   name: 'StationVoice',
   namePlural: 'stationVoices',
   endpoint: '/station-voices',
 
-  // Note: Requires stationId and voiceId to be set up externally
+  // Tests supply both foreign keys through fixture setup.
   createValidData: (suffix = '') => ({
     mix_point: 3.0
-    // station_id and voice_id must be added by test setup
   }),
 
   updateData: () => ({
@@ -25,8 +19,6 @@ module.exports = {
     numericFields: ['id', 'station_id', 'voice_id', 'mix_point'],
     selectableFields: ['id', 'station_id', 'voice_id', 'mix_point', 'audio_url', 'created_at', 'updated_at']
   },
-
-  excludeOnFieldSelect: [],
 
   validation: {
     fields: {

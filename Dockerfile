@@ -1,49 +1,40 @@
 FROM golang:1.27.0-alpine3.24 AS builder
 
-# Build arguments
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
 
 WORKDIR /app
 
-# Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the application with version information
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=${BUILD_TIME}" \
     -o babbel cmd/babbel/main.go
 
-# Final stage
+# Minimal runtime stage
 FROM alpine:3.24
 
 LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-babbel"
 LABEL org.opencontainers.image.description="Headless REST API for generating audio news bulletins for radio stations"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# Install FFmpeg and timezone data, upgrade to get security patches
-# Update package index first to ensure we get the latest security fixes (e.g., libpng)
-# CACHEBUST is set to a changing value by CI so this layer always re-runs and pulls in
-# freshly published upstream security patches, even when the base image digest is unchanged.
+# CACHEBUST makes CI refresh security patches even when the base digest is unchanged.
 ARG CACHEBUST=static
 RUN echo "cachebust: ${CACHEBUST}" >/dev/null && apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
 
-# Create app user
+# Run with an unprivileged account.
 RUN addgroup -g 1001 -S app \
     && adduser -u 1001 -S app -G app
 
 WORKDIR /app
 
-# Copy binary from builder
 COPY --from=builder /app/babbel .
 
-# Copy migrations
 COPY migrations/ ./migrations/
 
 # Create required directories

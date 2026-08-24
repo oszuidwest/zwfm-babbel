@@ -11,9 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// AuthHandlers provides HTTP handlers for authentication endpoints including
-// local login, OAuth flows, session management, and configuration discovery.
-// Handles both username/password and OAuth/OIDC authentication methods.
+// AuthHandlers serves local and OAuth authentication endpoints.
 type AuthHandlers struct {
 	authService *auth.Service
 	frontendURL string
@@ -30,10 +28,7 @@ func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.
 	}
 }
 
-// Login handles local username/password authentication via JSON POST.
-// Validates credentials against the database and creates a secure session.
-// Returns 201 Created on success or appropriate error responses for failures.
-// Only available when local authentication is enabled in configuration.
+// Login authenticates local credentials and starts a session.
 func (h *AuthHandlers) Login(c *gin.Context) {
 	var req struct {
 		Username string `json:"username" binding:"required"`
@@ -53,17 +48,12 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 	utils.CreatedWithMessage(c, "Login successful")
 }
 
-// StartOAuthFlow initiates OAuth/OIDC authentication by redirecting to the provider.
-// Generates CSRF protection state and stores frontend redirect URL in session.
-// Only available when OAuth authentication is enabled in configuration.
+// StartOAuthFlow redirects to the configured provider.
 func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 	h.authService.StartOAuthFlow(c)
 }
 
-// HandleOAuthCallback processes the OAuth provider callback after user authentication.
-// Validates CSRF state, exchanges authorization code for tokens, verifies ID token,
-// and creates or updates user accounts. Redirects to frontend with success/error status.
-// Cleans up temporary session data after processing.
+// HandleOAuthCallback completes authentication and redirects to the frontend.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	session := h.authService.Session(c)
 	frontendURL, ok := auth.SessionFrontendURL(session)
@@ -81,7 +71,6 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	// Clean up OAuth session data (type-safe)
 	auth.ClearSessionOAuth(session)
 	if err := session.Save(c); err != nil {
 		logger.Error("Failed to save session after cleanup", "error", err)
@@ -90,8 +79,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
 }
 
-// Logout securely destroys the current user session and clears all session data.
-// Returns 204 No Content on successful logout. Safe to call multiple times.
+// Logout clears the current session. It is safe to call repeatedly.
 func (h *AuthHandlers) Logout(c *gin.Context) {
 	if err := h.authService.Logout(c); err != nil {
 		utils.ProblemInternalServer(c, "Failed to logout")

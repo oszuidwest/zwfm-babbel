@@ -1,14 +1,7 @@
 /**
- * ValidationTestGenerator - Generates field validation tests for API resources.
- * Covers required fields, type validation, boundaries, enum values, unique
- * constraints, array fields, and RFC 9457 error shape.
- */
-
-/**
- * Generates validation tests based on resource schema.
- * @param {Object} schema - Resource schema with validation configuration.
- * @param {Function} [setupFn] - Optional async dependency factory for resources
- *                               with foreign-key requirements.
+ * Generates validation contract tests from a resource schema.
+ * @param {Object} schema
+ * @param {Function|null} [setupFn]
  */
 function generateValidationTests(schema, setupFn = null) {
   const { endpoint, name, namePlural, createValidData, validation } = schema;
@@ -52,7 +45,6 @@ function generateValidationTests(schema, setupFn = null) {
       if (setupFn) sharedDependencyData = await setupFn();
     });
 
-    // Required fields are checked generically from the schema.
     describe('Required Fields', () => {
       test('when data empty, then returns 422', async () => {
         await expectPostStatus({}, 422);
@@ -67,7 +59,6 @@ function generateValidationTests(schema, setupFn = null) {
 
     const stringFields = Object.entries(fields).filter(([_, rules]) => rules.type === 'string');
     if (stringFields.length > 0) {
-      // String rules cover emptiness, length, whitespace, and pattern validation.
       describe('String Field Validation', () => {
         stringFields.forEach(([fieldName, rules]) => {
           [
@@ -89,7 +80,6 @@ function generateValidationTests(schema, setupFn = null) {
       ([_, rules]) => rules.type === 'integer' || rules.type === 'float'
     );
     if (numericFields.length > 0) {
-      // Numeric rules cover type checks and configured min/max boundaries.
       describe('Numeric Field Validation', () => {
         numericFields.forEach(([fieldName, rules]) => {
           const cases = [[true, 'is string', `string-${fieldName}`, 'invalid']];
@@ -110,7 +100,6 @@ function generateValidationTests(schema, setupFn = null) {
 
     const enumFields = Object.entries(fields).filter(([_, rules]) => rules.enum);
     if (enumFields.length > 0) {
-      // Enum tests include one valid creation path so accepted values are verified.
       describe('Enum Field Validation', () => {
         enumFields.forEach(([fieldName, rules]) => {
           rejectCase(`when ${fieldName} invalid enum, then returns 422`, `invalid-enum-${fieldName}`, data => {
@@ -132,7 +121,6 @@ function generateValidationTests(schema, setupFn = null) {
 
     const uniqueFields = Object.entries(fields).filter(([_, rules]) => rules.unique);
     if (uniqueFields.length > 0) {
-      // Unique constraints require a real first insert followed by a duplicate.
       describe('Unique Constraints', () => {
         uniqueFields.forEach(([fieldName, rules]) => {
           test(`when ${fieldName} duplicate, then returns 409`, async () => {
@@ -152,7 +140,6 @@ function generateValidationTests(schema, setupFn = null) {
 
     const arrayFields = Object.entries(fields).filter(([_, rules]) => rules.type === 'array');
     if (arrayFields.length > 0) {
-      // Array tests verify both required non-empty arrays and type validation.
       describe('Array Field Validation', () => {
         arrayFields.forEach(([fieldName, rules]) => {
           if (rules.required) {

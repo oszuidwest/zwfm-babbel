@@ -24,45 +24,37 @@ describe('Automation', () => {
     });
 
     test('when station ID invalid, then returns 422', async () => {
-      // Arrange
       const url = `${global.api.apiBase}/public/stations/invalid/bulletin.wav?key=${automationKey}&max_age=3600`;
 
-      // Act
       const response = await global.api.http({
         method: 'get',
         url: url,
         validateStatus: () => true
       });
 
-      // Assert
       expect(response.status).toBe(422);
     });
   });
 
   describe('Station Validation', () => {
     test('when station non-existent, then returns 404', async () => {
-      // Act
       const response = await global.helpers.publicBulletinRequest(999999, {
         key: automationKey,
         max_age: '3600'
       });
 
-      // Assert
       expect(response.status).toBe(404);
     });
 
     test('when station has no stories, then returns 422', async () => {
-      // Arrange
       const station = await global.helpers.createStation(global.resources, 'Empty Automation Station');
       expect(station).not.toBeNull();
 
-      // Act
       const response = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '0'
       });
 
-      // Assert
       expect(response.status).toBe(422);
     });
   });
@@ -81,15 +73,13 @@ describe('Automation', () => {
     });
 
     test('when requesting bulletin, then returns audio', async () => {
-      // Arrange: Uses station setup from beforeAll
+      // Uses station setup from beforeAll
 
-      // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      // Assert
       expect(response.status).toBe(200);
       expect(response.contentType).toContain('audio/wav');
       expect(response.data.length).toBeGreaterThan(1000);
@@ -110,22 +100,20 @@ describe('Automation', () => {
     });
 
     test('when first request, then generates new bulletin', async () => {
-      // Arrange: Uses station setup from beforeAll
+      // Uses station setup from beforeAll
 
-      // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      // Assert
       expect(response.status).toBe(200);
       expect(response.headers['x-bulletin-cached']).toBe('false');
       expect(response.headers['x-bulletin-id']).toBeDefined();
     });
 
     test('when subsequent request, then returns cached', async () => {
-      // Arrange: First request generates new bulletin
+      // First request generates new bulletin
       const response1 = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
@@ -133,13 +121,12 @@ describe('Automation', () => {
       expect(response1.status).toBe(200);
       expect(response1.headers['x-bulletin-id']).toBeDefined();
 
-      // Act: Second request with high max_age should use cache
+      // Second request with high max_age should use cache
       const response2 = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '3600'
       });
 
-      // Assert
       expect(response2.status).toBe(200);
       expect(response2.headers['x-bulletin-cached']).toBe('true');
       expect(response2.headers['x-bulletin-id']).toBeDefined();
@@ -150,7 +137,7 @@ describe('Automation', () => {
     let stationId, voiceId;
 
     beforeAll(async () => {
-      // Arrange: Create station and voice
+      // Create station and voice
       const station = await global.helpers.createStation(global.resources, 'Timezone Test Station');
       const voice = await global.helpers.createVoice(global.resources, 'Timezone Test Voice');
       stationId = station.id;
@@ -177,13 +164,12 @@ describe('Automation', () => {
         end_date: todayStr
       }]);
 
-      // Act
       const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      // Assert: Story should not be incorrectly marked as expired
+      // Story should not be incorrectly marked as expired
       expect(response.status).toBe(200);
     });
   });

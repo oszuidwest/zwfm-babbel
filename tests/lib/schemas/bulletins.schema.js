@@ -1,18 +1,12 @@
-/**
- * Bulletin resource schema for test generation.
- * Note: Bulletins are generated, not created directly. This schema is for query tests.
- */
-
 module.exports = {
   name: 'Bulletin',
   namePlural: 'bulletins',
   endpoint: '/bulletins',
 
-  // Bulletins are generated via POST /stations/{id}/bulletins, not POST /bulletins
-  // This createValidData is for reference only
+  // Bulletins are generated through a station endpoint.
   createValidData: null,
 
-  updateData: null, // Bulletins cannot be updated
+  updateData: null,
 
   query: {
     searchFields: [],
@@ -22,8 +16,5 @@ module.exports = {
     selectableFields: ['id', 'station_id', 'created_at']
   },
 
-  excludeOnFieldSelect: [],
-
-  // Bulletins don't have direct creation validation - they're generated
   validation: null
 };

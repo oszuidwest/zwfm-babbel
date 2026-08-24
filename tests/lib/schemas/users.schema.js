@@ -1,7 +1,3 @@
-/**
- * User resource schema for test generation.
- */
-
 module.exports = {
   name: 'User',
   namePlural: 'users',
@@ -26,8 +22,6 @@ module.exports = {
     numericFields: ['id'],
     selectableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at']
   },
-
-  excludeOnFieldSelect: ['full_name', 'role'],
 
   validation: {
     fields: {

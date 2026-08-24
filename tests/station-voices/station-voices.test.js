@@ -49,7 +49,7 @@ describe('Station-Voices', () => {
 
   describe('Duplicate Detection', () => {
     test('when creating duplicate station-voice pair, then returns 409', async () => {
-      // Arrange: Create a station-voice
+      // Create a station-voice
       const station = await global.helpers.createStation(global.resources, 'DupStation');
       const voice = await global.helpers.createVoice(global.resources, 'DupVoice');
       const data = {
@@ -62,10 +62,9 @@ describe('Station-Voices', () => {
       expect(first.status).toBe(201);
       global.resources.track('stationVoices', first.data.id);
 
-      // Act: Try to create duplicate
+      // Try to create duplicate
       const duplicate = await global.api.apiCall('POST', '/station-voices', data);
 
-      // Assert
       expect(duplicate.status).toBe(409);
     });
   });
@@ -88,7 +87,6 @@ describe('Station-Voices', () => {
     test('when uploading jingle, then attached', async () => {
       if (!audioAvailable) return;
 
-      // Arrange
       const station = await global.helpers.createStation(global.resources, 'AudioTestStation');
       const voice = await global.helpers.createVoice(global.resources, 'AudioTestVoice');
       const response = await global.api.apiCall('POST', '/station-voices', {
@@ -99,7 +97,6 @@ describe('Station-Voices', () => {
       expect(response.status).toBe(201);
       global.resources.track('stationVoices', response.data.id);
 
-      // Act
       const uploadResponse = await global.api.uploadFile(
         `/station-voices/${response.data.id}/audio`,
         {},
@@ -107,12 +104,10 @@ describe('Station-Voices', () => {
         'jingle'
       );
 
-      // Assert
       expect(uploadResponse.status).toBe(201);
     });
 
     test('when fetching, then audio fields present', async () => {
-      // Arrange
       const station = await global.helpers.createStation(global.resources, 'AudioFieldsStation');
       const voice = await global.helpers.createVoice(global.resources, 'AudioFieldsVoice');
       const response = await global.api.apiCall('POST', '/station-voices', {
@@ -123,10 +118,8 @@ describe('Station-Voices', () => {
       expect(response.status).toBe(201);
       global.resources.track('stationVoices', response.data.id);
 
-      // Act
       const getResponse = await global.api.apiCall('GET', `/station-voices/${response.data.id}`);
 
-      // Assert
       expect(getResponse.status).toBe(200);
       expect(getResponse.data).toHaveProperty('audio_url');
       expect(typeof getResponse.data.audio_url).toBe('string');
@@ -136,7 +129,7 @@ describe('Station-Voices', () => {
     test('when filtering has_audio, then partitions by jingle presence', async () => {
       if (!audioAvailable) return;
 
-      // Arrange: two voices on one station, only one with a jingle
+      // Two voices on one station, only one with a jingle
       const station = await global.helpers.createStation(global.resources, 'HasAudioFilterStation');
       const voiceWith = await global.helpers.createVoice(global.resources, 'HasAudioFilterVoice1');
       const voiceWithout = await global.helpers.createVoice(global.resources, 'HasAudioFilterVoice2');
@@ -164,7 +157,7 @@ describe('Station-Voices', () => {
       );
       expect(uploadResponse.status).toBe(201);
 
-      // Act + Assert: has_audio partitions the station's pairs
+      // Has_audio partitions the station's pairs
       const withResponse = await global.api.apiCall(
         'GET',
         `/station-voices?filter[station_id]=${station.id}&filter[has_audio]=true`
@@ -183,32 +176,26 @@ describe('Station-Voices', () => {
 
   describe('Foreign Key Validation', () => {
     test('when station_id invalid, then returns error', async () => {
-      // Arrange
       const voice = await global.helpers.createVoice(global.resources, 'FKValidationVoice');
 
-      // Act
       const response = await global.api.apiCall('POST', '/station-voices', {
         station_id: 999999,
         voice_id: voice.id,
         mix_point: 2.0
       });
 
-      // Assert
       expect([404, 422]).toContain(response.status);
     });
 
     test('when voice_id invalid, then returns error', async () => {
-      // Arrange
       const station = await global.helpers.createStation(global.resources, 'FKValidationStation');
 
-      // Act
       const response = await global.api.apiCall('POST', '/station-voices', {
         station_id: station.id,
         voice_id: 999999,
         mix_point: 2.0
       });
 
-      // Assert
       expect([404, 422]).toContain(response.status);
     });
   });

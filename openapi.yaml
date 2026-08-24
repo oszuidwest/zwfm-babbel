@@ -2074,35 +2074,19 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStationsIdBulletins
-      summary: Generate news bulletin for a station
+      summary: Queue bulletin generation for a station
       description: |
-        Generates a news bulletin for a specific station and always returns JSON metadata.
-        
-        ## HTTP Headers for Control
-        - `Cache-Control: no-cache` - Force new generation ignoring cache
-        - `Cache-Control: max-age=N` - Reuse existing bulletin if created within N seconds
-        
-        ## Response Headers
-        - `X-Cache: HIT|MISS` - Indicates if bulletin was served from cache or freshly generated
-        - `Age: N` - Age of the bulletin in seconds (0 for fresh bulletins)
-        
-        ## Notes
-        Download audio from the returned `audio_url`, or from GET /bulletins/{id}/audio.
-        To get story information, use the separate GET /bulletins/{id}/stories endpoint after bulletin generation.
+        Persists a durable background-generation job and returns immediately.
+        Poll the URL in the `Location` header until status is `succeeded` or
+        `failed`. A successful job contains `bulletin_id`; retrieve that
+        bulletin and its audio through the regular bulletin endpoints.
+
+        Every request creates a generation job. A single background worker
+        processes jobs one at a time in submission order.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-        - name: Cache-Control
-          in: header
-          required: false
-          schema:
-            type: string
-            example: "max-age=300"
-          description: |
-            Cache control directives:
-            - `no-cache` - Force new generation ignoring existing bulletins
-            - `max-age=N` - Reuse bulletin if created within N seconds
       requestBody:
         required: false
         content:
@@ -2115,42 +2099,19 @@ paths:
                   format: date
                   description: Date for bulletin in YYYY-MM-DD format (defaults to today)
       responses:
-        '200':
-          description: Bulletin generated successfully
+        '202':
+          description: Bulletin generation job accepted
           headers:
-            X-Cache:
-              $ref: '#/components/headers/XCache'
-            Age:
-              $ref: '#/components/headers/Age'
+            Location:
+              required: true
+              schema:
+                type: string
+                example: /api/v1/bulletin-jobs/42
+              description: Polling resource for this generation job
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BulletinResponse'
-              examples:
-                fresh_bulletin:
-                  summary: Newly generated bulletin
-                  value:
-                    id: 150
-                    station_id: 1
-                    station_name: "Radio Station 1"
-                    audio_url: "/bulletins/150/audio"
-                    filename: "bulletin_150_20240120_140500.wav"
-                    created_at: "2024-01-20T14:05:00Z"
-                    duration_seconds: 185.4
-                    file_size: 2965440
-                    story_count: 4
-                cached_bulletin:
-                  summary: Cached bulletin (from max_age parameter - check X-Cache header)
-                  value:
-                    id: 149
-                    station_id: 1
-                    station_name: "Radio Station 1"
-                    audio_url: "/bulletins/149/audio"
-                    filename: "bulletin_149_20240120_140200.wav"
-                    created_at: "2024-01-20T14:02:00Z"
-                    duration_seconds: 178.2
-                    file_size: 2845568
-                    story_count: 3
+                $ref: '#/components/schemas/BulletinJob'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -2165,6 +2126,39 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /api/v1/bulletin-jobs/{id}:
+    get:
+      operationId: getBulletinJobsId
+      summary: Get bulletin generation job status
+      description: |
+        Returns the durable state of a queued generation request. Poll until
+        `status` is `succeeded` or `failed`. Successful jobs expose the created
+        `bulletin_id`; failed jobs expose a stable `error_code` and safe detail.
+        Finished job records are deleted after the bulletin retention period,
+        after which this endpoint returns 404.
+      tags:
+        - Bulletin
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Current bulletin generation job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulletinJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '504':
@@ -2674,17 +2668,8 @@ components:
       schema:
         type: string
         example: "bytes 0-1023/2048000"
-    XCache:
-      description: |
-        Cache status indicator:
-        - `HIT` - Bulletin served from cache (existing bulletin reused)
-        - `MISS` - Bulletin freshly generated
-      required: true
-      schema:
-        type: string
-        enum: [HIT, MISS]
     Age:
-      description: Age of the bulletin in seconds (0 for freshly generated bulletins)
+      description: Age of the served bulletin in seconds since it was generated
       required: true
       schema:
         type: integer
@@ -4003,6 +3988,69 @@ components:
           type: [string, 'null']
           format: date-time
           description: When the audio file was cleaned up (null means file still exists)
+
+    BulletinJob:
+      type: object
+      description: Durable asynchronous bulletin-generation state
+      required:
+        - id
+        - station_id
+        - target_date
+        - status
+        - attempt
+        - bulletin_id
+        - started_at
+        - completed_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        station_id:
+          type: integer
+          format: int64
+          x-foreign-key: stations.id
+        target_date:
+          type: string
+          format: date-time
+          description: Calendar date used when selecting eligible stories
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        attempt:
+          type: integer
+          minimum: 0
+          description: >-
+            Number of generation attempts, including the current attempt.
+            Jobs interrupted by restarts are retried a limited number of times
+        bulletin_id:
+          type: [integer, 'null']
+          format: int64
+          description: >-
+            Created bulletin ID when status is succeeded; null when the
+            bulletin has since been deleted
+        error_code:
+          type: string
+          description: |
+            Stable failure code when status is failed: `bulletin.no_stories`,
+            `internal.timeout`, `audio.processing_failed`,
+            `internal.retries_exhausted`, or `internal.generation_failed`
+        error_detail:
+          type: string
+          description: Client-safe failure detail when status is failed
+        started_at:
+          type: [string, 'null']
+          format: date-time
+        completed_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
 
     ProblemDetails:
       type: object

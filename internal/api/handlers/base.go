@@ -25,6 +25,7 @@ type HandlersDeps struct {
 	AudioSvc              *audio.Service
 	Config                *config.Config
 	BulletinSvc           *services.BulletinService
+	BulletinJobSvc        *services.BulletinJobService
 	StorySvc              *services.StoryService
 	StationSvc            *services.StationService
 	VoiceSvc              *services.VoiceService
@@ -42,6 +43,7 @@ type Handlers struct {
 	config    *config.Config
 	// Domain services are injected by NewHandlers.
 	bulletinSvc           *services.BulletinService
+	bulletinJobSvc        *services.BulletinJobService
 	storySvc              *services.StoryService
 	stationSvc            *services.StationService
 	voiceSvc              *services.VoiceService
@@ -59,6 +61,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 		audioSvc:              deps.AudioSvc,
 		config:                deps.Config,
 		bulletinSvc:           deps.BulletinSvc,
+		bulletinJobSvc:        deps.BulletinJobSvc,
 		storySvc:              deps.StorySvc,
 		stationSvc:            deps.StationSvc,
 		voiceSvc:              deps.VoiceSvc,
@@ -78,7 +81,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logger.Error("Request timeout", "error", err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
-			"internal.timeout",
+			apperrors.CodeTimeout,
 			"The request took too long. Please try again.",
 		)
 		return
@@ -155,7 +158,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logError("bulletin", "no_stories", err)
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
 			noStories.Error(),
-			"bulletin.no_stories",
+			apperrors.CodeBulletinNoStories,
 			"Add active stories with audio before generating a bulletin",
 		)
 		return
@@ -165,7 +168,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
-			"audio.processing_failed",
+			apperrors.CodeAudioProcessingFailed,
 			"Check the audio file format and try again",
 		)
 		return

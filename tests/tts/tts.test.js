@@ -65,10 +65,8 @@ describe('TTS', () => {
   // Runs when TTS is disabled (default / CI)
   (TTS_ENABLED ? describe.skip : describe)('TTS Disabled', () => {
     test('when TTS not configured, then returns 501', async () => {
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${NONEXISTENT_STORY_ID}/tts`);
 
-      // Assert
       expect(response.status).toBe(501);
       expect(response.data.type).toContain('tts.not_configured');
     });
@@ -77,39 +75,32 @@ describe('TTS', () => {
   // Runs when TTS is enabled (BABBEL_TEST_TTS_ENABLED=true)
   (TTS_ENABLED ? describe : describe.skip)('Validation Chain (requires TTS)', () => {
     test('when story not found, then returns 404', async () => {
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${NONEXISTENT_STORY_ID}/tts`);
 
-      // Assert
       expect(response.status).toBe(404);
       expect(response.data.type).toContain('story.not_found');
     });
 
     test('when story has no voice, then returns 400', async () => {
-      // Arrange
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
       expect(storyId).not.toBeNull();
 
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      // Assert
       expect(response.status).toBe(400);
       expect(response.data.type).toContain('story.validation_failed');
     });
 
     test('when voice has no ElevenLabs ID, then returns 400', async () => {
-      // Arrange: voice without elevenlabs_voice_id
+      // Voice without elevenlabs_voice_id
       const voiceId = await createVoice('TTS No EL Voice');
       expect(voiceId).not.toBeNull();
 
       const storyId = await createStory('TTS No EL ID Story', 'Some text content for TTS', voiceId);
       expect(storyId).not.toBeNull();
 
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      // Assert
       expect(response.status).toBe(400);
       expect(response.data.type).toContain('voice.validation_failed');
     });
@@ -117,7 +108,7 @@ describe('TTS', () => {
     test('when story already has audio without force, then returns 400', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
-      // Arrange: voice with dummy elevenlabs ID (won't actually call ElevenLabs)
+      // Voice with dummy elevenlabs ID (won't actually call ElevenLabs)
       const voiceId = await createVoice('TTS Audio Exists Voice', 'dummy-el-voice-id');
       expect(voiceId).not.toBeNull();
 
@@ -127,10 +118,8 @@ describe('TTS', () => {
       const uploaded = await uploadTestAudio(storyId);
       expect(uploaded).toBe(true);
 
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      // Assert
       expect(response.status).toBe(400);
       expect(response.data.type).toContain('story.validation_failed');
       expect(response.data.detail).toContain('force');
@@ -143,7 +132,6 @@ describe('TTS', () => {
     test('when force overwrite with real API, then returns 201', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
-      // Arrange
       const voiceId = await createVoice('TTS Force Voice', ELEVENLABS_VOICE_ID);
       expect(voiceId).not.toBeNull();
 
@@ -157,15 +145,12 @@ describe('TTS', () => {
       const uploaded = await uploadTestAudio(storyId);
       expect(uploaded).toBe(true);
 
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts?force=true`);
 
-      // Assert
       expect(response.status).toBe(201);
     });
 
     test('when generating TTS for story without audio, then returns 201', async () => {
-      // Arrange
       const voiceId = await createVoice('TTS Happy Path Voice', ELEVENLABS_VOICE_ID);
       expect(voiceId).not.toBeNull();
 
@@ -180,10 +165,8 @@ describe('TTS', () => {
       const beforeResponse = await global.api.apiCall('GET', `/stories/${storyId}`);
       expect(beforeResponse.status).toBe(200);
 
-      // Act
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      // Assert
       expect(response.status).toBe(201);
 
       // Verify story now has audio

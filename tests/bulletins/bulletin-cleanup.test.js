@@ -48,7 +48,7 @@ describe('Bulletin Cleanup', () => {
     testStationId = station.id;
 
     // Generate first bulletin
-    const bulletin1 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
+    const bulletin1 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin1.status).toBe(200);
     purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
@@ -57,7 +57,7 @@ describe('Bulletin Cleanup', () => {
     await global.helpers.sleep(1000);
 
     // Generate second bulletin
-    const bulletin2 = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
+    const bulletin2 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin2.status).toBe(200);
     unpurgedBulletinId = bulletin2.data.id;
     global.resources.track('bulletins', unpurgedBulletinId);
@@ -68,34 +68,29 @@ describe('Bulletin Cleanup', () => {
 
   describe('Purged Bulletin Properties', () => {
     test('when bulletin is purged, then has no audio_url but has file_purged_at', async () => {
-      // Act
       const purgedResponse = await global.api.apiCall('GET', `/bulletins/${purgedBulletinId}`);
       const unpurgedResponse = await global.api.apiCall('GET', `/bulletins/${unpurgedBulletinId}`);
 
-      // Assert: purged bulletin
+      // Purged bulletin
       expect(purgedResponse.status).toBe(200);
       expect(purgedResponse.data.audio_url).toBeFalsy();
       expect(purgedResponse.data.file_purged_at).toBeTruthy();
 
-      // Assert: unpurged bulletin still has audio_url
+      // Unpurged bulletin still has audio_url
       expect(unpurgedResponse.status).toBe(200);
       expect(unpurgedResponse.data.audio_url).toBeTruthy();
       expect(unpurgedResponse.data.file_purged_at).toBeFalsy();
     });
 
     test('when requesting purged bulletin audio, then returns 404', async () => {
-      // Act
       const response = await global.api.apiCall('GET', `/bulletins/${purgedBulletinId}/audio`);
 
-      // Assert
       expect(response.status).toBe(404);
     });
 
     test('when bulletin is purged, then metadata is preserved', async () => {
-      // Act
       const response = await global.api.apiCall('GET', `/bulletins/${purgedBulletinId}`);
 
-      // Assert
       expect(response.status).toBe(200);
       const bulletin = response.data;
       expect(bulletin.id).toBe(purgedBulletinId);
@@ -109,10 +104,8 @@ describe('Bulletin Cleanup', () => {
 
   describe('Purged Bulletin Listing', () => {
     test('when listing bulletins, then includes both purged and unpurged', async () => {
-      // Act
       const response = await global.api.apiCall('GET', `/stations/${testStationId}/bulletins`);
 
-      // Assert
       expect(response.status).toBe(200);
       const bulletins = response.data.data || [];
       expect(bulletins.length).toBeGreaterThanOrEqual(2);
@@ -130,18 +123,16 @@ describe('Bulletin Cleanup', () => {
     });
 
     test('when requesting latest bulletin, then skips purged', async () => {
-      // Arrange: generate a third bulletin and purge it (making it the newest)
-      const thirdResponse = await global.api.apiCall('POST', `/stations/${testStationId}/bulletins`, {});
+      // Generate a third bulletin and purge it (making it the newest)
+      const thirdResponse = await global.helpers.generateBulletin(testStationId);
       expect(thirdResponse.status).toBe(200);
       const thirdBulletinId = thirdResponse.data.id;
       global.resources.track('bulletins', thirdBulletinId);
 
       markBulletinPurged(thirdBulletinId);
 
-      // Act
       const latestResponse = await global.api.apiCall('GET', `/stations/${testStationId}/bulletins/latest`);
 
-      // Assert
       expect(latestResponse.status).toBe(200);
       const latestId = String(latestResponse.data.id);
 
@@ -154,7 +145,7 @@ describe('Bulletin Cleanup', () => {
 
   describe('Automation After Purge', () => {
     test('when all bulletins purged, then automation regenerates', async () => {
-      // Arrange: create a separate station to avoid interference
+      // Create a separate station to avoid interference
       const { station } = await global.helpers.createBroadcastFixture(global.resources, {
         stationName: 'Automation Purge Test',
         voiceName: 'Automation Purge Voice',
@@ -175,13 +166,12 @@ describe('Bulletin Cleanup', () => {
       // Purge it
       markBulletinPurged(initialBulletinId);
 
-      // Act: request again - should generate fresh since no unpurged bulletins exist
+      // Request again - should generate fresh since no unpurged bulletins exist
       const afterPurgeResponse = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '3600'
       });
 
-      // Assert
       expect(afterPurgeResponse.status).toBe(200);
       expect(afterPurgeResponse.headers['x-bulletin-cached']).toBe('false');
       expect(afterPurgeResponse.headers['x-bulletin-id']).not.toBe(initialBulletinId);
@@ -191,12 +181,10 @@ describe('Bulletin Cleanup', () => {
 
   describe('Purge Filtering', () => {
     test('when filtering by purged status, then returns correct results', async () => {
-      // Act
       const response = await global.api.apiCall('GET',
         `/stations/${testStationId}/bulletins?filter[file_purged_at][ne]=null`
       );
 
-      // Assert
       expect(response.status).toBe(200);
       const purgedBulletins = response.data.data || [];
 

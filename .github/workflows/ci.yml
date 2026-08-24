@@ -69,6 +69,9 @@ jobs:
             exit 1
           }
 
+      - name: Stop API before repository integration tests
+        run: docker compose stop babbel
+
       - name: Run Go integration tests
         env:
           BABBEL_TEST_DB_DSN: babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local
