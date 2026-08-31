@@ -43,7 +43,7 @@ jobs:
 
   release:
     needs: body
-    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v2
+    uses: oszuidwest/.github-templates/.github/workflows/go-release.yml@v3
     with:
       project-name: babbel
       ldflags-target: github.com/oszuidwest/zwfm-babbel/pkg/version
