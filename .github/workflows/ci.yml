@@ -12,7 +12,7 @@ on:
 
 jobs:
   go:
-    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v2
+    uses: oszuidwest/.github-templates/.github/workflows/go-ci.yml@v3
     with:
       # Temporary: deadcode's RTA panics on this Go 1.27 app graph; see #272.
       enable-deadcode: false
