@@ -1176,7 +1176,6 @@ paths:
       summary: Generate story audio via text-to-speech
       description: |
         Generates audio for a story using the ElevenLabs text-to-speech API.
-        Requires the `stories:write` permission (admin and editor roles).
         Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
         The generated audio is stored as the story audio. If the story already has audio,
         the request fails unless `force=true` is provided, in which case the existing
@@ -3807,11 +3806,9 @@ components:
         role:
           type: string
           enum: [admin, editor, viewer]
-          description: |
-            User roles:
-            - admin: Full access to all resources
-            - editor: Read/write stations, voices, stories, and pronunciation rules; read/generate bulletins; read users and TTS settings
-            - viewer: Read-only access to stations, voices, stories, bulletins, TTS settings, and pronunciation rules
+          description: >-
+            User role determining permissions. The Authorization section of
+            the API description documents what each role may do.
         suspended_at:
           type: [string, 'null']
           format: date-time
@@ -3911,11 +3908,9 @@ components:
         role:
           type: string
           enum: [admin, editor, viewer]
-          description: |
-            User roles and permissions:
-            - admin: Full access to all resources including user management
-            - editor: Can manage content (stations, voices, stories, bulletins)
-            - viewer: Read-only access to content
+          description: >-
+            User role determining permissions. The Authorization section of
+            the API description documents what each role may do.
         metadata:
           type: object
           additionalProperties: true
