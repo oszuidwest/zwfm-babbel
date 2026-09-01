@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 
 const SwaggerParser = require('@apidevtools/swagger-parser');
@@ -5,6 +6,9 @@ const SwaggerParser = require('@apidevtools/swagger-parser');
 const OpenApiContractValidator = require('./OpenApiContractValidator');
 
 const SPEC_PATH = path.join(__dirname, '../../openapi.yaml');
+const ROUTER_PATH = path.join(__dirname, '../../internal/api/router.go');
+const PERMISSIONS_PATH = path.join(__dirname, '../../internal/auth/permissions.go');
+const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'];
 
 describe('OpenApiContractValidator', () => {
   test('when JSON response is malformed, then error includes operation context', () => {
@@ -491,6 +495,23 @@ describe('openapi.yaml contract invariants', () => {
     document = await SwaggerParser.dereference(SPEC_PATH);
   });
 
+  test('when Gin routes change, then the OpenAPI operation set stays identical', () => {
+    const routerSource = fs.readFileSync(ROUTER_PATH, 'utf8');
+    const runtimeOperations = extractRuntimeOperations(routerSource);
+    const documentedOperations = extractDocumentedOperations(document);
+
+    expect(documentedOperations).toEqual(runtimeOperations);
+  });
+
+  test('when route RBAC changes, then every OpenAPI operation declares the exact required permission', () => {
+    const routerSource = fs.readFileSync(ROUTER_PATH, 'utf8');
+    const permissionsSource = fs.readFileSync(PERMISSIONS_PATH, 'utf8');
+    const runtimePermissions = extractRuntimePermissions(routerSource, permissionsSource);
+    const documentedPermissions = extractDocumentedPermissions(document);
+
+    expect(documentedPermissions).toEqual(runtimePermissions);
+  });
+
   test.each(LIST_OPERATIONS)('when listing via %s %s, then 422 is declared', (method, operationPath) => {
     expect(Object.keys(document.paths[operationPath][method].responses)).toContain('422');
   });
@@ -669,10 +690,15 @@ describe('openapi.yaml contract invariants', () => {
     }
   });
 
-  test('when permission is denied, then the forbidden example uses the insufficient-permissions type', () => {
+  test('when permission is denied, then the forbidden example matches the runtime problem', () => {
     const forbidden = document.paths['/api/v1/stations'].get.responses['403'];
     const example = forbidden.content['application/problem+json'].examples.insufficient_permissions.value;
-    expect(example.type).toBe('https://babbel.api/problems/insufficient-permissions');
+    expect(example).toMatchObject({
+      type: 'https://babbel.api/problems/insufficient-permissions',
+      title: 'Insufficient Permissions',
+      status: 403,
+      detail: 'You do not have permission to perform this action'
+    });
   });
 
   test('when asynchronous generation fails, then the job schema declares stable error fields', () => {
@@ -688,6 +714,80 @@ describe('openapi.yaml contract invariants', () => {
     expect(examples.dependency_constraint.value.type).toBe('https://babbel.api/problems/station.has_dependencies');
   });
 });
+
+function extractRuntimeOperations(routerSource) {
+  const prefixes = { r: '', public: '/public', v1: '/api/v1', protected: '/api/v1' };
+  const operations = [];
+  const routePattern = /\b(r|public|v1|protected)\.(GET|POST|PUT|PATCH|DELETE)\(\s*"([^"]+)"/g;
+
+  for (const match of routerSource.matchAll(routePattern)) {
+    const [, group, method, route] = match;
+    operations.push(`${method} ${normalizeRuntimePath(prefixes[group] + route)}`);
+  }
+  return operations.sort();
+}
+
+function extractDocumentedOperations(document) {
+  const operations = [];
+  for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+    for (const method of HTTP_METHODS) {
+      if (pathItem[method]) {
+        operations.push(`${method.toUpperCase()} ${operationPath}`);
+      }
+    }
+  }
+  return operations.sort();
+}
+
+function extractRuntimePermissions(routerSource, permissionsSource) {
+  const resources = extractGoStringConstants(permissionsSource, 'Resource');
+  const actions = extractGoStringConstants(permissionsSource, 'Action');
+  const permissions = [];
+  const permissionPattern = /\bprotected\.(GET|POST|PUT|PATCH|DELETE)\(\s*"([^"]+)"\s*,\s*perm\(auth\.(Resource\w+),\s*auth\.(Action\w+)\)/g;
+
+  for (const match of routerSource.matchAll(permissionPattern)) {
+    const [, method, route, resourceConstant, actionConstant] = match;
+    const resource = resources.get(resourceConstant);
+    const action = actions.get(actionConstant);
+    if (!resource || !action) {
+      throw new Error(`Unknown RBAC constants ${resourceConstant}/${actionConstant}`);
+    }
+    permissions.push([
+      `${method} /api/v1${normalizeRuntimePath(route)}`,
+      `${resource}:${action}`
+    ]);
+  }
+  return permissions.sort(([left], [right]) => left.localeCompare(right));
+}
+
+function extractDocumentedPermissions(document) {
+  const permissions = [];
+  for (const [operationPath, pathItem] of Object.entries(document.paths)) {
+    for (const method of HTTP_METHODS) {
+      const operation = pathItem[method];
+      if (operation?.['x-required-permission']) {
+        permissions.push([
+          `${method.toUpperCase()} ${operationPath}`,
+          operation['x-required-permission']
+        ]);
+      }
+    }
+  }
+  return permissions.sort(([left], [right]) => left.localeCompare(right));
+}
+
+function extractGoStringConstants(source, typeName) {
+  const constants = new Map();
+  const pattern = new RegExp(`\\b(${typeName}\\w+)\\s+${typeName}\\s*=\\s*"([^"]+)"`, 'g');
+  for (const match of source.matchAll(pattern)) {
+    constants.set(match[1], match[2]);
+  }
+  return constants;
+}
+
+function normalizeRuntimePath(route) {
+  return route.replace(/:([A-Za-z0-9_]+)/g, '{$1}');
+}
 
 function documentWithParameters(parameters) {
   return documentFor({}, parameters);

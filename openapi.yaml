@@ -26,8 +26,11 @@ info:
 
     Role-based access control:
     - admin: Full access including user management
-    - editor: Content management (stations, voices, stories, bulletins)
-    - viewer: Read-only access
+    - editor: Read/write stations, voices, stories, and pronunciation rules; read/generate bulletins; read users and TTS settings
+    - viewer: Read-only access to stations, voices, stories, bulletins, TTS settings, and pronunciation rules
+
+    Operations enforced by RBAC expose their exact server-side permission in
+    `x-required-permission` as `<resource>:<action>`.
 
     ## Architecture
 
@@ -453,6 +456,7 @@ paths:
   /api/v1/stations:
     get:
       operationId: getStations
+      x-required-permission: stations:read
       summary: List all stations
       description: |
         Returns a paginated list of radio stations with modern query parameter support.
@@ -545,6 +549,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStations
+      x-required-permission: stations:write
       summary: Create a new station
       tags:
         - Stations
@@ -588,6 +593,7 @@ paths:
   /api/v1/stations/{id}:
     get:
       operationId: getStationsId
+      x-required-permission: stations:read
       summary: Get station by ID
       tags:
         - Stations
@@ -612,6 +618,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     put:
       operationId: putStationsId
+      x-required-permission: stations:write
       summary: Update station
       tags:
         - Stations
@@ -648,6 +655,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteStationsId
+      x-required-permission: stations:write
       summary: Delete station
       tags:
         - Stations
@@ -672,6 +680,7 @@ paths:
   /api/v1/voices:
     get:
       operationId: getVoices
+      x-required-permission: voices:read
       summary: List all voices
       description: |
         Returns a paginated list of newsreader voices with modern query parameter support.
@@ -756,6 +765,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postVoices
+      x-required-permission: voices:write
       summary: Create a new voice
       tags:
         - Voices
@@ -811,6 +821,7 @@ paths:
   /api/v1/voices/{id}:
     get:
       operationId: getVoicesId
+      x-required-permission: voices:read
       summary: Get voice by ID
       tags:
         - Voices
@@ -835,6 +846,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     put:
       operationId: putVoicesId
+      x-required-permission: voices:write
       summary: Update voice
       tags:
         - Voices
@@ -882,6 +894,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteVoicesId
+      x-required-permission: voices:write
       summary: Delete voice
       tags:
         - Voices
@@ -906,6 +919,7 @@ paths:
   /api/v1/stories:
     get:
       operationId: getStories
+      x-required-permission: stories:read
       summary: List all stories
       description: |
         List stories with modern query parameter support.
@@ -1000,6 +1014,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStories
+      x-required-permission: stories:write
       summary: Create a new story
       description: |
         Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
@@ -1061,6 +1076,7 @@ paths:
   /api/v1/stories/{id}/audio:
     get:
       operationId: getStoriesIdAudio
+      x-required-permission: stories:read
       summary: Download story audio file
       description: |
         Streams the processed story WAV file. The file is served with byte-range
@@ -1102,6 +1118,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStoriesIdAudio
+      x-required-permission: stories:write
       summary: Upload story audio file
       description: |
         Upload audio file for a story. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
@@ -1155,9 +1172,11 @@ paths:
   /api/v1/stories/{id}/tts:
     post:
       operationId: postStoriesIdTts
+      x-required-permission: stories:write
       summary: Generate story audio via text-to-speech
       description: |
         Generates audio for a story using the ElevenLabs text-to-speech API.
+        Requires the `stories:write` permission (admin and editor roles).
         Requires the story to have text content and a voice with an ElevenLabs voice ID configured.
         The generated audio is stored as the story audio. If the story already has audio,
         the request fails unless `force=true` is provided, in which case the existing
@@ -1248,6 +1267,7 @@ paths:
   /api/v1/settings/tts:
     get:
       operationId: getSettingsTts
+      x-required-permission: settings:tts:read
       summary: Get global TTS settings
       description: |
         Returns the singleton ElevenLabs text-to-speech settings row.
@@ -1272,6 +1292,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     patch:
       operationId: patchSettingsTts
+      x-required-permission: settings:tts:write
       summary: Update global TTS settings
       description: |
         Partially updates the singleton ElevenLabs text-to-speech settings row.
@@ -1318,6 +1339,7 @@ paths:
   /api/v1/settings/tts/pronunciations:
     get:
       operationId: getSettingsTtsPronunciations
+      x-required-permission: pronunciation_rules:read
       summary: Get TTS pronunciation rules
       description: |
         Returns local pronunciation rules used for ElevenLabs v3 inline IPA
@@ -1341,6 +1363,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
     put:
       operationId: putSettingsTtsPronunciations
+      x-required-permission: pronunciation_rules:write
       summary: Replace TTS pronunciation rules
       description: |
         Replaces the complete local pronunciation rule set used for ElevenLabs
@@ -1387,6 +1410,7 @@ paths:
   /api/v1/stories/{id}:
     get:
       operationId: getStoriesId
+      x-required-permission: stories:read
       summary: Get story by ID
       tags:
         - Stories
@@ -1411,6 +1435,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     put:
       operationId: putStoriesId
+      x-required-permission: stories:write
       summary: Update story (full update)
       description: |
         Update story with JSON body. All fields are optional - only provided fields will be updated.
@@ -1457,6 +1482,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteStoriesId
+      x-required-permission: stories:write
       summary: Delete story (soft delete)
       description: |
         Performs a soft delete by setting deleted_at timestamp.
@@ -1481,6 +1507,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     patch:
       operationId: patchStoriesId
+      x-required-permission: stories:write
       summary: Update story state
       description: |
         Update story status or restore soft-deleted stories. 
@@ -1505,15 +1532,15 @@ paths:
                 deleted_at:
                   type: string
                   description: Set to empty string ("") to restore a soft-deleted story, or any other value to soft-delete
-              example:
-                updateStatus:
-                  summary: Update story status
-                  value:
-                    status: "active"
-                restoreStory:
-                  summary: Restore a soft-deleted story
-                  value:
-                    deleted_at: ""
+            examples:
+              updateStatus:
+                summary: Update story status
+                value:
+                  status: "active"
+              restoreStory:
+                summary: Restore a soft-deleted story
+                value:
+                  deleted_at: ""
       responses:
         '200':
           description: Story state updated successfully (status change or restore). Returns the updated story.
@@ -1538,6 +1565,7 @@ paths:
   /api/v1/stories/{id}/bulletins:
     get:
       operationId: getStoriesIdBulletins
+      x-required-permission: stories:read
       summary: Get bulletin history for a story
       description: |
         Returns all bulletins that have included this specific story with modern query parameter support.
@@ -1635,6 +1663,7 @@ paths:
   /api/v1/users:
     get:
       operationId: getUsers
+      x-required-permission: users:read
       summary: List all users
       tags:
         - Users
@@ -1663,6 +1692,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postUsers
+      x-required-permission: users:write
       summary: Create a new user
       tags:
         - Users
@@ -1705,6 +1735,7 @@ paths:
   /api/v1/users/{id}:
     get:
       operationId: getUsersId
+      x-required-permission: users:read
       summary: Get user by ID
       tags:
         - Users
@@ -1729,6 +1760,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     put:
       operationId: putUsersId
+      x-required-permission: users:write
       summary: Update user
       description: |
         Update user information. All fields are optional - only provided fields will be updated.
@@ -1768,6 +1800,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteUsersId
+      x-required-permission: users:write
       summary: Delete user
       description: |
         Soft-deletes a user account. All active sessions for the user will be terminated.
@@ -1793,6 +1826,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     patch:
       operationId: patchUsersId
+      x-required-permission: users:write
       summary: Update user state  
       description: |
         Update user state (suspend/restore) without requiring full user data. 
@@ -1839,6 +1873,7 @@ paths:
   /api/v1/bulletins:
     get:
       operationId: getBulletins
+      x-required-permission: bulletins:read
       summary: List bulletins
       description: |
         Returns a paginated list of generated bulletins with modern query parameter support.
@@ -1934,6 +1969,7 @@ paths:
   /api/v1/bulletins/{id}:
     get:
       operationId: getBulletinsId
+      x-required-permission: bulletins:read
       summary: Get bulletin by ID
       description: |
         Returns a single bulletin by its ID.
@@ -1976,6 +2012,7 @@ paths:
   /api/v1/stations/{id}/bulletins:
     get:
       operationId: getStationsIdBulletins
+      x-required-permission: bulletins:read
       summary: List bulletins for a station
       description: |
         Returns a paginated list of bulletins generated for a specific station with modern query parameter support.
@@ -2074,6 +2111,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStationsIdBulletins
+      x-required-permission: bulletins:generate
       summary: Queue bulletin generation for a station
       description: |
         Persists a durable background-generation job and returns immediately.
@@ -2133,6 +2171,7 @@ paths:
   /api/v1/bulletin-jobs/{id}:
     get:
       operationId: getBulletinJobsId
+      x-required-permission: bulletins:read
       summary: Get bulletin generation job status
       description: |
         Returns the durable state of a queued generation request. Poll until
@@ -2167,6 +2206,7 @@ paths:
   /api/v1/stations/{id}/bulletins/latest:
     get:
       operationId: getStationsIdBulletinsLatest
+      x-required-permission: bulletins:read
       summary: Get the latest bulletin for a station
       tags:
         - Bulletin
@@ -2204,6 +2244,7 @@ paths:
   /api/v1/bulletins/{id}/audio:
     get:
       operationId: getBulletinsIdAudio
+      x-required-permission: bulletins:read
       summary: Download bulletin audio file
       description: |
         Streams the generated bulletin WAV file. The file is served with
@@ -2246,6 +2287,7 @@ paths:
   /api/v1/bulletins/{id}/stories:
     get:
       operationId: getBulletinsIdStories
+      x-required-permission: stories:read
       summary: List stories included in a bulletin
       description: |
         Returns a paginated list of bulletin-story relationship records for a specific bulletin.
@@ -2301,6 +2343,7 @@ paths:
   /api/v1/station-voices:
     get:
       operationId: getStationVoices
+      x-required-permission: voices:read
       summary: List station-voice relationships
       description: |
         Returns a paginated list of station-voice relationships with modern query parameter support.
@@ -2391,6 +2434,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStationVoices
+      x-required-permission: voices:write
       summary: Create a new station-voice relationship
       description: |
         Create station-voice relationship with JSON body. Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
@@ -2446,6 +2490,7 @@ paths:
   /api/v1/station-voices/{id}/audio:
     get:
       operationId: getStationVoicesIdAudio
+      x-required-permission: voices:read
       summary: Download station-voice jingle file
       description: |
         Streams the processed jingle WAV file. The file is served with
@@ -2487,6 +2532,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     post:
       operationId: postStationVoicesIdAudio
+      x-required-permission: voices:write
       summary: Upload station-voice jingle file
       description: |
         Upload jingle audio file for a station-voice relationship. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
@@ -2539,6 +2585,7 @@ paths:
   /api/v1/station-voices/{id}:
     get:
       operationId: getStationVoicesId
+      x-required-permission: voices:read
       summary: Get station-voice relationship by ID
       tags:
         - Station-Voices
@@ -2563,6 +2610,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     put:
       operationId: putStationVoicesId
+      x-required-permission: voices:write
       summary: Update station-voice relationship
       description: |
         Update station-voice relationship properties with JSON body. All fields are optional - only provided fields will be updated.
@@ -2607,6 +2655,7 @@ paths:
           $ref: '#/components/responses/InternalServerError'
     delete:
       operationId: deleteStationVoicesId
+      x-required-permission: voices:write
       summary: Delete station-voice relationship
       tags:
         - Station-Voices
@@ -3761,8 +3810,8 @@ components:
           description: |
             User roles:
             - admin: Full access to all resources
-            - editor: Can manage content (stations, voices, stories)
-            - viewer: Read-only access
+            - editor: Read/write stations, voices, stories, and pronunciation rules; read/generate bulletins; read users and TTS settings
+            - viewer: Read-only access to stations, voices, stories, bulletins, TTS settings, and pronunciation rules
         suspended_at:
           type: [string, 'null']
           format: date-time
@@ -4455,10 +4504,10 @@ components:
                 type: "https://babbel.api/problems/station.has_dependencies"
                 title: "Conflict"
                 status: 409
-                detail: "Station cannot be deleted because it has related resources"
+                detail: "cannot delete Station: has associated station_voices"
                 instance: "/api/v1/stations/1"
                 code: "station.has_dependencies"
-                hint: "Delete or reassign the associated related resources first"
+                hint: "Delete or reassign the associated station_voices first"
     PayloadTooLarge:
       description: Request body too large
       content:
@@ -4549,7 +4598,7 @@ components:
                 type: "https://babbel.api/problems/validation-error"
                 title: "Validation Error"
                 status: 422
-                detail: "The request contains validation errors"
+                detail: "The request contains invalid data"
                 instance: "/api/v1/stations"
                 errors:
                   - field: "name"
@@ -4562,8 +4611,8 @@ components:
                 type: "https://babbel.api/problems/bulletin.no_stories"
                 title: "Unprocessable Entity"
                 status: 422
-                detail: "no active stories available for bulletin generation"
-                instance: "/api/v1/stations/1/bulletins"
+                detail: "no active stories available for station 1"
+                instance: "/public/stations/1/bulletin.wav"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
     InternalServerError:
