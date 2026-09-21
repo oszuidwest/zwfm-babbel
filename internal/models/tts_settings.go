@@ -6,9 +6,6 @@ import "time"
 type TTSSettings struct {
 	ID                     int64     `gorm:"primaryKey;column:id" json:"-"`
 	Stability              float64   `gorm:"column:stability;not null" json:"stability"`
-	SimilarityBoost        float64   `gorm:"column:similarity_boost;not null" json:"similarity_boost"`
-	Style                  float64   `gorm:"column:style;not null" json:"style"`
-	Speed                  float64   `gorm:"column:speed;not null" json:"speed"`
 	ApplyTextNormalization string    `gorm:"column:apply_text_normalization;size:8;not null" json:"apply_text_normalization"`
 	Seed                   *uint32   `gorm:"column:seed" json:"seed"`
 	TTSStylePrefix         string    `gorm:"column:tts_style_prefix;size:500;not null" json:"tts_style_prefix"`

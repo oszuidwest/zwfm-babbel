@@ -1165,7 +1165,7 @@ paths:
 
         TTS request options are read from the global settings row exposed at
         `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
-        configuration; Babbel always sends `eleven_v3`. Voice settings, text
+        configuration; Babbel always sends `eleven_v3`. Stability, text
         normalization, seed, and the Eleven v3 style prefix are database-backed
         settings. Local pronunciation rules are injected as inline IPA before
         the TTS request is sent.
@@ -2899,11 +2899,9 @@ components:
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
-    # The Nullable*FilterOperators schemas deliberately repeat their base
-    # schema's operators instead of composing via allOf: additionalProperties:
-    # false does not see properties merged in through allOf, and the
-    # unevaluatedProperties alternative has patchy tooling support. When
-    # changing an operator list, update the base and Nullable variant together.
+    # Nullable variants repeat operators because allOf conflicts with
+    # additionalProperties: false and unevaluatedProperties lacks broad support.
+    # Keep each base and nullable operator list aligned.
     StringFilter:
       oneOf:
         - type: string
@@ -3226,9 +3224,6 @@ components:
       additionalProperties: false
       required:
         - stability
-        - similarity_boost
-        - style
-        - speed
         - apply_text_normalization
         - seed
         - tts_style_prefix
@@ -3240,21 +3235,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        similarity_boost:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        style:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        speed:
-          type: number
-          format: float
-          minimum: 0.7
-          maximum: 1.2
+          description: The voice_settings value Babbel sends to eleven_v3.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3285,21 +3266,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        similarity_boost:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        style:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        speed:
-          type: number
-          format: float
-          minimum: 0.7
-          maximum: 1.2
+          description: The voice_settings value Babbel sends to eleven_v3.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3477,8 +3444,7 @@ components:
         null values is rejected.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       not:
-        # Must list every updatable field; a unit test keeps this in sync with
-        # the properties below.
+        # A unit test keeps this list aligned with the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           station_id:
@@ -3660,8 +3626,7 @@ components:
         null values is rejected.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       not:
-        # Must list every updatable field; a unit test keeps this in sync with
-        # the properties below.
+        # A unit test keeps this list aligned with the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           title:
@@ -3880,8 +3845,7 @@ components:
         object containing only null values is rejected.
       minProperties: 1
       not:
-        # Must list every updatable field; a unit test keeps this in sync with
-        # the properties below.
+        # A unit test keeps this list aligned with the properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           username:
@@ -4159,7 +4123,6 @@ components:
             status:
               example: 409
 
-    # Paginated Response Schemas for Modern CRUD Endpoints
     StationsListResponse:
       type: object
       description: Paginated response for stations list endpoint

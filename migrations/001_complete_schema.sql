@@ -1,5 +1,4 @@
--- Complete schema for Babbel news bulletin system (MySQL)
--- This file consolidates all migrations into a single schema
+-- Complete MySQL schema; fresh databases load only this file.
 
 -- Drop existing tables (in reverse dependency order)
 SET FOREIGN_KEY_CHECKS = 0;
@@ -16,7 +15,6 @@ DROP TABLE IF EXISTS stations;
 DROP TABLE IF EXISTS users;
 SET FOREIGN_KEY_CHECKS = 1;
 
--- Create stations table
 CREATE TABLE stations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
@@ -26,7 +24,6 @@ CREATE TABLE stations (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Create voices table
 CREATE TABLE voices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -35,7 +32,6 @@ CREATE TABLE voices (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Create stories table
 CREATE TABLE stories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(500) NOT NULL,
@@ -55,7 +51,6 @@ CREATE TABLE stories (
     FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE SET NULL
 );
 
--- Create bulletins table
 CREATE TABLE bulletins (
     id INT AUTO_INCREMENT PRIMARY KEY,
     station_id INT NOT NULL,
@@ -72,7 +67,6 @@ CREATE TABLE bulletins (
     INDEX idx_bulletins_file_purged_at (file_purged_at)
 );
 
--- Create bulletin_stories junction table
 CREATE TABLE bulletin_stories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bulletin_id INT NOT NULL,
@@ -109,7 +103,6 @@ CREATE TABLE bulletin_jobs (
     INDEX idx_bulletin_jobs_bulletin (bulletin_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Create users table with complete schema
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(100) UNIQUE NOT NULL,
@@ -129,7 +122,6 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Create user_sessions table
 CREATE TABLE user_sessions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
@@ -143,7 +135,6 @@ CREATE TABLE user_sessions (
     INDEX idx_sessions_expires (expires_at)
 );
 
--- Add indexes for performance
 CREATE INDEX idx_users_role ON users(role);
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_suspended_at ON users(suspended_at);
@@ -153,12 +144,10 @@ CREATE INDEX idx_stories_dates ON stories(start_date, end_date);
 CREATE INDEX idx_stories_weekdays ON stories(weekdays);
 CREATE INDEX idx_stories_is_breaking ON stories(is_breaking);
 
--- Insert default admin user (password: admin)
--- Password hash is for 'admin' with bcrypt default cost
+-- Default admin credentials: admin/admin.
 INSERT INTO users (username, full_name, password_hash, email, role, password_changed_at) VALUES 
 ('admin', 'System Administrator', '$2a$10$9JLNLD7JuNuTyhsgFQlXNevfypkWJ8XLBtZcbHyJf6XB8.1DAw5gy', 'admin@babbel.local', 'admin', CURRENT_TIMESTAMP);
 
--- Create station_voices junction table for station-specific jingles
 CREATE TABLE station_voices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     station_id INT NOT NULL,
@@ -172,17 +161,12 @@ CREATE TABLE station_voices (
     UNIQUE KEY unique_station_voice (station_id, voice_id)
 );
 
--- Add indexes for performance
 CREATE INDEX idx_station_voices_station_id ON station_voices(station_id);
 CREATE INDEX idx_station_voices_voice_id ON station_voices(voice_id);
 
--- Create TTS settings singleton table
 CREATE TABLE tts_settings (
     id                       INT             NOT NULL,
     stability                DECIMAL(3,2)    NOT NULL,
-    similarity_boost         DECIMAL(3,2)    NOT NULL,
-    style                    DECIMAL(3,2)    NOT NULL,
-    speed                    DECIMAL(3,2)    NOT NULL,
     apply_text_normalization VARCHAR(8)      NOT NULL,
     seed                     INT UNSIGNED    NULL,
     tts_style_prefix         VARCHAR(500)    NOT NULL,
@@ -191,22 +175,16 @@ CREATE TABLE tts_settings (
     PRIMARY KEY (id),
     CONSTRAINT chk_tts_settings_singleton          CHECK (id = 1),
     CONSTRAINT chk_tts_settings_stability          CHECK (stability        >= 0    AND stability        <= 1),
-    CONSTRAINT chk_tts_settings_similarity         CHECK (similarity_boost >= 0    AND similarity_boost <= 1),
-    CONSTRAINT chk_tts_settings_style              CHECK (style            >= 0    AND style            <= 1),
-    CONSTRAINT chk_tts_settings_speed              CHECK (speed            >= 0.7  AND speed            <= 1.2),
     CONSTRAINT chk_tts_settings_text_normalization CHECK (apply_text_normalization IN ('auto', 'on', 'off'))
 );
 
 INSERT INTO tts_settings (
-    id, stability, similarity_boost, style,
-    speed, apply_text_normalization, seed, tts_style_prefix
+    id, stability, apply_text_normalization, seed, tts_style_prefix
 ) VALUES (
-    1, 0.80, 0.80, 0.25,
-    1.00, 'auto', NULL, '[professional][news anchor][engaging]'
+    1, 0.80, 'auto', NULL, '[professional][news anchor][engaging]'
 )
 ON DUPLICATE KEY UPDATE id = id;
 
--- Create local pronunciation rules table for ElevenLabs v3 inline IPA injection
 CREATE TABLE pronunciation_rules (
     string_to_replace VARCHAR(255) NOT NULL PRIMARY KEY,
     ipa               VARCHAR(255) NOT NULL,

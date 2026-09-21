@@ -29,12 +29,7 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 		{
 			name: "omits optional seed",
 			options: Options{
-				VoiceSettings: VoiceSettings{
-					Stability:       0.8,
-					SimilarityBoost: 0.7,
-					Style:           0.25,
-					Speed:           1.0,
-				},
+				Stability:              0.8,
 				ApplyTextNormalization: "auto",
 			},
 			wantNormalizationMode: "auto",
@@ -42,12 +37,7 @@ func TestService_GenerateSpeech_RequestBody(t *testing.T) {
 		{
 			name: "includes optional seed",
 			options: Options{
-				VoiceSettings: VoiceSettings{
-					Stability:       0,
-					SimilarityBoost: 1,
-					Style:           0,
-					Speed:           0.7,
-				},
+				Stability:              0,
 				ApplyTextNormalization: "off",
 				Seed:                   new(uint32(123)),
 			},
@@ -133,8 +123,8 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	if !ok {
 		t.Fatalf("voice_settings = %#v, want object", captured["voice_settings"])
 	}
-	if _, present := voiceSettings["use_speaker_boost"]; present {
-		t.Fatalf("use_speaker_boost present in voice_settings: %#v", voiceSettings)
+	if len(voiceSettings) != 1 || voiceSettings["stability"] != tt.options.Stability {
+		t.Fatalf("voice_settings = %#v, want only stability=%v", voiceSettings, tt.options.Stability)
 	}
 	if _, present := captured["pronunciation_dictionary_locators"]; present {
 		t.Fatalf("pronunciation_dictionary_locators present in request body: %#v", captured)

@@ -77,6 +77,21 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			wantField: "use_speaker_boost",
 		},
 		{
+			name:      "similarity boost unknown",
+			body:      `{"similarity_boost":0.7}`,
+			wantField: "similarity_boost",
+		},
+		{
+			name:      "style unknown",
+			body:      `{"style":0.25}`,
+			wantField: "style",
+		},
+		{
+			name:      "speed unknown",
+			body:      `{"speed":1}`,
+			wantField: "speed",
+		},
+		{
 			name:      "unknown typo",
 			body:      `{"stabilty":0.5}`,
 			wantField: "stabilty",

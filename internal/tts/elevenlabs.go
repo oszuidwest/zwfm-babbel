@@ -82,26 +82,21 @@ func NewService(cfg *config.TTSConfig) *Service {
 	}
 }
 
-// Options selects the ElevenLabs request options supplied by the story service.
+// Options configures one ElevenLabs synthesis request.
 type Options struct {
-	VoiceSettings          VoiceSettings
+	Stability              float64
 	ApplyTextNormalization string
 	Seed                   *uint32
 }
 
-// VoiceSettings contains ElevenLabs voice_settings values.
-type VoiceSettings struct {
-	Stability       float64 `json:"stability"`
-	SimilarityBoost float64 `json:"similarity_boost"`
-	Style           float64 `json:"style"`
-	Speed           float64 `json:"speed"`
+type voiceSettings struct {
+	Stability float64 `json:"stability"`
 }
 
-// ttsRequest is the JSON body sent to the ElevenLabs API.
 type ttsRequest struct {
 	Text                   string        `json:"text"`
 	ModelID                string        `json:"model_id"`
-	VoiceSettings          VoiceSettings `json:"voice_settings"`
+	VoiceSettings          voiceSettings `json:"voice_settings"`
 	ApplyTextNormalization string        `json:"apply_text_normalization"`
 	Seed                   *uint32       `json:"seed,omitempty"`
 }
@@ -114,7 +109,7 @@ type elevenLabsErrorDetail struct {
 
 type storyIDContextKey struct{}
 
-// ContextWithStoryID returns a child context that adds story correlation to TTS failure logs.
+// ContextWithStoryID adds story correlation to TTS failure logs.
 func ContextWithStoryID(ctx context.Context, storyID int64) context.Context {
 	if storyID <= 0 {
 		return ctx
@@ -122,13 +117,12 @@ func ContextWithStoryID(ctx context.Context, storyID int64) context.Context {
 	return context.WithValue(ctx, storyIDContextKey{}, storyID)
 }
 
-// GenerateSpeech converts text to speech audio using the ElevenLabs API.
-// Returns the raw Opus audio bytes.
+// GenerateSpeech synthesizes text as raw Opus audio.
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
 	body, err := json.Marshal(ttsRequest{
 		Text:                   text,
 		ModelID:                ModelV3,
-		VoiceSettings:          opts.VoiceSettings,
+		VoiceSettings:          voiceSettings{Stability: opts.Stability},
 		ApplyTextNormalization: opts.ApplyTextNormalization,
 		Seed:                   opts.Seed,
 	})
@@ -239,8 +233,16 @@ func logElevenLabsResponse(
 	addNonEmptyField(fields, "elevenlabs_error_type", detail.Type)
 	addNonEmptyField(fields, "elevenlabs_error_code", detail.Code)
 	addNonEmptyField(fields, "elevenlabs_request_id", detail.RequestID)
-	addNonEmptyField(fields, "current_concurrent_requests", concurrencyHeaderValue(header, headerCurrentConcurrentRequests))
-	addNonEmptyField(fields, "maximum_concurrent_requests", concurrencyHeaderValue(header, headerMaximumConcurrentRequests))
+	addNonEmptyField(
+		fields,
+		"current_concurrent_requests",
+		concurrencyHeaderValue(header, headerCurrentConcurrentRequests),
+	)
+	addNonEmptyField(
+		fields,
+		"maximum_concurrent_requests",
+		concurrencyHeaderValue(header, headerMaximumConcurrentRequests),
+	)
 
 	logger.WithFields(fields).Log(ctx, elevenLabsResponseLogLevel(statusCode), "elevenlabs tts response")
 }

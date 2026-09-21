@@ -13,14 +13,12 @@ func TestTTSSettingsUpdate_BuildUpdateMapPreservesZeroValues(t *testing.T) {
 
 	updateMap := BuildUpdateMap(&TTSSettingsUpdate{
 		Stability:      &zero,
-		Style:          &zero,
 		TTSStylePrefix: &empty,
 		ClearSeed:      true,
 	})
 
 	expected := map[string]any{
 		"stability":        0.0,
-		"style":            0.0,
 		"tts_style_prefix": "",
 		"seed":             nil,
 	}

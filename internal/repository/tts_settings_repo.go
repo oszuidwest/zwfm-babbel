@@ -9,19 +9,13 @@ import (
 
 const ttsSettingsSingletonID int64 = 1
 
-// TTSSettingsUpdate carries PATCH-style updates for the singleton settings row.
-// Nil pointer fields leave columns unchanged. ClearSeed explicitly sets Seed to
-// NULL.
+// TTSSettingsUpdate uses nil for unchanged fields and ClearSeed for an explicit NULL.
 type TTSSettingsUpdate struct {
 	Stability              *float64 `gorm:"column:stability"`
-	SimilarityBoost        *float64 `gorm:"column:similarity_boost"`
-	Style                  *float64 `gorm:"column:style"`
-	Speed                  *float64 `gorm:"column:speed"`
 	ApplyTextNormalization *string  `gorm:"column:apply_text_normalization"`
 	Seed                   *uint32  `gorm:"column:seed"`
 	TTSStylePrefix         *string  `gorm:"column:tts_style_prefix"`
 
-	// ClearSeed explicitly sets Seed to NULL when true.
 	ClearSeed bool `gorm:"-"`
 }
 
@@ -48,9 +42,8 @@ func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, e
 	return &settings, nil
 }
 
-// Update writes non-nil fields to the migration-seeded singleton row.
-// The service checks that id=1 exists before calling Update; this method does not
-// inspect RowsAffected so idempotent same-value PATCHes remain successful.
+// Update writes non-nil fields without checking RowsAffected, allowing idempotent
+// updates. Callers must first verify that the singleton row exists.
 func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate) error {
 	if u == nil {
 		return nil

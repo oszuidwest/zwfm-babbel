@@ -14,8 +14,6 @@ import (
 func TestValidateTTSSettingsUpdate(t *testing.T) {
 	tooHigh := 1.5
 	validZero := 0.0
-	validSpeed := 0.7
-	invalidSpeed := 0.69
 	invalidNormalization := "sometimes"
 	maxSeed := int64(maxElevenLabsSeedUint32)
 	tooLargeSeed := maxSeed + 1
@@ -30,7 +28,6 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 			name: "valid boundary values",
 			req: &UpdateTTSSettingsRequest{
 				Stability:              &validZero,
-				Speed:                  &validSpeed,
 				Seed:                   &maxSeed,
 				ApplyTextNormalization: new(TTSNormalizationAuto),
 				TTSStylePrefix:         new(strings.Repeat("é", maxTTSStylePrefixRunes)),
@@ -40,14 +37,12 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 			name: "aggregates invalid fields",
 			req: &UpdateTTSSettingsRequest{
 				Stability:              &tooHigh,
-				Speed:                  &invalidSpeed,
 				Seed:                   &tooLargeSeed,
 				ApplyTextNormalization: &invalidNormalization,
 				TTSStylePrefix:         &tooLongPrefix,
 			},
 			wantFields: []string{
 				"stability",
-				"speed",
 				"apply_text_normalization",
 				"seed",
 				"tts_style_prefix",
