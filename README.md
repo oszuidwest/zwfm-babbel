@@ -213,7 +213,7 @@ To enable TTS, set an ElevenLabs API key. The credentials stay in environment va
 | `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS. If not set, `POST /api/v1/stories/{id}/tts` returns 501. |
 | `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | The timeout for calls to the ElevenLabs API. |
 
-The initial settings row has stability `0.80`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`. ElevenLabs v3 only supports `stability` inside `voice_settings`; Babbel therefore does not send similarity, style, speed, or speaker-boost fields.
+The initial settings row has stability `0.80`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`. Babbel sends only `stability` in `voice_settings`.
 
 Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to change stability, text normalization, the seed, or `tts_style_prefix`. Babbel puts the prefix before the story text in the `eleven_v3` request.
 

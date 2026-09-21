@@ -26,13 +26,11 @@ const (
 	maxElevenLabsSeedUint32 = 4_294_967_295
 )
 
-var (
-	allowedTextNormalizations = []string{
-		TTSNormalizationAuto,
-		TTSNormalizationOn,
-		TTSNormalizationOff,
-	}
-)
+var allowedTextNormalizations = []string{
+	TTSNormalizationAuto,
+	TTSNormalizationOn,
+	TTSNormalizationOff,
+}
 
 // TTSSettingsService manages the singleton ElevenLabs request settings.
 type TTSSettingsService struct {
@@ -63,15 +61,8 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 	return settings, nil
 }
 
-// Update validates a PATCH-style request and returns the persisted settings.
-//
-// Concurrency: last writer wins. No ETag / If-Match plumbing; concurrent
-// PATCHes from two admins silently overwrite each other. The endpoint is
-// admin-only and low traffic, and the OpenAPI description calls this out.
-//
-// Auditing: logTTSSettingsUpdate captures both old and new values for every
-// changed field via buildTTSSettingsAuditFields. The log is the system of
-// record for who changed what; database state alone cannot reconstruct that.
+// Update validates and persists settings with last-writer-wins semantics.
+// Audit entries include changed values and the actor when available.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
 	current, err := s.Get(ctx)
 	if err != nil {
@@ -83,7 +74,11 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
-		return nil, apperrors.NewValidationProblemError("tts_settings", "One or more fields failed validation", validationErrs)
+		return nil, apperrors.NewValidationProblemError(
+			"tts_settings",
+			"One or more fields failed validation",
+			validationErrs,
+		)
 	}
 
 	update := &repository.TTSSettingsUpdate{
@@ -107,10 +102,8 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	return updated, nil
 }
 
-// IsEmpty reports whether no fields are being updated.
-// Keep in sync with utils.TTSSettingsUpdateRequest.IsEmpty: the HTTP handler
-// returns 422 for empty PATCHes, while the service keeps a defensive no-op for
-// programmatic callers.
+// IsEmpty reports whether no fields are set.
+// Keep it aligned with utils.TTSSettingsUpdateRequest.IsEmpty.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 	return r.Stability == nil &&
 		r.ApplyTextNormalization == nil &&
@@ -150,7 +143,7 @@ func seedUpdateValue(seed *int64) *uint32 {
 func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.ValidationError {
 	errs := []apperrors.ValidationError{}
 
-	errs = append(errs, validateNumberField("stability", req.Stability, 0, 1, "must be between 0 and 1")...)
+	errs = append(errs, validateStability(req.Stability)...)
 	errs = append(errs, validateEnumField(
 		"apply_text_normalization",
 		req.ApplyTextNormalization,
@@ -174,11 +167,11 @@ func validateEnumField(field string, value *string, allowed []string, message st
 	return []apperrors.ValidationError{fieldError(field, message)}
 }
 
-func validateNumberField(field string, value *float64, min, max float64, message string) []apperrors.ValidationError {
-	if value == nil || betweenInclusive(*value, min, max) {
+func validateStability(value *float64) []apperrors.ValidationError {
+	if value == nil || (*value >= 0 && *value <= 1) {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError(field, message)}
+	return []apperrors.ValidationError{fieldError("stability", "must be between 0 and 1")}
 }
 
 func validateSeed(seed *int64) []apperrors.ValidationError {
@@ -199,10 +192,6 @@ func fieldError(field, message string) apperrors.ValidationError {
 	return apperrors.ValidationError{Field: field, Message: message}
 }
 
-func betweenInclusive(value, min, max float64) bool {
-	return value >= min && value <= max
-}
-
 func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) {
 	fields := buildTTSSettingsAuditFields(req, before, after)
 	if fields == nil {
@@ -211,10 +200,6 @@ func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.T
 	logger.WithFields(fields).Info("tts settings updated")
 }
 
-// buildTTSSettingsAuditFields returns the structured audit-log fields for a
-// settings update, or nil when no fields actually changed. Each changed field
-// produces both old_<field> and new_<field> so the log entry stands alone as
-// an audit record without having to diff against the DB.
 func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) map[string]any {
 	changed := changedTTSSettingsFields(req, before, after)
 	if len(changed) == 0 {

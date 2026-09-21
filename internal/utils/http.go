@@ -256,11 +256,8 @@ type StoryUpdateRequest struct {
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// PronunciationRuleUpdateRequest is the JSON body for a single inline-IPA
-// pronunciation rule. Boolean fields are pointers so the service layer can
-// distinguish "omitted" (apply default) from "explicit false". Field-level
-// validation (trim, non-empty, length, slash, control chars) lives in the
-// service so error paths keep the rules[i].field shape integration tests assert on.
+// PronunciationRuleUpdateRequest describes one inline-IPA rule. Pointer booleans
+// distinguish omitted values from false; validation preserves indexed field errors.
 type PronunciationRuleUpdateRequest struct {
 	StringToReplace string `json:"string_to_replace"`
 	IPA             string `json:"ipa"`
@@ -274,8 +271,7 @@ type PronunciationRulesUpdateRequest struct {
 	Rules []PronunciationRuleUpdateRequest `json:"rules" binding:"required"`
 }
 
-// TTSSettingsUpdateRequest is the JSON body for partial global TTS settings
-// updates.
+// TTSSettingsUpdateRequest is a partial update to the global TTS settings.
 type TTSSettingsUpdateRequest struct {
 	Stability              *float64        `json:"stability"`
 	ApplyTextNormalization *string         `json:"apply_text_normalization"`
@@ -304,9 +300,6 @@ func (r *StoryUpdateRequest) NormalizeText() {
 	}
 }
 
-// textNormalizer is implemented by request structs that need text normalization
-// (e.g. HTML entity decoding) before validation runs. Currently only story
-// requests need this, as story content often originates from CMS integrations.
 type textNormalizer interface {
 	NormalizeText()
 }
@@ -469,11 +462,8 @@ func expectedJSONType(t reflect.Type) string {
 	}
 }
 
-// BindOptionalJSON decodes an optional JSON body into req. Empty or
-// whitespace-only bodies are accepted (req is left at its zero value). Returns
-// false (and writes a Problem response) on oversized bodies, read failures, or
-// invalid JSON. Parse failures include the underlying error in the response so
-// clients can locate the offending token.
+// BindOptionalJSON accepts an empty body or decodes JSON into req. It writes a
+// Problem response and returns false for oversized, unreadable, or invalid input.
 func BindOptionalJSON(c *gin.Context, req any) bool {
 	if c == nil {
 		panic("utils: BindOptionalJSON requires a non-nil gin context")
@@ -506,7 +496,6 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 	return true
 }
 
-// formatValidationMessage generates a user-friendly error message for a validation failure.
 func formatValidationMessage(field, tag, param string) string {
 	switch tag {
 	case "required":
@@ -544,7 +533,6 @@ func formatValidationMessage(field, tag, param string) string {
 	}
 }
 
-// convertValidationErrors converts Go validator errors into structured error messages.
 func convertValidationErrors(err error) []apperrors.ValidationError {
 	validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
 	if !ok {

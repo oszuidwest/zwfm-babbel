@@ -342,7 +342,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
-The default settings row uses `eleven_v3`. Only `stability` is sent inside `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
+The default settings row uses `eleven_v3`. Babbel sends only `stability` in `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
 
 Manage local IPA pronunciation rules:
 

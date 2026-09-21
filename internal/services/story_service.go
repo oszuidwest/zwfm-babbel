@@ -87,28 +87,28 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 }
 
 // CreateStoryRequest carries the required fields for a scheduled story.
-// StartDate and EndDate must use YYYY-MM-DD in the server's local timezone.
+// Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
 	Title      string
 	Text       string
 	VoiceID    *int64
 	Status     string
-	StartDate  string // Date in YYYY-MM-DD format
-	EndDate    string // Date in YYYY-MM-DD format
+	StartDate  string
+	EndDate    string
 	Weekdays   models.Weekdays
 	IsBreaking bool
 	Metadata   *datatypes.JSONMap
 }
 
-// UpdateStoryRequest carries PATCH-style story fields.
-// Nil pointers leave the corresponding field unchanged.
+// UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
+// Dates use YYYY-MM-DD in the server's local timezone.
 type UpdateStoryRequest struct {
 	Title      *string
 	Text       *string
 	VoiceID    *int64
 	Status     *string
-	StartDate  *string // Date in YYYY-MM-DD format
-	EndDate    *string // Date in YYYY-MM-DD format
+	StartDate  *string
+	EndDate    *string
 	Weekdays   *models.Weekdays
 	IsBreaking *bool
 	Metadata   *datatypes.JSONMap
@@ -238,7 +238,11 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 
 // buildUpdateStruct translates API-level PATCH semantics into repository
 // updates and verifies a changed voice exists.
-func (s *StoryService) buildUpdateStruct(ctx context.Context, req *UpdateStoryRequest, startDate, endDate *time.Time) (*repository.StoryUpdate, error) {
+func (s *StoryService) buildUpdateStruct(
+	ctx context.Context,
+	req *UpdateStoryRequest,
+	startDate, endDate *time.Time,
+) (*repository.StoryUpdate, error) {
 	updates := &repository.StoryUpdate{}
 	hasUpdates := false
 
@@ -337,13 +341,11 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessAudio converts uploaded audio and publishes it atomically for a story.
-// The existing audio remains in place until the repository update succeeds.
+// ProcessAudio converts uploaded audio and atomically replaces the published file.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
-	// Convert into a temporary output beside the final file (same directory keeps the rename
-	// atomic). The existing audio stays untouched until the database update confirms the story
-	// still exists, so a concurrent delete can never leave audio_file pointing at a removed file.
-	// Keep the .wav suffix so FFmpeg still selects the WAV muxer from the output extension.
+	// Convert beside the final file for atomic rename. Updating the database first
+	// preserves existing audio on failure and avoids stale paths after concurrent deletion.
+	// The .wav suffix makes FFmpeg select the WAV muxer.
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
 	defer func() {
@@ -357,13 +359,11 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	// Update database with filename and duration before publishing the new file.
 	filenameOnly := utils.StoryFilename(storyID)
 	if err := s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration); err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
 
-	// Move the freshly converted file into place only after the database update succeeded.
 	if err := os.Rename(convertedPath, finalPath); err != nil {
 		return apperrors.Audio("Story", "finalize", err)
 	}
@@ -388,7 +388,10 @@ func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string
 }
 
 // List retrieves stories with filtering, sorting, and pagination.
-func (s *StoryService) List(ctx context.Context, query *repository.ListQuery) (*repository.ListResult[models.Story], error) {
+func (s *StoryService) List(
+	ctx context.Context,
+	query *repository.ListQuery,
+) (*repository.ListResult[models.Story], error) {
 	result, err := s.storyRepo.List(ctx, query)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
@@ -473,7 +476,7 @@ func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err err
 	s.alerts.Alert(ctx, event)
 }
 
-// resolveTTSAlerts clears each TTS incident category after a successful request.
+// resolveTTSAlerts clears all TTS incidents after successful synthesis.
 func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
 	s.alerts.Resolve(ctx, "tts:credentials", "ElevenLabs credentials recovered", "TTS generation succeeded again.")
 	s.alerts.Resolve(ctx, "tts:rate-limit", "ElevenLabs capacity recovered", "TTS generation succeeded again.")
@@ -525,15 +528,12 @@ func validateTTSTextLength(text string) error {
 
 func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 	return tts.Options{
-		VoiceSettings: tts.VoiceSettings{
-			Stability: settings.Stability,
-		},
+		Stability:              settings.Stability,
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,
 	}
 }
 
-// translateTTSError maps TTS service errors to domain errors with specific messages.
 func translateTTSError(storyID int64, err error) error {
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {

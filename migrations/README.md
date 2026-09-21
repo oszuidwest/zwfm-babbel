@@ -16,6 +16,4 @@ IF NOT EXISTS`, so it is a no-op on databases created from the current `001`
 snapshot.
 
 Apply `010_drop_unsupported_eleven_v3_settings.sql` after deploying the app
-version that no longer reads `similarity_boost`, `style`, or `speed`. The
-migration permanently drops those columns because ElevenLabs v3 only supports
-`stability` inside `voice_settings`.
+version that no longer reads `similarity_boost`, `style`, or `speed`.

@@ -154,8 +154,8 @@ func TestTTSOptionsFromSettings(t *testing.T) {
 	if options.ApplyTextNormalization != TTSNormalizationAuto {
 		t.Fatalf("normalization = %q, want %q", options.ApplyTextNormalization, TTSNormalizationAuto)
 	}
-	if options.VoiceSettings.Stability != 0.8 {
-		t.Fatalf("voice settings = %#v", options.VoiceSettings)
+	if options.Stability != 0.8 {
+		t.Fatalf("stability = %v, want 0.8", options.Stability)
 	}
 }
 
@@ -254,8 +254,18 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 		wantRequiresThreshold bool
 	}{
 		{name: "invalid credentials", err: &tts.APIError{StatusCode: http.StatusUnauthorized}, wantKey: "tts:credentials"},
-		{name: "rate limit", err: &tts.APIError{StatusCode: http.StatusTooManyRequests}, wantKey: "tts:rate-limit", wantRequiresThreshold: true},
-		{name: "server error", err: &tts.APIError{StatusCode: http.StatusServiceUnavailable}, wantKey: "tts:upstream", wantRequiresThreshold: true},
+		{
+			name:                  "rate limit",
+			err:                   &tts.APIError{StatusCode: http.StatusTooManyRequests},
+			wantKey:               "tts:rate-limit",
+			wantRequiresThreshold: true,
+		},
+		{
+			name:                  "server error",
+			err:                   &tts.APIError{StatusCode: http.StatusServiceUnavailable},
+			wantKey:               "tts:upstream",
+			wantRequiresThreshold: true,
+		},
 		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
 		{name: "invalid request is user error", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity}},
