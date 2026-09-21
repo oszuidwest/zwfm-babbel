@@ -15,5 +15,6 @@ Babbel version that serves asynchronous bulletin jobs. It uses `CREATE TABLE
 IF NOT EXISTS`, so it is a no-op on databases created from the current `001`
 snapshot.
 
-Apply `010_drop_unsupported_eleven_v3_settings.sql` after deploying the app
-version that no longer reads `similarity_boost`, `style`, or `speed`.
+Deploy Knabbel UI PR 65 first, then deploy the Babbel app, and finally apply
+`010_drop_unsupported_eleven_v3_settings.sql`, which removes `similarity_boost`,
+`style`, and `speed` after the app no longer reads them.
