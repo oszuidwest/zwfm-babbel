@@ -198,7 +198,7 @@ func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
 	err := apperrors.NewValidationProblemError("tts_settings", "validation failed", []apperrors.ValidationError{
 		{Field: "stability", Message: "must be between 0 and 1"},
-		{Field: "speed", Message: "must be between 0.7 and 1.2"},
+		{Field: "tts_style_prefix", Message: "must be at most 500 characters"},
 	})
 
 	handleServiceError(c, err, "tts_settings")
@@ -210,7 +210,7 @@ func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 	if len(problem.Errors) != 2 {
 		t.Fatalf("errors len = %d, want 2; body=%s", len(problem.Errors), rec.Body.String())
 	}
-	wantFields := map[string]bool{"stability": false, "speed": false}
+	wantFields := map[string]bool{"stability": false, "tts_style_prefix": false}
 	for _, e := range problem.Errors {
 		wantFields[e.Field] = true
 	}
