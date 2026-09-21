@@ -1165,7 +1165,7 @@ paths:
 
         TTS request options are read from the global settings row exposed at
         `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
-        configuration; Babbel always sends `eleven_v3`. Voice settings, text
+        configuration; Babbel always sends `eleven_v3`. Stability, text
         normalization, seed, and the Eleven v3 style prefix are database-backed
         settings. Local pronunciation rules are injected as inline IPA before
         the TTS request is sent.
@@ -3226,9 +3226,6 @@ components:
       additionalProperties: false
       required:
         - stability
-        - similarity_boost
-        - style
-        - speed
         - apply_text_normalization
         - seed
         - tts_style_prefix
@@ -3240,21 +3237,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        similarity_boost:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        style:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        speed:
-          type: number
-          format: float
-          minimum: 0.7
-          maximum: 1.2
+          description: The only voice_settings field supported by eleven_v3.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3285,21 +3268,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-        similarity_boost:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        style:
-          type: number
-          format: float
-          minimum: 0
-          maximum: 1
-        speed:
-          type: number
-          format: float
-          minimum: 0.7
-          maximum: 1.2
+          description: The only voice_settings field supported by eleven_v3.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]

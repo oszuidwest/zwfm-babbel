@@ -278,9 +278,6 @@ type PronunciationRulesUpdateRequest struct {
 // updates.
 type TTSSettingsUpdateRequest struct {
 	Stability              *float64        `json:"stability"`
-	SimilarityBoost        *float64        `json:"similarity_boost"`
-	Style                  *float64        `json:"style"`
-	Speed                  *float64        `json:"speed"`
 	ApplyTextNormalization *string         `json:"apply_text_normalization"`
 	Seed                   Optional[int64] `json:"seed"`
 	TTSStylePrefix         *string         `json:"tts_style_prefix"`
@@ -290,9 +287,6 @@ type TTSSettingsUpdateRequest struct {
 // Keep in sync with services.UpdateTTSSettingsRequest.IsEmpty.
 func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
 	return r.Stability == nil &&
-		r.SimilarityBoost == nil &&
-		r.Style == nil &&
-		r.Speed == nil &&
 		r.ApplyTextNormalization == nil &&
 		!r.Seed.Set &&
 		r.TTSStylePrefix == nil

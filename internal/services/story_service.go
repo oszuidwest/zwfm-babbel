@@ -526,10 +526,7 @@ func validateTTSTextLength(text string) error {
 func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 	return tts.Options{
 		VoiceSettings: tts.VoiceSettings{
-			Stability:       settings.Stability,
-			SimilarityBoost: settings.SimilarityBoost,
-			Style:           settings.Style,
-			Speed:           settings.Speed,
+			Stability: settings.Stability,
 		},
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,

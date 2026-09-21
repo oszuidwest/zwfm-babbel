@@ -14,9 +14,6 @@ import (
 // TTSSettingsResponse exposes global TTS settings plus API-key availability.
 type TTSSettingsResponse struct {
 	Stability              float64   `json:"stability"`
-	SimilarityBoost        float64   `json:"similarity_boost"`
-	Style                  float64   `json:"style"`
-	Speed                  float64   `json:"speed"`
 	ApplyTextNormalization string    `json:"apply_text_normalization"`
 	Seed                   *uint32   `json:"seed"`
 	TTSStylePrefix         string    `json:"tts_style_prefix"`
@@ -67,9 +64,6 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettingsResponse {
 	return TTSSettingsResponse{
 		Stability:              settings.Stability,
-		SimilarityBoost:        settings.SimilarityBoost,
-		Style:                  settings.Style,
-		Speed:                  settings.Speed,
 		ApplyTextNormalization: settings.ApplyTextNormalization,
 		Seed:                   settings.Seed,
 		TTSStylePrefix:         settings.TTSStylePrefix,
@@ -81,9 +75,6 @@ func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettin
 func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.UpdateTTSSettingsRequest {
 	serviceReq := &services.UpdateTTSSettingsRequest{
 		Stability:              req.Stability,
-		SimilarityBoost:        req.SimilarityBoost,
-		Style:                  req.Style,
-		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		TTSStylePrefix:         req.TTSStylePrefix,
 	}

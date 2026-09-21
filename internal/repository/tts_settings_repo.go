@@ -14,9 +14,6 @@ const ttsSettingsSingletonID int64 = 1
 // NULL.
 type TTSSettingsUpdate struct {
 	Stability              *float64 `gorm:"column:stability"`
-	SimilarityBoost        *float64 `gorm:"column:similarity_boost"`
-	Style                  *float64 `gorm:"column:style"`
-	Speed                  *float64 `gorm:"column:speed"`
 	ApplyTextNormalization *string  `gorm:"column:apply_text_normalization"`
 	Seed                   *uint32  `gorm:"column:seed"`
 	TTSStylePrefix         *string  `gorm:"column:tts_style_prefix"`

@@ -39,9 +39,6 @@ describe('TTS Settings', () => {
     expect(response.status).toBe(200);
     expect(response.data).toEqual(expect.objectContaining({
       stability: expect.any(Number),
-      similarity_boost: expect.any(Number),
-      style: expect.any(Number),
-      speed: expect.any(Number),
       apply_text_normalization: expect.any(String),
       tts_style_prefix: expect.any(String),
       updated_at: expect.any(String),
@@ -50,18 +47,19 @@ describe('TTS Settings', () => {
     expect(response.data).not.toHaveProperty('api_key');
     expect(response.data).not.toHaveProperty('model');
     expect(response.data).not.toHaveProperty('use_speaker_boost');
+    expect(response.data).not.toHaveProperty('similarity_boost');
+    expect(response.data).not.toHaveProperty('style');
+    expect(response.data).not.toHaveProperty('speed');
   });
 
   test('when patching zero values and empty prefix, then values are persisted', async () => {
     const response = await global.api.apiCall('PATCH', '/settings/tts', {
       stability: 0,
-      style: 0,
       tts_style_prefix: ''
     });
 
     expect(response.status).toBe(200);
     expect(response.data.stability).toBe(0);
-    expect(response.data.style).toBe(0);
     expect(response.data.tts_style_prefix).toBe('');
   });
 
@@ -101,6 +99,9 @@ describe('TTS Settings', () => {
     const cases = [
       ['model', { model: 'eleven_multilingual_v2' }, 'unknown field'],
       ['use_speaker_boost', { use_speaker_boost: true }, 'unknown field'],
+      ['similarity_boost', { similarity_boost: 0.7 }, 'unknown field'],
+      ['style', { style: 0.25 }, 'unknown field'],
+      ['speed', { speed: 1 }, 'unknown field'],
       ['stabilty', { stabilty: 0.5 }, 'unknown field']
     ];
 
@@ -125,16 +126,14 @@ describe('TTS Settings', () => {
 
   test('when patching invalid ranges, then returns field validation errors only', async () => {
     const response = await global.api.apiCall('PATCH', '/settings/tts', {
-      stability: 1.5,
-      speed: 0.69
+      stability: 1.5
     });
 
     expect(response.status).toBe(422);
     expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
-    expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'stability', message: 'must be between 0 and 1' },
-      { field: 'speed', message: 'must be between 0.7 and 1.2' }
-    ]));
+    expect(response.data.errors).toEqual([
+      { field: 'stability', message: 'must be between 0 and 1' }
+    ]);
     expect(response.data.errors[0]).not.toHaveProperty('code');
   });
 
@@ -304,9 +303,6 @@ describe('TTS Settings', () => {
   function restoreBody(settings) {
     return {
       stability: settings.stability,
-      similarity_boost: settings.similarity_boost,
-      style: settings.style,
-      speed: settings.speed,
       apply_text_normalization: settings.apply_text_normalization,
       seed: settings.seed,
       tts_style_prefix: settings.tts_style_prefix

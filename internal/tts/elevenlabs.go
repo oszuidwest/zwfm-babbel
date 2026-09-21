@@ -89,12 +89,9 @@ type Options struct {
 	Seed                   *uint32
 }
 
-// VoiceSettings contains ElevenLabs voice_settings values.
+// VoiceSettings contains the voice_settings values supported by eleven_v3.
 type VoiceSettings struct {
-	Stability       float64 `json:"stability"`
-	SimilarityBoost float64 `json:"similarity_boost"`
-	Style           float64 `json:"style"`
-	Speed           float64 `json:"speed"`
+	Stability float64 `json:"stability"`
 }
 
 // ttsRequest is the JSON body sent to the ElevenLabs API.

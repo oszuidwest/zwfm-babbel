@@ -144,9 +144,6 @@ func TestTTSOptionsFromSettings(t *testing.T) {
 
 	options := ttsOptionsFromSettings(&models.TTSSettings{
 		Stability:              0.8,
-		SimilarityBoost:        0.7,
-		Style:                  0.2,
-		Speed:                  1.0,
 		ApplyTextNormalization: TTSNormalizationAuto,
 		Seed:                   &seed,
 	})
@@ -157,10 +154,7 @@ func TestTTSOptionsFromSettings(t *testing.T) {
 	if options.ApplyTextNormalization != TTSNormalizationAuto {
 		t.Fatalf("normalization = %q, want %q", options.ApplyTextNormalization, TTSNormalizationAuto)
 	}
-	if options.VoiceSettings.Stability != 0.8 ||
-		options.VoiceSettings.SimilarityBoost != 0.7 ||
-		options.VoiceSettings.Style != 0.2 ||
-		options.VoiceSettings.Speed != 1.0 {
+	if options.VoiceSettings.Stability != 0.8 {
 		t.Fatalf("voice settings = %#v", options.VoiceSettings)
 	}
 }

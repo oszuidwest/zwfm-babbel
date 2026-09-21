@@ -47,9 +47,6 @@ func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsS
 // UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
 type UpdateTTSSettingsRequest struct {
 	Stability              *float64
-	SimilarityBoost        *float64
-	Style                  *float64
-	Speed                  *float64
 	ApplyTextNormalization *string
 	Seed                   *int64
 	TTSStylePrefix         *string
@@ -91,9 +88,6 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 
 	update := &repository.TTSSettingsUpdate{
 		Stability:              req.Stability,
-		SimilarityBoost:        req.SimilarityBoost,
-		Style:                  req.Style,
-		Speed:                  req.Speed,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		Seed:                   seedUpdateValue(req.Seed),
 		TTSStylePrefix:         req.TTSStylePrefix,
@@ -119,9 +113,6 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 // programmatic callers.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 	return r.Stability == nil &&
-		r.SimilarityBoost == nil &&
-		r.Style == nil &&
-		r.Speed == nil &&
 		r.ApplyTextNormalization == nil &&
 		r.Seed == nil &&
 		!r.ClearSeed &&
@@ -160,9 +151,6 @@ func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.Valida
 	errs := []apperrors.ValidationError{}
 
 	errs = append(errs, validateNumberField("stability", req.Stability, 0, 1, "must be between 0 and 1")...)
-	errs = append(errs, validateNumberField("similarity_boost", req.SimilarityBoost, 0, 1, "must be between 0 and 1")...)
-	errs = append(errs, validateNumberField("style", req.Style, 0, 1, "must be between 0 and 1")...)
-	errs = append(errs, validateNumberField("speed", req.Speed, 0.7, 1.2, "must be between 0.7 and 1.2")...)
 	errs = append(errs, validateEnumField(
 		"apply_text_normalization",
 		req.ApplyTextNormalization,
@@ -257,9 +245,6 @@ func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *mode
 	// Float equality is intentional: both sides are read from the same DECIMAL(3,2)
 	// database columns around the update, with no arithmetic between reads.
 	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
-	appendIfChanged(req.SimilarityBoost != nil, "similarity_boost", before.SimilarityBoost == after.SimilarityBoost)
-	appendIfChanged(req.Style != nil, "style", before.Style == after.Style)
-	appendIfChanged(req.Speed != nil, "speed", before.Speed == after.Speed)
 	appendIfChanged(
 		req.ApplyTextNormalization != nil,
 		"apply_text_normalization",
@@ -286,12 +271,6 @@ func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
 	switch field {
 	case "stability":
 		return settings.Stability
-	case "similarity_boost":
-		return settings.SimilarityBoost
-	case "style":
-		return settings.Style
-	case "speed":
-		return settings.Speed
 	case "apply_text_normalization":
 		return settings.ApplyTextNormalization
 	case "seed":

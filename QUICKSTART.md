@@ -325,9 +325,6 @@ curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/settings/tts \
   -H "Content-Type: application/json" \
   -d '{
     "stability": 0.8,
-    "similarity_boost": 0.8,
-    "style": 0.25,
-    "speed": 1.0,
     "apply_text_normalization": "auto",
     "seed": null,
     "tts_style_prefix": "[professional][news anchor][engaging]"
@@ -345,7 +342,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
-The default settings row uses `eleven_v3`. `tts_style_prefix` is prepended to the story text before synthesis.
+The default settings row uses `eleven_v3`. Only `stability` is sent inside `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
 
 Manage local IPA pronunciation rules:
 
