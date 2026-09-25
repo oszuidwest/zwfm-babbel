@@ -4,7 +4,9 @@ const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
-const STORY_TRUE_PEAK_TARGET_DBTP = -1.0;
+const STORY_LOUDNESS_TARGET_LUFS = -16.0;
+const LOUDNESS_TOLERANCE_LU = 0.5;
+const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
 const TRUE_PEAK_TOLERANCE_DB = 0.3;
 
 function runFFmpeg(args) {
@@ -27,7 +29,7 @@ function createQuietStoryAudioFile(outputPath) {
   ]);
 }
 
-function measureTruePeakDBTP(inputPath) {
+function measureLoudness(inputPath) {
   const output = runFFmpeg([
     '-i', inputPath,
     '-af', 'loudnorm=I=-16:TP=-1:LRA=11:print_format=json',
@@ -41,7 +43,7 @@ function measureTruePeakDBTP(inputPath) {
   }
 
   const stats = JSON.parse(output.slice(start, end + 1));
-  return Number(stats.input_tp);
+  return { integratedLUFS: Number(stats.input_i), truePeakDBTP: Number(stats.input_tp) };
 }
 
 describe('Stories', () => {
@@ -329,7 +331,7 @@ describe('Stories', () => {
       expect(response.data).toHaveProperty('audio_file');
     });
 
-    test('when uploading quiet story audio, then normalizes true peak to -1 dBTP', async () => {
+    test('when uploading quiet story audio, then normalizes loudness to -16 LUFS', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
       const inputAudio = `/tmp/test_story_true_peak_input_${Date.now()}_${process.pid}.wav`;
@@ -355,8 +357,9 @@ describe('Stories', () => {
         const downloadStatus = await global.api.downloadFile(`/stories/${result.id}/audio`, outputAudio);
         expect(downloadStatus).toBe(200);
 
-        const truePeakDBTP = measureTruePeakDBTP(outputAudio);
-        expect(Math.abs(truePeakDBTP - STORY_TRUE_PEAK_TARGET_DBTP)).toBeLessThanOrEqual(TRUE_PEAK_TOLERANCE_DB);
+        const { integratedLUFS, truePeakDBTP } = measureLoudness(outputAudio);
+        expect(Math.abs(integratedLUFS - STORY_LOUDNESS_TARGET_LUFS)).toBeLessThanOrEqual(LOUDNESS_TOLERANCE_LU);
+        expect(truePeakDBTP).toBeLessThanOrEqual(STORY_TRUE_PEAK_CEILING_DBTP + TRUE_PEAK_TOLERANCE_DB);
       } finally {
         global.helpers.cleanupTempFile(inputAudio);
         global.helpers.cleanupTempFile(outputAudio);

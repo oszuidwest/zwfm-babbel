@@ -33,12 +33,23 @@ func commandError(ctx context.Context, err error) error {
 
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
-	truePeakMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
-	storyTruePeakTargetDBTP     = -1.0
+	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
+	monoDownmixFilter           = "aformat=channel_layouts=mono"
 )
 
+// loudnormStats holds the first-pass measurements that loudnorm prints as
+// JSON. The second pass feeds them back so loudnorm can apply a linear gain.
 type loudnormStats struct {
-	InputTruePeak string `json:"input_tp"`
+	Integrated   float64
+	TruePeak     float64
+	LRA          float64
+	Threshold    float64
+	TargetOffset float64
+}
+
+// silent reports whether loudnorm measured no signal at all.
+func (l loudnormStats) silent() bool {
+	return math.IsInf(l.Integrated, -1)
 }
 
 // JingleContext holds jingle selection data captured before story order randomization.
@@ -67,14 +78,18 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 	return s.convertToWAV(ctx, inputPath, outputPath, int(Stereo), audioFormatFilter(int(Stereo)))
 }
 
-// ConvertStoryToWAV converts story audio to mono WAV and peak-normalizes it to -1 dBTP.
+// ConvertStoryToWAV converts story audio to mono WAV at -16 LUFS with a
+// -1 dBTP ceiling. It runs loudnorm in two passes: the first measures the
+// mono downmix, the second applies a linear gain from those measurements so
+// the voice keeps its dynamics. Loudnorm itself falls back to dynamic mode
+// when a linear gain would push the true peak above the ceiling.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	gainDB, err := s.storyTruePeakGain(ctx, inputPath, int(Mono))
+	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return "", 0, err
 	}
 
-	return s.convertToWAV(ctx, inputPath, outputPath, int(Mono), storyNormalizationFilter(int(Mono), gainDB))
+	return s.convertToWAV(ctx, inputPath, outputPath, int(Mono), storyNormalizationFilter(stats))
 }
 
 func (s *Service) convertToWAV(
@@ -104,41 +119,20 @@ func (s *Service) convertToWAV(
 	return outputPath, duration, nil
 }
 
-func (s *Service) storyTruePeakGain(ctx context.Context, inputPath string, channelCount int) (float64, error) {
-	truePeakDBTP, err := s.detectTruePeak(ctx, inputPath, channelCount)
-	if err != nil {
-		return 0, err
-	}
-	if math.IsInf(truePeakDBTP, -1) {
-		return 0, nil
-	}
-	if math.IsInf(truePeakDBTP, 1) || math.IsNaN(truePeakDBTP) {
-		return 0, fmt.Errorf("invalid true peak measurement: %v", truePeakDBTP)
-	}
-
-	return storyTruePeakTargetDBTP - truePeakDBTP, nil
-}
-
-func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelCount int) (float64, error) {
-	filter := strings.Join([]string{
-		loudnessNormalizationFilter,
-		audioFormatFilter(channelCount),
-		truePeakMeasurementFilter,
-	}, ",")
-
+func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudnormStats, error) {
 	// #nosec G204 - FFmpegPath is from config and inputPath is internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
 		"-i", inputPath,
-		"-af", filter,
+		"-af", monoDownmixFilter+","+loudnessMeasurementFilter,
 		"-f", "null",
 		"-",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("ffmpeg failed to measure true peak: %w. output: %s", commandError(ctx, err), string(output))
+		return loudnormStats{}, fmt.Errorf("ffmpeg failed to measure loudness: %w. output: %s", commandError(ctx, err), string(output))
 	}
 
-	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
+	stats, err := parseLoudnormStats(string(output))
 	if err != nil {
 		s.alerts.Alert(ctx, notify.Event{
 			Key:               "audio:loudnorm-parse",
@@ -146,23 +140,25 @@ func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelC
 			Details:           err.Error(),
 			RequiresThreshold: true,
 		})
-		return 0, err
+		return loudnormStats{}, err
 	}
 	s.alerts.Resolve(ctx, "audio:loudnorm-parse", "FFmpeg loudnorm parsing recovered", "Loudness measurements can be parsed again.")
-	return truePeakDBTP, nil
+	return stats, nil
 }
 
-func storyNormalizationFilter(channelCount int, gainDB float64) string {
-	filters := []string{
-		loudnessNormalizationFilter,
-		audioFormatFilter(channelCount),
+// storyNormalizationFilter builds the second-pass filter chain. Silence has
+// nothing to normalize, so it is only converted to the story format.
+func storyNormalizationFilter(stats loudnormStats) string {
+	if stats.silent() {
+		return audioFormatFilter(int(Mono))
 	}
 
-	if math.Abs(gainDB) >= 0.001 {
-		filters = append(filters, fmt.Sprintf("volume=%.6fdB", gainDB))
-	}
-
-	return strings.Join(filters, ",")
+	return strings.Join([]string{
+		monoDownmixFilter,
+		fmt.Sprintf("%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
+			loudnessNormalizationFilter, stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset),
+		audioFormatFilter(int(Mono)),
+	}, ",")
 }
 
 func audioFormatFilter(channelCount int) string {
@@ -176,30 +172,46 @@ func audioFormatFilter(channelCount int) string {
 	}
 }
 
-func parseLoudnormInputTruePeak(output string) (float64, error) {
-	stats, err := parseLoudnormStats(output)
-	if err != nil {
-		return 0, err
-	}
-	return parseLoudnormNumber(stats.InputTruePeak)
-}
-
-func parseLoudnormStats(output string) (*loudnormStats, error) {
+func parseLoudnormStats(output string) (loudnormStats, error) {
 	start := strings.Index(output, "{")
 	end := strings.LastIndex(output, "}")
 	if start == -1 || end <= start {
-		return nil, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
+		return loudnormStats{}, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
+	}
+
+	var raw struct {
+		Integrated   string `json:"input_i"`
+		TruePeak     string `json:"input_tp"`
+		LRA          string `json:"input_lra"`
+		Threshold    string `json:"input_thresh"`
+		TargetOffset string `json:"target_offset"`
+	}
+	if err := json.Unmarshal([]byte(output[start:end+1]), &raw); err != nil {
+		return loudnormStats{}, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
 	}
 
 	var stats loudnormStats
-	if err := json.Unmarshal([]byte(output[start:end+1]), &stats); err != nil {
-		return nil, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
-	}
-	if stats.InputTruePeak == "" {
-		return nil, fmt.Errorf("loudnorm JSON stats missing input_tp")
+	var err error
+	for _, field := range []struct {
+		name  string
+		value string
+		dst   *float64
+	}{
+		{"input_i", raw.Integrated, &stats.Integrated},
+		{"input_tp", raw.TruePeak, &stats.TruePeak},
+		{"input_lra", raw.LRA, &stats.LRA},
+		{"input_thresh", raw.Threshold, &stats.Threshold},
+		{"target_offset", raw.TargetOffset, &stats.TargetOffset},
+	} {
+		if field.value == "" {
+			return loudnormStats{}, fmt.Errorf("loudnorm JSON stats missing %s", field.name)
+		}
+		if *field.dst, err = parseLoudnormNumber(field.value); err != nil {
+			return loudnormStats{}, err
+		}
 	}
 
-	return &stats, nil
+	return stats, nil
 }
 
 func parseLoudnormNumber(value string) (float64, error) {
