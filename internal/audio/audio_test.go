@@ -4,6 +4,7 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -122,7 +123,7 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 	svc, ffmpegPath := newFFmpegService(t)
 
 	tempDir := t.TempDir()
-	inputPath := filepath.Join(tempDir, "quiet-jingle.wav")
+	inputPath := filepath.Join(tempDir, "dynamic-jingle.wav")
 	outputPath := filepath.Join(tempDir, "jingle-output.wav")
 
 	runFFmpeg(
@@ -130,7 +131,7 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 		ffmpegPath,
 		"-f", "lavfi",
 		"-i", "sine=frequency=440:duration=2",
-		"-af", "volume=-12dB",
+		"-af", "volume=-3dB,volume=-21dB:enable='gte(t,1)'",
 		"-ar", "44100",
 		"-ac", "2",
 		"-y", inputPath,
@@ -140,10 +141,12 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 		t.Fatalf("ConvertJingleToWAV error: %v", err)
 	}
 
-	inputDBTP := measureInputTruePeak(t, ffmpegPath, inputPath)
-	outputDBTP := measureInputTruePeak(t, ffmpegPath, outputPath)
-	if math.Abs(outputDBTP-inputDBTP) > 0.2 {
-		t.Fatalf("true peak changed from %.1f to %.1f dBTP", inputDBTP, outputDBTP)
+	for _, trimFilter := range []string{"atrim=end=0.9", "atrim=start=1.1"} {
+		inputDBTP := measureInputTruePeak(t, ffmpegPath, inputPath, trimFilter)
+		outputDBTP := measureInputTruePeak(t, ffmpegPath, outputPath, trimFilter)
+		if math.Abs(outputDBTP-inputDBTP) > 0.2 {
+			t.Fatalf("%s true peak changed from %.1f to %.1f dBTP", trimFilter, inputDBTP, outputDBTP)
+		}
 	}
 }
 
@@ -174,12 +177,12 @@ func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	}
 }
 
-func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string) float64 {
+func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string, filters ...string) float64 {
 	t.Helper()
 	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
 	cmd := exec.CommandContext(t.Context(), ffmpegPath,
 		"-i", inputPath,
-		"-af", truePeakMeasurementFilter,
+		"-af", strings.Join(append(filters, truePeakMeasurementFilter), ","),
 		"-f", "null",
 		"-",
 	)
