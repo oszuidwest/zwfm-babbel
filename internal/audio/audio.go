@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -86,7 +87,7 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // the voice keeps its dynamics. Loudnorm itself falls back to dynamic mode
 // when a linear gain would push the true peak above the ceiling.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	stats, err := s.measureLoudness(ctx, inputPath)
+	stats, err := s.measureLoudness(ctx, "-i", inputPath, "-af", monoDownmixFilter+","+loudnessMeasurementFilter)
 	if err != nil {
 		return "", 0, err
 	}
@@ -123,14 +124,12 @@ func (s *Service) convertToWAV(
 	return outputPath, duration, nil
 }
 
-func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudnormStats, error) {
-	// #nosec G204 - FFmpegPath is from config and inputPath is internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
-		"-i", inputPath,
-		"-af", monoDownmixFilter+","+loudnessMeasurementFilter,
-		"-f", "null",
-		"-",
-	)
+// measureLoudness runs the first loudnorm pass described by args, which must
+// route the audio through loudnessMeasurementFilter, and parses the stats
+// that loudnorm prints.
+func (s *Service) measureLoudness(ctx context.Context, args ...string) (loudnormStats, error) {
+	// #nosec G204 - FFmpegPath is from config, args are constructed internally
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, append(args, "-f", "null", "-")...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return loudnormStats{}, fmt.Errorf("ffmpeg failed to measure loudness: %w. output: %s", commandError(ctx, err), string(output))
@@ -158,8 +157,23 @@ func storyNormalizationFilter(stats loudnormStats) string {
 		return ""
 	}
 
-	return fmt.Sprintf("%s,%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
-		monoDownmixFilter, loudnessNormalizationFilter, stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
+	return monoDownmixFilter + "," + linearLoudnormFilter(stats)
+}
+
+// bulletinNormalizationFilter builds the second pass over the [mixed] bulletin.
+func bulletinNormalizationFilter(stats loudnormStats) string {
+	if stats.silent() {
+		return "anull"
+	}
+
+	return linearLoudnormFilter(stats)
+}
+
+// linearLoudnormFilter feeds the first-pass measurements back to loudnorm so
+// it applies a linear gain instead of riding the level dynamically.
+func linearLoudnormFilter(stats loudnormStats) string {
+	return fmt.Sprintf("%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
+		loudnessNormalizationFilter, stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
 }
 
 func parseLoudnormStats(output string) (loudnormStats, error) {
@@ -224,7 +238,9 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 // CreateBulletin generates a complete audio bulletin by combining multiple
 // stories with station-specific jingles.
 // The jingle parameter determines which jingle and mix point to use,
-// independent of story order.
+// independent of story order. The mix is normalized in two loudnorm passes:
+// the first measures the stereo mix, the second applies a linear gain from
+// those measurements so the balance between jingle and voice survives.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
 	station *models.Station,
@@ -236,40 +252,46 @@ func (s *Service) CreateBulletin(
 		return "", fmt.Errorf("no stories to create bulletin")
 	}
 
-	args, filters := s.buildBulletinFFmpegCommand(ctx, station, stories, jingle, outputPath)
+	inputs, filters := s.buildBulletinMix(ctx, station, stories, jingle)
 
-	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
+	stats, err := s.measureLoudness(ctx, bulletinArgs(inputs, filters, loudnessMeasurementFilter)...)
+	if err != nil {
+		return "", err
+	}
+
+	args := append(bulletinArgs(inputs, filters, bulletinNormalizationFilter(stats)),
+		"-ac", "2",
+		"-ar", "48000",
+		"-y", outputPath)
+
+	return s.executeFFmpegCommand(ctx, args, outputPath)
 }
 
-// buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
-func (s *Service) buildBulletinFFmpegCommand(
+// buildBulletinMix constructs the FFmpeg inputs and the filter graph that
+// mixes the stories and jingle into the [mixed] stream.
+func (s *Service) buildBulletinMix(
 	ctx context.Context,
 	station *models.Station,
 	stories []repository.BulletinStoryData,
 	jingle JingleContext,
-	outputPath string,
 ) ([]string, []string) {
-	args := []string{}
+	inputs := []string{}
 	filters := []string{}
 
-	args, filters = s.addStoryInputsWithPadding(args, filters, station, stories)
+	inputs, filters = s.addStoryInputsWithPadding(inputs, filters, station, stories)
 
 	filters = s.addStoryConcat(filters, stories)
 
 	filters = s.addMixPointDelay(filters, jingle.MixPoint)
 
-	args, filters = s.addJingleMix(ctx, args, filters, station, jingle, len(stories))
+	return s.addJingleMix(ctx, inputs, filters, station, jingle, len(stories))
+}
 
-	filters = append(filters, "[mixed]"+loudnessNormalizationFilter+"[out]")
-
-	args = append(args,
-		"-filter_complex", strings.Join(filters, ";"),
-		"-map", "[out]",
-		"-ac", "2",
-		"-ar", "48000",
-		"-y", outputPath)
-
-	return args, filters
+// bulletinArgs completes the mix graph with outFilter on [mixed] and maps
+// the result, so both loudnorm passes run over the same graph.
+func bulletinArgs(inputs, filters []string, outFilter string) []string {
+	graph := strings.Join(append(slices.Clone(filters), "[mixed]"+outFilter+"[out]"), ";")
+	return append(slices.Clone(inputs), "-filter_complex", graph, "-map", "[out]")
 }
 
 // addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
@@ -391,12 +413,11 @@ func validateJingleFile(path string) error {
 }
 
 // executeFFmpegCommand runs the FFmpeg command and handles error reporting.
-func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []string, outputPath string) (string, error) {
+func (s *Service) executeFFmpegCommand(ctx context.Context, args []string, outputPath string) (string, error) {
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	logger.Debug("Executing FFmpeg command", "binary", s.config.Audio.FFmpegPath, "args", strings.Join(args, " "))
-	logger.Debug("FFmpeg filter complex", "filters", strings.Join(filters, ";"))
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
