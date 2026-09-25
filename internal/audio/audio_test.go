@@ -4,6 +4,8 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -131,6 +133,57 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 	}
 }
 
+func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
+	t.Parallel()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "quiet-jingle.wav")
+	outputPath := filepath.Join(tempDir, "jingle-output.wav")
+
+	runFFmpeg(
+		t,
+		ffmpegPath,
+		"-f", "lavfi",
+		"-i", "sine=frequency=440:duration=2",
+		"-af", "volume=-12dB",
+		"-ar", "44100",
+		"-ac", "2",
+		"-y", inputPath,
+	)
+
+	svc := NewService(&config.Config{
+		Audio: config.AudioConfig{
+			FFmpegPath:  ffmpegPath,
+			FFprobePath: ffprobePath,
+		},
+	}, nil)
+
+	convertedPath, duration, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath)
+	if err != nil {
+		t.Fatalf("ConvertJingleToWAV error: %v", err)
+	}
+	if convertedPath != outputPath {
+		t.Fatalf("converted path = %q, want %q", convertedPath, outputPath)
+	}
+	if duration < 1.9 || duration > 2.1 {
+		t.Fatalf("duration = %v, want around 2 seconds", duration)
+	}
+
+	inputMeanDB := measureMeanVolume(t, ffmpegPath, inputPath)
+	outputMeanDB := measureMeanVolume(t, ffmpegPath, outputPath)
+	if math.Abs(outputMeanDB-inputMeanDB) > 0.2 {
+		t.Fatalf("mean volume changed from %.1f to %.1f dB", inputMeanDB, outputMeanDB)
+	}
+}
+
 func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	t.Helper()
 	// #nosec G204 - ffmpeg path is local; args are controlled test inputs
@@ -160,4 +213,39 @@ func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string) float64 {
 		t.Fatalf("parseLoudnormInputTruePeak error: %v", err)
 	}
 	return truePeakDBTP
+}
+
+func measureMeanVolume(t *testing.T, ffmpegPath, inputPath string) float64 {
+	t.Helper()
+	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
+	cmd := exec.CommandContext(t.Context(), ffmpegPath,
+		"-i", inputPath,
+		"-af", "volumedetect",
+		"-f", "null",
+		"-",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ffmpeg volume measurement failed: %v. output: %s", err, string(output))
+	}
+
+	const marker = "mean_volume: "
+	for line := range strings.SplitSeq(string(output), "\n") {
+		markerIndex := strings.Index(line, marker)
+		if markerIndex == -1 {
+			continue
+		}
+		fields := strings.Fields(line[markerIndex+len(marker):])
+		if len(fields) == 0 {
+			break
+		}
+		meanDB, parseErr := strconv.ParseFloat(fields[0], 64)
+		if parseErr != nil {
+			t.Fatalf("parse mean volume %q: %v", fields[0], parseErr)
+		}
+		return meanDB
+	}
+
+	t.Fatalf("ffmpeg output did not contain mean volume: %s", string(output))
+	return 0
 }

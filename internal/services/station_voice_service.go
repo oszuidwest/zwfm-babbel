@@ -263,7 +263,7 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // canonical filename, not the absolute path returned by the audio converter.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	filename, _, err := s.audioSvc.ConvertToWAV(ctx, tempPath, outputPath, 2)
+	filename, _, err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath)
 	if err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}

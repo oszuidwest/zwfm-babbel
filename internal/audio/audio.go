@@ -60,12 +60,11 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 	return &Service{config: cfg, alerts: alerts}
 }
 
-// ConvertToWAV converts uploaded audio files to standardized WAV format with
-// EBU R128 loudness normalization.
-func (s *Service) ConvertToWAV(
-	ctx context.Context, inputPath, outputPath string, channelCount int,
-) (string, float64, error) {
-	return s.convertToWAV(ctx, inputPath, outputPath, channelCount, loudnessNormalizationFilter)
+// ConvertJingleToWAV converts a jingle to the standard stereo WAV format
+// without changing its intended level balance. The completed bulletin is
+// normalized after the jingle and stories are mixed.
+func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
+	return s.convertToWAV(ctx, inputPath, outputPath, int(Stereo), "")
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV and peak-normalizes it to -1 dBTP.
@@ -81,14 +80,16 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 func (s *Service) convertToWAV(
 	ctx context.Context, inputPath, outputPath string, channelCount int, audioFilter string,
 ) (string, float64, error) {
-	args := []string{
-		"-i", inputPath,
-		"-af", audioFilter,
+	args := []string{"-i", inputPath}
+	if audioFilter != "" {
+		args = append(args, "-af", audioFilter)
+	}
+	args = append(args,
 		"-ar", "48000",
 		"-ac", strconv.Itoa(channelCount),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
-	}
+	)
 
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
