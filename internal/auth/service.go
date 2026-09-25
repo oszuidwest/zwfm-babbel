@@ -317,7 +317,7 @@ func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 		}
 
 		if !allowed {
-			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "Insufficient permissions")
+			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "You do not have permission to perform this action")
 			c.Abort()
 			return
 		}
