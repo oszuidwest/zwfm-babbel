@@ -64,7 +64,7 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 // without changing its intended level balance. The completed bulletin is
 // normalized after the jingle and stories are mixed.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	return s.convertToWAV(ctx, inputPath, outputPath, int(Stereo), "")
+	return s.convertToWAV(ctx, inputPath, outputPath, int(Stereo), audioFormatFilter(int(Stereo)))
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV and peak-normalizes it to -1 dBTP.
@@ -80,16 +80,14 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 func (s *Service) convertToWAV(
 	ctx context.Context, inputPath, outputPath string, channelCount int, audioFilter string,
 ) (string, float64, error) {
-	args := []string{"-i", inputPath}
-	if audioFilter != "" {
-		args = append(args, "-af", audioFilter)
-	}
-	args = append(args,
+	args := []string{
+		"-i", inputPath,
+		"-af", audioFilter,
 		"-ar", "48000",
 		"-ac", strconv.Itoa(channelCount),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
-	)
+	}
 
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)

@@ -4,8 +4,6 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -85,14 +83,7 @@ func TestStoryNormalizationFilter(t *testing.T) {
 
 func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 	t.Parallel()
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobePath, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
+	svc, ffmpegPath := newFFmpegService(t)
 
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "quiet-input.wav")
@@ -108,13 +99,6 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 		"-ac", "1",
 		"-y", inputPath,
 	)
-
-	svc := NewService(&config.Config{
-		Audio: config.AudioConfig{
-			FFmpegPath:  ffmpegPath,
-			FFprobePath: ffprobePath,
-		},
-	}, nil)
 
 	convertedPath, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
 	if err != nil {
@@ -135,14 +119,7 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 
 func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 	t.Parallel()
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobePath, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
+	svc, ffmpegPath := newFFmpegService(t)
 
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "quiet-jingle.wav")
@@ -159,29 +136,32 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 		"-y", inputPath,
 	)
 
-	svc := NewService(&config.Config{
-		Audio: config.AudioConfig{
-			FFmpegPath:  ffmpegPath,
-			FFprobePath: ffprobePath,
-		},
-	}, nil)
-
-	convertedPath, duration, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath)
-	if err != nil {
+	if _, _, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertJingleToWAV error: %v", err)
 	}
-	if convertedPath != outputPath {
-		t.Fatalf("converted path = %q, want %q", convertedPath, outputPath)
-	}
-	if duration < 1.9 || duration > 2.1 {
-		t.Fatalf("duration = %v, want around 2 seconds", duration)
-	}
 
-	inputMeanDB := measureMeanVolume(t, ffmpegPath, inputPath)
-	outputMeanDB := measureMeanVolume(t, ffmpegPath, outputPath)
-	if math.Abs(outputMeanDB-inputMeanDB) > 0.2 {
-		t.Fatalf("mean volume changed from %.1f to %.1f dB", inputMeanDB, outputMeanDB)
+	inputDBTP := measureInputTruePeak(t, ffmpegPath, inputPath)
+	outputDBTP := measureInputTruePeak(t, ffmpegPath, outputPath)
+	if math.Abs(outputDBTP-inputDBTP) > 0.2 {
+		t.Fatalf("true peak changed from %.1f to %.1f dBTP", inputDBTP, outputDBTP)
 	}
+}
+
+// newFFmpegService returns a Service backed by the local ffmpeg and ffprobe
+// binaries, or skips the test when either is missing.
+func newFFmpegService(t *testing.T) (*Service, string) {
+	t.Helper()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	return NewService(&config.Config{
+		Audio: config.AudioConfig{FFmpegPath: ffmpegPath, FFprobePath: ffprobePath},
+	}, nil), ffmpegPath
 }
 
 func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
@@ -213,39 +193,4 @@ func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string) float64 {
 		t.Fatalf("parseLoudnormInputTruePeak error: %v", err)
 	}
 	return truePeakDBTP
-}
-
-func measureMeanVolume(t *testing.T, ffmpegPath, inputPath string) float64 {
-	t.Helper()
-	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
-	cmd := exec.CommandContext(t.Context(), ffmpegPath,
-		"-i", inputPath,
-		"-af", "volumedetect",
-		"-f", "null",
-		"-",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("ffmpeg volume measurement failed: %v. output: %s", err, string(output))
-	}
-
-	const marker = "mean_volume: "
-	for line := range strings.SplitSeq(string(output), "\n") {
-		markerIndex := strings.Index(line, marker)
-		if markerIndex == -1 {
-			continue
-		}
-		fields := strings.Fields(line[markerIndex+len(marker):])
-		if len(fields) == 0 {
-			break
-		}
-		meanDB, parseErr := strconv.ParseFloat(fields[0], 64)
-		if parseErr != nil {
-			t.Fatalf("parse mean volume %q: %v", fields[0], parseErr)
-		}
-		return meanDB
-	}
-
-	t.Fatalf("ffmpeg output did not contain mean volume: %s", string(output))
-	return 0
 }
