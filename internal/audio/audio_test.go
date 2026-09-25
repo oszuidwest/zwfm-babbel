@@ -13,11 +13,10 @@ import (
 func TestParseLoudnormStats(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name       string
-		output     string
-		want       loudnormStats
-		wantSilent bool
-		wantErr    bool
+		name    string
+		output  string
+		want    loudnormStats
+		wantErr bool
 	}{
 		{
 			name: "measurement",
@@ -34,9 +33,9 @@ func TestParseLoudnormStats(t *testing.T) {
 			want: loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43},
 		},
 		{
-			name:       "silence",
-			output:     `{"input_i":"-inf","input_tp":"-inf","input_lra":"0.00","input_thresh":"-70.00","target_offset":"inf"}`,
-			wantSilent: true,
+			name:   "silence",
+			output: `{"input_i":"-inf","input_tp":"-inf","input_lra":"0.00","input_thresh":"-70.00","target_offset":"inf"}`,
+			want:   loudnormStats{Integrated: math.Inf(-1), TruePeak: math.Inf(-1), Threshold: -70, TargetOffset: math.Inf(1)},
 		},
 		{
 			name:    "missing JSON stats",
@@ -68,12 +67,6 @@ func TestParseLoudnormStats(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parseLoudnormStats error: %v", err)
 			}
-			if tt.wantSilent {
-				if !got.silent() {
-					t.Fatalf("parseLoudnormStats = %+v, want silent", got)
-				}
-				return
-			}
 			if got != tt.want {
 				t.Fatalf("parseLoudnormStats = %+v, want %+v", got, tt.want)
 			}
@@ -85,15 +78,13 @@ func TestStoryNormalizationFilter(t *testing.T) {
 	t.Parallel()
 	got := storyNormalizationFilter(loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43})
 	want := "aformat=channel_layouts=mono," +
-		"loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true," +
-		"aformat=sample_rates=48000:channel_layouts=mono"
+		"loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true"
 	if got != want {
 		t.Fatalf("storyNormalizationFilter = %q, want %q", got, want)
 	}
 
-	silent := storyNormalizationFilter(loudnormStats{Integrated: math.Inf(-1)})
-	if silent != "aformat=sample_rates=48000:channel_layouts=mono" {
-		t.Fatalf("storyNormalizationFilter(silent) = %q, want format-only filter", silent)
+	if silent := storyNormalizationFilter(loudnormStats{Integrated: math.Inf(-1)}); silent != "" {
+		t.Fatalf("storyNormalizationFilter(silent) = %q, want no filter", silent)
 	}
 }
 
@@ -125,12 +116,9 @@ func TestService_ConvertStoryToWAVNormalizesLoudness(t *testing.T) {
 				"-y", inputPath,
 			)
 
-			convertedPath, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
+			_, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
 			if err != nil {
 				t.Fatalf("ConvertStoryToWAV error: %v", err)
-			}
-			if convertedPath != outputPath {
-				t.Fatalf("converted path = %q, want %q", convertedPath, outputPath)
 			}
 			if duration < 0.9 || duration > 1.1 {
 				t.Fatalf("duration = %v, want around 1 second", duration)

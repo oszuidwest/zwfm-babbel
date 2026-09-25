@@ -334,17 +334,17 @@ describe('Stories', () => {
     test('when uploading quiet story audio, then normalizes loudness to -16 LUFS', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
-      const inputAudio = `/tmp/test_story_true_peak_input_${Date.now()}_${process.pid}.wav`;
-      const outputAudio = `/tmp/test_story_true_peak_output_${Date.now()}_${process.pid}.wav`;
+      const inputAudio = `/tmp/test_story_loudness_input_${Date.now()}_${process.pid}.wav`;
+      const outputAudio = `/tmp/test_story_loudness_output_${Date.now()}_${process.pid}.wav`;
 
       try {
         createQuietStoryAudioFile(inputAudio);
 
         const result = await createStoryWithDeps(
-          'TruePeakAudio',
+          'LoudnessAudio',
           'Quiet story audio',
-          'TruePeakVoice',
-          'TruePeakStation'
+          'LoudnessVoice',
+          'LoudnessStation'
         );
         expect(result).not.toBeNull();
 
