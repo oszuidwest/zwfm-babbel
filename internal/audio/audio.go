@@ -51,7 +51,7 @@ type loudnormStats struct {
 
 // silent reports whether loudnorm measured no signal at all.
 func (l loudnormStats) silent() bool {
-	return math.IsInf(l.Integrated, -1)
+	return math.IsInf(l.TruePeak, -1)
 }
 
 // JingleContext holds jingle selection data captured before story order randomization.
@@ -150,12 +150,14 @@ func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudno
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second-pass filter chain. Silence has
-// nothing to normalize and loudnorm rejects -inf measurements, so it takes
-// the same filter-free route as jingles.
+// storyNormalizationFilter builds the second-pass filter chain. Silence takes
+// the filter-free route; clips too short to measure use loudnorm's limiter.
 func storyNormalizationFilter(stats loudnormStats) string {
 	if stats.silent() {
 		return ""
+	}
+	if math.IsInf(stats.Integrated, -1) {
+		return monoDownmixFilter + "," + loudnessNormalizationFilter + ":linear=false"
 	}
 
 	return fmt.Sprintf("%s,%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
