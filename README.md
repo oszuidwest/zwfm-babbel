@@ -110,7 +110,7 @@ Each bulletin WAV file uses approximately 15 MB. A background service deletes th
 
 ## Loudness Normalization
 
-Babbel normalizes all audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with the FFmpeg `loudnorm` filter:
+Babbel normalizes audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with the FFmpeg `loudnorm` filter:
 
 | Parameter | Value |
 |-----------|-------|
@@ -121,6 +121,8 @@ Babbel normalizes all audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) w
 Babbel normalizes:
 - The story audio, during the upload or the TTS process. A second pass sets the true peak to -1 dBTP.
 - The final bulletin mix, after Babbel adds the jingle.
+
+Babbel does not normalize uploaded jingles. It converts them to stereo 48 kHz 16-bit PCM WAV as-is, so the level balance between intro and bed survives until the bulletin mix.
 
 The target is -16 LUFS, not the usual -23 LUFS. Low audio levels can cause a radio automation system to start a mix point at the incorrect time. The -16 LUFS target prevents this.
 

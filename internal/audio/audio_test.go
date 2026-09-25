@@ -4,6 +4,7 @@ import (
 	"math"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -83,14 +84,7 @@ func TestStoryNormalizationFilter(t *testing.T) {
 
 func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 	t.Parallel()
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobePath, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
+	svc, ffmpegPath := newFFmpegService(t)
 
 	tempDir := t.TempDir()
 	inputPath := filepath.Join(tempDir, "quiet-input.wav")
@@ -106,13 +100,6 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 		"-ac", "1",
 		"-y", inputPath,
 	)
-
-	svc := NewService(&config.Config{
-		Audio: config.AudioConfig{
-			FFmpegPath:  ffmpegPath,
-			FFprobePath: ffprobePath,
-		},
-	}, nil)
 
 	convertedPath, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
 	if err != nil {
@@ -131,6 +118,55 @@ func TestService_ConvertStoryToWAVPeakNormalizesToMinusOneDBTP(t *testing.T) {
 	}
 }
 
+func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "dynamic-jingle.wav")
+	outputPath := filepath.Join(tempDir, "jingle-output.wav")
+
+	runFFmpeg(
+		t,
+		ffmpegPath,
+		"-f", "lavfi",
+		"-i", "sine=frequency=440:duration=2",
+		"-af", "volume=-3dB,volume=-21dB:enable='gte(t,1)'",
+		"-ar", "44100",
+		"-ac", "2",
+		"-y", inputPath,
+	)
+
+	if _, _, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
+		t.Fatalf("ConvertJingleToWAV error: %v", err)
+	}
+
+	for _, trimFilter := range []string{"atrim=end=0.9", "atrim=start=1.1"} {
+		inputDBTP := measureInputTruePeak(t, ffmpegPath, inputPath, trimFilter)
+		outputDBTP := measureInputTruePeak(t, ffmpegPath, outputPath, trimFilter)
+		if math.Abs(outputDBTP-inputDBTP) > 0.2 {
+			t.Fatalf("%s true peak changed from %.1f to %.1f dBTP", trimFilter, inputDBTP, outputDBTP)
+		}
+	}
+}
+
+// newFFmpegService returns a Service backed by the local ffmpeg and ffprobe
+// binaries, or skips the test when either is missing.
+func newFFmpegService(t *testing.T) (*Service, string) {
+	t.Helper()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	return NewService(&config.Config{
+		Audio: config.AudioConfig{FFmpegPath: ffmpegPath, FFprobePath: ffprobePath},
+	}, nil), ffmpegPath
+}
+
 func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	t.Helper()
 	// #nosec G204 - ffmpeg path is local; args are controlled test inputs
@@ -141,12 +177,12 @@ func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	}
 }
 
-func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string) float64 {
+func measureInputTruePeak(t *testing.T, ffmpegPath, inputPath string, filters ...string) float64 {
 	t.Helper()
 	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
 	cmd := exec.CommandContext(t.Context(), ffmpegPath,
 		"-i", inputPath,
-		"-af", truePeakMeasurementFilter,
+		"-af", strings.Join(append(filters, truePeakMeasurementFilter), ","),
 		"-f", "null",
 		"-",
 	)
