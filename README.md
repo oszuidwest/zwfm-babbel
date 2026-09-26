@@ -120,7 +120,7 @@ Babbel normalizes audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with 
 
 Babbel normalizes:
 - Story audio during upload or TTS. Two-pass `loudnorm` measures the mono downmix, then applies linear gain when possible to preserve dynamics while targeting -16 LUFS with a -1 dBTP ceiling. It uses dynamic mode when linear gain would breach that ceiling or its loudness-range constraints. Ungated non-silent clips use single-pass `loudnorm` and remain true-peak-limited; silence bypasses normalization.
-- The final bulletin mix, in a single pass, after Babbel adds the jingle.
+- The final bulletin mix, after Babbel adds the jingle. This also runs in two passes, measured on the stereo mix, so the balance between jingle and voice survives normalization.
 
 Babbel does not normalize uploaded jingles. It converts them to stereo 48 kHz 16-bit PCM WAV as-is, so the level balance between intro and bed survives until the bulletin mix.
 

@@ -8,6 +8,9 @@ import (
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 func TestParseLoudnormStats(t *testing.T) {
@@ -89,6 +92,87 @@ func TestStoryNormalizationFilter(t *testing.T) {
 	}
 	if got := storyNormalizationFilter(loudnormStats{TruePeak: math.Inf(-1)}); got != "" {
 		t.Fatalf("storyNormalizationFilter(silence) = %q, want no filter", got)
+	}
+}
+
+func TestBulletinNormalizationFilter(t *testing.T) {
+	t.Parallel()
+
+	stats := loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43}
+	want := "loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true"
+	if got := bulletinNormalizationFilter(stats); got != want {
+		t.Fatalf("bulletinNormalizationFilter = %q, want %q", got, want)
+	}
+
+	short := loudnormStats{Integrated: math.Inf(-1), TruePeak: -1}
+	if got := bulletinNormalizationFilter(short); got != loudnessNormalizationFilter {
+		t.Fatalf("bulletinNormalizationFilter(short mix) = %q, want dynamic normalization", got)
+	}
+	if got := bulletinNormalizationFilter(loudnormStats{TruePeak: math.Inf(-1)}); got != "anull" {
+		t.Fatalf("bulletinNormalizationFilter(silence) = %q, want no-op filter", got)
+	}
+}
+
+func TestBulletinArgs(t *testing.T) {
+	t.Parallel()
+	inputs := []string{"-i", "story_1.wav"}
+	filters := []string{"[0:a]anull[messages]", "[messages]anull[mixed]"}
+
+	got := strings.Join(bulletinArgs(inputs, filters, "anull"), " ")
+	want := "-i story_1.wav -filter_complex [0:a]anull[messages];[messages]anull[mixed];[mixed]anull[out] -map [out]"
+	if got != want {
+		t.Fatalf("bulletinArgs = %q, want %q", got, want)
+	}
+}
+
+func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
+	t.Parallel()
+	station := &models.Station{ID: 1, PauseSeconds: 0.5}
+	voiceID := int64(1)
+	stories := []repository.BulletinStoryData{
+		{Story: models.Story{ID: 1}},
+		{Story: models.Story{ID: 2}},
+	}
+
+	tests := []struct {
+		name       string
+		source     string
+		jingle     JingleContext
+		wantSilent bool
+	}{
+		{name: "voice over jingle", source: "sine=frequency=1000:duration=2", jingle: JingleContext{VoiceID: &voiceID, MixPoint: 1}},
+		{name: "silence without jingle", source: "anullsrc=r=48000:cl=mono:d=2", wantSilent: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc, ffmpegPath := newFFmpegService(t)
+			svc.config.Audio.ProcessedPath = t.TempDir()
+
+			for _, story := range stories {
+				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
+			}
+			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
+			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")
+
+			if _, err := svc.CreateBulletin(t.Context(), station, stories, tt.jingle, outputPath); err != nil {
+				t.Fatalf("CreateBulletin error: %v", err)
+			}
+
+			stats := measureLoudness(t, ffmpegPath, outputPath)
+			if tt.wantSilent {
+				if !stats.silent() {
+					t.Fatalf("silent bulletin measured %.1f LUFS", stats.Integrated)
+				}
+				return
+			}
+			if math.Abs(stats.Integrated+16) > 0.5 {
+				t.Fatalf("integrated loudness = %.1f LUFS, want -16 LUFS", stats.Integrated)
+			}
+			if stats.TruePeak > -1+0.2 {
+				t.Fatalf("true peak = %.1f dBTP, want at most -1 dBTP", stats.TruePeak)
+			}
+		})
 	}
 }
 
