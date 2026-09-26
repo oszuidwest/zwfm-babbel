@@ -34,13 +34,11 @@ func commandError(ctx context.Context, err error) error {
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
 	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
-	// monoDownmixFilter runs ahead of loudnorm in both story passes so the
-	// second pass applies its gain to the signal the first pass measured.
+	// monoDownmixFilter keeps both loudnorm passes on the same mono signal.
 	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
 
-// loudnormStats holds the first-pass measurements that loudnorm prints as
-// JSON. The second pass feeds them back so loudnorm can apply a linear gain.
+// loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
 	Integrated   float64
 	TruePeak     float64
@@ -49,13 +47,12 @@ type loudnormStats struct {
 	TargetOffset float64
 }
 
-// silent reports whether loudnorm measured no signal at all.
+// silent reports whether loudnorm found no measurable peak.
 func (l loudnormStats) silent() bool {
 	return math.IsInf(l.TruePeak, -1)
 }
 
-// JingleContext holds jingle selection data captured before story order randomization.
-// This ensures the jingle and mix point remain stable regardless of shuffle order.
+// JingleContext keeps the jingle and mix point stable across story shuffling.
 type JingleContext struct {
 	VoiceID  *int64
 	MixPoint float64
@@ -73,19 +70,16 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 	return &Service{config: cfg, alerts: alerts}
 }
 
-// ConvertJingleToWAV converts a jingle to the standard stereo WAV format
-// without changing its intended level balance. The completed bulletin is
-// normalized after the jingle and stories are mixed.
+// ConvertJingleToWAV converts a jingle to stereo WAV without normalizing it;
+// normalization happens after the jingle and stories are mixed.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
-// ConvertStoryToWAV converts story audio to mono WAV at -16 LUFS with a
-// -1 dBTP ceiling. It runs loudnorm in two passes: the first measures the
-// mono downmix, the second applies a linear gain from those measurements so
-// the voice keeps its dynamics. Loudnorm itself falls back to dynamic mode
-// when a linear gain would exceed the ceiling or the loudness range is out
-// of bounds.
+// ConvertStoryToWAV converts story audio to mono WAV, targeting -16 LUFS with
+// a -1 dBTP ceiling. Two-pass loudnorm preserves dynamics when possible and
+// falls back to dynamic mode when linear gain would breach the ceiling or its
+// loudness-range constraints.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
@@ -151,10 +145,9 @@ func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudno
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second-pass filter chain. Silence skips
-// loudnorm, which turns silent clips under 3 seconds into NaN samples.
-// loudnorm rejects the -inf loudness it measures for clips it cannot gate,
-// so those run without measurements.
+// storyNormalizationFilter builds the second pass. Silence bypasses loudnorm
+// to avoid NaNs on short clips; ungated non-silent clips omit unavailable
+// measurements and use loudnorm's dynamic mode.
 func storyNormalizationFilter(stats loudnormStats) string {
 	if stats.silent() {
 		return ""
@@ -180,8 +173,7 @@ func parseLoudnormStats(output string) (loudnormStats, error) {
 		return loudnormStats{}, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
 	}
 
-	// strconv.ParseFloat accepts the "inf" and "-inf" that loudnorm prints for
-	// silence, and rejects the empty string a missing key yields.
+	// ParseFloat accepts loudnorm's infinity values and rejects missing fields.
 	var stats loudnormStats
 	for _, field := range []struct {
 		key string
@@ -227,10 +219,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 	return duration, nil
 }
 
-// CreateBulletin generates a complete audio bulletin by combining multiple
-// stories with station-specific jingles.
-// The jingle parameter determines which jingle and mix point to use,
-// independent of story order.
+// CreateBulletin mixes stories with the preselected jingle so story shuffling
+// cannot change the jingle or mix point.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
 	station *models.Station,
@@ -247,7 +237,7 @@ func (s *Service) CreateBulletin(
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
 }
 
-// buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
+// buildBulletinFFmpegCommand preserves story order because filter labels use input indexes.
 func (s *Service) buildBulletinFFmpegCommand(
 	ctx context.Context,
 	station *models.Station,
@@ -278,7 +268,7 @@ func (s *Service) buildBulletinFFmpegCommand(
 	return args, filters
 }
 
-// addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
+// addStoryInputsWithPadding appends stories in playback order and applies the configured pauses.
 func (s *Service) addStoryInputsWithPadding(
 	args, filters []string,
 	station *models.Station,
@@ -298,7 +288,7 @@ func (s *Service) addStoryInputsWithPadding(
 	return args, filters
 }
 
-// addStoryConcat creates a filter to concatenate all stories into one timeline.
+// addStoryConcat joins the padded stories and labels the timeline for mix-point delay.
 func (s *Service) addStoryConcat(filters []string, stories []repository.BulletinStoryData) []string {
 	concatInputs := []string{}
 	for i := range stories {
@@ -309,7 +299,7 @@ func (s *Service) addStoryConcat(filters []string, stories []repository.Bulletin
 	return append(filters, concatFilter)
 }
 
-// addMixPointDelay adds delay to the message timeline based on the jingle's mix point.
+// addMixPointDelay labels the story timeline, delaying it for a positive mix point.
 func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string {
 	if mixPoint > 0 {
 		delayMs := int(mixPoint * 1000)
@@ -318,8 +308,8 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
-// addJingleMix adds the bed/jingle when present, reports the availability
-// decision, and writes the final stream to [mixed] for loudness normalization.
+// addJingleMix adds the optional bed, reports availability, and labels the
+// result for final loudness normalization.
 func (s *Service) addJingleMix(
 	ctx context.Context,
 	args, filters []string,
@@ -358,7 +348,7 @@ func (s *Service) addJingleMix(
 			fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
-		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image.
+		// Upmix only the stories to preserve the jingle's stereo image.
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
 		filters = append(filters,
 			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
@@ -396,7 +386,7 @@ func validateJingleFile(path string) error {
 	return nil
 }
 
-// executeFFmpegCommand runs the FFmpeg command and handles error reporting.
+// executeFFmpegCommand captures stderr so failures retain FFmpeg diagnostics.
 func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []string, outputPath string) (string, error) {
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
@@ -415,7 +405,7 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
-		// Continue despite read errors.
+		// Wait still reports the process result when stderr capture fails.
 		logger.Warn("Failed to read FFmpeg stderr", "error", readErr)
 	}
 
