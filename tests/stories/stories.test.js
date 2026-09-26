@@ -4,7 +4,9 @@ const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
-const STORY_TRUE_PEAK_TARGET_DBTP = -1.0;
+const STORY_LOUDNESS_TARGET_LUFS = -16.0;
+const LOUDNESS_TOLERANCE_LU = 0.5;
+const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
 const TRUE_PEAK_TOLERANCE_DB = 0.3;
 
 function runFFmpeg(args) {
@@ -27,7 +29,7 @@ function createQuietStoryAudioFile(outputPath) {
   ]);
 }
 
-function measureTruePeakDBTP(inputPath) {
+function measureLoudness(inputPath) {
   const output = runFFmpeg([
     '-i', inputPath,
     '-af', 'loudnorm=I=-16:TP=-1:LRA=11:print_format=json',
@@ -41,7 +43,7 @@ function measureTruePeakDBTP(inputPath) {
   }
 
   const stats = JSON.parse(output.slice(start, end + 1));
-  return Number(stats.input_tp);
+  return { integratedLUFS: Number(stats.input_i), truePeakDBTP: Number(stats.input_tp) };
 }
 
 describe('Stories', () => {
@@ -55,7 +57,7 @@ describe('Stories', () => {
     ...overrides
   });
 
-  // Shared helpers
+  // Registers each fixture and its dependencies for suite-wide cleanup.
   const createStoryWithDeps = async (title, text, voiceName, stationName, weekdays = 127, status = 'active') => {
     const voice = await global.helpers.createVoice(global.resources, voiceName);
     const station = await global.helpers.createStation(global.resources, stationName);
@@ -71,7 +73,7 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
 
-  // Setup function for query tests
+  // Creates the fixtures required by the shared query-test generator.
   const setupQueryTestData = async () => {
     const ids = [];
     for (let i = 1; i <= 3; i++) {
@@ -86,16 +88,16 @@ describe('Stories', () => {
     return ids;
   };
 
-  // Generate query parameter tests
+  // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
-  // === BUSINESS LOGIC TESTS ===
+  // The remaining tests cover story-specific behavior.
 
   describe('Story CRUD', () => {
     let voiceId, stationId, storyId;
 
     beforeAll(async () => {
-      // Create dependencies
+      // Share one voice and station across the CRUD cases.
       const voice = await global.helpers.createVoice(global.resources, 'CrudTestVoice');
       const station = await global.helpers.createStation(global.resources, 'CrudTestStation');
       voiceId = voice.id;
@@ -179,7 +181,7 @@ describe('Stories', () => {
     let voiceId, stationId;
 
     beforeAll(async () => {
-      // Create dependencies
+      // Share one voice and station across the scheduling cases.
       const voice = await global.helpers.createVoice(global.resources, 'ScheduleVoice');
       const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
@@ -196,7 +198,7 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
+      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -211,7 +213,7 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
+      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -219,7 +221,7 @@ describe('Stories', () => {
       const result = await createStoryWithDeps('WeekdayUpdate', 'Test', 'WkdyVoice', 'WkdyStation');
       expect(result).not.toBeNull();
 
-      // Update to MWF (weekdays=42)
+      // 42 encodes Monday, Wednesday, and Friday.
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, { weekdays: 42 });
 
       expect(response.status).toBe(200);
@@ -233,7 +235,7 @@ describe('Stories', () => {
     let voiceId, station1Id, station2Id;
 
     beforeAll(async () => {
-      // Create dependencies
+      // Share one voice and two stations across the targeting cases.
       const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
       const station1 = await global.helpers.createStation(global.resources, 'Target1');
       const station2 = await global.helpers.createStation(global.resources, 'Target2');
@@ -252,10 +254,10 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
+      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
-      // Verify target_stations if returned in response
+      // Verify assignments when the response expands target_stations.
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       if (getResponse.data.target_stations) {
@@ -329,20 +331,20 @@ describe('Stories', () => {
       expect(response.data).toHaveProperty('audio_file');
     });
 
-    test('when uploading quiet story audio, then normalizes true peak to -1 dBTP', async () => {
+    test('when uploading quiet story audio, then normalizes loudness to -16 LUFS', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
-      const inputAudio = `/tmp/test_story_true_peak_input_${Date.now()}_${process.pid}.wav`;
-      const outputAudio = `/tmp/test_story_true_peak_output_${Date.now()}_${process.pid}.wav`;
+      const inputAudio = `/tmp/test_story_loudness_input_${Date.now()}_${process.pid}.wav`;
+      const outputAudio = `/tmp/test_story_loudness_output_${Date.now()}_${process.pid}.wav`;
 
       try {
         createQuietStoryAudioFile(inputAudio);
 
         const result = await createStoryWithDeps(
-          'TruePeakAudio',
+          'LoudnessAudio',
           'Quiet story audio',
-          'TruePeakVoice',
-          'TruePeakStation'
+          'LoudnessVoice',
+          'LoudnessStation'
         );
         expect(result).not.toBeNull();
 
@@ -355,8 +357,9 @@ describe('Stories', () => {
         const downloadStatus = await global.api.downloadFile(`/stories/${result.id}/audio`, outputAudio);
         expect(downloadStatus).toBe(200);
 
-        const truePeakDBTP = measureTruePeakDBTP(outputAudio);
-        expect(Math.abs(truePeakDBTP - STORY_TRUE_PEAK_TARGET_DBTP)).toBeLessThanOrEqual(TRUE_PEAK_TOLERANCE_DB);
+        const { integratedLUFS, truePeakDBTP } = measureLoudness(outputAudio);
+        expect(Math.abs(integratedLUFS - STORY_LOUDNESS_TARGET_LUFS)).toBeLessThanOrEqual(LOUDNESS_TOLERANCE_LU);
+        expect(truePeakDBTP).toBeLessThanOrEqual(STORY_TRUE_PEAK_CEILING_DBTP + TRUE_PEAK_TOLERANCE_DB);
       } finally {
         global.helpers.cleanupTempFile(inputAudio);
         global.helpers.cleanupTempFile(outputAudio);
@@ -386,9 +389,8 @@ describe('Stories', () => {
       const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
       expect(uploadResponse.status).toBe(201);
 
-      // The API never writes NULL (the model field is a plain string), but the
-      // column is nullable and legacy/imported rows can hold NULL. Force one
-      // via SQL to pin that has_audio=false catches it.
+      // Force a legacy-style NULL row to pin has_audio=false behavior; the API
+      // itself never writes NULL because the model field is a plain string.
       createMySQLExecutor().execSQL(
         `UPDATE stories SET audio_file = NULL WHERE id = ${sqlInteger(nullAudio.id, 'story ID')}`
       );
@@ -461,7 +463,7 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
+      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
@@ -576,8 +578,8 @@ describe('Stories', () => {
       expect(allNonBreaking).toBe(true);
     });
 
-    // Textual booleans are what generated OpenAPI clients send; MySQL would
-    // coerce an unnormalized "true" to 0 and return the WRONG partition.
+    // Generated clients send textual booleans; MySQL otherwise coerces "true"
+    // to 0 and selects non-breaking stories.
     test('when filtering by is_breaking=true, then returns only breaking stories', async () => {
       const response = await global.api.apiCall('GET', '/stories?filter[is_breaking]=true');
 

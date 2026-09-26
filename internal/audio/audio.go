@@ -33,16 +33,26 @@ func commandError(ctx context.Context, err error) error {
 
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
-	truePeakMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
-	storyTruePeakTargetDBTP     = -1.0
+	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
+	// monoDownmixFilter keeps both loudnorm passes on the same mono signal.
+	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
 
+// loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
-	InputTruePeak string `json:"input_tp"`
+	Integrated   float64
+	TruePeak     float64
+	LRA          float64
+	Threshold    float64
+	TargetOffset float64
 }
 
-// JingleContext holds jingle selection data captured before story order randomization.
-// This ensures the jingle and mix point remain stable regardless of shuffle order.
+// silent reports whether loudnorm found no measurable peak.
+func (l loudnormStats) silent() bool {
+	return math.IsInf(l.TruePeak, -1)
+}
+
+// JingleContext keeps the jingle and mix point stable across story shuffling.
 type JingleContext struct {
 	VoiceID  *int64
 	MixPoint float64
@@ -60,34 +70,38 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 	return &Service{config: cfg, alerts: alerts}
 }
 
-// ConvertJingleToWAV converts a jingle to the standard stereo WAV format
-// without changing its intended level balance. The completed bulletin is
-// normalized after the jingle and stories are mixed.
+// ConvertJingleToWAV converts a jingle to stereo WAV without normalizing it;
+// normalization happens after the jingle and stories are mixed.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	return s.convertToWAV(ctx, inputPath, outputPath, int(Stereo), audioFormatFilter(int(Stereo)))
+	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
-// ConvertStoryToWAV converts story audio to mono WAV and peak-normalizes it to -1 dBTP.
+// ConvertStoryToWAV converts story audio to mono WAV, targeting -16 LUFS with
+// a -1 dBTP ceiling. Two-pass loudnorm preserves dynamics when possible and
+// falls back to dynamic mode when linear gain would breach the ceiling or its
+// loudness-range constraints.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	gainDB, err := s.storyTruePeakGain(ctx, inputPath, int(Mono))
+	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return "", 0, err
 	}
 
-	return s.convertToWAV(ctx, inputPath, outputPath, int(Mono), storyNormalizationFilter(int(Mono), gainDB))
+	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
 }
 
 func (s *Service) convertToWAV(
-	ctx context.Context, inputPath, outputPath string, channelCount int, audioFilter string,
+	ctx context.Context, inputPath, outputPath string, channels ChannelCount, audioFilter string,
 ) (string, float64, error) {
-	args := []string{
-		"-i", inputPath,
-		"-af", audioFilter,
+	args := []string{"-i", inputPath}
+	if audioFilter != "" {
+		args = append(args, "-af", audioFilter)
+	}
+	args = append(args,
 		"-ar", "48000",
-		"-ac", strconv.Itoa(channelCount),
+		"-ac", strconv.Itoa(int(channels)),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
-	}
+	)
 
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
@@ -104,41 +118,20 @@ func (s *Service) convertToWAV(
 	return outputPath, duration, nil
 }
 
-func (s *Service) storyTruePeakGain(ctx context.Context, inputPath string, channelCount int) (float64, error) {
-	truePeakDBTP, err := s.detectTruePeak(ctx, inputPath, channelCount)
-	if err != nil {
-		return 0, err
-	}
-	if math.IsInf(truePeakDBTP, -1) {
-		return 0, nil
-	}
-	if math.IsInf(truePeakDBTP, 1) || math.IsNaN(truePeakDBTP) {
-		return 0, fmt.Errorf("invalid true peak measurement: %v", truePeakDBTP)
-	}
-
-	return storyTruePeakTargetDBTP - truePeakDBTP, nil
-}
-
-func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelCount int) (float64, error) {
-	filter := strings.Join([]string{
-		loudnessNormalizationFilter,
-		audioFormatFilter(channelCount),
-		truePeakMeasurementFilter,
-	}, ",")
-
+func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudnormStats, error) {
 	// #nosec G204 - FFmpegPath is from config and inputPath is internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath,
 		"-i", inputPath,
-		"-af", filter,
+		"-af", monoDownmixFilter+","+loudnessMeasurementFilter,
 		"-f", "null",
 		"-",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return 0, fmt.Errorf("ffmpeg failed to measure true peak: %w. output: %s", commandError(ctx, err), string(output))
+		return loudnormStats{}, fmt.Errorf("ffmpeg failed to measure loudness: %w. output: %s", commandError(ctx, err), string(output))
 	}
 
-	truePeakDBTP, err := parseLoudnormInputTruePeak(string(output))
+	stats, err := parseLoudnormStats(string(output))
 	if err != nil {
 		s.alerts.Alert(ctx, notify.Event{
 			Key:               "audio:loudnorm-parse",
@@ -146,76 +139,60 @@ func (s *Service) detectTruePeak(ctx context.Context, inputPath string, channelC
 			Details:           err.Error(),
 			RequiresThreshold: true,
 		})
-		return 0, err
+		return loudnormStats{}, err
 	}
 	s.alerts.Resolve(ctx, "audio:loudnorm-parse", "FFmpeg loudnorm parsing recovered", "Loudness measurements can be parsed again.")
-	return truePeakDBTP, nil
+	return stats, nil
 }
 
-func storyNormalizationFilter(channelCount int, gainDB float64) string {
-	filters := []string{
-		loudnessNormalizationFilter,
-		audioFormatFilter(channelCount),
+// storyNormalizationFilter builds the second pass. Silence bypasses loudnorm
+// to avoid NaNs on short clips; ungated non-silent clips omit unavailable
+// measurements and use loudnorm's dynamic mode.
+func storyNormalizationFilter(stats loudnormStats) string {
+	if stats.silent() {
+		return ""
+	}
+	filter := monoDownmixFilter + "," + loudnessNormalizationFilter
+	if math.IsInf(stats.Integrated, -1) {
+		return filter
 	}
 
-	if math.Abs(gainDB) >= 0.001 {
-		filters = append(filters, fmt.Sprintf("volume=%.6fdB", gainDB))
-	}
-
-	return strings.Join(filters, ",")
+	return filter + fmt.Sprintf(":measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f",
+		stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
 }
 
-func audioFormatFilter(channelCount int) string {
-	switch channelCount {
-	case int(Mono):
-		return "aformat=sample_rates=48000:channel_layouts=mono"
-	case int(Stereo):
-		return "aformat=sample_rates=48000:channel_layouts=stereo"
-	default:
-		return "aformat=sample_rates=48000"
-	}
-}
-
-func parseLoudnormInputTruePeak(output string) (float64, error) {
-	stats, err := parseLoudnormStats(output)
-	if err != nil {
-		return 0, err
-	}
-	return parseLoudnormNumber(stats.InputTruePeak)
-}
-
-func parseLoudnormStats(output string) (*loudnormStats, error) {
+func parseLoudnormStats(output string) (loudnormStats, error) {
 	start := strings.Index(output, "{")
 	end := strings.LastIndex(output, "}")
 	if start == -1 || end <= start {
-		return nil, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
+		return loudnormStats{}, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
 	}
 
+	var raw map[string]string
+	if err := json.Unmarshal([]byte(output[start:end+1]), &raw); err != nil {
+		return loudnormStats{}, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
+	}
+
+	// ParseFloat accepts loudnorm's infinity values and rejects missing fields.
 	var stats loudnormStats
-	if err := json.Unmarshal([]byte(output[start:end+1]), &stats); err != nil {
-		return nil, fmt.Errorf("failed to parse loudnorm JSON stats: %w", err)
-	}
-	if stats.InputTruePeak == "" {
-		return nil, fmt.Errorf("loudnorm JSON stats missing input_tp")
-	}
-
-	return &stats, nil
-}
-
-func parseLoudnormNumber(value string) (float64, error) {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	switch normalized {
-	case "-inf":
-		return math.Inf(-1), nil
-	case "inf", "+inf":
-		return math.Inf(1), nil
+	for _, field := range []struct {
+		key string
+		dst *float64
+	}{
+		{"input_i", &stats.Integrated},
+		{"input_tp", &stats.TruePeak},
+		{"input_lra", &stats.LRA},
+		{"input_thresh", &stats.Threshold},
+		{"target_offset", &stats.TargetOffset},
+	} {
+		value, err := strconv.ParseFloat(raw[field.key], 64)
+		if err != nil {
+			return loudnormStats{}, fmt.Errorf("loudnorm JSON stat %s=%q: %w", field.key, raw[field.key], err)
+		}
+		*field.dst = value
 	}
 
-	number, err := strconv.ParseFloat(normalized, 64)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse loudnorm number %q: %w", value, err)
-	}
-	return number, nil
+	return stats, nil
 }
 
 // Duration retrieves the duration of an audio file in seconds using ffprobe.
@@ -242,10 +219,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 	return duration, nil
 }
 
-// CreateBulletin generates a complete audio bulletin by combining multiple
-// stories with station-specific jingles.
-// The jingle parameter determines which jingle and mix point to use,
-// independent of story order.
+// CreateBulletin mixes stories with the preselected jingle so story shuffling
+// cannot change the jingle or mix point.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
 	station *models.Station,
@@ -262,7 +237,7 @@ func (s *Service) CreateBulletin(
 	return s.executeFFmpegCommand(ctx, args, filters, outputPath)
 }
 
-// buildBulletinFFmpegCommand constructs FFmpeg arguments and filters for bulletin creation.
+// buildBulletinFFmpegCommand preserves story order because filter labels use input indexes.
 func (s *Service) buildBulletinFFmpegCommand(
 	ctx context.Context,
 	station *models.Station,
@@ -293,7 +268,7 @@ func (s *Service) buildBulletinFFmpegCommand(
 	return args, filters
 }
 
-// addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.
+// addStoryInputsWithPadding appends stories in playback order and applies the configured pauses.
 func (s *Service) addStoryInputsWithPadding(
 	args, filters []string,
 	station *models.Station,
@@ -313,7 +288,7 @@ func (s *Service) addStoryInputsWithPadding(
 	return args, filters
 }
 
-// addStoryConcat creates a filter to concatenate all stories into one timeline.
+// addStoryConcat joins the padded stories and labels the timeline for mix-point delay.
 func (s *Service) addStoryConcat(filters []string, stories []repository.BulletinStoryData) []string {
 	concatInputs := []string{}
 	for i := range stories {
@@ -324,7 +299,7 @@ func (s *Service) addStoryConcat(filters []string, stories []repository.Bulletin
 	return append(filters, concatFilter)
 }
 
-// addMixPointDelay adds delay to the message timeline based on the jingle's mix point.
+// addMixPointDelay labels the story timeline, delaying it for a positive mix point.
 func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string {
 	if mixPoint > 0 {
 		delayMs := int(mixPoint * 1000)
@@ -333,8 +308,8 @@ func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string 
 	return append(filters, "[concat_messages]anull[messages]")
 }
 
-// addJingleMix adds the bed/jingle when present, reports the availability
-// decision, and writes the final stream to [mixed] for loudness normalization.
+// addJingleMix adds the optional bed, reports availability, and labels the
+// result for final loudness normalization.
 func (s *Service) addJingleMix(
 	ctx context.Context,
 	args, filters []string,
@@ -373,7 +348,7 @@ func (s *Service) addJingleMix(
 			fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 		args = append(args, "-i", jinglePath)
 		jingleIndex := storyCount
-		// Convert mono messages to stereo before mixing to preserve the jingle's stereo image.
+		// Upmix only the stories to preserve the jingle's stereo image.
 		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
 		filters = append(filters,
 			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
@@ -411,7 +386,7 @@ func validateJingleFile(path string) error {
 	return nil
 }
 
-// executeFFmpegCommand runs the FFmpeg command and handles error reporting.
+// executeFFmpegCommand captures stderr so failures retain FFmpeg diagnostics.
 func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []string, outputPath string) (string, error) {
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
@@ -430,7 +405,7 @@ func (s *Service) executeFFmpegCommand(ctx context.Context, args, filters []stri
 
 	stderrBytes, readErr := io.ReadAll(stderr)
 	if readErr != nil {
-		// Continue despite read errors.
+		// Wait still reports the process result when stderr capture fails.
 		logger.Warn("Failed to read FFmpeg stderr", "error", readErr)
 	}
 
