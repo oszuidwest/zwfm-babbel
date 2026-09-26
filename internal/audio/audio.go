@@ -84,7 +84,8 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // -1 dBTP ceiling. It runs loudnorm in two passes: the first measures the
 // mono downmix, the second applies a linear gain from those measurements so
 // the voice keeps its dynamics. Loudnorm itself falls back to dynamic mode
-// when a linear gain would push the true peak above the ceiling.
+// when a linear gain would exceed the ceiling or the loudness range is out
+// of bounds.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
@@ -150,18 +151,21 @@ func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudno
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second-pass filter chain. Silence takes
-// the filter-free route; clips too short to measure use loudnorm's limiter.
+// storyNormalizationFilter builds the second-pass filter chain. Silence skips
+// loudnorm, which turns silent clips under 3 seconds into NaN samples.
+// loudnorm rejects the -inf loudness it measures for clips it cannot gate,
+// so those run without measurements.
 func storyNormalizationFilter(stats loudnormStats) string {
 	if stats.silent() {
 		return ""
 	}
+	filter := monoDownmixFilter + "," + loudnessNormalizationFilter
 	if math.IsInf(stats.Integrated, -1) {
-		return monoDownmixFilter + "," + loudnessNormalizationFilter + ":linear=false"
+		return filter
 	}
 
-	return fmt.Sprintf("%s,%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
-		monoDownmixFilter, loudnessNormalizationFilter, stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
+	return filter + fmt.Sprintf(":measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f",
+		stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
 }
 
 func parseLoudnormStats(output string) (loudnormStats, error) {

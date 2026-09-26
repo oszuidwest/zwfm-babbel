@@ -78,14 +78,14 @@ func TestStoryNormalizationFilter(t *testing.T) {
 	t.Parallel()
 	stats := loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43}
 	want := "aformat=channel_layouts=mono," +
-		"loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true"
+		"loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43"
 	if got := storyNormalizationFilter(stats); got != want {
 		t.Fatalf("storyNormalizationFilter = %q, want %q", got, want)
 	}
 
 	short := loudnormStats{Integrated: math.Inf(-1), TruePeak: -1}
-	if got := storyNormalizationFilter(short); got != monoDownmixFilter+","+loudnessNormalizationFilter+":linear=false" {
-		t.Fatalf("storyNormalizationFilter(short clip) = %q, want dynamic normalization", got)
+	if got := storyNormalizationFilter(short); got != monoDownmixFilter+","+loudnessNormalizationFilter {
+		t.Fatalf("storyNormalizationFilter(short clip) = %q, want normalization without measurements", got)
 	}
 	if got := storyNormalizationFilter(loudnormStats{TruePeak: math.Inf(-1)}); got != "" {
 		t.Fatalf("storyNormalizationFilter(silence) = %q, want no filter", got)
@@ -148,13 +148,14 @@ func TestService_ConvertStoryToWAVLimitsShortClip(t *testing.T) {
 		ffmpegPath,
 		"-f", "lavfi",
 		"-i", "sine=frequency=1000:duration=0.1",
-		"-af", "volume=17dB",
+		"-af", "volume=21dB",
+		"-c:a", "pcm_f32le",
 		"-y", inputPath,
 	)
 
 	inputStats := measureLoudness(t, ffmpegPath, inputPath)
-	if !math.IsInf(inputStats.Integrated, -1) || math.IsInf(inputStats.TruePeak, -1) {
-		t.Fatalf("test input stats = %+v, want unavailable loudness and finite true peak", inputStats)
+	if !math.IsInf(inputStats.Integrated, -1) || inputStats.TruePeak <= -1 {
+		t.Fatalf("test input stats = %+v, want unavailable loudness and a true peak above -1 dBTP", inputStats)
 	}
 	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertStoryToWAV error: %v", err)
