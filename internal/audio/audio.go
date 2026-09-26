@@ -50,11 +50,6 @@ type loudnormStats struct {
 	TargetOffset float64
 }
 
-// silent reports whether loudnorm measured no signal at all.
-func (l loudnormStats) silent() bool {
-	return math.IsInf(l.Integrated, -1)
-}
-
 // JingleContext holds jingle selection data captured before story order randomization.
 // This ensures the jingle and mix point remain stable regardless of shuffle order.
 type JingleContext struct {
@@ -78,36 +73,35 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 // without changing its intended level balance. The completed bulletin is
 // normalized after the jingle and stories are mixed.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
-	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
+	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "anull")
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV at -16 LUFS with a
 // -1 dBTP ceiling. It runs loudnorm in two passes: the first measures the
 // mono downmix, the second applies a linear gain from those measurements so
 // the voice keeps its dynamics. Loudnorm itself falls back to dynamic mode
-// when a linear gain would push the true peak above the ceiling.
+// when a linear gain would push the true peak above the ceiling or the
+// loudness range exceeds 11 LU.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, "-i", inputPath, "-af", monoDownmixFilter+","+loudnessMeasurementFilter)
 	if err != nil {
 		return "", 0, err
 	}
 
-	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
+	return s.convertToWAV(ctx, inputPath, outputPath, Mono, monoDownmixFilter+","+normalizationFilter(stats))
 }
 
 func (s *Service) convertToWAV(
 	ctx context.Context, inputPath, outputPath string, channels ChannelCount, audioFilter string,
 ) (string, float64, error) {
-	args := []string{"-i", inputPath}
-	if audioFilter != "" {
-		args = append(args, "-af", audioFilter)
-	}
-	args = append(args,
+	args := []string{
+		"-i", inputPath,
+		"-af", audioFilter,
 		"-ar", "48000",
 		"-ac", strconv.Itoa(int(channels)),
 		"-acodec", "pcm_s16le",
 		"-y", outputPath,
-	)
+	}
 
 	// #nosec G204 - FFmpegPath is from config, inputPath and outputPath are internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
@@ -149,29 +143,15 @@ func (s *Service) measureLoudness(ctx context.Context, args ...string) (loudnorm
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second-pass filter chain. Silence has
-// nothing to normalize and loudnorm rejects -inf measurements, so it takes
-// the same filter-free route as jingles.
-func storyNormalizationFilter(stats loudnormStats) string {
-	if stats.silent() {
-		return ""
-	}
-
-	return monoDownmixFilter + "," + linearLoudnormFilter(stats)
-}
-
-// bulletinNormalizationFilter builds the second pass over the [mixed] bulletin.
-func bulletinNormalizationFilter(stats loudnormStats) string {
-	if stats.silent() {
+// normalizationFilter feeds the first-pass measurements back to loudnorm so
+// it applies a linear gain instead of riding the level dynamically. Silence
+// has nothing to normalize and loudnorm rejects -inf measurements, so it
+// passes through unchanged.
+func normalizationFilter(stats loudnormStats) string {
+	if math.IsInf(stats.Integrated, -1) {
 		return "anull"
 	}
 
-	return linearLoudnormFilter(stats)
-}
-
-// linearLoudnormFilter feeds the first-pass measurements back to loudnorm so
-// it applies a linear gain instead of riding the level dynamically.
-func linearLoudnormFilter(stats loudnormStats) string {
 	return fmt.Sprintf("%s:measured_I=%.2f:measured_LRA=%.2f:measured_TP=%.2f:measured_thresh=%.2f:offset=%.2f:linear=true",
 		loudnessNormalizationFilter, stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
 }
@@ -259,8 +239,8 @@ func (s *Service) CreateBulletin(
 		return "", err
 	}
 
-	args := append(bulletinArgs(inputs, filters, bulletinNormalizationFilter(stats)),
-		"-ac", "2",
+	args := append(bulletinArgs(inputs, filters, normalizationFilter(stats)),
+		"-ac", strconv.Itoa(int(Stereo)),
 		"-ar", "48000",
 		"-y", outputPath)
 
@@ -290,8 +270,8 @@ func (s *Service) buildBulletinMix(
 // bulletinArgs completes the mix graph with outFilter on [mixed] and maps
 // the result, so both loudnorm passes run over the same graph.
 func bulletinArgs(inputs, filters []string, outFilter string) []string {
-	graph := strings.Join(append(slices.Clone(filters), "[mixed]"+outFilter+"[out]"), ";")
-	return append(slices.Clone(inputs), "-filter_complex", graph, "-map", "[out]")
+	graph := strings.Join(filters, ";") + ";[mixed]" + outFilter + "[out]"
+	return slices.Concat(inputs, []string{"-filter_complex", graph, "-map", "[out]"})
 }
 
 // addStoryInputsWithPadding adds story audio files as inputs with appropriate padding.

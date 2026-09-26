@@ -119,7 +119,7 @@ Babbel normalizes audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with 
 | Loudness Range | 11 LU |
 
 Babbel normalizes:
-- The story audio, during the upload or the TTS process. Babbel runs `loudnorm` in two passes: the first measures the mono downmix, the second applies a linear gain from those measurements. The voice keeps its dynamics and lands on -16 LUFS with -1 dBTP as the ceiling. When a linear gain would exceed that ceiling, `loudnorm` falls back to dynamic mode.
+- The story audio, during the upload or the TTS process. Babbel runs `loudnorm` in two passes: the first measures the mono downmix, the second applies a linear gain from those measurements. The voice keeps its dynamics and lands on -16 LUFS with -1 dBTP as the ceiling. When a linear gain would exceed that ceiling, or the loudness range exceeds 11 LU, `loudnorm` falls back to dynamic mode.
 - The final bulletin mix, after Babbel adds the jingle. This also runs in two passes, measured on the stereo mix, so the balance between jingle and voice survives normalization.
 
 Babbel does not normalize uploaded jingles. It converts them to stereo 48 kHz 16-bit PCM WAV as-is, so the level balance between intro and bed survives until the bulletin mix.

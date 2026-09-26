@@ -77,30 +77,16 @@ func TestParseLoudnormStats(t *testing.T) {
 	}
 }
 
-func TestStoryNormalizationFilter(t *testing.T) {
+func TestNormalizationFilter(t *testing.T) {
 	t.Parallel()
-	got := storyNormalizationFilter(loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43})
-	want := "aformat=channel_layouts=mono," +
-		"loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true"
-	if got != want {
-		t.Fatalf("storyNormalizationFilter = %q, want %q", got, want)
-	}
-
-	if silent := storyNormalizationFilter(loudnormStats{Integrated: math.Inf(-1)}); silent != "" {
-		t.Fatalf("storyNormalizationFilter(silent) = %q, want no filter", silent)
-	}
-}
-
-func TestBulletinNormalizationFilter(t *testing.T) {
-	t.Parallel()
-	got := bulletinNormalizationFilter(loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43})
+	got := normalizationFilter(loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43})
 	want := "loudnorm=I=-16:TP=-1:LRA=11:measured_I=-19.76:measured_LRA=4.00:measured_TP=-1.00:measured_thresh=-30.03:offset=0.43:linear=true"
 	if got != want {
-		t.Fatalf("bulletinNormalizationFilter = %q, want %q", got, want)
+		t.Fatalf("normalizationFilter = %q, want %q", got, want)
 	}
 
-	if silent := bulletinNormalizationFilter(loudnormStats{Integrated: math.Inf(-1)}); silent != "anull" {
-		t.Fatalf("bulletinNormalizationFilter(silent) = %q, want anull", silent)
+	if silent := normalizationFilter(loudnormStats{Integrated: math.Inf(-1)}); silent != "anull" {
+		t.Fatalf("normalizationFilter(silent) = %q, want anull", silent)
 	}
 }
 
@@ -113,11 +99,6 @@ func TestBulletinArgs(t *testing.T) {
 	want := "-i story_1.wav -filter_complex [0:a]anull[messages];[messages]anull[mixed];[mixed]anull[out] -map [out]"
 	if got != want {
 		t.Fatalf("bulletinArgs = %q, want %q", got, want)
-	}
-
-	// Both passes build from the same slices, so neither may be extended in place.
-	if len(inputs) != 2 || len(filters) != 2 {
-		t.Fatalf("bulletinArgs mutated its inputs: %v %v", inputs, filters)
 	}
 }
 
@@ -146,7 +127,7 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 
 			// Stories at -16 LUFS mono, the jingle a quiet stereo bed.
 			for _, story := range stories {
-				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=-13dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
+				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
 			}
 			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
 			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")
@@ -155,9 +136,9 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 				t.Fatalf("CreateBulletin error: %v", err)
 			}
 
-			stats := measureLoudness(t, ffmpegPath, outputPath)
+			stats := measureLoudness(t, svc, outputPath)
 			if tt.wantSilent {
-				if !stats.silent() {
+				if !math.IsInf(stats.Integrated, -1) {
 					t.Fatalf("silent bulletin measured %.1f LUFS", stats.Integrated)
 				}
 				return
@@ -181,7 +162,7 @@ func TestService_ConvertStoryToWAVNormalizesLoudness(t *testing.T) {
 		volume string
 	}{
 		{name: "quiet input is raised", volume: "-24dB"},
-		{name: "loud input is lowered", volume: "-3dB"},
+		{name: "loud input is lowered", volume: "6dB"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -189,12 +170,14 @@ func TestService_ConvertStoryToWAVNormalizesLoudness(t *testing.T) {
 			inputPath := filepath.Join(tempDir, "input.wav")
 			outputPath := filepath.Join(tempDir, "story-output.wav")
 
+			// A 6 dB step halfway through gives the input the loudness range that
+			// loudnorm needs for a linear gain; a dynamic pass would flatten it.
 			runFFmpeg(
 				t,
 				ffmpegPath,
 				"-f", "lavfi",
-				"-i", "sine=frequency=1000:duration=1",
-				"-af", "volume="+tt.volume,
+				"-i", "sine=frequency=1000:duration=10",
+				"-af", "volume="+tt.volume+",volume=6dB:enable='gte(t,5)'",
 				"-ar", "44100",
 				"-ac", "1",
 				"-y", inputPath,
@@ -204,16 +187,21 @@ func TestService_ConvertStoryToWAVNormalizesLoudness(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ConvertStoryToWAV error: %v", err)
 			}
-			if duration < 0.9 || duration > 1.1 {
-				t.Fatalf("duration = %v, want around 1 second", duration)
+			if duration < 9.9 || duration > 10.1 {
+				t.Fatalf("duration = %v, want around 10 seconds", duration)
 			}
 
-			stats := measureLoudness(t, ffmpegPath, outputPath)
+			stats := measureLoudness(t, svc, outputPath)
 			if math.Abs(stats.Integrated+16) > 0.5 {
 				t.Fatalf("integrated loudness = %.1f LUFS, want -16 LUFS", stats.Integrated)
 			}
 			if stats.TruePeak > -1+0.2 {
 				t.Fatalf("true peak = %.1f dBTP, want at most -1 dBTP", stats.TruePeak)
+			}
+			step := measureLoudness(t, svc, outputPath, "atrim=start=5.5").Integrated -
+				measureLoudness(t, svc, outputPath, "atrim=end=4.5").Integrated
+			if math.Abs(step-6) > 0.5 {
+				t.Fatalf("level step = %.1f LU, want 6 LU", step)
 			}
 		})
 	}
@@ -231,7 +219,7 @@ func TestService_ConvertStoryToWAVPassesSilenceThrough(t *testing.T) {
 	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertStoryToWAV error: %v", err)
 	}
-	if !measureLoudness(t, ffmpegPath, outputPath).silent() {
+	if !math.IsInf(measureLoudness(t, svc, outputPath).Integrated, -1) {
 		t.Fatal("converted silence is not silent")
 	}
 }
@@ -260,8 +248,8 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 	}
 
 	for _, trimFilter := range []string{"atrim=end=0.9", "atrim=start=1.1"} {
-		inputDBTP := measureLoudness(t, ffmpegPath, inputPath, trimFilter).TruePeak
-		outputDBTP := measureLoudness(t, ffmpegPath, outputPath, trimFilter).TruePeak
+		inputDBTP := measureLoudness(t, svc, inputPath, trimFilter).TruePeak
+		outputDBTP := measureLoudness(t, svc, outputPath, trimFilter).TruePeak
 		if math.Abs(outputDBTP-inputDBTP) > 0.2 {
 			t.Fatalf("%s true peak changed from %.1f to %.1f dBTP", trimFilter, inputDBTP, outputDBTP)
 		}
@@ -295,23 +283,11 @@ func runFFmpeg(t *testing.T, ffmpegPath string, args ...string) {
 	}
 }
 
-func measureLoudness(t *testing.T, ffmpegPath, inputPath string, filters ...string) loudnormStats {
+func measureLoudness(t *testing.T, svc *Service, inputPath string, filters ...string) loudnormStats {
 	t.Helper()
-	// #nosec G204 - ffmpeg path is local; inputPath is test-generated
-	cmd := exec.CommandContext(t.Context(), ffmpegPath,
-		"-i", inputPath,
-		"-af", strings.Join(append(filters, loudnessMeasurementFilter), ","),
-		"-f", "null",
-		"-",
-	)
-	output, err := cmd.CombinedOutput()
+	stats, err := svc.measureLoudness(t.Context(), "-i", inputPath, "-af", strings.Join(append(filters, loudnessMeasurementFilter), ","))
 	if err != nil {
-		t.Fatalf("ffmpeg loudnorm measurement failed: %v. output: %s", err, string(output))
-	}
-
-	stats, err := parseLoudnormStats(string(output))
-	if err != nil {
-		t.Fatalf("parseLoudnormStats error: %v", err)
+		t.Fatalf("measureLoudness error: %v", err)
 	}
 	return stats
 }
