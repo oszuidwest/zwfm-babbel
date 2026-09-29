@@ -421,7 +421,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return err
 	}
 
-	finalText := composeV3TTSText(processedText, settings.TTSStylePrefix)
+	finalText := composeTTSText(processedText, settings.TTSStylePrefix)
 	if err := validateTTSTextLength(finalText); err != nil {
 		return err
 	}
@@ -499,7 +499,7 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 	return nil
 }
 
-func composeV3TTSText(text, prefix string) string {
+func composeTTSText(text, prefix string) string {
 	if strings.TrimSpace(prefix) == "" {
 		return text
 	}
@@ -508,19 +508,19 @@ func composeV3TTSText(text, prefix string) string {
 
 func validateTTSTextLength(text string) error {
 	count := utf8.RuneCountInString(text)
-	if count <= tts.MaxV3InputChars {
+	if count <= tts.MaxInputChars {
 		return nil
 	}
 
 	return apperrors.NewValidationProblemError(
 		"story",
-		"Text exceeds ElevenLabs v3 input limit",
+		"Text exceeds ElevenLabs input limit",
 		[]apperrors.ValidationError{{
 			Field: "text",
 			Message: fmt.Sprintf(
-				"rune count %d exceeds ElevenLabs v3 input limit of %d",
+				"rune count %d exceeds ElevenLabs input limit of %d",
 				count,
-				tts.MaxV3InputChars,
+				tts.MaxInputChars,
 			),
 		}},
 	)

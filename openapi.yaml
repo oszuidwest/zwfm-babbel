@@ -1165,8 +1165,8 @@ paths:
 
         TTS request options are read from the global settings row exposed at
         `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
-        configuration; Babbel always sends `eleven_v3`. Stability, text
-        normalization, seed, and the Eleven v3 style prefix are database-backed
+        configuration; Babbel always sends `eleven_v4`. Stability, text
+        normalization, seed, and the audio-tag style prefix are database-backed
         settings. Local pronunciation rules are injected as inline IPA before
         the TTS request is sent.
 
@@ -1320,7 +1320,7 @@ paths:
       operationId: getSettingsTtsPronunciations
       summary: Get TTS pronunciation rules
       description: |
-        Returns local pronunciation rules used for ElevenLabs v3 inline IPA
+        Returns local pronunciation rules used for ElevenLabs inline IPA
         injection. No ElevenLabs API call is made for this management route.
       tags:
         - Settings
@@ -1344,10 +1344,10 @@ paths:
       summary: Replace TTS pronunciation rules
       description: |
         Replaces the complete local pronunciation rule set used for ElevenLabs
-        v3 inline IPA injection. Editors and admins can write; viewers can
-        only read. IPA injection is 80-90% consistent according to ElevenLabs
-        guidance; keep abbreviations case-sensitive when matching inside URLs
-        would be undesirable.
+        inline IPA injection. Editors and admins can write; viewers can
+        only read. IPA injection is best-effort, not guaranteed; keep
+        abbreviations case-sensitive when matching inside URLs would be
+        undesirable.
       tags:
         - Settings
       requestBody:
@@ -3235,7 +3235,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-          description: The voice_settings value Babbel sends to eleven_v3.
+          description: The voice_settings value Babbel sends to eleven_v4.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3247,7 +3247,7 @@ components:
         tts_style_prefix:
           type: string
           maxLength: 500
-          description: Audio-tag prefix prepended to story text before eleven_v3 synthesis.
+          description: Audio-tag prefix prepended to story text before eleven_v4 synthesis.
         updated_at:
           type: string
           format: date-time
@@ -3266,7 +3266,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-          description: The voice_settings value Babbel sends to eleven_v3.
+          description: The voice_settings value Babbel sends to eleven_v4.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3295,7 +3295,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          description: IPA pronunciation without surrounding slashes. Forward slashes and control characters are rejected. ElevenLabs v3 inline IPA is typically 80-90% consistent.
+          description: IPA pronunciation without surrounding slashes. Forward slashes and control characters are rejected. ElevenLabs inline IPA is best-effort, not guaranteed.
         case_sensitive:
           type: [boolean, 'null']
           default: true

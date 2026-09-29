@@ -208,7 +208,7 @@ Run exactly one Babbel instance per database. Startup recovery requeues every `r
 
 ### Text-to-speech
 
-To enable TTS, set an ElevenLabs API key. The credentials stay in environment variables. Babbel always uses the ElevenLabs `eleven_v3` model. The voice options are in the `tts_settings` singleton row. The API gives access to these options.
+To enable TTS, set an ElevenLabs API key. The credentials stay in environment variables. Babbel always uses the ElevenLabs `eleven_v4` model. The voice options are in the `tts_settings` singleton row. The API gives access to these options.
 
 | Env var | Default | Description |
 |---|---|---|
@@ -217,7 +217,7 @@ To enable TTS, set an ElevenLabs API key. The credentials stay in environment va
 
 The initial settings row has stability `0.80`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`. Babbel sends only `stability` in `voice_settings`.
 
-Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to change stability, text normalization, the seed, or `tts_style_prefix`. Babbel puts the prefix before the story text in the `eleven_v3` request.
+Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to change stability, text normalization, the seed, or `tts_style_prefix`. Babbel puts the prefix before the story text in the `eleven_v4` request.
 
 Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA pronunciation rules. Admins and editors can save the rules. Viewers can read them. Babbel keeps the rules in its database. Babbel puts the rules in the text as `/ipa/` spans before the ElevenLabs request.
 

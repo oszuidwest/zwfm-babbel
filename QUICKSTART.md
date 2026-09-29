@@ -314,7 +314,7 @@ BABBEL_ELEVENLABS_API_KEY=your-elevenlabs-api-key
 BABBEL_ELEVENLABS_TIMEOUT=60s
 ```
 
-Runtime credentials use environment variables. Babbel always sends ElevenLabs `eleven_v3`; voice-generation options live in the `tts_settings` database row and are managed through the API.
+Runtime credentials use environment variables. Babbel always sends ElevenLabs `eleven_v4`; voice-generation options live in the `tts_settings` database row and are managed through the API.
 
 ```bash
 # Inspect current TTS settings (all authenticated roles can read)
@@ -342,7 +342,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
-The default settings row uses `eleven_v3`. Babbel sends only `stability` in `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
+Babbel always sends `eleven_v4` and includes only `stability` in `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
 
 Manage local IPA pronunciation rules:
 
@@ -365,7 +365,7 @@ curl -b cookies.txt -X PUT http://localhost:8080/api/v1/settings/tts/pronunciati
   }'
 ```
 
-Pronunciation rules are stored locally; saving them does not call ElevenLabs. During story TTS, Babbel injects inline IPA into the story text before sending the `eleven_v3` request.
+Pronunciation rules are stored locally; saving them does not call ElevenLabs. During story TTS, Babbel injects inline IPA into the story text before sending the `eleven_v4` request.
 
 ### Modern Query Parameters
 
