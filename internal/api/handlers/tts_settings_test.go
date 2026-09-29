@@ -72,6 +72,11 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			wantField: "model",
 		},
 		{
+			name:      "model ID read only",
+			body:      `{"model_id":"eleven_v4"}`,
+			wantField: "model_id",
+		},
+		{
 			name:      "speaker boost unknown",
 			body:      `{"use_speaker_boost":true}`,
 			wantField: "use_speaker_boost",

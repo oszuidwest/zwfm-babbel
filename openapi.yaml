@@ -3229,6 +3229,7 @@ components:
         - tts_style_prefix
         - updated_at
         - api_key_configured
+        - model_id
       properties:
         stability:
           type: number
@@ -3254,6 +3255,9 @@ components:
         api_key_configured:
           type: boolean
           description: Whether BABBEL_ELEVENLABS_API_KEY is configured.
+        model_id:
+          type: string
+          description: ElevenLabs model used for text-to-speech generation.
 
     TTSSettingsUpdate:
       type: object
