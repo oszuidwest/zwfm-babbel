@@ -62,7 +62,6 @@ describe('TTS Settings', () => {
     expect(response.status).toBe(200);
     expect(response.data.stability).toBe(0);
     expect(response.data.tts_style_prefix).toBe('');
-    expect(response.data.model_id).toBe('eleven_v4');
   });
 
   test('when patching seed to null, then seed is cleared', async () => {

@@ -3257,7 +3257,6 @@ components:
           description: Whether BABBEL_ELEVENLABS_API_KEY is configured.
         model_id:
           type: string
-          readOnly: true
           description: ElevenLabs model used for text-to-speech generation.
 
     TTSSettingsUpdate:
