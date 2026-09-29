@@ -3,6 +3,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -43,9 +45,14 @@ type storyRepository interface {
 	Exists(context.Context, int64) (bool, error)
 	SoftDelete(context.Context, int64) error
 	Restore(context.Context, int64) error
-	UpdateAudio(context.Context, int64, string, float64) error
+	UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error
 	UpdateStatus(context.Context, int64, string) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
+}
+
+type voiceRepository interface {
+	Exists(context.Context, int64) (bool, error)
+	GetByID(context.Context, int64) (*models.Voice, error)
 }
 
 type speechGenerator interface {
@@ -60,7 +67,7 @@ type ttsSettingsGetter interface {
 // text-to-speech generation.
 type StoryService struct {
 	storyRepo             storyRepository
-	voiceRepo             *repository.VoiceRepository
+	voiceRepo             voiceRepository
 	audioSvc              *audio.Service
 	ttsSvc                speechGenerator
 	ttsSettingsSvc        ttsSettingsGetter
@@ -162,49 +169,100 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 }
 
 // Update applies a partial story update and validates the effective date range,
-// including the existing date when only one side of the range changes.
+// including the existing date when only one side of the range changes. The
+// voice cannot change while the story has audio; resending the current voice
+// is a no-op.
 func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryRequest) (*models.Story, error) {
 	startDate, endDate, err := s.parseDateUpdates(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Exactly one date changed, so the other bound must be loaded to validate
-	// the effective range.
-	if (startDate != nil) != (endDate != nil) {
-		existing, err := s.storyRepo.GetByID(ctx, id)
+	oneDateChanged := (startDate != nil) != (endDate != nil)
+	var existing *models.Story
+	if oneDateChanged || req.VoiceID != nil {
+		existing, err = s.storyRepo.GetByID(ctx, id)
 		if err != nil {
 			return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
 		}
+	}
 
-		effectiveStart := existing.StartDate
-		effectiveEnd := existing.EndDate
-		if startDate != nil {
-			effectiveStart = *startDate
-		}
-		if endDate != nil {
-			effectiveEnd = *endDate
-		}
-
-		if effectiveEnd.Before(effectiveStart) {
-			return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
+	// Exactly one date changed, so the other bound must be loaded to validate
+	// the effective range.
+	if oneDateChanged {
+		if err := validateEffectiveDateRange(existing, startDate, endDate); err != nil {
+			return nil, err
 		}
 	}
 
-	updates, err := s.buildUpdateStruct(ctx, req, startDate, endDate)
+	voiceID, err := effectiveVoiceUpdate(existing, req.VoiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	updates, err := s.buildUpdateStruct(ctx, req, voiceID, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
 
 	if updates == nil {
+		// Only the current voice was sent.
+		if req.VoiceID != nil {
+			return existing, nil
+		}
 		return nil, apperrors.Validation("Story", "", "no fields to update")
 	}
 
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrStateConflict) {
+			return nil, errStoryVoiceLocked(err)
+		}
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
+}
+
+// validateEffectiveDateRange checks the range formed by the changed bound and
+// the existing story's other bound.
+func validateEffectiveDateRange(existing *models.Story, startDate, endDate *time.Time) error {
+	effectiveStart := existing.StartDate
+	effectiveEnd := existing.EndDate
+	if startDate != nil {
+		effectiveStart = *startDate
+	}
+	if endDate != nil {
+		effectiveEnd = *endDate
+	}
+
+	if effectiveEnd.Before(effectiveStart) {
+		return apperrors.Validation("Story", "end_date", "cannot be before start date")
+	}
+	return nil
+}
+
+// effectiveVoiceUpdate returns the voice to write: nil when none was requested
+// or it is unchanged. A different voice is rejected while the story has audio.
+func effectiveVoiceUpdate(existing *models.Story, voiceID *int64) (*int64, error) {
+	if voiceID == nil || (existing.VoiceID != nil && *existing.VoiceID == *voiceID) {
+		return nil, nil
+	}
+	if existing.AudioFile != "" {
+		return nil, errStoryVoiceLocked(nil)
+	}
+	return voiceID, nil
+}
+
+// errStoryVoiceLocked reports an attempt to change the voice of a story whose
+// audio was recorded or generated for another voice.
+func errStoryVoiceLocked(cause error) error {
+	return apperrors.ConflictWithCause(
+		"Story",
+		"story.voice_locked",
+		"voice_id cannot change while the story has audio",
+		"Upload or generate new audio with the voice_id query parameter to change the voice",
+		cause,
+	)
 }
 
 // parseDateUpdates parses changed date fields in the server's local timezone.
@@ -237,10 +295,12 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 }
 
 // buildUpdateStruct translates API-level PATCH semantics into repository
-// updates and verifies a changed voice exists.
+// updates and verifies a changed voice exists. voiceID replaces req.VoiceID
+// so the caller can drop an unchanged voice.
 func (s *StoryService) buildUpdateStruct(
 	ctx context.Context,
 	req *UpdateStoryRequest,
+	voiceID *int64,
 	startDate, endDate *time.Time,
 ) (*repository.StoryUpdate, error) {
 	updates := &repository.StoryUpdate{}
@@ -259,15 +319,15 @@ func (s *StoryService) buildUpdateStruct(
 		hasUpdates = true
 	}
 
-	if req.VoiceID != nil {
-		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
+	if voiceID != nil {
+		exists, err := s.voiceRepo.Exists(ctx, *voiceID)
 		if err != nil {
 			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 		}
 		if !exists {
-			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
+			return nil, apperrors.NotFoundWithID("Voice", *voiceID)
 		}
-		updates.VoiceID = req.VoiceID
+		updates.VoiceID = voiceID
 		hasUpdates = true
 	}
 
@@ -341,35 +401,100 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProcessAudio converts uploaded audio and atomically replaces the published file.
-func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
-	// Convert beside the final file for atomic rename. Updating the database first
-	// preserves existing audio on failure and avoids stale paths after concurrent deletion.
-	// The .wav suffix makes FFmpeg select the WAV muxer.
-	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+// AudioTarget is a validated destination for new story audio: the story as it
+// was read and the voice heard in the audio. Publishing is conditional on the
+// story still being in that state.
+type AudioTarget struct {
+	story *models.Story
+	voice *models.Voice
+}
+
+// PrepareAudio loads a story and resolves the voice for new audio: voiceID
+// when given, otherwise the story's current voice. Stories without a voice
+// are rejected, so audio is never stored without a known speaker.
+func (s *StoryService) PrepareAudio(ctx context.Context, storyID int64, voiceID *int64) (*AudioTarget, error) {
+	story, err := s.GetByID(ctx, storyID)
+	if err != nil {
+		return nil, err
+	}
+	return s.audioTarget(ctx, story, voiceID)
+}
+
+func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voiceID *int64) (*AudioTarget, error) {
+	if voiceID == nil || (story.VoiceID != nil && *story.VoiceID == *voiceID) {
+		if story.VoiceID == nil || story.Voice == nil {
+			return nil, apperrors.Validation("Story", "voice_id",
+				"story has no voice; select the voice heard in the audio first")
+		}
+		return &AudioTarget{story: story, voice: story.Voice}, nil
+	}
+
+	voice, err := s.voiceRepo.GetByID(ctx, *voiceID)
+	if err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("Voice", *voiceID, apperrors.OpQuery, err)
+	}
+	return &AudioTarget{story: story, voice: voice}, nil
+}
+
+// ProcessAudio converts uploaded audio and publishes it with the target's
+// voice. The previous file is removed once the database points at the new one.
+func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, tempPath string) error {
+	story := target.story
+	filename := utils.StoryFilename(story.ID, target.voice.ID, newAudioID())
+	finalPath := utils.StoryPath(s.config, filename)
+	published := false
 	defer func() {
-		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
+		if published {
+			return
+		}
+		if rmErr := os.Remove(finalPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Error("Failed to remove unpublished audio file", "path", finalPath, "error", rmErr)
 		}
 	}()
 
-	_, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
+	_, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, finalPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	filenameOnly := utils.StoryFilename(storyID)
-	if err := s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration); err != nil {
-		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
+	err = s.storyRepo.UpdateAudio(ctx, story.ID, repository.StoryAudioUpdate{
+		AudioFile:         filename,
+		DurationSeconds:   duration,
+		VoiceID:           target.voice.ID,
+		ExpectedVoiceID:   story.VoiceID,
+		ExpectedAudioFile: story.AudioFile,
+	})
+	if errors.Is(err, repository.ErrStateConflict) {
+		return apperrors.ConflictWithCause(
+			"Story",
+			"story.audio_changed",
+			"story voice or audio changed while the audio was being processed",
+			"Reload the story and try again",
+			err,
+		)
+	}
+	if err != nil {
+		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, err)
+	}
+	published = true
+
+	if story.AudioFile != "" {
+		oldPath := utils.StoryPath(s.config, story.AudioFile)
+		if rmErr := os.Remove(oldPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Warn("Failed to remove replaced story audio", "path", oldPath, "error", rmErr)
+		}
 	}
 
-	if err := os.Rename(convertedPath, finalPath); err != nil {
-		return apperrors.Audio("Story", "finalize", err)
-	}
-
-	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
+	logger.Info("Processed audio for story",
+		"story_id", story.ID, "voice_id", target.voice.ID, "filename", finalPath, "duration_s", duration)
 	return nil
+}
+
+// newAudioID returns a short random ID that keeps story audio filenames unique.
+func newAudioID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b) // crypto/rand.Read never returns an error.
+	return hex.EncodeToString(b)
 }
 
 // UpdateStatus changes a story's workflow state to draft, active, or expired.
@@ -399,9 +524,10 @@ func (s *StoryService) List(
 	return result, nil
 }
 
-// GenerateTTS creates story audio through the configured text-to-speech service.
+// GenerateTTS creates story audio through the configured text-to-speech service
+// with voiceID, or with the story's current voice when voiceID is nil.
 // Existing audio is preserved unless force is true.
-func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *int64, force bool) error {
 	story, err := s.storyRepo.GetByID(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
@@ -409,6 +535,14 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 	if err := validateStoryTTSPrerequisites(story, force); err != nil {
 		return err
+	}
+
+	target, err := s.audioTarget(ctx, story, voiceID)
+	if err != nil {
+		return err
+	}
+	if target.voice.ElevenLabsVoiceID == nil || *target.voice.ElevenLabsVoiceID == "" {
+		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
 	}
 
 	settings, err := s.ttsSettingsSvc.Get(ctx)
@@ -430,7 +564,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	audioData, err := s.ttsSvc.GenerateSpeech(
 		tts.ContextWithStoryID(ctx, storyID),
 		finalText,
-		*story.Voice.ElevenLabsVoiceID,
+		*target.voice.ElevenLabsVoiceID,
 		options,
 	)
 	if err != nil {
@@ -449,7 +583,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		}
 	}()
 
-	return s.ProcessAudio(ctx, storyID, tempPath)
+	return s.ProcessAudio(ctx, target, tempPath)
 }
 
 // alertTTSError maps operational TTS failures to stable alert categories.
@@ -489,12 +623,6 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 	}
 	if story.Text == "" {
 		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
-	}
-	if story.VoiceID == nil {
-		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
-	}
-	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
 	}
 	return nil
 }

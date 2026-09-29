@@ -318,7 +318,101 @@ describe('Stories', () => {
       expect(uploadResponse.status).toBe(201);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
-      expect(getResponse.data.audio_file).not.toBe('');
+      expect(getResponse.data.audio_file).toMatch(
+        new RegExp(`^story_${result.id}_voice_${result.voiceId}_[0-9a-f]{12}\\.wav$`)
+      );
+    });
+
+    test('when story has no voice, then upload is rejected', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const station = await global.helpers.createStation(global.resources, 'NoVoiceAudioStation');
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'NoVoiceAudio',
+        text: 'Story without voice'
+      }, [station.id]);
+      expect(story).not.toBeNull();
+
+      const response = await global.api.uploadFile(`/stories/${story.id}/audio`, {}, testAudio, 'audio');
+
+      expect(response.status).toBe(400);
+      expect(response.data.type).toContain('story.validation_failed');
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${story.id}`);
+      expect(getResponse.data.audio_file).toBe('');
+    });
+
+    test('when uploading with voice_id, then voice and audio are stored together', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const station = await global.helpers.createStation(global.resources, 'UploadVoiceStation');
+      const voice = await global.helpers.createVoice(global.resources, 'UploadVoice');
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'UploadWithVoice',
+        text: 'Voice chosen at upload'
+      }, [station.id]);
+      expect(story).not.toBeNull();
+
+      const response = await global.api.uploadFile(
+        `/stories/${story.id}/audio?voice_id=${voice.id}`, {}, testAudio, 'audio'
+      );
+      expect(response.status).toBe(201);
+
+      const getResponse = await global.api.apiCall('GET', `/stories/${story.id}`);
+      expect(getResponse.data.voice_id).toBe(voice.id);
+      expect(getResponse.data.audio_file).toMatch(
+        new RegExp(`^story_${story.id}_voice_${voice.id}_[0-9a-f]{12}\\.wav$`)
+      );
+    });
+
+    test('when voice_id query is malformed, then upload returns 422', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const result = await createStoryWithDeps('BadVoiceQuery', 'Bad query', 'BadQueryVoice', 'BadQueryStation');
+      expect(result).not.toBeNull();
+
+      const response = await global.api.uploadFile(`/stories/${result.id}/audio?voice_id=abc`, {}, testAudio, 'audio');
+
+      expect(response.status).toBe(422);
+    });
+
+    test('when story has audio, then voice is locked until audio is replaced', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const result = await createStoryWithDeps('VoiceLock', 'Locked voice', 'LockVoiceA', 'LockStation');
+      expect(result).not.toBeNull();
+      const otherVoice = await global.helpers.createVoice(global.resources, 'LockVoiceB');
+
+      const firstUpload = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
+      expect(firstUpload.status).toBe(201);
+      const before = await global.api.apiCall('GET', `/stories/${result.id}`);
+
+      const conflict = await global.api.apiCall('PUT', `/stories/${result.id}`, { voice_id: otherVoice.id });
+      expect(conflict.status).toBe(409);
+      expect(conflict.data.type).toContain('story.voice_locked');
+
+      const sameVoice = await global.api.apiCall('PUT', `/stories/${result.id}`, { voice_id: result.voiceId });
+      expect(sameVoice.status).toBe(200);
+      expect(sameVoice.data.voice_id).toBe(result.voiceId);
+
+      const otherFields = await global.api.apiCall('PUT', `/stories/${result.id}`, {
+        title: 'VoiceLock renamed',
+        voice_id: result.voiceId
+      });
+      expect(otherFields.status).toBe(200);
+      expect(otherFields.data.title).toBe('VoiceLock renamed');
+
+      const replacement = await global.api.uploadFile(
+        `/stories/${result.id}/audio?voice_id=${otherVoice.id}`, {}, testAudio, 'audio'
+      );
+      expect(replacement.status).toBe(201);
+
+      const after = await global.api.apiCall('GET', `/stories/${result.id}`);
+      expect(after.data.voice_id).toBe(otherVoice.id);
+      expect(after.data.audio_file).not.toBe(before.data.audio_file);
+      expect(after.data.audio_file).toMatch(
+        new RegExp(`^story_${result.id}_voice_${otherVoice.id}_[0-9a-f]{12}\\.wav$`)
+      );
     });
 
     test('when fetching story, then audio fields present', async () => {

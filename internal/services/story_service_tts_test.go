@@ -11,6 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
@@ -96,7 +97,7 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 	)
 
 	ctx := context.WithValue(context.Background(), generateTTSTestContextKey{}, "preserved")
-	err := service.GenerateTTS(ctx, 99, false)
+	err := service.GenerateTTS(ctx, 99, nil, false)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -130,7 +131,7 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(context.Background(), 99, false)
+	err := service.GenerateTTS(context.Background(), 99, nil, false)
 	if _, ok := errors.AsType[*apperrors.ValidationProblemError](err); !ok {
 		t.Fatalf("GenerateTTS() error = %T, want *apperrors.ValidationProblemError", err)
 	}
@@ -342,9 +343,16 @@ func storyForTTSTest(text string) *models.Story {
 
 type fakeStoryRepository struct {
 	storyRepository
-	story *models.Story
-	err   error
-	calls int
+	story     *models.Story
+	err       error
+	calls     int
+	updates   []*repository.StoryUpdate
+	updateErr error
+}
+
+func (f *fakeStoryRepository) Update(_ context.Context, _ int64, u *repository.StoryUpdate) error {
+	f.updates = append(f.updates, u)
+	return f.updateErr
 }
 
 func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, error) {
@@ -368,16 +376,18 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
-	ctx   context.Context
-	text  string
-	err   error
-	calls int
+	ctx     context.Context
+	text    string
+	voiceID string
+	err     error
+	calls   int
 }
 
-func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string, _ tts.Options) ([]byte, error) {
+func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, voiceID string, _ tts.Options) ([]byte, error) {
 	f.calls++
 	f.ctx = ctx
 	f.text = text
+	f.voiceID = voiceID
 	if f.err != nil {
 		return nil, f.err
 	}
