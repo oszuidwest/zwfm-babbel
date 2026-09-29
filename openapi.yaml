@@ -3235,7 +3235,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-          description: The voice_settings value Babbel sends to eleven_v4.
+          description: The voice_settings value Babbel sends to ElevenLabs.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]
@@ -3247,7 +3247,7 @@ components:
         tts_style_prefix:
           type: string
           maxLength: 500
-          description: Audio-tag prefix prepended to story text before eleven_v4 synthesis.
+          description: Audio-tag prefix prepended to story text before synthesis.
         updated_at:
           type: string
           format: date-time
@@ -3266,7 +3266,7 @@ components:
           format: float
           minimum: 0
           maximum: 1
-          description: The voice_settings value Babbel sends to eleven_v4.
+          description: The voice_settings value Babbel sends to ElevenLabs.
         apply_text_normalization:
           type: string
           enum: [auto, on, off]

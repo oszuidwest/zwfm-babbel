@@ -342,7 +342,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
-Babbel always sends `eleven_v4` and includes only `stability` in `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
+Babbel includes only `stability` in `voice_settings`; `tts_style_prefix` is prepended to the story text before synthesis.
 
 Manage local IPA pronunciation rules:
 
@@ -365,7 +365,7 @@ curl -b cookies.txt -X PUT http://localhost:8080/api/v1/settings/tts/pronunciati
   }'
 ```
 
-Pronunciation rules are stored locally; saving them does not call ElevenLabs. During story TTS, Babbel injects inline IPA into the story text before sending the `eleven_v4` request.
+Pronunciation rules are stored locally; saving them does not call ElevenLabs. During story TTS, Babbel injects inline IPA into the story text before sending the ElevenLabs request.
 
 ### Modern Query Parameters
 

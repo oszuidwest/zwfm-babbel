@@ -28,10 +28,10 @@ const (
 )
 
 const (
-	// Model is the only ElevenLabs model Babbel supports for generated TTS.
-	Model = "eleven_v4"
+	// modelID is the only ElevenLabs model Babbel supports for generated TTS.
+	modelID = "eleven_v4"
 
-	// MaxInputChars is ElevenLabs' per-request character limit for Model.
+	// MaxInputChars is ElevenLabs' per-request character limit for modelID, counted in runes.
 	MaxInputChars = 10000
 )
 
@@ -121,7 +121,7 @@ func ContextWithStoryID(ctx context.Context, storyID int64) context.Context {
 func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID string, opts Options) ([]byte, error) {
 	body, err := json.Marshal(ttsRequest{
 		Text:                   text,
-		ModelID:                Model,
+		ModelID:                modelID,
 		VoiceSettings:          voiceSettings{Stability: opts.Stability},
 		ApplyTextNormalization: opts.ApplyTextNormalization,
 		Seed:                   opts.Seed,
