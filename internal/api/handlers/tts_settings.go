@@ -8,10 +8,11 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
+	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// TTSSettingsResponse exposes global TTS settings plus API-key availability.
+// TTSSettingsResponse exposes global TTS settings plus runtime TTS configuration.
 type TTSSettingsResponse struct {
 	Stability              float64   `json:"stability"`
 	ApplyTextNormalization string    `json:"apply_text_normalization"`
@@ -19,6 +20,7 @@ type TTSSettingsResponse struct {
 	TTSStylePrefix         string    `json:"tts_style_prefix"`
 	UpdatedAt              time.Time `json:"updated_at"`
 	APIKeyConfigured       bool      `json:"api_key_configured"`
+	ModelID                string    `json:"model_id"`
 }
 
 // GetTTSSettings returns the singleton settings used for generated story audio.
@@ -69,6 +71,7 @@ func (h *Handlers) toTTSSettingsResponse(settings *models.TTSSettings) TTSSettin
 		TTSStylePrefix:         settings.TTSStylePrefix,
 		UpdatedAt:              settings.UpdatedAt,
 		APIKeyConfigured:       h.config.TTS.APIKey != "",
+		ModelID:                tts.ModelID,
 	}
 }
 

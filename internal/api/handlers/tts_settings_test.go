@@ -7,10 +7,29 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
+
+func TestToTTSSettingsResponse_IncludesModelID(t *testing.T) {
+	h := &Handlers{config: &config.Config{}}
+	settings := &models.TTSSettings{
+		Stability:              0.5,
+		ApplyTextNormalization: "auto",
+		TTSStylePrefix:         "[news]",
+		UpdatedAt:              time.Date(2026, time.September, 29, 12, 0, 0, 0, time.UTC),
+	}
+
+	got := h.toTTSSettingsResponse(settings)
+
+	if got.ModelID != "eleven_v4" {
+		t.Fatalf("ModelID = %q, want eleven_v4", got.ModelID)
+	}
+}
 
 func TestToTTSSettingsServiceRequest_SeedStates(t *testing.T) {
 	seed := int64(42)
@@ -70,6 +89,11 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			name:      "model unknown",
 			body:      `{"model":"eleven_multilingual_v2"}`,
 			wantField: "model",
+		},
+		{
+			name:      "model ID read only",
+			body:      `{"model_id":"eleven_v4"}`,
+			wantField: "model_id",
 		},
 		{
 			name:      "speaker boost unknown",

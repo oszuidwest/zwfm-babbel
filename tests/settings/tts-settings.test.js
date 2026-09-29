@@ -42,7 +42,8 @@ describe('TTS Settings', () => {
       apply_text_normalization: expect.any(String),
       tts_style_prefix: expect.any(String),
       updated_at: expect.any(String),
-      api_key_configured: expect.any(Boolean)
+      api_key_configured: expect.any(Boolean),
+      model_id: 'eleven_v4'
     }));
     expect(response.data).not.toHaveProperty('api_key');
     expect(response.data).not.toHaveProperty('model');
@@ -61,6 +62,7 @@ describe('TTS Settings', () => {
     expect(response.status).toBe(200);
     expect(response.data.stability).toBe(0);
     expect(response.data.tts_style_prefix).toBe('');
+    expect(response.data.model_id).toBe('eleven_v4');
   });
 
   test('when patching seed to null, then seed is cleared', async () => {
@@ -98,6 +100,7 @@ describe('TTS Settings', () => {
   test('when patching unknown fields, then returns strict bad request errors', async () => {
     const cases = [
       ['model', { model: 'eleven_multilingual_v2' }, 'unknown field'],
+      ['model_id', { model_id: 'eleven_v4' }, 'unknown field'],
       ['use_speaker_boost', { use_speaker_boost: true }, 'unknown field'],
       ['similarity_boost', { similarity_boost: 0.7 }, 'unknown field'],
       ['style', { style: 0.25 }, 'unknown field'],
