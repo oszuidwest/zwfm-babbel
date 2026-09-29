@@ -13,7 +13,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// PronunciationInjector wraps matched story text terms in ElevenLabs v3 /<ipa>/ tags.
+// PronunciationInjector wraps matched story text terms in ElevenLabs inline /<ipa>/ tags.
 type PronunciationInjector struct {
 	repo pronunciationRuleLister
 }

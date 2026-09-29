@@ -16,7 +16,7 @@ import (
 
 type generateTTSTestContextKey struct{}
 
-func TestComposeV3TTSText(t *testing.T) {
+func TestComposeTTSText(t *testing.T) {
 	tests := []struct {
 		name   string
 		text   string
@@ -44,15 +44,15 @@ func TestComposeV3TTSText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := composeV3TTSText(tt.text, tt.prefix); got != tt.want {
-				t.Fatalf("composeV3TTSText() = %q, want %q", got, tt.want)
+			if got := composeTTSText(tt.text, tt.prefix); got != tt.want {
+				t.Fatalf("composeTTSText() = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
 func TestValidateTTSTextLength(t *testing.T) {
-	withinLimit := strings.Repeat("é", tts.MaxV3InputChars)
+	withinLimit := strings.Repeat("é", tts.MaxInputChars)
 	overLimit := withinLimit + "ë"
 
 	if err := validateTTSTextLength(withinLimit); err != nil {
@@ -71,12 +71,12 @@ func TestValidateTTSTextLength(t *testing.T) {
 	if validationErr.Resource != "story" || len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "text" {
 		t.Fatalf("validation error = %#v, want one story.text error", validationErr)
 	}
-	if validationErr.Detail != "Text exceeds ElevenLabs v3 input limit" {
-		t.Fatalf("detail = %q, want ElevenLabs v3 limit detail", validationErr.Detail)
+	if validationErr.Detail != "Text exceeds ElevenLabs input limit" {
+		t.Fatalf("detail = %q, want ElevenLabs limit detail", validationErr.Detail)
 	}
 
-	wantMessage := "rune count " + strconv.Itoa(tts.MaxV3InputChars+1) +
-		" exceeds ElevenLabs v3 input limit of " + strconv.Itoa(tts.MaxV3InputChars)
+	wantMessage := "rune count " + strconv.Itoa(tts.MaxInputChars+1) +
+		" exceeds ElevenLabs input limit of " + strconv.Itoa(tts.MaxInputChars)
 	if !strings.Contains(validationErr.Errors[0].Message, wantMessage) {
 		t.Fatalf("message = %q, want %q", validationErr.Errors[0].Message, wantMessage)
 	}
@@ -125,7 +125,7 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 			ApplyTextNormalization: TTSNormalizationAuto,
 		},
 		[]models.PronunciationRule{
-			rule("PSV", strings.Repeat("a", tts.MaxV3InputChars), true, true),
+			rule("PSV", strings.Repeat("a", tts.MaxInputChars), true, true),
 		},
 		ttsSvc,
 	)
