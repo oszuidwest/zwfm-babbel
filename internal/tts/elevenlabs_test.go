@@ -107,8 +107,8 @@ func assertGenerateSpeechRequestBody(t *testing.T, captured map[string]any, tt g
 	if captured["text"] != "final text" {
 		t.Fatalf("text = %q, want final text", captured["text"])
 	}
-	if captured["model_id"] != modelID {
-		t.Fatalf("model_id = %q, want %q", captured["model_id"], modelID)
+	if captured["model_id"] != "eleven_v4" {
+		t.Fatalf("model_id = %q, want eleven_v4", captured["model_id"])
 	}
 	if captured["apply_text_normalization"] != tt.wantNormalizationMode {
 		t.Fatalf("apply_text_normalization = %q, want %q", captured["apply_text_normalization"], tt.wantNormalizationMode)
