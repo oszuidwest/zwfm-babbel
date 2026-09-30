@@ -334,7 +334,7 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 ) []repository.BulletinStoryData {
 	kept := make([]repository.BulletinStoryData, 0, len(stories))
 	for _, story := range stories {
-		path := utils.StoryPath(s.config, story.ID)
+		path := utils.StoryPath(s.config, story.AudioFile)
 		if _, err := os.Stat(path); err != nil {
 			logger.Warn("Skipping story with missing audio file during bulletin generation",
 				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)

@@ -14,7 +14,7 @@ func TestBulletinServiceAlertsForMissingStoryAudio(t *testing.T) {
 		alerts: alerts,
 	}
 
-	stories := []repository.BulletinStoryData{{ID: 42}}
+	stories := []repository.BulletinStoryData{{ID: 42, AudioFile: "story_42_voice_1_abc.wav"}}
 	got := service.filterStoriesWithMissingAudio(t.Context(), stories, 7)
 	if len(got) != 0 {
 		t.Fatalf("kept stories = %d, want 0", len(got))

@@ -8,9 +8,10 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// StoryFilename returns the canonical processed-audio filename for storyID.
-func StoryFilename(storyID int64) string {
-	return fmt.Sprintf("story_%d.wav", storyID)
+// StoryFilename returns the processed-audio filename for one upload or TTS
+// run. The voice ID records who is heard; audioID keeps replacements distinct.
+func StoryFilename(storyID, voiceID int64, audioID string) string {
+	return fmt.Sprintf("story_%d_voice_%d_%s.wav", storyID, voiceID, audioID)
 }
 
 // JingleFilename returns the canonical jingle filename for a station/voice pair.
@@ -28,9 +29,9 @@ func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp tim
 	return filepath.Join(config.Audio.OutputPath, BulletinFilename(stationID, timestamp))
 }
 
-// StoryPath returns the absolute filesystem path for a processed story file.
-func StoryPath(config *config.Config, storyID int64) string {
-	return filepath.Join(config.Audio.ProcessedPath, StoryFilename(storyID))
+// StoryPath returns the absolute filesystem path for a stored story audio filename.
+func StoryPath(config *config.Config, filename string) string {
+	return filepath.Join(config.Audio.ProcessedPath, filename)
 }
 
 // JinglePath returns the absolute filesystem path for a station-voice jingle.

@@ -167,20 +167,22 @@ func validRangeSpec(value string, size int64) (overlaps, ok bool) {
 }
 
 // UploadStoryAudio validates and converts an uploaded story file.
-// The story must exist before temporary upload data is accepted.
+// The story and the voice heard in the recording (?voice_id, defaulting to the
+// story's voice) are validated before temporary upload data is accepted.
 func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	exists, err := h.storySvc.Exists(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "Story")
+	voiceID, ok := utils.OptionalIDQuery(c, "voice_id")
+	if !ok {
 		return
 	}
-	if !exists {
-		handleServiceError(c, apperrors.NotFoundWithID("Story", id), "Story")
+
+	target, err := h.storySvc.PrepareAudio(c.Request.Context(), id, voiceID)
+	if err != nil {
+		handleServiceError(c, err, "Story")
 		return
 	}
 
@@ -194,7 +196,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
+	if err := h.storySvc.ProcessAudio(c.Request.Context(), target, tempPath); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
