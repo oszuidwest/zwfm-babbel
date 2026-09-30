@@ -5,5 +5,6 @@ rules:
   operation-2xx-response: off
   operation-4xx-response: off
   operation-operationId: error
+  no-invalid-schema-examples: error
   no-invalid-media-type-examples: error
   no-server-example.com: error

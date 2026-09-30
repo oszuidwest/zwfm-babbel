@@ -122,7 +122,12 @@ describe('OpenAPI Contract', () => {
             const response = await global.api.apiCall('GET', '/users');
             validator.validateResponse({ method: 'GET', operationPath: '/api/v1/users', response });
             expect(response.status).toBe(403);
-            expect(response.data.type).toBe('https://babbel.api/problems/insufficient-permissions');
+            expect(response.data).toMatchObject({
+              type: 'https://babbel.api/problems/insufficient-permissions',
+              title: 'Insufficient Permissions',
+              status: 403,
+              detail: 'You do not have permission to perform this action'
+            });
             return response;
           } finally {
             const adminLogin = await global.api.apiLogin();
