@@ -38,10 +38,9 @@ type HandlersDeps struct {
 
 // Handlers owns shared dependencies used by endpoint methods.
 type Handlers struct {
-	audioRepo repository.AudioRepository
-	audioSvc  *audio.Service
-	config    *config.Config
-	// Domain services are injected by NewHandlers.
+	audioRepo             repository.AudioRepository
+	audioSvc              *audio.Service
+	config                *config.Config
 	bulletinSvc           *services.BulletinService
 	bulletinJobSvc        *services.BulletinJobService
 	storySvc              *services.StoryService
@@ -74,9 +73,8 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// Uses type-safe error checking with errors.AsType for concrete error types.
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
-	// Context timeout (check first as it's a special case)
+	// Timeouts take precedence over wrapped domain errors.
 	if errors.Is(err, context.DeadlineExceeded) {
 		logger.Error("Request timeout", "error", err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
@@ -164,13 +162,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
-		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
-		utils.ProblemExtended(c, http.StatusInternalServerError,
-			"Audio processing failed",
-			apperrors.CodeAudioProcessingFailed,
-			"Check the audio file format and try again",
-		)
+	if handleAudioError(c, err) {
 		return
 	}
 
@@ -186,7 +178,6 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	// Unknown errors fall back to a generic internal problem response.
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	alertRequestFailure(c, notify.Event{
 		Key:               internalAlertKeyPrefix + routeKey(c),
@@ -199,6 +190,29 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+// handleAudioError reports whether it wrote an audio error response.
+func handleAudioError(c *gin.Context, err error) bool {
+	if errors.Is(err, audio.ErrSilent) {
+		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+			"Audio is silent or too quiet",
+			apperrors.CodeAudioSilent,
+			"Check the recording level and input channel, then upload audible audio or regenerate speech",
+		)
+		return true
+	}
+
+	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
+		utils.ProblemExtended(c, http.StatusInternalServerError,
+			"Audio processing failed",
+			apperrors.CodeAudioProcessingFailed,
+			"Check the audio file format and try again",
+		)
+		return true
+	}
+	return false
 }
 
 const (
@@ -221,9 +235,8 @@ func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 	}
 }
 
-// NotificationMiddleware exposes the process alert service to error mapping
-// and clears request-scoped alert state after a successful response.
-// Register it only when notifications are configured.
+// NotificationMiddleware provides request alerts and resolves them on successful responses.
+// A nil alerter disables notifications.
 func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 	alerts = notify.OrDiscard(alerts)
 	return func(c *gin.Context) {
@@ -281,10 +294,7 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	return false
 }
 
-// publicFilterOperator translates internal operator names back to the public
-// query syntax for error labels. Both null variants originate from the single
-// public operator filter[field][null]=true|false, so the internal "not_null"
-// must not leak to clients.
+// publicFilterOperator maps both internal null operators to the public "null" operator.
 func publicFilterOperator(op repository.FilterOperator) string {
 	if op == repository.FilterIsNotNull {
 		return string(repository.FilterIsNull)
@@ -365,8 +375,7 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	return false
 }
 
-// requireTTSEnabled writes a 501 Problem response when TTS is not configured
-// and returns false. Used by every endpoint that depends on the ElevenLabs API.
+// requireTTSEnabled reports whether TTS is configured, writing a 501 response if not.
 func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 	if h.ttsEnabled {
 		return true
@@ -401,8 +410,9 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 	logger.WithFields(fields).Error(err.Error())
 }
 
-// deferCleanup returns a function suitable for use with defer that logs cleanup errors.
-// Usage: defer deferCleanup(cleanup, "audio file")().
+// deferCleanup wraps cleanup to log errors:
+//
+//	defer deferCleanup(cleanup, "audio file")()
 func deferCleanup(cleanup func() error, resourceType string) func() {
 	return func() {
 		if err := cleanup(); err != nil {

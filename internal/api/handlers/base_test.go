@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 )
 
 type problemResponse struct {
@@ -265,6 +266,44 @@ func TestHandleServiceError_DeadlineExceededReturnsGatewayTimeout(t *testing.T) 
 			}
 			if problem.Detail != "Bulletin operation timed out" {
 				t.Fatalf("detail = %q, want Bulletin operation timed out", problem.Detail)
+			}
+		})
+	}
+}
+
+func TestHandleServiceError_Audio(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+		wantHint   string
+	}{
+		{
+			name:       "wrapped silent audio",
+			err:        apperrors.Audio("Story", "convert", fmt.Errorf("convert: %w", audio.ErrSilent)),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "audio.silent",
+			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
+		},
+		{
+			name:       "processing failure",
+			err:        apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")),
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "audio.processing_failed",
+			wantHint:   "Check the audio file format and try again",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := newProblemContext(t)
+			handleServiceError(c, tt.err, "Story")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			problem := decodeProblem(t, rec)
+			if problem.Status != tt.wantStatus || problem.Code != tt.wantCode || problem.Hint != tt.wantHint {
+				t.Fatalf("problem = %+v, want status %d, code %q, hint %q", problem, tt.wantStatus, tt.wantCode, tt.wantHint)
 			}
 		})
 	}
