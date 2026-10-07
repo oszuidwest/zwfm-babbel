@@ -10,13 +10,7 @@ import (
 func TestMySQLDSNClientFoundRows(t *testing.T) {
 	t.Parallel()
 
-	cfg := &config.Config{Database: config.DatabaseConfig{
-		Host:     "localhost",
-		Port:     3306,
-		User:     "babbel",
-		Database: "babbel",
-	}}
-	dsn, err := mysql.ParseDSN(mysqlDSN(cfg))
+	dsn, err := mysql.ParseDSN(mysqlDSN(&config.Config{}))
 	if err != nil {
 		t.Fatalf("ParseDSN(): %v", err)
 	}
