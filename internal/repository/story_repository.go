@@ -211,7 +211,7 @@ func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	// time.Weekday is always in range [0,6], safe to convert to uint8.
 	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
-	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	todayLocal := startOfDay(date)
 
 	// MySQL DATE comparisons should receive date strings, not instants that can
 	// be shifted by timezone conversion.

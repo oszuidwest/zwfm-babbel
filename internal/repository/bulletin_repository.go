@@ -70,7 +70,7 @@ func (r *BulletinRepository) GetLatest(
 	if maxAge != nil {
 		now := time.Now()
 		minTime := now.Add(-*maxAge)
-		if today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()); minTime.Before(today) {
+		if today := startOfDay(now); minTime.Before(today) {
 			minTime = today
 		}
 		query = query.Where("bulletins.created_at >= ?", minTime)
@@ -84,6 +84,12 @@ func (r *BulletinRepository) GetLatest(
 	}
 
 	return &bulletin, nil
+}
+
+// startOfDay returns midnight of t's day in t's location; bulletin reuse and
+// story rotation share this day boundary.
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 // LinkStories creates bulletin-story join rows preserving the provided order.

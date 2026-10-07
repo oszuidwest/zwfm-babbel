@@ -48,7 +48,7 @@ type BulletinJobService struct {
 	recovered bool
 
 	// generateBulletin produces one bulletin; tests replace it to inject failures.
-	generateBulletin func(ctx context.Context, stationID int64, targetDate time.Time,
+	generateBulletin func(ctx context.Context, stationID int64,
 		finalize func(context.Context, int64) error) (int64, error)
 }
 
@@ -310,7 +310,7 @@ func (s *BulletinJobService) generate(workerCtx context.Context, job *models.Bul
 
 	jobCtx, cancel := context.WithTimeout(workerCtx, s.cfg.GenerationTimeout)
 	defer cancel()
-	return s.generateBulletin(jobCtx, job.StationID, time.Now(), func(
+	return s.generateBulletin(jobCtx, job.StationID, func(
 		txCtx context.Context,
 		createdBulletinID int64,
 	) error {

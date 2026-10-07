@@ -82,11 +82,11 @@ func (s *BulletinService) LockStation(ctx context.Context, stationID int64) (fun
 	}
 }
 
-// Create selects eligible stories, renders the WAV file, and persists the
-// bulletin plus story links for a station/date. Callers must hold the station
+// Create selects today's eligible stories, renders the WAV file, and persists
+// the bulletin plus story links for a station. Callers must hold the station
 // lock (LockStation).
-func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
-	bulletinID, err := s.create(ctx, stationID, targetDate, nil)
+func (s *BulletinService) Create(ctx context.Context, stationID int64) (*models.Bulletin, error) {
+	bulletinID, err := s.create(ctx, stationID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 func (s *BulletinService) create(
 	ctx context.Context,
 	stationID int64,
-	targetDate time.Time,
 	finalize func(context.Context, int64) error,
 ) (int64, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
@@ -107,7 +106,7 @@ func (s *BulletinService) create(
 		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
-	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
+	stories, err := s.GetStoriesForDate(ctx, stationID, time.Now(), station.MaxStoriesPerBlock)
 	if err != nil {
 		return 0, err
 	}

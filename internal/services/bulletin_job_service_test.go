@@ -93,7 +93,7 @@ func TestGenerateConvertsPanicToError(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestJobService(t)
-	svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+	svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 		panic("renderer exploded")
 	}
 
@@ -114,7 +114,7 @@ func TestRunAttemptStopsWaitingForStationLockOnCancel(t *testing.T) {
 			t.Fatalf("LockStation() error = %v", err)
 		}
 		defer release()
-		svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+		svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 			t.Fatal("generation must not run without the station lock")
 			return 0, nil
 		}
@@ -141,7 +141,7 @@ func TestRunAttemptGeneratesAfterLockIsFreed(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newTestJobService(t)
 		var generations int
-		svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+		svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 			generations++
 			return 42, nil
 		}
@@ -209,40 +209,4 @@ func TestBulletinJobError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestRunAttemptUsesDateAfterWaitingAcrossMidnight(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		svc := newTestJobService(t)
-		now := time.Now()
-		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.Local)
-		time.Sleep(midnight.Sub(now) - time.Second)
-		job := &models.BulletinJob{ID: 1, StationID: 7, CreatedAt: time.Now()}
-		var generatedFor time.Time
-		svc.generateBulletin = func(_ context.Context, _ int64, date time.Time,
-			_ func(context.Context, int64) error) (int64, error) {
-			generatedFor = date
-			return 42, nil
-		}
-
-		release, err := svc.bulletins.LockStation(t.Context(), job.StationID)
-		if err != nil {
-			t.Fatalf("LockStation() error = %v", err)
-		}
-		go func() {
-			time.Sleep(2 * time.Second)
-			release()
-		}()
-
-		bulletinID, err := svc.runAttempt(t.Context(), job)
-		if err != nil || bulletinID != 42 {
-			t.Fatalf("runAttempt() = %d, %v; want 42, nil", bulletinID, err)
-		}
-		if !generatedFor.Equal(time.Now()) || generatedFor.Location() != time.Local {
-			t.Fatalf("generation date = %v, want current local time %v", generatedFor, time.Now())
-		}
-		if generatedFor.Format("2006-01-02") == job.CreatedAt.Format("2006-01-02") {
-			t.Fatal("generation used the enqueue day after waiting across midnight")
-		}
-	})
 }
