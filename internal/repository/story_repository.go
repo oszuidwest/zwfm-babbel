@@ -7,11 +7,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated.
 type StoryUpdate struct {
+	ActorUserID *int64 `gorm:"-"`
+
 	Title      *string            `gorm:"column:title"`
 	Text       *string            `gorm:"column:text"`
 	VoiceID    *int64             `gorm:"column:voice_id"`
@@ -25,6 +28,8 @@ type StoryUpdate struct {
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
+	ActorUserID *int64
+
 	Title      string
 	Text       string
 	VoiceID    *int64
@@ -62,15 +67,27 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Metadata:   data.Metadata,
 	}
 
-	db := DBFromContext(ctx, r.db)
-	if err := db.WithContext(ctx).Create(story).Error; err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	if story.VoiceID != nil {
-		if err := db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error; err != nil {
-			return nil, ParseDBError(err)
+	err := NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db)
+		if err := db.WithContext(ctx).Create(story).Error; err != nil {
+			return ParseDBError(err)
 		}
+		values, err := storyAuditValues(db.WithContext(ctx), story.ID)
+		if err != nil {
+			return err
+		}
+		if err := RecordAudit(ctx, models.AuditEvent{
+			UserID: data.ActorUserID, EntityType: "story", EntityID: story.ID, Action: "create",
+		}, nil, values); err != nil {
+			return err
+		}
+		if story.VoiceID != nil {
+			return ParseDBError(db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return story, nil
@@ -94,30 +111,37 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	if u.VoiceID == nil {
-		return r.UpdateByID(ctx, id, updateMap)
-	}
+	return r.withAudit(ctx, models.AuditEvent{
+		UserID: u.ActorUserID, EntityType: "story", EntityID: id, Action: "update",
+	}, func(ctx context.Context) error {
+		if u.VoiceID == nil {
+			return r.UpdateByID(ctx, id, updateMap)
+		}
 
-	// The guard is part of the UPDATE so audio uploaded after the caller's
-	// read cannot end up paired with a different voice.
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Model(&models.Story{}).
-		Where("id = ?", id).
-		Where("(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID).
-		Updates(updateMap)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return r.missingOrConflict(ctx, id)
-	}
-	return nil
+		// The guard is part of the UPDATE so audio uploaded after the caller's
+		// read cannot end up paired with a different voice.
+		db := DBFromContext(ctx, r.db)
+		result := db.WithContext(ctx).Model(&models.Story{}).
+			Where("id = ?", id).
+			Where("(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID).
+			Updates(updateMap)
+		if result.Error != nil {
+			return ParseDBError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return r.missingOrConflict(ctx, id)
+		}
+		return nil
+	})
 }
 
 // StoryAudioUpdate publishes processed audio together with the voice it was
 // produced for. The Expected fields hold the story state read before
 // processing started.
 type StoryAudioUpdate struct {
+	ActorUserID *int64
+
+	IsTTS             bool
 	AudioFile         string
 	DurationSeconds   float64
 	VoiceID           int64
@@ -129,28 +153,36 @@ type StoryAudioUpdate struct {
 // ErrStateConflict when the story's voice or audio changed since processing
 // started.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
-	db := DBFromContext(ctx, r.db)
-	query := db.WithContext(ctx).Model(&models.Story{}).
-		Where("id = ?", id).
-		Where("COALESCE(audio_file, '') = ?", u.ExpectedAudioFile)
-	if u.ExpectedVoiceID == nil {
-		query = query.Where("voice_id IS NULL")
-	} else {
-		query = query.Where("voice_id = ?", *u.ExpectedVoiceID)
+	action := "audio"
+	if u.IsTTS {
+		action = "tts"
 	}
+	return r.withAudit(ctx, models.AuditEvent{
+		UserID: u.ActorUserID, EntityType: "story", EntityID: id, Action: action,
+	}, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db)
+		query := db.WithContext(ctx).Model(&models.Story{}).
+			Where("id = ?", id).
+			Where("COALESCE(audio_file, '') = ?", u.ExpectedAudioFile)
+		if u.ExpectedVoiceID == nil {
+			query = query.Where("voice_id IS NULL")
+		} else {
+			query = query.Where("voice_id = ?", *u.ExpectedVoiceID)
+		}
 
-	result := query.Updates(map[string]any{
-		"voice_id":         u.VoiceID,
-		"audio_file":       u.AudioFile,
-		"duration_seconds": u.DurationSeconds,
+		result := query.Updates(map[string]any{
+			"voice_id":         u.VoiceID,
+			"audio_file":       u.AudioFile,
+			"duration_seconds": u.DurationSeconds,
+		})
+		if result.Error != nil {
+			return ParseDBError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return r.missingOrConflict(ctx, id)
+		}
+		return nil
 	})
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return r.missingOrConflict(ctx, id)
-	}
-	return nil
 }
 
 // missingOrConflict explains why a conditional update matched no rows.
@@ -166,45 +198,71 @@ func (r *StoryRepository) missingOrConflict(ctx context.Context, id int64) error
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
-func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
-	return r.Delete(ctx, id)
+func (r *StoryRepository) SoftDelete(ctx context.Context, id int64, actorUserID *int64) error {
+	return r.withAudit(ctx, models.AuditEvent{
+		UserID: actorUserID, EntityType: "story", EntityID: id, Action: "delete",
+	}, func(ctx context.Context) error { return r.Delete(ctx, id) })
 }
 
 // Restore clears the deleted_at timestamp.
-func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
-		Where("id = ?", id).
-		Update("deleted_at", nil)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
+func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+	return r.withAudit(ctx, models.AuditEvent{
+		UserID: actorUserID, EntityType: "story", EntityID: id, Action: "restore",
+	}, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db)
+		result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
+			Where("id = ?", id).
+			Update("deleted_at", nil)
+		if result.Error != nil {
+			return ParseDBError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // UpdateStatus updates the story status.
-func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return r.UpdateByID(ctx, id, map[string]any{"status": status})
+func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) error {
+	return r.Update(ctx, id, &StoryUpdate{Status: &status, ActorUserID: actorUserID})
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as
 // expired and returns the number of stories updated.
 // GORM automatically excludes soft-deleted records (deleted_at IS NULL).
 func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, error) {
-	result := r.db.WithContext(ctx).
-		Model(&models.Story{}).
-		Where("status = ?", models.StoryStatusActive).
-		Where("end_date < CURDATE()").
-		Update("status", models.StoryStatusExpired)
-
-	if result.Error != nil {
-		return 0, ParseDBError(result.Error)
+	var count int64
+	err := NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db).WithContext(ctx)
+		var ids []int64
+		if err := db.Model(&models.Story{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("status = ?", models.StoryStatusActive).Where("end_date < CURDATE()").
+			Order("id").Pluck("id", &ids).Error; err != nil {
+			return ParseDBError(err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		result := db.Model(&models.Story{}).Where("id IN ?", ids).Update("status", models.StoryStatusExpired)
+		if result.Error != nil {
+			return ParseDBError(result.Error)
+		}
+		for _, id := range ids {
+			if err := RecordAudit(ctx, models.AuditEvent{
+				EntityType: "story", EntityID: id, Action: "expire",
+			}, map[string]any{"status": models.StoryStatusActive},
+				map[string]any{"status": models.StoryStatusExpired}); err != nil {
+				return err
+			}
+		}
+		count = result.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-
-	return result.RowsAffected, nil
+	return count, nil
 }
 
 // storyFieldMapping maps API field names to database columns for stories.

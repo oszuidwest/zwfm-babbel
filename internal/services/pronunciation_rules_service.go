@@ -28,7 +28,7 @@ type pronunciationRuleLister interface {
 
 type pronunciationRuleRepo interface {
 	pronunciationRuleLister
-	ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error
+	ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error
 	MaxUpdatedAt(ctx context.Context) (*time.Time, error)
 }
 
@@ -100,7 +100,7 @@ func (s *PronunciationRulesService) Update(
 	var persistedRules []models.PronunciationRule
 	var updatedAt *time.Time
 	if err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
-		if err := s.repo.ReplaceAll(ctx, rules); err != nil {
+		if err := s.repo.ReplaceAll(ctx, rules, req.ActorUserID); err != nil {
 			return err
 		}
 		var err error

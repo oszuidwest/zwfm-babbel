@@ -486,7 +486,7 @@ func (f *fakePronunciationRuleRepo) List(context.Context) ([]models.Pronunciatio
 	return rules, nil
 }
 
-func (f *fakePronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule) error {
+func (f *fakePronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule, _ *int64) error {
 	f.replaceCalls++
 	if f.replaceErr != nil {
 		return f.replaceErr

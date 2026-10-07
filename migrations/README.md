@@ -18,3 +18,7 @@ snapshot.
 Deploy Knabbel UI PR 65 first, then deploy the Babbel app, and finally apply
 `010_drop_unsupported_eleven_v3_settings.sql`, which removes `similarity_boost`,
 `style`, and `speed` after the app no longer reads them.
+
+Apply `012_audit_events.sql` before deploying persistent audit history. Migration
+number `011` is reserved for separate work. Audit history is retained indefinitely;
+there are no foreign keys to users or entities and no cleanup job.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // PronunciationRuleRepository reads and replaces global inline-IPA rules.
@@ -35,19 +36,30 @@ func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.Pronun
 // txManager.WithTransaction; without a wrapping transaction a concurrent reader
 // can observe the empty intermediate state and a mid-call failure leaves the
 // table empty.
-func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error {
-	db := DBFromContext(ctx, r.db)
-
-	if err := db.WithContext(ctx).Exec("DELETE FROM pronunciation_rules").Error; err != nil {
+func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error {
+	db := DBFromContext(ctx, r.db).WithContext(ctx)
+	// The existing singleton serializes whole-set replacements even when the
+	// rule table is empty. Lock it before reading any old rule values.
+	var settings models.TTSSettings
+	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
+		First(&settings, ttsSettingsSingletonID).Error; err != nil {
 		return ParseDBError(err)
 	}
-	if len(rules) == 0 {
-		return nil
-	}
-	if err := db.WithContext(ctx).Create(&rules).Error; err != nil {
+	var before []models.PronunciationRule
+	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Order("string_to_replace").Find(&before).Error; err != nil {
 		return ParseDBError(err)
 	}
-	return nil
+	if err := db.Exec("DELETE FROM pronunciation_rules").Error; err != nil {
+		return ParseDBError(err)
+	}
+	if len(rules) > 0 {
+		if err := db.Create(&rules).Error; err != nil {
+			return ParseDBError(err)
+		}
+	}
+	return RecordAudit(ctx, models.AuditEvent{
+		UserID: actorUserID, EntityType: "pronunciation_rules", EntityID: 1, Action: "update",
+	}, pronunciationAuditValues(before), pronunciationAuditValues(rules))
 }
 
 // MaxUpdatedAt returns the maximum updated_at timestamp, or nil when there are no rules.
@@ -65,4 +77,14 @@ func (r *PronunciationRuleRepository) MaxUpdatedAt(ctx context.Context) (*time.T
 		return nil, nil
 	}
 	return &max.Time, nil
+}
+
+func pronunciationAuditValues(rules []models.PronunciationRule) map[string]any {
+	values := make(map[string]any, len(rules))
+	for _, rule := range rules {
+		values[rule.StringToReplace] = map[string]any{
+			"ipa": rule.IPA, "case_sensitive": rule.CaseSensitive, "word_boundaries": rule.WordBoundaries,
+		}
+	}
+	return values
 }

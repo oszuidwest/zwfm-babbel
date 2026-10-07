@@ -5,6 +5,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const ttsSettingsSingletonID int64 = 1
@@ -33,6 +34,10 @@ func NewTTSSettingsRepository(db *gorm.DB) *TTSSettingsRepository {
 func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, error) {
 	var settings models.TTSSettings
 	db := DBFromContext(ctx, r.db)
+	// Settings updates read the old values under a lock in their transaction.
+	if TxFromContext(ctx) != nil {
+		db = db.Clauses(clause.Locking{Strength: "UPDATE"})
+	}
 	err := db.WithContext(ctx).
 		Where("id = ?", ttsSettingsSingletonID).
 		First(&settings).Error

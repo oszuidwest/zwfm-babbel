@@ -54,6 +54,8 @@ servers:
     description: Relative server root
 
 tags:
+  - name: Audit
+    description: Persistent change history
   - name: System
     description: System health and status endpoints
   - name: Authentication
@@ -900,6 +902,50 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/audit-events:
+    get:
+      operationId: getAuditEvents
+      summary: List audit events
+      description: |
+        Returns committed story, TTS settings, and pronunciation rule-set changes.
+        History is retained indefinitely, including events for deleted stories and users.
+        Only entities the caller may read are included, in both data and total:
+        `story` requires `stories:read`, `tts_settings` requires `settings:tts:read`,
+        and `pronunciation_rules` requires `pronunciation_rules:read`.
+        Filters cannot broaden these permissions; an inaccessible entity filter returns
+        an empty list. A caller with none of these permissions receives 403.
+
+        The default order is `-occurred_at,-id`. Filter and sort fields are `id`,
+        `occurred_at`, `actor_type`, `user_id`, `entity_type`, `entity_id`, and `action`.
+        For example: `?filter[entity_type]=story&filter[entity_id]=1991&filter[action]=delete`.
+        Date ranges use `filter[occurred_at][gte]` and `filter[occurred_at][lte]`.
+        `filter[user_id][null]=true` selects system events.
+      tags:
+        - Audit
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/auditEventFilter'
+      responses:
+        '200':
+          description: Audit events visible to the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventsListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -2850,6 +2896,23 @@ components:
           elevenlabs_voice_id: { $ref: '#/components/schemas/NullableStringFilter' }
           created_at: { $ref: '#/components/schemas/DateTimeFilter' }
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    auditEventFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Audit filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          occurred_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          actor_type: { $ref: '#/components/schemas/StringFilter' }
+          user_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
+          entity_type: { $ref: '#/components/schemas/StringFilter' }
+          entity_id: { $ref: '#/components/schemas/IntegerFilter' }
+          action: { $ref: '#/components/schemas/StringFilter' }
     storyFilter:
       name: filter
       in: query
@@ -2930,6 +2993,70 @@ components:
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
+    AuditEvent:
+      type: object
+      required: [id, occurred_at, actor_type, user_id, username, full_name, entity_type, entity_id, action, changes]
+      properties:
+        id:
+          type: integer
+          format: int64
+        occurred_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+          enum: [user, system]
+        user_id:
+          type: [integer, 'null']
+          format: int64
+        username:
+          type: [string, 'null']
+          description: Current username, including soft-deleted users; null for system or missing users.
+        full_name:
+          type: [string, 'null']
+          description: Current full name, including soft-deleted users; null for system or missing users.
+        entity_type:
+          type: string
+          enum: [story, tts_settings, pronunciation_rules]
+        entity_id:
+          type: integer
+          format: int64
+          description: Story ID, or 1 for the TTS settings or pronunciation rule-set singleton.
+        action:
+          type: string
+          enum: [create, update, delete, restore, audio, tts, expire]
+        changes:
+          type: object
+          description: |
+            Only changed values, keyed by field name. Creation uses null old values.
+            Story timestamps maintained automatically are omitted; deleted_at is included.
+            Audio changes contain filenames, voice IDs, and durations, never audio bytes.
+            For pronunciation_rules, keys are string_to_replace; values are rule objects
+            containing ipa, case_sensitive, and word_boundaries, or null for additions/removals.
+            Identical writes produce no audit event.
+          additionalProperties:
+            type: object
+            required: [old, new]
+            properties:
+              old: {}
+              new: {}
+
+    AuditEventsListResponse:
+      type: object
+      required: [data, total, limit, offset]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total:
+          type: integer
+          description: Total visible events matching the query.
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     # Nullable variants repeat operators because allOf conflicts with
     # additionalProperties: false and unevaluatedProperties lacks broad support.
     # Keep each base and nullable operator list aligned.

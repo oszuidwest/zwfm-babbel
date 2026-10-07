@@ -378,7 +378,7 @@ func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.Pronuncia
 	return rules, nil
 }
 
-func (h *handlerPronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule) error {
+func (h *handlerPronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule, _ *int64) error {
 	h.rules = rules
 	return nil
 }

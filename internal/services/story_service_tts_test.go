@@ -97,7 +97,7 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 	)
 
 	ctx := context.WithValue(context.Background(), generateTTSTestContextKey{}, "preserved")
-	err := service.GenerateTTS(ctx, 99, nil, false)
+	err := service.GenerateTTS(ctx, 99, nil, false, nil)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -131,7 +131,7 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(context.Background(), 99, nil, false)
+	err := service.GenerateTTS(context.Background(), 99, nil, false, nil)
 	if _, ok := errors.AsType[*apperrors.ValidationProblemError](err); !ok {
 		t.Fatalf("GenerateTTS() error = %T, want *apperrors.ValidationProblemError", err)
 	}
