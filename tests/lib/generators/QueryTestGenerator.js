@@ -114,7 +114,7 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         query.filterableFields
-          .filter(field => query.numericFields?.includes(field) && !query.bitmaskFields?.includes(field))
+          .filter(field => query.numericFields?.includes(field))
           .forEach(field => {
             test.each([
               [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=1`, value => expect(value).toBeGreaterThanOrEqual(1)],

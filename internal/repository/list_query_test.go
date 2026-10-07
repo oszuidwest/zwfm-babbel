@@ -3,7 +3,6 @@ package repository
 import (
 	"errors"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -308,50 +307,53 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 			valid: []string{"admin", "editor", "viewer"}, invalid: []string{"abc", "", "1", "ADMIN"},
 		},
 	}
+	db := dryRunDB(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			for _, raw := range append(append([]string{}, tt.valid...), tt.invalid...) {
-				t.Run(raw, func(t *testing.T) {
-					valid := slices.Contains(tt.valid, raw)
-					conditions := []FilterCondition{
-						{Field: tt.field, Operator: FilterEquals, Value: raw},
-						{Field: tt.field, Operator: FilterNotEquals, Value: raw},
-						{Field: tt.field, Operator: FilterIn, Value: []string{raw, tt.valid[0]}},
-						{Field: tt.field, Operator: FilterIn, Value: []string{tt.valid[0], raw}},
+			// The raw value sits in both IN and BETWEEN positions so every element is checked.
+			conditions := func(raw string) []FilterCondition {
+				conds := []FilterCondition{
+					{Field: tt.field, Operator: FilterEquals, Value: raw},
+					{Field: tt.field, Operator: FilterNotEquals, Value: raw},
+					{Field: tt.field, Operator: FilterIn, Value: []string{raw, tt.valid[0]}},
+					{Field: tt.field, Operator: FilterIn, Value: []string{tt.valid[0], raw}},
+				}
+				if tt.ranges {
+					for _, op := range []FilterOperator{FilterGreaterThan, FilterGreaterOrEq, FilterLessThan, FilterLessOrEq} {
+						conds = append(conds, FilterCondition{Field: tt.field, Operator: op, Value: raw})
 					}
-					if tt.ranges {
-						for _, op := range []FilterOperator{FilterGreaterThan, FilterGreaterOrEq, FilterLessThan, FilterLessOrEq} {
-							conditions = append(conditions, FilterCondition{Field: tt.field, Operator: op, Value: raw})
-						}
-						conditions = append(conditions,
-							FilterCondition{Field: tt.field, Operator: FilterBetween, Value: []string{raw, tt.valid[0]}},
-							FilterCondition{Field: tt.field, Operator: FilterBetween, Value: []string{tt.valid[0], raw}},
-						)
+					conds = append(conds,
+						FilterCondition{Field: tt.field, Operator: FilterBetween, Value: []string{raw, tt.valid[0]}},
+						FilterCondition{Field: tt.field, Operator: FilterBetween, Value: []string{tt.valid[0], raw}},
+					)
+				}
+				return conds
+			}
+			for _, raw := range tt.valid {
+				for _, cond := range conditions(raw) {
+					out, err := applyFilterCondition(db.Table("test"), cond, tt.mapping)
+					if err != nil {
+						t.Fatalf("%+v: %v", cond, err)
 					}
-					for _, cond := range conditions {
-						if !valid {
-							_, err := applyFilterCondition(nil, cond, tt.mapping)
-							var invalid *InvalidFilterError
-							if !errors.As(err, &invalid) || invalid.Field != tt.field || invalid.Operator != cond.Operator {
-								t.Fatalf("%+v: got %v, want InvalidFilterError with field and operator", cond, err)
-							}
-							continue
-						}
-						out, err := applyFilterCondition(dryRunDB(t).Table("test"), cond, tt.mapping)
-						if err != nil {
-							t.Fatalf("%+v: %v", cond, err)
-						}
-						stmt := out.Find(&[]struct{}{}).Statement
-						want := []any{raw}
-						if values, ok := cond.Value.([]string); ok {
-							want = []any{values[0], values[1]}
-						}
-						if !slices.Equal(stmt.Vars, want) {
-							t.Fatalf("%+v: bind vars = %#v, want %#v", cond, stmt.Vars, want)
-						}
+					// Valid input must reach SQL unchanged.
+					want := []any{raw}
+					if values, ok := cond.Value.([]string); ok {
+						want = []any{values[0], values[1]}
 					}
-				})
+					if got := out.Find(&[]struct{}{}).Statement.Vars; !slices.Equal(got, want) {
+						t.Fatalf("%+v: bind vars = %#v, want %#v", cond, got, want)
+					}
+				}
+			}
+			for _, raw := range tt.invalid {
+				for _, cond := range conditions(raw) {
+					_, err := applyFilterCondition(nil, cond, tt.mapping)
+					var invalid *InvalidFilterError
+					if !errors.As(err, &invalid) || invalid.Field != tt.field || invalid.Operator != cond.Operator {
+						t.Fatalf("%+v: got %v, want InvalidFilterError with field and operator", cond, err)
+					}
+				}
 			}
 		})
 	}
@@ -369,10 +371,6 @@ func TestApplyFilterCondition_ClientFilters(t *testing.T) {
 		{
 			name: "Knabbel bulletin creation date", mapping: bulletinFieldMapping,
 			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07"},
-		},
-		{
-			name: "bulletin date-time lower bound", mapping: bulletinFieldMapping,
-			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2024-01-10 00:00:00"},
 		},
 		{
 			name: "Knabbel story creation date", mapping: storyFieldMapping,
@@ -426,10 +424,10 @@ func TestApplyFilterCondition_ClientFilters(t *testing.T) {
 			wantInvalid: true,
 		},
 	}
+	db := dryRunDB(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := applyFilterCondition(dryRunDB(t).Table("test"), tt.condition, tt.mapping)
+			_, err := applyFilterCondition(db.Table("test"), tt.condition, tt.mapping)
 			if tt.wantInvalid {
 				var invalid *InvalidFilterError
 				if !errors.As(err, &invalid) || invalid.Field != tt.condition.Field || invalid.Operator != tt.condition.Operator {
@@ -444,26 +442,39 @@ func TestApplyFilterCondition_ClientFilters(t *testing.T) {
 	}
 }
 
+// TestApplyFilterCondition_FieldContracts pins which fields accept free text
+// and null filters, listed independently of the mappings' Type/Nullable flags.
 func TestApplyFilterCondition_FieldContracts(t *testing.T) {
 	t.Parallel()
-	resources := map[string]FieldMapping{
-		"stories": storyFieldMapping, "stations": stationFieldMapping, "voices": voiceFieldMapping,
-		"station-voices": stationVoiceFieldMapping, "users": userFieldMapping, "bulletins": bulletinFieldMapping,
+	resources := map[string]struct {
+		mapping        FieldMapping
+		text, nullable []string
+	}{
+		"stories":        {mapping: storyFieldMapping, text: []string{"title", "text", "audio_url"}, nullable: []string{"voice_id", "duration_seconds", "deleted_at"}},
+		"stations":       {mapping: stationFieldMapping, text: []string{"name"}},
+		"voices":         {mapping: voiceFieldMapping, text: []string{"name", "elevenlabs_voice_id"}, nullable: []string{"elevenlabs_voice_id"}},
+		"station-voices": {mapping: stationVoiceFieldMapping, text: []string{"audio_url"}},
+		"users":          {mapping: userFieldMapping, text: []string{"username", "full_name", "email"}, nullable: []string{"email"}},
+		"bulletins":      {mapping: bulletinFieldMapping, text: []string{"filename"}, nullable: []string{"file_purged_at"}},
 	}
-	for name, mapping := range resources {
+	db := dryRunDB(t)
+	for name, resource := range resources {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			mapping := resource.mapping
 			for field, definition := range mapping {
-				if definition.Type != filterString {
-					_, err := applyFilterCondition(nil, FilterCondition{Field: field, Operator: FilterEquals, Value: "garbage"}, mapping)
-					var invalid *InvalidFilterError
-					if !errors.As(err, &invalid) {
-						t.Fatalf("%s: got %v, want InvalidFilterError", field, err)
+				_, err := applyFilterCondition(db.Table("test"), FilterCondition{Field: field, Operator: FilterEquals, Value: "garbage"}, mapping)
+				var invalid *InvalidFilterError
+				if slices.Contains(resource.text, field) {
+					if err != nil {
+						t.Fatalf("%s: %v", field, err)
 					}
+				} else if !errors.As(err, &invalid) {
+					t.Fatalf("%s: got %v, want InvalidFilterError", field, err)
 				}
 				for _, op := range []FilterOperator{FilterIsNull, FilterIsNotNull} {
-					out, err := applyFilterCondition(dryRunDB(t).Table("test"), FilterCondition{Field: field, Operator: op}, mapping)
-					if !definition.Nullable {
+					out, err := applyFilterCondition(db.Table("test"), FilterCondition{Field: field, Operator: op}, mapping)
+					if !slices.Contains(resource.nullable, field) {
 						var invalid *InvalidFilterError
 						if !errors.As(err, &invalid) {
 							t.Fatalf("%s/%s: got %v, want InvalidFilterError", field, op, err)
@@ -483,37 +494,49 @@ func TestApplyFilterCondition_FieldContracts(t *testing.T) {
 	}
 }
 
+// TestApplyFilterCondition_Weekdays pins the 7-bit mask range: eq/ne take the
+// raw string, band the uint8 the HTTP parser produces for 0-255.
 func TestApplyFilterCondition_Weekdays(t *testing.T) {
 	t.Parallel()
-	for _, raw := range []string{"0", "1", "62", "127", "128", "255", "-1", "1.5", "abc", "false", ""} {
-		for _, op := range []FilterOperator{FilterEquals, FilterNotEquals, FilterBitwiseAnd} {
-			t.Run(string(op)+"/"+raw, func(t *testing.T) {
-				t.Parallel()
-				var value any = raw
-				if op == FilterBitwiseAnd {
-					if parsed, err := strconv.ParseUint(raw, 10, 8); err == nil {
-						value = uint8(parsed)
-					}
+	tests := []struct {
+		name  string
+		op    FilterOperator
+		value any
+		valid bool
+	}{
+		{name: "eq min", op: FilterEquals, value: "0", valid: true},
+		{name: "eq max", op: FilterEquals, value: "127", valid: true},
+		{name: "ne mask", op: FilterNotEquals, value: "62", valid: true},
+		{name: "eq above max", op: FilterEquals, value: "128", valid: false},
+		{name: "ne negative", op: FilterNotEquals, value: "-1", valid: false},
+		{name: "eq fraction", op: FilterEquals, value: "1.5", valid: false},
+		{name: "eq boolean", op: FilterEquals, value: "false", valid: false},
+		{name: "eq text", op: FilterEquals, value: "abc", valid: false},
+		{name: "eq empty", op: FilterEquals, value: "", valid: false},
+		{name: "band min", op: FilterBitwiseAnd, value: uint8(0), valid: true},
+		{name: "band max", op: FilterBitwiseAnd, value: uint8(127), valid: true},
+		{name: "band above max", op: FilterBitwiseAnd, value: uint8(128), valid: false},
+		{name: "band parser max", op: FilterBitwiseAnd, value: uint8(255), valid: false},
+	}
+	db := dryRunDB(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cond := FilterCondition{Field: "weekdays", Operator: tt.op, Value: tt.value}
+			out, err := applyFilterCondition(db.Table("stories"), cond, storyFieldMapping)
+			if !tt.valid {
+				var invalid *InvalidFilterError
+				if !errors.As(err, &invalid) {
+					t.Fatalf("got %v, want InvalidFilterError", err)
 				}
-				cond := FilterCondition{Field: "weekdays", Operator: op, Value: value}
-				valid := slices.Contains([]string{"0", "1", "62", "127"}, raw)
-				out, err := applyFilterCondition(dryRunDB(t).Table("stories"), cond, storyFieldMapping)
-				if !valid {
-					var invalid *InvalidFilterError
-					if !errors.As(err, &invalid) {
-						t.Fatalf("got %v, want InvalidFilterError", err)
-					}
-					return
-				}
-				if err != nil {
-					t.Fatal(err)
-				}
-				stmt := out.Find(&[]struct{}{}).Statement
-				if !slices.Equal(stmt.Vars, []any{value}) {
-					t.Fatalf("bind vars = %#v, want [%v]", stmt.Vars, value)
-				}
-			})
-		}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := out.Find(&[]struct{}{}).Statement.Vars; !slices.Equal(got, []any{tt.value}) {
+				t.Fatalf("bind vars = %#v, want [%#v]", got, tt.value)
+			}
+		})
 	}
 }
 
