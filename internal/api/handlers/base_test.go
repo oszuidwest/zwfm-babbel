@@ -274,21 +274,28 @@ func TestHandleServiceError_DeadlineExceededReturnsGatewayTimeout(t *testing.T) 
 func TestHandleServiceError_Audio(t *testing.T) {
 	tests := []struct {
 		name       string
-		cause      error
+		err        error
 		wantStatus int
 		wantCode   string
 		wantHint   string
 	}{
 		{
 			name:       "silent audio",
-			cause:      fmt.Errorf("convert: %w", audio.ErrSilent),
+			err:        audio.ErrSilent,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "audio.silent",
+			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
+		},
+		{
+			name:       "wrapped silent audio",
+			err:        apperrors.Audio("Story", "convert", fmt.Errorf("convert: %w", audio.ErrSilent)),
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   "audio.silent",
 			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
 		},
 		{
 			name:       "processing failure",
-			cause:      errors.New("ffmpeg failed"),
+			err:        apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")),
 			wantStatus: http.StatusInternalServerError,
 			wantCode:   "audio.processing_failed",
 			wantHint:   "Check the audio file format and try again",
@@ -297,7 +304,7 @@ func TestHandleServiceError_Audio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, rec := newProblemContext(t)
-			handleServiceError(c, apperrors.Audio("Story", "convert", tt.cause), "Story")
+			handleServiceError(c, tt.err, "Story")
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}

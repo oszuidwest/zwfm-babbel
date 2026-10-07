@@ -196,15 +196,16 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 }
 
 func handleAudioError(c *gin.Context, err error) bool {
+	if errors.Is(err, audio.ErrSilent) {
+		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+			"Audio is silent or too quiet",
+			apperrors.CodeAudioSilent,
+			"Check the recording level and input channel, then upload audible audio or regenerate speech",
+		)
+		return true
+	}
+
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
-		if errors.Is(audioError, audio.ErrSilent) {
-			utils.ProblemExtended(c, http.StatusUnprocessableEntity,
-				"Audio is silent or too quiet",
-				"audio.silent",
-				"Check the recording level and input channel, then upload audible audio or regenerate speech",
-			)
-			return true
-		}
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
