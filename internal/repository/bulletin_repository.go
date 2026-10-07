@@ -69,9 +69,11 @@ func (r *BulletinRepository) GetLatest(
 
 	if maxAge != nil {
 		now := time.Now()
-		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-		query = query.Where("bulletins.created_at >= ?", now.Add(-*maxAge)).
-			Where("bulletins.created_at >= ? AND bulletins.created_at < ?", today, today.AddDate(0, 0, 1))
+		minTime := now.Add(-*maxAge)
+		if today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()); minTime.Before(today) {
+			minTime = today
+		}
+		query = query.Where("bulletins.created_at >= ?", minTime)
 	}
 
 	err := query.Order("bulletins.created_at DESC").

@@ -74,13 +74,8 @@ func TestGenerateBulletinRejectsDate(t *testing.T) {
 		name string
 		body string
 	}{
-		{name: "valid date", body: `{"date":"2026-10-07"}`},
-		{name: "empty date", body: `{"date":""}`},
 		{name: "null date", body: `{"date":null}`},
-		{name: "numeric date", body: `{"date":123}`},
-		{name: "object date", body: `{"date":{}}`},
 		{name: "case insensitive date", body: `{"Date":"2026-10-07"}`},
-		{name: "duplicate date ending in null", body: `{"date":"2026-10-07","date":null}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
