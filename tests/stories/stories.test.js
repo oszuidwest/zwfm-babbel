@@ -73,7 +73,6 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
 
-  // Creates the fixtures required by the shared query-test generator.
   const setupQueryTestData = async () => {
     const ids = [];
     for (let i = 1; i <= 3; i++) {
@@ -91,13 +90,10 @@ describe('Stories', () => {
   // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
-  // The remaining tests cover story-specific behavior.
-
   describe('Story CRUD', () => {
     let voiceId, stationId, storyId;
 
     beforeAll(async () => {
-      // Share one voice and station across the CRUD cases.
       const voice = await global.helpers.createVoice(global.resources, 'CrudTestVoice');
       const station = await global.helpers.createStation(global.resources, 'CrudTestStation');
       voiceId = voice.id;
@@ -181,7 +177,6 @@ describe('Stories', () => {
     let voiceId, stationId;
 
     beforeAll(async () => {
-      // Share one voice and station across the scheduling cases.
       const voice = await global.helpers.createVoice(global.resources, 'ScheduleVoice');
       const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
@@ -198,7 +193,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -213,7 +207,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -235,7 +228,6 @@ describe('Stories', () => {
     let voiceId, station1Id, station2Id;
 
     beforeAll(async () => {
-      // Share one voice and two stations across the targeting cases.
       const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
       const station1 = await global.helpers.createStation(global.resources, 'Target1');
       const station2 = await global.helpers.createStation(global.resources, 'Target2');
@@ -254,10 +246,8 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
-      // Verify assignments when the response expands target_stations.
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       if (getResponse.data.target_stations) {
@@ -422,8 +412,7 @@ describe('Stories', () => {
       const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
       expect(uploadResponse.status).toBe(201);
 
-      // Force a legacy-style NULL row to pin has_audio=false behavior; the API
-      // itself never writes NULL because the model field is a plain string.
+      // SQL is needed to test NULL audio_file values; the API writes strings.
       createMySQLExecutor().execSQL(
         `UPDATE stories SET audio_file = NULL WHERE id = ${sqlInteger(nullAudio.id, 'story ID')}`
       );
@@ -496,7 +485,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);

@@ -277,7 +277,7 @@ func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 	svc, ffmpegPath := newFFmpegService(t)
 	tempDir := t.TempDir()
 
-	// A short clip also covers the ungated measurement that once produced NaNs.
+	// Clips shorter than 400 ms have no integrated loudness measurement.
 	silence := filepath.Join(tempDir, "silence.wav")
 	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.1", "-y", silence)
 	assertRejectedAsSilent(t, svc, silence)
@@ -289,12 +289,12 @@ func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 		return path
 	}
 
-	// About -52 LUFS, and below the -70 LUFS gate where loudnorm reports no
-	// integrated loudness.
+	// About -52 LUFS, below the acceptance floor.
 	assertRejectedAsSilent(t, svc, quietSine("-31dB"))
+	// Below the -70 LUFS gate; rejection relies on true peak.
 	assertRejectedAsSilent(t, svc, quietSine("-70dB"))
 
-	// About -48 LUFS.
+	// About -48 LUFS, above the acceptance floor.
 	outputPath := filepath.Join(tempDir, "output.wav")
 	if _, _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-27dB"), outputPath); err != nil {
 		t.Fatalf("ConvertStoryToWAV(above floor) error: %v", err)

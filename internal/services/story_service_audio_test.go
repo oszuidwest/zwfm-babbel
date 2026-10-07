@@ -58,8 +58,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			if err := os.WriteFile(finalPath, existingAudio, 0600); err != nil {
 				t.Fatal(err)
 			}
-			// fakeStoryRepository embeds a nil storyRepository: a database
-			// update before rejection panics.
+			// The fake's nil repository makes any database update panic.
 			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
 			service.config = cfg
 			service.audioSvc = audio.NewService(cfg, nil)

@@ -177,7 +177,7 @@ GET /api/v1/stations/{station_id}/bulletins/latest
 
 ### Database connection pool
 
-Babbel configures the Go SQL connection pool from environment variables. The default values are the same as the values that were in the code before. Set these variables only if the pool must be different.
+Use these environment variables to override the database connection pool defaults:
 
 | Env var | Default | Description |
 |---|---:|---|
@@ -298,7 +298,7 @@ PUT    /api/v1/stations/{id}         # Update station
 
 # Story Management
 GET    /api/v1/stories               # List stories (with filters)
-POST   /api/v1/stories               # Create story (with audio)
+POST   /api/v1/stories               # Create story
 GET    /api/v1/stories/{id}/audio    # Download story audio
 POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
 
