@@ -99,8 +99,18 @@ func createIntegrationStory(t *testing.T, db *gorm.DB, voiceID *int64, audioFile
 		t.Fatalf("create story: %v", err)
 	}
 	// Registered after the voice cleanup, so it runs first.
-	t.Cleanup(func() { db.Unscoped().Delete(&models.Story{}, story.ID) })
+	t.Cleanup(func() { deleteIntegrationStory(t, db, story.ID) })
 	return story.ID
+}
+
+func deleteIntegrationStory(t *testing.T, db *gorm.DB, id int64) {
+	t.Helper()
+	if err := db.Unscoped().Delete(&models.Story{}, id).Error; err != nil {
+		t.Errorf("delete story %d: %v", id, err)
+	}
+	if err := db.Where("entity_type = ? AND entity_id = ?", "story", id).Delete(&models.AuditEvent{}).Error; err != nil {
+		t.Errorf("delete story %d audit events: %v", id, err)
+	}
 }
 
 func assertIntegrationStoryVoice(t *testing.T, repo *StoryRepository, id, wantVoice int64, wantAudio string) {

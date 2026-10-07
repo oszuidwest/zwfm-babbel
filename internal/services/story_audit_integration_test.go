@@ -88,10 +88,14 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if err := service.GenerateTTS(t.Context(), story.ID, nil, false, &actor); err != nil {
 		t.Fatal(err)
 	}
-	var events []models.AuditEvent
-	if err := tx.Where("entity_type = ? AND entity_id = ?", "story", story.ID).Find(&events).Error; err != nil {
-		t.Fatal(err)
+	auditEvents := func() []models.AuditEvent {
+		var events []models.AuditEvent
+		if err := tx.Where("entity_type = ? AND entity_id = ?", "story", story.ID).Find(&events).Error; err != nil {
+			t.Fatal(err)
+		}
+		return events
 	}
+	events := auditEvents()
 	if len(events) != 1 || events[0].Action != "tts" || events[0].UserID == nil || *events[0].UserID != actor {
 		t.Fatalf("TTS events = %+v", events)
 	}
@@ -107,11 +111,6 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := tx.Callback().Create().Remove("test:reject_audit"); err != nil {
-			t.Error(err)
-		}
-	})
 	if err := service.GenerateTTS(t.Context(), story.ID, nil, true, &actor); !errors.Is(err, sentinel) {
 		t.Fatalf("failed TTS = %v", err)
 	}
@@ -129,12 +128,8 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if len(files) != 1 || files[0].Name() != published.AudioFile {
 		t.Fatalf("failed publication removed old audio or left new audio: %v", files)
 	}
-	var count int64
-	if err := tx.Model(&models.AuditEvent{}).Where("entity_type = ? AND entity_id = ?", "story", story.ID).Count(&count).Error; err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Fatalf("failed publication left audit rows: %d", count)
+	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
+		t.Fatalf("failed publication changed audit rows: %+v", got)
 	}
 }
 

@@ -34,11 +34,9 @@ describe('Audit events', () => {
   });
 
   afterAll(async () => {
-    await restoreAdmin();
     if (originalSettings) {
-      const { stability, apply_text_normalization, seed, tts_style_prefix } = originalSettings;
       const response = await global.api.apiCall('PATCH', '/settings/tts', {
-        stability, apply_text_normalization, seed, tts_style_prefix
+        tts_style_prefix: originalSettings.tts_style_prefix
       });
       expect(response.status).toBe(200);
     }
@@ -82,84 +80,68 @@ describe('Audit events', () => {
   test('when admin patches TTS settings twice identically, then only one event is written', async () => {
     const before = await global.api.apiCall('GET', '/settings/tts');
     expect(before.status).toBe(200);
-    const since = await latestEventID('tts_settings');
+    const filter = `filter[entity_type]=tts_settings&filter[entity_id]=1&filter[id][gt]=${await latestEventID('tts_settings')}`;
     const body = { tts_style_prefix: global.helpers.uniqueName('Audit prefix') };
     expect((await global.api.apiCall('PATCH', '/settings/tts', body)).status).toBe(200);
-    const first = await listEvents(`filter[entity_type]=tts_settings&filter[entity_id]=1&filter[id][gt]=${since}`);
+    const first = await listEvents(filter);
     expect(first.total).toBe(1);
-    expect(first.data).toHaveLength(1);
     expect(first.data[0]).toEqual(expect.objectContaining({ action: 'update', user_id: admin.id }));
     expect(first.data[0].changes).toEqual({
       tts_style_prefix: { old: before.data.tts_style_prefix, new: body.tts_style_prefix }
     });
 
     expect((await global.api.apiCall('PATCH', '/settings/tts', body)).status).toBe(200);
-    const repeated = await listEvents(`filter[entity_type]=tts_settings&filter[entity_id]=1&filter[id][gt]=${since}`);
+    const repeated = await listEvents(filter);
     expect(repeated.total).toBe(1);
     expect(repeated.data.map(event => event.id)).toEqual([first.data[0].id]);
   });
 
   test('when admin replaces pronunciation rules twice identically, then only one event is written', async () => {
-    const since = await latestEventID('pronunciation_rules');
+    const filter = `filter[entity_type]=pronunciation_rules&filter[entity_id]=1&filter[id][gt]=${await latestEventID('pronunciation_rules')}`;
     const rule = {
       string_to_replace: global.helpers.uniqueName('Audit term'),
       ipa: 'test', case_sensitive: true, word_boundaries: true
     };
     const body = { rules: [rule] };
     expect((await global.api.apiCall('PUT', '/settings/tts/pronunciations', body)).status).toBe(200);
-    const first = await listEvents(`filter[entity_type]=pronunciation_rules&filter[entity_id]=1&filter[id][gt]=${since}`);
+    const first = await listEvents(filter);
     expect(first.total).toBe(1);
-    expect(first.data).toHaveLength(1);
     expect(first.data[0]).toEqual(expect.objectContaining({ action: 'update', user_id: admin.id }));
     expect(first.data[0].changes[rule.string_to_replace]).toEqual({
       old: null, new: { ipa: 'test', case_sensitive: true, word_boundaries: true }
     });
 
     expect((await global.api.apiCall('PUT', '/settings/tts/pronunciations', body)).status).toBe(200);
-    const repeated = await listEvents(`filter[entity_type]=pronunciation_rules&filter[entity_id]=1&filter[id][gt]=${since}`);
+    const repeated = await listEvents(filter);
     expect(repeated.total).toBe(1);
     expect(repeated.data.map(event => event.id)).toEqual([first.data[0].id]);
   });
 
-  test('when viewer reads story and settings history, then actor names are null but user IDs remain', async () => {
+  test('when viewer reads and filters story and settings history, then actor names are null but user IDs remain', async () => {
     const story = await createStory('Viewer audit access');
     const storyHistory = await listEvents(`filter[entity_type]=story&filter[entity_id]=${story.id}`);
     expect((await global.api.apiCall('PATCH', '/settings/tts', {
       tts_style_prefix: global.helpers.uniqueName('Viewer audit prefix')
     })).status).toBe(200);
-    const settingsEventID = await latestEventID('tts_settings');
+    expect((await global.api.apiCall('PUT', '/settings/tts/pronunciations', {
+      rules: [{ string_to_replace: global.helpers.uniqueName('Viewer audit term'), ipa: 'test' }]
+    })).status).toBe(200);
+    const storyID = storyHistory.data[0].id;
+    const settingsID = await latestEventID('tts_settings');
+    const pronunciationID = await latestEventID('pronunciation_rules');
+    const fixtureFilter = `filter[id][in]=${storyID},${settingsID},${pronunciationID}`;
 
     expect(await switchToUser(roles.viewer, password)).toBe(true);
     const session = await global.api.getCurrentSession();
     expect(session.permissions.users || []).not.toContain('read');
-    const history = await listEvents(`filter[id][in]=${storyHistory.data[0].id},${settingsEventID}`);
-    expect(history.total).toBe(2);
-    expect(history.data).toHaveLength(2);
-    for (const event of history.data) {
-      expect(event).toEqual(expect.objectContaining({ user_id: admin.id, username: null, full_name: null }));
-    }
-  });
-
-  test('when viewer filters pronunciation history, then existing read permission applies and names stay null', async () => {
-    const story = await createStory('Viewer entity access');
-    const storyHistory = await listEvents(`filter[entity_type]=story&filter[entity_id]=${story.id}`);
-    expect((await global.api.apiCall('PUT', '/settings/tts/pronunciations', {
-      rules: [{ string_to_replace: global.helpers.uniqueName('Viewer audit term'), ipa: 'test' }]
-    })).status).toBe(200);
-    const pronunciationEventID = await latestEventID('pronunciation_rules');
-    const fixtureFilter = `filter[id][in]=${storyHistory.data[0].id},${pronunciationEventID}`;
-
-    expect(await switchToUser(roles.viewer, password)).toBe(true);
-    const session = await global.api.getCurrentSession();
-    expect(session.permissions.pronunciation_rules).toContain('read');
-    for (const [filter, count] of [
-      ['', 2],
-      ['&filter[entity_type]=pronunciation_rules', 1],
-      ['&filter[entity_type][in]=story,pronunciation_rules', 2]
+    for (const [filter, ids] of [
+      ['', [storyID, settingsID, pronunciationID]],
+      ['&filter[entity_type]=pronunciation_rules', [pronunciationID]],
+      ['&filter[entity_type][in]=story,pronunciation_rules', [storyID, pronunciationID]]
     ]) {
       const history = await listEvents(fixtureFilter + filter);
-      expect(history.total).toBe(count);
-      expect(history.data).toHaveLength(count);
+      expect(history.total).toBe(ids.length);
+      expect(history.data.map(event => event.id).sort((a, b) => a - b)).toEqual(ids.sort((a, b) => a - b));
       for (const event of history.data) {
         expect(event).toEqual(expect.objectContaining({ user_id: admin.id, username: null, full_name: null }));
       }

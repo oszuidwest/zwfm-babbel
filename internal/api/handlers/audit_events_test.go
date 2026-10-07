@@ -3,10 +3,8 @@ package handlers
 import (
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 )
 
@@ -29,9 +27,7 @@ func TestAuditEventsAccessErrors(t *testing.T) {
 				}
 				return auth.PermissionSet{}, tt.permissionErr
 			})
-			response := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(response)
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/audit-events", nil)
+			c, response := newProblemContext(t)
 			if tt.authenticated {
 				auth.SetUserContext(c, auth.UserContext{UserID: 307, Role: "viewer"})
 			}

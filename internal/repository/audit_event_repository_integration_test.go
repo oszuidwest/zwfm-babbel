@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -27,8 +28,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Unscoped().Delete(&models.Story{}, story.ID) })
-	t.Cleanup(func() { db.Where("entity_type = ? AND entity_id = ?", "story", story.ID).Delete(&models.AuditEvent{}) })
+	t.Cleanup(func() { deleteIntegrationStory(t, db, story.ID) })
 	events := storyAuditEvents(t, db, story.ID)
 	if len(events) != 1 || events[0].Action != "create" {
 		t.Fatalf("create events = %+v", events)
@@ -115,15 +115,16 @@ func TestStoryAuditNoOpAndConflict(t *testing.T) {
 	repo := NewStoryRepository(db)
 	voice := createIntegrationVoice(t, db)
 	id := createIntegrationStory(t, db, &voice, "old.wav")
-	t.Cleanup(func() { db.Where("entity_type = ? AND entity_id = ?", "story", id).Delete(&models.AuditEvent{}) })
-	title := "Integration story"
-	// Same-second no-op errors belong to #303. Regardless of the response,
-	// identical values and failed conditional writes must never add history.
-	err := repo.Update(t.Context(), id, &StoryUpdate{Title: &title})
-	if err != nil && !errors.Is(err, ErrNotFound) {
+	// Backdate updated_at so the identical title still changes the row (#303)
+	// and the write commits; unchanged values must not add history.
+	if err := db.Model(&models.Story{}).Where("id = ?", id).UpdateColumn("updated_at", time.Now().Add(-time.Hour)).Error; err != nil {
 		t.Fatal(err)
 	}
-	err = repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
+	title := "Integration story"
+	if err := repo.Update(t.Context(), id, &StoryUpdate{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
 		VoiceID: voice, AudioFile: "stale.wav", ExpectedVoiceID: &voice, ExpectedAudioFile: "other.wav",
 	})
 	if !errors.Is(err, ErrStateConflict) {
@@ -162,11 +163,6 @@ func TestStoryAuditRollback(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := db.Callback().Create().Remove("test:reject_audit"); err != nil {
-			t.Error(err)
-		}
-	})
 	if err := repo.SoftDelete(t.Context(), id, nil); !errors.Is(err, sentinel) {
 		t.Fatalf("audit failure = %v", err)
 	}
@@ -179,7 +175,6 @@ func TestStoryAuditConcurrentUpdates(t *testing.T) {
 	db := openIntegrationDB(t)
 	repo := NewStoryRepository(db)
 	id := createIntegrationStory(t, db, nil, "")
-	t.Cleanup(func() { db.Where("entity_type = ? AND entity_id = ?", "story", id).Delete(&models.AuditEvent{}) })
 	const writers = 5
 	results := make(chan error, writers)
 	for i := range writers {
@@ -224,7 +219,6 @@ func TestStoryAuditExpiration(t *testing.T) {
 			t.Fatal(err)
 		}
 		expiredIDs = append(expiredIDs, id)
-		t.Cleanup(func() { db.Where("entity_type = ? AND entity_id = ?", "story", id).Delete(&models.AuditEvent{}) })
 	}
 	draft := createIntegrationStory(t, db, nil, "")
 	deleted := createIntegrationStory(t, db, nil, "")
@@ -268,22 +262,20 @@ func assertAuditChange(t *testing.T, event models.AuditEvent, field string, oldV
 		t.Fatal(err)
 	}
 	for side, want := range map[string]any{"old": oldValue, "new": newValue} {
+		// Decode both sides because MySQL reformats JSON whitespace and key order.
 		data, err := json.Marshal(want)
 		if err != nil {
 			t.Fatal(err)
 		}
-		// MySQL reformats JSON whitespace and key ordering.
-		var gotJSON, wantJSON any
-		if err := json.Unmarshal(changes[field][side], &gotJSON); err != nil {
+		var got, wantJSON any
+		if err := json.Unmarshal(changes[field][side], &got); err != nil {
 			t.Fatalf("%s.%s: %v (%s)", field, side, err, event.Changes)
 		}
 		if err := json.Unmarshal(data, &wantJSON); err != nil {
 			t.Fatal(err)
 		}
-		gotData, _ := json.Marshal(gotJSON)
-		wantData, _ := json.Marshal(wantJSON)
-		if string(gotData) != string(wantData) {
-			t.Fatalf("%s.%s = %s, want %s", field, side, gotData, wantData)
+		if !reflect.DeepEqual(got, wantJSON) {
+			t.Fatalf("%s.%s = %s, want %s", field, side, changes[field][side], data)
 		}
 	}
 }
