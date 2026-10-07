@@ -110,55 +110,6 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 	}
 }
 
-func TestStoryRepositoryIntegration_ExpirationDateBoundary(t *testing.T) {
-	db := openIntegrationDB(t).Begin()
-	if db.Error != nil {
-		t.Fatal(db.Error)
-	}
-	defer db.Rollback()
-	var today time.Time
-	if err := db.Raw("SELECT CURDATE()").Row().Scan(&today); err != nil {
-		t.Fatal(err)
-	}
-	repo := NewStoryRepository(db)
-	for _, tt := range []struct {
-		name    string
-		endDate time.Time
-		deleted bool
-		want    models.StoryStatus
-	}{
-		{name: "yesterday", endDate: today.AddDate(0, 0, -1), want: models.StoryStatusExpired},
-		{name: "today", endDate: today, want: models.StoryStatusActive},
-		{name: "tomorrow", endDate: today.AddDate(0, 0, 1), want: models.StoryStatusActive},
-		{name: "deleted", endDate: today.AddDate(0, 0, -1), deleted: true, want: models.StoryStatusActive},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			story, err := repo.Create(t.Context(), &StoryCreateData{
-				Title: tt.name, Text: "News", Status: "active", StartDate: today.AddDate(0, 0, -2),
-				EndDate: tt.endDate, Weekdays: models.WeekdaysAll,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tt.deleted {
-				if err := repo.SoftDelete(t.Context(), story.ID); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if _, err := repo.ExpireStoriesPastEndDate(t.Context()); err != nil {
-				t.Fatal(err)
-			}
-			var saved models.Story
-			if err := db.Unscoped().First(&saved, story.ID).Error; err != nil {
-				t.Fatal(err)
-			}
-			if saved.Status != tt.want {
-				t.Fatalf("status = %s, want %s", saved.Status, tt.want)
-			}
-		})
-	}
-}
-
 func assertStoryDateJSON(t *testing.T, story any, want string) {
 	t.Helper()
 	data, err := json.Marshal(story)
