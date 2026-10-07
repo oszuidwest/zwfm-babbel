@@ -10,6 +10,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
+// auditEntityResources maps each audited entity type to the resource whose read
+// permission exposes its history.
+var auditEntityResources = map[string]auth.Resource{
+	"story":               auth.ResourceStories,
+	"tts_settings":        auth.ResourceSettingsTTS,
+	"pronunciation_rules": auth.ResourcePronunciationRules,
+}
+
 // AuditEventsHandler lists history visible under the actor's entity permissions.
 type AuditEventsHandler struct {
 	repo        *repository.AuditEventRepository
@@ -34,11 +42,7 @@ func (h *AuditEventsHandler) List(c *gin.Context) {
 		return
 	}
 	entityTypes := []string{}
-	for entity, resource := range map[string]auth.Resource{
-		"story":               auth.ResourceStories,
-		"tts_settings":        auth.ResourceSettingsTTS,
-		"pronunciation_rules": auth.ResourcePronunciationRules,
-	} {
+	for entity, resource := range auditEntityResources {
 		if slices.Contains(permissions[string(resource)], string(auth.ActionRead)) {
 			entityTypes = append(entityTypes, entity)
 		}

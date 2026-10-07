@@ -13,12 +13,9 @@ import (
 func (r *StoryRepository) withAudit(ctx context.Context, event models.AuditEvent, write func(context.Context) error) error {
 	return NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db).WithContext(ctx)
-		// Restore must include deleted stories. Other writes keep their normal scope.
-		query := db.Model(&models.Story{})
-		if event.Action == "restore" {
-			query = query.Unscoped()
-		}
-		before, err := storyAuditValues(query.Clauses(clause.Locking{Strength: "UPDATE"}), event.EntityID)
+		// Reads include deleted stories so restore can see them; scoped writes
+		// still reject deleted rows with ErrNotFound.
+		before, err := storyAuditValues(db.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}), event.EntityID)
 		if err != nil {
 			return err
 		}

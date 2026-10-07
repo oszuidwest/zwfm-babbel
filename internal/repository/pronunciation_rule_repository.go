@@ -40,10 +40,8 @@ func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []mo
 	db := DBFromContext(ctx, r.db).WithContext(ctx)
 	// The existing singleton serializes whole-set replacements even when the
 	// rule table is empty. Lock it before reading any old rule values.
-	var settings models.TTSSettings
-	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Select("id").
-		First(&settings, ttsSettingsSingletonID).Error; err != nil {
-		return ParseDBError(err)
+	if _, err := NewTTSSettingsRepository(r.db).GetForUpdate(ctx); err != nil {
+		return err
 	}
 	var before []models.PronunciationRule
 	if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).Order("string_to_replace").Find(&before).Error; err != nil {

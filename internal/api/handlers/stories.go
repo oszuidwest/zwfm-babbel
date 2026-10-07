@@ -5,7 +5,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -264,11 +263,4 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 	}
 
 	return true
-}
-
-func actorUserID(c *gin.Context) *int64 {
-	if id, ok := auth.UserID(c); ok {
-		return &id
-	}
-	return nil
 }

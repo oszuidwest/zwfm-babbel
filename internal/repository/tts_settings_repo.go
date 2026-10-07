@@ -32,25 +32,17 @@ func NewTTSSettingsRepository(db *gorm.DB) *TTSSettingsRepository {
 
 // Get loads the singleton TTS settings row.
 func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, error) {
-	var settings models.TTSSettings
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).
-		Where("id = ?", ttsSettingsSingletonID).
-		First(&settings).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-	return &settings, nil
+	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx))
 }
 
 // GetForUpdate locks the singleton before an update. The caller must use a transaction.
 func (r *TTSSettingsRepository) GetForUpdate(ctx context.Context) (*models.TTSSettings, error) {
+	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}))
+}
+
+func firstTTSSettings(db *gorm.DB) (*models.TTSSettings, error) {
 	var settings models.TTSSettings
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("id = ?", ttsSettingsSingletonID).
-		First(&settings).Error
-	if err != nil {
+	if err := db.Where("id = ?", ttsSettingsSingletonID).First(&settings).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 	return &settings, nil
