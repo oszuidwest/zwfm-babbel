@@ -140,33 +140,25 @@ describe('Stories', () => {
   });
 
   describe('Idempotent Updates', () => {
+    // [method, payload, expected response fields]
     const cases = [
-      ['PUT', { title: 'Idempotent title' }],
-      ['PATCH', { status: 'draft' }],
-      ['PATCH', { deleted_at: '' }]
+      ['PUT', { title: 'Idempotent title' }, { title: 'Idempotent title' }],
+      ['PATCH', { status: 'draft' }, { status: 'draft' }],
+      ['PATCH', { deleted_at: '' }, { deleted_at: null }]
     ];
 
-    test.each(cases)('when repeating %s %j immediately, then both requests succeed', async (method, payload) => {
-      const created = await global.api.apiCall('POST', '/stories', {
-        title: 'Idempotent story',
-        text: 'Test content',
-        status: 'draft',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31'
-      });
+    test.each(cases)('when repeating %s %j immediately, then both requests succeed', async (method, payload, expected) => {
+      const created = await global.api.apiCall('POST', '/stories', storiesSchema.createValidData('Idempotent'));
       expect(created.status).toBe(201);
       global.resources.track('stories', created.data.id);
 
-      // Write back to back: MySQL rounds fractional seconds into TIMESTAMP(0).
+      // Same-second repeat leaves updated_at (TIMESTAMP(0)) unchanged: matched but not changed.
       const first = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
       const second = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(second.data).toMatchObject({
-        id: created.data.id,
-        ...(payload.deleted_at === '' ? { deleted_at: null } : payload)
-      });
+      expect(second.data).toMatchObject({ id: created.data.id, ...expected });
     });
 
     test.each(cases)('when sending %s %j to a missing story, then returns 404', async (method, payload) => {
