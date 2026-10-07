@@ -190,11 +190,6 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}, nil
 }
 
-// bitwiseAllowedFields restricts bitwise operators to specific fields for security.
-var bitwiseAllowedFields = map[string]bool{
-	"weekdays": true,
-}
-
 // presenceFilterFields are virtual boolean filter fields: true selects rows
 // whose mapped column is non-empty ("" means absent). They are filter-only —
 // applySorting rejects them because ordering by the backing column would be
@@ -203,13 +198,8 @@ var presenceFilterFields = map[string]bool{
 	"has_audio": true,
 }
 
-// booleanFilterFields are filter fields backed by BOOLEAN (TINYINT) columns.
-// MySQL coerces non-numeric strings to 0 in numeric comparisons, so a raw
-// "true" would silently match FALSE rows; values must be normalized to
-// "1"/"0" before binding.
-var booleanFilterFields = map[string]bool{
-	"is_breaking": true,
-}
+// dateTimeLayouts are the accepted filterDateTime value formats.
+var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
 
 // operatorFormats maps filter operators to their SQL format strings.
 var operatorFormats = map[FilterOperator]string{
@@ -320,7 +310,10 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		return nil, err
 	}
 
-	if booleanFilterFields[filter.Field] {
+	// Non-presence boolean fields are BOOLEAN (TINYINT) columns. MySQL coerces
+	// non-numeric strings to 0 in numeric comparisons, so a raw "true" would
+	// silently match FALSE rows; values must be normalized to "1"/"0".
+	if field.Type == filterBoolean {
 		normalized, err := normalizeBooleanFilter(filter)
 		if err != nil {
 			return nil, err
@@ -328,28 +321,13 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		filter = normalized
 	}
 
-	// Special case for LIKE operator (needs pattern wrapping)
+	// validateFilter guarantees LIKE carries a string and BETWEEN two values.
 	if filter.Operator == FilterLike {
-		s, ok := filter.Value.(string)
-		if !ok {
-			return nil, &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected string value",
-			}
-		}
-		return db.Where(dbField+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(s)+"%"), nil
+		return db.Where(dbField+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(filter.Value.(string))+"%"), nil
 	}
 
 	if filter.Operator == FilterBetween {
-		values, ok := filter.Value.([]string)
-		if !ok || len(values) != 2 {
-			return nil, &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected two comma-separated values",
-			}
-		}
+		values := filter.Value.([]string)
 		return db.Where(fmt.Sprintf("%s BETWEEN ? AND ?", dbField), values[0], values[1]), nil
 	}
 
@@ -378,7 +356,7 @@ func validateFilter(filter FilterCondition, field FilterField) error {
 	invalid := func(reason string) error {
 		return &InvalidFilterError{Field: filter.Field, Operator: filter.Operator, Reason: reason}
 	}
-	if !field.allowsOperator(filter.Operator, filter.Field) {
+	if !field.allowsOperator(filter.Operator) {
 		return invalid("operator not allowed on this field")
 	}
 	if filter.Operator == FilterIsNull || filter.Operator == FilterIsNotNull {
@@ -393,13 +371,20 @@ func validateFilter(filter FilterCondition, field FilterField) error {
 	}
 
 	var values []string
-	if filter.Operator == FilterIn || filter.Operator == FilterBetween {
+	switch filter.Operator {
+	case FilterIn:
 		var ok bool
 		values, ok = filter.Value.([]string)
 		if !ok || len(values) == 0 {
 			return invalid("expected comma-separated values")
 		}
-	} else {
+	case FilterBetween:
+		var ok bool
+		values, ok = filter.Value.([]string)
+		if !ok || len(values) != 2 {
+			return invalid("expected two comma-separated values")
+		}
+	default:
 		value, ok := filter.Value.(string)
 		if !ok {
 			return invalid("expected string value")
@@ -414,14 +399,14 @@ func validateFilter(filter FilterCondition, field FilterField) error {
 	return nil
 }
 
-func (f FilterField) allowsOperator(op FilterOperator, name string) bool {
+func (f FilterField) allowsOperator(op FilterOperator) bool {
 	switch op {
 	case FilterEquals, FilterNotEquals:
 		return true
 	case FilterIsNull, FilterIsNotNull:
 		return f.Nullable
 	case FilterBitwiseAnd:
-		return bitwiseAllowedFields[name]
+		return f.Type == filterBitmask
 	case FilterLike:
 		return f.Type == filterString
 	case FilterIn:
@@ -450,14 +435,12 @@ func (typ filterType) validValue(raw string) bool {
 		_, err := time.Parse(time.DateOnly, raw)
 		return err == nil
 	case filterDateTime:
-		if _, err := time.Parse(time.RFC3339, raw); err == nil {
-			return true
+		for _, layout := range dateTimeLayouts {
+			if _, err := time.Parse(layout, raw); err == nil {
+				return true
+			}
 		}
-		if _, err := time.Parse(time.DateTime, raw); err == nil {
-			return true
-		}
-		_, err := time.Parse(time.DateOnly, raw)
-		return err == nil
+		return false
 	case filterBoolean:
 		// normalizeBooleanFilter performs validation and SQL normalization.
 		return true
@@ -472,10 +455,8 @@ func (typ filterType) validValue(raw string) bool {
 	return false
 }
 
-// normalizeBooleanFilter implements the booleanFilterFields contract: every
-// string value (single or list) is parsed as a boolean and rewritten to
-// "1"/"0" so MySQL compares numerically. Non-string values (null operator's
-// nil, band's uint8) pass through untouched for the generic handling.
+// normalizeBooleanFilter parses every string value (single or list) as a
+// boolean and rewrites it to "1"/"0" so MySQL compares numerically.
 func normalizeBooleanFilter(filter FilterCondition) (FilterCondition, error) {
 	toSQL := func(raw string) (string, error) {
 		b, err := strconv.ParseBool(raw)

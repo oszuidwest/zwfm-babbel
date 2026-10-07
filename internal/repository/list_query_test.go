@@ -124,8 +124,8 @@ func TestApplyFilterCondition_HasAudio(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_BooleanFields pins the booleanFilterFields
-// contract: textual booleans are rewritten to "1"/"0" before binding, because
+// TestApplyFilterCondition_BooleanFields pins the boolean column contract:
+// textual booleans are rewritten to "1"/"0" before binding, because
 // MySQL coerces "true"/"false" to 0 in numeric comparisons — an unnormalized
 // filter[is_breaking]=true would silently select the FALSE rows.
 func TestApplyFilterCondition_BooleanFields(t *testing.T) {
