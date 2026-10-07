@@ -34,11 +34,20 @@ func NewTTSSettingsRepository(db *gorm.DB) *TTSSettingsRepository {
 func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, error) {
 	var settings models.TTSSettings
 	db := DBFromContext(ctx, r.db)
-	// Settings updates read the old values under a lock in their transaction.
-	if TxFromContext(ctx) != nil {
-		db = db.Clauses(clause.Locking{Strength: "UPDATE"})
-	}
 	err := db.WithContext(ctx).
+		Where("id = ?", ttsSettingsSingletonID).
+		First(&settings).Error
+	if err != nil {
+		return nil, ParseDBError(err)
+	}
+	return &settings, nil
+}
+
+// GetForUpdate locks the singleton before an update. The caller must use a transaction.
+func (r *TTSSettingsRepository) GetForUpdate(ctx context.Context) (*models.TTSSettings, error) {
+	var settings models.TTSSettings
+	db := DBFromContext(ctx, r.db)
+	err := db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("id = ?", ttsSettingsSingletonID).
 		First(&settings).Error
 	if err != nil {

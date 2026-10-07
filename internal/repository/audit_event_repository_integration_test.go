@@ -287,3 +287,97 @@ func assertAuditChange(t *testing.T, event models.AuditEvent, field string, oldV
 		}
 	}
 }
+
+func TestAuditActorNamesRequirePermission(t *testing.T) {
+	db := openIntegrationDB(t)
+	user := models.User{Username: fmt.Sprintf("audit-actor-%d", time.Now().UnixNano()), FullName: "Audit Actor", Role: models.RoleViewer}
+	if err := db.Create(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Unscoped().Delete(&models.User{}, user.ID) })
+	if err := db.Delete(&user).Error; err != nil {
+		t.Fatal(err)
+	}
+	event := models.AuditEvent{
+		ActorType: "user", UserID: &user.ID, EntityType: "story", EntityID: 1, Action: "update",
+		Changes: datatypes.JSON(`{"title":{"old":"before","new":"after"}}`),
+	}
+	if err := db.Create(&event).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Delete(&models.AuditEvent{}, event.ID) })
+	query := NewListQuery()
+	query.Filters = []FilterCondition{{Field: "id", Operator: FilterEquals, Value: event.ID}}
+	for _, tt := range []struct {
+		name         string
+		includeNames bool
+	}{
+		{name: "users read allowed", includeNames: true},
+		{name: "users read denied", includeNames: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := NewAuditEventRepository(db).List(t.Context(), query, []string{"story"}, tt.includeNames)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Data) != 1 {
+				t.Fatalf("events = %+v", result.Data)
+			}
+			got := result.Data[0]
+			if got.UserID == nil || *got.UserID != user.ID {
+				t.Fatalf("user_id = %v", got.UserID)
+			}
+			if !tt.includeNames {
+				if got.Username != nil || got.FullName != nil {
+					t.Fatalf("actor names disclosed: %+v", got)
+				}
+				return
+			}
+			if got.Username == nil || *got.Username != user.Username || got.FullName == nil || *got.FullName != user.FullName {
+				t.Fatalf("soft-deleted actor names = %+v", got)
+			}
+		})
+	}
+}
+
+func TestAuditEntityScopeCannotBeBroadenedByFilters(t *testing.T) {
+	db := openIntegrationDB(t)
+	events := []models.AuditEvent{
+		{ActorType: "system", EntityType: "story", EntityID: 1, Action: "update"},
+		{ActorType: "system", EntityType: "pronunciation_rules", EntityID: 1, Action: "update"},
+	}
+	if err := db.Create(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	ids := []int64{events[0].ID, events[1].ID}
+	t.Cleanup(func() { db.Delete(&models.AuditEvent{}, ids) })
+	for _, tt := range []struct {
+		name   string
+		filter *FilterCondition
+		want   int64
+	}{
+		{name: "unfiltered", want: 1},
+		{name: "excluded entity", filter: &FilterCondition{Field: "entity_type", Operator: FilterEquals, Value: "pronunciation_rules"}},
+		{name: "mixed IN filter", filter: &FilterCondition{Field: "entity_type", Operator: FilterIn, Value: []string{"story", "pronunciation_rules"}}, want: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			query := NewListQuery()
+			query.Filters = []FilterCondition{{Field: "id", Operator: FilterIn, Value: ids}}
+			if tt.filter != nil {
+				query.Filters = append(query.Filters, *tt.filter)
+			}
+			result, err := NewAuditEventRepository(db).List(t.Context(), query, []string{"story"}, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Total != tt.want || int64(len(result.Data)) != tt.want {
+				t.Fatalf("result = %+v", result)
+			}
+			for _, event := range result.Data {
+				if event.EntityType != "story" {
+					t.Fatalf("excluded entity disclosed: %+v", event)
+				}
+			}
+		})
+	}
+}

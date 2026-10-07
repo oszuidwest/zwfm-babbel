@@ -88,7 +88,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	var current, updated *models.TTSSettings
 	err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
 		var err error
-		current, err = s.repo.Get(ctx)
+		current, err = s.repo.GetForUpdate(ctx)
 		if err != nil {
 			return err
 		}

@@ -917,6 +917,8 @@ paths:
         and `pronunciation_rules` requires `pronunciation_rules:read`.
         Filters cannot broaden these permissions; an inaccessible entity filter returns
         an empty list. A caller with none of these permissions receives 403.
+        Actor `username` and `full_name` require `users:read`; otherwise both are
+        null. The `user_id` remains visible.
 
         The default order is `-occurred_at,-id`. Filter and sort fields are `id`,
         `occurred_at`, `actor_type`, `user_id`, `entity_type`, `entity_id`, and `action`.
@@ -3011,10 +3013,10 @@ components:
           format: int64
         username:
           type: [string, 'null']
-          description: Current username, including soft-deleted users; null for system or missing users.
+          description: Current username, including soft-deleted users; null without users:read or for system or missing users.
         full_name:
           type: [string, 'null']
-          description: Current full name, including soft-deleted users; null for system or missing users.
+          description: Current full name, including soft-deleted users; null without users:read or for system or missing users.
         entity_type:
           type: string
           enum: [story, tts_settings, pronunciation_rules]

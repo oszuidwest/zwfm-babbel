@@ -74,11 +74,13 @@ var auditEventFieldMapping = FieldMapping{
 }
 
 // List restricts both rows and pagination totals to the allowed entity types.
-func (r *AuditEventRepository) List(ctx context.Context, query *ListQuery, entityTypes []string) (*ListResult[models.AuditEvent], error) {
+func (r *AuditEventRepository) List(ctx context.Context, query *ListQuery, entityTypes []string, includeActorNames bool) (*ListResult[models.AuditEvent], error) {
 	db := DBFromContext(ctx, r.db).WithContext(ctx).Model(&models.AuditEvent{}).
-		Select("audit_events.*, users.username, users.full_name").
-		Joins("LEFT JOIN users ON users.id = audit_events.user_id").
 		Where("audit_events.entity_type IN ?", entityTypes)
+	if includeActorNames {
+		db = db.Select("audit_events.*, users.username, users.full_name").
+			Joins("LEFT JOIN users ON users.id = audit_events.user_id")
+	}
 	return ApplyListQuery[models.AuditEvent](db, query, auditEventFieldMapping, nil,
 		[]SortField{{Field: "occurred_at", Direction: SortDesc}, {Field: "id", Direction: SortDesc}})
 }

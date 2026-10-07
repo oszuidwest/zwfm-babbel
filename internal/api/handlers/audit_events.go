@@ -52,7 +52,8 @@ func (h *AuditEventsHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := h.repo.List(c.Request.Context(), query, entityTypes)
+	includeActorNames := slices.Contains(permissions[string(auth.ResourceUsers)], string(auth.ActionRead))
+	result, err := h.repo.List(c.Request.Context(), query, entityTypes, includeActorNames)
 	if err != nil {
 		handleServiceError(c, err, "AuditEvent")
 		return
