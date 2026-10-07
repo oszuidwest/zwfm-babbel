@@ -74,7 +74,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// Uses type-safe error checking with errors.AsType for concrete error types.
+// It uses errors.AsType for type-safe checks against concrete error types.
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Context timeout (check first as it's a special case)
 	if errors.Is(err, context.DeadlineExceeded) {
@@ -195,6 +195,8 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	)
 }
 
+// handleAudioError writes a 422 Problem response for silent audio and a 500
+// for other audio processing failures. It reports whether err was handled.
 func handleAudioError(c *gin.Context, err error) bool {
 	if errors.Is(err, audio.ErrSilent) {
 		utils.ProblemExtended(c, http.StatusUnprocessableEntity,

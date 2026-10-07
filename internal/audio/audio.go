@@ -35,12 +35,15 @@ func commandError(ctx context.Context, err error) error {
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
 	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
-	minStoryLoudnessLUFS        = -50
+	// minStoryLoudnessLUFS is the integrated loudness below which story audio
+	// is rejected as too quiet.
+	minStoryLoudnessLUFS = -50
 	// monoDownmixFilter keeps both loudnorm passes on the same mono signal.
 	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
 
-// ErrSilent indicates story audio is silent or below the usable loudness floor.
+// ErrSilent is returned by [Service.ConvertStoryToWAV] when story audio is
+// silent or below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
 // loudnormStats carries first-pass measurements into the linear second pass.
@@ -58,7 +61,8 @@ func (l loudnormStats) silent() bool {
 }
 
 // tooQuiet reports whether story audio is silent or measurably below the
-// loudness floor. Short non-silent clips without integrated loudness pass.
+// loudness floor. Short non-silent clips without integrated loudness are not
+// considered too quiet.
 func (l loudnormStats) tooQuiet() bool {
 	return l.silent() || (!math.IsInf(l.Integrated, -1) && l.Integrated < minStoryLoudnessLUFS)
 }
@@ -91,6 +95,9 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // a -1 dBTP ceiling. Two-pass loudnorm preserves dynamics when possible and
 // falls back to dynamic mode when linear gain would breach the ceiling or its
 // loudness-range constraints.
+//
+// It returns [ErrSilent] without writing outputPath when the input is silent
+// or its integrated loudness is below -50 LUFS.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
