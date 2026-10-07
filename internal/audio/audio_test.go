@@ -272,20 +272,16 @@ func TestService_ConvertStoryToWAVLimitsShortClip(t *testing.T) {
 	}
 }
 
-func TestService_ConvertStoryToWAVRejectsSilentAudio(t *testing.T) {
-	t.Parallel()
-	svc, ffmpegPath := newFFmpegService(t)
-	inputPath := filepath.Join(t.TempDir(), "silence.wav")
-	// A short clip also covers the ungated measurement that once produced NaNs.
-	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.1", "-y", inputPath)
-
-	assertRejectedAsSilent(t, svc, inputPath)
-}
-
 func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
 	tempDir := t.TempDir()
+
+	// A short clip also covers the ungated measurement that once produced NaNs.
+	silence := filepath.Join(tempDir, "silence.wav")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.1", "-y", silence)
+	assertRejectedAsSilent(t, svc, silence)
+
 	quietSine := func(volume string) string {
 		path := filepath.Join(tempDir, volume+".wav")
 		runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",

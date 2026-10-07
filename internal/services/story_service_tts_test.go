@@ -342,10 +342,9 @@ func storyForTTSTest(text string) *models.Story {
 
 type fakeStoryRepository struct {
 	storyRepository
-	story            *models.Story
-	err              error
-	calls            int
-	updateAudioCalls int
+	story *models.Story
+	err   error
+	calls int
 }
 
 func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, error) {
@@ -354,11 +353,6 @@ func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, er
 		return nil, f.err
 	}
 	return f.story, nil
-}
-
-func (f *fakeStoryRepository) UpdateAudio(context.Context, int64, string, float64) error {
-	f.updateAudioCalls++
-	return nil
 }
 
 type fakeTTSSettingsGetter struct {
@@ -385,7 +379,13 @@ func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string
 	f.calls++
 	f.ctx = ctx
 	f.text = text
-	return f.data, f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.data != nil {
+		return f.data, nil
+	}
+	return []byte("opus"), nil
 }
 
 func assertUpstreamError(t *testing.T, got error, wantStatus int) {

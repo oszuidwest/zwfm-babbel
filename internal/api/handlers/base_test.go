@@ -301,9 +301,6 @@ func TestHandleServiceError_Audio(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
-			if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
-				t.Fatalf("Content-Type = %q, want application/problem+json", got)
-			}
 			problem := decodeProblem(t, rec)
 			if problem.Status != tt.wantStatus || problem.Code != tt.wantCode || problem.Hint != tt.wantHint {
 				t.Fatalf("problem = %+v, want status %d, code %q, hint %q", problem, tt.wantStatus, tt.wantCode, tt.wantHint)

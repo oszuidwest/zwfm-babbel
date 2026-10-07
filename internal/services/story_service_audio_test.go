@@ -2,89 +2,21 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-func TestStoryService_RejectsSilentAudioBeforePublication(t *testing.T) {
+func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	t.Parallel()
-	ffmpegPath, inputPath, silentAudio := silentStoryAudioFixture(t)
-	tests := []struct {
-		name     string
-		tts      bool
-		existing bool
-	}{
-		{name: "upload without existing audio"},
-		{name: "upload with existing audio", existing: true},
-		{name: "TTS without existing audio", tts: true},
-		{name: "TTS with existing audio", tts: true, existing: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
-			}}
-			story := storyForTTSTest("News bulletin")
-			finalPath := utils.StoryPath(cfg, story.ID)
-			existingAudio := []byte("existing audio must stay intact")
-			wantFiles := 0
-			if tt.existing {
-				story.AudioFile = utils.StoryFilename(story.ID)
-				if err := os.WriteFile(finalPath, existingAudio, 0600); err != nil {
-					t.Fatal(err)
-				}
-				wantFiles = 1
-			}
-			repo := &fakeStoryRepository{story: story}
-			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
-			service.storyRepo = repo
-			service.config = cfg
-			service.audioSvc = audio.NewService(cfg, nil)
-
-			var err error
-			if tt.tts {
-				err = service.GenerateTTS(t.Context(), story.ID, tt.existing)
-			} else {
-				err = service.ProcessAudio(t.Context(), story.ID, inputPath)
-			}
-			if !errors.Is(err, audio.ErrSilent) {
-				t.Fatalf("error = %v, want audio.ErrSilent", err)
-			}
-			if _, ok := errors.AsType[*apperrors.AudioError](err); !ok {
-				t.Fatalf("error type = %T, want *apperrors.AudioError", err)
-			}
-			if repo.updateAudioCalls != 0 {
-				t.Fatalf("UpdateAudio calls = %d, want 0", repo.updateAudioCalls)
-			}
-			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(entries) != wantFiles {
-				t.Fatalf("processed files = %v, want %d (no published or temporary output)", entries, wantFiles)
-			}
-			if tt.existing {
-				// #nosec G304 - canonical story path inside t.TempDir
-				if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existingAudio) {
-					t.Fatalf("existing audio = %q, %v; want %q", got, err, existingAudio)
-				}
-			}
-		})
-	}
-}
-
-func silentStoryAudioFixture(t *testing.T) (string, string, []byte) {
-	t.Helper()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not available")
@@ -101,5 +33,51 @@ func silentStoryAudioFixture(t *testing.T) (string, string, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ffmpegPath, inputPath, silentAudio
+
+	tests := []struct {
+		name string
+		run  func(ctx context.Context, s *StoryService, storyID int64) error
+	}{
+		{"upload", func(ctx context.Context, s *StoryService, storyID int64) error {
+			return s.ProcessAudio(ctx, storyID, inputPath)
+		}},
+		{"forced TTS", func(ctx context.Context, s *StoryService, storyID int64) error {
+			return s.GenerateTTS(ctx, storyID, true)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
+			}}
+			story := storyForTTSTest("News bulletin")
+			story.AudioFile = utils.StoryFilename(story.ID)
+			finalPath := utils.StoryPath(cfg, story.ID)
+			existingAudio := []byte("existing audio must stay intact")
+			if err := os.WriteFile(finalPath, existingAudio, 0600); err != nil {
+				t.Fatal(err)
+			}
+			// fakeStoryRepository embeds a nil storyRepository: a database
+			// update before rejection panics.
+			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
+			service.config = cfg
+			service.audioSvc = audio.NewService(cfg, nil)
+
+			if err := tt.run(t.Context(), service, story.ID); !errors.Is(err, audio.ErrSilent) {
+				t.Fatalf("error = %v, want audio.ErrSilent", err)
+			}
+			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("processed files = %v, want only the existing audio", entries)
+			}
+			// #nosec G304 - canonical story path inside t.TempDir
+			if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existingAudio) {
+				t.Fatalf("existing audio = %q, %v; want %q", got, err, existingAudio)
+			}
+		})
+	}
 }

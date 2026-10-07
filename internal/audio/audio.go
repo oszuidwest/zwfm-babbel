@@ -181,8 +181,8 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second pass. Ungated non-silent clips
-// omit unavailable measurements and use loudnorm's dynamic mode.
+// storyNormalizationFilter builds the second pass. Ungated clips omit
+// unavailable measurements and use loudnorm's dynamic mode.
 func storyNormalizationFilter(stats loudnormStats) string {
 	filter := monoDownmixFilter + "," + loudnessNormalizationFilter
 	if math.IsInf(stats.Integrated, -1) {
