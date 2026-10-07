@@ -83,3 +83,34 @@ describe('Story Date Validation', () => {
     expect(response.status).toBe(422);
   });
 });
+
+describe('List Filter Type Validation', () => {
+  test.each([
+    ['/stories', 'weekdays', 'eq', 'abc'],
+    ['/stories', 'weekdays', 'eq', 'false'],
+    ['/stories', 'weekdays', 'eq', '128'],
+    ['/stories', 'weekdays', 'band', '128'],
+    ['/stories', 'weekdays', 'in', '1,2'],
+    ['/stories', 'voice_id', 'in', '1,abc'],
+    ['/stories', 'start_date', 'between', 'invalid,2024-12-31'],
+    ['/stories', 'end_date', 'between', '2024-01-01,2024-02-30'],
+    ['/stories', 'status', 'in', 'active,unknown'],
+    ['/stations', 'max_stories_per_block', 'eq', '1.5'],
+    ['/stations', 'pause_seconds', 'between', '1,abc'],
+    ['/voices', 'id', 'eq', '9223372036854775808'],
+    ['/voices', 'id', 'like', '1'],
+    ['/voices', 'created_at', 'in', '2024-01-01,bogus'],
+    ['/station-voices', 'mix_point', 'eq', 'NaN'],
+    ['/station-voices', 'station_id', 'eq', 'abc'],
+    ['/users', 'role', 'eq', 'unknown'],
+    ['/users', 'role', 'in', 'admin,unknown'],
+    ['/bulletins', 'duration_seconds', 'between', 'abc,1'],
+    ['/bulletins', 'file_size', 'eq', '1.5'],
+    ['/bulletins', 'created_at', 'eq', '2024-01-01T25:00:00Z']
+  ])('when %s filter[%s][%s]=%s is invalid, then returns 422', async (endpoint, field, op, value) => {
+    const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][${op}]=${encodeURIComponent(value)}`);
+    expect(response.status).toBe(422);
+    expect(response.contentType).toContain('application/problem+json');
+    expect(response.data.errors[0].field).toBe(`filter[${field}][${op}]`);
+  });
+});

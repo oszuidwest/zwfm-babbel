@@ -2,14 +2,39 @@ package repository
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 
 	"gorm.io/gorm"
 )
 
-// FieldMapping maps API field names to database column names for security.
-type FieldMapping map[string]string
+// FieldMapping maps API field names to trusted columns and filter types.
+type FieldMapping map[string]FilterField
+
+// FilterField describes a list field's column and OpenAPI filter contract.
+type FilterField struct {
+	Column   string
+	Type     filterType
+	Nullable bool
+}
+
+type filterType string
+
+const (
+	filterString      filterType = "string"
+	filterInteger     filterType = "integer"
+	filterNumber      filterType = "number"
+	filterDate        filterType = "date"
+	filterDateTime    filterType = "date-time"
+	filterBoolean     filterType = "boolean"
+	filterBitmask     filterType = "integer between 0 and 127"
+	filterStoryStatus filterType = "story status (draft, active, expired)"
+	filterUserRole    filterType = "user role (admin, editor, viewer)"
+)
 
 // SortDirection represents ascending or descending sort order.
 type SortDirection string
@@ -80,8 +105,7 @@ func (e *UnknownFieldError) Error() string {
 }
 
 // InvalidFilterError indicates a filter condition could not be applied because
-// the value shape does not match the operator (e.g. LIKE with a non-string
-// value, BETWEEN without two values, BAND on a non-allowlisted field).
+// value or operator does not match the field type or expected value shape.
 type InvalidFilterError struct {
 	Field    string
 	Operator FilterOperator
@@ -242,7 +266,7 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 			if !ok {
 				continue
 			}
-			db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+			db = db.Order(dbField.Column + " " + sortDirectionSQL(sf.Direction))
 		}
 		return db, nil
 	}
@@ -251,7 +275,7 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 		if !ok || presenceFilterFields[sf.Field] {
 			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
 		}
-		db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+		db = db.Order(dbField.Column + " " + sortDirectionSQL(sf.Direction))
 	}
 	return db, nil
 }
@@ -282,13 +306,18 @@ func sortDirectionSQL(d SortDirection) string {
 func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) (*gorm.DB, error) {
 	// Map public field names through a whitelist because SQL identifiers cannot
 	// be parameterized.
-	dbField, ok := fieldMapping[filter.Field]
+	field, ok := fieldMapping[filter.Field]
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
 
+	dbField := field.Column
 	if presenceFilterFields[filter.Field] {
 		return applyPresenceFilter(db, dbField, filter)
+	}
+
+	if err := validateFilter(filter, field); err != nil {
+		return nil, err
 	}
 
 	if booleanFilterFields[filter.Field] {
@@ -297,15 +326,6 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 			return nil, err
 		}
 		filter = normalized
-	}
-
-	// Restrict bitwise operators to allowed fields only.
-	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
-		return nil, &InvalidFilterError{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Reason:   "bitwise operator not allowed on this field",
-		}
 	}
 
 	// Special case for LIKE operator (needs pattern wrapping)
@@ -351,6 +371,102 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		Operator: filter.Operator,
 		Reason:   "unsupported operator",
 	}
+}
+
+// validateFilter checks every value before SQL binding without rewriting valid input.
+func validateFilter(filter FilterCondition, field FilterField) error {
+	invalid := func(reason string) error {
+		return &InvalidFilterError{Field: filter.Field, Operator: filter.Operator, Reason: reason}
+	}
+	if !field.allowsOperator(filter.Operator, filter.Field) {
+		return invalid("operator not allowed on this field")
+	}
+	if filter.Operator == FilterIsNull || filter.Operator == FilterIsNotNull {
+		return nil
+	}
+	if filter.Operator == FilterBitwiseAnd {
+		value, ok := filter.Value.(uint8)
+		if !ok || value > uint8(models.WeekdaysAll) {
+			return invalid("expected an integer between 0 and 127")
+		}
+		return nil
+	}
+
+	var values []string
+	if filter.Operator == FilterIn || filter.Operator == FilterBetween {
+		var ok bool
+		values, ok = filter.Value.([]string)
+		if !ok || len(values) == 0 {
+			return invalid("expected comma-separated values")
+		}
+	} else {
+		value, ok := filter.Value.(string)
+		if !ok {
+			return invalid("expected string value")
+		}
+		values = []string{value}
+	}
+	for _, value := range values {
+		if !field.Type.validValue(value) {
+			return invalid(fmt.Sprintf("expected a valid %s value", field.Type))
+		}
+	}
+	return nil
+}
+
+func (f FilterField) allowsOperator(op FilterOperator, name string) bool {
+	switch op {
+	case FilterEquals, FilterNotEquals:
+		return true
+	case FilterIsNull, FilterIsNotNull:
+		return f.Nullable
+	case FilterBitwiseAnd:
+		return bitwiseAllowedFields[name]
+	case FilterLike:
+		return f.Type == filterString
+	case FilterIn:
+		return f.Type != filterBitmask
+	case FilterGreaterThan, FilterGreaterOrEq, FilterLessThan, FilterLessOrEq, FilterBetween:
+		switch f.Type {
+		case filterInteger, filterNumber, filterDate, filterDateTime:
+			return true
+		}
+	}
+	return false
+}
+
+func (typ filterType) validValue(raw string) bool {
+	switch typ {
+	case filterString:
+		return true
+	case filterInteger:
+		_, err := strconv.ParseInt(raw, 10, 64)
+		return err == nil
+	case filterNumber:
+		value, err := strconv.ParseFloat(raw, 64)
+		// ParseFloat also accepts non-finite values and Go hex/underscore syntax.
+		return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0) && !strings.ContainsAny(raw, "xXpP_")
+	case filterDate:
+		_, err := time.Parse(time.DateOnly, raw)
+		return err == nil
+	case filterDateTime:
+		if _, err := time.Parse(time.RFC3339, raw); err == nil {
+			return true
+		}
+		_, err := time.Parse(time.DateOnly, raw)
+		return err == nil
+	case filterBoolean:
+		// normalizeBooleanFilter performs validation and SQL normalization.
+		return true
+	case filterBitmask:
+		_, err := strconv.ParseUint(raw, 10, 7)
+		return err == nil
+	case filterStoryStatus:
+		return models.StoryStatus(raw).IsValid()
+	case filterUserRole:
+		return models.UserRole(raw).IsValid()
+	}
+	return false
 }
 
 // normalizeBooleanFilter implements the booleanFilterFields contract: every

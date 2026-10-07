@@ -182,7 +182,7 @@ describe('Bulletin Cleanup', () => {
   describe('Purge Filtering', () => {
     test('when filtering by purged status, then returns correct results', async () => {
       const response = await global.api.apiCall('GET',
-        `/stations/${testStationId}/bulletins?filter[file_purged_at][ne]=null`
+        `/stations/${testStationId}/bulletins?filter[file_purged_at][null]=false`
       );
 
       expect(response.status).toBe(200);

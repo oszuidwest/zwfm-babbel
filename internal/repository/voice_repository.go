@@ -71,11 +71,11 @@ func (r *VoiceRepository) HasDependencies(ctx context.Context, id int64) (bool, 
 
 // voiceFieldMapping maps API field names to database columns for voices.
 var voiceFieldMapping = FieldMapping{
-	"id":                  "id",
-	"name":                "name",
-	"elevenlabs_voice_id": "elevenlabs_voice_id",
-	"created_at":          "created_at",
-	"updated_at":          "updated_at",
+	"id":                  {Column: "id", Type: filterInteger},
+	"name":                {Column: "name", Type: filterString},
+	"elevenlabs_voice_id": {Column: "elevenlabs_voice_id", Type: filterString, Nullable: true},
+	"created_at":          {Column: "created_at", Type: filterDateTime},
+	"updated_at":          {Column: "updated_at", Type: filterDateTime},
 }
 
 // voiceSearchFields defines which fields are searchable for voices.

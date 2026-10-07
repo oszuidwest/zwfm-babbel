@@ -82,15 +82,15 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.filterableFields?.length > 0) {
       describe('Filtering', () => {
         query.filterableFields.forEach(field => {
-          // Boolean columns reject non-boolean filter values with 422, so
-          // they need boolean payloads. not=true excludes the TRUE rows and
-          // keeps matching the (default false) query fixtures.
           const isBoolean = query.booleanFields?.includes(field);
-          const inValues = isBoolean ? 'true,false' : '1,2,3';
-          const notValue = isBoolean ? 'true' : '999999';
+          const isBitmask = query.bitmaskFields?.includes(field);
+          const enumValues = schema.validation?.fields[field]?.enum;
+          const exactValue = enumValues?.[0] ?? '1';
+          const inValues = enumValues?.join(',') ?? (isBoolean ? 'true,false' : '1,2,3');
+          const notValue = enumValues?.[0] ?? (isBoolean ? 'true' : (isBitmask ? '0' : '999999'));
           test.each([
-            [`when filtering ${field} exact, then matches`, `filter[${field}]=1`, null],
-            [`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null],
+            [`when filtering ${field} exact, then matches`, `filter[${field}]=${exactValue}`, null],
+            ...(!isBitmask ? [[`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null]] : []),
             [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=${notValue}`, response => {
               expect(response.data.total).toBeGreaterThan(0);
               expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
@@ -114,7 +114,7 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         query.filterableFields
-          .filter(field => query.numericFields?.includes(field))
+          .filter(field => query.numericFields?.includes(field) && !query.bitmaskFields?.includes(field))
           .forEach(field => {
             test.each([
               [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=1`, value => expect(value).toBeGreaterThanOrEqual(1)],

@@ -934,7 +934,7 @@ paths:
 
         ## Voice Filtering
         - `filter[voice_id]=5` - Stories with specific voice
-        - `filter[voice_id][ne]=null` - Stories with any voice assigned
+        - `filter[voice_id][null]=false` - Stories with any voice assigned
         - `filter[voice_id][null]=true` - Stories without voice
 
         ## Audio Filtering
@@ -950,7 +950,7 @@ paths:
         ## Examples
         - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
         - Stories that play on Monday: `?filter[weekdays][band]=2`
-        - Weekend stories with voice: `?filter[weekdays][band]=65&filter[voice_id][ne]=null`
+        - Weekend stories with voice: `?filter[weekdays][band]=65&filter[voice_id][null]=false`
         - Search with sorting: `?search=breaking&sort=-created_at`
       tags:
         - Stories

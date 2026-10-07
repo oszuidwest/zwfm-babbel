@@ -134,13 +134,13 @@ func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error
 
 // userFieldMapping maps API field names to database columns for users.
 var userFieldMapping = FieldMapping{
-	"id":         "id",
-	"username":   "username",
-	"full_name":  "full_name",
-	"email":      "email",
-	"role":       "role",
-	"created_at": "created_at",
-	"updated_at": "updated_at",
+	"id":         {Column: "id", Type: filterInteger},
+	"username":   {Column: "username", Type: filterString},
+	"full_name":  {Column: "full_name", Type: filterString},
+	"email":      {Column: "email", Type: filterString, Nullable: true},
+	"role":       {Column: "role", Type: filterUserRole},
+	"created_at": {Column: "created_at", Type: filterDateTime},
+	"updated_at": {Column: "updated_at", Type: filterDateTime},
 }
 
 // userSearchFields defines which fields are searchable for users.

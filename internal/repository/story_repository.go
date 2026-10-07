@@ -179,21 +179,21 @@ func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, 
 
 // storyFieldMapping maps API field names to database columns for stories.
 var storyFieldMapping = FieldMapping{
-	"id":               "id",
-	"title":            "title",
-	"text":             "text",
-	"voice_id":         "voice_id",
-	"audio_url":        "audio_file", // Maps API field to DB column for filtering
-	"has_audio":        "audio_file",
-	"status":           "status",
-	"start_date":       "start_date",
-	"end_date":         "end_date",
-	"duration_seconds": "duration_seconds",
-	"weekdays":         "weekdays",
-	"is_breaking":      "is_breaking",
-	"created_at":       "created_at",
-	"updated_at":       "updated_at",
-	"deleted_at":       "deleted_at",
+	"id":               {Column: "id", Type: filterInteger},
+	"title":            {Column: "title", Type: filterString},
+	"text":             {Column: "text", Type: filterString},
+	"voice_id":         {Column: "voice_id", Type: filterInteger, Nullable: true},
+	"audio_url":        {Column: "audio_file", Type: filterString}, // Maps API field to DB column for filtering
+	"has_audio":        {Column: "audio_file", Type: filterBoolean},
+	"status":           {Column: "status", Type: filterStoryStatus},
+	"start_date":       {Column: "start_date", Type: filterDate},
+	"end_date":         {Column: "end_date", Type: filterDate},
+	"duration_seconds": {Column: "duration_seconds", Type: filterNumber, Nullable: true},
+	"weekdays":         {Column: "weekdays", Type: filterBitmask},
+	"is_breaking":      {Column: "is_breaking", Type: filterBoolean},
+	"created_at":       {Column: "created_at", Type: filterDateTime},
+	"updated_at":       {Column: "updated_at", Type: filterDateTime},
+	"deleted_at":       {Column: "deleted_at", Type: filterDateTime, Nullable: true},
 }
 
 // storySearchFields defines which fields are searchable for stories.
