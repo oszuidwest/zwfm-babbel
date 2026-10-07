@@ -296,6 +296,8 @@ describe('Stories', () => {
 
   describe('Story Audio', () => {
     const testAudio = '/tmp/test_story_audio.wav';
+    const storyAudioFile = (storyId, voiceId) =>
+      new RegExp(`^story_${storyId}_voice_${voiceId}_[0-9a-f]{12}\\.wav$`);
 
     beforeAll(() => {
       if (!global.helpers.createTestAudioFile(testAudio, 2)) {
@@ -318,9 +320,7 @@ describe('Stories', () => {
       expect(uploadResponse.status).toBe(201);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
-      expect(getResponse.data.audio_file).toMatch(
-        new RegExp(`^story_${result.id}_voice_${result.voiceId}_[0-9a-f]{12}\\.wav$`)
-      );
+      expect(getResponse.data.audio_file).toMatch(storyAudioFile(result.id, result.voiceId));
     });
 
     test('when story has no voice, then upload is rejected', async () => {
@@ -360,20 +360,18 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${story.id}`);
       expect(getResponse.data.voice_id).toBe(voice.id);
-      expect(getResponse.data.audio_file).toMatch(
-        new RegExp(`^story_${story.id}_voice_${voice.id}_[0-9a-f]{12}\\.wav$`)
-      );
+      expect(getResponse.data.audio_file).toMatch(storyAudioFile(story.id, voice.id));
     });
 
     test('when voice_id query is malformed, then upload returns 422', async () => {
-      if (!fs.existsSync(testAudio)) return;
-
       const result = await createStoryWithDeps('BadVoiceQuery', 'Bad query', 'BadQueryVoice', 'BadQueryStation');
       expect(result).not.toBeNull();
 
-      const response = await global.api.uploadFile(`/stories/${result.id}/audio?voice_id=abc`, {}, testAudio, 'audio');
+      // The query is validated before any upload data is read.
+      const response = await global.api.apiCall('POST', `/stories/${result.id}/audio?voice_id=abc`);
 
       expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('voice_id');
     });
 
     test('when story has audio, then voice is locked until audio is replaced', async () => {
@@ -385,7 +383,6 @@ describe('Stories', () => {
 
       const firstUpload = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
       expect(firstUpload.status).toBe(201);
-      const before = await global.api.apiCall('GET', `/stories/${result.id}`);
 
       const conflict = await global.api.apiCall('PUT', `/stories/${result.id}`, { voice_id: otherVoice.id });
       expect(conflict.status).toBe(409);
@@ -409,10 +406,7 @@ describe('Stories', () => {
 
       const after = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(after.data.voice_id).toBe(otherVoice.id);
-      expect(after.data.audio_file).not.toBe(before.data.audio_file);
-      expect(after.data.audio_file).toMatch(
-        new RegExp(`^story_${result.id}_voice_${otherVoice.id}_[0-9a-f]{12}\\.wav$`)
-      );
+      expect(after.data.audio_file).toMatch(storyAudioFile(result.id, otherVoice.id));
     });
 
     test('when fetching story, then audio fields present', async () => {
