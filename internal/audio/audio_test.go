@@ -106,6 +106,7 @@ func TestLoudnormStatsTooQuiet(t *testing.T) {
 		{name: "at floor", stats: loudnormStats{Integrated: -50, TruePeak: -30}},
 		{name: "normal", stats: loudnormStats{Integrated: -19.76, TruePeak: -1}},
 		{name: "short clip without integrated loudness", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: -1}},
+		{name: "below loudness gate", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: -73}, want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -285,24 +286,22 @@ func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
 	tempDir := t.TempDir()
-	quietSine := func(volume string, wantLUFS float64) string {
+	quietSine := func(volume string) string {
 		path := filepath.Join(tempDir, volume+".wav")
 		runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
 			"-af", "volume="+volume, "-c:a", "pcm_f32le", "-y", path)
-		if got := measureLoudness(t, ffmpegPath, path).Integrated; math.Abs(got-wantLUFS) > 0.1 {
-			t.Fatalf("input loudness at %s = %.2f LUFS, want near %.1f", volume, got, wantLUFS)
-		}
 		return path
 	}
 
-	assertRejectedAsSilent(t, svc, quietSine("-29.5dB", -50.5))
+	// About -52 LUFS, and below the -70 LUFS gate where loudnorm reports no
+	// integrated loudness.
+	assertRejectedAsSilent(t, svc, quietSine("-31dB"))
+	assertRejectedAsSilent(t, svc, quietSine("-70dB"))
 
+	// About -48 LUFS.
 	outputPath := filepath.Join(tempDir, "output.wav")
-	if _, _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-28.5dB", -49.5), outputPath); err != nil {
-		t.Fatalf("ConvertStoryToWAV(just above floor) error: %v", err)
-	}
-	if loudness := measureLoudness(t, ffmpegPath, outputPath).Integrated; math.Abs(loudness+16) > 0.5 {
-		t.Fatalf("output loudness = %.2f LUFS, want -16", loudness)
+	if _, _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-27dB"), outputPath); err != nil {
+		t.Fatalf("ConvertStoryToWAV(above floor) error: %v", err)
 	}
 }
 

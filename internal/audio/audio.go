@@ -60,11 +60,14 @@ func (l loudnormStats) silent() bool {
 	return math.IsInf(l.TruePeak, -1)
 }
 
-// tooQuiet reports whether story audio is silent or measurably below the
-// loudness floor. Short non-silent clips without integrated loudness are not
-// considered too quiet.
+// tooQuiet reports whether story audio is below the loudness floor. Without
+// integrated loudness (clips shorter than one 400 ms block, or audio below the
+// -70 LUFS gate), the true peak is compared against the floor instead.
 func (l loudnormStats) tooQuiet() bool {
-	return l.silent() || (!math.IsInf(l.Integrated, -1) && l.Integrated < minStoryLoudnessLUFS)
+	if math.IsInf(l.Integrated, -1) {
+		return l.TruePeak < minStoryLoudnessLUFS
+	}
+	return l.Integrated < minStoryLoudnessLUFS
 }
 
 // JingleContext keeps the jingle and mix point stable across story shuffling.
@@ -97,7 +100,7 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // loudness-range constraints.
 //
 // It returns [ErrSilent] without writing outputPath when the input is silent
-// or its integrated loudness is below -50 LUFS.
+// or below the -50 LUFS loudness floor.
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {

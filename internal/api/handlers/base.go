@@ -74,7 +74,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 }
 
 // handleServiceError maps domain errors to RFC 9457 Problem Details responses.
-// It uses errors.AsType for type-safe checks against concrete error types.
+// Uses type-safe error checking with errors.AsType for concrete error types.
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Context timeout (check first as it's a special case)
 	if errors.Is(err, context.DeadlineExceeded) {

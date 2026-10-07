@@ -89,7 +89,7 @@ func silentStoryAudioFixture(t *testing.T) (string, string, []byte) {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
-	inputPath := filepath.Join(t.TempDir(), "silent.opus")
+	inputPath := filepath.Join(t.TempDir(), "silent.wav")
 	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
 	cmd := exec.CommandContext(t.Context(), ffmpegPath,
 		"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=1", "-y", inputPath)

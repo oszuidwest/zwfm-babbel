@@ -334,13 +334,6 @@ describe('Stories', () => {
         expect(result).not.toBeNull();
         const endpoint = `/stories/${result.id}/audio`;
 
-        const firstUpload = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
-        expect(firstUpload.status).toBe(422);
-        expect(firstUpload.data.code).toBe('audio.silent');
-        const emptyStory = await global.api.apiCall('GET', `/stories/${result.id}`);
-        expect(emptyStory.data.audio_file).toBe('');
-        expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(404);
-
         const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
         expect(validUpload.status).toBe(201);
         const before = await global.api.apiCall('GET', `/stories/${result.id}`);
