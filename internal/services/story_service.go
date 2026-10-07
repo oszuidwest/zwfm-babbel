@@ -200,12 +200,13 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		}
 	}
 
-	voiceID, err := effectiveVoiceUpdate(existing, req.VoiceID)
+	effective := *req
+	effective.VoiceID, err = effectiveVoiceUpdate(existing, req.VoiceID)
 	if err != nil {
 		return nil, err
 	}
 
-	updates, err := s.buildUpdateStruct(ctx, req, voiceID, startDate, endDate)
+	updates, err := s.buildUpdateStruct(ctx, &effective, startDate, endDate)
 	if err != nil {
 		return nil, err
 	}
@@ -249,13 +250,18 @@ func validateEffectiveDateRange(existing *models.Story, startDate, endDate *time
 // effectiveVoiceUpdate returns the voice to write: nil when none was requested
 // or it is unchanged. A different voice is rejected while the story has audio.
 func effectiveVoiceUpdate(existing *models.Story, voiceID *int64) (*int64, error) {
-	if voiceID == nil || (existing.VoiceID != nil && *existing.VoiceID == *voiceID) {
+	if !changesVoice(existing, voiceID) {
 		return nil, nil
 	}
 	if existing.AudioFile != "" {
 		return nil, errStoryVoiceLocked(nil)
 	}
 	return voiceID, nil
+}
+
+// changesVoice reports whether voiceID names a voice other than the story's.
+func changesVoice(story *models.Story, voiceID *int64) bool {
+	return voiceID != nil && (story.VoiceID == nil || *story.VoiceID != *voiceID)
 }
 
 // errStoryVoiceLocked reports an attempt to change the voice of a story whose
@@ -300,12 +306,10 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 }
 
 // buildUpdateStruct translates API-level PATCH semantics into repository
-// updates and verifies a changed voice exists. voiceID replaces req.VoiceID
-// so the caller can drop an unchanged voice.
+// updates and verifies a changed voice exists.
 func (s *StoryService) buildUpdateStruct(
 	ctx context.Context,
 	req *UpdateStoryRequest,
-	voiceID *int64,
 	startDate, endDate *time.Time,
 ) (*repository.StoryUpdate, error) {
 	updates := &repository.StoryUpdate{ActorUserID: req.ActorUserID}
@@ -324,15 +328,15 @@ func (s *StoryService) buildUpdateStruct(
 		hasUpdates = true
 	}
 
-	if voiceID != nil {
-		exists, err := s.voiceRepo.Exists(ctx, *voiceID)
+	if req.VoiceID != nil {
+		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
 		if err != nil {
 			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 		}
 		if !exists {
-			return nil, apperrors.NotFoundWithID("Voice", *voiceID)
+			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
 		}
-		updates.VoiceID = voiceID
+		updates.VoiceID = req.VoiceID
 		hasUpdates = true
 	}
 
@@ -427,7 +431,7 @@ func (s *StoryService) PrepareAudio(ctx context.Context, storyID int64, voiceID 
 }
 
 func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voiceID *int64) (*AudioTarget, error) {
-	if voiceID == nil || (story.VoiceID != nil && *story.VoiceID == *voiceID) {
+	if !changesVoice(story, voiceID) {
 		if story.VoiceID == nil || story.Voice == nil {
 			return nil, apperrors.Validation("Story", "voice_id",
 				"story has no voice; select the voice heard in the audio first")

@@ -98,9 +98,9 @@ func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story,
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// Update applies non-nil story fields and Clear* nulling flags. A voice change
-// only applies while the story has no audio or its audio already belongs to
-// that voice; otherwise it returns ErrStateConflict.
+// Update applies non-nil story fields. A voice change only applies while the
+// story has no audio or its audio already belongs to that voice; otherwise it
+// returns ErrStateConflict.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
@@ -120,18 +120,8 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 
 		// The guard is part of the UPDATE so audio uploaded after the caller's
 		// read cannot end up paired with a different voice.
-		db := DBFromContext(ctx, r.db)
-		result := db.WithContext(ctx).Model(&models.Story{}).
-			Where("id = ?", id).
-			Where("(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID).
-			Updates(updateMap)
-		if result.Error != nil {
-			return ParseDBError(result.Error)
-		}
-		if result.RowsAffected == 0 {
-			return r.missingOrConflict(ctx, id)
-		}
-		return nil
+		return r.guardedUpdate(ctx, id, updateMap,
+			"(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID)
 	})
 }
 
@@ -160,33 +150,30 @@ func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudi
 	return r.withAudit(ctx, models.AuditEvent{
 		UserID: u.ActorUserID, EntityType: "story", EntityID: id, Action: action,
 	}, func(ctx context.Context) error {
-		db := DBFromContext(ctx, r.db)
-		query := db.WithContext(ctx).Model(&models.Story{}).
-			Where("id = ?", id).
-			Where("COALESCE(audio_file, '') = ?", u.ExpectedAudioFile)
-		if u.ExpectedVoiceID == nil {
-			query = query.Where("voice_id IS NULL")
-		} else {
-			query = query.Where("voice_id = ?", *u.ExpectedVoiceID)
-		}
-
-		result := query.Updates(map[string]any{
+		return r.guardedUpdate(ctx, id, map[string]any{
 			"voice_id":         u.VoiceID,
 			"audio_file":       u.AudioFile,
 			"duration_seconds": u.DurationSeconds,
-		})
-		if result.Error != nil {
-			return ParseDBError(result.Error)
-		}
-		if result.RowsAffected == 0 {
-			return r.missingOrConflict(ctx, id)
-		}
-		return nil
+		}, "COALESCE(audio_file, '') = ? AND voice_id <=> ?", u.ExpectedAudioFile, u.ExpectedVoiceID)
 	})
 }
 
-// missingOrConflict explains why a conditional update matched no rows.
-func (r *StoryRepository) missingOrConflict(ctx context.Context, id int64) error {
+// guardedUpdate applies updates only when the guard condition holds. When no
+// row matches it returns ErrNotFound for a missing story and ErrStateConflict
+// otherwise.
+func (r *StoryRepository) guardedUpdate(ctx context.Context, id int64, updates map[string]any, guard string, args ...any) error {
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
+		Where("id = ?", id).
+		Where(guard, args...).
+		Updates(updates)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
 	exists, err := r.Exists(ctx, id)
 	if err != nil {
 		return err

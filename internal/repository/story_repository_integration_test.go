@@ -112,7 +112,7 @@ func assertIntegrationStoryVoice(t *testing.T, repo *StoryRepository, id, wantVo
 	if story.VoiceID == nil || *story.VoiceID != wantVoice {
 		t.Fatalf("voice_id = %v, want %d", story.VoiceID, wantVoice)
 	}
-	if wantAudio != "" && story.AudioFile != wantAudio {
+	if story.AudioFile != wantAudio {
 		t.Fatalf("audio_file = %q, want %q", story.AudioFile, wantAudio)
 	}
 }
