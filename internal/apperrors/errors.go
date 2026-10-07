@@ -1,10 +1,7 @@
 // Package apperrors provides domain-level error definitions for the Babbel API.
 package apperrors
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
 // NotFoundError indicates the requested resource does not exist.
 type NotFoundError struct {
@@ -32,17 +29,6 @@ func NotFoundWithID(resource string, id int64) *NotFoundError {
 // NotFoundWithCause creates a NotFoundError with an underlying cause.
 func NotFoundWithCause(resource string, cause error) *NotFoundError {
 	return &NotFoundError{Resource: resource, cause: cause}
-}
-
-// StoryDeletedError indicates a write targeted a soft-deleted story.
-type StoryDeletedError struct {
-	ID        int64
-	DeletedAt time.Time
-}
-
-// Error describes the deleted story for problem details.
-func (e *StoryDeletedError) Error() string {
-	return fmt.Sprintf("Story with id %d has been deleted", e.ID)
 }
 
 // DuplicateError indicates a unique constraint violation.
