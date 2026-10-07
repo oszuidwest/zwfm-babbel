@@ -110,7 +110,7 @@ describe('List Filter Type Validation', () => {
   ])('when %s filter[%s][%s]=%s is invalid, then returns 422', async (endpoint, field, op, value) => {
     const response = await global.api.apiCall('GET', `${endpoint}?filter[${field}][${op}]=${encodeURIComponent(value)}`);
     expect(response.status).toBe(422);
-    expect(response.contentType).toContain('application/problem+json');
+    expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
     expect(response.data.errors[0].field).toBe(`filter[${field}][${op}]`);
   });
 });

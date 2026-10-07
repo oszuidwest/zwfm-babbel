@@ -296,8 +296,8 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 		},
 		{
 			name: "date-time", mapping: bulletinFieldMapping, field: "created_at", ranges: true,
-			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00"},
-			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-01-01 12:30:00"},
+			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00", "2024-01-01 12:30:00"},
+			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-02-30 12:30:00", "2024-01-01 25:00:00"},
 		},
 		{
 			name: "status", mapping: storyFieldMapping, field: "status",
@@ -369,6 +369,10 @@ func TestApplyFilterCondition_ClientFilters(t *testing.T) {
 		{
 			name: "Knabbel bulletin creation date", mapping: bulletinFieldMapping,
 			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07"},
+		},
+		{
+			name: "bulletin date-time lower bound", mapping: bulletinFieldMapping,
+			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2024-01-10 00:00:00"},
 		},
 		{
 			name: "Knabbel story creation date", mapping: storyFieldMapping,

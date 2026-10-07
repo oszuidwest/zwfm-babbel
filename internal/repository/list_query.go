@@ -453,6 +453,9 @@ func (typ filterType) validValue(raw string) bool {
 		if _, err := time.Parse(time.RFC3339, raw); err == nil {
 			return true
 		}
+		if _, err := time.Parse(time.DateTime, raw); err == nil {
+			return true
+		}
 		_, err := time.Parse(time.DateOnly, raw)
 		return err == nil
 	case filterBoolean:
