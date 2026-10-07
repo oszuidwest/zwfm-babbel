@@ -16,11 +16,13 @@ import (
 )
 
 type problemResponse struct {
-	Status int                         `json:"status"`
-	Code   string                      `json:"code"`
-	Hint   string                      `json:"hint"`
-	Detail string                      `json:"detail"`
-	Errors []apperrors.ValidationError `json:"errors"`
+	Type      string                      `json:"type"`
+	Status    int                         `json:"status"`
+	Code      string                      `json:"code"`
+	Hint      string                      `json:"hint"`
+	Detail    string                      `json:"detail"`
+	DeletedAt time.Time                   `json:"deleted_at"`
+	Errors    []apperrors.ValidationError `json:"errors"`
 }
 
 func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
@@ -49,14 +51,7 @@ func TestHandleServiceError_StoryDeletedReturnsGone(t *testing.T) {
 
 	handleServiceError(c, err, "Story")
 
-	var problem struct {
-		problemResponse
-		Type      string    `json:"type"`
-		DeletedAt time.Time `json:"deleted_at"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &problem); err != nil {
-		t.Fatalf("decode problem body: %v; body=%s", err, rec.Body.String())
-	}
+	problem := decodeProblem(t, rec)
 	if rec.Code != http.StatusGone || problem.Code != "story.deleted" ||
 		problem.Type != "https://babbel.api/problems/story.deleted" || !problem.DeletedAt.Equal(deletedAt) {
 		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())

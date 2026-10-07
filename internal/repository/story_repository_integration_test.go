@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if saved.AudioFile != "original.wav" || saved.DurationSeconds == nil || *saved.DurationSeconds != 12 {
 		t.Fatalf("deleted story audio changed: %+v", saved)
 	}
-	if err := repo.UpdateAudio(t.Context(), 9223372036854775807, "replacement.wav", 20); !errors.Is(err, ErrNotFound) {
+	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, "replacement.wav", 20); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UpdateAudio missing = %v, want ErrNotFound", err)
 	}
 }

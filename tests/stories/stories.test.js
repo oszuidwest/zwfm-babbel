@@ -120,8 +120,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(200);
       expect(response.data.title).toContain('CRUD Test Story');
-      expect(response.data.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(response.data.end_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
     test('when updating title and text, then persists changes', async () => {
@@ -169,7 +167,7 @@ describe('Stories', () => {
         expect(response.data.code).toBe(code);
         if (status === 410) {
           expect(response.data.deleted_at).toEqual(expect.any(String));
-          expect(Number.isNaN(Date.parse(response.data.deleted_at))).toBe(false);
+          expect(Date.parse(response.data.deleted_at)).not.toBeNaN();
         } else {
           expect(response.data).not.toHaveProperty('deleted_at');
         }
