@@ -359,19 +359,17 @@ func validateFilter(filter FilterCondition, field FilterField) error {
 	if !field.allowsOperator(filter.Operator) {
 		return invalid("operator not allowed on this field")
 	}
-	if filter.Operator == FilterIsNull || filter.Operator == FilterIsNotNull {
+
+	var values []string
+	switch filter.Operator {
+	case FilterIsNull, FilterIsNotNull:
 		return nil
-	}
-	if filter.Operator == FilterBitwiseAnd {
+	case FilterBitwiseAnd:
 		value, ok := filter.Value.(uint8)
 		if !ok || value > uint8(models.WeekdaysAll) {
 			return invalid("expected an integer between 0 and 127")
 		}
 		return nil
-	}
-
-	var values []string
-	switch filter.Operator {
 	case FilterIn:
 		var ok bool
 		values, ok = filter.Value.([]string)
