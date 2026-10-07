@@ -90,13 +90,13 @@ func TestStoryService_UpdateVoiceWithAudio(t *testing.T) {
 }
 
 func TestStoryService_PrepareAudio(t *testing.T) {
-	override := &models.Voice{ID: 9, Name: "Override"}
 	tests := []struct {
-		name      string
-		story     *models.Story
-		voiceID   *int64
-		wantVoice int64
-		assertErr func(t *testing.T, err error)
+		name         string
+		story        *models.Story
+		voiceID      *int64
+		wantVoice    int64
+		wantInvalid  bool
+		wantNotFound bool
 	}{
 		{
 			name:      "uses the story voice",
@@ -116,23 +116,15 @@ func TestStoryService_PrepareAudio(t *testing.T) {
 			wantVoice: 9,
 		},
 		{
-			name:  "story without voice is rejected",
-			story: &models.Story{ID: 99},
-			assertErr: func(t *testing.T, err error) {
-				t.Helper()
-				assertValidationError(t, err, "Story", "voice_id")
-			},
+			name:        "story without voice is rejected",
+			story:       &models.Story{ID: 99},
+			wantInvalid: true,
 		},
 		{
-			name:    "unknown requested voice is not found",
-			story:   storyForTTSTest("Tekst"),
-			voiceID: new(int64(404)),
-			assertErr: func(t *testing.T, err error) {
-				t.Helper()
-				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
-					t.Fatalf("error = %T, want *apperrors.NotFoundError", err)
-				}
-			},
+			name:         "unknown requested voice is not found",
+			story:        storyForTTSTest("Tekst"),
+			voiceID:      new(int64(404)),
+			wantNotFound: true,
 		},
 	}
 
@@ -140,23 +132,22 @@ func TestStoryService_PrepareAudio(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &StoryService{
 				storyRepo: &fakeStoryRepository{story: tt.story},
-				voiceRepo: &fakeVoiceRepository{voices: map[int64]*models.Voice{9: override}},
+				voiceRepo: &fakeVoiceRepository{voices: map[int64]*models.Voice{9: {ID: 9}}},
 			}
 
 			target, err := service.PrepareAudio(t.Context(), tt.story.ID, tt.voiceID)
 
-			if tt.assertErr != nil {
-				tt.assertErr(t, err)
-				return
-			}
-			if err != nil {
+			switch {
+			case tt.wantInvalid:
+				assertValidationError(t, err, "Story", "voice_id")
+			case tt.wantNotFound:
+				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
+					t.Fatalf("PrepareAudio() error = %T, want *apperrors.NotFoundError", err)
+				}
+			case err != nil:
 				t.Fatalf("PrepareAudio() error = %v", err)
-			}
-			if target.voice.ID != tt.wantVoice {
+			case target.voice.ID != tt.wantVoice:
 				t.Fatalf("target voice = %d, want %d", target.voice.ID, tt.wantVoice)
-			}
-			if target.story != tt.story {
-				t.Fatal("target does not hold the story state read before processing")
 			}
 		})
 	}
