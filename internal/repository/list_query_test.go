@@ -357,6 +357,89 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 	}
 }
 
+func TestApplyFilterCondition_ClientFilters(t *testing.T) {
+	t.Parallel()
+	// Match the HTTP parser's value types: strings for scalars, uint8 for band.
+	tests := []struct {
+		name        string
+		mapping     FieldMapping
+		condition   FilterCondition
+		wantInvalid bool
+	}{
+		{
+			name: "Knabbel bulletin creation date", mapping: bulletinFieldMapping,
+			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07"},
+		},
+		{
+			name: "Knabbel story creation date", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07"},
+		},
+		{
+			name: "Knabbel active stories", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "status", Operator: FilterEquals, Value: "active"},
+		},
+		{
+			name: "Knabbel draft stories", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "status", Operator: FilterEquals, Value: "draft"},
+		},
+		{
+			name: "Knabbel breaking stories", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "is_breaking", Operator: FilterEquals, Value: "true"},
+		},
+		{
+			name: "Knabbel story start date", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "start_date", Operator: FilterLessOrEq, Value: "2026-10-07"},
+		},
+		{
+			name: "Knabbel story end date", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "end_date", Operator: FilterGreaterOrEq, Value: "2026-10-07"},
+		},
+		{
+			name: "Knabbel story weekdays", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "weekdays", Operator: FilterBitwiseAnd, Value: uint8(2)},
+		},
+		{
+			name: "Knabbel stories with audio", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: "true"},
+		},
+		{
+			name: "Knabbel station voice", mapping: stationVoiceFieldMapping,
+			condition: FilterCondition{Field: "voice_id", Operator: FilterEquals, Value: "5"},
+		},
+		{
+			name: "WordPress non-draft stories", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "status", Operator: FilterNotEquals, Value: "draft"},
+		},
+		{
+			// A correctly encoded %2B arrives from the HTTP parser as a literal +.
+			name: "WordPress encoded creation timestamp", mapping: storyFieldMapping,
+			condition: FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07T08:00:00+00:00"},
+		},
+		{
+			// oszuidwest/zw-knabbel-wp#97 fixes the unescaped + that decodes to a space.
+			name: "WordPress unencoded creation timestamp", mapping: storyFieldMapping,
+			condition:   FilterCondition{Field: "created_at", Operator: FilterGreaterOrEq, Value: "2026-10-07T08:00:00 00:00"},
+			wantInvalid: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := applyFilterCondition(dryRunDB(t).Table("test"), tt.condition, tt.mapping)
+			if tt.wantInvalid {
+				var invalid *InvalidFilterError
+				if !errors.As(err, &invalid) || invalid.Field != tt.condition.Field || invalid.Operator != tt.condition.Operator {
+					t.Fatalf("got %v, want InvalidFilterError with field and operator", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("applyFilterCondition: %v", err)
+			}
+		})
+	}
+}
+
 func TestApplyFilterCondition_FieldContracts(t *testing.T) {
 	t.Parallel()
 	resources := map[string]FieldMapping{
