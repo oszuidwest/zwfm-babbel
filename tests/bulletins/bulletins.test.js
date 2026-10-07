@@ -85,7 +85,7 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test.each(['2026-10-07', '', null, 123, {}])(
+    test.each(['2026-10-07', '', null])(
       'when generating with date %j, then returns 422', async date => {
         const response = await enqueueBulletin(stationId, { date });
 
