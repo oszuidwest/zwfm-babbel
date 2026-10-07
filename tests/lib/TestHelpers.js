@@ -69,7 +69,7 @@ class TestHelpers {
    * @param {Object} [body]
    * @returns {Promise<Object>}
    */
-  async generateBulletin(stationId, body = {}) {
+  async generateBulletin(stationId, body) {
     const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`, body);
     if (accepted.status !== 202) return accepted;
     const job = await this.waitForBulletinJob(accepted.data.id);

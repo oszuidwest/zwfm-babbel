@@ -6,8 +6,8 @@ const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelp
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
-  const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const generateBulletin = (stationId, body = {}) => global.helpers.generateBulletin(stationId, body);
+  const enqueueBulletin = (stationId, body) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
+  const generateBulletin = (stationId, body) => global.helpers.generateBulletin(stationId, body);
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
@@ -15,7 +15,6 @@ describe('Bulletins', () => {
     ...options
   });
   const postJsonBulletinHttp = (stationId, headers = {}, options = {}) => postBulletinHttp(stationId, {
-    data: '{}',
     headers: { 'Content-Type': 'application/json', ...headers },
     ...options
   });
@@ -106,8 +105,7 @@ describe('Bulletins', () => {
         data: '{invalid json}',
         transformRequest: [data => data]
       }), 422, false],
-      ['when generating with non-json content type and JSON body, then queues', () => postBulletinHttp(stationId, {
-        data: '{}',
+      ['when generating with non-json content type and missing body, then queues', () => postBulletinHttp(stationId, {
         headers: { 'Content-Type': 'text/plain' }
       }), 202, true],
       ['when generating with oversized body, then returns 413', () => postJsonBulletinHttp(stationId, {}, {
@@ -579,7 +577,7 @@ describe('Bulletins', () => {
 
   describe('Bulletin Error Cases', () => {
     test.each([
-      ['when station non-existent, then returns 404', 'POST', '/stations/99999/bulletins', {}],
+      ['when station non-existent, then returns 404', 'POST', '/stations/99999/bulletins', undefined],
       ['when bulletin audio non-existent, then returns 404', 'GET', '/bulletins/99999/audio', undefined],
       ['when bulletin job non-existent, then returns 404', 'GET', '/bulletin-jobs/99999', undefined]
     ])('%s', async (_name, method, endpoint, body) => {
