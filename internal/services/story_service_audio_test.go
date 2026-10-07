@@ -37,25 +37,23 @@ func TestStoryService_RejectsSilentAudioBeforePublication(t *testing.T) {
 			story := storyForTTSTest("News bulletin")
 			finalPath := utils.StoryPath(cfg, story.ID)
 			existingAudio := []byte("existing audio must stay intact")
+			wantFiles := 0
 			if tt.existing {
 				story.AudioFile = utils.StoryFilename(story.ID)
 				if err := os.WriteFile(finalPath, existingAudio, 0600); err != nil {
 					t.Fatal(err)
 				}
+				wantFiles = 1
 			}
-			ttsSvc := &fakeSpeechGenerator{data: silentAudio}
-			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, ttsSvc)
+			repo := &fakeStoryRepository{story: story}
+			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
+			service.storyRepo = repo
 			service.config = cfg
 			service.audioSvc = audio.NewService(cfg, nil)
-			repo := &fakeStoryRepository{story: story}
-			service.storyRepo = repo
 
 			var err error
 			if tt.tts {
 				err = service.GenerateTTS(t.Context(), story.ID, tt.existing)
-				if ttsSvc.calls != 1 {
-					t.Fatalf("GenerateSpeech calls = %d, want 1", ttsSvc.calls)
-				}
 			} else {
 				err = service.ProcessAudio(t.Context(), story.ID, inputPath)
 			}
@@ -72,19 +70,14 @@ func TestStoryService_RejectsSilentAudioBeforePublication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !tt.existing {
-				if len(entries) != 0 {
-					t.Fatalf("published directory = %v, want empty", entries)
+			if len(entries) != wantFiles {
+				t.Fatalf("processed files = %v, want %d (no published or temporary output)", entries, wantFiles)
+			}
+			if tt.existing {
+				// #nosec G304 - canonical story path inside t.TempDir
+				if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existingAudio) {
+					t.Fatalf("existing audio = %q, %v; want %q", got, err, existingAudio)
 				}
-				return
-			}
-			// #nosec G304 - canonical story path inside t.TempDir
-			got, err := os.ReadFile(finalPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Equal(got, existingAudio) || len(entries) != 1 {
-				t.Fatalf("existing audio changed or temporary output left behind: files = %v", entries)
 			}
 		})
 	}

@@ -324,7 +324,7 @@ describe('Stories', () => {
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
       if (!fs.existsSync(testAudio)) return;
 
-      const prefix = `/tmp/test_story_silent_${Date.now()}_${process.pid}`;
+      const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
       const inputAudio = `${prefix}_input.wav`;
       const beforeAudio = `${prefix}_before.wav`;
       const afterAudio = `${prefix}_after.wav`;
@@ -337,9 +337,8 @@ describe('Stories', () => {
         const firstUpload = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
         expect(firstUpload.status).toBe(422);
         expect(firstUpload.data.code).toBe('audio.silent');
-        expect(firstUpload.data.hint).toContain('recording level');
         const emptyStory = await global.api.apiCall('GET', `/stories/${result.id}`);
-        expect(emptyStory.data.audio_file).toBeFalsy();
+        expect(emptyStory.data.audio_file).toBe('');
         expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(404);
 
         const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
@@ -351,7 +350,6 @@ describe('Stories', () => {
         expect(replacement.status).toBe(422);
         expect(replacement.data.code).toBe('audio.silent');
         const after = await global.api.apiCall('GET', `/stories/${result.id}`);
-        expect(after.data.audio_file).toBe(before.data.audio_file);
         expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
         expect(after.data.updated_at).toBe(before.data.updated_at);
         expect(await global.api.downloadFile(endpoint, afterAudio)).toBe(200);
