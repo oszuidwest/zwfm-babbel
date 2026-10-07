@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 	"mime"
 	"slices"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -27,15 +27,16 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 	}
 
 	var req struct {
-		Date string `json:"date"`
+		Date json.RawMessage `json:"date"`
 	}
 	if !utils.BindOptionalJSON(c, &req) {
 		return
 	}
 
-	targetDate, err := services.ParseTargetDate(req.Date)
-	if err != nil {
-		handleServiceError(c, err, "Bulletin")
+	if len(req.Date) > 0 {
+		utils.ProblemValidationError(c, "Bulletins are always generated for today", []apperrors.ValidationError{
+			{Field: "date", Message: "date is no longer supported"},
+		})
 		return
 	}
 
@@ -43,7 +44,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	job, err := h.bulletinJobSvc.Enqueue(c.Request.Context(), stationID, targetDate)
+	job, err := h.bulletinJobSvc.Enqueue(c.Request.Context(), stationID)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin job")
 		return

@@ -55,7 +55,8 @@ func (r *BulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 }
 
 // GetLatest retrieves the most recent bulletin for a station.
-// If maxAge is provided, only returns bulletins created within that duration.
+// If maxAge is provided, only returns bulletins created on the current local
+// day within that duration.
 func (r *BulletinRepository) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
@@ -67,8 +68,10 @@ func (r *BulletinRepository) GetLatest(
 		Where("bulletins.file_purged_at IS NULL")
 
 	if maxAge != nil {
-		minTime := time.Now().Add(-*maxAge)
-		query = query.Where("bulletins.created_at >= ?", minTime)
+		now := time.Now()
+		today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		query = query.Where("bulletins.created_at >= ?", now.Add(-*maxAge)).
+			Where("bulletins.created_at >= ? AND bulletins.created_at < ?", today, today.AddDate(0, 0, 1))
 	}
 
 	err := query.Order("bulletins.created_at DESC").

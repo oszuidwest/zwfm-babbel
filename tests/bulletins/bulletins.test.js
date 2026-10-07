@@ -85,13 +85,16 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test('when generating with specific date, then succeeds', async () => {
-      const today = new Date().toISOString().split('T')[0];
+    test.each(['2026-10-07', '', null, 123, {}])(
+      'when generating with date %j, then returns 422', async date => {
+        const response = await enqueueBulletin(stationId, { date });
 
-      const response = await generateBulletin(stationId, { date: today });
-
-      expect(response.status).toBe(200);
-    });
+        expect(response.status).toBe(422);
+        expect(response.data.errors).toEqual(expect.arrayContaining([
+          expect.objectContaining({ field: 'date' })
+        ]));
+      }
+    );
 
     test.each([
       ['when generating with missing body, then queues', () => postBulletinHttp(stationId), 202, true],
@@ -402,11 +405,13 @@ describe('Bulletins', () => {
     test('when generation is enqueued, then polling resolves to the created bulletin', async () => {
       const accepted = await enqueueBulletin(stationId);
       expect(accepted.status).toBe(202);
+      expect(accepted.data).not.toHaveProperty('target_date');
       expect(accepted.headers.location).toBe(`/api/v1/bulletin-jobs/${accepted.data.id}`);
       expect(['queued', 'running']).toContain(accepted.data.status);
 
       const completed = await global.helpers.waitForBulletinJob(accepted.data.id);
       expect(completed.status).toBe(200);
+      expect(completed.data).not.toHaveProperty('target_date');
       expect(completed.data.status).toBe('succeeded');
       expect(completed.data.bulletin_id).toEqual(expect.any(Number));
 

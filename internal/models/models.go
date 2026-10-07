@@ -191,7 +191,6 @@ const (
 type BulletinJob struct {
 	ID          int64             `gorm:"primaryKey;autoIncrement" json:"id"`
 	StationID   int64             `gorm:"not null;index" json:"station_id"`
-	TargetDate  time.Time         `gorm:"type:date;not null" json:"target_date"`
 	Status      BulletinJobStatus `gorm:"size:20;not null;index" json:"status"`
 	Attempt     int               `gorm:"not null;default:0" json:"attempt"`
 	BulletinID  *int64            `gorm:"index" json:"bulletin_id"`

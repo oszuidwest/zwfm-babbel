@@ -84,7 +84,6 @@ CREATE TABLE bulletin_stories (
 CREATE TABLE bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,
-    target_date  DATE NOT NULL,
     status       VARCHAR(20) NOT NULL DEFAULT 'queued',
     attempt      INT NOT NULL DEFAULT 0,
     bulletin_id  INT NULL,

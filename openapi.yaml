@@ -128,7 +128,7 @@ paths:
         Configure via `BABBEL_AUTOMATION_KEY` environment variable.
 
         **Behavior**:
-        - If `max_age > 0`: Returns cached bulletin if younger than max_age, otherwise generates new
+        - If `max_age > 0`: Returns cached bulletin if created on the current local day and younger than max_age, otherwise generates new
         - If `max_age = 0`: Always generates a fresh bulletin
         - If endpoint is disabled (no API key configured): Returns 404
 
@@ -162,7 +162,7 @@ paths:
           in: query
           required: true
           description: |
-            Maximum age of cached bulletin in seconds.
+            Maximum age of cached bulletin in seconds. Only bulletins created on the current local day are reused.
             - Use `0` to always generate a fresh bulletin
             - Use `3600` for bulletins up to 1 hour old
           schema:
@@ -2082,22 +2082,14 @@ paths:
         bulletin and its audio through the regular bulletin endpoints.
 
         Every request creates a generation job. A single background worker
-        processes jobs one at a time in submission order.
+        processes jobs one at a time in submission order. Each job generates for
+        the local date when the worker runs, after acquiring the station lock.
+        No request body is needed. The removed `date` field returns `422` if
+        supplied, including an empty string or null.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                date:
-                  type: string
-                  format: date
-                  description: Date for bulletin in YYYY-MM-DD format (defaults to today)
       responses:
         '202':
           description: Bulletin generation job accepted
@@ -3963,7 +3955,6 @@ components:
       required:
         - id
         - station_id
-        - target_date
         - status
         - attempt
         - bulletin_id
@@ -3979,10 +3970,6 @@ components:
           type: integer
           format: int64
           x-foreign-key: stations.id
-        target_date:
-          type: string
-          format: date-time
-          description: Calendar date used when selecting eligible stories
         status:
           type: string
           enum: [queued, running, succeeded, failed]

@@ -41,11 +41,11 @@ func TestBulletinJobRepositoryIntegration_ClaimNextTakesOldestQueuedFirst(t *tes
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	first, err := repo.Create(t.Context(), station.ID, time.Now())
+	first, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	second, err := repo.Create(t.Context(), station.ID, time.Now())
+	second, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -81,7 +81,7 @@ func TestBulletinJobRepositoryIntegration_JobLifecycle(t *testing.T) {
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	job, err := repo.Create(t.Context(), station.ID, time.Now())
+	job, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -128,7 +128,7 @@ func TestBulletinJobRepositoryIntegration_FailRecordsClientSafeError(t *testing.
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	job, err := repo.Create(t.Context(), station.ID, time.Now())
+	job, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -155,7 +155,7 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	job, err := repo.Create(t.Context(), station.ID, time.Now())
+	job, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -190,7 +190,7 @@ func TestBulletinJobRepositoryIntegration_RequeueInterruptedRecoversRunningJobs(
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	interrupted, err := repo.Create(t.Context(), station.ID, time.Now())
+	interrupted, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -220,7 +220,7 @@ func TestBulletinJobRepositoryIntegration_AttemptCapMakesJobsUnclaimable(t *test
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
-	job, err := repo.Create(t.Context(), station.ID, time.Now())
+	job, err := repo.Create(t.Context(), station.ID)
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
@@ -256,7 +256,7 @@ func TestBulletinJobRepositoryIntegration_DeleteTerminalBeforeKeepsLiveJobs(t *t
 
 	repo := NewBulletinJobRepository(db)
 	newJob := func(updates map[string]any) *models.BulletinJob {
-		job, err := repo.Create(t.Context(), station.ID, time.Now())
+		job, err := repo.Create(t.Context(), station.ID)
 		if err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}

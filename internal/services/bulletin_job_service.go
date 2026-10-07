@@ -100,9 +100,8 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 func (s *BulletinJobService) Enqueue(
 	ctx context.Context,
 	stationID int64,
-	targetDate time.Time,
 ) (*models.BulletinJob, error) {
-	job, err := s.repo.Create(ctx, stationID, targetDate)
+	job, err := s.repo.Create(ctx, stationID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
 	}
@@ -311,7 +310,7 @@ func (s *BulletinJobService) generate(workerCtx context.Context, job *models.Bul
 
 	jobCtx, cancel := context.WithTimeout(workerCtx, s.cfg.GenerationTimeout)
 	defer cancel()
-	return s.generateBulletin(jobCtx, job.StationID, job.TargetDate, func(
+	return s.generateBulletin(jobCtx, job.StationID, time.Now(), func(
 		txCtx context.Context,
 		createdBulletinID int64,
 	) error {

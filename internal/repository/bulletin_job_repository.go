@@ -38,12 +38,10 @@ func (r *BulletinJobRepository) GetByID(ctx context.Context, id int64) (*models.
 func (r *BulletinJobRepository) Create(
 	ctx context.Context,
 	stationID int64,
-	targetDate time.Time,
 ) (*models.BulletinJob, error) {
 	job := &models.BulletinJob{
-		StationID:  stationID,
-		TargetDate: targetDate,
-		Status:     models.BulletinJobQueued,
+		StationID: stationID,
+		Status:    models.BulletinJobQueued,
 	}
 	if err := DBFromContext(ctx, r.db).WithContext(ctx).Create(job).Error; err != nil {
 		return nil, ParseDBError(err)

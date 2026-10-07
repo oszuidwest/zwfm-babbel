@@ -272,7 +272,8 @@ func (s *BulletinService) saveBulletinToDatabase(
 }
 
 // GetLatest loads the most recent bulletin for a station.
-// When maxAge is non-nil, older bulletins are treated as not found.
+// When maxAge is non-nil, only bulletins from the current local day within
+// that age are returned.
 func (s *BulletinService) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
@@ -383,19 +384,6 @@ func (s *BulletinService) reportVoiceConsistency(
 		Summary: fmt.Sprintf("Multiple voices selected for station %d", stationID),
 		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
 	})
-}
-
-// ParseTargetDate parses YYYY-MM-DD in the local timezone.
-// Empty input returns the current instant so callers can generate "today".
-func ParseTargetDate(dateStr string) (time.Time, error) {
-	if dateStr == "" {
-		return time.Now(), nil
-	}
-	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-	if err != nil {
-		return time.Time{}, apperrors.Validation("Bulletin", "date", "invalid date format (expected YYYY-MM-DD)")
-	}
-	return parsedDate, nil
 }
 
 // List retrieves bulletins with pagination, filtering, and sorting.

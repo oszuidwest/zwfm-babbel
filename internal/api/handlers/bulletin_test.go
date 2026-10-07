@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -63,6 +64,42 @@ func TestAcceptsJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := acceptsJSON(tt.header); got != tt.want {
 				t.Errorf("acceptsJSON(%q) = %t, want %t", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateBulletinRejectsDate(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{name: "valid date", body: `{"date":"2026-10-07"}`},
+		{name: "empty date", body: `{"date":""}`},
+		{name: "null date", body: `{"date":null}`},
+		{name: "numeric date", body: `{"date":123}`},
+		{name: "object date", body: `{"date":{}}`},
+		{name: "case insensitive date", body: `{"Date":"2026-10-07"}`},
+		{name: "duplicate date ending in null", body: `{"date":"2026-10-07","date":null}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+				"/api/v1/stations/1/bulletins", strings.NewReader(test.body))
+			c.Params = gin.Params{{Key: "id", Value: "1"}}
+
+			(&Handlers{}).GenerateBulletin(c)
+
+			if recorder.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422; body = %s", recorder.Code, recorder.Body.String())
+			}
+			if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
+				t.Fatalf("Content-Type = %q, want application/problem+json", got)
+			}
+			problem := decodeProblem(t, recorder)
+			if len(problem.Errors) != 1 || problem.Errors[0].Field != "date" {
+				t.Fatalf("errors = %+v, want date validation error", problem.Errors)
 			}
 		})
 	}
