@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -55,8 +56,8 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Text:       data.Text,
 		VoiceID:    data.VoiceID,
 		Status:     models.StoryStatus(data.Status),
-		StartDate:  data.StartDate,
-		EndDate:    data.EndDate,
+		StartDate:  models.Date(data.StartDate),
+		EndDate:    models.Date(data.EndDate),
 		Weekdays:   data.Weekdays,
 		IsBreaking: data.IsBreaking,
 		Metadata:   data.Metadata,
@@ -81,6 +82,28 @@ func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story,
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
+// GetByIDForWrite loads a story needed before a write, distinguishing deleted rows.
+func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
+	story, err := r.GetByID(ctx, id)
+	return story, r.classifyWriteError(ctx, id, err)
+}
+
+// classifyWriteError checks deletion only after a scoped operation misses.
+func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err error) error {
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	var story models.Story
+	db := DBFromContext(ctx, r.db)
+	if lookupErr := db.WithContext(ctx).Unscoped().Select("deleted_at").First(&story, id).Error; lookupErr != nil {
+		return ParseDBError(lookupErr)
+	}
+	if story.DeletedAt.Valid {
+		return &StoryDeletedError{ID: id, DeletedAt: story.DeletedAt.Time}
+	}
+	return err
+}
+
 // Update applies non-nil story fields and Clear* nulling flags.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
@@ -92,12 +115,16 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	return r.UpdateByID(ctx, id, updateMap)
+	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, updateMap))
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
 func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
-	return r.Delete(ctx, id)
+	err := r.classifyWriteError(ctx, id, r.Delete(ctx, id))
+	if _, ok := errors.AsType[*StoryDeletedError](err); ok {
+		return nil
+	}
+	return err
 }
 
 // Restore clears the deleted_at timestamp.
@@ -117,15 +144,15 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 
 // UpdateAudio updates the audio file and duration.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	return r.UpdateByID(ctx, id, map[string]any{
+	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, map[string]any{
 		"audio_file":       audioFile,
 		"duration_seconds": duration,
-	})
+	}))
 }
 
 // UpdateStatus updates the story status.
 func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return r.UpdateByID(ctx, id, map[string]any{"status": status})
+	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, map[string]any{"status": status}))
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as

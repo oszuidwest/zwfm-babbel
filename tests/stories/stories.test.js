@@ -118,6 +118,8 @@ describe('Stories', () => {
 
       expect(response.status).toBe(200);
       expect(response.data.title).toContain('CRUD Test Story');
+      expect(response.data.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(response.data.end_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
     test('when updating title and text, then persists changes', async () => {
@@ -150,6 +152,23 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.status).toBe(404);
+
+      const repeatDelete = await global.api.apiCall('DELETE', `/stories/${result.id}`);
+      expect(repeatDelete.status).toBe(204);
+      const repeatPatch = await global.api.apiCall('PATCH', `/stories/${result.id}`, { deleted_at: 'deleted' });
+      expect(repeatPatch.status).toBe(204);
+
+      for (const [method, body] of [['PUT', { title: 'Changed' }], ['PATCH', { status: 'draft' }]]) {
+        const write = await global.api.apiCall(method, `/stories/${result.id}`, body);
+        expect(write.status).toBe(410);
+        expect(write.data.code).toBe('story.deleted');
+        expect(write.data.deleted_at).toEqual(expect.any(String));
+        expect(Number.isNaN(Date.parse(write.data.deleted_at))).toBe(false);
+      }
+
+      const restore = await global.api.apiCall('PATCH', `/stories/${result.id}`, { deleted_at: '' });
+      expect(restore.status).toBe(200);
+      expect(restore.data.deleted_at).toBeNull();
     });
 
     test('when trashed=only, then returns soft-deleted stories', async () => {

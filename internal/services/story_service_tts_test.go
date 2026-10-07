@@ -347,7 +347,7 @@ type fakeStoryRepository struct {
 	calls int
 }
 
-func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, error) {
+func (f *fakeStoryRepository) GetByIDForWrite(context.Context, int64) (*models.Story, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err

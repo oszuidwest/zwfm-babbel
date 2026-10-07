@@ -311,6 +311,17 @@ func handleConflictError(c *gin.Context, err error) bool {
 }
 
 func handleAvailabilityError(c *gin.Context, err error) bool {
+	if deleted, ok := errors.AsType[*apperrors.StoryDeletedError](err); ok {
+		logError("Story", "deleted", err)
+		problem := utils.NewProblemDetail("https://babbel.api/problems/story.deleted", "Gone",
+			http.StatusGone, deleted.Error(), c.Request.URL.Path)
+		problem.Code = "story.deleted"
+		problem.Hint = "Restore the story with PATCH {\"deleted_at\":\"\"} before updating it"
+		problem.DeletedAt = &deleted.DeletedAt
+		utils.SendProblem(c, problem)
+		return true
+	}
+
 	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
 		logError(rateLimited.Resource, "rate_limited", err)
 		if rateLimited.RetryAfter != "" {

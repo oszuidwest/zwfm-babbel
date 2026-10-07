@@ -424,6 +424,23 @@ describe('OpenApiContractValidator', () => {
 describe('openapi.yaml contract invariants', () => {
   let document;
 
+  test('story responses use calendar dates and write endpoints document deletion', () => {
+    expect(document.components.schemas.Story.properties.start_date.format).toBe('date');
+    expect(document.components.schemas.Story.properties.end_date.format).toBe('date');
+    for (const [method, path] of [
+      ['put', '/api/v1/stories/{id}'],
+      ['patch', '/api/v1/stories/{id}'],
+      ['post', '/api/v1/stories/{id}/audio'],
+      ['post', '/api/v1/stories/{id}/tts']
+    ]) {
+      const schema = document.paths[path][method].responses['410'].content['application/problem+json'].schema;
+      expect(schema.allOf[1].required).toEqual(['code', 'deleted_at']);
+      expect(schema.allOf[1].properties.code.const).toBe('story.deleted');
+      expect(schema.allOf[0].properties.deleted_at.format).toBe('date-time');
+    }
+    expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
+  });
+
   const LIST_OPERATIONS = [
     ['get', '/api/v1/stations'],
     ['get', '/api/v1/voices'],

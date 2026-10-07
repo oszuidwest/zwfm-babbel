@@ -45,6 +45,10 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		return err
 	}
 
+	if deleted, ok := errors.AsType[*repository.StoryDeletedError](err); ok {
+		return &StoryDeletedError{ID: deleted.ID, DeletedAt: deleted.DeletedAt}
+	}
+
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
 		return NotFoundWithCause(resource, err)
