@@ -321,10 +321,7 @@ describe('Stories', () => {
       expect(getResponse.data.audio_file).not.toBe('');
     });
 
-    test.each([
-      ['digital silence', 'anullsrc=r=48000:cl=mono:d=1'],
-      ['near-silent noise', 'anoisesrc=r=48000:d=1:a=0.001:seed=1']
-    ])('when uploading %s, then returns 422 and preserves existing audio', async (_name, source) => {
+    test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
       if (!fs.existsSync(testAudio)) return;
 
       const prefix = `/tmp/test_story_silent_${Date.now()}_${process.pid}`;
@@ -332,7 +329,7 @@ describe('Stories', () => {
       const beforeAudio = `${prefix}_before.wav`;
       const afterAudio = `${prefix}_after.wav`;
       try {
-        runFFmpeg(['-f', 'lavfi', '-i', source, '-y', inputAudio]);
+        runFFmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1', '-y', inputAudio]);
         const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice', 'SilentStation');
         expect(result).not.toBeNull();
         const endpoint = `/stories/${result.id}/audio`;

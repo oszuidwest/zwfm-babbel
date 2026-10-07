@@ -57,6 +57,12 @@ func (l loudnormStats) silent() bool {
 	return math.IsInf(l.TruePeak, -1)
 }
 
+// tooQuiet reports whether story audio is silent or measurably below the
+// loudness floor. Short non-silent clips without integrated loudness pass.
+func (l loudnormStats) tooQuiet() bool {
+	return l.silent() || (!math.IsInf(l.Integrated, -1) && l.Integrated < minStoryLoudnessLUFS)
+}
+
 // JingleContext keeps the jingle and mix point stable across story shuffling.
 type JingleContext struct {
 	VoiceID  *int64
@@ -91,7 +97,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 		return "", 0, err
 	}
 
-	if stats.silent() || (!math.IsInf(stats.Integrated, 0) && stats.Integrated < minStoryLoudnessLUFS) {
+	if stats.tooQuiet() {
 		logger.Warn("Rejected silent or near-silent story audio",
 			"path", inputPath,
 			"input_i", fmt.Sprintf("%.2f", stats.Integrated),

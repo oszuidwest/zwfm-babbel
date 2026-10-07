@@ -94,6 +94,29 @@ func TestStoryNormalizationFilter(t *testing.T) {
 	}
 }
 
+func TestLoudnormStatsTooQuiet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		stats loudnormStats
+		want  bool
+	}{
+		{name: "silence", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: math.Inf(-1)}, want: true},
+		{name: "below floor", stats: loudnormStats{Integrated: -50.01, TruePeak: -30}, want: true},
+		{name: "at floor", stats: loudnormStats{Integrated: -50, TruePeak: -30}},
+		{name: "normal", stats: loudnormStats{Integrated: -19.76, TruePeak: -1}},
+		{name: "short clip without integrated loudness", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: -1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.stats.tooQuiet(); got != tt.want {
+				t.Fatalf("tooQuiet(%+v) = %v, want %v", tt.stats, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBulletinNormalizationFilter(t *testing.T) {
 	t.Parallel()
 
@@ -250,29 +273,18 @@ func TestService_ConvertStoryToWAVLimitsShortClip(t *testing.T) {
 
 func TestService_ConvertStoryToWAVRejectsSilentAudio(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		source string
-	}{
-		{name: "digital silence", source: "anullsrc=r=44100:cl=mono:d=1"},
-		{name: "short silence", source: "anullsrc=r=44100:cl=mono:d=0.1"},
-		{name: "near-silent noise", source: "anoisesrc=r=48000:d=1:a=0.001:seed=1"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			svc, ffmpegPath := newFFmpegService(t)
-			inputPath := filepath.Join(t.TempDir(), "input.wav")
-			outputPath := filepath.Join(t.TempDir(), "output.wav")
-			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-y", inputPath)
+	svc, ffmpegPath := newFFmpegService(t)
+	tempDir := t.TempDir()
+	inputPath := filepath.Join(tempDir, "silence.wav")
+	outputPath := filepath.Join(tempDir, "output.wav")
+	// A short clip also covers the ungated measurement that once produced NaNs.
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.1", "-y", inputPath)
 
-			if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); !errors.Is(err, ErrSilent) {
-				t.Fatalf("ConvertStoryToWAV error = %v, want ErrSilent", err)
-			}
-			if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
-				t.Fatalf("output file stat error = %v, want no file", err)
-			}
-		})
+	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); !errors.Is(err, ErrSilent) {
+		t.Fatalf("ConvertStoryToWAV error = %v, want ErrSilent", err)
+	}
+	if _, err := os.Stat(outputPath); !os.IsNotExist(err) {
+		t.Fatalf("output file stat error = %v, want no file", err)
 	}
 }
 

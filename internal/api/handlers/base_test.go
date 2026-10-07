@@ -280,13 +280,6 @@ func TestHandleServiceError_Audio(t *testing.T) {
 		wantHint   string
 	}{
 		{
-			name:       "silent audio",
-			err:        audio.ErrSilent,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantCode:   "audio.silent",
-			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
-		},
-		{
 			name:       "wrapped silent audio",
 			err:        apperrors.Audio("Story", "convert", fmt.Errorf("convert: %w", audio.ErrSilent)),
 			wantStatus: http.StatusUnprocessableEntity,

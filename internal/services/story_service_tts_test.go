@@ -385,13 +385,7 @@ func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string
 	f.calls++
 	f.ctx = ctx
 	f.text = text
-	if f.err != nil {
-		return nil, f.err
-	}
-	if f.data != nil {
-		return f.data, nil
-	}
-	return []byte("opus"), nil
+	return f.data, f.err
 }
 
 func assertUpstreamError(t *testing.T, got error, wantStatus int) {

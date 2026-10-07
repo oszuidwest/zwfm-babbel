@@ -1144,7 +1144,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          $ref: '#/components/responses/StoryAudioUnprocessableEntity'
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1217,7 +1217,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
-          $ref: '#/components/responses/StoryAudioUnprocessableEntity'
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -4504,25 +4504,6 @@ components:
                 instance: "/api/v1/stories/1/tts"
                 code: "tts.upstream_failed"
                 hint: "Check the ElevenLabs API key and account access"
-    StoryAudioUnprocessableEntity:
-      description: |
-        Invalid story audio or TTS input, or audio is silent or below -50 LUFS (`audio.silent`).
-        Existing story audio is preserved. Non-silent short clips without a
-        finite integrated loudness measurement are still accepted.
-      content:
-        application/problem+json:
-          schema:
-            $ref: '#/components/schemas/ProblemDetails'
-          examples:
-            silent_audio:
-              summary: Silent or near-silent story audio
-              value:
-                type: "https://babbel.api/problems/audio.silent"
-                title: "Unprocessable Entity"
-                status: 422
-                detail: "Audio is silent or too quiet"
-                code: "audio.silent"
-                hint: "Check the recording level and input channel, then upload audible audio or regenerate speech"
     UnprocessableEntity:
       description: Validation error
       content:
@@ -4553,6 +4534,16 @@ components:
                 instance: "/api/v1/stations/1/bulletins"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+            silent_audio:
+              summary: Story audio is silent or below -50 LUFS; existing audio is preserved
+              value:
+                type: "https://babbel.api/problems/audio.silent"
+                title: "Unprocessable Entity"
+                status: 422
+                detail: "Audio is silent or too quiet"
+                instance: "/api/v1/stories/1/audio"
+                code: "audio.silent"
+                hint: "Check the recording level and input channel, then upload audible audio or regenerate speech"
     InternalServerError:
       description: Internal server error
       content:
