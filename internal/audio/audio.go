@@ -35,9 +35,13 @@ func commandError(ctx context.Context, err error) error {
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
 	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
+	minStoryLoudnessLUFS        = -50
 	// monoDownmixFilter keeps both loudnorm passes on the same mono signal.
 	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
+
+// ErrSilent indicates story audio is silent or below the usable loudness floor.
+var ErrSilent = errors.New("audio is silent or too quiet")
 
 // loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
@@ -85,6 +89,17 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return "", 0, err
+	}
+
+	if stats.silent() || (!math.IsInf(stats.Integrated, 0) && stats.Integrated < minStoryLoudnessLUFS) {
+		logger.Warn("Rejected silent or near-silent story audio",
+			"path", inputPath,
+			"input_i", fmt.Sprintf("%.2f", stats.Integrated),
+			"input_tp", fmt.Sprintf("%.2f", stats.TruePeak),
+			"input_lra", fmt.Sprintf("%.2f", stats.LRA),
+			"input_thresh", fmt.Sprintf("%.2f", stats.Threshold),
+		)
+		return "", 0, ErrSilent
 	}
 
 	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
@@ -150,13 +165,9 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second pass. Silence bypasses loudnorm
-// to avoid NaNs on short clips; ungated non-silent clips omit unavailable
-// measurements and use loudnorm's dynamic mode.
+// storyNormalizationFilter builds the second pass. Ungated non-silent clips
+// omit unavailable measurements and use loudnorm's dynamic mode.
 func storyNormalizationFilter(stats loudnormStats) string {
-	if stats.silent() {
-		return ""
-	}
 	filter := monoDownmixFilter + "," + loudnessNormalizationFilter
 	if math.IsInf(stats.Integrated, -1) {
 		return filter

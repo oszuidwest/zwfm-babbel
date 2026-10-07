@@ -164,13 +164,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
-		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
-		utils.ProblemExtended(c, http.StatusInternalServerError,
-			"Audio processing failed",
-			apperrors.CodeAudioProcessingFailed,
-			"Check the audio file format and try again",
-		)
+	if handleAudioError(c, err) {
 		return
 	}
 
@@ -199,6 +193,27 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+func handleAudioError(c *gin.Context, err error) bool {
+	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		if errors.Is(audioError, audio.ErrSilent) {
+			utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+				"Audio is silent or too quiet",
+				"audio.silent",
+				"Check the recording level and input channel, then upload audible audio or regenerate speech",
+			)
+			return true
+		}
+		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
+		utils.ProblemExtended(c, http.StatusInternalServerError,
+			"Audio processing failed",
+			apperrors.CodeAudioProcessingFailed,
+			"Check the audio file format and try again",
+		)
+		return true
+	}
+	return false
 }
 
 const (

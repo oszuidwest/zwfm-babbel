@@ -321,6 +321,51 @@ describe('Stories', () => {
       expect(getResponse.data.audio_file).not.toBe('');
     });
 
+    test.each([
+      ['digital silence', 'anullsrc=r=48000:cl=mono:d=1'],
+      ['near-silent noise', 'anoisesrc=r=48000:d=1:a=0.001:seed=1']
+    ])('when uploading %s, then returns 422 and preserves existing audio', async (_name, source) => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const prefix = `/tmp/test_story_silent_${Date.now()}_${process.pid}`;
+      const inputAudio = `${prefix}_input.wav`;
+      const beforeAudio = `${prefix}_before.wav`;
+      const afterAudio = `${prefix}_after.wav`;
+      try {
+        runFFmpeg(['-f', 'lavfi', '-i', source, '-y', inputAudio]);
+        const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice', 'SilentStation');
+        expect(result).not.toBeNull();
+        const endpoint = `/stories/${result.id}/audio`;
+
+        const firstUpload = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
+        expect(firstUpload.status).toBe(422);
+        expect(firstUpload.data.code).toBe('audio.silent');
+        expect(firstUpload.data.hint).toContain('recording level');
+        const emptyStory = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(emptyStory.data.audio_file).toBeFalsy();
+        expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(404);
+
+        const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
+        expect(validUpload.status).toBe(201);
+        const before = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(200);
+
+        const replacement = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
+        expect(replacement.status).toBe(422);
+        expect(replacement.data.code).toBe('audio.silent');
+        const after = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(after.data.audio_file).toBe(before.data.audio_file);
+        expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
+        expect(after.data.updated_at).toBe(before.data.updated_at);
+        expect(await global.api.downloadFile(endpoint, afterAudio)).toBe(200);
+        expect(fs.readFileSync(afterAudio)).toEqual(fs.readFileSync(beforeAudio));
+      } finally {
+        for (const file of [inputAudio, beforeAudio, afterAudio]) {
+          global.helpers.cleanupTempFile(file);
+        }
+      }
+    });
+
     test('when fetching story, then audio fields present', async () => {
       const result = await createStoryWithDeps('AudioFields', 'Check fields', 'FieldsVoice', 'FieldsStation');
       expect(result).not.toBeNull();
