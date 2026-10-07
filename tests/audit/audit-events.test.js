@@ -23,7 +23,7 @@ describe('Audit events', () => {
     originalPronunciations = pronunciations.data.rules;
 
     for (const role of ['viewer', 'editor']) {
-      const username = global.helpers.uniqueName(`audit_${role}`);
+      const username = `audit${role}${Date.now()}`;
       expect(await createUser(username, `Audit ${role}`, password, role)).not.toBeNull();
       roles[role] = username;
     }
@@ -68,6 +68,11 @@ describe('Audit events', () => {
       }));
       expect(event.occurred_at).toEqual(expect.any(String));
     }
+    expect(history.data[4].changes).toEqual(expect.objectContaining({
+      title: { old: null, new: 'Original audit title' },
+      status: { old: null, new: 'draft' },
+      audio_file: { old: null, new: '' }
+    }));
     expect(history.data[3].changes).toEqual({ title: { old: 'Original audit title', new: 'Edited audit title' } });
     expect(history.data[2].changes).toEqual({ status: { old: 'draft', new: 'active' } });
     expect(history.data[1].changes.deleted_at).toEqual({ old: null, new: expect.any(String) });
