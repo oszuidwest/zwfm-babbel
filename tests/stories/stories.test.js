@@ -139,6 +139,44 @@ describe('Stories', () => {
     });
   });
 
+  describe('Idempotent Updates', () => {
+    const cases = [
+      ['PUT', { title: 'Idempotent title' }],
+      ['PATCH', { status: 'draft' }],
+      ['PATCH', { deleted_at: '' }]
+    ];
+
+    test.each(cases)('when repeating %s %j immediately, then both requests succeed', async (method, payload) => {
+      const created = await global.api.apiCall('POST', '/stories', {
+        title: 'Idempotent story',
+        text: 'Test content',
+        status: 'draft',
+        start_date: '2024-01-01',
+        end_date: '2030-12-31'
+      });
+      expect(created.status).toBe(201);
+      global.resources.track('stories', created.data.id);
+
+      // Write back to back: MySQL rounds fractional seconds into TIMESTAMP(0).
+      const first = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+      const second = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.data).toMatchObject({
+        id: created.data.id,
+        ...(payload.deleted_at === '' ? { deleted_at: null } : payload)
+      });
+    });
+
+    test.each(cases)('when sending %s %j to a missing story, then returns 404', async (method, payload) => {
+      const response = await global.api.apiCall(method, '/stories/999999', payload);
+
+      expect(response.status).toBe(404);
+      expect(response.data.code).toBe('story.not_found');
+    });
+  });
+
   describe('Story Soft Delete', () => {
     test('when deleting story, then soft deleted', async () => {
       const result = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
