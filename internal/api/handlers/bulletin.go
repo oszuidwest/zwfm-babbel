@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -150,13 +151,17 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 
 // serveAudioFile serves an audio file for download. It returns an error when
 // the file cannot be opened or the response was not fully written; it returns
-// nil after writing a range or conditional response itself.
+// nil after writing a complete range or conditional response itself.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
 	// Open once so a file removed after earlier checks is reported, not served
 	// as a plain 404 by http.ServeFile.
 	file, err := os.Open(filePath) //nolint:gosec // Path is built internally from the configured storage root and stored file names.
 	if err != nil {
-		utils.ProblemNotFound(c, "Audio file")
+		if os.IsNotExist(err) {
+			utils.ProblemNotFound(c, "Audio file")
+		} else {
+			utils.ProblemInternalServer(c, "Failed to access audio file")
+		}
 		return err
 	}
 	defer func() { _ = file.Close() }() // Read-only; a close error cannot affect the response.
@@ -177,7 +182,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
 	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), file)
 	c.Writer.WriteHeaderNow()
-	// ServeFile swallows write errors, but net/http keeps the first one and
+	// ServeContent swallows write errors, but net/http keeps the first one and
 	// returns it on flush. Gin's own Flush discards it, so flush the writer it wraps.
 	var raw http.ResponseWriter = c.Writer
 	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
@@ -185,6 +190,12 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	}
 	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
+	}
+	// ServeContent also discards read errors; Gin already counts the written bytes.
+	if c.Request.Method != http.MethodHead {
+		if length, err := strconv.ParseInt(c.Writer.Header().Get("Content-Length"), 10, 64); err == nil && int64(c.Writer.Size()) != length {
+			return io.ErrUnexpectedEOF
+		}
 	}
 	return nil
 }
