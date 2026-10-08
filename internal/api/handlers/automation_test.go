@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
+	"github.com/oszuidwest/zwfm-babbel/internal/services"
 )
 
 type automationAlertRecorder struct {

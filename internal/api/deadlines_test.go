@@ -15,16 +15,14 @@ import (
 func TestRouteDeadlines(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
-		name, method, route string
-		upload              bool
+		name, method string
+		deadline     func(routeDeadlines) gin.HandlerFunc
+		upload       bool
 	}{
-		{name: "automation", method: http.MethodGet, route: "/public/stations/:id/bulletin.wav"},
-		{name: "tts", method: http.MethodPost, route: "/api/v1/stories/:id/tts"},
-		{name: "story download", method: http.MethodGet, route: "/api/v1/stories/:id/audio"},
-		{name: "jingle download", method: http.MethodGet, route: "/api/v1/station-voices/:id/audio"},
-		{name: "bulletin download", method: http.MethodGet, route: "/api/v1/bulletins/:id/audio"},
-		{name: "story upload", method: http.MethodPost, route: "/api/v1/stories/:id/audio", upload: true},
-		{name: "jingle upload", method: http.MethodPost, route: "/api/v1/station-voices/:id/audio", upload: true},
+		{name: "automation", method: http.MethodGet, deadline: func(d routeDeadlines) gin.HandlerFunc { return d.automation }},
+		{name: "tts", method: http.MethodPost, deadline: func(d routeDeadlines) gin.HandlerFunc { return d.tts }},
+		{name: "download", method: http.MethodGet, deadline: func(d routeDeadlines) gin.HandlerFunc { return d.download }},
+		{name: "upload", method: http.MethodPost, deadline: func(d routeDeadlines) gin.HandlerFunc { return d.upload }, upload: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -34,10 +32,9 @@ func TestRouteDeadlines(t *testing.T) {
 				TTS:        config.TTSConfig{RequestTimeout: time.Second},
 			}
 			router := gin.New()
-			router.Use(routeDeadlines(cfg, time.Second))
 			started := make(chan struct{})
 			payload := strings.Repeat("audio", 4096)
-			router.Handle(tt.method, tt.route, func(c *gin.Context) {
+			router.Handle(tt.method, "/audio", tt.deadline(newRouteDeadlines(cfg, time.Second)), func(c *gin.Context) {
 				close(started)
 				if tt.upload {
 					data, err := io.ReadAll(c.Request.Body)
@@ -76,7 +73,7 @@ func TestRouteDeadlines(t *testing.T) {
 					}
 				}()
 			}
-			request, err := http.NewRequestWithContext(t.Context(), tt.method, server.URL+strings.ReplaceAll(tt.route, ":id", "1"), body)
+			request, err := http.NewRequestWithContext(t.Context(), tt.method, server.URL+"/audio", body)
 			if err != nil {
 				t.Fatal(err)
 			}

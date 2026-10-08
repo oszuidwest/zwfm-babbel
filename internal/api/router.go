@@ -28,6 +28,7 @@ type routerDeps struct {
 	authHandlers      *AuthHandlers
 	authService       *auth.Service
 	bulletinJobSvc    *services.BulletinJobService
+	deadlines         routeDeadlines
 }
 
 // SetupRouter wires routes and returns the stopped bulletin worker; alerts must be non-nil.
@@ -141,6 +142,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		authHandlers:      NewAuthHandlers(authService, cfg.FrontendURL, h),
 		authService:       authService,
 		bulletinJobSvc:    bulletinJobSvc,
+		deadlines:         newRouteDeadlines(cfg, audioTransferMargin),
 	}, nil
 }
 
@@ -192,7 +194,6 @@ func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.S
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
-	r.Use(routeDeadlines(cfg, audioTransferMargin))
 	// Alert bookkeeping per request is only worth it when e-mail can actually send.
 	if alerts.IsConfigured() {
 		r.Use(handlers.NotificationMiddleware(alerts))
@@ -208,7 +209,7 @@ func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.S
 // registerPublicRoutes registers unauthenticated public endpoints.
 func registerPublicRoutes(r *gin.Engine, deps *routerDeps) {
 	public := r.Group("/public")
-	public.GET("/stations/:id/bulletin.wav", deps.automationHandler.GetPublicBulletin)
+	public.GET("/stations/:id/bulletin.wav", deps.deadlines.automation, deps.automationHandler.GetPublicBulletin)
 }
 
 // registerAPIRoutes registers all versioned API routes.
@@ -277,14 +278,14 @@ func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 
 	protected.GET("/stories", perm(auth.ResourceStories, auth.ActionRead), h.ListStories)
 	protected.GET("/stories/:id", perm(auth.ResourceStories, auth.ActionRead), h.GetStory)
-	protected.GET("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionRead), func(c *gin.Context) {
+	protected.GET("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionRead), deps.deadlines.download, func(c *gin.Context) {
 		h.ServeAudio(c, handlers.AudioConfig{
 			TableName:  "stories",
 			FilePrefix: "story",
 		})
 	})
-	protected.POST("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionWrite), h.UploadStoryAudio)
-	protected.POST("/stories/:id/tts", perm(auth.ResourceStories, auth.ActionWrite), h.GenerateStoryTTS)
+	protected.POST("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionWrite), deps.deadlines.upload, h.UploadStoryAudio)
+	protected.POST("/stories/:id/tts", perm(auth.ResourceStories, auth.ActionWrite), deps.deadlines.tts, h.GenerateStoryTTS)
 	protected.POST("/stories", perm(auth.ResourceStories, auth.ActionWrite), h.CreateStory)
 	protected.PUT("/stories/:id", perm(auth.ResourceStories, auth.ActionWrite), h.UpdateStory)
 	protected.DELETE("/stories/:id", perm(auth.ResourceStories, auth.ActionWrite), h.DeleteStory)
@@ -311,13 +312,13 @@ func registerStationVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 
 	protected.GET("/station-voices", perm(auth.ResourceVoices, auth.ActionRead), h.ListStationVoices)
 	protected.GET("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionRead), h.GetStationVoice)
-	protected.GET("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionRead), func(c *gin.Context) {
+	protected.GET("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionRead), deps.deadlines.download, func(c *gin.Context) {
 		h.ServeAudio(c, handlers.AudioConfig{
 			TableName:  "station_voices",
 			FilePrefix: "jingle",
 		})
 	})
-	protected.POST("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionWrite), h.UploadStationVoiceAudio)
+	protected.POST("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionWrite), deps.deadlines.upload, h.UploadStationVoiceAudio)
 	protected.POST("/station-voices", perm(auth.ResourceVoices, auth.ActionWrite), h.CreateStationVoice)
 	protected.PUT("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionWrite), h.UpdateStationVoice)
 	protected.DELETE("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionWrite), h.DeleteStationVoice)
@@ -334,7 +335,7 @@ func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.POST("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionGenerate), h.GenerateBulletin)
 	protected.GET("/stations/:id/bulletins", perm(auth.ResourceBulletins, auth.ActionRead), h.GetStationBulletins)
 	protected.GET("/stations/:id/bulletins/latest", perm(auth.ResourceBulletins, auth.ActionRead), h.GetLatestStationBulletin)
-	protected.GET("/bulletins/:id/audio", perm(auth.ResourceBulletins, auth.ActionRead), h.GetBulletinAudio)
+	protected.GET("/bulletins/:id/audio", perm(auth.ResourceBulletins, auth.ActionRead), deps.deadlines.download, h.GetBulletinAudio)
 	protected.GET("/stories/:id/bulletins", perm(auth.ResourceStories, auth.ActionRead), h.GetStoryBulletinHistory)
 	protected.GET("/bulletins/:id/stories", perm(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)
 }
