@@ -405,3 +405,21 @@ MIT License - refer to [LICENSE](LICENSE).
 ## Credits
 
 Streekomroep ZuidWest made Babbel for newsroom operations at multiple local radio stations in the Netherlands.
+
+### HTTP timeouts for audio
+
+The server keeps 15-second default read and write timeouts. Audio routes extend
+their deadlines before work starts, with a shared two-minute transfer margin:
+
+- Public automation: twice `BABBEL_AUTOMATION_TIMEOUT` plus the margin (360s by
+  default). Waiting for the station lock and generating each get a separate
+  generation budget. Lock wait expiry returns 504.
+- TTS: `BABBEL_ELEVENLABS_TIMEOUT` plus the margin (180s by default).
+- Audio downloads: the transfer margin (120s).
+- Audio uploads: 120s to read the body, and `BABBEL_AUTOMATION_TIMEOUT` plus the
+  margin to process it and write the response (240s by default).
+
+Reverse proxy and client timeouts must also allow these durations. Automation
+file-write and final-flush errors are logged and trigger a station-specific
+notification. A successful write does not confirm playback by the receiver;
+broadcast rotation is still recorded when generation completes.

@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"mime"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -146,9 +148,9 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 }
 
 // serveAudioFile sets headers and serves an audio file for download.
-func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) {
+func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
 	if !validateAudioFile(c, filePath) {
-		return
+		return nil
 	}
 
 	c.Header("Content-Description", "File Transfer")
@@ -157,7 +159,39 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Header("Content-Type", "audio/wav")
 	c.Header("X-Bulletin-Id", strconv.FormatInt(bulletinID, 10))
 	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
-	c.File(filePath)
+	writer := &audioResponseWriter{ResponseWriter: c.Writer}
+	http.ServeFile(writer, c.Request, filePath)
+	if writer.err != nil {
+		return writer.err
+	}
+	c.Writer.WriteHeaderNow()
+	// Gin's Flush discards errors. Unwrap it to observe final buffered writes.
+	raw := http.ResponseWriter(c.Writer)
+	for {
+		unwrapper, ok := raw.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			break
+		}
+		raw = unwrapper.Unwrap()
+	}
+	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+// audioResponseWriter captures errors swallowed by http.ServeFile.
+type audioResponseWriter struct {
+	http.ResponseWriter
+	err error
+}
+
+func (w *audioResponseWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	if err != nil && w.err == nil {
+		w.err = err
+	}
+	return n, err
 }
 
 // GetBulletinStories returns paginated list of stories included in a specific bulletin.

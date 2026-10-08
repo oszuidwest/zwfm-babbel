@@ -192,6 +192,7 @@ func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.S
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
+	r.Use(routeDeadlines(cfg, audioTransferMargin))
 	// Alert bookkeeping per request is only worth it when e-mail can actually send.
 	if alerts.IsConfigured() {
 		r.Use(handlers.NotificationMiddleware(alerts))

@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -164,10 +166,15 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 // generating again. On failure it writes the error response and reports
 // ok=false.
 func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
-	release, err := h.bulletinSvc.LockStation(c.Request.Context(), req.stationID)
+	waitCtx, cancelWait := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
+	release, err := h.bulletinSvc.LockStation(waitCtx, req.stationID)
+	cancelWait()
 	if err != nil {
-		// Only a vanished client interrupts the wait; the response is best-effort.
-		utils.ProblemInternalServer(c, "Bulletin generation was interrupted")
+		if errors.Is(err, context.DeadlineExceeded) {
+			utils.ProblemExtended(c, http.StatusGatewayTimeout, "Timed out waiting for bulletin generation", "bulletin.generation_timeout", "Retry the request")
+		} else {
+			utils.ProblemInternalServer(c, "Bulletin generation was interrupted")
+		}
 		return nil, false, false
 	}
 	defer release()
@@ -225,5 +232,16 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 
 	// Automation clients should not cache public bulletin responses.
 	c.Header("Cache-Control", "no-store")
-	serveAudioFile(c, filePath, audioFile, bulletinID, cached)
+	deliveryKey := "bulletin:delivery:station:" + strconv.FormatInt(stationID, 10)
+	if err := serveAudioFile(c, filePath, audioFile, bulletinID, cached); err != nil {
+		logger.Error("Automation: failed to deliver bulletin audio", "station_id", stationID, "bulletin_id", bulletinID, "error", err)
+		h.alerts.Alert(context.WithoutCancel(c.Request.Context()), notify.Event{
+			Key: deliveryKey, Summary: "Radio automation bulletin delivery failed",
+			Details: fmt.Sprintf("Bulletin %d for station %d could not be fully written: %v", bulletinID, stationID, err),
+		})
+		return
+	}
+	if c.Writer.Status() == http.StatusOK || c.Writer.Status() == http.StatusPartialContent {
+		h.alerts.Resolve(c.Request.Context(), deliveryKey, "Radio automation bulletin delivery recovered", "Bulletin audio was written successfully again.")
+	}
 }

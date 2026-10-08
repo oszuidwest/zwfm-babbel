@@ -133,7 +133,10 @@ paths:
         - If endpoint is disabled (no API key configured): Returns 404
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
-        Concurrent requests for the same station will queue.
+        Concurrent requests for the same station will queue for up to
+        `BABBEL_AUTOMATION_TIMEOUT` (default 120s), then return 504. Generation
+        has a separate budget of the same duration. The response write deadline
+        covers both budgets plus a two-minute audio transfer margin (default 360s).
 
         **Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
         system that supports HTTP audio fetching.
