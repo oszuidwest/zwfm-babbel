@@ -4,11 +4,8 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/casbin/casbin/v2"
@@ -179,72 +176,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	}
 
 	return enforcer, nil
-}
-
-// usernameSanitizeRe matches characters that are not allowed in usernames.
-var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
-
-// sanitizeEmailToUsername converts an email address to a valid username.
-func (s *Service) sanitizeEmailToUsername(email string) string {
-	base, _, _ := strings.Cut(email, "@")
-
-	username := usernameSanitizeRe.ReplaceAllString(base, "_")
-
-	if len(username) < 3 {
-		if _, domainStr, found := strings.Cut(email, "@"); found {
-			domainPart, _, _ := strings.Cut(domainStr, ".")
-			domainPart = usernameSanitizeRe.ReplaceAllString(domainPart, "_")
-			username = username + "_" + domainPart
-		}
-	}
-
-	if len(username) > 100 {
-		username = username[:100]
-	}
-
-	return s.ensureUniqueUsername(username)
-}
-
-// ensureUniqueUsername returns a unique username, adding numeric suffixes if needed.
-func (s *Service) ensureUniqueUsername(baseUsername string) string {
-	username := baseUsername
-	counter := 1
-	ctx := context.Background()
-
-	for {
-		var count int64
-		err := s.db.WithContext(ctx).Table("users").Where("username = ?", username).Where("deleted_at IS NULL").Count(&count).Error
-		if err != nil {
-			// On errors, assume the username might exist and retry with a suffix.
-			logger.Warn("Database error checking username uniqueness, trying next", "error", err)
-			username = fmt.Sprintf("%s_%d", baseUsername, counter)
-			counter++
-			if counter > 100 {
-				// Fall back to a timestamp-based username to avoid an infinite loop.
-				username = fmt.Sprintf("%s_%d", baseUsername, time.Now().Unix())
-				break
-			}
-			continue
-		}
-
-		if count == 0 {
-			break
-		}
-
-		// Existing usernames are retried with a numeric suffix.
-		username = fmt.Sprintf("%s_%d", baseUsername, counter)
-		counter++
-
-		// Ensure we don't exceed the max length (100 characters)
-		if len(username) > 100 {
-			// Truncate the base username before adding the suffix.
-			maxBaseLen := max(100-len(fmt.Sprintf("_%d", counter)), 90)
-			truncatedBase := baseUsername[:min(len(baseUsername), maxBaseLen)]
-			username = fmt.Sprintf("%s_%d", truncatedBase, counter)
-		}
-	}
-
-	return username
 }
 
 // SessionMiddleware returns the Gin session middleware backed by the
@@ -466,90 +397,20 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidTokenAlertKey,
 		"OAuth ID token verification recovered", "The identity provider returned a verifiable ID token again.")
 
-	var claims struct {
-		Email             string `json:"email"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
-		Sub               string `json:"sub"`
-	}
+	var claims oauthClaims
 
 	if err := idToken.Claims(&claims); err != nil {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	userID, err := s.findOrCreateOAuthUser(c.Request.Context(), claims.Email, claims.Name, claims.PreferredUsername)
+	userID, err := s.findOrCreateOAuthUser(ctx, oauthIdentity{
+		Issuer: idToken.Issuer, Subject: idToken.Subject, Claims: claims,
+	})
 	if err != nil {
 		return err
 	}
 
 	return s.setupOAuthSession(c, userID)
-}
-
-// findOrCreateOAuthUser resolves an OAuth identity to an active local user
-// and returns its ID.
-func (s *Service) findOrCreateOAuthUser(ctx context.Context, email, fullName, preferredUsername string) (int64, error) {
-	var existingUser struct {
-		ID          int64
-		SuspendedAt *time.Time
-	}
-
-	err := s.db.WithContext(ctx).
-		Table("users").
-		Select("id, suspended_at").
-		Where("email = ?", email).
-		Where("deleted_at IS NULL").
-		First(&existingUser).Error
-	if err == nil {
-		if existingUser.SuspendedAt != nil {
-			return 0, fmt.Errorf("account is suspended")
-		}
-		return existingUser.ID, nil
-	}
-
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, fmt.Errorf("failed to query user: %w", err)
-	}
-
-	username := s.determineOAuthUsername(preferredUsername, email)
-	now := time.Now()
-
-	// Insert raw columns because models.User omits fields needed for OAuth bootstrap.
-	newUser := map[string]any{
-		"username":      username,
-		"full_name":     fullName,
-		"email":         email,
-		"role":          "viewer",
-		"password_hash": "",
-		"last_login_at": now,
-		"login_count":   1,
-	}
-
-	result := s.db.WithContext(ctx).Table("users").Create(newUser)
-	if result.Error != nil {
-		return 0, fmt.Errorf("failed to create user: %w", result.Error)
-	}
-
-	var id int64
-	err = s.db.WithContext(ctx).Raw("SELECT LAST_INSERT_ID()").Scan(&id).Error
-	if err != nil {
-		return 0, fmt.Errorf("failed to get created user ID: %w", err)
-	}
-
-	return id, nil
-}
-
-// determineOAuthUsername determines the best username from OAuth claims.
-func (s *Service) determineOAuthUsername(preferredUsername, email string) string {
-	username := preferredUsername
-	if username == "" {
-		return s.sanitizeEmailToUsername(email)
-	}
-
-	if strings.Contains(username, "@") || strings.Contains(username, ".") {
-		return s.sanitizeEmailToUsername(username)
-	}
-
-	return username
 }
 
 // setupOAuthSession creates a session for an OAuth-authenticated user.
