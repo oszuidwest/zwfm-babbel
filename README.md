@@ -221,24 +221,11 @@ Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewe
 
 Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA pronunciation rules. Admins and editors can save the rules. Viewers can read them. Babbel keeps the rules in its database. Babbel puts the rules in the text as `/ipa/` spans before the ElevenLabs request.
 
-### HTTP timeouts for audio
+### HTTP timeouts
 
-The server keeps 15-second default read and write timeouts. Audio routes extend
-their deadlines after the permission check and before work starts, with a shared
-two-minute transfer margin:
+The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout covers the slowest synchronous route plus 2 minutes to stream audio to slow clients: `max(2 x BABBEL_AUTOMATION_TIMEOUT, BABBEL_ELEVENLABS_TIMEOUT) + 2m`, 360s by default. An automation request may wait one generation budget for the station lock (then it returns 504) and spend another generating. Reverse proxies must allow the same durations.
 
-- Public automation: twice `BABBEL_AUTOMATION_TIMEOUT` plus the margin (360s by
-  default). Waiting for the station lock and generating each get a separate
-  generation budget. Lock wait expiry returns 504.
-- TTS: `BABBEL_ELEVENLABS_TIMEOUT` plus the margin (180s by default).
-- Audio downloads: the transfer margin (120s).
-- Audio uploads: 120s to read the body, and `BABBEL_AUTOMATION_TIMEOUT` plus the
-  margin to process it and write the response (240s by default).
-
-Reverse proxy and client timeouts must also allow these durations. Automation
-file-write and final-flush errors are logged and trigger a station-specific
-notification. A successful write does not confirm playback by the receiver;
-broadcast rotation is still recorded when generation completes.
+If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
 
 ### Operational e-mail notifications
 

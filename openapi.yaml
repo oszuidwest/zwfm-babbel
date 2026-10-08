@@ -134,9 +134,7 @@ paths:
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
         Concurrent requests for the same station will queue for up to
-        `BABBEL_AUTOMATION_TIMEOUT` (default 120s), then return 504. Generation
-        has a separate budget of the same duration. The response write deadline
-        covers both budgets plus a two-minute audio transfer margin (default 360s).
+        `BABBEL_AUTOMATION_TIMEOUT` (default 120s), then return 504.
 
         **Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
         system that supports HTTP audio fetching.
@@ -378,11 +376,8 @@ paths:
       description: |
         Handles the OAuth callback from the provider and redirects to the frontend.
         This endpoint is called by the OAuth provider after user authentication.
-        Users are bound to the verified issuer and subject (`sub`); a missing
-        subject is rejected. Email is optional. Legacy passwordless accounts
-        are linked only by an unambiguous non-empty email with
-        `email_verified: true`. Missing or false verification does not link
-        legacy users; a new identity receives a separate viewer account.
+        Users are bound to the token's issuer and subject (`sub`); a missing
+        subject is rejected.
       parameters:
         - name: code
           in: query

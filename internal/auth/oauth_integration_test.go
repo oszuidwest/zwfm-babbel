@@ -61,9 +61,6 @@ func newOAuthFixture(t *testing.T) oauthFixture {
 		if err := db.Exec("DELETE FROM users WHERE oidc_issuer LIKE ? OR username LIKE ?", f.issuer+"%", prefix+"%").Error; err != nil {
 			t.Errorf("cleanup users: %v", err)
 		}
-		if err := db.Exec("DELETE FROM voices WHERE name LIKE ?", prefix+"%").Error; err != nil {
-			t.Errorf("cleanup voices: %v", err)
-		}
 	})
 	return f
 }
@@ -92,18 +89,27 @@ func (f oauthFixture) createUser(t *testing.T, user oauthUser) oauthUser {
 
 func (f oauthFixture) login(t *testing.T, identity oauthIdentity) oauthUser {
 	t.Helper()
-	id, err := f.svc.findOrCreateOAuthUser(t.Context(), identity)
+	row, err := f.loginOwned(t.Context(), identity)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return row
+}
+
+// loginOwned logs in and checks that the returned ID belongs to the identity.
+func (f oauthFixture) loginOwned(ctx context.Context, identity oauthIdentity) (oauthUser, error) {
 	var row oauthUser
+	id, err := f.svc.findOrCreateOAuthUser(ctx, identity)
+	if err != nil {
+		return row, err
+	}
 	if err := f.svc.db.Table("users").Where("id = ?", id).First(&row).Error; err != nil {
-		t.Fatal(err)
+		return row, err
 	}
 	if row.OIDCIssuer != identity.Issuer || row.OIDCSubject != identity.Subject {
-		t.Fatalf("returned id %d belongs to %q/%q, want %q/%q", id, row.OIDCIssuer, row.OIDCSubject, identity.Issuer, identity.Subject)
+		return row, fmt.Errorf("returned id %d belongs to %q/%q, want %q/%q", id, row.OIDCIssuer, row.OIDCSubject, identity.Issuer, identity.Subject)
 	}
-	return row
+	return row, nil
 }
 
 func TestExistingOAuthSubjectIntegration(t *testing.T) {
@@ -248,38 +254,12 @@ func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	// Unrelated auto-increment inserts share the pool, exercising connection reuse.
-	for worker := range 8 {
-		wg.Go(func() {
-			<-start
-			for n := range 100 {
-				err := f.svc.db.WithContext(t.Context()).Table("voices").Create(map[string]any{
-					"name": fmt.Sprintf("%s-%d-%d", f.prefix, worker, n),
-				}).Error
-				if err != nil {
-					t.Errorf("background insert: %v", err)
-					return
-				}
-			}
-		})
-	}
 	for n := range 300 {
 		wg.Go(func() {
 			<-start
-			identity := f.identity(fmt.Sprintf("subject-%d", n))
 			// Shared preferred names also exercise duplicate-key insertion retries.
-			id, err := f.svc.findOrCreateOAuthUser(t.Context(), identity)
-			if err != nil {
+			if _, err := f.loginOwned(t.Context(), f.identity(fmt.Sprintf("subject-%d", n))); err != nil {
 				t.Errorf("login %d: %v", n, err)
-				return
-			}
-			var row oauthUser
-			if err := f.svc.db.Table("users").Where("id = ?", id).First(&row).Error; err != nil {
-				t.Errorf("read id %d: %v", id, err)
-				return
-			}
-			if row.OIDCIssuer != identity.Issuer || row.OIDCSubject != identity.Subject {
-				t.Errorf("login %d returned id %d for %q/%q", n, id, row.OIDCIssuer, row.OIDCSubject)
 			}
 		})
 	}

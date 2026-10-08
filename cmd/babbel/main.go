@@ -26,7 +26,7 @@ import (
 const (
 	debugLogLevel            = 5
 	serverReadTimeout        = 15 * time.Second
-	serverWriteTimeout       = 15 * time.Second
+	audioTransferMargin      = 2 * time.Minute
 	serverIdleTimeout        = 60 * time.Second
 	shutdownTimeout          = 30 * time.Second
 	fatalNotificationTimeout = 30 * time.Second
@@ -173,9 +173,17 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 		Addr:         cfg.Server.Address,
 		Handler:      handler,
 		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
+		WriteTimeout: serverWriteTimeout(cfg),
 		IdleTimeout:  serverIdleTimeout,
 	}
+}
+
+// serverWriteTimeout covers the slowest synchronous route: an automation
+// request may wait one generation budget for the station lock and spend another
+// generating, and TTS waits on ElevenLabs. Every route gets a margin to stream
+// audio to slow clients.
+func serverWriteTimeout(cfg *config.Config) time.Duration {
+	return max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin
 }
 
 // startServer serves in the background and reports unexpected listener errors.

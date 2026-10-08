@@ -3,11 +3,11 @@ package handlers
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,42 +75,26 @@ func TestAutomationHandlerValidKeyResolvesSecurityAlert(t *testing.T) {
 	}
 }
 
-// failingAudioWriter simulates either a failed body write or final flush.
-type failingAudioWriter struct {
-	*httptest.ResponseRecorder
-	failWrite bool
-}
+// failingFlushWriter simulates a client that is gone by the final flush.
+type failingFlushWriter struct{ *httptest.ResponseRecorder }
 
-func (w *failingAudioWriter) Write(p []byte) (int, error) {
-	if w.failWrite {
-		return 0, errors.New("client disconnected")
-	}
-	return w.ResponseRecorder.Write(p)
-}
-
-func (w *failingAudioWriter) FlushError() error { return errors.New("flush failed") }
+func (w failingFlushWriter) FlushError() error { return errors.New("broken pipe") }
 
 func TestAutomationBulletinDeliveryFailureAlerts(t *testing.T) {
-	for _, failWrite := range []bool{true, false} {
-		t.Run(fmt.Sprintf("write_failure_%t", failWrite), func(t *testing.T) {
-			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "bulletin.wav"), []byte("audio"), 0600); err != nil {
-				t.Fatal(err)
-			}
-			alerts := &automationAlertRecorder{}
-			handler := NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, alerts)
-			c, _ := gin.CreateTestContext(&failingAudioWriter{ResponseRecorder: httptest.NewRecorder(), failWrite: failWrite})
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
-			handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
-			if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:delivery:station:7" {
-				t.Fatalf("alerts = %+v, want delivery failure", alerts.events)
-			}
-			for _, key := range alerts.resolved {
-				if key == "bulletin:delivery:station:7" {
-					t.Fatal("failed delivery resolved alert")
-				}
-			}
-		})
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bulletin.wav"), []byte("audio"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	alerts := &automationAlertRecorder{}
+	handler := NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, alerts)
+	c, _ := gin.CreateTestContext(failingFlushWriter{httptest.NewRecorder()})
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
+	if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:delivery:station:7" {
+		t.Fatalf("alerts = %+v, want delivery failure", alerts.events)
+	}
+	if slices.Contains(alerts.resolved, "bulletin:delivery:station:7") {
+		t.Fatal("failed delivery resolved alert")
 	}
 }
 

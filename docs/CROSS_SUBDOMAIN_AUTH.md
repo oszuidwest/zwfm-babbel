@@ -114,23 +114,18 @@ After configuration, verify that:
 
 ## OAuth Identity and Username Handling
 
-OIDC accounts are identified by the verified token's issuer and subject (`sub`).
-A token without a subject is rejected. Email is optional and is never the
-identity key, so different subjects without email get separate accounts.
+OIDC accounts are identified by the token's issuer and subject (`sub`); a token
+without `sub` is rejected. Email is optional and never the identity key.
 
-New users receive the viewer role. Preferred usernames, or email prefixes when
-no preferred username exists, are sanitized and checked for uniqueness. Invalid
-characters become underscores, names are limited to 100 characters, and numeric
-suffixes resolve existing names. Concurrent insert collisions retry with a random
-suffix. Users without either claim receive a unique name based on `oidc_user`.
+New users get the viewer role and a username derived from `preferred_username`,
+or the email prefix: invalid characters become underscores, at most 100
+characters, and a suffix when the name is taken.
 
-A legacy passwordless user can be linked once by a non-empty, explicitly verified
-email (`email_verified: true`), provided the match is unambiguous and has no OIDC
-identity yet. Suspended accounts cannot log in. Unverified or absent verification
-claims do not link existing accounts, including Entra ID tokens that omit this
-claim. These users receive a new viewer account unless an administrator verifies
-and links their identity before login. See [migration instructions](../migrations/README.md)
-for deploy order and manual linking guidance.
+An existing passwordless account without an OIDC identity is linked once when
+the token carries a non-empty email with `email_verified: true` and exactly one
+account matches. Without that claim (Entra ID omits it) the user gets a new
+viewer account. To keep an existing account, an administrator fills its
+`oidc_issuer` and `oidc_subject` before the user's first login.
 
 ## Security Considerations
 

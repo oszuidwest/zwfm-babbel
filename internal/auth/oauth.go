@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -52,14 +53,9 @@ func (u oauthUser) activeID() (int64, error) {
 
 // findOrCreateOAuthUser binds only verified token issuer/subject pairs to users.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
-	if identity.Subject == "" {
-		return 0, errors.New("OIDC token is missing sub")
-	}
-	if identity.Issuer == "" {
-		return 0, errors.New("OIDC token is missing issuer")
-	}
-	if len(identity.Issuer) > 512 || len(identity.Subject) > 255 {
-		return 0, errors.New("OIDC issuer or subject exceeds the supported length")
+	// go-oidc already verified a non-empty issuer; the limits match the columns.
+	if identity.Subject == "" || len(identity.Subject) > 255 || len(identity.Issuer) > 512 {
+		return 0, errors.New("OIDC token is missing sub or has an oversized issuer/subject")
 	}
 	if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return id, err
@@ -67,7 +63,8 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 	if id, err := s.linkLegacyOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return id, err
 	}
-	username, err := s.determineOAuthUsername(ctx, identity.Claims.PreferredUsername, identity.Claims.Email)
+	base := sanitizeEmailToUsername(cmp.Or(identity.Claims.PreferredUsername, identity.Claims.Email))
+	username, err := s.ensureUniqueUsername(ctx, base)
 	if err != nil {
 		return 0, err
 	}
@@ -87,11 +84,9 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 		if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 			return id, err
 		}
-		// Random suffixes avoid repeated collisions between simultaneous signups.
-		username, err = s.ensureUniqueUsername(ctx, oauthUsernameSuffix(username, rand.Text()[:8]))
-		if err != nil {
-			return 0, err
-		}
+		// A random suffix avoids repeated collisions between simultaneous signups;
+		// the insert itself enforces uniqueness.
+		username = oauthUsernameSuffix(base, rand.Text()[:8])
 	}
 	return 0, errors.New("could not allocate a unique OAuth username; retry login")
 }
@@ -149,7 +144,7 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 // isOAuthConflict includes deadlocks from simultaneous unique-key inserts.
 func isOAuthConflict(err error) bool {
 	mysqlErr, ok := errors.AsType[*mysql.MySQLError](err)
-	return errors.Is(err, gorm.ErrDuplicatedKey) || (ok && (mysqlErr.Number == 1062 || mysqlErr.Number == 1213))
+	return ok && (mysqlErr.Number == 1062 || mysqlErr.Number == 1213)
 }
 
 // usernameSanitizeRe matches characters that are not allowed in usernames.
@@ -157,26 +152,16 @@ var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 // sanitizeEmailToUsername converts an email or preferred username to a base name.
 func sanitizeEmailToUsername(email string) string {
-	base, _, _ := strings.Cut(email, "@")
+	base, domain, found := strings.Cut(email, "@")
 	username := usernameSanitizeRe.ReplaceAllString(base, "_")
-	if len(username) < 3 {
-		if _, domain, found := strings.Cut(email, "@"); found {
-			domain, _, _ = strings.Cut(domain, ".")
-			username += "_" + usernameSanitizeRe.ReplaceAllString(domain, "_")
-		}
+	if len(username) < 3 && found {
+		domain, _, _ = strings.Cut(domain, ".")
+		username += "_" + usernameSanitizeRe.ReplaceAllString(domain, "_")
 	}
 	if username == "" {
 		username = "oidc_user"
 	}
 	return username[:min(len(username), 100)]
-}
-
-// determineOAuthUsername checks every candidate, including plain preferred names.
-func (s *Service) determineOAuthUsername(ctx context.Context, preferredUsername, email string) (string, error) {
-	if preferredUsername == "" {
-		preferredUsername = email
-	}
-	return s.ensureUniqueUsername(ctx, sanitizeEmailToUsername(preferredUsername))
 }
 
 // ensureUniqueUsername includes deleted rows because their names remain reserved.
