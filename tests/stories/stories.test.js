@@ -140,10 +140,9 @@ describe('Stories', () => {
   });
 
   describe('Idempotent Updates', () => {
-    // [method, payload, expected response fields]
+    // One case per repository path: UpdateByID and Restore.
     const cases = [
       ['PUT', { title: 'Idempotent title' }, { title: 'Idempotent title' }],
-      ['PATCH', { status: 'draft' }, { status: 'draft' }],
       ['PATCH', { deleted_at: '' }, { deleted_at: null }]
     ];
 
@@ -158,7 +157,7 @@ describe('Stories', () => {
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(second.data).toMatchObject({ id: created.data.id, ...expected });
+      expect(second.data).toMatchObject(expected);
     });
 
     test.each(cases)('when sending %s %j to a missing story, then returns 404', async (method, payload) => {

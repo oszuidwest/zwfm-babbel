@@ -71,5 +71,5 @@ jobs:
 
       - name: Run Go integration tests
         env:
-          BABBEL_TEST_DB_DSN: babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local
+          BABBEL_TEST_DB_DSN: babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true
         run: make test-integration

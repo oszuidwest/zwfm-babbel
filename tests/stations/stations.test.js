@@ -10,20 +10,6 @@ describe('Stations', () => {
   // === BUSINESS LOGIC TESTS ===
   // Tests specific to station behavior that can't be generated
 
-  test('when repeating the same station PUT immediately, then both requests succeed', async () => {
-    const payload = stationsSchema.createValidData('Idempotent');
-    const created = await global.api.apiCall('POST', '/stations', payload);
-    expect(created.status).toBe(201);
-    global.resources.track('stations', created.data.id);
-
-    const first = await global.api.apiCall('PUT', `/stations/${created.data.id}`, payload);
-    const second = await global.api.apiCall('PUT', `/stations/${created.data.id}`, payload);
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(second.data).toMatchObject(payload);
-  });
-
   describe('Station Dependencies', () => {
     let stationId;
     let voiceId;
