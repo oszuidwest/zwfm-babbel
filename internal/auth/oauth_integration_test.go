@@ -61,6 +61,9 @@ func newOAuthFixture(t *testing.T) oauthFixture {
 		if err := db.Exec("DELETE FROM users WHERE oidc_issuer LIKE ? OR username LIKE ?", f.issuer+"%", prefix+"%").Error; err != nil {
 			t.Errorf("cleanup users: %v", err)
 		}
+		if err := db.Exec("DELETE FROM voices WHERE name LIKE ?", prefix+"%").Error; err != nil {
+			t.Errorf("cleanup voices: %v", err)
+		}
 	})
 	return f
 }
@@ -229,6 +232,9 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 			if (row.ID == legacy.ID) != tt.wantLink {
 				t.Fatalf("login id = %d, legacy id = %d, want link %t", row.ID, legacy.ID, tt.wantLink)
 			}
+			if tt.wantLink && row.Role != "admin" {
+				t.Fatalf("linked role = %s, want admin kept", row.Role)
+			}
 		})
 	}
 }
@@ -258,6 +264,25 @@ func (f oauthFixture) concurrentLogins(t *testing.T, n int, identity func(int) o
 
 func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
+	// Unrelated inserts on the same pool would surface a connection-scoped
+	// LAST_INSERT_ID() as a wrong user ID.
+	done := make(chan struct{})
+	var background sync.WaitGroup
+	background.Go(func() {
+		for n := 0; ; n++ {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			if err := f.svc.db.Exec("INSERT INTO voices (name) VALUES (?)", fmt.Sprintf("%s-%d", f.prefix, n)).Error; err != nil {
+				t.Errorf("background insert: %v", err)
+				return
+			}
+		}
+	})
+	defer background.Wait()
+	defer close(done)
 	// Shared preferred names also exercise duplicate-key insertion retries.
 	if count := f.concurrentLogins(t, 300, func(i int) oauthIdentity { return f.identity(fmt.Sprintf("subject-%d", i)) }); count != 300 {
 		t.Fatalf("users = %d, want 300", count)

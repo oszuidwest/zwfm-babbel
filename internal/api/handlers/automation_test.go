@@ -135,3 +135,35 @@ func TestAutomationBulletinConditionalResponse(t *testing.T) {
 		t.Fatalf("response = %d, %q; want empty 304", recorder.Code, recorder.Body.String())
 	}
 }
+
+// ServeFile swallows write errors; serveAudioFile must still report a client
+// that the server write deadline cut off, for both buffered and streamed bodies.
+func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, size := range []int{1 << 10, 8 << 20} {
+		path := filepath.Join(t.TempDir(), "bulletin.wav")
+		if err := os.WriteFile(path, make([]byte, size), 0600); err != nil {
+			t.Fatal(err)
+		}
+		served := make(chan error, 1)
+		router := gin.New()
+		router.GET("/", func(c *gin.Context) {
+			time.Sleep(100 * time.Millisecond)
+			served <- serveAudioFile(c, path, "bulletin.wav", 1, false)
+		})
+		server := httptest.NewUnstartedServer(router)
+		server.Config.WriteTimeout = 50 * time.Millisecond
+		server.Start()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response, err := server.Client().Do(request); err == nil {
+			_ = response.Body.Close()
+		}
+		if err := <-served; err == nil {
+			t.Errorf("size %d: serveAudioFile = nil, want write deadline error", size)
+		}
+		server.Close()
+	}
+}
