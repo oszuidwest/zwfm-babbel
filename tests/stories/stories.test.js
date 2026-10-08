@@ -147,7 +147,6 @@ describe('Stories', () => {
       expect(created.status).toBe(201);
       global.resources.track('stories', created.data.id);
 
-      // Same-second repeat leaves updated_at (TIMESTAMP(0)) unchanged: matched but not changed.
       const first = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
       const second = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
 
