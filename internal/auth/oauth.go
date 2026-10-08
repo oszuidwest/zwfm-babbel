@@ -14,11 +14,27 @@ import (
 	"gorm.io/gorm"
 )
 
+// ErrLoginRejected marks OIDC login failures whose message is safe to show the
+// user; any other failure is internal and only logged.
+var ErrLoginRejected = errors.New("OIDC login rejected")
+
+// googleIssuer is the canonical form of Google's issuer; go-oidc also accepts
+// the scheme-less alias, which must not create a second identity.
+const googleIssuer = "https://accounts.google.com"
+
 type oauthClaims struct {
 	Email             string `json:"email"`
-	EmailVerified     *bool  `json:"email_verified"`
+	EmailVerified     any    `json:"email_verified"`
 	Name              string `json:"name"`
 	PreferredUsername string `json:"preferred_username"`
+}
+
+// emailMayLink reports whether the email claim may adopt a legacy account.
+// Some providers (e.g. Entra ID) omit email_verified and some send it as a
+// string, so only an explicit false or an unrecognized value blocks the link.
+func (c oauthClaims) emailMayLink() bool {
+	v := c.EmailVerified
+	return c.Email != "" && (v == nil || v == true || v == "true")
 }
 
 type oauthIdentity struct {
@@ -43,10 +59,10 @@ type oauthUser struct {
 
 func (u oauthUser) activeID() (int64, error) {
 	if u.DeletedAt != nil {
-		return 0, errors.New("account is deleted")
+		return 0, fmt.Errorf("%w: account is deleted", ErrLoginRejected)
 	}
 	if u.SuspendedAt != nil {
-		return 0, errors.New("account is suspended")
+		return 0, fmt.Errorf("%w: account is suspended", ErrLoginRejected)
 	}
 	return u.ID, nil
 }
@@ -55,7 +71,10 @@ func (u oauthUser) activeID() (int64, error) {
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
 	// go-oidc already verified a non-empty issuer; the limits match the columns.
 	if identity.Subject == "" || len(identity.Subject) > 255 || len(identity.Issuer) > 512 {
-		return 0, errors.New("OIDC token is missing sub or has an oversized issuer/subject")
+		return 0, fmt.Errorf("%w: token is missing sub or has an oversized issuer/subject", ErrLoginRejected)
+	}
+	if identity.Issuer == "accounts.google.com" {
+		identity.Issuer = googleIssuer
 	}
 	if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return id, err
@@ -73,7 +92,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 			Username: username, FullName: identity.Claims.Name, Email: identity.Claims.Email,
 			Role: "viewer", OIDCIssuer: identity.Issuer, OIDCSubject: identity.Subject,
 		}
-		err := s.db.WithContext(ctx).Table("users").Create(&user).Error
+		err = s.db.WithContext(ctx).Table("users").Create(&user).Error
 		if err == nil {
 			return user.ID, nil
 		}
@@ -88,7 +107,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 		// the insert itself enforces uniqueness.
 		username = oauthUsernameSuffix(base, rand.Text()[:8])
 	}
-	return 0, errors.New("could not allocate a unique OAuth username; retry login")
+	return 0, fmt.Errorf("could not allocate a unique OAuth username: %w", err)
 }
 
 func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
@@ -105,9 +124,8 @@ func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (in
 const legacyOAuthMatch = "email = ? AND password_hash = '' AND oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL"
 
 // linkLegacyOAuthUser only adopts an unambiguous passwordless legacy account.
-// Entra ID never sends email_verified, so only an explicit false blocks the link.
 func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
-	if identity.Claims.Email == "" || (identity.Claims.EmailVerified != nil && !*identity.Claims.EmailVerified) {
+	if !identity.Claims.emailMayLink() {
 		return 0, gorm.ErrRecordNotFound
 	}
 	users := []oauthUser{}
@@ -119,27 +137,36 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 		return 0, gorm.ErrRecordNotFound
 	}
 	if len(users) != 1 {
-		return 0, errors.New("multiple legacy accounts match this email; contact an administrator")
+		return 0, fmt.Errorf("%w: multiple accounts match this email; contact an administrator", ErrLoginRejected)
 	}
 	user := users[0]
 	if _, err := user.activeID(); err != nil {
 		return 0, err
 	}
-	// Repeating the match makes the link a no-op if the account changed meanwhile.
-	result := s.db.WithContext(ctx).Table("users").Where("id = ? AND suspended_at IS NULL", user.ID).
-		Where(legacyOAuthMatch, identity.Claims.Email).
-		Updates(map[string]any{"oidc_issuer": identity.Issuer, "oidc_subject": identity.Subject})
-	if result.Error != nil && !isOAuthConflict(result.Error) {
-		return 0, fmt.Errorf("failed to link legacy OAuth user: %w", result.Error)
+	bound, err := s.bindLegacyOAuthUser(ctx, user.ID, identity)
+	if err != nil && !isOAuthConflict(err) {
+		return 0, fmt.Errorf("failed to link legacy OAuth user: %w", err)
 	}
-	if result.Error == nil && result.RowsAffected == 1 {
+	if bound {
 		return user.ID, nil
 	}
 	// A concurrent link may have won; never return the stale email match.
-	if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
-		return id, err
+	if id, ferr := s.findOAuthUser(ctx, identity); !errors.Is(ferr, gorm.ErrRecordNotFound) {
+		return id, ferr
 	}
-	return 0, errors.New("legacy account changed during login; retry login")
+	if err != nil {
+		return 0, fmt.Errorf("legacy account link conflicted: %w", err)
+	}
+	return 0, fmt.Errorf("%w: account changed during login; retry login", ErrLoginRejected)
+}
+
+// bindLegacyOAuthUser links the identity to the selected legacy account unless
+// it changed since it was selected, and reports whether this call won the link.
+func (s *Service) bindLegacyOAuthUser(ctx context.Context, id int64, identity oauthIdentity) (bool, error) {
+	result := s.db.WithContext(ctx).Table("users").Where("id = ? AND suspended_at IS NULL", id).
+		Where(legacyOAuthMatch, identity.Claims.Email).
+		Updates(map[string]any{"oidc_issuer": identity.Issuer, "oidc_subject": identity.Subject})
+	return result.Error == nil && result.RowsAffected == 1, result.Error
 }
 
 // isOAuthConflict includes deadlocks from simultaneous unique-key inserts.

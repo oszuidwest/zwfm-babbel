@@ -167,3 +167,23 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 		server.Close()
 	}
 }
+
+func TestAutomationBulletinDeliveryResolvesAlert(t *testing.T) {
+	alerts := &automationAlertRecorder{}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	newBulletinFileHandler(t, alerts).serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
+	if len(alerts.events) != 0 || !slices.Contains(alerts.resolved, "bulletin:delivery:station:7") {
+		t.Fatalf("events = %+v, resolved = %v; want delivery resolved", alerts.events, alerts.resolved)
+	}
+}
+
+// A file removed after the caller's checks is a failed delivery, not a nil
+// return with a 404 written by net/http.
+func TestServeAudioFileReportsMissingFile(t *testing.T) {
+	c, rec := newProblemContext(t)
+	c.Request.Method = http.MethodGet
+	if err := serveAudioFile(c, filepath.Join(t.TempDir(), "gone.wav"), "gone.wav", 1, false); err == nil || rec.Code != http.StatusNotFound {
+		t.Fatalf("serveAudioFile = %v, status %d; want error and 404", err, rec.Code)
+	}
+}

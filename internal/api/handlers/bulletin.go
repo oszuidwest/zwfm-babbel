@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -147,9 +148,24 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
-// serveAudioFile sets headers and serves an audio file for download.
+// serveAudioFile serves an audio file for download. It returns an error when
+// the file cannot be opened or the response was not fully written; it returns
+// nil after writing a range or conditional response itself.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
-	if !validateAudioFile(c, filePath) {
+	// Open once so a file removed after earlier checks is reported, not served
+	// as a plain 404 by http.ServeFile.
+	file, err := os.Open(filePath) //nolint:gosec // Path is built internally from the configured storage root and stored file names.
+	if err != nil {
+		utils.ProblemNotFound(c, "Audio file")
+		return err
+	}
+	defer func() { _ = file.Close() }() // Read-only; a close error cannot affect the response.
+	info, err := file.Stat()
+	if err != nil {
+		utils.ProblemInternalServer(c, "Failed to access audio file")
+		return err
+	}
+	if !validateAudioRange(c, info.Size()) {
 		return nil
 	}
 
@@ -159,7 +175,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Header("Content-Type", "audio/wav")
 	c.Header("X-Bulletin-Id", strconv.FormatInt(bulletinID, 10))
 	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
-	http.ServeFile(c.Writer, c.Request, filePath)
+	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), file)
 	c.Writer.WriteHeaderNow()
 	// ServeFile swallows write errors, but net/http keeps the first one and
 	// returns it on flush. Gin's own Flush discards it, so flush the writer it wraps.

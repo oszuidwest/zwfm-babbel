@@ -356,7 +356,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 			Summary: "OAuth callback has an invalid CSRF state",
 			Details: "The OAuth callback state was missing or did not match the server-side session.",
 		})
-		return fmt.Errorf("invalid state")
+		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")

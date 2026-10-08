@@ -133,14 +133,20 @@ func TestEmailLessOAuthUsersIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	first := f.identity("first")
 	first.Claims.Email = ""
-	first.Claims.EmailVerified = new(true)
-	f.createUser(t, oauthUser{Username: "legacy", Email: "", Role: "admin"})
+	// Verified but empty: only the empty-email guard can keep it off the admin.
+	first.Claims.EmailVerified = true
+	legacy := f.createUser(t, oauthUser{Username: "legacy", Email: "", Role: "admin"})
 	first.Claims.PreferredUsername = ""
 	second := first
 	second.Subject = "second"
 	a, b := f.login(t, first), f.login(t, second)
 	if a.ID == b.ID || a.Username == "" || b.Username == "" {
 		t.Fatalf("users = %+v / %+v", a, b)
+	}
+	for _, row := range []oauthUser{a, b} {
+		if row.ID == legacy.ID || row.Role != "viewer" {
+			t.Fatalf("email-less login got %+v, want a new viewer, not legacy %d", row, legacy.ID)
+		}
 	}
 	if again := f.login(t, first); again.ID != a.ID {
 		t.Fatalf("repeat id = %d, want %d", again.ID, a.ID)
@@ -189,14 +195,15 @@ func TestInactiveOAuthUserIntegration(t *testing.T) {
 
 func TestLegacyOAuthLinkIntegration(t *testing.T) {
 	tests := []struct {
-		name                                  string
-		verified                              *bool
-		password, bound, suspended, ambiguous bool
-		wantLink, wantError                   bool
+		name                                           string
+		verified                                       any
+		password, bound, suspended, deleted, ambiguous bool
+		wantLink, wantError                            bool
 	}{
 		{name: "absent claim (Entra ID)", wantLink: true},
-		{name: "verified email", verified: new(true), wantLink: true},
-		{name: "explicitly unverified email", verified: new(false)},
+		{name: "verified email", verified: true, wantLink: true},
+		{name: "explicitly unverified email", verified: false},
+		{name: "deleted account excluded", deleted: true},
 		{name: "local password excluded", password: true},
 		{name: "bound account excluded", bound: true},
 		{name: "suspended legacy rejected", suspended: true, wantError: true},
@@ -214,9 +221,12 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 			if tt.bound {
 				legacy.OIDCIssuer, legacy.OIDCSubject = f.issuer, "old-subject"
 			}
+			now := time.Now()
 			if tt.suspended {
-				now := time.Now()
 				legacy.SuspendedAt = &now
+			}
+			if tt.deleted {
+				legacy.DeletedAt = &now
 			}
 			legacy = f.createUser(t, legacy)
 			if tt.ambiguous {
@@ -236,6 +246,51 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 				t.Fatalf("linked role = %s, want admin kept", row.Role)
 			}
 		})
+	}
+}
+
+// Two logins that both selected the same legacy account before either linked
+// it must not both adopt it: the guarded update lets exactly one win.
+func TestLegacyOAuthLinkSingleWinnerIntegration(t *testing.T) {
+	f := newOAuthFixture(t)
+	first, second := f.identity("first"), f.identity("second")
+	legacy := f.createUser(t, oauthUser{Email: first.Claims.Email, Role: "admin"})
+	for _, tt := range []struct {
+		identity oauthIdentity
+		want     bool
+	}{{first, true}, {second, false}} {
+		if bound, err := f.svc.bindLegacyOAuthUser(t.Context(), legacy.ID, tt.identity); err != nil || bound != tt.want {
+			t.Fatalf("bind %s = %t, %v; want %t", tt.identity.Subject, bound, err, tt.want)
+		}
+	}
+	var row oauthUser
+	if err := f.svc.db.Table("users").Where("id = ?", legacy.ID).First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.OIDCSubject != first.Subject {
+		t.Fatalf("legacy bound to %q, want %q", row.OIDCSubject, first.Subject)
+	}
+	if id, err := f.svc.findOrCreateOAuthUser(t.Context(), second); err != nil || id == legacy.ID {
+		t.Fatalf("second login = %d, %v; want a new account, not legacy %d", id, err, legacy.ID)
+	}
+}
+
+// go-oidc accepts both spellings of Google's issuer; they are one identity.
+func TestGoogleIssuerAliasIntegration(t *testing.T) {
+	f := newOAuthFixture(t)
+	canonical := f.identity("google-" + f.prefix)
+	canonical.Issuer = googleIssuer
+	alias := canonical
+	alias.Issuer = "accounts.google.com"
+	t.Cleanup(func() {
+		if err := f.svc.db.Exec("DELETE FROM users WHERE oidc_issuer = ? AND oidc_subject = ?", googleIssuer, canonical.Subject).Error; err != nil {
+			t.Errorf("cleanup google user: %v", err)
+		}
+	})
+	a := f.login(t, canonical)
+	b, err := f.svc.findOrCreateOAuthUser(t.Context(), alias)
+	if err != nil || b != a.ID {
+		t.Fatalf("alias login = %d, %v; want %d", b, err, a.ID)
 	}
 }
 

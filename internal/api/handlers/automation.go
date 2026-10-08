@@ -171,6 +171,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 	cancelWait()
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Warn("Automation: timed out waiting for station lock", "station_id", req.stationID, "waited", h.config.Automation.GenerationTimeout)
 			utils.ProblemExtended(c, http.StatusGatewayTimeout, "Timed out waiting for bulletin generation", apperrors.CodeTimeout, "Retry the request")
 		} else {
 			utils.ProblemInternalServer(c, "Bulletin generation was interrupted")

@@ -121,10 +121,15 @@ New users get the viewer role and a username derived from `preferred_username`,
 or the email prefix: invalid characters become underscores, at most 100
 characters, and a suffix when the name is taken.
 
-An existing passwordless account without an OIDC identity is linked once by its
-non-empty email when exactly one account matches. Entra ID does not send
+An existing account without a local password and without an OIDC identity is
+linked once by its non-empty email when exactly one account matches. Accounts
+with a local password are never linked. Some providers (e.g. Entra ID) omit
 `email_verified`, so only an explicit `email_verified: false` blocks the link;
-the user then gets a new viewer account.
+the user then gets a new viewer account. Several matching accounts, or a
+suspended match, make the login fail until an administrator resolves it.
+
+Google's issuer is stored as `https://accounts.google.com`, also when the token
+uses the scheme-less `accounts.google.com`.
 
 ## Security Considerations
 

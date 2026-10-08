@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -67,7 +68,15 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(err.Error()))
+		// The frontend shows this text; internal errors stay in the log.
+		message := "Login failed; try again or contact an administrator"
+		if errors.Is(err, auth.ErrLoginRejected) {
+			logger.Warn("OIDC login rejected", "error", err)
+			message = err.Error()
+		} else {
+			logger.Error("OIDC login failed", "error", err)
+		}
+		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(message))
 		return
 	}
 
