@@ -73,7 +73,6 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
 
-  // Creates the fixtures required by the shared query-test generator.
   const setupQueryTestData = async () => {
     const ids = [];
     for (let i = 1; i <= 3; i++) {
@@ -91,13 +90,10 @@ describe('Stories', () => {
   // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
-  // The remaining tests cover story-specific behavior.
-
   describe('Story CRUD', () => {
     let voiceId, stationId, storyId;
 
     beforeAll(async () => {
-      // Share one voice and station across the CRUD cases.
       const voice = await global.helpers.createVoice(global.resources, 'CrudTestVoice');
       const station = await global.helpers.createStation(global.resources, 'CrudTestStation');
       voiceId = voice.id;
@@ -210,7 +206,6 @@ describe('Stories', () => {
     let voiceId, stationId;
 
     beforeAll(async () => {
-      // Share one voice and station across the scheduling cases.
       const voice = await global.helpers.createVoice(global.resources, 'ScheduleVoice');
       const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
@@ -227,7 +222,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -242,7 +236,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -264,7 +257,6 @@ describe('Stories', () => {
     let voiceId, station1Id, station2Id;
 
     beforeAll(async () => {
-      // Share one voice and two stations across the targeting cases.
       const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
       const station1 = await global.helpers.createStation(global.resources, 'Target1');
       const station2 = await global.helpers.createStation(global.resources, 'Target2');
@@ -283,10 +275,8 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
-      // Verify assignments when the response expands target_stations.
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       if (getResponse.data.target_stations) {
@@ -348,6 +338,39 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.data.audio_file).not.toBe('');
+    });
+
+    test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
+      const inputAudio = `${prefix}_input.wav`;
+      const beforeAudio = `${prefix}_before.wav`;
+      const afterAudio = `${prefix}_after.wav`;
+      try {
+        runFFmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1', '-y', inputAudio]);
+        const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice', 'SilentStation');
+        expect(result).not.toBeNull();
+        const endpoint = `/stories/${result.id}/audio`;
+
+        const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
+        expect(validUpload.status).toBe(201);
+        const before = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(200);
+
+        const replacement = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
+        expect(replacement.status).toBe(422);
+        expect(replacement.data.code).toBe('audio.silent');
+        const after = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
+        expect(after.data.updated_at).toBe(before.data.updated_at);
+        expect(await global.api.downloadFile(endpoint, afterAudio)).toBe(200);
+        expect(fs.readFileSync(afterAudio)).toEqual(fs.readFileSync(beforeAudio));
+      } finally {
+        for (const file of [inputAudio, beforeAudio, afterAudio]) {
+          global.helpers.cleanupTempFile(file);
+        }
+      }
     });
 
     test('when fetching story, then audio fields present', async () => {
@@ -418,8 +441,7 @@ describe('Stories', () => {
       const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
       expect(uploadResponse.status).toBe(201);
 
-      // Force a legacy-style NULL row to pin has_audio=false behavior; the API
-      // itself never writes NULL because the model field is a plain string.
+      // SQL is needed to test NULL audio_file values; the API writes strings.
       createMySQLExecutor().execSQL(
         `UPDATE stories SET audio_file = NULL WHERE id = ${sqlInteger(nullAudio.id, 'story ID')}`
       );
@@ -492,7 +514,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);

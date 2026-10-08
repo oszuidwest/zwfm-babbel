@@ -4044,6 +4044,7 @@ components:
         - `{resource}.has_dependencies` - 409 cannot delete, has dependent resources
         - `{resource}.validation_failed` - 400 field-level validation error (also used for the "cannot delete last admin" constraint)
         - `bulletin.no_stories` - 422 no active stories for bulletin generation
+        - `audio.silent` - 422 story audio is silent or below the -50 LUFS floor
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
         - `internal.timeout` - 504 operation timed out
@@ -4533,6 +4534,16 @@ components:
                 instance: "/api/v1/stations/1/bulletins"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+            silent_audio:
+              summary: Story audio is silent or below -50 LUFS; existing audio is preserved
+              value:
+                type: "https://babbel.api/problems/audio.silent"
+                title: "Unprocessable Entity"
+                status: 422
+                detail: "Audio is silent or too quiet"
+                instance: "/api/v1/stories/1/audio"
+                code: "audio.silent"
+                hint: "Check the recording level and input channel, then upload audible audio or regenerate speech"
     InternalServerError:
       description: Internal server error
       content:
