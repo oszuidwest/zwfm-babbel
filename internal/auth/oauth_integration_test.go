@@ -112,16 +112,6 @@ func (f oauthFixture) loginOwned(ctx context.Context, identity oauthIdentity) (o
 	return row, nil
 }
 
-func TestExistingOAuthSubjectIntegration(t *testing.T) {
-	f := newOAuthFixture(t)
-	identity := f.identity("existing")
-	existing := f.createUser(t, oauthUser{OIDCIssuer: identity.Issuer, OIDCSubject: identity.Subject, Role: "admin", Email: "old@example.com"})
-	row := f.login(t, identity)
-	if row.ID != existing.ID || row.Role != "admin" {
-		t.Fatalf("user = %+v, want existing admin", row)
-	}
-}
-
 func TestNewOAuthUserIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	identity := f.identity("new")
@@ -129,6 +119,8 @@ func TestNewOAuthUserIntegration(t *testing.T) {
 	if row.Role != "viewer" || row.FullName != identity.Claims.Name || row.Email != identity.Claims.Email {
 		t.Fatalf("new user = %+v", row)
 	}
+	// The subject, not the email, identifies the user on later logins.
+	identity.Claims.Email = "changed@example.com"
 	if again := f.login(t, identity); again.ID != row.ID {
 		t.Fatalf("repeat id = %d, want %d", again.ID, row.ID)
 	}
@@ -178,17 +170,12 @@ func TestDuplicateOAuthUsernameIntegration(t *testing.T) {
 }
 
 func TestInactiveOAuthUserIntegration(t *testing.T) {
-	for _, status := range []string{"suspended", "deleted"} {
+	now := time.Now()
+	for status, user := range map[string]oauthUser{"suspended": {SuspendedAt: &now}, "deleted": {DeletedAt: &now}} {
 		t.Run(status+" subject rejected", func(t *testing.T) {
 			f := newOAuthFixture(t)
 			identity := f.identity(status)
-			user := oauthUser{OIDCIssuer: identity.Issuer, OIDCSubject: identity.Subject}
-			now := time.Now()
-			if status == "suspended" {
-				user.SuspendedAt = &now
-			} else {
-				user.DeletedAt = &now
-			}
+			user.OIDCIssuer, user.OIDCSubject = identity.Issuer, identity.Subject
 			f.createUser(t, user)
 			if _, err := f.svc.findOrCreateOAuthUser(t.Context(), identity); err == nil || !strings.Contains(err.Error(), status) {
 				t.Fatalf("error = %v, want %s", err, status)
@@ -242,26 +229,21 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 			if (row.ID == legacy.ID) != tt.wantLink {
 				t.Fatalf("login id = %d, legacy id = %d, want link %t", row.ID, legacy.ID, tt.wantLink)
 			}
-			if tt.wantLink && row.Role != "admin" {
-				t.Fatalf("linked role = %s, want admin", row.Role)
-			}
-			if !tt.wantLink && row.Role != "viewer" {
-				t.Fatalf("new role = %s, want viewer", row.Role)
-			}
 		})
 	}
 }
 
-func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
-	f := newOAuthFixture(t)
+// concurrentLogins runs n simultaneous logins that each must get their own row
+// back, and returns how many users the fixture issuer owns afterwards.
+func (f oauthFixture) concurrentLogins(t *testing.T, n int, identity func(int) oauthIdentity) int64 {
+	t.Helper()
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for n := range 300 {
+	for i := range n {
 		wg.Go(func() {
 			<-start
-			// Shared preferred names also exercise duplicate-key insertion retries.
-			if _, err := f.loginOwned(t.Context(), f.identity(fmt.Sprintf("subject-%d", n))); err != nil {
-				t.Errorf("login %d: %v", n, err)
+			if _, err := f.loginOwned(t.Context(), identity(i)); err != nil {
+				t.Errorf("login %d: %v", i, err)
 			}
 		})
 	}
@@ -271,7 +253,13 @@ func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
 	if err := f.svc.db.Table("users").Where("oidc_issuer = ?", f.issuer).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != 300 {
+	return count
+}
+
+func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
+	f := newOAuthFixture(t)
+	// Shared preferred names also exercise duplicate-key insertion retries.
+	if count := f.concurrentLogins(t, 300, func(i int) oauthIdentity { return f.identity(fmt.Sprintf("subject-%d", i)) }); count != 300 {
 		t.Fatalf("users = %d, want 300", count)
 	}
 }
@@ -281,41 +269,10 @@ func TestConcurrentSameOAuthIdentityIntegration(t *testing.T) {
 		t.Run(fmt.Sprintf("legacy_%t", legacy), func(t *testing.T) {
 			f := newOAuthFixture(t)
 			identity := f.identity("shared")
-			identity.Claims.EmailVerified = new(true)
 			if legacy {
 				f.createUser(t, oauthUser{Email: identity.Claims.Email})
 			}
-			ids := make(chan int64, 30)
-			start := make(chan struct{})
-			var wg sync.WaitGroup
-			for range 30 {
-				wg.Go(func() {
-					<-start
-					id, err := f.svc.findOrCreateOAuthUser(t.Context(), identity)
-					if err != nil {
-						t.Errorf("login: %v", err)
-						return
-					}
-					ids <- id
-				})
-			}
-			close(start)
-			wg.Wait()
-			close(ids)
-			var first int64
-			for id := range ids {
-				if first == 0 {
-					first = id
-				}
-				if id != first {
-					t.Errorf("id = %d, want %d", id, first)
-				}
-			}
-			var count int64
-			if err := f.svc.db.Table("users").Where("oidc_issuer = ?", f.issuer).Count(&count).Error; err != nil {
-				t.Fatal(err)
-			}
-			if count != 1 {
+			if count := f.concurrentLogins(t, 30, func(int) oauthIdentity { return identity }); count != 1 {
 				t.Fatalf("users = %d, want 1", count)
 			}
 		})

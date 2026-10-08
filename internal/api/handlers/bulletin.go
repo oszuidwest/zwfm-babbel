@@ -163,7 +163,11 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Writer.WriteHeaderNow()
 	// ServeFile swallows write errors, but net/http keeps the first one and
 	// returns it on flush. Gin's own Flush discards it, so flush the writer it wraps.
-	if err := http.NewResponseController(c.Writer.(interface{ Unwrap() http.ResponseWriter }).Unwrap()).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	var raw http.ResponseWriter = c.Writer
+	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
+		raw = u.Unwrap()
+	}
+	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
 	return nil

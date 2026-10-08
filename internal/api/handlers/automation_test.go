@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
@@ -80,13 +81,19 @@ type failingFlushWriter struct{ *httptest.ResponseRecorder }
 
 func (w failingFlushWriter) FlushError() error { return errors.New("broken pipe") }
 
-func TestAutomationBulletinDeliveryFailureAlerts(t *testing.T) {
+// newBulletinFileHandler returns a handler whose output dir holds bulletin.wav.
+func newBulletinFileHandler(t *testing.T, alerts notify.Alerter) *AutomationHandler {
+	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "bulletin.wav"), []byte("audio"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	return NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, alerts)
+}
+
+func TestAutomationBulletinDeliveryFailureAlerts(t *testing.T) {
 	alerts := &automationAlertRecorder{}
-	handler := NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, alerts)
+	handler := newBulletinFileHandler(t, alerts)
 	c, _ := gin.CreateTestContext(failingFlushWriter{httptest.NewRecorder()})
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
@@ -108,23 +115,17 @@ func TestAutomationLockWaitTimeout(t *testing.T) {
 	handler := NewAutomationHandler(svc, nil, &config.Config{
 		Automation: config.AutomationConfig{GenerationTimeout: 20 * time.Millisecond},
 	}, nil)
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	c, rec := newProblemContext(t)
 	if _, _, ok := handler.getOrGenerateBulletin(c, &bulletinRequest{stationID: 7}, 0); ok {
 		t.Fatal("generation succeeded while lock was held")
 	}
-	if recorder.Code != http.StatusGatewayTimeout {
-		t.Fatalf("status = %d, want 504", recorder.Code)
+	if problem := decodeProblem(t, rec); rec.Code != http.StatusGatewayTimeout || problem.Code != apperrors.CodeTimeout {
+		t.Fatalf("response = %d %q, want 504 %q", rec.Code, problem.Code, apperrors.CodeTimeout)
 	}
 }
 
 func TestAutomationBulletinConditionalResponse(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "bulletin.wav"), []byte("audio"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	handler := NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, nil)
+	handler := newBulletinFileHandler(t, nil)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)

@@ -63,7 +63,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 	if id, err := s.linkLegacyOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return id, err
 	}
-	base := sanitizeEmailToUsername(cmp.Or(identity.Claims.PreferredUsername, identity.Claims.Email))
+	base := sanitizeUsername(cmp.Or(identity.Claims.PreferredUsername, identity.Claims.Email))
 	username, err := s.ensureUniqueUsername(ctx, base)
 	if err != nil {
 		return 0, err
@@ -101,6 +101,9 @@ func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (in
 	return user.activeID()
 }
 
+// legacyOAuthMatch selects a passwordless account that has no OIDC identity yet.
+const legacyOAuthMatch = "email = ? AND password_hash = '' AND oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL"
+
 // linkLegacyOAuthUser only adopts an unambiguous passwordless legacy account.
 // Entra ID never sends email_verified, so only an explicit false blocks the link.
 func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
@@ -108,9 +111,7 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 		return 0, gorm.ErrRecordNotFound
 	}
 	users := []oauthUser{}
-	err := s.db.WithContext(ctx).Table("users").
-		Where("email = ? AND password_hash = ''", identity.Claims.Email).
-		Where("oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL").Limit(2).Find(&users).Error
+	err := s.db.WithContext(ctx).Table("users").Where(legacyOAuthMatch, identity.Claims.Email).Limit(2).Find(&users).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to query legacy OAuth user: %w", err)
 	}
@@ -118,15 +119,15 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 		return 0, gorm.ErrRecordNotFound
 	}
 	if len(users) != 1 {
-		return 0, errors.New("multiple legacy accounts match verified email; contact an administrator")
+		return 0, errors.New("multiple legacy accounts match this email; contact an administrator")
 	}
 	user := users[0]
 	if _, err := user.activeID(); err != nil {
 		return 0, err
 	}
-	result := s.db.WithContext(ctx).Table("users").Where("id = ?", user.ID).
-		Where("oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL AND suspended_at IS NULL").
-		Where("email = ? AND password_hash = ''", identity.Claims.Email).
+	// Repeating the match makes the link a no-op if the account changed meanwhile.
+	result := s.db.WithContext(ctx).Table("users").Where("id = ? AND suspended_at IS NULL", user.ID).
+		Where(legacyOAuthMatch, identity.Claims.Email).
 		Updates(map[string]any{"oidc_issuer": identity.Issuer, "oidc_subject": identity.Subject})
 	if result.Error != nil && !isOAuthConflict(result.Error) {
 		return 0, fmt.Errorf("failed to link legacy OAuth user: %w", result.Error)
@@ -150,9 +151,9 @@ func isOAuthConflict(err error) bool {
 // usernameSanitizeRe matches characters that are not allowed in usernames.
 var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-// sanitizeEmailToUsername converts an email or preferred username to a base name.
-func sanitizeEmailToUsername(email string) string {
-	base, domain, found := strings.Cut(email, "@")
+// sanitizeUsername converts a preferred username or email to a base name.
+func sanitizeUsername(name string) string {
+	base, domain, found := strings.Cut(name, "@")
 	username := usernameSanitizeRe.ReplaceAllString(base, "_")
 	if len(username) < 3 && found {
 		domain, _, _ = strings.Cut(domain, ".")
