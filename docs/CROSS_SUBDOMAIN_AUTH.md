@@ -121,11 +121,10 @@ New users get the viewer role and a username derived from `preferred_username`,
 or the email prefix: invalid characters become underscores, at most 100
 characters, and a suffix when the name is taken.
 
-An existing passwordless account without an OIDC identity is linked once when
-the token carries a non-empty email with `email_verified: true` and exactly one
-account matches. Without that claim (Entra ID omits it) the user gets a new
-viewer account. To keep an existing account, an administrator fills its
-`oidc_issuer` and `oidc_subject` before the user's first login.
+An existing passwordless account without an OIDC identity is linked once by its
+non-empty email when exactly one account matches. Entra ID does not send
+`email_verified`, so only an explicit `email_verified: false` blocks the link;
+the user then gets a new viewer account.
 
 ## Security Considerations
 

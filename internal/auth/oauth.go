@@ -16,7 +16,7 @@ import (
 
 type oauthClaims struct {
 	Email             string `json:"email"`
-	EmailVerified     bool   `json:"email_verified"`
+	EmailVerified     *bool  `json:"email_verified"`
 	Name              string `json:"name"`
 	PreferredUsername string `json:"preferred_username"`
 }
@@ -102,9 +102,9 @@ func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (in
 }
 
 // linkLegacyOAuthUser only adopts an unambiguous passwordless legacy account.
-// Absent email_verified is treated as false, including for Entra ID.
+// Entra ID never sends email_verified, so only an explicit false blocks the link.
 func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
-	if identity.Claims.Email == "" || !identity.Claims.EmailVerified {
+	if identity.Claims.Email == "" || (identity.Claims.EmailVerified != nil && !*identity.Claims.EmailVerified) {
 		return 0, gorm.ErrRecordNotFound
 	}
 	users := []oauthUser{}

@@ -138,7 +138,7 @@ func TestEmailLessOAuthUsersIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	first := f.identity("first")
 	first.Claims.Email = ""
-	first.Claims.EmailVerified = true
+	first.Claims.EmailVerified = new(true)
 	f.createUser(t, oauthUser{Username: "legacy", Email: "", Role: "admin"})
 	first.Claims.PreferredUsername = ""
 	second := first
@@ -199,16 +199,18 @@ func TestInactiveOAuthUserIntegration(t *testing.T) {
 
 func TestLegacyOAuthLinkIntegration(t *testing.T) {
 	tests := []struct {
-		name                                            string
-		verified, password, bound, suspended, ambiguous bool
-		wantLink, wantError                             bool
+		name                                  string
+		verified                              *bool
+		password, bound, suspended, ambiguous bool
+		wantLink, wantError                   bool
 	}{
-		{name: "verified email", verified: true, wantLink: true},
-		{name: "unverified or absent claim"},
-		{name: "local password excluded", verified: true, password: true},
-		{name: "bound account excluded", verified: true, bound: true},
-		{name: "suspended legacy rejected", verified: true, suspended: true, wantError: true},
-		{name: "ambiguous email rejected", verified: true, ambiguous: true, wantError: true},
+		{name: "absent claim (Entra ID)", wantLink: true},
+		{name: "verified email", verified: new(true), wantLink: true},
+		{name: "explicitly unverified email", verified: new(false)},
+		{name: "local password excluded", password: true},
+		{name: "bound account excluded", bound: true},
+		{name: "suspended legacy rejected", suspended: true, wantError: true},
+		{name: "ambiguous email rejected", ambiguous: true, wantError: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -279,7 +281,7 @@ func TestConcurrentSameOAuthIdentityIntegration(t *testing.T) {
 		t.Run(fmt.Sprintf("legacy_%t", legacy), func(t *testing.T) {
 			f := newOAuthFixture(t)
 			identity := f.identity("shared")
-			identity.Claims.EmailVerified = true
+			identity.Claims.EmailVerified = new(true)
 			if legacy {
 				f.createUser(t, oauthUser{Email: identity.Claims.Email})
 			}
