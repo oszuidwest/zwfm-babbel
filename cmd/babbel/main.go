@@ -1,4 +1,4 @@
-// Package main is the entry point for the Babbel API server.
+// Babbel serves the news bulletin API.
 package main
 
 import (
@@ -142,7 +142,6 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
-// initLogger configures structured logging for the selected environment.
 func initLogger(cfg *config.Config) error {
 	logLevel := "info"
 	if cfg.LogLevel >= debugLogLevel {
@@ -154,7 +153,6 @@ func initLogger(cfg *config.Config) error {
 	return nil
 }
 
-// closeDatabase closes the underlying SQL pool and reports shutdown failures.
 func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -178,10 +176,8 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 	}
 }
 
-// serverWriteTimeout covers the slowest synchronous route: an automation
-// request may wait one generation budget for the station lock and spend another
-// generating, and TTS waits on ElevenLabs. Every route gets a margin to stream
-// audio to slow clients.
+// serverWriteTimeout covers automation or TTS plus audio transfer time.
+// Automation needs separate budgets for the station lock and generation.
 func serverWriteTimeout(cfg *config.Config) time.Duration {
 	return max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin
 }
@@ -211,7 +207,6 @@ func waitForShutdown(serverErr <-chan error) error {
 	}
 }
 
-// shutdownServer drains active HTTP requests within the shutdown timeout.
 func shutdownServer(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

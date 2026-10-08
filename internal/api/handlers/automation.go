@@ -38,15 +38,14 @@ func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *ser
 	}
 }
 
-// bulletinRequest holds validated request parameters for public bulletin endpoint.
 type bulletinRequest struct {
 	stationID     int64
 	maxAgeSeconds int64
 }
 
-// validateBulletinRequest parses public automation parameters.
-// It writes the error response before returning nil on invalid input; a missing
-// automation key deliberately behaves like an absent route.
+// validateBulletinRequest authenticates and parses automation parameters.
+// On failure it writes an error response and returns nil.
+// An unset automation key disables the endpoint with a 404.
 func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinRequest {
 	if h.config.Automation.Key == "" {
 		utils.ProblemNotFound(c, "Endpoint")
@@ -123,10 +122,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 
-	// Fast path: serve a fresh-enough bulletin without the generation lock so
-	// cache hits are never serialized behind another client's generation or
-	// download speed. This lookup runs on the request context; the generation
-	// timeout starts only once the lock is held.
+	// Cache hits bypass the generation lock to avoid waiting for other requests.
 	if req.maxAgeSeconds > 0 {
 		existing, ok := h.lookupFreshBulletin(c, c.Request.Context(), req.stationID, maxAge)
 		if !ok {
@@ -146,9 +142,8 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, req.stationID, cached)
 }
 
-// lookupFreshBulletin returns the latest bulletin within maxAge, or nil when
-// none exists. On lookup failure it writes the error response and reports
-// ok=false.
+// lookupFreshBulletin returns the latest bulletin within maxAge, or nil if absent.
+// On failure it writes an error response and returns false.
 func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Context, stationID int64, maxAge time.Duration) (*models.Bulletin, bool) {
 	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
 	if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
@@ -160,11 +155,9 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 	return bulletin, true
 }
 
-// getOrGenerateBulletin produces a bulletin under the per-station lock, which
-// only guards generation. A request that waited on the lock re-checks the
-// cache so it reuses the bulletin the lock winner just generated instead of
-// generating again. On failure it writes the error response and reports
-// ok=false.
+// getOrGenerateBulletin rechecks the cache and generates under a per-station lock.
+// The lock is released before delivery. On failure it writes an error response
+// and returns ok=false.
 func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
 	waitCtx, cancelWait := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
 	release, err := h.bulletinSvc.LockStation(waitCtx, req.stationID)
@@ -180,8 +173,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 	}
 	defer release()
 
-	// The generation timeout starts after the lock is acquired so time spent
-	// waiting behind another generation does not eat into it.
+	// Lock waiting must not consume the generation timeout.
 	ctx, cancel := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
 	defer cancel()
 
@@ -205,12 +197,10 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 	return created, false, true
 }
 
-// serveBulletinAudio sends the bulletin WAV file as response, or the
-// appropriate error response when the file is missing or unreadable.
+// serveBulletinAudio serves bulletin audio and reports availability and delivery failures.
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID, stationID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
-	// Keyed by station so repeats dedupe and the next successful serve resolves
-	// the alert; a per-bulletin key would never recover once a new bulletin exists.
+	// A station key lets a later bulletin resolve the same alert.
 	alertKey := "bulletin:served-audio:station:" + strconv.FormatInt(stationID, 10)
 
 	if _, err := os.Stat(filePath); err != nil {
@@ -231,7 +221,6 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	h.alerts.Resolve(c.Request.Context(), alertKey,
 		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
 
-	// Automation clients should not cache public bulletin responses.
 	c.Header("Cache-Control", "no-store")
 	deliveryKey := "bulletin:delivery:station:" + strconv.FormatInt(stationID, 10)
 	if err := serveAudioFile(c, filePath, audioFile, bulletinID, cached); err != nil {

@@ -1,6 +1,5 @@
 -- Complete MySQL schema; fresh databases load only this file.
 
--- Drop existing tables (in reverse dependency order)
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS bulletin_jobs;
 DROP TABLE IF EXISTS user_sessions;

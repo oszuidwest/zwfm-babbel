@@ -1,4 +1,4 @@
-# macOS system files
+# OS files
 .DS_Store
 .DS_Store?
 ._*
@@ -13,7 +13,7 @@ Thumbs.db
 /dist
 /build
 
-# Audio files (generated during operation)
+# Generated audio
 /audio
 
 # Environment and configuration
@@ -51,7 +51,7 @@ pids
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
+# Coverage reports
 coverage/
 
 # Generated documentation (rebuilt by CI from openapi.yaml)

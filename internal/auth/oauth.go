@@ -14,12 +14,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// ErrLoginRejected marks OIDC login failures whose message is safe to show the
-// user; any other failure is internal and only logged.
+// ErrLoginRejected marks OIDC login errors safe to show to the user.
 var ErrLoginRejected = errors.New("OIDC login rejected")
 
-// googleIssuer is the canonical form of Google's issuer; go-oidc also accepts
-// the scheme-less alias, which must not create a second identity.
+// googleIssuer prevents Google's issuer aliases from creating duplicate identities.
 const googleIssuer = "https://accounts.google.com"
 
 type oauthClaims struct {
@@ -29,9 +27,8 @@ type oauthClaims struct {
 	PreferredUsername string `json:"preferred_username"`
 }
 
-// emailMayLink reports whether the email claim may adopt a legacy account.
-// Some providers (e.g. Entra ID) omit email_verified and some send it as a
-// string, so only an explicit false or an unrecognized value blocks the link.
+// emailMayLink permits linking by non-empty email when email_verified is absent
+// (as with Entra ID), true, or "true".
 func (c oauthClaims) emailMayLink() bool {
 	v := c.EmailVerified
 	return c.Email != "" && (v == nil || v == true || v == "true")
@@ -43,7 +40,6 @@ type oauthIdentity struct {
 	Claims  oauthClaims
 }
 
-// oauthUser includes the private identity columns and receives the insert ID.
 type oauthUser struct {
 	ID           int64 `gorm:"primaryKey"`
 	Username     string
@@ -67,9 +63,9 @@ func (u oauthUser) activeID() (int64, error) {
 	return u.ID, nil
 }
 
-// findOrCreateOAuthUser binds only verified token issuer/subject pairs to users.
+// findOrCreateOAuthUser requires an identity from a verified ID token.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
-	// go-oidc already verified a non-empty issuer; the limits match the columns.
+	// go-oidc validates the issuer; length limits match the database columns.
 	if identity.Subject == "" || len(identity.Subject) > 255 || len(identity.Issuer) > 512 {
 		return 0, fmt.Errorf("%w: token is missing sub or has an oversized issuer/subject", ErrLoginRejected)
 	}
@@ -99,12 +95,11 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 		if !isOAuthConflict(err) {
 			return 0, fmt.Errorf("failed to create OAuth user: %w", err)
 		}
-		// Another first login may have inserted this identity while we chose a name.
+		// A concurrent login may have created this identity.
 		if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 			return id, err
 		}
-		// A random suffix avoids repeated collisions between simultaneous signups;
-		// the insert itself enforces uniqueness.
+		// Random suffixes reduce collisions between concurrent signups.
 		username = oauthUsernameSuffix(base, rand.Text()[:8])
 	}
 	return 0, fmt.Errorf("could not allocate a unique OAuth username: %w", err)
@@ -120,7 +115,6 @@ func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (in
 	return user.activeID()
 }
 
-// legacyOAuthMatch selects a passwordless account that has no OIDC identity yet.
 const legacyOAuthMatch = "email = ? AND password_hash = '' AND oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL"
 
 // linkLegacyOAuthUser only adopts an unambiguous passwordless legacy account.
@@ -160,8 +154,7 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 	return 0, fmt.Errorf("%w: account changed during login; retry login", ErrLoginRejected)
 }
 
-// bindLegacyOAuthUser links the identity to the selected legacy account unless
-// it changed since it was selected, and reports whether this call won the link.
+// bindLegacyOAuthUser rechecks eligibility and reports whether it linked the account.
 func (s *Service) bindLegacyOAuthUser(ctx context.Context, id int64, identity oauthIdentity) (bool, error) {
 	result := s.db.WithContext(ctx).Table("users").Where("id = ? AND suspended_at IS NULL", id).
 		Where(legacyOAuthMatch, identity.Claims.Email).
@@ -175,7 +168,6 @@ func isOAuthConflict(err error) bool {
 	return ok && (mysqlErr.Number == 1062 || mysqlErr.Number == 1213)
 }
 
-// usernameSanitizeRe matches characters that are not allowed in usernames.
 var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 // sanitizeUsername converts a preferred username or email to a base name.

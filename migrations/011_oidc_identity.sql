@@ -1,4 +1,4 @@
--- Apply before deploying issuer/subject-based OIDC login.
+-- Required for OIDC login; see README.md for deployment prerequisites.
 -- VARBINARY preserves case and trailing bytes in opaque identity claims.
 ALTER TABLE users
     ADD COLUMN oidc_issuer VARBINARY(512) NULL,

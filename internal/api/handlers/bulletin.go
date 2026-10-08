@@ -134,8 +134,7 @@ func parseQuality(value string) (float64, bool) {
 	return quality, err == nil
 }
 
-// requireStation returns false after writing a response when the station
-// lookup fails or the station does not exist.
+// requireStation writes an error response and returns false if lookup fails or the station is absent.
 func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	exists, err := h.stationSvc.Exists(c.Request.Context(), stationID)
 	if err != nil {
@@ -149,13 +148,11 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
-// serveAudioFile serves an audio file for download. It returns an error when
-// the file cannot be opened or the response was not fully written; it returns
-// nil after writing a complete range or conditional response itself.
+// serveAudioFile serves a download with range and conditional request support.
+// It returns file access and incomplete delivery errors after handling the response.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
-	// Open once so a file removed after earlier checks is reported, not served
-	// as a plain 404 by http.ServeFile.
-	file, err := os.Open(filePath) //nolint:gosec // Path is built internally from the configured storage root and stored file names.
+	// Open here to report file errors to the caller.
+	file, err := os.Open(filePath) //nolint:gosec // Path uses the configured storage root and stored file names.
 	if err != nil {
 		if os.IsNotExist(err) {
 			utils.ProblemNotFound(c, "Audio file")
@@ -182,8 +179,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
 	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), file)
 	c.Writer.WriteHeaderNow()
-	// ServeContent swallows write errors, but net/http keeps the first one and
-	// returns it on flush. Gin's own Flush discards it, so flush the writer it wraps.
+	// Flush the underlying writer to recover write errors hidden by ServeContent and Gin.
 	var raw http.ResponseWriter = c.Writer
 	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
 		raw = u.Unwrap()
@@ -191,7 +187,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
-	// ServeContent also discards read errors; Gin already counts the written bytes.
+	// Detect incomplete reads hidden by ServeContent.
 	if c.Request.Method != http.MethodHead {
 		if length, err := strconv.ParseInt(c.Writer.Header().Get("Content-Length"), 10, 64); err == nil && int64(c.Writer.Size()) != length {
 			return io.ErrUnexpectedEOF
@@ -200,7 +196,7 @@ func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64,
 	return nil
 }
 
-// GetBulletinStories returns paginated list of stories included in a specific bulletin.
+// GetBulletinStories returns a paginated list of stories in a bulletin.
 func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	bulletinID, ok := utils.IDParam(c)
 	if !ok {
@@ -231,7 +227,7 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	utils.PaginatedResponse(c, stories, total, limit, offset)
 }
 
-// GetStationBulletins returns a station's bulletins in a list envelope.
+// GetStationBulletins returns a paginated list of a station's bulletins.
 func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
 	if !ok {
@@ -285,7 +281,7 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 	utils.Success(c, bulletin)
 }
 
-// ListBulletins returns a paginated list of bulletins with modern query parameter support.
+// ListBulletins returns a paginated list of bulletins.
 func (h *Handlers) ListBulletins(c *gin.Context) {
 	params, query, ok := utils.ParseListQuery(c)
 	if !ok {
@@ -318,8 +314,7 @@ func (h *Handlers) GetBulletin(c *gin.Context) {
 }
 
 // GetStoryBulletinHistory returns bulletins that included a specific story.
-// The story is checked first so an unknown story ID returns "Story" rather than
-// an empty bulletin history.
+// An unknown story returns 404.
 func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	storyID, ok := utils.IDParam(c)
 	if !ok {

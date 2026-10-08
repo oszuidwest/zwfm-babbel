@@ -97,8 +97,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser returns the authenticated user's profile augmented with the
-// effective permissions for their role.
+// GetCurrentUser returns the authenticated user's profile and effective permissions.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID, ok := auth.UserID(c)
 	if !ok {
@@ -121,7 +120,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 }
 
 // GetAuthConfig reports the enabled frontend login methods.
-// OAuth-enabled deployments include the local initiation URL for the OIDC flow.
+// It includes the OAuth initiation URL when enabled.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},

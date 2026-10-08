@@ -122,7 +122,7 @@ func TestNewOAuthUserIntegration(t *testing.T) {
 	if row.Role != "viewer" || row.FullName != identity.Claims.Name || row.Email != identity.Claims.Email {
 		t.Fatalf("new user = %+v", row)
 	}
-	// The subject, not the email, identifies the user on later logins.
+	// Email changes must preserve identity.
 	identity.Claims.Email = "changed@example.com"
 	if again := f.login(t, identity); again.ID != row.ID {
 		t.Fatalf("repeat id = %d, want %d", again.ID, row.ID)
@@ -133,7 +133,7 @@ func TestEmailLessOAuthUsersIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	first := f.identity("first")
 	first.Claims.Email = ""
-	// Verified but empty: only the empty-email guard can keep it off the admin.
+	// Even verified emails must be non-empty to link an account.
 	first.Claims.EmailVerified = true
 	legacy := f.createUser(t, oauthUser{Username: "legacy", Email: "", Role: "admin"})
 	first.Claims.PreferredUsername = ""
@@ -249,12 +249,11 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 	}
 }
 
-// Two logins that both selected the same legacy account before either linked
-// it must not both adopt it: the guarded update lets exactly one win.
 func TestLegacyOAuthLinkSingleWinnerIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	first, second := f.identity("first"), f.identity("second")
 	legacy := f.createUser(t, oauthUser{Email: first.Claims.Email, Role: "admin"})
+	// Simulate two logins selecting the same account before either binds it.
 	for _, tt := range []struct {
 		identity oauthIdentity
 		want     bool
@@ -275,7 +274,6 @@ func TestLegacyOAuthLinkSingleWinnerIntegration(t *testing.T) {
 	}
 }
 
-// go-oidc accepts both spellings of Google's issuer; they are one identity.
 func TestGoogleIssuerAliasIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	canonical := f.identity("google-" + f.prefix)
@@ -294,8 +292,7 @@ func TestGoogleIssuerAliasIntegration(t *testing.T) {
 	}
 }
 
-// concurrentLogins runs n simultaneous logins that each must get their own row
-// back, and returns how many users the fixture issuer owns afterwards.
+// concurrentLogins verifies concurrent login identities and returns the user count.
 func (f oauthFixture) concurrentLogins(t *testing.T, n int, identity func(int) oauthIdentity) int64 {
 	t.Helper()
 	start := make(chan struct{})
@@ -319,8 +316,7 @@ func (f oauthFixture) concurrentLogins(t *testing.T, n int, identity func(int) o
 
 func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
-	// Unrelated inserts on the same pool would surface a connection-scoped
-	// LAST_INSERT_ID() as a wrong user ID.
+	// Unrelated inserts expose LAST_INSERT_ID() reads on the wrong connection.
 	done := make(chan struct{})
 	var background sync.WaitGroup
 	background.Go(func() {

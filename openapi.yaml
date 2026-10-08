@@ -7,12 +7,12 @@ info:
 
     ## API Design Notes
 
-    **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
+    **JSON API**: Create and update stories and station-voice relationships with JSON.
     - Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
     - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
     - StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
-    - Metadata: Returned as native JSON object instead of escaped string
+    - Metadata: Returned as a JSON object
 
     ## Authentication
 
@@ -2827,7 +2827,7 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed story filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      description: Typed story filters. Use `has_audio` to filter by audio presence.
       schema:
         type: object
         additionalProperties: false
@@ -2887,7 +2887,7 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed station-voice filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      description: Typed station-voice filters. Use `has_audio` to filter by audio presence.
       schema:
         type: object
         additionalProperties: false
@@ -3451,7 +3451,7 @@ components:
         null values is rejected.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           station_id:
@@ -3633,7 +3633,7 @@ components:
         null values is rejected.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           title:
@@ -3852,7 +3852,7 @@ components:
         object containing only null values is rejected.
       minProperties: 1
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           username:

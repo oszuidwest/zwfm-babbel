@@ -84,7 +84,7 @@ type failingFlushWriter struct{ *httptest.ResponseRecorder }
 
 func (w failingFlushWriter) FlushError() error { return errors.New("broken pipe") }
 
-// newBulletinFileHandler returns a handler whose output dir holds bulletin.wav.
+// newBulletinFileHandler creates a handler with a stored bulletin.wav fixture.
 func newBulletinFileHandler(t *testing.T, alerts notify.Alerter) *AutomationHandler {
 	t.Helper()
 	dir := t.TempDir()
@@ -127,7 +127,6 @@ func TestAutomationLockWaitTimeout(t *testing.T) {
 	}
 }
 
-// Cover delayed generation with both expired and sufficient transfer deadlines.
 func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tt := range []struct {
@@ -150,7 +149,7 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 			served := make(chan error, 1)
 			router := gin.New()
 			router.GET("/", func(c *gin.Context) {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond) // Simulate generation before delivery.
 				served <- serveAudioFile(c, path, "bulletin.wav", 1, false)
 			})
 			server := httptest.NewUnstartedServer(router)
@@ -177,7 +176,7 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 	}
 }
 
-// Change the file after ServeContent has determined Content-Length, before copying.
+// audioFileChangingWriter changes the file after Content-Length is set, before copying.
 type audioFileChangingWriter struct {
 	gin.ResponseWriter
 	change func()
@@ -266,8 +265,6 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 	}
 }
 
-// A file removed after the caller's checks is a failed delivery, not a nil
-// return with a 404 written by net/http.
 func TestServeAudioFileReportsMissingFile(t *testing.T) {
 	c, rec := newProblemContext(t)
 	c.Request.Method = http.MethodGet

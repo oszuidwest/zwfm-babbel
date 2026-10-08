@@ -17,15 +17,13 @@ func TestOAuthIdentityRejectsInvalidSubjectOrIssuer(t *testing.T) {
 		"oversized sub":    {Issuer: "https://issuer.example", Subject: strings.Repeat("s", 256)},
 		"oversized issuer": {Issuer: strings.Repeat("i", 513), Subject: "sub"},
 	} {
-		// Rejected before any database access; the Service has no DB.
+		// A nil DB verifies validation precedes database access.
 		if _, err := s.findOrCreateOAuthUser(t.Context(), identity); !errors.Is(err, ErrLoginRejected) {
 			t.Errorf("%s: error = %v, want ErrLoginRejected", name, err)
 		}
 	}
 }
 
-// Entra ID omits email_verified and some providers send it as a string; only
-// an explicit false (or an unrecognized value) may block the legacy link.
 func TestOAuthClaimsEmailMayLink(t *testing.T) {
 	tests := map[string]bool{
 		`{"email":"a@b.nl"}`:                          true,
