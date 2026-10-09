@@ -1,0 +1,65 @@
+//go:build integration
+
+package repository
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"gorm.io/gorm"
+)
+
+// createBulletin inserts a bulletin row that is deleted when the test ends.
+func createBulletin(t *testing.T, db *gorm.DB, stationID int64) models.Bulletin {
+	t.Helper()
+	bulletin := models.Bulletin{StationID: stationID, Filename: t.Name() + ".wav"}
+	if err := db.Create(&bulletin).Error; err != nil {
+		t.Fatalf("create bulletin: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Delete(&bulletin).Error; err != nil {
+			t.Errorf("delete bulletin: %v", err)
+		}
+	})
+	return bulletin
+}
+
+func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
+	db := openIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
+	repo := NewBulletinRepository(db)
+	// Derive local midnight independently of startOfDay so the test checks it.
+	today, err := time.ParseInLocation(time.DateOnly, time.Now().Format(time.DateOnly), time.Local)
+	if err != nil {
+		t.Fatalf("local midnight: %v", err)
+	}
+	bulletin := createBulletin(t, db, station.ID)
+
+	for _, test := range []struct {
+		name      string
+		createdAt time.Time
+		maxAge    *time.Duration
+		wantFound bool
+	}{
+		{name: "yesterday rejected", createdAt: today.Add(-time.Second), maxAge: new(48 * time.Hour)},
+		{name: "yesterday without max age", createdAt: today.Add(-time.Second), wantFound: true},
+		{name: "local midnight included", createdAt: today, maxAge: new(48 * time.Hour), wantFound: true},
+		{name: "age still enforced", createdAt: today, maxAge: new(time.Duration(0))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := db.Model(&bulletin).Update("created_at", test.createdAt).Error; err != nil {
+				t.Fatalf("set bulletin time: %v", err)
+			}
+			got, err := repo.GetLatest(t.Context(), station.ID, test.maxAge)
+			if test.wantFound {
+				if err != nil || got.ID != bulletin.ID {
+					t.Fatalf("GetLatest() = %#v, %v; want bulletin %d", got, err, bulletin.ID)
+				}
+			} else if !errors.Is(err, ErrNotFound) {
+				t.Fatalf("GetLatest() = %#v, %v; want ErrNotFound", got, err)
+			}
+		})
+	}
+}

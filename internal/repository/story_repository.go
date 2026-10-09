@@ -109,7 +109,7 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 	return err
 }
 
-// Update applies non-nil story fields and Clear* nulling flags.
+// Update applies non-nil story fields.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
@@ -225,25 +225,25 @@ type BulletinStoryData struct {
 //   - Status is 'active' (excludes 'draft' and 'expired')
 //   - Has audio file uploaded
 //   - Has voice assigned with station-voice relationship
-//   - Current date is within start_date and end_date range
-//   - Current weekday matches the story's weekday schedule
+//   - The supplied date is within start_date and end_date range
+//   - Its weekday matches the story's weekday schedule
 //
 // Selection priority (determines which stories fill available slots):
 //  1. Breaking news stories are selected first (newest by start_date preferred)
 //  2. Unused stories today get next priority (newest by start_date preferred)
-//  3. If all stories were used today, least-recently-used ones are selected
+//  3. Remaining slots use least-recently-used stories
 //  4. RAND() as final tiebreaker for variety
 //
 // Breaking stories consume slots from the station's limit. Playback order is
 // randomized by the caller; this function only determines which stories are selected.
-// The rotation resets daily at local midnight and is isolated per station.
+// Rotation is isolated per station and starts at midnight in date's location.
 func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
 	// time.Weekday is always in range [0,6], safe to convert to uint8.
 	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
-	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	todayLocal := startOfDay(date)
 
 	// MySQL DATE comparisons should receive date strings, not instants that can
 	// be shifted by timezone conversion.

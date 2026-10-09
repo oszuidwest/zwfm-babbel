@@ -147,7 +147,7 @@ GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
 
 **Features:**
 - Session or cookie authentication is not necessary.
-- If the available bulletin is too old, Babbel makes a new bulletin.
+- If the available bulletin is too old or was created on a previous local day, Babbel makes a new bulletin.
 - If no key is set, the endpoint is not available and returns 404.
 
 ### Authenticated Endpoint
@@ -198,7 +198,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 ### Asynchronous bulletin generation
 
-`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Every request creates a generation job. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; sending a `date` field returns `422`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
 
 Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
 

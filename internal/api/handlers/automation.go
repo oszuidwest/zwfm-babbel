@@ -187,7 +187,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 
 	logger.Info("Automation: generating new bulletin", "station_id", req.stationID, "max_age_s", req.maxAgeSeconds)
 
-	created, err := h.bulletinSvc.Create(ctx, req.stationID, time.Now())
+	created, err := h.bulletinSvc.Create(ctx, req.stationID)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return nil, false, false

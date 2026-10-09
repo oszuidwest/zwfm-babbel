@@ -128,7 +128,7 @@ paths:
         Configure via `BABBEL_AUTOMATION_KEY` environment variable.
 
         **Behavior**:
-        - If `max_age > 0`: Returns cached bulletin if younger than max_age, otherwise generates new
+        - If `max_age > 0`: Returns cached bulletin if created on the current local day and younger than max_age, otherwise generates new
         - If `max_age = 0`: Always generates a fresh bulletin
         - If endpoint is disabled (no API key configured): Returns 404
 
@@ -2093,22 +2093,13 @@ paths:
         bulletin and its audio through the regular bulletin endpoints.
 
         Every request creates a generation job. A single background worker
-        processes jobs one at a time in submission order.
+        processes jobs one at a time in submission order. Each job generates for
+        the local day the worker runs it. Takes no request body; a `date` field
+        returns `422`.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                date:
-                  type: string
-                  format: date
-                  description: Date for bulletin in YYYY-MM-DD format (defaults to today)
       responses:
         '202':
           description: Bulletin generation job accepted
@@ -3970,11 +3961,11 @@ components:
 
     BulletinJob:
       type: object
+      additionalProperties: false
       description: Durable asynchronous bulletin-generation state
       required:
         - id
         - station_id
-        - target_date
         - status
         - attempt
         - bulletin_id
@@ -3990,10 +3981,6 @@ components:
           type: integer
           format: int64
           x-foreign-key: stations.id
-        target_date:
-          type: string
-          format: date-time
-          description: Calendar date used when selecting eligible stories
         status:
           type: string
           enum: [queued, running, succeeded, failed]

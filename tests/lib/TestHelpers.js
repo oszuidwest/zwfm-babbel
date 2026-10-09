@@ -66,11 +66,10 @@ class TestHelpers {
   /**
    * Enqueues and resolves a bulletin; non-202 responses pass through.
    * @param {number} stationId
-   * @param {Object} [body]
    * @returns {Promise<Object>}
    */
-  async generateBulletin(stationId, body = {}) {
-    const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`, body);
+  async generateBulletin(stationId) {
+    const accepted = await this.api.apiCall('POST', `/stations/${stationId}/bulletins`);
     if (accepted.status !== 202) return accepted;
     const job = await this.waitForBulletinJob(accepted.data.id);
     if (job.data.status === 'failed') {
@@ -309,7 +308,7 @@ class TestHelpers {
   }
 
   /**
-   * Returns null, never a partial result.
+   * Returns null if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
    * @param {string|number} stationId
    * @param {string|number} voiceId

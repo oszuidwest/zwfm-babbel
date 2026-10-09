@@ -79,11 +79,9 @@ CREATE TABLE bulletin_stories (
     INDEX idx_bulletin_stories_story_id (story_id)
 );
 
--- Keep this definition aligned with 009_bulletin_jobs.sql.
 CREATE TABLE bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,
-    target_date  DATE NOT NULL,
     status       VARCHAR(20) NOT NULL DEFAULT 'queued',
     attempt      INT NOT NULL DEFAULT 0,
     bulletin_id  INT NULL,

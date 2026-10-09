@@ -512,7 +512,7 @@ describe('openapi.yaml contract invariants', () => {
     StationVoice: ['id', 'station_id', 'voice_id', 'audio_file', 'audio_url', 'mix_point', 'created_at', 'updated_at'],
     BulletinResponse: ['id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'created_at'],
     BulletinJob: [
-      'id', 'station_id', 'target_date', 'status', 'attempt', 'bulletin_id',
+      'id', 'station_id', 'status', 'attempt', 'bulletin_id',
       'started_at', 'completed_at', 'created_at', 'updated_at'
     ]
   };

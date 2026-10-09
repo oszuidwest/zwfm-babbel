@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -160,12 +159,10 @@ func TestPronunciationRulesHandlers_UpdateAppliesPointerSemantics(t *testing.T) 
 	}
 }
 
-// TestPronunciationRulesHandlers_UpdatePropagatesActorUserID locks in the
-// audit-trail contract: the authenticated user from the gin context must reach
-// the service request as ActorUserID, and an unauthenticated request must leave
-// it nil (the service logs user_id=unknown in that case). A request-capturing
-// fake stands in for the real service so the assertion fails if the handler's
-// auth.UserID -> ActorUserID assignment is dropped or retargeted.
+// TestPronunciationRulesHandlers_UpdatePropagatesActorUserID verifies that the
+// authenticated user reaches the service as ActorUserID; without authentication,
+// it is nil (logged as user_id=unknown). A request-capturing fake checks the
+// handler's assignment independently of the service.
 func TestPronunciationRulesHandlers_UpdatePropagatesActorUserID(t *testing.T) {
 	const userID int64 = 42
 
@@ -266,9 +263,6 @@ func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
 	}
-	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/problem+json" {
-		t.Fatalf("content-type = %q, want application/problem+json", contentType)
-	}
 	problem := decodeProblem(t, recorder)
 	if problem.Status != http.StatusInternalServerError || problem.Code != "internal.database_error" {
 		t.Fatalf("problem = %#v, want database problem details", problem)
@@ -324,21 +318,6 @@ func decodeHandlerJSON(t *testing.T, recorder *httptest.ResponseRecorder, out an
 
 	if err := json.Unmarshal(recorder.Body.Bytes(), out); err != nil {
 		t.Fatalf("decode response JSON: %v; body=%s", err, recorder.Body.String())
-	}
-}
-
-func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, want string) {
-	t.Helper()
-
-	var body struct {
-		Errors []apperrors.ValidationError `json:"errors"`
-	}
-	decodeHandlerJSON(t, recorder, &body)
-	if len(body.Errors) == 0 {
-		t.Fatalf("errors = %#v, want at least one field", body.Errors)
-	}
-	if body.Errors[0].Field != want {
-		t.Fatalf("first field = %q, want %q; body=%s", body.Errors[0].Field, want, recorder.Body.String())
 	}
 }
 

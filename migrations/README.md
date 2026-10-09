@@ -24,3 +24,7 @@ OIDC login, to databases that lack the `oidc_*` columns; it fails on databases
 created from the current `001` snapshot. Do not run alongside instances that
 identify OIDC users by email alone.
 `docs/CROSS_SUBDOMAIN_AUTH.md` describes how existing accounts are linked.
+
+Stop Babbel, apply `012_drop_bulletin_job_target_date.sql`, then deploy; it
+fails on databases created from the current `001` snapshot. Queued jobs
+generate for the local day the worker runs them.

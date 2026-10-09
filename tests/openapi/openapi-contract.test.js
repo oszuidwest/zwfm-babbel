@@ -332,8 +332,7 @@ describe('OpenAPI Contract', () => {
           const response = await apiCall(
             'POST',
             '/api/v1/stations/{id}/bulletins',
-            `/stations/${ctx.station.id}/bulletins`,
-            {}
+            `/stations/${ctx.station.id}/bulletins`
           );
           expect(response.status).toBe(202);
           expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
@@ -348,7 +347,7 @@ describe('OpenAPI Contract', () => {
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
           expect(station).not.toBeNull();
-          const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
+          const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`);
           expect(response.status).toBe(202);
           await global.helpers.waitForBulletinJob(response.data.id);
           // apiCall validates the failed job against the OpenAPI schema.

@@ -82,11 +82,11 @@ func (s *BulletinService) LockStation(ctx context.Context, stationID int64) (fun
 	}
 }
 
-// Create selects eligible stories, renders the WAV file, and persists the
-// bulletin plus story links for a station/date. Callers must hold the station
+// Create selects today's eligible stories, renders the WAV file, and persists
+// the bulletin plus story links for a station. Callers must hold the station
 // lock (LockStation).
-func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDate time.Time) (*models.Bulletin, error) {
-	bulletinID, err := s.create(ctx, stationID, targetDate, nil)
+func (s *BulletinService) Create(ctx context.Context, stationID int64) (*models.Bulletin, error) {
+	bulletinID, err := s.create(ctx, stationID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,6 @@ func (s *BulletinService) Create(ctx context.Context, stationID int64, targetDat
 func (s *BulletinService) create(
 	ctx context.Context,
 	stationID int64,
-	targetDate time.Time,
 	finalize func(context.Context, int64) error,
 ) (int64, error) {
 	station, err := s.stationRepo.GetByID(ctx, stationID)
@@ -107,7 +106,7 @@ func (s *BulletinService) create(
 		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
-	stories, err := s.GetStoriesForDate(ctx, stationID, targetDate, station.MaxStoriesPerBlock)
+	stories, err := s.selectStories(ctx, stationID, station.MaxStoriesPerBlock)
 	if err != nil {
 		return 0, err
 	}
@@ -167,8 +166,8 @@ func (s *BulletinService) create(
 	}, finalize)
 }
 
-// generateBulletinAudio renders a bulletin with one timestamp shared by the
-// filesystem path and database filename.
+// generateBulletinAudio renders to a temporary file and publishes the completed
+// WAV by renaming it, so readers cannot open a partially rendered bulletin.
 func (s *BulletinService) generateBulletinAudio(
 	ctx context.Context,
 	station *models.Station,
@@ -271,8 +270,9 @@ func (s *BulletinService) saveBulletinToDatabase(
 	return bulletinID, nil
 }
 
-// GetLatest loads the most recent bulletin for a station.
-// When maxAge is non-nil, older bulletins are treated as not found.
+// GetLatest loads the most recent unpurged bulletin for a station.
+// When maxAge is non-nil, only bulletins from the current local day within
+// that age are returned.
 func (s *BulletinService) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
@@ -284,14 +284,14 @@ func (s *BulletinService) GetLatest(
 	return bulletin, nil
 }
 
-// GetStoriesForDate loads stories eligible for bulletin generation on date.
+// selectStories loads today's eligible stories for a bulletin.
 // Stories must be active, have audio, match the station's voice configuration,
 // and be scheduled for the weekday.
 // Breaking news stories are prioritized for selection; remaining slots use fair rotation.
-func (s *BulletinService) GetStoriesForDate(
-	ctx context.Context, stationID int64, date time.Time, limit int,
+func (s *BulletinService) selectStories(
+	ctx context.Context, stationID int64, limit int,
 ) ([]repository.BulletinStoryData, error) {
-	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)
+	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, time.Now(), limit)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
@@ -383,19 +383,6 @@ func (s *BulletinService) reportVoiceConsistency(
 		Summary: fmt.Sprintf("Multiple voices selected for station %d", stationID),
 		Details: fmt.Sprintf("Selected stories use voice IDs %v; the bulletin jingle is based on the first story.", voiceIDs),
 	})
-}
-
-// ParseTargetDate parses YYYY-MM-DD in the local timezone.
-// Empty input returns the current instant so callers can generate "today".
-func ParseTargetDate(dateStr string) (time.Time, error) {
-	if dateStr == "" {
-		return time.Now(), nil
-	}
-	parsedDate, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-	if err != nil {
-		return time.Time{}, apperrors.Validation("Bulletin", "date", "invalid date format (expected YYYY-MM-DD)")
-	}
-	return parsedDate, nil
 }
 
 // List retrieves bulletins with pagination, filtering, and sorting.
