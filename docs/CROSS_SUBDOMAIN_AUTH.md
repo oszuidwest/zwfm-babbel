@@ -20,13 +20,13 @@ Configure CORS and cookies for your deployment:
 # Optional: share cookies across subdomains
 BABBEL_COOKIE_DOMAIN=.zuidwest.cloud
 
-# Needed for cross-site requests; same-site subdomains can use lax
+# Cross-site requests require none; same-site requests can use lax
 BABBEL_COOKIE_SAMESITE=none
 
 # Restrict cookies to HTTPS (required with SameSite=none)
 BABBEL_ENV=production
 
-# Allow frontend origin for CORS
+# CORS allowlist
 BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud
 ```
 
@@ -60,13 +60,11 @@ For local development where frontend and backend are on the same domain:
 # No cookie domain needed for localhost
 BABBEL_COOKIE_DOMAIN=
 
-# Can use lax for same-site
 BABBEL_COOKIE_SAMESITE=lax
 
-# Development mode (cookies not marked as Secure)
+# Allow cookies over HTTP
 BABBEL_ENV=development
 
-# Allow localhost origins
 BABBEL_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 

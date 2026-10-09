@@ -11,13 +11,13 @@ import (
 )
 
 func TestOAuthIdentityRejectsInvalidSubjectOrIssuer(t *testing.T) {
+	// A nil DB ensures validation precedes database access.
 	s := &Service{}
 	for name, identity := range map[string]oauthIdentity{
 		"missing sub":      {Issuer: "https://issuer.example"},
 		"oversized sub":    {Issuer: "https://issuer.example", Subject: strings.Repeat("s", 256)},
 		"oversized issuer": {Issuer: strings.Repeat("i", 513), Subject: "sub"},
 	} {
-		// A nil DB verifies validation precedes database access.
 		if _, err := s.findOrCreateOAuthUser(t.Context(), identity); !errors.Is(err, ErrLoginRejected) {
 			t.Errorf("%s: error = %v, want ErrLoginRejected", name, err)
 		}

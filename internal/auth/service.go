@@ -1,4 +1,4 @@
-// Package auth provides authentication and authorization services for the Babbel API.
+// Package auth provides authentication and role-based authorization.
 package auth
 
 import (
@@ -30,7 +30,7 @@ const (
 	oauthInvalidTokenAlertKey = "security:oauth:invalid-id-token"
 )
 
-// Service handles authentication and authorization.
+// Service manages login sessions and role-based permissions.
 type Service struct {
 	config   *Config
 	db       *gorm.DB
@@ -132,7 +132,6 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 	}
 
 	policies := [][]string{
-		// keyMatch expands "*" to every resource and action.
 		{"admin", "*", "*"},
 
 		{"editor", "stations", "read"},
@@ -218,6 +217,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 }
 
 // RequirePermission returns middleware that enforces role-based access control.
+// It must run after Middleware.
 func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, roleOk := UserRole(c)
@@ -415,7 +415,7 @@ func (s *Service) setupOAuthSession(c *gin.Context, userID int64) error {
 	return nil
 }
 
-// Session retrieves the current session for the request context.
+// Session returns the request's session.
 func (s *Service) Session(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }

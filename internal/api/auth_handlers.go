@@ -19,8 +19,7 @@ type AuthHandlers struct {
 	handlers    *handlers.Handlers
 }
 
-// NewAuthHandlers returns authentication handlers using frontendURL as the
-// OAuth callback redirect fallback.
+// NewAuthHandlers uses frontendURL as the default OAuth callback redirect.
 func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.Handlers) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
@@ -68,7 +67,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		// The frontend shows this text; internal errors stay in the log.
+		// Only login rejections are safe to show to the user.
 		message := "Login failed; try again or contact an administrator"
 		if errors.Is(err, auth.ErrLoginRejected) {
 			logger.Warn("OIDC login rejected", "error", err)
@@ -119,7 +118,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	h.handlers.RespondWithCurrentUser(c, userID, permissions)
 }
 
-// GetAuthConfig returns enabled login methods and, if enabled, the OAuth initiation URL.
+// GetAuthConfig returns enabled login methods and the OAuth URL, if enabled.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},

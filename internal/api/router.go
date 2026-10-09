@@ -401,7 +401,6 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if originChecker.Allowed(origin) {
-			// Clear existing CORS headers before applying the allowlist.
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
 			c.Writer.Header().Del("Access-Control-Allow-Headers")

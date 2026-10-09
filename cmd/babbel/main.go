@@ -172,8 +172,7 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 		Handler:     handler,
 		ReadTimeout: serverReadTimeout,
 		IdleTimeout: serverIdleTimeout,
-		// Covers automation or TTS plus audio transfer time. Automation needs
-		// separate budgets for the station lock and generation.
+		// Automation needs a timeout each for the station lock and generation.
 		WriteTimeout: max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin,
 	}
 }

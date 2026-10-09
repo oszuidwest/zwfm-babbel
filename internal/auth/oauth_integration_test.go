@@ -122,7 +122,6 @@ func TestNewOAuthUserIntegration(t *testing.T) {
 	if row.Role != "viewer" || row.FullName != identity.Claims.Name || row.Email != identity.Claims.Email {
 		t.Fatalf("new user = %+v", row)
 	}
-	// Email changes must preserve identity.
 	identity.Claims.Email = "changed@example.com"
 	if again := f.login(t, identity); again.ID != row.ID {
 		t.Fatalf("repeat id = %d, want %d", again.ID, row.ID)
@@ -254,7 +253,7 @@ func TestLegacyOAuthLinkSingleWinnerIntegration(t *testing.T) {
 	}
 }
 
-// concurrentLogins verifies concurrent login identities and returns the user count.
+// concurrentLogins checks identity ownership and counts users for the fixture's issuer.
 func (f oauthFixture) concurrentLogins(t *testing.T, n int, identity func(int) oauthIdentity) int64 {
 	t.Helper()
 	start := make(chan struct{})
@@ -296,7 +295,7 @@ func TestConcurrentOAuthFirstLoginIntegration(t *testing.T) {
 	})
 	defer background.Wait()
 	defer close(done)
-	// Shared preferred names also exercise duplicate-key insertion retries.
+	// Shared usernames exercise duplicate-key retries.
 	if count := f.concurrentLogins(t, 300, func(i int) oauthIdentity { return f.identity(fmt.Sprintf("subject-%d", i)) }); count != 300 {
 		t.Fatalf("users = %d, want 300", count)
 	}

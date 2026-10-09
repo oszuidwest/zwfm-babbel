@@ -44,8 +44,7 @@ type bulletinRequest struct {
 }
 
 // validateBulletinRequest authenticates and parses automation parameters.
-// On failure it writes an error response and returns nil.
-// An unset automation key disables the endpoint with a 404.
+// It writes an error response and returns nil on failure, including 404 if no key is configured.
 func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinRequest {
 	if h.config.Automation.Key == "" {
 		utils.ProblemNotFound(c, "Endpoint")
@@ -122,7 +121,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 
 	maxAge := time.Duration(req.maxAgeSeconds) * time.Second
 
-	// Cache hits bypass the generation lock to avoid waiting for other requests.
+	// Cache hits bypass the generation lock.
 	if req.maxAgeSeconds > 0 {
 		existing, ok := h.lookupFreshBulletin(c, c.Request.Context(), req.stationID, maxAge)
 		if !ok {
@@ -142,7 +141,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 	h.serveBulletinAudio(c, bulletin.AudioFile, bulletin.ID, req.stationID, cached)
 }
 
-// lookupFreshBulletin returns the latest bulletin within maxAge, or nil if absent.
+// lookupFreshBulletin returns the latest bulletin within maxAge, or nil.
 // On failure it writes an error response and returns false.
 func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Context, stationID int64, maxAge time.Duration) (*models.Bulletin, bool) {
 	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
@@ -199,7 +198,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 // serveBulletinAudio serves bulletin audio and reports availability and delivery failures.
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID, stationID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
-	// Station keys let a later bulletin resolve the same alerts.
+	// Station keys allow alert recovery across bulletins.
 	station := strconv.FormatInt(stationID, 10)
 	alertKey := "bulletin:served-audio:station:" + station
 
@@ -219,7 +218,7 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		}
 		return
 	}
-	defer func() { _ = file.Close() }() // Read-only; a close error cannot affect the response.
+	defer func() { _ = file.Close() }() // Read-only; close errors cannot affect the response.
 	h.alerts.Resolve(c.Request.Context(), alertKey,
 		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
 
