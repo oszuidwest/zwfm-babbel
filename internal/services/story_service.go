@@ -39,6 +39,7 @@ type StoryServiceDeps struct {
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
 	GetByID(context.Context, int64) (*models.Story, error)
+	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
 	SoftDelete(context.Context, int64) error
@@ -172,13 +173,13 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	// Exactly one date changed, so the other bound must be loaded to validate
 	// the effective range.
 	if (startDate != nil) != (endDate != nil) {
-		existing, err := s.storyRepo.GetByID(ctx, id)
+		existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
 		if err != nil {
 			return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
 		}
 
-		effectiveStart := existing.StartDate
-		effectiveEnd := existing.EndDate
+		effectiveStart := time.Time(existing.StartDate)
+		effectiveEnd := time.Time(existing.EndDate)
 		if startDate != nil {
 			effectiveStart = *startDate
 		}
@@ -312,6 +313,15 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	return story, nil
 }
 
+// GetByIDForWrite loads a story before writing, reporting deleted stories separately.
+func (s *StoryService) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
+	story, err := s.storyRepo.GetByIDForWrite(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
+	}
+	return story, nil
+}
+
 // Exists reports whether a story with the given ID exists.
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
@@ -402,7 +412,7 @@ func (s *StoryService) List(
 // GenerateTTS creates story audio through the configured text-to-speech service.
 // Existing audio is preserved unless force is true.
 func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
-	story, err := s.storyRepo.GetByID(ctx, storyID)
+	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
 	}

@@ -45,6 +45,11 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		return err
 	}
 
+	// Deleted-story writes keep their deletion timestamp for the 410 response.
+	if _, ok := errors.AsType[*repository.StoryDeletedError](err); ok {
+		return err
+	}
+
 	switch {
 	case errors.Is(err, repository.ErrNotFound):
 		return NotFoundWithCause(resource, err)
