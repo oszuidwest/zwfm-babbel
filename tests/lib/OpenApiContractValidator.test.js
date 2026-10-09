@@ -557,6 +557,12 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.created_at.oneOf[0].anyOf.map((s) => s.format).sort()).toEqual(['date', 'date-time']);
     // Weekdays is a 7-bit mask (Sun=1 ... Sat=64).
     expect(filter.schema.properties.weekdays.oneOf[0].maximum).toBe(127);
+    expect(filter.schema.properties.weekdays.oneOf[1].properties.band).toBeDefined();
+    expect(filter.schema.properties.weekdays.oneOf[1].properties.between).toBeUndefined();
+    // Generated null tests derive from the spec, so nullable columns must keep
+    // declaring the operator and required columns must not.
+    expect(filter.schema.properties.voice_id.oneOf[1].properties.null).toBeDefined();
+    expect(filter.schema.properties.id.oneOf[1].properties.null).toBeUndefined();
   });
 
   test('when an operation uses the shared id path parameter, then 400 is declared', () => {
