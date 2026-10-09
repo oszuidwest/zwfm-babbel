@@ -168,18 +168,14 @@ func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 
 func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:         cfg.Server.Address,
-		Handler:      handler,
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout(cfg),
-		IdleTimeout:  serverIdleTimeout,
+		Addr:        cfg.Server.Address,
+		Handler:     handler,
+		ReadTimeout: serverReadTimeout,
+		IdleTimeout: serverIdleTimeout,
+		// Covers automation or TTS plus audio transfer time. Automation needs
+		// separate budgets for the station lock and generation.
+		WriteTimeout: max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin,
 	}
-}
-
-// serverWriteTimeout covers automation or TTS plus audio transfer time.
-// Automation needs separate budgets for the station lock and generation.
-func serverWriteTimeout(cfg *config.Config) time.Duration {
-	return max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin
 }
 
 // startServer serves in the background and reports unexpected listener errors.

@@ -199,10 +199,12 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 // serveBulletinAudio serves bulletin audio and reports availability and delivery failures.
 func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string, bulletinID, stationID int64, cached bool) {
 	filePath := utils.BulletinPath(h.config, audioFile)
-	// A station key lets a later bulletin resolve the same alert.
-	alertKey := "bulletin:served-audio:station:" + strconv.FormatInt(stationID, 10)
+	// Station keys let a later bulletin resolve the same alerts.
+	station := strconv.FormatInt(stationID, 10)
+	alertKey := "bulletin:served-audio:station:" + station
 
-	if _, err := os.Stat(filePath); err != nil {
+	file, err := os.Open(filePath) //nolint:gosec // Path uses the configured storage root and stored file names.
+	if err != nil {
 		h.alerts.Alert(c.Request.Context(), notify.Event{
 			Key:     alertKey,
 			Summary: "Radio automation bulletin file is unavailable",
@@ -217,12 +219,13 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		}
 		return
 	}
+	defer func() { _ = file.Close() }() // Read-only; a close error cannot affect the response.
 	h.alerts.Resolve(c.Request.Context(), alertKey,
 		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
 
 	c.Header("Cache-Control", "no-store")
-	deliveryKey := "bulletin:delivery:station:" + strconv.FormatInt(stationID, 10)
-	if err := serveAudioFile(c, filePath, audioFile, bulletinID, cached); err != nil {
+	deliveryKey := "bulletin:delivery:station:" + station
+	if err := serveAudioFile(c, file, audioFile, bulletinID, cached); err != nil {
 		logger.Error("Automation: failed to deliver bulletin audio", "station_id", stationID, "bulletin_id", bulletinID, "error", err)
 		h.alerts.Alert(context.WithoutCancel(c.Request.Context()), notify.Event{
 			Key: deliveryKey, Summary: "Radio automation bulletin delivery failed",

@@ -17,9 +17,6 @@ import (
 // ErrLoginRejected marks OIDC login errors safe to show to the user.
 var ErrLoginRejected = errors.New("OIDC login rejected")
 
-// googleIssuer is the canonical issuer for Google's issuer aliases.
-const googleIssuer = "https://accounts.google.com"
-
 type oauthClaims struct {
 	Email             string `json:"email"`
 	EmailVerified     any    `json:"email_verified"`
@@ -68,9 +65,6 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 	// Length limits match the database columns.
 	if identity.Subject == "" || len(identity.Subject) > 255 || len(identity.Issuer) > 512 {
 		return 0, fmt.Errorf("%w: token is missing sub or has an oversized issuer/subject", ErrLoginRejected)
-	}
-	if identity.Issuer == "accounts.google.com" {
-		identity.Issuer = googleIssuer
 	}
 	if id, err := s.findOAuthUser(ctx, identity); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return id, err
@@ -159,7 +153,7 @@ func (s *Service) bindLegacyOAuthUser(ctx context.Context, id int64, identity oa
 	result := s.db.WithContext(ctx).Table("users").Where("id = ? AND suspended_at IS NULL", id).
 		Where(legacyOAuthMatch, identity.Claims.Email).
 		Updates(map[string]any{"oidc_issuer": identity.Issuer, "oidc_subject": identity.Subject})
-	return result.Error == nil && result.RowsAffected == 1, result.Error
+	return result.RowsAffected == 1, result.Error
 }
 
 // isOAuthConflict includes deadlocks from simultaneous unique-key inserts.

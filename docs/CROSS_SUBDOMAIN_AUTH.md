@@ -127,9 +127,6 @@ linked by its non-empty email when exactly one account matches and
 are never linked. Other `email_verified` values result in a new viewer account.
 Multiple matches or a suspended match require an administrator to resolve them.
 
-Google's issuer is stored as `https://accounts.google.com`, also when the token
-uses the scheme-less `accounts.google.com`.
-
 ## Security Considerations
 
 - **HttpOnly**: Prevents JavaScript from reading the session cookie

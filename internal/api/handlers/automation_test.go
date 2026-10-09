@@ -140,16 +140,20 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 		{name: "streamed extended", size: 8 << 20, timeout: 5 * time.Second},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "bulletin.wav")
+			file, err := os.CreateTemp(t.TempDir(), "bulletin-*.wav")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = file.Close() }()
 			data := bytes.Repeat([]byte("a"), tt.size)
-			if err := os.WriteFile(path, data, 0600); err != nil {
+			if _, err := file.Write(data); err != nil {
 				t.Fatal(err)
 			}
 			served := make(chan error, 1)
 			router := gin.New()
 			router.GET("/", func(c *gin.Context) {
 				time.Sleep(100 * time.Millisecond) // Simulate generation before delivery.
-				served <- serveAudioFile(c, path, "bulletin.wav", 1, false)
+				served <- serveAudioFile(c, file, "bulletin.wav", 1, false)
 			})
 			server := httptest.NewUnstartedServer(router)
 			server.Config.WriteTimeout = tt.timeout
@@ -189,18 +193,18 @@ func (w audioFileChangingWriter) WriteHeader(code int) {
 func TestAutomationBulletinBodylessResponse(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
 		t.Run(method, func(t *testing.T) {
-			handler := newBulletinFileHandler(t, nil)
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequestWithContext(t.Context(), method, "/", nil)
+			alerts := &automationAlertRecorder{}
+			handler := newBulletinFileHandler(t, alerts)
+			c, recorder := newProblemContext(t)
+			c.Request.Method = method
 			want := http.StatusOK
 			if method == http.MethodGet {
 				c.Request.Header.Set("If-Modified-Since", time.Now().Add(time.Hour).UTC().Format(http.TimeFormat))
 				want = http.StatusNotModified
 			}
-			path := filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav")
-			if err := serveAudioFile(c, path, "bulletin.wav", 42, true); err != nil {
-				t.Fatal(err)
+			handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, true)
+			if len(alerts.events) != 0 {
+				t.Fatalf("unexpected alerts: %+v", alerts.events)
 			}
 			if recorder.Code != want || recorder.Body.Len() != 0 {
 				t.Fatalf("response = %d, %q; want empty %d", recorder.Code, recorder.Body.String(), want)
@@ -225,8 +229,8 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			alerts := &automationAlertRecorder{}
 			handler := newBulletinFileHandler(t, alerts)
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
+			c, recorder := newProblemContext(t)
+			c.Request.Method = http.MethodGet
 			c.Writer = audioFileChangingWriter{c.Writer, func() {
 				path := filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav")
 				var err error
@@ -240,7 +244,6 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 					t.Fatal(err)
 				}
 			}}
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			c.Request.Header.Set("Range", tt.byteRange)
 			handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, true)
 			if recorder.Code != tt.status {
@@ -264,25 +267,30 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 	}
 }
 
-func TestServeAudioFileReportsMissingFile(t *testing.T) {
-	c, rec := newProblemContext(t)
-	c.Request.Method = http.MethodGet
-	if err := serveAudioFile(c, filepath.Join(t.TempDir(), "gone.wav"), "gone.wav", 1, false); err == nil || rec.Code != http.StatusNotFound {
-		t.Fatalf("serveAudioFile = %v, status %d; want error and 404", err, rec.Code)
-	}
-}
-
-func TestServeAudioFileReportsPermissionError(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can read files without read permissions")
-	}
-	path := filepath.Join(t.TempDir(), "unreadable.wav")
-	if err := os.WriteFile(path, []byte("audio"), 0000); err != nil {
-		t.Fatal(err)
-	}
-	c, rec := newProblemContext(t)
-	c.Request.Method = http.MethodGet
-	if err := serveAudioFile(c, path, "unreadable.wav", 1, false); !os.IsPermission(err) || rec.Code != http.StatusInternalServerError {
-		t.Fatalf("serveAudioFile = %v, status %d; want permission error and 500", err, rec.Code)
+func TestAutomationBulletinUnavailableFile(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		make   func(path string) error
+		status int
+	}{
+		{name: "missing", make: os.Remove, status: http.StatusNotFound},
+		{name: "unreadable", make: func(path string) error { return os.Chmod(path, 0) }, status: http.StatusInternalServerError},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "unreadable" && os.Geteuid() == 0 {
+				t.Skip("root can read files without read permissions")
+			}
+			alerts := &automationAlertRecorder{}
+			handler := newBulletinFileHandler(t, alerts)
+			if err := tt.make(filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav")); err != nil {
+				t.Fatal(err)
+			}
+			c, rec := newProblemContext(t)
+			c.Request.Method = http.MethodGet
+			handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
+			if rec.Code != tt.status || len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:served-audio:station:7" {
+				t.Fatalf("response = %d, alerts = %+v; want %d and an unavailable-file alert", rec.Code, alerts.events, tt.status)
+			}
+		})
 	}
 }

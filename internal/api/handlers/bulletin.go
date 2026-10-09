@@ -149,18 +149,8 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 }
 
 // serveAudioFile serves a download with range and conditional request support.
-// It returns file access and incomplete delivery errors after handling the response.
-func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
-	file, err := os.Open(filePath) //nolint:gosec // Path uses the configured storage root and stored file names.
-	if err != nil {
-		if os.IsNotExist(err) {
-			utils.ProblemNotFound(c, "Audio file")
-		} else {
-			utils.ProblemInternalServer(c, "Failed to access audio file")
-		}
-		return err
-	}
-	defer func() { _ = file.Close() }() // Read-only; a close error cannot affect the response.
+// It returns stat and incomplete delivery errors after handling the response.
+func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
 	info, err := file.Stat()
 	if err != nil {
 		utils.ProblemInternalServer(c, "Failed to access audio file")

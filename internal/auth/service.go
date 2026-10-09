@@ -391,8 +391,10 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
 
+	// go-oidc only verifies tokens from ProviderURL or its Google alias, so
+	// ProviderURL is the canonical issuer.
 	userID, err := s.findOrCreateOAuthUser(ctx, oauthIdentity{
-		Issuer: idToken.Issuer, Subject: idToken.Subject, Claims: claims,
+		Issuer: s.config.OIDC.ProviderURL, Subject: idToken.Subject, Claims: claims,
 	})
 	if err != nil {
 		return err
