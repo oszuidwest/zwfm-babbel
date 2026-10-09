@@ -17,7 +17,7 @@ import (
 // ErrLoginRejected marks OIDC login errors safe to show to the user.
 var ErrLoginRejected = errors.New("OIDC login rejected")
 
-// googleIssuer prevents Google's issuer aliases from creating duplicate identities.
+// googleIssuer is the canonical issuer for Google's issuer aliases.
 const googleIssuer = "https://accounts.google.com"
 
 type oauthClaims struct {
@@ -65,7 +65,7 @@ func (u oauthUser) activeID() (int64, error) {
 
 // findOrCreateOAuthUser requires an identity from a verified ID token.
 func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
-	// go-oidc validates the issuer; length limits match the database columns.
+	// Length limits match the database columns.
 	if identity.Subject == "" || len(identity.Subject) > 255 || len(identity.Issuer) > 512 {
 		return 0, fmt.Errorf("%w: token is missing sub or has an oversized issuer/subject", ErrLoginRejected)
 	}
@@ -117,7 +117,7 @@ func (s *Service) findOAuthUser(ctx context.Context, identity oauthIdentity) (in
 
 const legacyOAuthMatch = "email = ? AND password_hash = '' AND oidc_issuer IS NULL AND oidc_subject IS NULL AND deleted_at IS NULL"
 
-// linkLegacyOAuthUser only adopts an unambiguous passwordless legacy account.
+// linkLegacyOAuthUser links a unique email match without a password or OIDC identity.
 func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentity) (int64, error) {
 	if !identity.Claims.emailMayLink() {
 		return 0, gorm.ErrRecordNotFound
@@ -170,7 +170,6 @@ func isOAuthConflict(err error) bool {
 
 var usernameSanitizeRe = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-// sanitizeUsername converts a preferred username or email to a base name.
 func sanitizeUsername(name string) string {
 	base, domain, found := strings.Cut(name, "@")
 	username := usernameSanitizeRe.ReplaceAllString(base, "_")

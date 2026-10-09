@@ -1,4 +1,4 @@
-// Package api provides HTTP routing and middleware setup for the Babbel API server.
+// Package api configures HTTP routes and middleware for Babbel.
 package api
 
 import (
@@ -190,7 +190,6 @@ func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.S
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
-	// Skip alert tracking when e-mail is unavailable.
 	if alerts.IsConfigured() {
 		r.Use(handlers.NotificationMiddleware(alerts))
 	}
@@ -348,7 +347,6 @@ func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDe
 	)
 }
 
-// registerHealthRoute shares database checks and alerts with the background health service.
 func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 	r.GET("/health", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -403,7 +401,7 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if originChecker.Allowed(origin) {
-			// The configured allowlist takes precedence over proxy CORS headers.
+			// Clear existing CORS headers before applying the allowlist.
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
 			c.Writer.Header().Del("Access-Control-Allow-Headers")

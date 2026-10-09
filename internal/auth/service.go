@@ -50,7 +50,7 @@ func (s *Service) IsOAuthEnabled() bool {
 	return s.config.Method.SupportsOIDC()
 }
 
-// NewService initializes session storage, OIDC, and RBAC for authentication.
+// NewService initializes sessions, permissions, and the configured login methods.
 func NewService(cfg *Config, db *gorm.DB, alerts notify.Alerter) (*Service, error) {
 	alerts = notify.OrDiscard(alerts)
 	s := &Service{
@@ -418,7 +418,7 @@ func (s *Service) Session(c *gin.Context) Session {
 	return s.sessions.Get(c)
 }
 
-// Logout destroys the user session and returns an error if session save fails.
+// Logout clears and saves the current session.
 func (s *Service) Logout(c *gin.Context) error {
 	session := s.sessions.Get(c)
 	session.Clear()
@@ -457,11 +457,11 @@ func accountLockoutAlertKey(userID int64) string {
 	return fmt.Sprintf("security:account-lockout:user:%d", userID)
 }
 
-// updateLoginFailure counts failures for unlocked accounts and reports lock state.
-// An expired lock resets the count to 1; active locks are never extended.
+// updateLoginFailure records a failure and reports whether the account is locked.
+// Expired locks reset the count to 1; active locks remain unchanged.
 //
-// MySQL evaluates SET assignments left-to-right, so the lockout check uses the
-// incremented count. The WHERE guard prevents concurrent failures extending locks.
+// MySQL evaluates SET assignments left-to-right, so the lockout check uses
+// the incremented count.
 func (s *Service) updateLoginFailure(ctx context.Context, userID int64, now time.Time) (bool, error) {
 	lockoutDuration := time.Duration(s.config.Local.LockoutDurationMinutes) * time.Minute
 	maxAttempts := s.config.Local.MaxFailedAttempts

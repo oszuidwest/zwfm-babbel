@@ -119,8 +119,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	h.handlers.RespondWithCurrentUser(c, userID, permissions)
 }
 
-// GetAuthConfig reports the enabled frontend login methods.
-// It includes the OAuth initiation URL when enabled.
+// GetAuthConfig returns enabled login methods and, if enabled, the OAuth initiation URL.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},

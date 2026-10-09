@@ -329,7 +329,7 @@ GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 git clone https://github.com/oszuidwest/zwfm-babbel.git
 cd zwfm-babbel
 docker-compose up -d     # Start services
-make db-reset           # Initialize database
+make db-reset           # Recreate all tables (deletes data)
 make run                # Run development server
 ```
 
@@ -343,10 +343,10 @@ make docker             # Build Docker image
 
 # Code Quality
 make lint               # Run Go linters
-make quality            # Advanced static analysis
+make quality            # Tests and static analysis
 
 # Database
-make db-reset           # Reset database with migrations
+make db-reset           # Recreate all tables (deletes data)
 ```
 
 ### Project Structure

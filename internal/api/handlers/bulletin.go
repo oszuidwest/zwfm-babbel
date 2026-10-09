@@ -151,7 +151,6 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 // serveAudioFile serves a download with range and conditional request support.
 // It returns file access and incomplete delivery errors after handling the response.
 func serveAudioFile(c *gin.Context, filePath, filename string, bulletinID int64, cached bool) error {
-	// Open here to report file errors to the caller.
 	file, err := os.Open(filePath) //nolint:gosec // Path uses the configured storage root and stored file names.
 	if err != nil {
 		if os.IsNotExist(err) {

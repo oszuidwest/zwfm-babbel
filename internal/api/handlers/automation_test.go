@@ -79,12 +79,11 @@ func TestAutomationHandlerValidKeyResolvesSecurityAlert(t *testing.T) {
 	}
 }
 
-// failingFlushWriter simulates a client that is gone by the final flush.
+// failingFlushWriter simulates a client disconnecting at the final flush.
 type failingFlushWriter struct{ *httptest.ResponseRecorder }
 
 func (w failingFlushWriter) FlushError() error { return errors.New("broken pipe") }
 
-// newBulletinFileHandler creates a handler with a stored bulletin.wav fixture.
 func newBulletinFileHandler(t *testing.T, alerts notify.Alerter) *AutomationHandler {
 	t.Helper()
 	dir := t.TempDir()

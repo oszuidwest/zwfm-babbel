@@ -8,22 +8,22 @@ When your frontend and backend API are on different subdomains:
 - Frontend: `https://babbel.zuidwest.cloud`
 - Backend API: `https://babbel-api.zuidwest.cloud`
 
-By default, cookies set by the API are not accessible to the frontend because they're scoped to the API subdomain only.
+Frontend requests must include credentials, and the API must allow the frontend origin through CORS. The cookie can remain scoped to the API host unless other subdomains also need it.
 
 ## Solution
 
-Configure cookies to be shared across all subdomains using the following environment variables:
+Configure CORS and cookies for your deployment:
 
-### Required Environment Variables
+### Environment Variables
 
 ```bash
-# Share cookies across all *.zuidwest.cloud subdomains
+# Optional: share cookies across subdomains
 BABBEL_COOKIE_DOMAIN=.zuidwest.cloud
 
-# Required for cross-origin requests between subdomains
+# Needed for cross-site requests; same-site subdomains can use lax
 BABBEL_COOKIE_SAMESITE=none
 
-# Ensure HTTPS is used (required when SameSite=none)
+# Restrict cookies to HTTPS (required with SameSite=none)
 BABBEL_ENV=production
 
 # Allow frontend origin for CORS
@@ -32,9 +32,9 @@ BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud
 
 ### Important Notes
 
-1. **Leading Dot**: The `.` before the domain (`.zuidwest.cloud`) is essential - it tells browsers to share the cookie with all subdomains.
+1. **Domain**: Leave unset for an API-host-only cookie. Setting `zuidwest.cloud` includes its subdomains; a leading dot is ignored.
 
-2. **SameSite=None**: Required for cookies to be sent in cross-site requests (different subdomains are considered cross-site).
+2. **SameSite**: HTTPS subdomains of the same registrable domain are same-site. Cross-site requests need `none`; browser third-party cookie restrictions still apply.
 
 3. **Secure Flag**: Automatically set when `BABBEL_ENV=production`. Required when using `SameSite=None`.
 
@@ -104,8 +104,8 @@ After configuration, verify that:
 - Verify `BABBEL_ALLOWED_ORIGINS` includes your frontend URL
 
 ### Session not persisting
-- Verify cookie domain starts with `.` for cross-subdomain
-- Check that `SameSite` is set to `none`
+- Verify the cookie domain includes the API host
+- Check that `SameSite` matches your deployment
 - Ensure frontend includes credentials in API requests
 
 ### CORS errors
@@ -132,7 +132,7 @@ uses the scheme-less `accounts.google.com`.
 
 ## Security Considerations
 
-- **HttpOnly**: Always enabled to prevent XSS attacks
+- **HttpOnly**: Prevents JavaScript from reading the session cookie
 - **Secure**: Automatically enabled in production to ensure HTTPS-only transmission
 - **SameSite**: Use `strict` or `lax` when possible for better CSRF protection
 - **Domain Scope**: Be specific with cookie domain to limit exposure

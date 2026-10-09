@@ -156,8 +156,7 @@ func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Cont
 }
 
 // getOrGenerateBulletin rechecks the cache and generates under a per-station lock.
-// The lock is released before delivery. On failure it writes an error response
-// and returns ok=false.
+// It releases the lock before returning and writes an error response if ok is false.
 func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinRequest, maxAge time.Duration) (bulletin *models.Bulletin, cached, ok bool) {
 	waitCtx, cancelWait := context.WithTimeout(c.Request.Context(), h.config.Automation.GenerationTimeout)
 	release, err := h.bulletinSvc.LockStation(waitCtx, req.stationID)
