@@ -28,7 +28,7 @@ type pronunciationRuleLister interface {
 
 type pronunciationRuleRepo interface {
 	pronunciationRuleLister
-	ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error
+	ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error
 	MaxUpdatedAt(ctx context.Context) (*time.Time, error)
 }
 
@@ -100,7 +100,7 @@ func (s *PronunciationRulesService) Update(
 	var persistedRules []models.PronunciationRule
 	var updatedAt *time.Time
 	if err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
-		if err := s.repo.ReplaceAll(ctx, rules); err != nil {
+		if err := s.repo.ReplaceAll(ctx, rules, req.ActorUserID); err != nil {
 			return err
 		}
 		var err error
@@ -251,6 +251,11 @@ func translatePronunciationRulesRepoError(op apperrors.Operation, err error) err
 			"apply migrations/001_complete_schema.sql or migrations/007_pronunciation_rules.sql",
 			err,
 		)
+	}
+	// Only ReplaceAll's tts_settings singleton lock can report ErrNotFound;
+	// the rule set itself has no ID that could be missing.
+	if errors.Is(err, repository.ErrNotFound) {
+		return translateTTSSettingsRepoError(err)
 	}
 	return apperrors.TranslateRepoError("PronunciationRules", op, err)
 }

@@ -43,10 +43,10 @@ type storyRepository interface {
 	GetByID(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
-	SoftDelete(context.Context, int64) error
-	Restore(context.Context, int64) error
+	SoftDelete(context.Context, int64, *int64) error
+	Restore(context.Context, int64, *int64) error
 	UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error
-	UpdateStatus(context.Context, int64, string) error
+	UpdateStatus(context.Context, int64, string, *int64) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
 }
 
@@ -96,6 +96,8 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 // CreateStoryRequest carries the required fields for a scheduled story.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
+	ActorUserID *int64
+
 	Title      string
 	Text       string
 	VoiceID    *int64
@@ -110,6 +112,8 @@ type CreateStoryRequest struct {
 // UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type UpdateStoryRequest struct {
+	ActorUserID *int64
+
 	Title      *string
 	Text       *string
 	VoiceID    *int64
@@ -149,15 +153,16 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	}
 
 	data := &repository.StoryCreateData{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  startDate,
-		EndDate:    endDate,
-		Weekdays:   req.Weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID: req.ActorUserID,
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		Weekdays:    req.Weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
 	}
 
 	story, err := s.storyRepo.Create(ctx, data)
@@ -307,7 +312,7 @@ func (s *StoryService) buildUpdateStruct(
 	req *UpdateStoryRequest,
 	startDate, endDate *time.Time,
 ) (*repository.StoryUpdate, error) {
-	updates := &repository.StoryUpdate{}
+	updates := &repository.StoryUpdate{ActorUserID: req.ActorUserID}
 	hasUpdates := false
 
 	if req.Title != nil {
@@ -386,8 +391,8 @@ func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 }
 
 // SoftDelete hides a story without removing its row.
-func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
-	err := s.storyRepo.SoftDelete(ctx, id)
+func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *int64) error {
+	err := s.storyRepo.SoftDelete(ctx, id, actorUserID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpDelete, err)
 	}
@@ -396,8 +401,8 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 }
 
 // Restore reactivates a soft-deleted story.
-func (s *StoryService) Restore(ctx context.Context, id int64) error {
-	err := s.storyRepo.Restore(ctx, id)
+func (s *StoryService) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+	err := s.storyRepo.Restore(ctx, id, actorUserID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
@@ -409,6 +414,7 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 // was read and the voice heard in the audio. Publishing is conditional on the
 // story still being in that state.
 type AudioTarget struct {
+	isTTS bool
 	story *models.Story
 	voice *models.Voice
 }
@@ -442,7 +448,7 @@ func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voi
 
 // ProcessAudio converts uploaded audio and publishes it with the target's
 // voice. The previous file is removed once the database points at the new one.
-func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, tempPath string) error {
+func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, tempPath string, actorUserID *int64) error {
 	story := target.story
 	filename := utils.StoryFilename(story.ID, target.voice.ID, newAudioID())
 	finalPath := utils.StoryPath(s.config, filename)
@@ -462,6 +468,8 @@ func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, te
 	}
 
 	err = s.storyRepo.UpdateAudio(ctx, story.ID, repository.StoryAudioUpdate{
+		ActorUserID:       actorUserID,
+		IsTTS:             target.isTTS,
 		AudioFile:         filename,
 		DurationSeconds:   duration,
 		VoiceID:           target.voice.ID,
@@ -502,13 +510,13 @@ func newAudioID() string {
 }
 
 // UpdateStatus changes a story's workflow state to draft, active, or expired.
-func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) (*models.Story, error) {
+func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) (*models.Story, error) {
 	storyStatus := models.StoryStatus(status)
 	if !storyStatus.IsValid() {
 		return nil, apperrors.Validation("Story", "status", "must be one of: draft, active, expired")
 	}
 
-	err := s.storyRepo.UpdateStatus(ctx, id, status)
+	err := s.storyRepo.UpdateStatus(ctx, id, status, actorUserID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
@@ -531,7 +539,7 @@ func (s *StoryService) List(
 // GenerateTTS creates story audio through the configured text-to-speech service
 // with voiceID, or with the story's current voice when voiceID is nil.
 // Existing audio is preserved unless force is true.
-func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *int64, force bool) error {
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *int64, force bool, actorUserID *int64) error {
 	story, err := s.storyRepo.GetByID(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
@@ -587,7 +595,8 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *
 		}
 	}()
 
-	return s.ProcessAudio(ctx, target, tempPath)
+	target.isTTS = true
+	return s.ProcessAudio(ctx, target, tempPath, actorUserID)
 }
 
 // alertTTSError maps operational TTS failures to stable alert categories.

@@ -61,6 +61,9 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 	case errors.Is(err, repository.ErrDataTooLong):
 		return ValidationWithCause(resource, "field", "exceeds maximum length", err)
 
+	case errors.Is(err, repository.ErrAuditSchemaUnavailable):
+		return NotInitialized("audit_events", "apply migrations/012_audit_events.sql", err)
+
 	default:
 		return Database(resource, op.String(), err)
 	}

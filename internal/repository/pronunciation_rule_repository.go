@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // PronunciationRuleRepository reads and replaces global inline-IPA rules.
@@ -31,23 +33,36 @@ func (r *PronunciationRuleRepository) List(ctx context.Context) ([]models.Pronun
 	return rules, nil
 }
 
-// ReplaceAll replaces every pronunciation rule. Caller MUST wrap this in
-// txManager.WithTransaction; without a wrapping transaction a concurrent reader
-// can observe the empty intermediate state and a mid-call failure leaves the
-// table empty.
-func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error {
-	db := DBFromContext(ctx, r.db)
-
-	if err := db.WithContext(ctx).Exec("DELETE FROM pronunciation_rules").Error; err != nil {
+// ReplaceAll replaces every pronunciation rule and records the old and new
+// values as one audit event. It refuses to run outside txManager.WithTransaction:
+// without one, readers could observe the empty intermediate table and a
+// mid-call failure would leave the rules replaced but unaudited.
+func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error {
+	tx := TxFromContext(ctx)
+	if tx == nil {
+		return errors.New("replacing pronunciation rules requires a transaction")
+	}
+	db := tx.WithContext(ctx)
+	// The existing singleton serializes whole-set replacements even when the
+	// rule table is empty. Lock it before reading any old rule values.
+	if _, err := NewTTSSettingsRepository(r.db).GetForUpdate(ctx); err != nil {
+		return err
+	}
+	var before []models.PronunciationRule
+	if err := db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).Order("string_to_replace").Find(&before).Error; err != nil {
 		return ParseDBError(err)
 	}
-	if len(rules) == 0 {
-		return nil
-	}
-	if err := db.WithContext(ctx).Create(&rules).Error; err != nil {
+	if err := db.Exec("DELETE FROM pronunciation_rules").Error; err != nil {
 		return ParseDBError(err)
 	}
-	return nil
+	if len(rules) > 0 {
+		if err := db.Create(&rules).Error; err != nil {
+			return ParseDBError(err)
+		}
+	}
+	return RecordAudit(ctx, models.AuditEvent{
+		UserID: actorUserID, EntityType: "pronunciation_rules", EntityID: 1, Action: "update",
+	}, pronunciationAuditValues(before), pronunciationAuditValues(rules))
 }
 
 // MaxUpdatedAt returns the maximum updated_at timestamp, or nil when there are no rules.
@@ -65,4 +80,14 @@ func (r *PronunciationRuleRepository) MaxUpdatedAt(ctx context.Context) (*time.T
 		return nil, nil
 	}
 	return &max.Time, nil
+}
+
+func pronunciationAuditValues(rules []models.PronunciationRule) map[string]any {
+	values := make(map[string]any, len(rules))
+	for _, rule := range rules {
+		values[rule.StringToReplace] = map[string]any{
+			"ipa": rule.IPA, "case_sensitive": rule.CaseSensitive, "word_boundaries": rule.WordBoundaries,
+		}
+	}
+	return values
 }

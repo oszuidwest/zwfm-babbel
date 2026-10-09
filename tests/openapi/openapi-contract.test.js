@@ -50,6 +50,7 @@ describe('OpenAPI Contract', () => {
         { maxRedirects: 0 }
       ),
       apiScenario('GET', '/api/v1/sessions/current', '/sessions/current'),
+      sparseListScenario('GET', '/api/v1/audit-events', '/audit-events', ['id', 'action']),
       scenario('DELETE', '/api/v1/sessions/current', async () => {
           const response = await apiCall('DELETE', '/api/v1/sessions/current', '/sessions/current');
           const loginResponse = await global.api.apiLogin();

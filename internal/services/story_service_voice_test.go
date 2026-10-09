@@ -167,7 +167,7 @@ func TestStoryService_GenerateTTSUsesRequestedVoice(t *testing.T) {
 		9: {ID: 9, ElevenLabsVoiceID: &overrideID},
 	}}
 
-	err := service.GenerateTTS(t.Context(), 99, new(int64(9)), false)
+	err := service.GenerateTTS(t.Context(), 99, new(int64(9)), false, nil)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -185,7 +185,7 @@ func TestStoryService_GenerateTTSRequiresVoice(t *testing.T) {
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(t.Context(), 99, nil, false)
+	err := service.GenerateTTS(t.Context(), 99, nil, false, nil)
 	assertValidationError(t, err, "Story", "voice_id")
 	if ttsSvc.calls != 0 {
 		t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)

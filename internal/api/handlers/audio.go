@@ -196,7 +196,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	if err := h.storySvc.ProcessAudio(c.Request.Context(), target, tempPath); err != nil {
+	if err := h.storySvc.ProcessAudio(c.Request.Context(), target, tempPath, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}

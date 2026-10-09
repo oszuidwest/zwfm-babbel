@@ -24,7 +24,7 @@ func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T
 			IPA:             "piː ɛs veː",
 			CaseSensitive:   false,
 			WordBoundaries:  false,
-		}})
+		}}, nil)
 	})
 	if err != nil {
 		t.Fatalf("replace rules: %v", err)
@@ -51,7 +51,7 @@ func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testi
 		return repo.ReplaceAll(ctx, []models.PronunciationRule{
 			{StringToReplace: "PSV", IPA: "one", CaseSensitive: true, WordBoundaries: true},
 			{StringToReplace: "psv", IPA: "two", CaseSensitive: true, WordBoundaries: true},
-		})
+		}, nil)
 	})
 	if err != nil {
 		t.Fatalf("ReplaceAll() error = %v, want nil for case-distinct terms", err)
@@ -64,7 +64,7 @@ func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) 
 	txManager := NewTxManager(db)
 
 	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		return repo.ReplaceAll(ctx, nil)
+		return repo.ReplaceAll(ctx, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("clear rules: %v", err)
