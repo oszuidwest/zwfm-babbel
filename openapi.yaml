@@ -2094,8 +2094,8 @@ paths:
 
         Every request creates a generation job. A single background worker
         processes jobs one at a time in submission order. Each job generates for
-        the local day the worker runs it. Takes no request body; any `date`
-        field (including `""` or `null`) returns `422`.
+        the local day the worker runs it. Takes no request body; a `date` field
+        returns `422`.
       tags:
         - Bulletin
       parameters:

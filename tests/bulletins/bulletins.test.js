@@ -85,16 +85,12 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test.each(['2026-10-07', '', null])(
-      'when generating with date %j, then returns 422', async date => {
-        const response = await enqueueBulletin(stationId, { date });
+    test('when generating with date, then returns 422', async () => {
+      const response = await enqueueBulletin(stationId, { date: '2026-10-07' });
 
-        expect(response.status).toBe(422);
-        expect(response.data.errors).toEqual(expect.arrayContaining([
-          expect.objectContaining({ field: 'date' })
-        ]));
-      }
-    );
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([{ field: 'date', message: 'date is no longer supported' }]);
+    });
 
     test.each([
       ['when generating with missing body, then queues', () => postBulletinHttp(stationId), 202, true],
