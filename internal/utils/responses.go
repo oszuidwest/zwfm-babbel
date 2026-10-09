@@ -135,14 +135,14 @@ func ProblemCustom(c *gin.Context, problemType, title string, status int, detail
 // ProblemExtended responds with an RFC 9457 problem including code and hint fields.
 // This is used by handleServiceError for typed error responses.
 func ProblemExtended(c *gin.Context, status int, detail, code, hint string) {
-	problem := NewProblemDetail(
-		"https://babbel.api/problems/"+code,
-		http.StatusText(status),
-		status,
-		detail,
-		c.Request.URL.Path,
-	)
+	SendProblem(c, NewExtendedProblem(status, detail, code, hint))
+}
+
+// NewExtendedProblem builds the problem sent by ProblemExtended for callers
+// that add extension fields before sending.
+func NewExtendedProblem(status int, detail, code, hint string) *ProblemDetail {
+	problem := NewProblemDetail("https://babbel.api/problems/"+code, http.StatusText(status), status, detail, "")
 	problem.Code = code
 	problem.Hint = hint
-	SendProblem(c, problem)
+	return problem
 }

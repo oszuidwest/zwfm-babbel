@@ -8,18 +8,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
 type problemResponse struct {
-	Status int                         `json:"status"`
-	Code   string                      `json:"code"`
-	Hint   string                      `json:"hint"`
-	Detail string                      `json:"detail"`
-	Errors []apperrors.ValidationError `json:"errors"`
+	Type      string                      `json:"type"`
+	Status    int                         `json:"status"`
+	Code      string                      `json:"code"`
+	Hint      string                      `json:"hint"`
+	Detail    string                      `json:"detail"`
+	DeletedAt time.Time                   `json:"deleted_at"`
+	Errors    []apperrors.ValidationError `json:"errors"`
 }
 
 func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
@@ -38,6 +42,21 @@ func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse
 		t.Fatalf("decode problem body: %v; body=%s", err, rec.Body.String())
 	}
 	return problem
+}
+
+func TestHandleServiceError_StoryDeletedReturnsGone(t *testing.T) {
+	c, rec := newProblemContext(t)
+	deletedAt := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	err := apperrors.TranslateRepoErrorWithID("Story", 1, apperrors.OpUpdate,
+		&repository.StoryDeletedError{ID: 1, DeletedAt: deletedAt})
+
+	handleServiceError(c, err, "Story")
+
+	problem := decodeProblem(t, rec)
+	if rec.Code != http.StatusGone || problem.Code != "story.deleted" ||
+		problem.Type != "https://babbel.api/problems/story.deleted" || !problem.DeletedAt.Equal(deletedAt) {
+		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandleServiceError_RateLimitedSetsRetryAfter(t *testing.T) {

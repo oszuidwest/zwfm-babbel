@@ -321,6 +321,15 @@ func handleConflictError(c *gin.Context, err error) bool {
 }
 
 func handleAvailabilityError(c *gin.Context, err error) bool {
+	if deleted, ok := errors.AsType[*repository.StoryDeletedError](err); ok {
+		logError("Story", "deleted", err)
+		problem := utils.NewExtendedProblem(http.StatusGone, deleted.Error(), "story.deleted",
+			"Restore the story with PATCH {\"deleted_at\":\"\"} before updating it")
+		problem.DeletedAt = &deleted.DeletedAt
+		utils.SendProblem(c, problem)
+		return true
+	}
+
 	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
 		logError(rateLimited.Resource, "rate_limited", err)
 		if rateLimited.RetryAfter != "" {

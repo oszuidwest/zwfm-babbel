@@ -81,6 +81,17 @@ describe('TTS', () => {
       expect(response.data.type).toContain('story.not_found');
     });
 
+    test('when story is deleted, then returns 410', async () => {
+      const storyId = await createStory('TTS Deleted Story', 'Some text content for TTS');
+      expect(storyId).not.toBeNull();
+      expect((await global.api.apiCall('DELETE', `/stories/${storyId}`)).status).toBe(204);
+
+      const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
+
+      expect(response.status).toBe(410);
+      expect(response.data.code).toBe('story.deleted');
+    });
+
     test('when story has no voice, then returns 400', async () => {
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
       expect(storyId).not.toBeNull();

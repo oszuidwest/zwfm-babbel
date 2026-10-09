@@ -4,6 +4,8 @@ const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
+const NONEXISTENT_STORY_ID = 2147483647;
+
 const STORY_LOUDNESS_TARGET_LUFS = -16.0;
 const LOUDNESS_TOLERANCE_LU = 0.5;
 const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
@@ -164,16 +166,51 @@ describe('Stories', () => {
   });
 
   describe('Story Soft Delete', () => {
-    test('when deleting story, then soft deleted', async () => {
-      const result = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
-      expect(result).not.toBeNull();
+    test.each([
+      ['PUT title', 'PUT', '', { title: 'Changed' }],
+      ['PUT start_date', 'PUT', '', { start_date: '2026-09-27' }],
+      ['PATCH status', 'PATCH', '', { status: 'draft' }],
+      ['POST audio', 'POST', '/audio', null]
+    ])('%s distinguishes deleted and missing stories', async (name, method, suffix, body) => {
+      const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice', 'WriteStation');
+      expect(story).not.toBeNull();
+      const deletion = await global.api.apiCall('DELETE', `/stories/${story.id}`);
+      expect(deletion.status).toBe(204);
 
-      const response = await global.api.apiCall('DELETE', `/stories/${result.id}`);
+      for (const [id, status, code] of [[story.id, 410, 'story.deleted'], [NONEXISTENT_STORY_ID, 404, 'story.not_found']]) {
+        // Audio checks the story before parsing the upload; no file is needed.
+        const response = await global.api.apiCall(method, `/stories/${id}${suffix}`, body);
+        expect(response.status).toBe(status);
+        expect(response.data.code).toBe(code);
+        if (status === 410) {
+          expect(response.data.deleted_at).toEqual(expect.any(String));
+          expect(Date.parse(response.data.deleted_at)).not.toBeNaN();
+        } else {
+          expect(response.data).not.toHaveProperty('deleted_at');
+        }
+      }
+    });
 
-      expect(response.status).toBe(204);
-
-      const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
+    test.each([
+      ['DELETE', null],
+      ['PATCH', { deleted_at: '2026-09-26T12:00:00Z' }]
+    ])('%s soft deletion is idempotent and restorable', async (method, body) => {
+      const story = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
+      expect(story).not.toBeNull();
+      const path = `/stories/${story.id}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await global.api.apiCall(method, path, body);
+        expect(response.status).toBe(204);
+      }
+      const getResponse = await global.api.apiCall('GET', path);
       expect(getResponse.status).toBe(404);
+      const missing = await global.api.apiCall(method, `/stories/${NONEXISTENT_STORY_ID}`, body);
+      expect(missing.status).toBe(404);
+      expect(missing.data.code).toBe('story.not_found');
+
+      const restore = await global.api.apiCall('PATCH', path, { deleted_at: '' });
+      expect(restore.status).toBe(200);
+      expect(restore.data.deleted_at).toBeNull();
     });
 
     test('when trashed=only, then returns soft-deleted stories', async () => {
@@ -209,6 +246,37 @@ describe('Stories', () => {
       const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
       stationId = station.id;
+    });
+
+    test('calendar dates round-trip and filter correctly', async () => {
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
+        start_date: '2026-09-26', end_date: '2026-10-25'
+      }, [stationId]);
+      expect(story).not.toBeNull();
+      const path = `/stories/${story.id}`;
+      const dates = { start_date: '2026-09-26', end_date: '2026-10-25' };
+      const getResponse = await global.api.apiCall('GET', path);
+      expect(getResponse.status).toBe(200);
+      expect(getResponse.data).toMatchObject(dates);
+
+      for (const update of [{ start_date: '2026-09-27' }, { end_date: '2026-10-26' }]) {
+        const response = await global.api.apiCall('PUT', path, update);
+        Object.assign(dates, update);
+        expect(response.status).toBe(200);
+        expect(response.data).toMatchObject(dates);
+      }
+
+      for (const fields of ['', '&fields=id,start_date,end_date']) {
+        const filter = `/stories?filter[id]=${story.id}&filter[start_date][lte]=`;
+        const included = await global.api.apiCall('GET', `${filter}2026-09-27${fields}`);
+        expect(included.status).toBe(200);
+        expect(included.data.data).toHaveLength(1);
+        expect(included.data.data[0]).toMatchObject(dates);
+        const excluded = await global.api.apiCall('GET', `${filter}2026-09-26${fields}`);
+        expect(excluded.status).toBe(200);
+        expect(excluded.data.data).toEqual([]);
+      }
     });
 
     test('when creating future-dated story, then accepted', async () => {

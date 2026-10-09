@@ -174,13 +174,8 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		return
 	}
 
-	exists, err := h.storySvc.Exists(c.Request.Context(), id)
-	if err != nil {
+	if _, err := h.storySvc.GetByIDForWrite(c.Request.Context(), id); err != nil {
 		handleServiceError(c, err, "Story")
-		return
-	}
-	if !exists {
-		handleServiceError(c, apperrors.NotFoundWithID("Story", id), "Story")
 		return
 	}
 
