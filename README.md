@@ -198,7 +198,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 ### Asynchronous bulletin generation
 
-`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; sending the removed `date` field returns `422`. Every request creates a generation job for the local day when the worker runs. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; sending the removed `date` field returns `422`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
 
 Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
 

@@ -33,17 +33,16 @@ func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
 	today := startOfDay(time.Now())
 	bulletin := createBulletin(t, db, station.ID)
 
-	twoDays, zero := 48*time.Hour, time.Duration(0)
 	for _, test := range []struct {
 		name      string
 		createdAt time.Time
 		maxAge    *time.Duration
 		wantFound bool
 	}{
-		{name: "yesterday rejected", createdAt: today.Add(-time.Second), maxAge: &twoDays},
+		{name: "yesterday rejected", createdAt: today.Add(-time.Second), maxAge: new(48 * time.Hour)},
 		{name: "yesterday without max age", createdAt: today.Add(-time.Second), wantFound: true},
-		{name: "local midnight included", createdAt: today, maxAge: &twoDays, wantFound: true},
-		{name: "age still enforced", createdAt: today, maxAge: &zero},
+		{name: "local midnight included", createdAt: today, maxAge: new(48 * time.Hour), wantFound: true},
+		{name: "age still enforced", createdAt: today, maxAge: new(time.Duration(0))},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := db.Model(&bulletin).Update("created_at", test.createdAt).Error; err != nil {

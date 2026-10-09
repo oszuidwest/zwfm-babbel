@@ -35,8 +35,12 @@ func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) 
 	return c, rec
 }
 
+// decodeProblem requires a problem+json response and decodes its body.
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse {
 	t.Helper()
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", got)
+	}
 	var problem problemResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &problem); err != nil {
 		t.Fatalf("decode problem body: %v; body=%s", err, rec.Body.String())
@@ -47,9 +51,6 @@ func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse
 // assertValidationField requires a problem+json body with exactly one error for field.
 func assertValidationField(t *testing.T, rec *httptest.ResponseRecorder, field string) {
 	t.Helper()
-	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
-		t.Fatalf("Content-Type = %q, want application/problem+json", got)
-	}
 	if errs := decodeProblem(t, rec).Errors; len(errs) != 1 || errs[0].Field != field {
 		t.Fatalf("errors = %+v, want exactly one %q error", errs, field)
 	}

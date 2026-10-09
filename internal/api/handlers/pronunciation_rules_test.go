@@ -265,9 +265,6 @@ func TestPronunciationRulesHandlers_GetServiceError(t *testing.T) {
 	if recorder.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want %d: %s", recorder.Code, http.StatusInternalServerError, recorder.Body.String())
 	}
-	if contentType := recorder.Header().Get("Content-Type"); contentType != "application/problem+json" {
-		t.Fatalf("content-type = %q, want application/problem+json", contentType)
-	}
 	problem := decodeProblem(t, recorder)
 	if problem.Status != http.StatusInternalServerError || problem.Code != "internal.database_error" {
 		t.Fatalf("problem = %#v, want database problem details", problem)

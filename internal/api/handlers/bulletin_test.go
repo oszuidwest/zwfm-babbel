@@ -9,18 +9,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestGenerateBulletinCombinesAcceptHeaders(t *testing.T) {
+// newGenerateBulletinContext builds a POST /stations/{id}/bulletins test context.
+func newGenerateBulletinContext(t *testing.T, id, body string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
 	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequestWithContext(
-		t.Context(),
-		http.MethodPost,
-		"/api/v1/stations/invalid/bulletins",
-		nil,
-	)
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost,
+		"/api/v1/stations/"+id+"/bulletins", strings.NewReader(body))
+	c.Params = gin.Params{{Key: "id", Value: id}}
+	return c, recorder
+}
+
+func TestGenerateBulletinCombinesAcceptHeaders(t *testing.T) {
+	context, recorder := newGenerateBulletinContext(t, "invalid", "")
 	context.Request.Header.Add("Accept", "text/html")
 	context.Request.Header.Add("Accept", gin.MIMEJSON)
-	context.Params = gin.Params{{Key: "id", Value: "invalid"}}
 
 	(&Handlers{}).GenerateBulletin(context)
 
@@ -78,11 +81,7 @@ func TestGenerateBulletinRejectsDate(t *testing.T) {
 		{name: "case insensitive date", body: `{"Date":"2026-10-07"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			recorder := httptest.NewRecorder()
-			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost,
-				"/api/v1/stations/1/bulletins", strings.NewReader(test.body))
-			c.Params = gin.Params{{Key: "id", Value: "1"}}
+			c, recorder := newGenerateBulletinContext(t, "1", test.body)
 
 			(&Handlers{}).GenerateBulletin(c)
 
