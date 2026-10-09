@@ -145,10 +145,12 @@ function generateCrudTests(schema, setupFn = null) {
       describe('Update', () => {
         const updatePayload = updateData();
 
-        test('when updating with valid data, then returns 200', async () => {
+        test('when repeating an identical update, then both requests return 200', async () => {
           const response = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updatePayload);
+          const repeated = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updatePayload);
 
           expect(response.status).toBe(200);
+          expect(repeated.status).toBe(200);
         });
 
         test('when updating, then changes are persisted', async () => {
