@@ -424,6 +424,39 @@ describe('OpenApiContractValidator', () => {
 describe('openapi.yaml contract invariants', () => {
   let document;
 
+  test('story responses use calendar dates and write endpoints document deletion', () => {
+    expect(document.components.schemas.Story.properties.start_date.format).toBe('date');
+    expect(document.components.schemas.Story.properties.end_date.format).toBe('date');
+    const validator = new OpenApiContractValidator(document);
+    const gone = {
+      type: 'https://babbel.api/problems/story.deleted',
+      title: 'Gone',
+      status: 410,
+      detail: 'Story with id 1 has been deleted',
+      code: 'story.deleted',
+      deleted_at: '2026-09-26T12:00:00Z'
+    };
+    const withoutDeletedAt = { ...gone };
+    delete withoutDeletedAt.deleted_at;
+    for (const [method, operationPath] of [
+      ['put', '/api/v1/stories/{id}'],
+      ['patch', '/api/v1/stories/{id}'],
+      ['post', '/api/v1/stories/{id}/audio'],
+      ['post', '/api/v1/stories/{id}/tts']
+    ]) {
+      const validate = (data) => validator.validateResponse({
+        method,
+        operationPath,
+        response: { status: 410, headers: { 'content-type': 'application/problem+json' }, data }
+      });
+      expect(() => validate(gone)).not.toThrow();
+      expect(() => validate(withoutDeletedAt)).toThrow('deleted_at');
+      expect(() => validate({ ...gone, code: 'story.not_found' })).toThrow('code');
+      expect(() => validate({ ...gone, deleted_at: 'yesterday' })).toThrow('date-time');
+    }
+    expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
+  });
+
   const LIST_OPERATIONS = [
     ['get', '/api/v1/stations'],
     ['get', '/api/v1/voices'],

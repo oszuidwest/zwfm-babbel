@@ -35,8 +35,8 @@ type Story struct {
 	AudioFile       string      `gorm:"size:500" json:"audio_file"`
 	DurationSeconds *float64    `json:"duration_seconds"`
 	Status          StoryStatus `gorm:"size:20;not null;default:'draft';index" json:"status"`
-	StartDate       time.Time   `gorm:"not null;index" json:"start_date"`
-	EndDate         time.Time   `gorm:"not null;index" json:"end_date"`
+	StartDate       Date        `gorm:"not null;index" json:"start_date"`
+	EndDate         Date        `gorm:"not null;index" json:"end_date"`
 	Weekdays        Weekdays    `gorm:"not null;default:127;index" json:"weekdays"`
 	// IsBreaking takes priority over fair rotation.
 	IsBreaking bool               `gorm:"not null;default:false;index" json:"is_breaking"`

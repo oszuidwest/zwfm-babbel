@@ -7,12 +7,12 @@ info:
 
     ## API Design Notes
 
-    **Pure JSON API**: Story and StationVoice creation/updates now use JSON instead of multipart/form-data
+    **JSON API**: Create and update stories and station-voice relationships with JSON.
     - Story create/update: Use `POST /stories` and `PUT /stories/{id}` with JSON body
     - Audio upload: Use separate endpoint `POST /stories/{id}/audio` with binary audio data
     - StationVoice create/update: Use `POST /station-voices` and `PUT /station-voices/{id}` with JSON body
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
-    - Metadata: Returned as native JSON object instead of escaped string
+    - Metadata: Returned as a JSON object
 
     ## Authentication
 
@@ -133,7 +133,8 @@ paths:
         - If endpoint is disabled (no API key configured): Returns 404
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
-        Concurrent requests for the same station will queue.
+        Concurrent requests for the same station will queue for up to
+        `BABBEL_AUTOMATION_TIMEOUT` (default 120s), then return 504.
 
         **Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
         system that supports HTTP audio fetching.
@@ -375,6 +376,8 @@ paths:
       description: |
         Handles the OAuth callback from the provider and redirects to the frontend.
         This endpoint is called by the OAuth provider after user authentication.
+        Users are bound to the token's issuer and subject (`sub`); a missing
+        subject is rejected.
       parameters:
         - name: code
           in: query
@@ -980,8 +983,8 @@ paths:
                         audio_url: "/stories/101/audio"
                         duration_seconds: 12.5
                         status: "active"
-                        start_date: "2024-01-20T00:00:00Z"
-                        end_date: "2024-01-27T00:00:00Z"
+                        start_date: "2024-01-20"
+                        end_date: "2024-01-27"
                         weekdays: 62
                         is_breaking: false
                         created_at: "2024-01-20T10:00:00Z"
@@ -1143,6 +1146,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/StoryDeleted'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '401':
@@ -1216,6 +1221,8 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/StoryDeleted'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '401':
@@ -1445,6 +1452,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/StoryDeleted'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -1468,7 +1477,7 @@ paths:
         - $ref: '#/components/parameters/id'
       responses:
         '204':
-          description: Story soft deleted successfully
+          description: Story soft deleted successfully, including an already deleted story
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -1522,11 +1531,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Story'
         '204':
-          description: Story soft-deleted successfully (when deleted_at is set to a non-empty value)
+          description: Story soft-deleted successfully, including an already deleted story (when deleted_at is non-empty)
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/StoryDeleted'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '401':
@@ -2815,7 +2826,7 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed story filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      description: Typed story filters. Use `has_audio` to filter by audio presence.
       schema:
         type: object
         additionalProperties: false
@@ -2875,7 +2886,7 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed station-voice filters. `has_audio` replaces empty-string comparisons on `audio_url`.
+      description: Typed station-voice filters. Use `has_audio` to filter by audio presence.
       schema:
         type: object
         additionalProperties: false
@@ -3439,7 +3450,7 @@ components:
         null values is rejected.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           station_id:
@@ -3516,12 +3527,12 @@ components:
           enum: [draft, active, expired]
         start_date:
           type: string
-          format: date-time
-          description: Start date and time in RFC3339 format
+          format: date
+          description: First scheduled calendar day (YYYY-MM-DD)
         end_date:
           type: string
-          format: date-time
-          description: End date and time in RFC3339 format
+          format: date
+          description: Last scheduled calendar day (YYYY-MM-DD)
         weekdays:
           type: integer
           minimum: 0
@@ -3621,7 +3632,7 @@ components:
         null values is rejected.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           title:
@@ -3840,7 +3851,7 @@ components:
         object containing only null values is rejected.
       minProperties: 1
       not:
-        # A unit test keeps this list aligned with the properties below.
+        # Keep this list aligned with the updatable properties below.
         description: Rejects objects whose provided updatable fields are all null.
         properties:
           username:
@@ -4027,10 +4038,12 @@ components:
         `https://babbel.api/problems/{resource}.{error_type}` where the `code` field
         contains the `{resource}.{error_type}` value. Examples:
         - `{resource}.not_found` - 404 typed resource not found
+        - `story.deleted` - 410 write targeted a soft-deleted story; includes `deleted_at`
         - `{resource}.duplicate` - 409 unique constraint violation
         - `{resource}.has_dependencies` - 409 cannot delete, has dependent resources
         - `{resource}.validation_failed` - 400 field-level validation error (also used for the "cannot delete last admin" constraint)
         - `bulletin.no_stories` - 422 no active stories for bulletin generation
+        - `audio.silent` - 422 story audio is silent or below the -50 LUFS floor
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
         - `internal.timeout` - 504 operation timed out
@@ -4075,6 +4088,10 @@ components:
           type: string
           description: User-friendly suggestion for resolving the error
           example: "Check the resource ID and try again"
+        deleted_at:
+          type: string
+          format: date-time
+          description: Original deletion timestamp, present for story.deleted problems
         errors:
           type: array
           description: Field-level errors for validation or strict request-parsing responses (400 and 422)
@@ -4367,6 +4384,26 @@ components:
                 status: 403
                 detail: "You do not have permission to perform this action"
                 instance: "/api/v1/users"
+    StoryDeleted:
+      description: Story is soft-deleted. Restore it with PATCH {"deleted_at":""} before updating it.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ProblemDetails'
+              - type: object
+                required: [code, deleted_at]
+                properties:
+                  code:
+                    type: string
+                    const: story.deleted
+          example:
+            type: "https://babbel.api/problems/story.deleted"
+            title: "Gone"
+            status: 410
+            detail: "Story with id 123 has been deleted"
+            code: "story.deleted"
+            deleted_at: "2026-09-26T12:00:00+02:00"
     NotFound:
       description: Resource not found
       content:
@@ -4520,6 +4557,16 @@ components:
                 instance: "/api/v1/stations/1/bulletins"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+            silent_audio:
+              summary: Story audio is silent or below -50 LUFS; existing audio is preserved
+              value:
+                type: "https://babbel.api/problems/audio.silent"
+                title: "Unprocessable Entity"
+                status: 422
+                detail: "Audio is silent or too quiet"
+                instance: "/api/v1/stories/1/audio"
+                code: "audio.silent"
+                hint: "Check the recording level and input channel, then upload audible audio or regenerate speech"
     InternalServerError:
       description: Internal server error
       content:

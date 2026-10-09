@@ -4,6 +4,8 @@ const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
+const NONEXISTENT_STORY_ID = 2147483647;
+
 const STORY_LOUDNESS_TARGET_LUFS = -16.0;
 const LOUDNESS_TOLERANCE_LU = 0.5;
 const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
@@ -73,7 +75,6 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
 
-  // Creates the fixtures required by the shared query-test generator.
   const setupQueryTestData = async () => {
     const ids = [];
     for (let i = 1; i <= 3; i++) {
@@ -91,13 +92,10 @@ describe('Stories', () => {
   // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
-  // The remaining tests cover story-specific behavior.
-
   describe('Story CRUD', () => {
     let voiceId, stationId, storyId;
 
     beforeAll(async () => {
-      // Share one voice and station across the CRUD cases.
       const voice = await global.helpers.createVoice(global.resources, 'CrudTestVoice');
       const station = await global.helpers.createStation(global.resources, 'CrudTestStation');
       voiceId = voice.id;
@@ -139,17 +137,80 @@ describe('Stories', () => {
     });
   });
 
+  describe('Idempotent Updates', () => {
+    // One case per repository path: UpdateByID and Restore.
+    const cases = [
+      ['PUT', { title: 'Idempotent title' }, { title: 'Idempotent title' }],
+      ['PATCH', { deleted_at: '' }, { deleted_at: null }]
+    ];
+
+    test.each(cases)('when repeating %s %j immediately, then both requests succeed', async (method, payload, expected) => {
+      const created = await global.api.apiCall('POST', '/stories', storiesSchema.createValidData('Idempotent'));
+      expect(created.status).toBe(201);
+      global.resources.track('stories', created.data.id);
+
+      const first = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+      const second = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.data).toMatchObject(expected);
+    });
+
+    test.each(cases)('when sending %s %j to a missing story, then returns 404', async (method, payload) => {
+      const response = await global.api.apiCall(method, '/stories/999999', payload);
+
+      expect(response.status).toBe(404);
+      expect(response.data.code).toBe('story.not_found');
+    });
+  });
+
   describe('Story Soft Delete', () => {
-    test('when deleting story, then soft deleted', async () => {
-      const result = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
-      expect(result).not.toBeNull();
+    test.each([
+      ['PUT title', 'PUT', '', { title: 'Changed' }],
+      ['PUT start_date', 'PUT', '', { start_date: '2026-09-27' }],
+      ['PATCH status', 'PATCH', '', { status: 'draft' }],
+      ['POST audio', 'POST', '/audio', null]
+    ])('%s distinguishes deleted and missing stories', async (name, method, suffix, body) => {
+      const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice', 'WriteStation');
+      expect(story).not.toBeNull();
+      const deletion = await global.api.apiCall('DELETE', `/stories/${story.id}`);
+      expect(deletion.status).toBe(204);
 
-      const response = await global.api.apiCall('DELETE', `/stories/${result.id}`);
+      for (const [id, status, code] of [[story.id, 410, 'story.deleted'], [NONEXISTENT_STORY_ID, 404, 'story.not_found']]) {
+        // Audio checks the story before parsing the upload; no file is needed.
+        const response = await global.api.apiCall(method, `/stories/${id}${suffix}`, body);
+        expect(response.status).toBe(status);
+        expect(response.data.code).toBe(code);
+        if (status === 410) {
+          expect(response.data.deleted_at).toEqual(expect.any(String));
+          expect(Date.parse(response.data.deleted_at)).not.toBeNaN();
+        } else {
+          expect(response.data).not.toHaveProperty('deleted_at');
+        }
+      }
+    });
 
-      expect(response.status).toBe(204);
-
-      const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
+    test.each([
+      ['DELETE', null],
+      ['PATCH', { deleted_at: '2026-09-26T12:00:00Z' }]
+    ])('%s soft deletion is idempotent and restorable', async (method, body) => {
+      const story = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
+      expect(story).not.toBeNull();
+      const path = `/stories/${story.id}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await global.api.apiCall(method, path, body);
+        expect(response.status).toBe(204);
+      }
+      const getResponse = await global.api.apiCall('GET', path);
       expect(getResponse.status).toBe(404);
+      const missing = await global.api.apiCall(method, `/stories/${NONEXISTENT_STORY_ID}`, body);
+      expect(missing.status).toBe(404);
+      expect(missing.data.code).toBe('story.not_found');
+
+      const restore = await global.api.apiCall('PATCH', path, { deleted_at: '' });
+      expect(restore.status).toBe(200);
+      expect(restore.data.deleted_at).toBeNull();
     });
 
     test('when trashed=only, then returns soft-deleted stories', async () => {
@@ -181,11 +242,41 @@ describe('Stories', () => {
     let voiceId, stationId;
 
     beforeAll(async () => {
-      // Share one voice and station across the scheduling cases.
       const voice = await global.helpers.createVoice(global.resources, 'ScheduleVoice');
       const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
       stationId = station.id;
+    });
+
+    test('calendar dates round-trip and filter correctly', async () => {
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
+        start_date: '2026-09-26', end_date: '2026-10-25'
+      }, [stationId]);
+      expect(story).not.toBeNull();
+      const path = `/stories/${story.id}`;
+      const dates = { start_date: '2026-09-26', end_date: '2026-10-25' };
+      const getResponse = await global.api.apiCall('GET', path);
+      expect(getResponse.status).toBe(200);
+      expect(getResponse.data).toMatchObject(dates);
+
+      for (const update of [{ start_date: '2026-09-27' }, { end_date: '2026-10-26' }]) {
+        const response = await global.api.apiCall('PUT', path, update);
+        Object.assign(dates, update);
+        expect(response.status).toBe(200);
+        expect(response.data).toMatchObject(dates);
+      }
+
+      for (const fields of ['', '&fields=id,start_date,end_date']) {
+        const filter = `/stories?filter[id]=${story.id}&filter[start_date][lte]=`;
+        const included = await global.api.apiCall('GET', `${filter}2026-09-27${fields}`);
+        expect(included.status).toBe(200);
+        expect(included.data.data).toHaveLength(1);
+        expect(included.data.data[0]).toMatchObject(dates);
+        const excluded = await global.api.apiCall('GET', `${filter}2026-09-26${fields}`);
+        expect(excluded.status).toBe(200);
+        expect(excluded.data.data).toEqual([]);
+      }
     });
 
     test('when creating future-dated story, then accepted', async () => {
@@ -198,7 +289,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -213,7 +303,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
     });
 
@@ -235,7 +324,6 @@ describe('Stories', () => {
     let voiceId, station1Id, station2Id;
 
     beforeAll(async () => {
-      // Share one voice and two stations across the targeting cases.
       const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
       const station1 = await global.helpers.createStation(global.resources, 'Target1');
       const station2 = await global.helpers.createStation(global.resources, 'Target2');
@@ -254,10 +342,8 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
-      // Verify assignments when the response expands target_stations.
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       if (getResponse.data.target_stations) {
@@ -319,6 +405,39 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.data.audio_file).not.toBe('');
+    });
+
+    test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
+      if (!fs.existsSync(testAudio)) return;
+
+      const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
+      const inputAudio = `${prefix}_input.wav`;
+      const beforeAudio = `${prefix}_before.wav`;
+      const afterAudio = `${prefix}_after.wav`;
+      try {
+        runFFmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1', '-y', inputAudio]);
+        const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice', 'SilentStation');
+        expect(result).not.toBeNull();
+        const endpoint = `/stories/${result.id}/audio`;
+
+        const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
+        expect(validUpload.status).toBe(201);
+        const before = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(await global.api.downloadFile(endpoint, beforeAudio)).toBe(200);
+
+        const replacement = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
+        expect(replacement.status).toBe(422);
+        expect(replacement.data.code).toBe('audio.silent');
+        const after = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
+        expect(after.data.updated_at).toBe(before.data.updated_at);
+        expect(await global.api.downloadFile(endpoint, afterAudio)).toBe(200);
+        expect(fs.readFileSync(afterAudio)).toEqual(fs.readFileSync(beforeAudio));
+      } finally {
+        for (const file of [inputAudio, beforeAudio, afterAudio]) {
+          global.helpers.cleanupTempFile(file);
+        }
+      }
     });
 
     test('when fetching story, then audio fields present', async () => {
@@ -389,8 +508,7 @@ describe('Stories', () => {
       const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
       expect(uploadResponse.status).toBe(201);
 
-      // Force a legacy-style NULL row to pin has_audio=false behavior; the API
-      // itself never writes NULL because the model field is a plain string.
+      // SQL is needed to test NULL audio_file values; the API writes strings.
       createMySQLExecutor().execSQL(
         `UPDATE stories SET audio_file = NULL WHERE id = ${sqlInteger(nullAudio.id, 'story ID')}`
       );
@@ -463,7 +581,6 @@ describe('Stories', () => {
 
       expect(response.status).toBe(201);
 
-      // Track this direct API creation for suite cleanup.
       global.resources.track('stories', response.data.id);
 
       const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);

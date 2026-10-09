@@ -35,6 +35,9 @@ type ProblemDetail struct {
 	// Hint provides a user-friendly suggestion for resolving the error.
 	Hint string `json:"hint,omitempty"`
 
+	// DeletedAt is the deletion time for story.deleted responses.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+
 	// Errors contains field-level errors for validation and strict parsing responses.
 	Errors []apperrors.ValidationError `json:"errors,omitempty"`
 }

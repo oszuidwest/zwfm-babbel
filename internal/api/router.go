@@ -1,4 +1,4 @@
-// Package api provides HTTP routing and middleware setup for the Babbel API server.
+// Package api configures HTTP routes and middleware for Babbel.
 package api
 
 import (
@@ -21,7 +21,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// routerDeps holds the resolved dependencies needed for route registration.
 type routerDeps struct {
 	handlers          *handlers.Handlers
 	automationHandler *handlers.AutomationHandler
@@ -30,7 +29,8 @@ type routerDeps struct {
 	bulletinJobSvc    *services.BulletinJobService
 }
 
-// SetupRouter wires routes and returns the stopped bulletin worker; alerts must be non-nil.
+// SetupRouter configures routes and returns a bulletin worker for the caller to start.
+// alerts must be non-nil.
 func SetupRouter(
 	db *gorm.DB,
 	cfg *config.Config,
@@ -154,7 +154,6 @@ func buildPasswordPolicy(cfg *config.Config) services.PasswordPolicy {
 	}
 }
 
-// buildAuthConfig constructs the auth configuration from the application config.
 func buildAuthConfig(cfg *config.Config) *auth.Config {
 	return &auth.Config{
 		Method: cfg.Auth.Method,
@@ -184,33 +183,28 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 	}
 }
 
-// setupEngine creates the Gin engine with global middleware.
 func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.Service) *gin.Engine {
 	r := gin.New()
-	// Strip query strings from logs to avoid exposing sensitive data (e.g., automation API keys).
+	// Query strings may contain automation API keys.
 	r.Use(gin.LoggerWithConfig(gin.LoggerConfig{
 		SkipQueryString: true,
 	}))
 	r.Use(gin.Recovery())
-	// Alert bookkeeping per request is only worth it when e-mail can actually send.
 	if alerts.IsConfigured() {
 		r.Use(handlers.NotificationMiddleware(alerts))
 	}
-	// Session middleware must come before any handler that reads session state.
 	r.Use(authService.SessionMiddleware())
-	// Security headers run before CORS because CORS may abort on OPTIONS preflight.
+	// CORS may abort preflight requests, so set security headers first.
 	r.Use(securityHeaders(cfg))
 	r.Use(corsMiddleware(cfg))
 	return r
 }
 
-// registerPublicRoutes registers unauthenticated public endpoints.
 func registerPublicRoutes(r *gin.Engine, deps *routerDeps) {
 	public := r.Group("/public")
 	public.GET("/stations/:id/bulletin.wav", deps.automationHandler.GetPublicBulletin)
 }
 
-// registerAPIRoutes registers all versioned API routes.
 func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 	v1 := r.Group("/api/v1")
 
@@ -230,8 +224,6 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 	registerPronunciationRulesRoutes(protected, deps)
 }
 
-// registerAuthRoutes registers public authentication endpoints.
-// Sessions are resources that can be created (login) and deleted (logout).
 func registerAuthRoutes(v1 *gin.RouterGroup, deps *routerDeps) {
 	v1.GET("/auth/config", deps.authHandlers.GetAuthConfig)
 	v1.POST("/sessions", deps.authHandlers.Login)
@@ -239,13 +231,11 @@ func registerAuthRoutes(v1 *gin.RouterGroup, deps *routerDeps) {
 	v1.GET("/auth/oauth/callback", deps.authHandlers.HandleOAuthCallback)
 }
 
-// registerSessionRoutes registers session management endpoints.
 func registerSessionRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.DELETE("/sessions/current", deps.authHandlers.Logout)
 	protected.GET("/sessions/current", deps.authHandlers.GetCurrentUser)
 }
 
-// registerStationRoutes registers station CRUD endpoints.
 func registerStationRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -257,7 +247,6 @@ func registerStationRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.DELETE("/stations/:id", perm(auth.ResourceStations, auth.ActionWrite), h.DeleteStation)
 }
 
-// registerVoiceRoutes registers voice CRUD endpoints.
 func registerVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -269,7 +258,6 @@ func registerVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.DELETE("/voices/:id", perm(auth.ResourceVoices, auth.ActionWrite), h.DeleteVoice)
 }
 
-// registerStoryRoutes registers story CRUD and audio endpoints.
 func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -282,7 +270,7 @@ func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 			FilePrefix: "story",
 		})
 	})
-	protected.POST("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionWrite), h.UploadStoryAudio)
+	protected.POST("/stories/:id/audio", perm(auth.ResourceStories, auth.ActionWrite), extendUploadReadDeadline, h.UploadStoryAudio)
 	protected.POST("/stories/:id/tts", perm(auth.ResourceStories, auth.ActionWrite), h.GenerateStoryTTS)
 	protected.POST("/stories", perm(auth.ResourceStories, auth.ActionWrite), h.CreateStory)
 	protected.PUT("/stories/:id", perm(auth.ResourceStories, auth.ActionWrite), h.UpdateStory)
@@ -290,7 +278,6 @@ func registerStoryRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.PATCH("/stories/:id", perm(auth.ResourceStories, auth.ActionWrite), h.UpdateStoryStatus)
 }
 
-// registerUserRoutes registers user management endpoints (write operations are admin only).
 func registerUserRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -303,7 +290,6 @@ func registerUserRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.PATCH("/users/:id", perm(auth.ResourceUsers, auth.ActionWrite), h.UpdateUserStatus)
 }
 
-// registerStationVoiceRoutes registers station-voice relationship endpoints.
 func registerStationVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -316,13 +302,12 @@ func registerStationVoiceRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 			FilePrefix: "jingle",
 		})
 	})
-	protected.POST("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionWrite), h.UploadStationVoiceAudio)
+	protected.POST("/station-voices/:id/audio", perm(auth.ResourceVoices, auth.ActionWrite), extendUploadReadDeadline, h.UploadStationVoiceAudio)
 	protected.POST("/station-voices", perm(auth.ResourceVoices, auth.ActionWrite), h.CreateStationVoice)
 	protected.PUT("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionWrite), h.UpdateStationVoice)
 	protected.DELETE("/station-voices/:id", perm(auth.ResourceVoices, auth.ActionWrite), h.DeleteStationVoice)
 }
 
-// registerBulletinRoutes registers bulletin endpoints.
 func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -338,7 +323,6 @@ func registerBulletinRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.GET("/bulletins/:id/stories", perm(auth.ResourceStories, auth.ActionRead), h.GetBulletinStories)
 }
 
-// registerTTSSettingsRoutes registers global TTS settings endpoints.
 func registerTTSSettingsRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -347,7 +331,6 @@ func registerTTSSettingsRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	protected.PATCH("/settings/tts", perm(auth.ResourceSettingsTTS, auth.ActionWrite), h.UpdateTTSSettings)
 }
 
-// registerPronunciationRulesRoutes registers editor-facing TTS pronunciation rules endpoints.
 func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDeps) {
 	h := deps.handlers
 	perm := deps.authService.RequirePermission
@@ -364,8 +347,6 @@ func registerPronunciationRulesRoutes(protected *gin.RouterGroup, deps *routerDe
 	)
 }
 
-// registerHealthRoute registers the health check endpoint. It shares the
-// database check (and its alert state) with the background health service.
 func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 	r.GET("/health", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -387,17 +368,14 @@ func registerHealthRoute(r *gin.Engine, db *gorm.DB, alerts notify.Alerter) {
 	})
 }
 
-// securityHeaders adds OWASP-recommended security headers to all responses.
 func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Core security headers are always applied.
 		c.Writer.Header().Set("X-Content-Type-Options", "nosniff")
 		c.Writer.Header().Set("X-Frame-Options", "DENY")
 		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		c.Writer.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 
-		// HSTS is sent only for production or HTTPS requests.
 		if cfg.Environment.IsProduction() || c.Request.TLS != nil {
 			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
@@ -406,16 +384,13 @@ func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-// corsMiddleware creates a CORS middleware for the configured allowed origins.
-// The allowlist is normalized once at startup; requests only normalize the
-// incoming Origin header.
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	originChecker := config.NewOriginChecker(cfg.Server.AllowedOrigins)
 
 	return func(c *gin.Context) {
 		origin := c.Request.Header.Get("Origin")
 
-		// If no allowed origins are configured, disable CORS (secure by default)
+		// An empty allowlist disables cross-origin access.
 		if cfg.Server.AllowedOrigins == "" {
 			if c.Request.Method == "OPTIONS" {
 				c.AbortWithStatus(204)
@@ -426,8 +401,6 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		if originChecker.Allowed(origin) {
-			// Replace proxy-supplied CORS headers so the configured allowlist is
-			// the only source of truth.
 			c.Writer.Header().Del("Access-Control-Allow-Origin")
 			c.Writer.Header().Del("Access-Control-Allow-Credentials")
 			c.Writer.Header().Del("Access-Control-Allow-Headers")
