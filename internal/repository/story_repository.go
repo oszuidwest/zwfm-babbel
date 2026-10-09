@@ -83,9 +83,14 @@ func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story,
 }
 
 // GetByIDForWrite loads a story needed before a write, distinguishing deleted rows.
-func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
-	story, err := r.GetByID(ctx, id)
+func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64, preloads ...string) (*models.Story, error) {
+	story, err := r.GetByIDWithPreload(ctx, id, preloads...)
 	return story, r.classifyWriteError(ctx, id, err)
+}
+
+// UpdateByID reports writes to deleted stories as StoryDeletedError.
+func (r *StoryRepository) UpdateByID(ctx context.Context, id int64, updates any) error {
+	return r.classifyWriteError(ctx, id, r.GormRepository.UpdateByID(ctx, id, updates))
 }
 
 // classifyWriteError checks deletion only after a scoped operation misses.
@@ -115,7 +120,7 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, updateMap))
+	return r.UpdateByID(ctx, id, updateMap)
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
@@ -144,15 +149,15 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 
 // UpdateAudio updates the audio file and duration.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, map[string]any{
+	return r.UpdateByID(ctx, id, map[string]any{
 		"audio_file":       audioFile,
 		"duration_seconds": duration,
-	}))
+	})
 }
 
 // UpdateStatus updates the story status.
 func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return r.classifyWriteError(ctx, id, r.UpdateByID(ctx, id, map[string]any{"status": status}))
+	return r.UpdateByID(ctx, id, map[string]any{"status": status})
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as

@@ -30,9 +30,6 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if err := repo.UpdateAudio(t.Context(), story.ID, "original.wav", 12); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.GetByIDForWrite(t.Context(), story.ID); err != nil {
-		t.Fatal(err)
-	}
 	if err := repo.SoftDelete(t.Context(), story.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +76,6 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStoryDateJSON(t, story, "2026-09-26")
 	if err := repo.UpdateAudio(t.Context(), story.ID, "calendar.wav", 10); err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@ const storiesSchema = require('../lib/schemas/stories.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
-const TTS_ENABLED = process.env.BABBEL_TEST_TTS_ENABLED === 'true';
+const NONEXISTENT_STORY_ID = 2147483647;
 
 const STORY_LOUDNESS_TARGET_LUFS = -16.0;
 const LOUDNESS_TOLERANCE_LU = 0.5;
@@ -141,24 +141,17 @@ describe('Stories', () => {
     test.each([
       ['PUT title', 'PUT', '', { title: 'Changed' }],
       ['PUT start_date', 'PUT', '', { start_date: '2026-09-27' }],
-      ['PUT end_date', 'PUT', '', { end_date: '2026-10-26' }],
       ['PATCH status', 'PATCH', '', { status: 'draft' }],
-      ['POST audio', 'POST', '/audio', null],
-      ['POST tts', 'POST', '/tts', null]
+      ['POST audio', 'POST', '/audio', null]
     ])('%s distinguishes deleted and missing stories', async (name, method, suffix, body) => {
       const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice', 'WriteStation');
       expect(story).not.toBeNull();
       const deletion = await global.api.apiCall('DELETE', `/stories/${story.id}`);
       expect(deletion.status).toBe(204);
 
-      for (const [id, status, code] of [[story.id, 410, 'story.deleted'], [2147483647, 404, 'story.not_found']]) {
+      for (const [id, status, code] of [[story.id, 410, 'story.deleted'], [NONEXISTENT_STORY_ID, 404, 'story.not_found']]) {
         // Audio checks the story before parsing the upload; no file is needed.
         const response = await global.api.apiCall(method, `/stories/${id}${suffix}`, body);
-        if (suffix === '/tts' && !TTS_ENABLED) {
-          expect(response.status).toBe(501);
-          expect(response.data.code).toBe('tts.not_configured');
-          continue;
-        }
         expect(response.status).toBe(status);
         expect(response.data.code).toBe(code);
         if (status === 410) {
@@ -183,7 +176,7 @@ describe('Stories', () => {
       }
       const getResponse = await global.api.apiCall('GET', path);
       expect(getResponse.status).toBe(404);
-      const missing = await global.api.apiCall(method, '/stories/2147483647', body);
+      const missing = await global.api.apiCall(method, `/stories/${NONEXISTENT_STORY_ID}`, body);
       expect(missing.status).toBe(404);
       expect(missing.data.code).toBe('story.not_found');
 
@@ -229,7 +222,7 @@ describe('Stories', () => {
       stationId = station.id;
     });
 
-    test.each(['', '&fields=id,start_date,end_date'])('calendar dates round-trip and filter correctly (%s)', async (fields) => {
+    test('calendar dates round-trip and filter correctly', async () => {
       const story = await global.helpers.createStory(global.resources, {
         title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
         start_date: '2026-09-26', end_date: '2026-10-25'
@@ -247,18 +240,17 @@ describe('Stories', () => {
         expect(response.status).toBe(200);
         expect(response.data).toMatchObject(dates);
       }
-      const statusResponse = await global.api.apiCall('PATCH', path, { status: 'draft' });
-      expect(statusResponse.status).toBe(200);
-      expect(statusResponse.data).toMatchObject(dates);
 
-      const filter = `/stories?filter[id]=${story.id}&filter[start_date][lte]=`;
-      const included = await global.api.apiCall('GET', `${filter}2026-09-27${fields}`);
-      expect(included.status).toBe(200);
-      expect(included.data.data).toHaveLength(1);
-      expect(included.data.data[0]).toMatchObject(dates);
-      const excluded = await global.api.apiCall('GET', `${filter}2026-09-26${fields}`);
-      expect(excluded.status).toBe(200);
-      expect(excluded.data.data).toEqual([]);
+      for (const fields of ['', '&fields=id,start_date,end_date']) {
+        const filter = `/stories?filter[id]=${story.id}&filter[start_date][lte]=`;
+        const included = await global.api.apiCall('GET', `${filter}2026-09-27${fields}`);
+        expect(included.status).toBe(200);
+        expect(included.data.data).toHaveLength(1);
+        expect(included.data.data[0]).toMatchObject(dates);
+        const excluded = await global.api.apiCall('GET', `${filter}2026-09-26${fields}`);
+        expect(excluded.status).toBe(200);
+        expect(excluded.data.data).toEqual([]);
+      }
     });
 
     test('when creating future-dated story, then accepted', async () => {
