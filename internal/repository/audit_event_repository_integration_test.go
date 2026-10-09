@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -156,18 +157,161 @@ func TestStoryAuditRollback(t *testing.T) {
 		t.Fatalf("rollback events = %+v", got)
 	}
 
-	if err := db.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(tx *gorm.DB) {
-		if tx.Statement.Table == "audit_events" {
-			_ = tx.AddError(sentinel)
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
+	rejectAuditWrites(t, db, sentinel)
 	if err := repo.SoftDelete(t.Context(), id, nil); !errors.Is(err, sentinel) {
 		t.Fatalf("audit failure = %v", err)
 	}
 	if _, err := repo.GetByID(t.Context(), id); err != nil {
 		t.Fatalf("delete survived failed audit: %v", err)
+	}
+}
+
+func TestAuditFailureRollsBackWrites(t *testing.T) {
+	db := openIntegrationDB(t)
+	stories := NewStoryRepository(db)
+	rules := NewPronunciationRuleRepository(db)
+	expiring := createIntegrationStory(t, db, nil, "")
+	if err := db.Model(&models.Story{}).Where("id = ?", expiring).
+		Updates(map[string]any{"status": "active", "end_date": time.Now().AddDate(0, 0, -2)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	rulesBefore, err := rules.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("audit unavailable")
+	rejectAuditWrites(t, db, sentinel)
+
+	title := fmt.Sprintf("Rolled back create %d", time.Now().UnixNano())
+	if _, err := stories.Create(t.Context(), &StoryCreateData{
+		Title: title, Text: "text", Status: "draft", StartDate: time.Now(), EndDate: time.Now(), Weekdays: models.WeekdaysAll,
+	}); !errors.Is(err, sentinel) {
+		t.Fatalf("create = %v", err)
+	}
+	var created int64
+	if err := db.Unscoped().Model(&models.Story{}).Where("title = ?", title).Count(&created).Error; err != nil || created != 0 {
+		t.Fatalf("create survived failed audit: count=%d err=%v", created, err)
+	}
+
+	if _, err := stories.ExpireStoriesPastEndDate(t.Context()); !errors.Is(err, sentinel) {
+		t.Fatalf("expire = %v", err)
+	}
+	var status string
+	if err := db.Table("stories").Where("id = ?", expiring).Pluck("status", &status).Error; err != nil || status != "active" {
+		t.Fatalf("expiration survived failed audit: status=%q err=%v", status, err)
+	}
+
+	err = NewTxManager(db).WithTransaction(t.Context(), func(ctx context.Context) error {
+		return rules.ReplaceAll(ctx, []models.PronunciationRule{{StringToReplace: title, IPA: "x"}}, nil)
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("replace rules = %v", err)
+	}
+	if rulesAfter, err := rules.List(t.Context()); err != nil || !reflect.DeepEqual(rulesAfter, rulesBefore) {
+		t.Fatalf("rule replacement survived failed audit: %+v err=%v", rulesAfter, err)
+	}
+}
+
+func TestMissingAuditTableHasItsOwnError(t *testing.T) {
+	db := openIntegrationDB(t)
+	missing := &mysql.MySQLError{Number: 1146, Message: "Table 'babbel.audit_events' doesn't exist"}
+	rejectAuditWrites(t, db, missing)
+	if err := db.Callback().Query().Before("gorm:query").Register("test:missing_audit_query", func(tx *gorm.DB) {
+		if tx.Statement.Table == "audit_events" {
+			_ = tx.AddError(missing)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id := createIntegrationStory(t, db, nil, "")
+	title := "Changed title"
+	writeErr := NewStoryRepository(db).Update(t.Context(), id, &StoryUpdate{Title: &title})
+	_, listErr := NewAuditEventRepository(db).List(t.Context(), NewListQuery(), []string{"story"}, false)
+	for name, err := range map[string]error{"write": writeErr, "list": listErr} {
+		// ErrSchemaUnavailable would make callers blame their own table.
+		if !errors.Is(err, ErrAuditSchemaUnavailable) || errors.Is(err, ErrSchemaUnavailable) {
+			t.Fatalf("%s error = %v, want only ErrAuditSchemaUnavailable", name, err)
+		}
+	}
+}
+
+func TestPronunciationRulesAudit(t *testing.T) {
+	db := openIntegrationDB(t)
+	repo := NewPronunciationRuleRepository(db)
+	actor := int64(307)
+	replace := func(ctx context.Context, rules ...models.PronunciationRule) {
+		t.Helper()
+		if err := NewTxManager(db).WithTransaction(ctx, func(ctx context.Context) error {
+			return repo.ReplaceAll(ctx, rules, &actor)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rule := func(term, ipa string) models.PronunciationRule {
+		return models.PronunciationRule{StringToReplace: term, IPA: ipa, CaseSensitive: true}
+	}
+	value := func(ipa string) map[string]any {
+		return map[string]any{"ipa": ipa, "case_sensitive": true, "word_boundaries": false}
+	}
+	original, err := repo.List(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastEventID := func() int64 {
+		var id int64
+		if err := db.Model(&models.AuditEvent{}).Select("COALESCE(MAX(id), 0)").Scan(&id).Error; err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	start := lastEventID()
+	t.Cleanup(func() {
+		// t.Context is already canceled when cleanup runs.
+		replace(context.Background(), original...)
+		if err := db.Where("entity_type = ? AND id > ?", "pronunciation_rules", start).Delete(&models.AuditEvent{}).Error; err != nil {
+			t.Error(err)
+		}
+	})
+	replace(t.Context(), rule("Alpha", "a"), rule("Bravo", "b"))
+	baseline := lastEventID()
+	events := func() []models.AuditEvent {
+		var events []models.AuditEvent
+		if err := db.Where("entity_type = ? AND id > ?", "pronunciation_rules", baseline).Order("id").Find(&events).Error; err != nil {
+			t.Fatal(err)
+		}
+		return events
+	}
+
+	replace(t.Context(), rule("Bravo", "b2"), rule("Charlie", "c"))
+	got := events()
+	if len(got) != 1 || got[0].Action != "update" || got[0].EntityID != 1 || got[0].UserID == nil || *got[0].UserID != actor {
+		t.Fatalf("events = %+v", got)
+	}
+	assertAuditChange(t, got[0], "Alpha", value("a"), nil)
+	assertAuditChange(t, got[0], "Bravo", value("b"), value("b2"))
+	assertAuditChange(t, got[0], "Charlie", nil, value("c"))
+
+	replace(t.Context(), rule("Bravo", "b2"), rule("Charlie", "c"))
+	if got := events(); len(got) != 1 {
+		t.Fatalf("unchanged replacement added history: %+v", got)
+	}
+
+	if err := repo.ReplaceAll(t.Context(), nil, &actor); err == nil {
+		t.Fatal("ReplaceAll without a transaction succeeded")
+	}
+	if rules, err := repo.List(t.Context()); err != nil || len(rules) != 2 {
+		t.Fatalf("ReplaceAll without a transaction changed rules: %+v err=%v", rules, err)
+	}
+}
+
+func rejectAuditWrites(t *testing.T, db *gorm.DB, err error) {
+	t.Helper()
+	if err := db.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(tx *gorm.DB) {
+		if tx.Statement.Table == "audit_events" {
+			_ = tx.AddError(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

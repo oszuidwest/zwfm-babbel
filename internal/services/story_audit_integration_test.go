@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -21,21 +23,16 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
+// openAuditIntegrationTx returns a transaction that is rolled back after the
+// test, so services can write through nested savepoints without leaving data.
+func openAuditIntegrationTx(t *testing.T) *gorm.DB {
+	t.Helper()
 	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
 	if dsn == "" {
 		if os.Getenv("CI") == "true" {
 			t.Fatal("BABBEL_TEST_DB_DSN is required in CI")
 		}
 		t.Skip("BABBEL_TEST_DB_DSN not set")
-	}
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobe, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
 	}
 	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{SkipDefaultTransaction: true})
 	if err != nil {
@@ -59,6 +56,19 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	return tx
+}
+
+func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
+	tx := openAuditIntegrationTx(t)
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
 	voice := models.Voice{Name: "Audit TTS voice", ElevenLabsVoiceID: new("test-voice")}
 	if err := tx.Create(&voice).Error; err != nil {
 		t.Fatal(err)
@@ -104,13 +114,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	sentinel := errors.New("audit unavailable")
-	if err := tx.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(db *gorm.DB) {
-		if db.Statement.Table == "audit_events" {
-			_ = db.AddError(sentinel)
-		}
-	}); err != nil {
-		t.Fatal(err)
-	}
+	rejectAuditWrites(t, tx, func() error { return sentinel })
 	if err := service.GenerateTTS(t.Context(), story.ID, nil, true, &actor); !errors.Is(err, sentinel) {
 		t.Fatalf("failed TTS = %v", err)
 	}
@@ -130,6 +134,55 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	}
 	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
 		t.Fatalf("failed publication changed audit rows: %+v", got)
+	}
+}
+
+func TestTTSSettingsUpdateAuditFailure(t *testing.T) {
+	tx := openAuditIntegrationTx(t)
+	service := NewTTSSettingsService(repository.NewTTSSettingsRepository(tx), repository.NewTxManager(tx))
+	before, err := service.Get(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var auditErr error
+	rejectAuditWrites(t, tx, func() error { return auditErr })
+	prefix := before.TTSStylePrefix + " changed"
+	update := func() error {
+		_, err := service.Update(t.Context(), &UpdateTTSSettingsRequest{TTSStylePrefix: &prefix, ActorUserID: new(int64(307))})
+		return err
+	}
+
+	auditErr = errors.New("audit unavailable")
+	if err := update(); !errors.Is(err, auditErr) {
+		t.Fatalf("update = %v", err)
+	}
+	after, err := service.Get(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.TTSStylePrefix != before.TTSStylePrefix {
+		t.Fatal("settings update survived failed audit")
+	}
+
+	// A missing audit table must not be reported as missing tts_settings,
+	// whose recovery hint (001_complete_schema.sql) drops every table.
+	auditErr = &mysql.MySQLError{Number: 1146, Message: "Table 'babbel.audit_events' doesn't exist"}
+	var notInitialized *apperrors.NotInitializedError
+	if err := update(); !errors.As(err, &notInitialized) ||
+		notInitialized.Resource != "audit_events" || notInitialized.Hint != "apply migrations/012_audit_events.sql" {
+		t.Fatalf("missing audit table = %#v", err)
+	}
+}
+
+// rejectAuditWrites fails every audit_events insert with the current err().
+func rejectAuditWrites(t *testing.T, tx *gorm.DB, err func() error) {
+	t.Helper()
+	if regErr := tx.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(db *gorm.DB) {
+		if db.Statement.Table == "audit_events" {
+			_ = db.AddError(err())
+		}
+	}); regErr != nil {
+		t.Fatal(regErr)
 	}
 }
 

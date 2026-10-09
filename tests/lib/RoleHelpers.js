@@ -1,4 +1,3 @@
-// Helper to create a user
 const createUser = async (username, fullName, password, role) => {
   const response = await global.api.apiCall('POST', '/users', {
     username,
@@ -21,13 +20,11 @@ const createUser = async (username, fullName, password, role) => {
   return null;
 };
 
-// Helper to switch user session
 const switchToUser = async (username, password) => {
   const loginResponse = await global.api.apiLogin(username, password);
   return loginResponse.status === 201;
 };
 
-// Restore admin session
 const restoreAdmin = async () => {
   await global.api.apiLogin('admin', 'admin');
 };

@@ -252,6 +252,11 @@ func translatePronunciationRulesRepoError(op apperrors.Operation, err error) err
 			err,
 		)
 	}
+	// Only ReplaceAll's tts_settings singleton lock can report ErrNotFound;
+	// the rule set itself has no ID that could be missing.
+	if errors.Is(err, repository.ErrNotFound) {
+		return translateTTSSettingsRepoError(err)
+	}
 	return apperrors.TranslateRepoError("PronunciationRules", op, err)
 }
 

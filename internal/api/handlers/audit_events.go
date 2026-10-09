@@ -5,9 +5,11 @@ import (
 	"slices"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // auditEntityResources maps each audited entity type to the resource whose read
@@ -38,15 +40,11 @@ func (h *AuditEventsHandler) List(c *gin.Context) {
 	}
 	permissions, err := h.permissions(role)
 	if err != nil {
+		logger.Error("Audit events: permission evaluation failed", "role", role, "error", err)
 		utils.ProblemInternalServer(c, "Permission check failed")
 		return
 	}
-	entityTypes := []string{}
-	for entity, resource := range auditEntityResources {
-		if slices.Contains(permissions[string(resource)], string(auth.ActionRead)) {
-			entityTypes = append(entityTypes, entity)
-		}
-	}
+	entityTypes, includeActorNames := auditScope(permissions)
 	if len(entityTypes) == 0 {
 		utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions",
 			http.StatusForbidden, "Insufficient permissions")
@@ -56,11 +54,25 @@ func (h *AuditEventsHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
-	includeActorNames := slices.Contains(permissions[string(auth.ResourceUsers)], string(auth.ActionRead))
 	result, err := h.repo.List(c.Request.Context(), query, entityTypes, includeActorNames)
 	if err != nil {
-		handleServiceError(c, err, "AuditEvent")
+		handleServiceError(c, apperrors.TranslateRepoError("AuditEvent", apperrors.OpQuery, err), "AuditEvent")
 		return
 	}
 	utils.PaginatedListResponse(c, params, result)
+}
+
+// auditScope returns the readable entity types, sorted, and whether actor
+// names may be joined in.
+func auditScope(permissions auth.PermissionSet) (entityTypes []string, includeActorNames bool) {
+	canRead := func(resource auth.Resource) bool {
+		return slices.Contains(permissions[string(resource)], string(auth.ActionRead))
+	}
+	for entity, resource := range auditEntityResources {
+		if canRead(resource) {
+			entityTypes = append(entityTypes, entity)
+		}
+	}
+	slices.Sort(entityTypes)
+	return entityTypes, canRead(auth.ResourceUsers)
 }

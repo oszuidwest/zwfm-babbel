@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
@@ -18,13 +19,9 @@ func RecordAudit(ctx context.Context, event models.AuditEvent, before, after map
 		return errors.New("audit event requires a transaction")
 	}
 	changes := make(map[string]map[string]json.RawMessage)
-	fields := make(map[string]bool, len(before)+len(after))
-	for field := range before {
-		fields[field] = true
-	}
-	for field := range after {
-		fields[field] = true
-	}
+	fields := make(map[string]any, len(before)+len(after))
+	maps.Copy(fields, before)
+	maps.Copy(fields, after)
 	for field := range fields {
 		oldValue, err := json.Marshal(before[field])
 		if err != nil {
@@ -50,7 +47,17 @@ func RecordAudit(ctx context.Context, event models.AuditEvent, before, after map
 	if event.UserID == nil {
 		event.ActorType = "system"
 	}
-	return ParseDBError(db.WithContext(ctx).Create(&event).Error)
+	return auditDBError(db.WithContext(ctx).Create(&event).Error)
+}
+
+// auditDBError reports a missing audit_events table with its own sentinel so
+// callers do not blame (and suggest recreating) the table they were writing.
+func auditDBError(err error) error {
+	err = ParseDBError(err)
+	if errors.Is(err, ErrSchemaUnavailable) {
+		return ErrAuditSchemaUnavailable
+	}
+	return err
 }
 
 // AuditEventRepository reads persistent history, including deleted actors.
@@ -81,6 +88,10 @@ func (r *AuditEventRepository) List(ctx context.Context, query *ListQuery, entit
 		db = db.Select("audit_events.*, users.username, users.full_name").
 			Joins("LEFT JOIN users ON users.id = audit_events.user_id")
 	}
-	return ApplyListQuery[models.AuditEvent](db, query, auditEventFieldMapping, nil,
+	result, err := ApplyListQuery[models.AuditEvent](db, query, auditEventFieldMapping, nil,
 		[]SortField{{Field: "occurred_at", Direction: SortDesc}, {Field: "id", Direction: SortDesc}})
+	if err != nil {
+		return nil, auditDBError(err)
+	}
+	return result, nil
 }

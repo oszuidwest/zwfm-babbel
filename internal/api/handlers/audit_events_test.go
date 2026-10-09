@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
@@ -34,6 +35,36 @@ func TestAuditEventsAccessErrors(t *testing.T) {
 			handler.List(c)
 			if response.Code != tt.status || response.Header().Get("Content-Type") != "application/problem+json" {
 				t.Fatalf("response = %d %s, want problem %d", response.Code, response.Body, tt.status)
+			}
+		})
+	}
+}
+
+func TestAuditScope(t *testing.T) {
+	read := []string{string(auth.ActionRead)}
+	tests := []struct {
+		name        string
+		permissions auth.PermissionSet
+		entityTypes []string
+		actorNames  bool
+	}{
+		{name: "stories only", permissions: auth.PermissionSet{"stories": read}, entityTypes: []string{"story"}},
+		{name: "settings only", permissions: auth.PermissionSet{"settings:tts": read}, entityTypes: []string{"tts_settings"}},
+		{name: "pronunciation only", permissions: auth.PermissionSet{"pronunciation_rules": read}, entityTypes: []string{"pronunciation_rules"}},
+		{name: "write without read", permissions: auth.PermissionSet{"stories": {string(auth.ActionWrite)}}},
+		{name: "users read alone exposes nothing", permissions: auth.PermissionSet{"users": read}, actorNames: true},
+		{
+			name:        "all reads",
+			permissions: auth.PermissionSet{"stories": read, "settings:tts": read, "pronunciation_rules": read, "users": read},
+			entityTypes: []string{"pronunciation_rules", "story", "tts_settings"},
+			actorNames:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entityTypes, actorNames := auditScope(tt.permissions)
+			if !slices.Equal(entityTypes, tt.entityTypes) || actorNames != tt.actorNames {
+				t.Fatalf("auditScope = %v, %t; want %v, %t", entityTypes, actorNames, tt.entityTypes, tt.actorNames)
 			}
 		})
 	}

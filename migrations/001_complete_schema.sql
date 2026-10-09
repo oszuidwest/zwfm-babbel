@@ -207,6 +207,7 @@ CREATE TABLE audit_events (
     entity_id   BIGINT       NOT NULL,
     action      VARCHAR(50)  NOT NULL,
     changes     JSON         NULL,
+    INDEX idx_audit_occurred (occurred_at, id),
     INDEX idx_audit_entity (entity_type, entity_id, occurred_at),
     INDEX idx_audit_user (user_id, occurred_at)
 );

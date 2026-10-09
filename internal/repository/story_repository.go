@@ -68,11 +68,11 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	}
 
 	err := NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
-		db := DBFromContext(ctx, r.db)
-		if err := db.WithContext(ctx).Create(story).Error; err != nil {
+		db := DBFromContext(ctx, r.db).WithContext(ctx)
+		if err := db.Create(story).Error; err != nil {
 			return ParseDBError(err)
 		}
-		values, err := storyAuditValues(db.WithContext(ctx), story.ID)
+		values, err := storyAuditValues(db, story.ID)
 		if err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 			return err
 		}
 		if story.VoiceID != nil {
-			return ParseDBError(db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error)
+			return ParseDBError(db.Preload("Voice").First(story, story.ID).Error)
 		}
 		return nil
 	})
@@ -111,9 +111,7 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	return r.withAudit(ctx, models.AuditEvent{
-		UserID: u.ActorUserID, EntityType: "story", EntityID: id, Action: "update",
-	}, func(ctx context.Context) error {
+	return r.withAudit(ctx, id, "update", u.ActorUserID, func(ctx context.Context) error {
 		if u.VoiceID == nil {
 			return r.UpdateByID(ctx, id, updateMap)
 		}
@@ -147,9 +145,7 @@ func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudi
 	if u.IsTTS {
 		action = "tts"
 	}
-	return r.withAudit(ctx, models.AuditEvent{
-		UserID: u.ActorUserID, EntityType: "story", EntityID: id, Action: action,
-	}, func(ctx context.Context) error {
+	return r.withAudit(ctx, id, action, u.ActorUserID, func(ctx context.Context) error {
 		return r.guardedUpdate(ctx, id, map[string]any{
 			"voice_id":         u.VoiceID,
 			"audio_file":       u.AudioFile,
@@ -186,16 +182,12 @@ func (r *StoryRepository) guardedUpdate(ctx context.Context, id int64, updates m
 
 // SoftDelete marks a story as deleted without removing it from the database.
 func (r *StoryRepository) SoftDelete(ctx context.Context, id int64, actorUserID *int64) error {
-	return r.withAudit(ctx, models.AuditEvent{
-		UserID: actorUserID, EntityType: "story", EntityID: id, Action: "delete",
-	}, func(ctx context.Context) error { return r.Delete(ctx, id) })
+	return r.withAudit(ctx, id, "delete", actorUserID, func(ctx context.Context) error { return r.Delete(ctx, id) })
 }
 
 // Restore clears the deleted_at timestamp.
 func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
-	return r.withAudit(ctx, models.AuditEvent{
-		UserID: actorUserID, EntityType: "story", EntityID: id, Action: "restore",
-	}, func(ctx context.Context) error {
+	return r.withAudit(ctx, id, "restore", actorUserID, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db)
 		result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
 			Where("id = ?", id).
@@ -223,7 +215,7 @@ func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, 
 	err := NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db).WithContext(ctx)
 		var ids []int64
-		if err := db.Model(&models.Story{}).Clauses(clause.Locking{Strength: "UPDATE"}).
+		if err := db.Model(&models.Story{}).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 			Where("status = ?", models.StoryStatusActive).Where("end_date < CURDATE()").
 			Order("id").Pluck("id", &ids).Error; err != nil {
 			return ParseDBError(err)

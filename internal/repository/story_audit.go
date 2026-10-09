@@ -10,27 +10,31 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (r *StoryRepository) withAudit(ctx context.Context, event models.AuditEvent, write func(context.Context) error) error {
+// withAudit runs write in a transaction with the story row locked and records
+// the before/after difference as one story audit event.
+func (r *StoryRepository) withAudit(ctx context.Context, id int64, action string, actorUserID *int64, write func(context.Context) error) error {
 	return NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db).WithContext(ctx)
-		// Reads include deleted stories so restore can see them; scoped writes
-		// still reject deleted rows with ErrNotFound.
-		before, err := storyAuditValues(db.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}), event.EntityID)
+		before, err := storyAuditValues(db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), id)
 		if err != nil {
 			return err
 		}
 		if err := write(ctx); err != nil {
 			return err
 		}
-		after, err := storyAuditValues(db.Unscoped(), event.EntityID)
+		after, err := storyAuditValues(db, id)
 		if err != nil {
 			return err
 		}
-		return RecordAudit(ctx, event, before, after)
+		return RecordAudit(ctx, models.AuditEvent{
+			UserID: actorUserID, EntityType: "story", EntityID: id, Action: action,
+		}, before, after)
 	})
 }
 
-// Read stored values without Story.AfterFind's HTML decoding or computed fields.
+// storyAuditValues reads stored values without Story.AfterFind's HTML decoding
+// or computed fields. The anonymous struct carries no gorm.DeletedAt, so deleted
+// rows stay visible for restore; scoped writes still reject them with ErrNotFound.
 // Nullable columns stay nullable; dates and durations reflect database precision.
 func storyAuditValues(db *gorm.DB, id int64) (map[string]any, error) {
 	var story struct {

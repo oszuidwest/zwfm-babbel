@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -151,6 +152,12 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 			err:        repository.ErrSchemaUnavailable,
 			wantDetail: "tts_settings not initialized",
 			wantHint:   "apply migrations/001_complete_schema.sql",
+		},
+		{
+			name:       "audit table missing",
+			err:        fmt.Errorf("transaction failed: %w", repository.ErrAuditSchemaUnavailable),
+			wantDetail: "audit_events not initialized",
+			wantHint:   "apply migrations/012_audit_events.sql",
 		},
 		{
 			name:       "singleton row missing",

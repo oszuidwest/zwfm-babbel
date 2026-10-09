@@ -37,7 +37,7 @@ func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, e
 
 // GetForUpdate locks the singleton before an update. The caller must use a transaction.
 func (r *TTSSettingsRepository) GetForUpdate(ctx context.Context) (*models.TTSSettings, error) {
-	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}))
+	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}))
 }
 
 func firstTTSSettings(db *gorm.DB) (*models.TTSSettings, error) {
