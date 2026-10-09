@@ -9,7 +9,7 @@ module.exports = {
     title: `Test Story ${suffix || Date.now()}_${process.pid}`,
     text: 'This is test story content for automated testing.',
     status: 'active',
-    weekdays: 127, // All days (binary: 1111111)
+    weekdays: 127, // All days.
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   }),

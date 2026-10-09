@@ -47,22 +47,19 @@ describe('Bulletin Cleanup', () => {
     });
     testStationId = station.id;
 
-    // Generate first bulletin
     const bulletin1 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin1.status).toBe(200);
     purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
 
-    // Small delay for different timestamps
+    // Keep creation timestamps distinct for latest-bulletin selection.
     await global.helpers.sleep(1000);
 
-    // Generate second bulletin
     const bulletin2 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin2.status).toBe(200);
     unpurgedBulletinId = bulletin2.data.id;
     global.resources.track('bulletins', unpurgedBulletinId);
 
-    // Mark the first (older) bulletin as purged
     markBulletinPurged(purgedBulletinId);
   });
 
@@ -71,12 +68,10 @@ describe('Bulletin Cleanup', () => {
       const purgedResponse = await global.api.apiCall('GET', `/bulletins/${purgedBulletinId}`);
       const unpurgedResponse = await global.api.apiCall('GET', `/bulletins/${unpurgedBulletinId}`);
 
-      // Purged bulletin
       expect(purgedResponse.status).toBe(200);
       expect(purgedResponse.data.audio_url).toBeFalsy();
       expect(purgedResponse.data.file_purged_at).toBeTruthy();
 
-      // Unpurged bulletin still has audio_url
       expect(unpurgedResponse.status).toBe(200);
       expect(unpurgedResponse.data.audio_url).toBeTruthy();
       expect(unpurgedResponse.data.file_purged_at).toBeFalsy();
@@ -123,7 +118,7 @@ describe('Bulletin Cleanup', () => {
     });
 
     test('when requesting latest bulletin, then skips purged', async () => {
-      // Generate a third bulletin and purge it (making it the newest)
+      // The newest bulletin must be purged to exercise the fallback.
       const thirdResponse = await global.helpers.generateBulletin(testStationId);
       expect(thirdResponse.status).toBe(200);
       const thirdBulletinId = thirdResponse.data.id;
@@ -136,7 +131,6 @@ describe('Bulletin Cleanup', () => {
       expect(latestResponse.status).toBe(200);
       const latestId = String(latestResponse.data.id);
 
-      // Should not return either purged bulletin
       expect(latestId).not.toBe(String(thirdBulletinId));
       expect(latestId).not.toBe(String(purgedBulletinId));
       expect(latestResponse.data.audio_url).toBeTruthy();
@@ -145,7 +139,7 @@ describe('Bulletin Cleanup', () => {
 
   describe('Automation After Purge', () => {
     test('when all bulletins purged, then automation regenerates', async () => {
-      // Create a separate station to avoid interference
+      // Isolate this station from the unpurged bulletin in the shared fixture.
       const { station } = await global.helpers.createBroadcastFixture(global.resources, {
         stationName: 'Automation Purge Test',
         voiceName: 'Automation Purge Voice',
@@ -155,7 +149,6 @@ describe('Bulletin Cleanup', () => {
         pauseSeconds: 2.0
       });
 
-      // Generate initial bulletin via automation
       const initialResponse = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '0'
@@ -163,10 +156,8 @@ describe('Bulletin Cleanup', () => {
       expect(initialResponse.status).toBe(200);
       const initialBulletinId = initialResponse.headers['x-bulletin-id'];
 
-      // Purge it
       markBulletinPurged(initialBulletinId);
 
-      // Request again - should generate fresh since no unpurged bulletins exist
       const afterPurgeResponse = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
         max_age: '3600'
@@ -188,7 +179,6 @@ describe('Bulletin Cleanup', () => {
       expect(response.status).toBe(200);
       const purgedBulletins = response.data.data || [];
 
-      // All returned bulletins should have file_purged_at set
       for (const b of purgedBulletins) {
         expect(b.file_purged_at).toBeTruthy();
       }

@@ -16,8 +16,7 @@ function generateQueryTests(schema, setupFn = null) {
     expect(response.status).toBe(status);
     return response;
   };
-  // Ignore nullish values in comparisons so sparse optional columns do not make
-  // resource-level query tests brittle.
+  // Optional fields may be absent from the fixtures.
   const valuesFor = (response, field) => (response.data.data || [])
     .map(item => item[field])
     .filter(value => value !== null && value !== undefined);
@@ -115,8 +114,7 @@ function generateQueryTests(schema, setupFn = null) {
           await expectStatus(qs, 422);
         });
 
-        // Contract-wide tests need no matching fixture, so cover every documented
-        // field, including dates and nullable fields absent from the seed data.
+        // Validation needs no matching fixture, so test every documented field.
         for (const [field, contract] of Object.entries(filters)) {
           if (contract.operators.null) {
             test.each(['true', 'false'])(`when filtering ${field} with null=%s, then accepted`, async value => {

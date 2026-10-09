@@ -57,7 +57,6 @@ func (r *StationRepository) Update(ctx context.Context, id int64, u *StationUpda
 	return r.UpdateByID(ctx, id, updateMap)
 }
 
-// stationFieldMapping maps API field names to database columns for stations.
 var stationFieldMapping = FieldMapping{
 	"id":                    {Column: "id", Type: filterInteger},
 	"name":                  {Column: "name", Type: filterString},
@@ -67,7 +66,6 @@ var stationFieldMapping = FieldMapping{
 	"updated_at":            {Column: "updated_at", Type: filterDateTime},
 }
 
-// stationSearchFields defines which fields are searchable for stations.
 var stationSearchFields = []string{"name"}
 
 // List retrieves a paginated list of stations with filtering, sorting, and search.

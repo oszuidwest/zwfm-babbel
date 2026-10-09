@@ -8,7 +8,7 @@ import (
 )
 
 // VoiceUpdate contains optional fields for updating a voice.
-// Nil pointer fields are not updated.
+// Nil pointers leave fields unchanged; ClearElevenLabsVoiceID sets the ID to NULL.
 type VoiceUpdate struct {
 	Name                   *string `gorm:"column:name"`
 	ElevenLabsVoiceID      *string `gorm:"column:elevenlabs_voice_id"`
@@ -42,7 +42,7 @@ func (r *VoiceRepository) Create(ctx context.Context, name string, elevenLabsVoi
 	return voice, nil
 }
 
-// Update updates an existing voice. Nil pointer fields are skipped.
+// Update applies the fields and clearing flag in u.
 func (r *VoiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
 	if u == nil {
 		return nil
@@ -69,7 +69,6 @@ func (r *VoiceRepository) HasDependencies(ctx context.Context, id int64) (bool, 
 	})
 }
 
-// voiceFieldMapping maps API field names to database columns for voices.
 var voiceFieldMapping = FieldMapping{
 	"id":                  {Column: "id", Type: filterInteger},
 	"name":                {Column: "name", Type: filterString},
@@ -78,7 +77,6 @@ var voiceFieldMapping = FieldMapping{
 	"updated_at":          {Column: "updated_at", Type: filterDateTime},
 }
 
-// voiceSearchFields defines which fields are searchable for voices.
 var voiceSearchFields = []string{"name"}
 
 // List retrieves a paginated list of voices with filtering, sorting, and search.

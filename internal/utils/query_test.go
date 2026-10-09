@@ -56,8 +56,6 @@ func TestFilterOperatorHandlers(t *testing.T) {
 		}
 	})
 
-	// The LIKE filter stores the raw substring; the repository layer is the only
-	// place that wraps with % wildcards. See list_query_test for that contract.
 	t.Run("like leaves value unwrapped", func(t *testing.T) {
 		t.Parallel()
 		got, known, err := buildFilter("like", "news")
@@ -358,7 +356,6 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 
 func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 	t.Parallel()
-	// Regression: the duplicate-key guard must not reject the single-value happy path.
 	params, err := ParseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -387,8 +384,6 @@ func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	}
 }
 
-// TestParseFilters_BandPassesRawValue pins that the parser does not type band
-// masks: the repository validates them against the field like every value.
 func TestParseFilters_BandPassesRawValue(t *testing.T) {
 	t.Parallel()
 	params, err := ParseQueryParams(testQueryContext(t, "/x?filter[weekdays][band]=300"))

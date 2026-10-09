@@ -112,7 +112,6 @@ func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 	return nil
 }
 
-// bulletinFieldMapping maps API field names to database columns for bulletins.
 var bulletinFieldMapping = FieldMapping{
 	"id":               {Column: "bulletins.id", Type: filterInteger},
 	"station_id":       {Column: "bulletins.station_id", Type: filterInteger},
@@ -124,10 +123,8 @@ var bulletinFieldMapping = FieldMapping{
 	"created_at":       {Column: "bulletins.created_at", Type: filterDateTime},
 }
 
-// bulletinSearchFields defines which fields are searchable for bulletins.
 var bulletinSearchFields = []string{"bulletins.filename"}
 
-// bulletinDefaultSort defines the default sort order for bulletin queries.
 var bulletinDefaultSort = []SortField{{Field: "created_at", Direction: SortDesc}}
 
 // List retrieves bulletins with pagination, filtering, and sorting.

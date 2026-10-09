@@ -15,14 +15,13 @@ function getFilterContracts(endpoint) {
     const variants = resolve(schema).oneOf.map(resolve);
     const operators = variants.find(variant => variant.type === 'object').properties;
     const value = { ...resolve(operators.eq) };
-    // DateTimeValue is an anyOf of formats; its first branch names the type.
+    // Use the first DateTimeValue format to select timestamp examples.
     value.format ??= value.anyOf?.[0]?.format;
     return [field, { value, operators }];
   }));
 }
 
-// Returns valid literals for a field. The last one matches no seed fixture, so
-// filter[field][not]=<last> keeps the fixtures and a non-empty result.
+// Returns valid literals; exclusion tests use the last value.
 function filterExamples({ value, operators }) {
   if (value.enum) return value.enum.map(String);
   if (value.format === 'date-time') return ['2024-01-01T00:00:00Z', '2024-12-31T23:59:59Z'];
@@ -32,8 +31,7 @@ function filterExamples({ value, operators }) {
   return ['1', '999999'];
 }
 
-// One wrong-typed literal per field, or undefined for free text, which
-// accepts anything. The Go unit tests cover literal variety.
+// Returns an invalid literal, or undefined for unrestricted text.
 function invalidFilterExample({ value }) {
   if (value.enum) return 'unknown';
   if (value.format === 'date-time') return '2024-01-01T25:00:00Z';
@@ -56,8 +54,6 @@ function invalidFilterCases(contract) {
     if (operators.between) cases.push(['between', `${valid},${invalid}`]);
     if (operators.band) cases.push(['band', invalid]);
   }
-  // Operator validity comes from the filter schema, including virtual presence
-  // fields and nullable variants, rather than a second list of field kinds.
   for (const [operator, raw] of [['like', '1'], ['in', `${valid},${valid}`], ['gte', valid], ['null', 'true']]) {
     if (!operators[operator]) cases.push([operator, raw]);
   }

@@ -10,23 +10,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// Most of these tests exercise the error branches of applyFilterCondition, which
-// return before touching the *gorm.DB, so a nil DB is safe input. SQL shapes are
-// pinned with DryRun statements; broader happy-path SQL generation is verified
-// by the Jest integration suite under tests/ against a real MySQL.
-
-// Typed constants make a typo a compile error rather than a silent test pass.
 type errKind string
 
 const (
-	errKindUnknown errKind = "unknown" // -> *UnknownFieldError
-	errKindInvalid errKind = "invalid" // -> *InvalidFilterError
+	errKindUnknown errKind = "unknown"
+	errKindInvalid errKind = "invalid"
 )
 
-// TestApplyFilterCondition_ErrorPaths covers the early-return branches of
-// applyFilterCondition. A nil *gorm.DB is safe because every case returns
-// before touching it. wantField "" skips both the field and operator checks
-// (they are linked - cases that pin the operator must also pin the field).
 func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 	t.Parallel()
 	mapping := FieldMapping{
@@ -63,6 +53,7 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// Invalid filters must fail before accessing the database.
 			_, err := applyFilterCondition(nil, tt.cond, mapping)
 			switch tt.errKind {
 			case errKindUnknown:
@@ -91,8 +82,6 @@ func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
 func TestApplyFilterCondition_HasAudio(t *testing.T) {
 	t.Parallel()
 
-	// The bind variable is always the empty string: presence is expressed as
-	// (non-)emptiness of the backing column.
 	tests := []struct {
 		name     string
 		operator FilterOperator
@@ -128,10 +117,6 @@ func TestApplyFilterCondition_HasAudio(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_BooleanFields pins the boolean column contract:
-// textual booleans are bound as Go bools (the driver sends 1/0), because MySQL
-// coerces the strings "true"/"false" to 0 in numeric comparisons and an
-// unconverted filter[is_breaking]=true would silently select the FALSE rows.
 func TestApplyFilterCondition_BooleanFields(t *testing.T) {
 	t.Parallel()
 	mapping := FieldMapping{"is_breaking": {Column: "is_breaking", Type: filterBoolean}}
@@ -173,9 +158,6 @@ func TestApplyFilterCondition_BooleanFields(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_BandBindsInteger pins that the validated mask is
-// bound as an integer, so MySQL applies numeric rather than string semantics
-// to the & operand.
 func TestApplyFilterCondition_BandBindsInteger(t *testing.T) {
 	t.Parallel()
 	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
@@ -192,8 +174,6 @@ func TestApplyFilterCondition_BandBindsInteger(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_NullOperators pins that null/not_null are only
-// accepted on nullable fields and bind no values.
 func TestApplyFilterCondition_NullOperators(t *testing.T) {
 	t.Parallel()
 	for _, op := range []FilterOperator{FilterIsNull, FilterIsNotNull} {
@@ -215,9 +195,6 @@ func TestApplyFilterCondition_NullOperators(t *testing.T) {
 	}
 }
 
-// TestApplySorting_RejectsPresenceFields pins that a presence filter field in
-// the FieldMapping does not leak into the sort whitelist: sorting by the
-// backing audio_file column would be a meaningless lexicographic path sort.
 func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	t.Parallel()
 	mapping := FieldMapping{"has_audio": {Column: "audio_file", Type: filterPresence}, "created_at": {Column: "created_at", Type: filterDateTime}}
@@ -232,11 +209,6 @@ func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_LikeWrapsValueOnce pins the single-wrap contract: the
-// handler layer passes the raw substring (internal/utils/query.go) and the
-// repository is the only layer that adds the % wildcards. A regression that drops
-// the wrap ("news") or double-wraps ("%%news%%") changes the bind variable and
-// fails here. DryRun builds the statement without opening a database connection.
 func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
 	t.Parallel()
 	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
@@ -254,10 +226,7 @@ func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
 	}
 }
 
-// dryRunDB returns a GORM DB on the MySQL dialector in DryRun mode. It builds SQL
-// and bind variables without connecting (SkipInitializeWithVersion skips the
-// version probe; DisableAutomaticPing skips the post-open ping), so it can assert
-// generated argument shapes against the real dialect without a live database.
+// dryRunDB builds MySQL statements without a database connection.
 func dryRunDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -309,10 +278,6 @@ func TestSortDirectionSQL(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_TypedValues pins, per filter type and against the
-// real mappings, which raw values are accepted and that accepted values reach
-// SQL unchanged. Every raw value is also placed in both IN and BETWEEN
-// positions so each list element is checked.
 func TestApplyFilterCondition_TypedValues(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -340,10 +305,7 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 			invalid: []string{"abc", "", "2025-02-29", "2024-13-01", "2024-04-31", "2024-01-01T00:00:00Z"},
 		},
 		{
-			// Clients send bare dates (Knabbel), RFC 3339 with an offset
-			// (WordPress, where %2B decodes to a literal +) and space-separated
-			// timestamps (tests/bulletins). An unescaped + decodes to a space
-			// and must be rejected (oszuidwest/zw-knabbel-wp#97).
+			// An unescaped + in a query decodes to a space, invalidating timezone offsets.
 			name: "date-time", mapping: bulletinFieldMapping, field: "created_at", ranges: true,
 			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00", "2026-10-07T08:00:00+00:00", "2024-01-01 12:30:00"},
 			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-02-30 12:30:00", "2024-01-01 25:00:00", "2026-10-07T08:00:00 00:00"},
