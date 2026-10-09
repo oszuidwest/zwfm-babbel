@@ -26,12 +26,13 @@ func (e *QueryParamError) Error() string {
 // QueryParams holds parsed list options plus the sparse fieldset.
 type QueryParams struct {
 	repository.ListQuery
-	// Fields controls sparse fieldsets.
+	// Fields lists the JSON field names requested with ?fields=.
 	Fields []string
 }
 
-// ParseQueryParams parses list options and validates query syntax and pagination.
-// The repository validates filter fields, operators, and values.
+// ParseQueryParams parses list options and validates query syntax, operator
+// names, duplicate keys, pagination, and trashed. The repository validates
+// field names, operator applicability, and values.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
@@ -64,6 +65,9 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
+	if params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
+		return nil, &QueryParamError{Field: "trashed", Message: "expected only or with"}
+	}
 
 	params.Search = c.Query("search")
 
@@ -147,42 +151,38 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
-// simpleFilterOperators maps single-value query operators to repository operators.
-var simpleFilterOperators = map[string]repository.FilterOperator{
-	"":     repository.FilterEquals,
-	"eq":   repository.FilterEquals,
-	"ne":   repository.FilterNotEquals,
-	"not":  repository.FilterNotEquals,
-	"gt":   repository.FilterGreaterThan,
-	"gte":  repository.FilterGreaterOrEq,
-	"lt":   repository.FilterLessThan,
-	"lte":  repository.FilterLessOrEq,
-	"like": repository.FilterLike,
-	"band": repository.FilterBitwiseAnd,
-	"null": repository.FilterIsNull,
+// filterOperators maps query operator names to repository operators.
+var filterOperators = map[string]repository.FilterOperator{
+	"":        repository.FilterEquals,
+	"eq":      repository.FilterEquals,
+	"ne":      repository.FilterNotEquals,
+	"not":     repository.FilterNotEquals,
+	"gt":      repository.FilterGreaterThan,
+	"gte":     repository.FilterGreaterOrEq,
+	"lt":      repository.FilterLessThan,
+	"lte":     repository.FilterLessOrEq,
+	"like":    repository.FilterLike,
+	"band":    repository.FilterBitwiseAnd,
+	"null":    repository.FilterIsNull,
+	"in":      repository.FilterIn,
+	"between": repository.FilterBetween,
 }
 
 // buildFilter maps an operator and raw value to a condition, leaving Field unset.
 // It returns known=false for unrecognized operators.
 func buildFilter(operator, value string) (filter repository.FilterCondition, known bool) {
-	if op, ok := simpleFilterOperators[operator]; ok {
-		return repository.FilterCondition{Operator: op, Values: []string{value}}, true
+	op, ok := filterOperators[operator]
+	if !ok {
+		return repository.FilterCondition{}, false
 	}
-
-	switch operator {
-	case "in", "between":
-		values := strings.Split(value, ",")
+	values := []string{value}
+	if op == repository.FilterIn || op == repository.FilterBetween {
+		values = strings.Split(value, ",")
 		for i, v := range values {
 			values[i] = strings.TrimSpace(v)
 		}
-		op := repository.FilterIn
-		if operator == "between" {
-			op = repository.FilterBetween
-		}
-		return repository.FilterCondition{Operator: op, Values: values}, true
-	default:
-		return repository.FilterCondition{}, false
 	}
+	return repository.FilterCondition{Operator: op, Values: values}, true
 }
 
 // rejectDuplicateSingleValueParams rejects repeated non-filter keys before
@@ -363,15 +363,15 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// ParseListQuery parses list options into a [repository.ListQuery].
-// On parse errors it writes an RFC 9457 response and returns false.
-func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) {
+// ParseListQuery parses list options. On parse errors it writes an RFC 9457
+// response and returns false. The embedded ListQuery is ready for the repository.
+func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
 	if err != nil {
 		emitQueryError(c, err)
-		return nil, nil, false
+		return nil, false
 	}
-	return params, &params.ListQuery, true
+	return params, true
 }
 
 // ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,

@@ -369,6 +369,27 @@ func TestParseDateTime(t *testing.T) {
 	}
 }
 
+func TestFieldMappingsAreWellFormed(t *testing.T) {
+	t.Parallel()
+	known := []filterType{filterString, filterInteger, filterNumber, filterDate, filterDateTime, filterBoolean, filterBitmask, filterEnum, filterPresence}
+	mappings := map[string]FieldMapping{
+		"bulletin": bulletinFieldMapping, "station": stationFieldMapping, "stationVoice": stationVoiceFieldMapping,
+		"story": storyFieldMapping, "user": userFieldMapping, "voice": voiceFieldMapping,
+	}
+	for name, mapping := range mappings {
+		for field, f := range mapping {
+			switch {
+			case f.Column == "", !slices.Contains(known, f.Type):
+				t.Errorf("%s.%s: missing column or unknown type %q", name, field, f.Type)
+			case (f.Type == filterEnum) != (len(f.Enum) > 0):
+				t.Errorf("%s.%s: Enum must be set exactly when Type is enum", name, field)
+			case f.Type == filterPresence && f.Nullable:
+				t.Errorf("%s.%s: presence fields handle NULL themselves", name, field)
+			}
+		}
+	}
+}
+
 // bindArgs returns the expected bind arguments for values; a nil bind keeps raw strings.
 func bindArgs(values []string, bind func(string) any) []any {
 	args := make([]any, len(values))

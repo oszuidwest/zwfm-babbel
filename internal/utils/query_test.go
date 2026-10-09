@@ -13,77 +13,60 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-func TestFilterOperatorHandlers(t *testing.T) {
-	t.Parallel()
-
-	t.Run("null passes raw value for repository validation", func(t *testing.T) {
-		t.Parallel()
-		got, known := buildFilter("null", "not-bool")
-		if !known || got.Operator != repository.FilterIsNull || !slices.Equal(got.Values, []string{"not-bool"}) {
-			t.Fatalf("got %+v (known=%v), want null/not-bool", got, known)
-		}
-	})
-
-	t.Run("unknown operator reported as not known", func(t *testing.T) {
-		t.Parallel()
-		if _, known := buildFilter("bogus", "x"); known {
-			t.Fatal("bogus operator should not be known")
-		}
-	})
-
-	t.Run("like leaves value unwrapped", func(t *testing.T) {
-		t.Parallel()
-		got, known := buildFilter("like", "news")
-		if !known || got.Operator != repository.FilterLike || !slices.Equal(got.Values, []string{"news"}) {
-			t.Fatalf("got %+v (known=%v), want like/news", got, known)
-		}
-	})
-}
-
-func TestParseQueryParams_InvalidFilterReturnsError(t *testing.T) {
+// The parser maps operator names and splits lists; values reach the
+// repository unchanged so it can validate them against the field type.
+func TestParseQueryParams_PassesRawValues(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		target string
+		target   string
+		field    string
+		operator repository.FilterOperator
+		values   []string
 	}{
-		{
-			name:   "unknown operator",
-			target: "/stories?filter[deleted_at][unknown]=value",
-		},
-		{
-			name:   "invalid sort direction",
-			target: "/stories?sort=id:sideways",
-		},
+		{"/x?filter[id]=1", "id", repository.FilterEquals, []string{"1"}},
+		{"/x?filter[status][not]=draft", "status", repository.FilterNotEquals, []string{"draft"}},
+		{"/x?filter[title][like]=news", "title", repository.FilterLike, []string{"news"}},
+		{"/x?filter[voice_id][null]=not-bool", "voice_id", repository.FilterIsNull, []string{"not-bool"}},
+		{"/x?filter[weekdays][band]=300", "weekdays", repository.FilterBitwiseAnd, []string{"300"}},
+		{"/x?filter[id][between]=1,%2010", "id", repository.FilterBetween, []string{"1", "10"}},
+		{"/x?filter[id][in]=1,,2", "id", repository.FilterIn, []string{"1", "", "2"}},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.target, func(t *testing.T) {
 			t.Parallel()
-			if _, err := ParseQueryParams(testQueryContext(t, tt.target)); err == nil {
-				t.Fatal("expected error")
+			params, err := ParseQueryParams(testQueryContext(t, tt.target))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := findFilter(t, params.Filters, tt.field, tt.operator); !slices.Equal(got.Values, tt.values) {
+				t.Fatalf("Values = %#v, want %#v", got.Values, tt.values)
 			}
 		})
 	}
 }
 
-func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
+func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 	t.Parallel()
-	params, err := ParseQueryParams(testQueryContext(t, "/stories?filter[id][between]=1,10&filter[status][not]=draft"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	tests := []struct {
+		name      string
+		target    string
+		wantField string
+	}{
+		{name: "unknown operator", target: "/stories?filter[deleted_at][unknown]=value", wantField: "filter[deleted_at][unknown]"},
+		{name: "malformed filter key", target: "/stories?filter[]=1", wantField: "filter[]"},
+		{name: "invalid sort direction", target: "/stories?sort=id:sideways", wantField: "sort"},
+		{name: "unknown trashed value", target: "/stories?trashed=bogus", wantField: "trashed"},
 	}
 
-	between := findFilter(t, params.Filters, "id", repository.FilterBetween)
-	if between.Operator != repository.FilterBetween {
-		t.Fatalf("between Operator = %q, want %q", between.Operator, repository.FilterBetween)
-	}
-	if len(between.Values) != 2 || between.Values[0] != "1" || between.Values[1] != "10" {
-		t.Fatalf("between Values = %#v, want [1 10]", between.Values)
-	}
-
-	not := findFilter(t, params.Filters, "status", repository.FilterNotEquals)
-	if not.Operator != repository.FilterNotEquals || !slices.Equal(not.Values, []string{"draft"}) {
-		t.Fatalf("not filter = %#v, want %s draft", not, repository.FilterNotEquals)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseQueryParams(testQueryContext(t, tt.target))
+			var qpe *QueryParamError
+			if !errors.As(err, &qpe) || qpe.Field != tt.wantField {
+				t.Fatalf("got %v, want QueryParamError for %q", err, tt.wantField)
+			}
+		})
 	}
 }
 
@@ -268,18 +251,6 @@ func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	}
 	if !strings.Contains(qpe.Message, "multiple values") {
 		t.Fatalf("Message = %q, want substring 'multiple values'", qpe.Message)
-	}
-}
-
-func TestParseFilters_BandPassesRawValue(t *testing.T) {
-	t.Parallel()
-	params, err := ParseQueryParams(testQueryContext(t, "/x?filter[weekdays][band]=300"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	got := findFilter(t, params.Filters, "weekdays", repository.FilterBitwiseAnd)
-	if !slices.Equal(got.Values, []string{"300"}) {
-		t.Fatalf("Values = %#v, want [300]", got.Values)
 	}
 }
 

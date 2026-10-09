@@ -235,12 +235,12 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, query)
+	result, err := h.bulletinSvc.GetStationBulletins(c.Request.Context(), stationID, &params.ListQuery)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
@@ -273,12 +273,12 @@ func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 
 // ListBulletins returns a paginated list of bulletins.
 func (h *Handlers) ListBulletins(c *gin.Context) {
-	params, query, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.bulletinSvc.List(c.Request.Context(), query)
+	result, err := h.bulletinSvc.List(c.Request.Context(), &params.ListQuery)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return
@@ -321,12 +321,12 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 		return
 	}
 
-	params, query, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.bulletinSvc.GetStoryBulletinHistory(c.Request.Context(), storyID, query)
+	result, err := h.bulletinSvc.GetStoryBulletinHistory(c.Request.Context(), storyID, &params.ListQuery)
 	if err != nil {
 		handleServiceError(c, err, "Bulletin")
 		return

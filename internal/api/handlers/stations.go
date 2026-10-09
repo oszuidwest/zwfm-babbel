@@ -8,12 +8,12 @@ import (
 
 // ListStations returns a paginated list of all radio stations.
 func (h *Handlers) ListStations(c *gin.Context) {
-	params, query, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.stationSvc.List(c.Request.Context(), query)
+	result, err := h.stationSvc.List(c.Request.Context(), &params.ListQuery)
 	if err != nil {
 		handleServiceError(c, err, "Station")
 		return

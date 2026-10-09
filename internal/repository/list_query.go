@@ -38,7 +38,8 @@ const (
 	// filterEnum accepts only the field's Enum values.
 	filterEnum filterType = "enum"
 	// filterPresence tests for a non-empty column; NULL and "" mean absent.
-	// It supports eq/ne filters only and cannot be used for sorting.
+	// Only eq/ne apply, and applySorting rejects it because ordering the
+	// backing column (a file path) is meaningless.
 	filterPresence filterType = "presence"
 )
 
@@ -58,7 +59,8 @@ type SortField struct {
 	Direction SortDirection
 }
 
-// FilterOperator represents comparison operators for filtering.
+// FilterOperator names a filter operator. Values equal the public query
+// operator names because InvalidFilterError echoes them in 422 field labels.
 type FilterOperator string
 
 const (
@@ -90,8 +92,8 @@ const (
 type FilterCondition struct {
 	Field    string
 	Operator FilterOperator
-	// Values requires one value for scalar operators, two for between, and at
-	// least one for in.
+	// Values holds the raw query values: one for scalar operators, two for
+	// between, one or more for in. FilterField.bind enforces the count.
 	Values []string
 }
 
@@ -192,6 +194,9 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 // with DateTimeValue in openapi.yaml.
 var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
 
+// comparisonSQL holds the WHERE fragments for the scalar operators that
+// applyFilterCondition does not special-case. Every operator allowsOperator
+// admits must appear here or in that switch.
 var comparisonSQL = map[FilterOperator]string{
 	FilterEquals:      " = ?",
 	FilterNotEquals:   " != ?",
@@ -208,7 +213,8 @@ func escapeLikePattern(s string) string {
 	return likePatternEscaper.Replace(s)
 }
 
-// likeEscapeClause uses the same escape character as likePatternEscaper.
+// likeEscapeClause names the escape character explicitly. In a MySQL string
+// literal '\\' is a single backslash, the character likePatternEscaper inserts.
 const likeEscapeClause = ` ESCAPE '\\'`
 
 func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
