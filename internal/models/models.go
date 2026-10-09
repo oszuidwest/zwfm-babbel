@@ -53,9 +53,8 @@ type Story struct {
 
 // AfterFind populates computed fields from preloaded relations and normalizes text.
 func (s *Story) AfterFind(_ *gorm.DB) error {
-	// Keep this compatibility path until a data migration normalizes HTML
-	// entities in existing rows. It decodes older data stored before input-side
-	// normalization was added (see NormalizeText in utils/http.go).
+	// Stored text may contain HTML entities even though NormalizeText decodes
+	// incoming text. Read-time decoding is needed until stored rows are normalized.
 	s.Title = html.UnescapeString(s.Title)
 	s.Text = html.UnescapeString(s.Text)
 
@@ -165,7 +164,7 @@ type Bulletin struct {
 	DurationSeconds float64 `gorm:"not null;default:0" json:"duration_seconds"`
 	FileSize        int64   `gorm:"not null;default:0" json:"file_size"`
 	StoryCount      int     `gorm:"not null;default:0" json:"story_count"`
-	// FilePurgedAt is when the audio file was cleaned up (nil means file still exists).
+	// FilePurgedAt is when the audio file was cleaned up (nil means no purge is recorded).
 	FilePurgedAt *time.Time         `gorm:"index" json:"file_purged_at,omitempty"`
 	Metadata     *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
 	CreatedAt    time.Time          `gorm:"index" json:"created_at"`

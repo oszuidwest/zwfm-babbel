@@ -54,7 +54,7 @@ func (r *BulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 	return r.GetByIDWithJoins(ctx, id, "Station")
 }
 
-// GetLatest retrieves the most recent bulletin for a station.
+// GetLatest retrieves the most recent unpurged bulletin for a station.
 // If maxAge is provided, only returns bulletins created on the current local
 // day within that duration.
 func (r *BulletinRepository) GetLatest(

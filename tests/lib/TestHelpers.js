@@ -308,7 +308,7 @@ class TestHelpers {
   }
 
   /**
-   * Returns null, never a partial result.
+   * Returns null if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
    * @param {string|number} stationId
    * @param {string|number} voiceId

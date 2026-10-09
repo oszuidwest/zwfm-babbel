@@ -159,12 +159,10 @@ func TestPronunciationRulesHandlers_UpdateAppliesPointerSemantics(t *testing.T) 
 	}
 }
 
-// TestPronunciationRulesHandlers_UpdatePropagatesActorUserID locks in the
-// audit-trail contract: the authenticated user from the gin context must reach
-// the service request as ActorUserID, and an unauthenticated request must leave
-// it nil (the service logs user_id=unknown in that case). A request-capturing
-// fake stands in for the real service so the assertion fails if the handler's
-// auth.UserID -> ActorUserID assignment is dropped or retargeted.
+// TestPronunciationRulesHandlers_UpdatePropagatesActorUserID verifies that the
+// authenticated user reaches the service as ActorUserID; without authentication,
+// it is nil (logged as user_id=unknown). A request-capturing fake checks the
+// handler's assignment independently of the service.
 func TestPronunciationRulesHandlers_UpdatePropagatesActorUserID(t *testing.T) {
 	const userID int64 = 42
 

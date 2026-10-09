@@ -119,10 +119,10 @@ describe('Bulletins', () => {
     });
 
     test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
-      // Regression: jingle context (voice + mix point) must come from the
-      // highest-priority story BEFORE the playback order is shuffled.
+      // Jingle context (voice + mix point) must come from the
+      // highest-priority story before the playback order is shuffled.
       // A single run has a 50% chance of passing by luck with 2 stories,
-      // so we generate multiple bulletins and assert ALL are consistent.
+      // so we generate multiple bulletins and assert all are consistent.
       // With 5 runs the false-pass probability drops to ~3%.
 
       // Two voices with very different mix points

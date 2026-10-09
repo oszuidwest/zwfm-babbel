@@ -79,7 +79,6 @@ CREATE TABLE bulletin_stories (
     INDEX idx_bulletin_stories_story_id (story_id)
 );
 
--- Keep this definition aligned with 009_bulletin_jobs.sql.
 CREATE TABLE bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,

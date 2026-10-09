@@ -166,8 +166,8 @@ func (s *BulletinService) create(
 	}, finalize)
 }
 
-// generateBulletinAudio renders a bulletin with one timestamp shared by the
-// filesystem path and database filename.
+// generateBulletinAudio renders to a temporary file and publishes the completed
+// WAV by renaming it, so readers cannot open a partially rendered bulletin.
 func (s *BulletinService) generateBulletinAudio(
 	ctx context.Context,
 	station *models.Station,
@@ -270,7 +270,7 @@ func (s *BulletinService) saveBulletinToDatabase(
 	return bulletinID, nil
 }
 
-// GetLatest loads the most recent bulletin for a station.
+// GetLatest loads the most recent unpurged bulletin for a station.
 // When maxAge is non-nil, only bulletins from the current local day within
 // that age are returned.
 func (s *BulletinService) GetLatest(
