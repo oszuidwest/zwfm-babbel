@@ -67,7 +67,7 @@ func TestFilterOperatorHandlers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Operator != repository.FilterLike || got.Value != "news" {
+		if got.Operator != repository.FilterLike || !slices.Equal(got.Values, []string{"news"}) {
 			t.Fatalf("got %+v, want like/news", got)
 		}
 	})
@@ -126,10 +126,6 @@ func TestParseQueryParams_InvalidFilterReturnsError(t *testing.T) {
 			target: "/stories?filter[deleted_at][null]=not-bool",
 		},
 		{
-			name:   "invalid between value",
-			target: "/stories?filter[id][between]=1",
-		},
-		{
 			name:   "invalid sort direction",
 			target: "/stories?sort=id:sideways",
 		},
@@ -161,7 +157,7 @@ func TestParseQueryParams_BetweenAndNotFilters(t *testing.T) {
 	}
 
 	not := findParsedFilter(t, params.Filters, "status", repository.FilterNotEquals)
-	if not.Operator != repository.FilterNotEquals || not.Value != "draft" {
+	if not.Operator != repository.FilterNotEquals || !slices.Equal(not.Values, []string{"draft"}) {
 		t.Fatalf("not filter = %#v, want %s draft", not, repository.FilterNotEquals)
 	}
 }
@@ -201,7 +197,6 @@ func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
 	type wantFilter struct {
 		field    string
 		operator repository.FilterOperator
-		value    any
 		values   []string
 	}
 
@@ -214,16 +209,16 @@ func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
 			name:   "gte and lte date bounds",
 			target: "/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31",
 			want: []wantFilter{
-				{field: "created_at", operator: repository.FilterGreaterOrEq, value: "2024-01-01"},
-				{field: "created_at", operator: repository.FilterLessOrEq, value: "2024-12-31"},
+				{field: "created_at", operator: repository.FilterGreaterOrEq, values: []string{"2024-01-01"}},
+				{field: "created_at", operator: repository.FilterLessOrEq, values: []string{"2024-12-31"}},
 			},
 		},
 		{
 			name:   "gt and lt numeric bounds",
 			target: "/stories?filter[id][gt]=1&filter[id][lt]=10",
 			want: []wantFilter{
-				{field: "id", operator: repository.FilterGreaterThan, value: "1"},
-				{field: "id", operator: repository.FilterLessThan, value: "10"},
+				{field: "id", operator: repository.FilterGreaterThan, values: []string{"1"}},
+				{field: "id", operator: repository.FilterLessThan, values: []string{"10"}},
 			},
 		},
 		{
@@ -231,15 +226,15 @@ func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
 			target: "/stories?filter[status][in]=active,draft&filter[status][ne]=archived",
 			want: []wantFilter{
 				{field: "status", operator: repository.FilterIn, values: []string{"active", "draft"}},
-				{field: "status", operator: repository.FilterNotEquals, value: "archived"},
+				{field: "status", operator: repository.FilterNotEquals, values: []string{"archived"}},
 			},
 		},
 		{
 			name:   "simple equality and explicit equality on same field",
 			target: "/stories?filter[id]=1&filter[id][eq]=2",
 			want: []wantFilter{
-				{field: "id", operator: repository.FilterEquals, value: "1"},
-				{field: "id", operator: repository.FilterEquals, value: "2"},
+				{field: "id", operator: repository.FilterEquals, values: []string{"1"}},
+				{field: "id", operator: repository.FilterEquals, values: []string{"2"}},
 			},
 		},
 	}
@@ -264,11 +259,11 @@ func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
 			}
 
 			for _, want := range tt.want {
-				if !hasParsedFilter(params.Filters, want.field, want.operator, want.value, want.values) {
-					t.Fatalf("missing parsed filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, params.Filters)
+				if !hasParsedFilter(params.Filters, want.field, want.operator, want.values) {
+					t.Fatalf("missing parsed filter %s/%s values=%#v in %#v", want.field, want.operator, want.values, params.Filters)
 				}
-				if !hasFilterCondition(query.Filters, want.field, want.operator, want.value, want.values) {
-					t.Fatalf("missing list filter %s/%s value=%v values=%#v in %#v", want.field, want.operator, want.value, want.values, query.Filters)
+				if !hasFilterCondition(query.Filters, want.field, want.operator, want.values) {
+					t.Fatalf("missing list filter %s/%s values=%#v in %#v", want.field, want.operator, want.values, query.Filters)
 				}
 			}
 		})
@@ -392,42 +387,17 @@ func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	}
 }
 
-func TestParseFilters_Rejections(t *testing.T) {
+// TestParseFilters_BandPassesRawValue pins that the parser does not type band
+// masks: the repository validates them against the field like every value.
+func TestParseFilters_BandPassesRawValue(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name   string
-		target string
-	}{
-		{name: "between/trailing empty", target: "/x?filter[id][between]=1,"},
-		{name: "between/leading empty", target: "/x?filter[id][between]=,10"},
-		{name: "between/both empty", target: "/x?filter[id][between]=,"},
-		{name: "band/not a number", target: "/x?filter[weekdays][band]=notnum"},
-		{name: "band/above uint8 range", target: "/x?filter[weekdays][band]=300"},
-		{name: "band/negative", target: "/x?filter[weekdays][band]=-1"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if _, err := ParseQueryParams(testQueryContext(t, tt.target)); err == nil {
-				t.Fatal("expected error")
-			}
-		})
-	}
-}
-
-func TestParseFilters_BandAcceptsValidValue(t *testing.T) {
-	t.Parallel()
-	params, err := ParseQueryParams(testQueryContext(t, "/x?filter[weekdays][band]=42"))
+	params, err := ParseQueryParams(testQueryContext(t, "/x?filter[weekdays][band]=300"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := findParsedFilter(t, params.Filters, "weekdays", repository.FilterBitwiseAnd)
-	if got.Operator != repository.FilterBitwiseAnd {
-		t.Fatalf("Operator = %q, want %q", got.Operator, repository.FilterBitwiseAnd)
-	}
-	if got.Value != uint8(42) {
-		t.Fatalf("Value = %v (%T), want uint8(42)", got.Value, got.Value)
+	if !slices.Equal(got.Values, []string{"300"}) {
+		t.Fatalf("Values = %#v, want [300]", got.Values)
 	}
 }
 
@@ -527,37 +497,18 @@ func findParsedFilter(t *testing.T, filters []ParsedFilter, field string, operat
 	return ParsedFilter{}
 }
 
-func hasParsedFilter(filters []ParsedFilter, field string, operator repository.FilterOperator, value any, values []string) bool {
+func hasParsedFilter(filters []ParsedFilter, field string, operator repository.FilterOperator, values []string) bool {
 	for _, filter := range filters {
-		if filter.Field != field || filter.Operator != operator {
-			continue
-		}
-		if len(values) > 0 {
-			if slices.Equal(filter.Values, values) {
-				return true
-			}
-			continue
-		}
-		if filter.Value == value {
+		if filter.Field == field && filter.Operator == operator && slices.Equal(filter.Values, values) {
 			return true
 		}
 	}
 	return false
 }
 
-func hasFilterCondition(filters []repository.FilterCondition, field string, operator repository.FilterOperator, value any, values []string) bool {
+func hasFilterCondition(filters []repository.FilterCondition, field string, operator repository.FilterOperator, values []string) bool {
 	for _, filter := range filters {
-		if filter.Field != field || filter.Operator != operator {
-			continue
-		}
-		if len(values) > 0 {
-			got, ok := filter.Value.([]string)
-			if ok && slices.Equal(got, values) {
-				return true
-			}
-			continue
-		}
-		if filter.Value == value {
+		if filter.Field == field && filter.Operator == operator && slices.Equal(filter.Values, values) {
 			return true
 		}
 	}

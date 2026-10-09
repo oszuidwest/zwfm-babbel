@@ -63,8 +63,7 @@ type SortField struct {
 type ParsedFilter struct {
 	Field    string                    `json:"field"`
 	Operator repository.FilterOperator `json:"operator"`
-	Value    any                       `json:"value"`
-	Values   []string                  `json:"values"` // For "in" and "between" operations
+	Values   []string                  `json:"values"` // raw values; the repository validates them against the field type
 }
 
 // ParseQueryParams extracts and validates modern query parameters from the request.
@@ -186,9 +185,8 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
-// simpleFilterOperators maps operator names whose raw value passes through
-// unchanged to their repository operator. Operators that need parsing or
-// validation (in, between, null, band) are handled in buildFilter.
+// simpleFilterOperators maps single-value operator names to their repository
+// operator. List operators (in, between) and null are handled in buildFilter.
 var simpleFilterOperators = map[string]repository.FilterOperator{
 	"":     repository.FilterEquals,
 	"eq":   repository.FilterEquals,
@@ -199,6 +197,7 @@ var simpleFilterOperators = map[string]repository.FilterOperator{
 	"lt":   repository.FilterLessThan,
 	"lte":  repository.FilterLessOrEq,
 	"like": repository.FilterLike,
+	"band": repository.FilterBitwiseAnd,
 }
 
 // buildFilter parses a raw operator value into a ParsedFilter. The Field on
@@ -206,27 +205,20 @@ var simpleFilterOperators = map[string]repository.FilterOperator{
 // the operator is not recognized.
 func buildFilter(operator, value string) (filter ParsedFilter, known bool, err error) {
 	if op, ok := simpleFilterOperators[operator]; ok {
-		return ParsedFilter{Operator: op, Value: value}, true, nil
+		return ParsedFilter{Operator: op, Values: []string{value}}, true, nil
 	}
 
 	switch operator {
-	case "in":
-		filterValues := strings.Split(value, ",")
-		for i, v := range filterValues {
-			filterValues[i] = strings.TrimSpace(v)
+	case "in", "between":
+		values := strings.Split(value, ",")
+		for i, v := range values {
+			values[i] = strings.TrimSpace(v)
 		}
-		return ParsedFilter{Operator: repository.FilterIn, Values: filterValues}, true, nil
-	case "between":
-		betweenValues := strings.Split(value, ",")
-		if len(betweenValues) != 2 {
-			return ParsedFilter{}, true, errors.New("expected two comma-separated values")
+		op := repository.FilterIn
+		if operator == "between" {
+			op = repository.FilterBetween
 		}
-		lower := strings.TrimSpace(betweenValues[0])
-		upper := strings.TrimSpace(betweenValues[1])
-		if lower == "" || upper == "" {
-			return ParsedFilter{}, true, errors.New("expected two non-empty values")
-		}
-		return ParsedFilter{Operator: repository.FilterBetween, Values: []string{lower, upper}}, true, nil
+		return ParsedFilter{Operator: op, Values: values}, true, nil
 	case "null":
 		isNull, err := strconv.ParseBool(value)
 		if err != nil {
@@ -236,12 +228,6 @@ func buildFilter(operator, value string) (filter ParsedFilter, known bool, err e
 			return ParsedFilter{Operator: repository.FilterIsNull}, true, nil
 		}
 		return ParsedFilter{Operator: repository.FilterIsNotNull}, true, nil
-	case "band":
-		val, err := strconv.ParseUint(value, 10, 8)
-		if err != nil {
-			return ParsedFilter{}, true, errors.New("expected integer between 0 and 255")
-		}
-		return ParsedFilter{Operator: repository.FilterBitwiseAnd, Value: uint8(val)}, true, nil
 	default:
 		return ParsedFilter{}, false, nil
 	}
@@ -498,15 +484,11 @@ func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) 
 				Message: fmt.Sprintf("unsupported operator %q", filter.Operator),
 			}
 		}
-		condition := repository.FilterCondition{
+		query.Filters = append(query.Filters, repository.FilterCondition{
 			Field:    filter.Field,
 			Operator: filter.Operator,
-			Value:    filter.Value,
-		}
-		if filter.Operator == repository.FilterIn || filter.Operator == repository.FilterBetween {
-			condition.Value = filter.Values
-		}
-		query.Filters = append(query.Filters, condition)
+			Values:   filter.Values,
+		})
 	}
 
 	return query, nil

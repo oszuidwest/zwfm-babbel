@@ -24,9 +24,6 @@ module.exports = {
     searchFields: ['title', 'text'],
     sortableFields: ['id', 'title', 'status', 'start_date', 'end_date', 'created_at', 'updated_at'],
     filterableFields: ['id', 'title', 'status', 'voice_id', 'weekdays', 'is_breaking'],
-    numericFields: ['id', 'voice_id'],
-    booleanFields: ['is_breaking'],
-    bitmaskFields: ['weekdays'],
     selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'is_breaking', 'start_date', 'end_date', 'created_at', 'updated_at']
   },
 

@@ -138,7 +138,7 @@ var userFieldMapping = FieldMapping{
 	"username":   {Column: "username", Type: filterString},
 	"full_name":  {Column: "full_name", Type: filterString},
 	"email":      {Column: "email", Type: filterString, Nullable: true},
-	"role":       {Column: "role", Type: filterUserRole},
+	"role":       {Column: "role", Type: filterEnum, Enum: []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}},
 	"created_at": {Column: "created_at", Type: filterDateTime},
 	"updated_at": {Column: "updated_at", Type: filterDateTime},
 }
