@@ -85,6 +85,7 @@ function generateQueryTests(schema, setupFn = null) {
       describe('Filtering', () => {
         query.filterableFields.forEach(field => {
           const contract = filters[field];
+          if (!contract) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
           const examples = filterExamples(contract);
           const [exactValue] = examples;
           const notValue = examples.at(-1);

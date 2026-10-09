@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -81,10 +82,8 @@ const (
 	FilterBetween FilterOperator = "between"
 	// FilterBitwiseAnd selects records whose bitmask field overlaps the supplied mask.
 	FilterBitwiseAnd FilterOperator = "band"
-	// FilterIsNull selects records whose field is NULL.
+	// FilterIsNull selects NULL records for value "true" and non-NULL records for "false".
 	FilterIsNull FilterOperator = "null"
-	// FilterIsNotNull selects records whose field is not NULL.
-	FilterIsNotNull FilterOperator = "not_null"
 )
 
 // FilterCondition holds a field, operator, and raw query values.
@@ -92,7 +91,7 @@ type FilterCondition struct {
 	Field    string
 	Operator FilterOperator
 	// Values requires one value for scalar operators, two for between, and at
-	// least one for in. Null operators ignore Values.
+	// least one for in.
 	Values []string
 }
 
@@ -191,13 +190,13 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 
 var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
 
-var operatorFormats = map[FilterOperator]string{
-	FilterEquals:      "%s = ?",
-	FilterNotEquals:   "%s != ?",
-	FilterGreaterThan: "%s > ?",
-	FilterGreaterOrEq: "%s >= ?",
-	FilterLessThan:    "%s < ?",
-	FilterLessOrEq:    "%s <= ?",
+var comparisonSQL = map[FilterOperator]string{
+	FilterEquals:      " = ?",
+	FilterNotEquals:   " != ?",
+	FilterGreaterThan: " > ?",
+	FilterGreaterOrEq: " >= ?",
+	FilterLessThan:    " < ?",
+	FilterLessOrEq:    " <= ?",
 }
 
 // likePatternEscaper escapes MySQL's LIKE wildcards and escape character.
@@ -273,15 +272,17 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
-	if err := field.validate(filter); err != nil {
+	args, err := field.bind(filter)
+	if err != nil {
 		return nil, err
 	}
 
-	col, args := field.Column, field.bindValues(filter.Values)
+	col := field.Column
 	switch filter.Operator {
 	case FilterIsNull:
-		return db.Where(col + " IS NULL"), nil
-	case FilterIsNotNull:
+		if args[0].(bool) {
+			return db.Where(col + " IS NULL"), nil
+		}
 		return db.Where(col + " IS NOT NULL"), nil
 	case FilterLike:
 		return db.Where(col+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(filter.Values[0])+"%"), nil
@@ -290,9 +291,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	case FilterBetween:
 		return db.Where(col+" BETWEEN ? AND ?", args[0], args[1]), nil
 	case FilterBitwiseAnd:
-		// An integer operand selects MySQL's numeric bitwise semantics.
-		mask, _ := strconv.ParseUint(filter.Values[0], 10, 7)
-		return db.Where("("+col+" & ?) != 0", mask), nil
+		return db.Where("("+col+" & ?) != 0", args[0]), nil
 	}
 	if field.Type == filterPresence {
 		present := args[0].(bool)
@@ -301,47 +300,53 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 		}
 		return applyPresenceFilter(db, col, present), nil
 	}
-	return db.Where(fmt.Sprintf(operatorFormats[filter.Operator], col), args[0]), nil
+	return db.Where(col+comparisonSQL[filter.Operator], args[0]), nil
 }
 
-// validate checks the operator, the value count and every value before binding.
-func (f FilterField) validate(filter FilterCondition) error {
+// bind checks the operator and value count, then parses every value into its
+// bind argument.
+func (f FilterField) bind(filter FilterCondition) ([]any, error) {
 	invalid := func(reason string) error {
 		return &InvalidFilterError{Field: filter.Field, Operator: filter.Operator, Reason: reason}
 	}
 	if !f.allowsOperator(filter.Operator) {
-		return invalid("operator not allowed on this field")
+		return nil, invalid("operator not allowed on this field")
 	}
 	n := len(filter.Values)
 	switch filter.Operator {
-	case FilterIsNull, FilterIsNotNull:
-		return nil
 	case FilterIn:
 		if n == 0 {
-			return invalid("expected comma-separated values")
+			return nil, invalid("expected comma-separated values")
 		}
 	case FilterBetween:
 		if n != 2 {
-			return invalid("expected two comma-separated values")
+			return nil, invalid("expected two comma-separated values")
 		}
 	default:
 		if n != 1 {
-			return invalid("expected a single value")
+			return nil, invalid("expected a single value")
 		}
 	}
-	for _, value := range filter.Values {
-		if !f.validValue(value) {
-			return invalid("expected " + f.hint())
+	args := make([]any, n)
+	for i, raw := range filter.Values {
+		var err error
+		if filter.Operator == FilterIsNull {
+			args[i], err = parseBool(raw)
+		} else {
+			args[i], err = f.parseValue(raw)
+		}
+		if err != nil {
+			return nil, invalid(err.Error())
 		}
 	}
-	return nil
+	return args, nil
 }
 
 func (f FilterField) allowsOperator(op FilterOperator) bool {
 	switch op {
 	case FilterEquals, FilterNotEquals:
 		return true
-	case FilterIsNull, FilterIsNotNull:
+	case FilterIsNull:
 		return f.Nullable
 	case FilterBitwiseAnd:
 		return f.Type == filterBitmask
@@ -358,8 +363,34 @@ func (f FilterField) allowsOperator(op FilterOperator) bool {
 	return false
 }
 
-func (f FilterField) validValue(raw string) bool {
+// parseValue validates raw and returns its bind argument. Booleans and
+// bitmasks bind natively because MySQL coerces non-numeric strings to 0 in
+// numeric comparisons; other types bind the validated string.
+func (f FilterField) parseValue(raw string) (any, error) {
 	switch f.Type {
+	case filterBoolean, filterPresence:
+		return parseBool(raw)
+	case filterBitmask:
+		if mask, err := strconv.ParseUint(raw, 10, 7); err == nil {
+			return mask, nil
+		}
+		return nil, errors.New("expected integer between 0 and 127")
+	case filterEnum:
+		if slices.Contains(f.Enum, raw) {
+			return raw, nil
+		}
+		return nil, errors.New("expected one of " + strings.Join(f.Enum, ", "))
+	}
+	if !validLiteral(f.Type, raw) {
+		return nil, errors.New("expected " + string(f.Type))
+	}
+	return raw, nil
+}
+
+// validLiteral reports whether raw is a well-formed string, integer, number,
+// date or date-time literal.
+func validLiteral(t filterType, raw string) bool {
+	switch t {
 	case filterString:
 		return true
 	case filterInteger:
@@ -378,43 +409,15 @@ func (f FilterField) validValue(raw string) bool {
 				return true
 			}
 		}
-		return false
-	case filterBoolean, filterPresence:
-		_, err := strconv.ParseBool(raw)
-		return err == nil
-	case filterBitmask:
-		_, err := strconv.ParseUint(raw, 10, 7)
-		return err == nil
-	case filterEnum:
-		return slices.Contains(f.Enum, raw)
 	}
 	return false
 }
 
-func (f FilterField) hint() string {
-	switch f.Type {
-	case filterBitmask:
-		return "integer between 0 and 127"
-	case filterEnum:
-		return "one of " + strings.Join(f.Enum, ", ")
-	case filterPresence:
-		return "boolean"
+func parseBool(raw string) (any, error) {
+	if value, err := strconv.ParseBool(raw); err == nil {
+		return value, nil
 	}
-	return string(f.Type)
-}
-
-// bindValues converts validated booleans to bool and preserves other strings.
-// MySQL coerces both "true" and "false" strings to 0 in numeric comparisons.
-func (f FilterField) bindValues(raw []string) []any {
-	args := make([]any, len(raw))
-	for i, value := range raw {
-		if f.Type == filterBoolean || f.Type == filterPresence {
-			args[i], _ = strconv.ParseBool(value)
-		} else {
-			args[i] = value
-		}
-	}
-	return args
+	return nil, errors.New("expected boolean")
 }
 
 func applyPresenceFilter(db *gorm.DB, col string, present bool) *gorm.DB {

@@ -27,7 +27,7 @@ function filterExamples({ value, operators }) {
   if (value.format === 'date-time') return ['2024-01-01T00:00:00Z', '2024-12-31T23:59:59Z'];
   if (value.format === 'date') return ['2024-01-01', '2024-12-31'];
   if (value.type === 'boolean') return ['false', 'true'];
-  if (operators.band) return ['0', '1'];
+  if (value.maximum !== undefined) return ['0', '1'];
   return ['1', '999999'];
 }
 

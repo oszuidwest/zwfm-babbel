@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -24,36 +23,11 @@ func (e *QueryParamError) Error() string {
 	return fmt.Sprintf("invalid %s: %s", e.Field, e.Message)
 }
 
-// QueryParams holds parsed filtering, sorting, pagination, fieldset, and search options.
+// QueryParams holds parsed list options plus the sparse fieldset.
 type QueryParams struct {
-	Limit  int `json:"limit"`
-	Offset int `json:"offset"`
-
-	Sort []SortField `json:"sort"`
-
+	repository.ListQuery
 	// Fields controls sparse fieldsets.
-	Fields []string `json:"fields"`
-
-	Filters []ParsedFilter `json:"filters"`
-
-	// Trashed controls soft-delete filtering: "" (default, active only), "only", or "with".
-	Trashed string `json:"trashed"`
-
-	// Search matches literal substrings in the resource's searchable columns.
-	Search string `json:"search"`
-}
-
-// SortField represents a single sort criterion.
-type SortField struct {
-	Field     string `json:"field"`
-	Direction string `json:"direction"` // "asc" or "desc"
-}
-
-// ParsedFilter holds a field, operator, and raw values for repository validation.
-type ParsedFilter struct {
-	Field    string                    `json:"field"`
-	Operator repository.FilterOperator `json:"operator"`
-	Values   []string                  `json:"values"`
+	Fields []string
 }
 
 // ParseQueryParams parses list options and validates query syntax and pagination.
@@ -96,7 +70,7 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	return params, nil
 }
 
-func parseSorting(c *gin.Context) ([]SortField, error) {
+func parseSorting(c *gin.Context) ([]repository.SortField, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
 	}
@@ -107,7 +81,7 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 	}
 
 	parts := strings.Split(sortParam, ",")
-	sortFields := make([]SortField, 0, len(parts))
+	sortFields := make([]repository.SortField, 0, len(parts))
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -115,20 +89,20 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 			continue
 		}
 
-		var field, direction string
+		var field string
+		direction := repository.SortAsc
 
 		switch {
 		case strings.HasPrefix(part, "-"):
 			field, _ = strings.CutPrefix(part, "-")
-			direction = "desc"
+			direction = repository.SortDesc
 		case strings.HasPrefix(part, "+"):
 			field, _ = strings.CutPrefix(part, "+")
-			direction = "asc"
 		case strings.Contains(part, ":"):
 			if before, after, found := strings.Cut(part, ":"); found {
 				field = strings.TrimSpace(before)
-				direction = strings.ToLower(strings.TrimSpace(after))
-				if direction != "asc" && direction != "desc" {
+				direction = repository.SortDirection(strings.ToLower(strings.TrimSpace(after)))
+				if direction != repository.SortAsc && direction != repository.SortDesc {
 					return nil, &QueryParamError{
 						Field:   "sort",
 						Message: fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field),
@@ -137,11 +111,10 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 			}
 		default:
 			field = part
-			direction = "asc"
 		}
 
 		if field != "" {
-			sortFields = append(sortFields, SortField{
+			sortFields = append(sortFields, repository.SortField{
 				Field:     field,
 				Direction: direction,
 			})
@@ -186,13 +159,14 @@ var simpleFilterOperators = map[string]repository.FilterOperator{
 	"lte":  repository.FilterLessOrEq,
 	"like": repository.FilterLike,
 	"band": repository.FilterBitwiseAnd,
+	"null": repository.FilterIsNull,
 }
 
-// buildFilter parses an operator and value, leaving Field unset.
+// buildFilter maps an operator and raw value to a condition, leaving Field unset.
 // It returns known=false for unrecognized operators.
-func buildFilter(operator, value string) (filter ParsedFilter, known bool, err error) {
+func buildFilter(operator, value string) (filter repository.FilterCondition, known bool) {
 	if op, ok := simpleFilterOperators[operator]; ok {
-		return ParsedFilter{Operator: op, Values: []string{value}}, true, nil
+		return repository.FilterCondition{Operator: op, Values: []string{value}}, true
 	}
 
 	switch operator {
@@ -205,18 +179,9 @@ func buildFilter(operator, value string) (filter ParsedFilter, known bool, err e
 		if operator == "between" {
 			op = repository.FilterBetween
 		}
-		return ParsedFilter{Operator: op, Values: values}, true, nil
-	case "null":
-		isNull, err := strconv.ParseBool(value)
-		if err != nil {
-			return ParsedFilter{}, true, errors.New("expected boolean")
-		}
-		if isNull {
-			return ParsedFilter{Operator: repository.FilterIsNull}, true, nil
-		}
-		return ParsedFilter{Operator: repository.FilterIsNotNull}, true, nil
+		return repository.FilterCondition{Operator: op, Values: values}, true
 	default:
-		return ParsedFilter{}, false, nil
+		return repository.FilterCondition{}, false
 	}
 }
 
@@ -240,8 +205,8 @@ func rejectDuplicateSingleValueParams(c *gin.Context) error {
 	return nil
 }
 
-func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
-	var filters []ParsedFilter
+func parseFilters(c *gin.Context) ([]repository.FilterCondition, error) {
+	var filters []repository.FilterCondition
 
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return filters, nil
@@ -278,17 +243,11 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 			}
 		}
 
-		filter, known, err := buildFilter(operator, values[0])
+		filter, known := buildFilter(operator, values[0])
 		if !known {
 			return nil, &QueryParamError{
 				Field:   key,
 				Message: fmt.Sprintf("unknown operator %q", operator),
-			}
-		}
-		if err != nil {
-			return nil, &QueryParamError{
-				Field:   filterKeyLabel(field, operator),
-				Message: err.Error(),
 			}
 		}
 
@@ -314,13 +273,6 @@ func parseFilterKey(key string) (field, operator string) {
 	}
 
 	return content, ""
-}
-
-func filterKeyLabel(field, operator string) string {
-	if operator == "" {
-		return fmt.Sprintf("filter[%s]", field)
-	}
-	return fmt.Sprintf("filter[%s][%s]", field, operator)
 }
 
 // FilterStructFields projects a struct or slice of structs to requested JSON
@@ -411,63 +363,6 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// supportedFilterOperators lists the operators accepted in ParsedFilter.
-var supportedFilterOperators = map[repository.FilterOperator]bool{
-	repository.FilterEquals:      true,
-	repository.FilterNotEquals:   true,
-	repository.FilterGreaterThan: true,
-	repository.FilterGreaterOrEq: true,
-	repository.FilterLessThan:    true,
-	repository.FilterLessOrEq:    true,
-	repository.FilterLike:        true,
-	repository.FilterIn:          true,
-	repository.FilterBetween:     true,
-	repository.FilterBitwiseAnd:  true,
-	repository.FilterIsNull:      true,
-	repository.FilterIsNotNull:   true,
-}
-
-// QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
-func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) {
-	if params == nil {
-		return repository.NewListQuery(), nil
-	}
-
-	query := &repository.ListQuery{
-		Limit:   params.Limit,
-		Offset:  params.Offset,
-		Search:  params.Search,
-		Trashed: params.Trashed,
-	}
-
-	for _, sf := range params.Sort {
-		direction := repository.SortAsc
-		if strings.ToLower(sf.Direction) == "desc" {
-			direction = repository.SortDesc
-		}
-		query.Sort = append(query.Sort, repository.SortField{
-			Field:     sf.Field,
-			Direction: direction,
-		})
-	}
-
-	for _, filter := range params.Filters {
-		if !supportedFilterOperators[filter.Operator] {
-			return nil, &QueryParamError{
-				Field:   fmt.Sprintf("filter[%s]", filter.Field),
-				Message: fmt.Sprintf("unsupported operator %q", filter.Operator),
-			}
-		}
-		query.Filters = append(query.Filters, repository.FilterCondition{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Values:   filter.Values,
-		})
-	}
-
-	return query, nil
-}
-
 // ParseListQuery parses list options into a [repository.ListQuery].
 // On parse errors it writes an RFC 9457 response and returns false.
 func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) {
@@ -476,12 +371,7 @@ func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) 
 		emitQueryError(c, err)
 		return nil, nil, false
 	}
-	query, err := QueryParamsToListQuery(params)
-	if err != nil {
-		emitQueryError(c, err)
-		return nil, nil, false
-	}
-	return params, query, true
+	return params, &params.ListQuery, true
 }
 
 // ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
