@@ -150,10 +150,5 @@ func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
 	defaultSort := []SortField{{Field: "username", Direction: SortAsc}}
-	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, defaultSort)
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return result, nil
+	return ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, defaultSort)
 }

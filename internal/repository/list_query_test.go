@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -93,19 +94,37 @@ func TestApplyFilterCondition_HasAudio(t *testing.T) {
 	}
 }
 
-func TestApplyFilterCondition_BandBindsInteger(t *testing.T) {
+func TestApplyFilterCondition_SQL(t *testing.T) {
 	t.Parallel()
-	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-		Field:    "weekdays",
-		Operator: FilterBitwiseAnd,
-		Values:   []string{"62"},
-	}, storyFieldMapping)
-	if err != nil {
-		t.Fatalf("applyFilterCondition: %v", err)
+	tests := []struct {
+		cond     FilterCondition
+		wantSQL  string
+		wantVars []any
+	}{
+		{FilterCondition{Field: "id", Operator: FilterEquals, Values: []string{"1"}}, "id = ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterNotEquals, Values: []string{"1"}}, "id != ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterGreaterThan, Values: []string{"1"}}, "id > ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterGreaterOrEq, Values: []string{"1"}}, "id >= ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterLessThan, Values: []string{"1"}}, "id < ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterLessOrEq, Values: []string{"1"}}, "id <= ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterIn, Values: []string{"1", "2"}}, "id IN (?,?)", []any{"1", "2"}},
+		{FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1", "2"}}, "id BETWEEN ? AND ?", []any{"1", "2"}},
+		{FilterCondition{Field: "weekdays", Operator: FilterBitwiseAnd, Values: []string{"62"}}, "(weekdays & ?) != 0", []any{uint64(62)}},
+		// LIKE wraps the value once and escapes wildcards with the declared escape character.
+		{FilterCondition{Field: "title", Operator: FilterLike, Values: []string{`50%_x`}}, `title LIKE ? ESCAPE '\\'`, []any{`%50\%\_x%`}},
 	}
-	stmt := out.Find(&[]struct{}{}).Statement
-	if !strings.Contains(stmt.SQL.String(), "(weekdays & ?) != 0") || !slices.Equal(stmt.Vars, []any{uint64(62)}) {
-		t.Fatalf("SQL = %q, vars = %#v; want (weekdays & ?) != 0 with [62]", stmt.SQL.String(), stmt.Vars)
+	for _, tt := range tests {
+		t.Run(string(tt.cond.Operator), func(t *testing.T) {
+			t.Parallel()
+			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), tt.cond, storyFieldMapping)
+			if err != nil {
+				t.Fatalf("applyFilterCondition: %v", err)
+			}
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) || !slices.Equal(stmt.Vars, tt.wantVars) {
+				t.Fatalf("SQL = %q, vars = %#v; want fragment %q with %#v", stmt.SQL.String(), stmt.Vars, tt.wantSQL, tt.wantVars)
+			}
+		})
 	}
 }
 
@@ -141,23 +160,6 @@ func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	}
 	if e.Kind != "sort" || e.Field != "has_audio" {
 		t.Fatalf("got %+v, want sort/has_audio", e)
-	}
-}
-
-func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
-	t.Parallel()
-	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-		Field:    "title",
-		Operator: FilterLike,
-		Values:   []string{"news"},
-	}, FieldMapping{"title": {Column: "title", Type: filterString}})
-	if err != nil {
-		t.Fatalf("applyFilterCondition: %v", err)
-	}
-
-	stmt := out.Find(&[]struct{}{}).Statement
-	if got := stmt.Vars; len(got) != 1 || got[0] != "%news%" {
-		t.Fatalf("LIKE bind vars = %#v, want [%q]", got, "%news%")
 	}
 }
 
@@ -243,8 +245,9 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 		{
 			// An unescaped + in a query decodes to a space, invalidating timezone offsets.
 			name: "date-time", mapping: bulletinFieldMapping, field: "created_at", ranges: true,
-			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00", "2026-10-07T08:00:00+00:00", "2024-01-01 12:30:00"},
-			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-02-30 12:30:00", "2024-01-01 25:00:00", "2026-10-07T08:00:00 00:00"},
+			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00", "2026-10-07T08:00:00+00:00", "2024-01-01 12:30:00", "2024-01-01 12:30:00.5", "2024-01-01 12:30:00,5"},
+			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-02-30 12:30:00", "2024-01-01 25:00:00", "2026-10-07T08:00:00 00:00", "0000-01-01", "0000-01-01T00:00:00Z"},
+			bind:    func(raw string) any { value, _ := parseDateTime(raw, time.Local); return value },
 		},
 		{
 			name: "bitmask", mapping: storyFieldMapping, field: "weekdays", noIn: true,
@@ -303,7 +306,7 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 						t.Fatalf("%+v: %v", cond, err)
 					}
 					want := bindArgs(cond.Values, tt.bind)
-					if got := out.Find(&[]struct{}{}).Statement.Vars; !slices.Equal(got, want) {
+					if got := out.Find(&[]struct{}{}).Statement.Vars; !slices.EqualFunc(got, want, equalArg) {
 						t.Fatalf("%+v: bind vars = %#v, want %#v", cond, got, want)
 					}
 				}
@@ -318,6 +321,51 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// equalArg compares bind arguments by instant for times, since parsing an
+// offset creates a distinct zone pointer each call.
+func equalArg(a, b any) bool {
+	if ta, ok := a.(time.Time); ok {
+		tb, ok := b.(time.Time)
+		return ok && ta.Equal(tb)
+	}
+	return a == b
+}
+
+func TestParseDateTime(t *testing.T) {
+	t.Parallel()
+	amsterdam, err := time.LoadLocation("Europe/Amsterdam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parse := func(raw string) time.Time {
+		t.Helper()
+		value, err := parseDateTime(raw, amsterdam)
+		if err != nil {
+			t.Fatalf("%q: %v", raw, err)
+		}
+		return value.(time.Time)
+	}
+
+	// MySQL reads a Z suffix as local time, so Go must fix the instant before binding.
+	want := time.Date(2024, 1, 1, 12, 30, 0, 0, time.UTC)
+	for _, raw := range []string{"2024-01-01T12:30:00Z", "2024-01-01T12:30:00+00:00", "2024-01-01T14:30:00+02:00", "2024-01-01 13:30:00", "2024-01-01 13:30:00.0", "2024-01-01 13:30:00,0"} {
+		if got := parse(raw); !got.Equal(want) {
+			t.Errorf("%q = %s, want %s", raw, got.UTC().Format(time.RFC3339Nano), want.Format(time.RFC3339Nano))
+		}
+	}
+	if got := parse("2024-01-01 13:30:00,5"); !got.Equal(want.Add(500 * time.Millisecond)) {
+		t.Errorf("comma fraction = %s, want 500ms after %s", got.UTC().Format(time.RFC3339Nano), want.Format(time.RFC3339))
+	}
+	if got := parse("2024-07-01"); !got.Equal(time.Date(2024, 6, 30, 22, 0, 0, 0, time.UTC)) {
+		t.Errorf("bare date = %s, want local midnight 2024-06-30T22:00:00Z", got.UTC().Format(time.RFC3339))
+	}
+	for _, raw := range []string{"0000-01-01", "0000-01-01T00:00:00Z"} {
+		if _, err := parseDateTime(raw, amsterdam); err == nil {
+			t.Errorf("%q: expected error for a year the driver cannot bind", raw)
+		}
 	}
 }
 

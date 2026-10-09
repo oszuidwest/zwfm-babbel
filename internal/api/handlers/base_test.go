@@ -226,6 +226,28 @@ func TestHandleServiceError_NotInitializedUsesCustomCode(t *testing.T) {
 	}
 }
 
+func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantField string
+	}{
+		{name: "unknown filter field", err: &repository.UnknownFieldError{Kind: "filter", Field: "bogus"}, wantField: "filter"},
+		{name: "unknown sort field", err: &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}, wantField: "sort"},
+		{name: "invalid filter value", err: &repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}, wantField: "filter[weekdays][band]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := newProblemContext(t)
+			handleServiceError(c, tt.err, "User")
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
+			}
+			assertValidationField(t, rec, tt.wantField)
+		})
+	}
+}
+
 func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
 	err := apperrors.NewValidationProblemError("tts_settings", "validation failed", []apperrors.ValidationError{

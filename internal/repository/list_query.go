@@ -188,6 +188,8 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}, nil
 }
 
+// dateTimeLayouts are the accepted date-time filter formats. Keep in sync
+// with DateTimeValue in openapi.yaml.
 var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
 
 var comparisonSQL = map[FilterOperator]string{
@@ -363,13 +365,17 @@ func (f FilterField) allowsOperator(op FilterOperator) bool {
 	return false
 }
 
-// parseValue validates raw and returns its bind argument. Booleans and
-// bitmasks bind natively because MySQL coerces non-numeric strings to 0 in
-// numeric comparisons; other types bind the validated string.
+// parseValue validates raw and returns its bind argument. Booleans bind as
+// bool because MySQL coerces non-numeric strings such as "true" to 0 in
+// numeric comparisons. Date-times bind as time.Time because MySQL silently
+// reads an RFC 3339 "Z" suffix or a comma fraction as local time. Presence
+// values only select the SQL clause. Other types bind the validated string.
 func (f FilterField) parseValue(raw string) (any, error) {
 	switch f.Type {
 	case filterBoolean, filterPresence:
 		return parseBool(raw)
+	case filterDateTime:
+		return parseDateTime(raw, time.Local)
 	case filterBitmask:
 		if mask, err := strconv.ParseUint(raw, 10, 7); err == nil {
 			return mask, nil
@@ -387,8 +393,8 @@ func (f FilterField) parseValue(raw string) (any, error) {
 	return raw, nil
 }
 
-// validLiteral reports whether raw is a well-formed string, integer, number,
-// date or date-time literal.
+// validLiteral reports whether raw is a well-formed string, integer, number
+// or date literal. These types bind the raw string.
 func validLiteral(t filterType, raw string) bool {
 	switch t {
 	case filterString:
@@ -399,18 +405,26 @@ func validLiteral(t filterType, raw string) bool {
 	case filterNumber:
 		value, err := strconv.ParseFloat(raw, 64)
 		// ParseFloat also accepts non-finite values and Go hex/underscore syntax.
-		return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0) && !strings.ContainsAny(raw, "xXpP_")
+		return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0) && !strings.ContainsAny(raw, "xX_")
 	case filterDate:
 		_, err := time.Parse(time.DateOnly, raw)
 		return err == nil
-	case filterDateTime:
-		for _, layout := range dateTimeLayouts {
-			if _, err := time.Parse(layout, raw); err == nil {
-				return true
-			}
-		}
 	}
 	return false
+}
+
+// parseDateTime parses raw, reading layouts without a zone in loc. The MySQL
+// driver cannot bind years outside 1 to 9999.
+func parseDateTime(raw string, loc *time.Location) (any, error) {
+	for _, layout := range dateTimeLayouts {
+		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
+			if t.Year() < 1 || t.Year() > 9999 {
+				break
+			}
+			return t, nil
+		}
+	}
+	return nil, errors.New("expected date-time")
 }
 
 func parseBool(raw string) (any, error) {
