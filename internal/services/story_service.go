@@ -39,7 +39,7 @@ type StoryServiceDeps struct {
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
 	GetByID(context.Context, int64) (*models.Story, error)
-	GetByIDForWrite(context.Context, int64, ...string) (*models.Story, error)
+	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
 	SoftDelete(context.Context, int64) error
@@ -412,7 +412,7 @@ func (s *StoryService) List(
 // GenerateTTS creates story audio through the configured text-to-speech service.
 // Existing audio is preserved unless force is true.
 func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
-	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID, "Voice")
+	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
 	}

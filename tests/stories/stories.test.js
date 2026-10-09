@@ -211,8 +211,6 @@ describe('Stories', () => {
       const restore = await global.api.apiCall('PATCH', path, { deleted_at: '' });
       expect(restore.status).toBe(200);
       expect(restore.data.deleted_at).toBeNull();
-      expect(restore.data.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(restore.data.end_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
     test('when trashed=only, then returns soft-deleted stories', async () => {

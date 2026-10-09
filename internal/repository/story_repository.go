@@ -82,9 +82,9 @@ func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story,
 	return r.GetByIDWithPreload(ctx, id, "Voice")
 }
 
-// GetByIDForWrite loads a story needed before a write, distinguishing deleted rows.
-func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64, preloads ...string) (*models.Story, error) {
-	story, err := r.GetByIDWithPreload(ctx, id, preloads...)
+// GetByIDForWrite loads a story with its voice before a write, distinguishing deleted rows.
+func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
+	story, err := r.GetByID(ctx, id)
 	return story, r.classifyWriteError(ctx, id, err)
 }
 
