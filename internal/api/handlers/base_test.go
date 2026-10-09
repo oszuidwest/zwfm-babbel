@@ -39,6 +39,17 @@ func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse
 	return problem
 }
 
+// assertValidationField requires a problem+json body with exactly one error for field.
+func assertValidationField(t *testing.T, rec *httptest.ResponseRecorder, field string) {
+	t.Helper()
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", got)
+	}
+	if errs := decodeProblem(t, rec).Errors; len(errs) != 1 || errs[0].Field != field {
+		t.Fatalf("errors = %+v, want exactly one %q error", errs, field)
+	}
+}
+
 func TestHandleServiceError_RateLimitedSetsRetryAfter(t *testing.T) {
 	c, rec := newProblemContext(t)
 

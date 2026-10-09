@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -324,21 +323,6 @@ func decodeHandlerJSON(t *testing.T, recorder *httptest.ResponseRecorder, out an
 
 	if err := json.Unmarshal(recorder.Body.Bytes(), out); err != nil {
 		t.Fatalf("decode response JSON: %v; body=%s", err, recorder.Body.String())
-	}
-}
-
-func assertValidationField(t *testing.T, recorder *httptest.ResponseRecorder, want string) {
-	t.Helper()
-
-	var body struct {
-		Errors []apperrors.ValidationError `json:"errors"`
-	}
-	decodeHandlerJSON(t, recorder, &body)
-	if len(body.Errors) == 0 {
-		t.Fatalf("errors = %#v, want at least one field", body.Errors)
-	}
-	if body.Errors[0].Field != want {
-		t.Fatalf("first field = %q, want %q; body=%s", body.Errors[0].Field, want, recorder.Body.String())
 	}
 }
 

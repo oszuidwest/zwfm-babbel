@@ -35,10 +35,7 @@ func (r *BulletinJobRepository) GetByID(ctx context.Context, id int64) (*models.
 }
 
 // Create queues a durable bulletin generation job.
-func (r *BulletinJobRepository) Create(
-	ctx context.Context,
-	stationID int64,
-) (*models.BulletinJob, error) {
+func (r *BulletinJobRepository) Create(ctx context.Context, stationID int64) (*models.BulletinJob, error) {
 	job := &models.BulletinJob{
 		StationID: stationID,
 		Status:    models.BulletinJobQueued,

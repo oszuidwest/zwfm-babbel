@@ -162,7 +162,7 @@ paths:
           in: query
           required: true
           description: |
-            Maximum age of cached bulletin in seconds. Only bulletins created on the current local day are reused.
+            Maximum age of cached bulletin in seconds.
             - Use `0` to always generate a fresh bulletin
             - Use `3600` for bulletins up to 1 hour old
           schema:
@@ -2083,9 +2083,8 @@ paths:
 
         Every request creates a generation job. A single background worker
         processes jobs one at a time in submission order. Each job generates for
-        the local date when the worker runs, after acquiring the station lock.
-        No request body is needed. The removed `date` field returns `422` if
-        supplied, including an empty string or null.
+        the local day the worker runs it. Takes no request body; any `date`
+        field (including `""` or `null`) returns `422`.
       tags:
         - Bulletin
       parameters:
@@ -3951,6 +3950,7 @@ components:
 
     BulletinJob:
       type: object
+      additionalProperties: false
       description: Durable asynchronous bulletin-generation state
       required:
         - id

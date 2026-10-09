@@ -6,8 +6,8 @@ const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelp
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
-  const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const generateBulletin = (stationId, body = {}) => global.helpers.generateBulletin(stationId, body);
+  const enqueueBulletin = (stationId, body) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
+  const generateBulletin = stationId => global.helpers.generateBulletin(stationId);
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
@@ -405,13 +405,11 @@ describe('Bulletins', () => {
     test('when generation is enqueued, then polling resolves to the created bulletin', async () => {
       const accepted = await enqueueBulletin(stationId);
       expect(accepted.status).toBe(202);
-      expect(accepted.data).not.toHaveProperty('target_date');
       expect(accepted.headers.location).toBe(`/api/v1/bulletin-jobs/${accepted.data.id}`);
       expect(['queued', 'running']).toContain(accepted.data.status);
 
       const completed = await global.helpers.waitForBulletinJob(accepted.data.id);
       expect(completed.status).toBe(200);
-      expect(completed.data).not.toHaveProperty('target_date');
       expect(completed.data.status).toBe('succeeded');
       expect(completed.data.bulletin_id).toEqual(expect.any(Number));
 

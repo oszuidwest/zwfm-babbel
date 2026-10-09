@@ -97,10 +97,7 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 }
 
 // Enqueue persists a generation request and wakes the worker.
-func (s *BulletinJobService) Enqueue(
-	ctx context.Context,
-	stationID int64,
-) (*models.BulletinJob, error) {
+func (s *BulletinJobService) Enqueue(ctx context.Context, stationID int64) (*models.BulletinJob, error) {
 	job, err := s.repo.Create(ctx, stationID)
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)

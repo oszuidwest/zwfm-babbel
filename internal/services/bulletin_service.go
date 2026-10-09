@@ -106,7 +106,7 @@ func (s *BulletinService) create(
 		return 0, apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
 	}
 
-	stories, err := s.GetStoriesForDate(ctx, stationID, time.Now(), station.MaxStoriesPerBlock)
+	stories, err := s.selectStories(ctx, stationID, time.Now(), station.MaxStoriesPerBlock)
 	if err != nil {
 		return 0, err
 	}
@@ -284,11 +284,11 @@ func (s *BulletinService) GetLatest(
 	return bulletin, nil
 }
 
-// GetStoriesForDate loads stories eligible for bulletin generation on date.
+// selectStories loads stories eligible for a bulletin on date.
 // Stories must be active, have audio, match the station's voice configuration,
 // and be scheduled for the weekday.
 // Breaking news stories are prioritized for selection; remaining slots use fair rotation.
-func (s *BulletinService) GetStoriesForDate(
+func (s *BulletinService) selectStories(
 	ctx context.Context, stationID int64, date time.Time, limit int,
 ) ([]repository.BulletinStoryData, error) {
 	stories, err := s.storyRepo.GetStoriesForBulletin(ctx, stationID, date, limit)

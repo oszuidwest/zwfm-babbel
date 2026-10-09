@@ -89,13 +89,7 @@ func TestGenerateBulletinRejectsDate(t *testing.T) {
 			if recorder.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422; body = %s", recorder.Code, recorder.Body.String())
 			}
-			if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
-				t.Fatalf("Content-Type = %q, want application/problem+json", got)
-			}
-			problem := decodeProblem(t, recorder)
-			if len(problem.Errors) != 1 || problem.Errors[0].Field != "date" {
-				t.Fatalf("errors = %+v, want date validation error", problem.Errors)
-			}
+			assertValidationField(t, recorder, "date")
 		})
 	}
 }

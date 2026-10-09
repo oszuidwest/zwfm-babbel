@@ -19,7 +19,5 @@ Deploy Knabbel UI PR 65 first, then deploy the Babbel app, and finally apply
 `010_drop_unsupported_eleven_v3_settings.sql`, which removes `similarity_boost`,
 `style`, and `speed` after the app no longer reads them.
 
-Stop Babbel before applying `011_drop_bulletin_job_target_date.sql`, then deploy
-the version that no longer reads or writes bulletin job `target_date`. Queued
-jobs will generate for the local day when the worker runs. Fresh databases
-already include this change in `001` and must not apply `011`.
+Stop Babbel, apply `011_drop_bulletin_job_target_date.sql`, then deploy. Queued
+jobs generate for the local day the worker runs them.
