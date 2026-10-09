@@ -135,6 +135,34 @@ describe('Stories', () => {
     });
   });
 
+  describe('Idempotent Updates', () => {
+    // One case per repository path: UpdateByID and Restore.
+    const cases = [
+      ['PUT', { title: 'Idempotent title' }, { title: 'Idempotent title' }],
+      ['PATCH', { deleted_at: '' }, { deleted_at: null }]
+    ];
+
+    test.each(cases)('when repeating %s %j immediately, then both requests succeed', async (method, payload, expected) => {
+      const created = await global.api.apiCall('POST', '/stories', storiesSchema.createValidData('Idempotent'));
+      expect(created.status).toBe(201);
+      global.resources.track('stories', created.data.id);
+
+      const first = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+      const second = await global.api.apiCall(method, `/stories/${created.data.id}`, payload);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.data).toMatchObject(expected);
+    });
+
+    test.each(cases)('when sending %s %j to a missing story, then returns 404', async (method, payload) => {
+      const response = await global.api.apiCall(method, '/stories/999999', payload);
+
+      expect(response.status).toBe(404);
+      expect(response.data.code).toBe('story.not_found');
+    });
+  });
+
   describe('Story Soft Delete', () => {
     test('when deleting story, then soft deleted', async () => {
       const result = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
