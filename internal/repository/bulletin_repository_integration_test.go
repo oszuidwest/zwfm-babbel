@@ -30,7 +30,11 @@ func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
 	db := openIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 	repo := NewBulletinRepository(db)
-	today := startOfDay(time.Now())
+	// Derive local midnight independently of startOfDay so the test checks it.
+	today, err := time.ParseInLocation(time.DateOnly, time.Now().Format(time.DateOnly), time.Local)
+	if err != nil {
+		t.Fatalf("local midnight: %v", err)
+	}
 	bulletin := createBulletin(t, db, station.ID)
 
 	for _, test := range []struct {

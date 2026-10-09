@@ -77,6 +77,7 @@ func TestGenerateBulletinRejectsDate(t *testing.T) {
 		name string
 		body string
 	}{
+		{name: "empty date", body: `{"date":""}`},
 		{name: "null date", body: `{"date":null}`},
 		{name: "case insensitive date", body: `{"Date":"2026-10-07"}`},
 	} {
