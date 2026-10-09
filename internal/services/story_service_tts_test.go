@@ -368,6 +368,7 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
+	data  []byte
 	ctx   context.Context
 	text  string
 	err   error
@@ -380,6 +381,9 @@ func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string
 	f.text = text
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.data != nil {
+		return f.data, nil
 	}
 	return []byte("opus"), nil
 }
