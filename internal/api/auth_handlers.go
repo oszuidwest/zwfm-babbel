@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 
@@ -18,8 +19,7 @@ type AuthHandlers struct {
 	handlers    *handlers.Handlers
 }
 
-// NewAuthHandlers returns authentication handlers using frontendURL as the
-// OAuth callback redirect fallback.
+// NewAuthHandlers uses frontendURL as the default OAuth callback redirect.
 func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.Handlers) *AuthHandlers {
 	return &AuthHandlers{
 		authService: authService,
@@ -67,7 +67,15 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
-		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(err.Error()))
+		// Only login rejections are safe to show to the user.
+		message := "Login failed; try again or contact an administrator"
+		if errors.Is(err, auth.ErrLoginRejected) {
+			logger.Warn("OIDC login rejected", "error", err)
+			message = err.Error()
+		} else {
+			logger.Error("OIDC login failed", "error", err)
+		}
+		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(message))
 		return
 	}
 
@@ -88,8 +96,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// GetCurrentUser returns the authenticated user's profile augmented with the
-// effective permissions for their role.
+// GetCurrentUser returns the authenticated user's profile and effective permissions.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	userID, ok := auth.UserID(c)
 	if !ok {
@@ -111,8 +118,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	h.handlers.RespondWithCurrentUser(c, userID, permissions)
 }
 
-// GetAuthConfig reports the enabled frontend login methods.
-// OAuth-enabled deployments include the local initiation URL for the OIDC flow.
+// GetAuthConfig returns enabled login methods and the OAuth URL, if enabled.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},

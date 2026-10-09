@@ -18,3 +18,9 @@ snapshot.
 Deploy Knabbel UI PR 65 first, then deploy the Babbel app, and finally apply
 `010_drop_unsupported_eleven_v3_settings.sql`, which removes `similarity_boost`,
 `style`, and `speed` after the app no longer reads them.
+
+Apply `011_oidc_identity.sql` once, before deploying the issuer/subject-based
+OIDC login, to databases that lack the `oidc_*` columns; it fails on databases
+created from the current `001` snapshot. Do not run alongside instances that
+identify OIDC users by email alone.
+`docs/CROSS_SUBDOMAIN_AUTH.md` describes how existing accounts are linked.

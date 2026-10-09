@@ -221,6 +221,12 @@ Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewe
 
 Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA pronunciation rules. Admins and editors can save the rules. Viewers can read them. Babbel keeps the rules in its database. Babbel puts the rules in the text as `/ipa/` spans before the ElevenLabs request.
 
+### HTTP timeouts
+
+The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout covers the slowest synchronous route plus 2 minutes to stream audio to slow clients: `max(2 x BABBEL_AUTOMATION_TIMEOUT, BABBEL_ELEVENLABS_TIMEOUT) + 2m`, 360s by default. An automation request may wait one generation budget for the station lock (then it returns 504) and spend another generating. Reverse proxies must allow the same durations.
+
+If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
+
 ### Operational e-mail notifications
 
 Babbel can send alert e-mails to administrators. Babbel sends the e-mails only through Microsoft Graph. Babbel uses the OAuth2 client-credentials flow. The tool `zwfm-aerontoolbox` uses the same flow.
@@ -323,7 +329,7 @@ GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 git clone https://github.com/oszuidwest/zwfm-babbel.git
 cd zwfm-babbel
 docker-compose up -d     # Start services
-make db-reset           # Initialize database
+make db-reset           # Recreate all tables (deletes data)
 make run                # Run development server
 ```
 
@@ -337,10 +343,10 @@ make docker             # Build Docker image
 
 # Code Quality
 make lint               # Run Go linters
-make quality            # Advanced static analysis
+make quality            # Tests and static analysis
 
 # Database
-make db-reset           # Reset database with migrations
+make db-reset           # Recreate all tables (deletes data)
 ```
 
 ### Project Structure
