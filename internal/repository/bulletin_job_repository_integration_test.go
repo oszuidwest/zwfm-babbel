@@ -89,15 +89,7 @@ func TestBulletinJobRepositoryIntegration_JobLifecycle(t *testing.T) {
 		t.Fatalf("ClaimNext() error = %v", err)
 	}
 
-	bulletin := models.Bulletin{StationID: station.ID, Filename: "lifecycle-test.wav"}
-	if err := db.Create(&bulletin).Error; err != nil {
-		t.Fatalf("create bulletin: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := db.Delete(&models.Bulletin{}, bulletin.ID).Error; err != nil {
-			t.Errorf("delete bulletin: %v", err)
-		}
-	})
+	bulletin := createBulletin(t, db, station.ID)
 	if err := repo.Complete(t.Context(), job.ID, bulletin.ID); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}

@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"gorm.io/gorm"
 )
 
-func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
-	db := openIntegrationDB(t)
-	station := createBulletinJobStation(t, db)
-	repo := NewBulletinRepository(db)
-	today := startOfDay(time.Now())
-	bulletin := models.Bulletin{StationID: station.ID, Filename: "latest-day.wav"}
+// createBulletin inserts a bulletin row that is deleted when the test ends.
+func createBulletin(t *testing.T, db *gorm.DB, stationID int64) models.Bulletin {
+	t.Helper()
+	bulletin := models.Bulletin{StationID: stationID, Filename: t.Name() + ".wav"}
 	if err := db.Create(&bulletin).Error; err != nil {
 		t.Fatalf("create bulletin: %v", err)
 	}
@@ -24,6 +23,15 @@ func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
 			t.Errorf("delete bulletin: %v", err)
 		}
 	})
+	return bulletin
+}
+
+func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
+	db := openIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
+	repo := NewBulletinRepository(db)
+	today := startOfDay(time.Now())
+	bulletin := createBulletin(t, db, station.ID)
 
 	twoDays, zero := 48*time.Hour, time.Duration(0)
 	for _, test := range []struct {

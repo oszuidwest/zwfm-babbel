@@ -7,7 +7,6 @@ describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
   const enqueueBulletin = (stationId, body) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const generateBulletin = stationId => global.helpers.generateBulletin(stationId);
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
@@ -46,7 +45,7 @@ describe('Bulletins', () => {
       storyText: 'Query test story'
     });
 
-    const response = await generateBulletin(station.id);
+    const response = await global.helpers.generateBulletin(station.id);
     // A failed fixture must fail the suite; pre-seeded rows would otherwise
     // keep the generated query tests green without exercising this data.
     expect(response.status).toBe(200);
@@ -75,7 +74,7 @@ describe('Bulletins', () => {
     test('when generating bulletin, then returns complete data', async () => {
       // Uses station setup from beforeAll
 
-      const response = await generateBulletin(stationId);
+      const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('id');
@@ -164,7 +163,7 @@ describe('Bulletins', () => {
       const runs = 5;
       const durations = [];
       for (let i = 0; i < runs; i++) {
-        const response = await generateBulletin(station.id);
+        const response = await global.helpers.generateBulletin(station.id);
         expect(response.status).toBe(200);
         expect(response.data.story_count).toBe(2);
         durations.push(response.data.duration_seconds);
@@ -198,7 +197,7 @@ describe('Bulletins', () => {
         ]
       );
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
 
@@ -239,7 +238,7 @@ describe('Bulletins', () => {
       // Generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
       for (let i = 0; i < runs; i++) {
-        const bulletinResponse = await generateBulletin(station.id);
+        const bulletinResponse = await global.helpers.generateBulletin(station.id);
         expect(bulletinResponse.status).toBe(200);
         expect(bulletinResponse.data.story_count).toBe(3);
 
@@ -284,7 +283,7 @@ describe('Bulletins', () => {
           { title: `BreakingEligRegular_${Date.now()}`, text: 'Eligible regular story', is_breaking: false }
         ]);
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
 
@@ -332,7 +331,7 @@ describe('Bulletins', () => {
         ]
       );
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
       expect(bulletinResponse.data.story_count).toBe(2);
@@ -475,7 +474,7 @@ describe('Bulletins', () => {
         storyText: 'Bulletin stories endpoint test'
       });
 
-      const response = await generateBulletin(station.id);
+      const response = await global.helpers.generateBulletin(station.id);
       expect(response.status).toBe(200);
       bulletinId = response.data.id;
     });
@@ -536,7 +535,7 @@ describe('Bulletins', () => {
     test('when generating station bulletin, then succeeds', async () => {
       // Uses station setup from beforeAll
 
-      const response = await generateBulletin(stationId);
+      const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
     });
