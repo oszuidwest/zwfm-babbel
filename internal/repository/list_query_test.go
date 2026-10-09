@@ -362,9 +362,15 @@ func TestParseDateTime(t *testing.T) {
 	if got := parse("2024-07-01"); !got.Equal(time.Date(2024, 6, 30, 22, 0, 0, 0, time.UTC)) {
 		t.Errorf("bare date = %s, want local midnight 2024-06-30T22:00:00Z", got.UTC().Format(time.RFC3339))
 	}
-	for _, raw := range []string{"0000-01-01", "0000-01-01T00:00:00Z"} {
+	// The driver binds the time in loc, so the year check applies after conversion.
+	for _, raw := range []string{"0000-01-01", "0000-01-01T00:00:00Z", "0001-01-01T00:00:00+14:00", "9999-12-31T23:30:00Z"} {
 		if _, err := parseDateTime(raw, amsterdam); err == nil {
 			t.Errorf("%q: expected error for a year the driver cannot bind", raw)
+		}
+	}
+	for _, raw := range []string{"0001-01-02T00:00:00Z", "9999-12-31T22:00:00Z"} {
+		if got := parse(raw); got.Location() != amsterdam {
+			t.Errorf("%q: location = %v, want loc so the driver binds the checked year", raw, got.Location())
 		}
 	}
 }

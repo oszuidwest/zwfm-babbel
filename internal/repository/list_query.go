@@ -373,9 +373,11 @@ func (f FilterField) allowsOperator(op FilterOperator) bool {
 
 // parseValue validates raw and returns its bind argument. Booleans bind as
 // bool because MySQL coerces non-numeric strings such as "true" to 0 in
-// numeric comparisons. Date-times bind as time.Time because MySQL silently
-// reads an RFC 3339 "Z" suffix or a comma fraction as local time. Presence
-// values only select the SQL clause. Other types bind the validated string.
+// numeric comparisons. Bitmasks bind as integers. Date-times bind as
+// time.Time because MySQL, with only a warning, reads an RFC 3339 "Z" suffix
+// as local time and truncates a comma fraction. Presence values only select
+// the SQL clause. Strings, integers, numbers, dates and enums bind the
+// validated string.
 func (f FilterField) parseValue(raw string) (any, error) {
 	switch f.Type {
 	case filterBoolean, filterPresence:
@@ -419,11 +421,13 @@ func validLiteral(t filterType, raw string) bool {
 	return false
 }
 
-// parseDateTime parses raw, reading layouts without a zone in loc. The MySQL
-// driver cannot bind years outside 1 to 9999.
+// parseDateTime parses raw, reading layouts without a zone in loc, and returns
+// the time in loc. The MySQL driver binds that representation and cannot bind
+// years outside 1 to 9999.
 func parseDateTime(raw string, loc *time.Location) (any, error) {
 	for _, layout := range dateTimeLayouts {
 		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
+			t = t.In(loc)
 			if t.Year() < 1 || t.Year() > 9999 {
 				break
 			}

@@ -657,6 +657,17 @@ describe('Bulletins', () => {
       }
     });
 
+    // The driver binds times in the server zone (Europe/Amsterdam here), so the
+    // bindable year range 1 to 9999 is checked after conversion.
+    test.each([
+      ['0001-01-01T00:00:00+14:00'],
+      ['9999-12-31T23:30:00Z']
+    ])('when filter[created_at][gte]=%s leaves the bindable year range in server time, then returns 422', async value => {
+      const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${encodeURIComponent(value)}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('filter[created_at][gte]');
+    });
+
     test('when filtering by date-time, then every spelling of an instant selects the same row', async () => {
       const station = await global.helpers.createStation(global.resources, 'BulletinInstantStation');
       expect(station).not.toBeNull();
