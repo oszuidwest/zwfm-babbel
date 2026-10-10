@@ -1,4 +1,4 @@
-const { declaresQueryParameter, getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -86,21 +86,12 @@ function generateQueryTests(schema, setupFn = null) {
         query.filterableFields.forEach(field => {
           const contract = filters[field];
           if (!contract) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
-          const examples = filterExamples(contract);
-          const [exactValue] = examples;
-          const notValue = examples.at(-1);
-          const inValues = examples.join(',');
-          test.each([
-            [`when filtering ${field} exact, then matches`, `filter[${field}]=${exactValue}`, null],
-            ...(contract.operators.in ? [[`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null]] : []),
-            [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=${notValue}`, response => {
-              expect(response.data.total).toBeGreaterThan(0);
-              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
-            }]
-          ])('%s', async (_name, qs, verify) => {
+          const notValue = filterExamples(contract).at(-1);
+          test(`when filtering ${field} with not, then excludes`, async () => {
             expect.hasAssertions();
-            const response = await expectStatus(qs);
-            if (verify) verify(response);
+            const response = await expectStatus(`filter[${field}][not]=${notValue}`);
+            expect(response.data.total).toBeGreaterThan(0);
+            expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
           });
         });
 
@@ -115,13 +106,15 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         // Validation needs no matching fixture, so test every documented field.
+        // Acceptance tests may validly match no rows; result checks use filterableFields.
         for (const [field, contract] of Object.entries(filters)) {
-          if (contract.operators.null) {
-            test.each(['true', 'false'])(`when filtering ${field} with null=%s, then accepted`, async value => {
-              expect.hasAssertions();
-              await expectStatus(`filter[${field}][null]=${value}`);
-            });
-          }
+          test.each(validFilterCases(contract).map(([operator, value]) => [
+            operator ? `filter[${field}][${operator}]` : `filter[${field}]`,
+            value
+          ]))('when %s=%s is valid, then accepted', async (key, value) => {
+            const response = await expectStatus(`${key}=${encodeURIComponent(value)}`);
+            expect(Array.isArray(response.data.data)).toBe(true);
+          });
           test.each(invalidFilterCases(contract))(
             `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
             async (operator, value) => {

@@ -36,6 +36,35 @@ function filterExamples({ value }) {
   return ['1', '999999'];
 }
 
+// Other accepted DateTimeValue spellings. The positive offset only arrives
+// intact when the caller URL-encodes its plus sign.
+const dateTimeSpellings = [
+  '2024-01-01T01:00:00+01:00',
+  '2024-01-01T00:00:00.5Z',
+  '2024-01-01 00:00:00',
+  '2024-01-01 00:00:00.5',
+  '2024-01-01 00:00:00,5',
+  '2024-01-01'
+];
+
+// Returns [operator, raw] pairs covering implicit equality ('') and every
+// documented operator, alias, and null value. Callers must URL-encode raw.
+function validFilterCases(contract) {
+  const examples = filterExamples(contract);
+  const [first] = examples;
+  const cases = [['', first]];
+  for (const operator of Object.keys(contract.operators)) {
+    if (operator === 'null') cases.push(['null', 'true'], ['null', 'false']);
+    else if (operator === 'in') cases.push(['in', examples.join(',')]);
+    else if (operator === 'between') cases.push(['between', `${first},${examples.at(-1)}`]);
+    else cases.push([operator, first]);
+  }
+  if (contract.value.format === 'date-time') {
+    for (const spelling of dateTimeSpellings) cases.push(['eq', spelling]);
+  }
+  return cases;
+}
+
 // Returns an invalid literal, or undefined for unrestricted text.
 function invalidFilterExample({ value }) {
   if (value.enum) return 'unknown';
@@ -65,4 +94,4 @@ function invalidFilterCases(contract) {
   return cases;
 }
 
-module.exports = { declaresQueryParameter, getFilterContracts, filterExamples, invalidFilterCases };
+module.exports = { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases };
