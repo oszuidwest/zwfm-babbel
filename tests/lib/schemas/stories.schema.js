@@ -25,47 +25,5 @@ module.exports = {
     sortableFields: ['id', 'title', 'status', 'start_date', 'end_date', 'created_at', 'updated_at'],
     filterableFields: ['id', 'title', 'status', 'voice_id', 'weekdays', 'is_breaking'],
     selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'is_breaking', 'start_date', 'end_date', 'created_at', 'updated_at']
-  },
-
-  validation: {
-    fields: {
-      title: {
-        type: 'string',
-        required: true,
-        minLength: 1,
-        maxLength: 500,
-        rejectWhitespaceOnly: true
-      },
-      text: {
-        type: 'string',
-        required: true,
-        minLength: 1,
-        maxLength: 65535
-      },
-      voice_id: {
-        type: 'integer',
-        required: true,
-        min: 1
-      },
-      status: {
-        type: 'string',
-        required: false,
-        enum: ['draft', 'active', 'expired']
-      },
-      weekdays: {
-        type: 'integer',
-        required: false,
-        min: 0,
-        max: 127
-      },
-      start_date: {
-        type: 'string',
-        required: false
-      },
-      end_date: {
-        type: 'string',
-        required: false
-      }
-    }
   }
 };

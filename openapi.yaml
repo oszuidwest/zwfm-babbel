@@ -72,8 +72,13 @@ info:
       sent, for example `filter[status][xyz]`. Operators are checked before
       fields, so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
     - Validation stops at the first invalid filter; `errors[]` names only that filter.
-    - Endpoints that support only `limit` and `offset` report every other
-      key as sent, filter keys included, with code `unsupported`.
+    - Endpoints that support only `limit` and `offset` report non-empty
+      `search`, parsed `sort`/`fields`, `trashed`, and well-formed filters
+      with known operators as `unsupported`, using each key as sent. Shared
+      parsing runs first: duplicate keys produce `duplicate`, malformed filter
+      keys `invalid_format`, and unknown filter operators or invalid sort
+      directions `invalid_choice`. Other unknown keys are ignored unless
+      repeated; empty non-filter options are ignored.
 
     ### NULL
 

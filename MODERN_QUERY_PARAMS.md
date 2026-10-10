@@ -357,7 +357,12 @@ under "List queries" in `openapi.yaml`):
 Operators are checked before fields, so `filter[bogus][xyz]` reports as
 `filter[bogus][xyz]`. Validation stops at the first invalid filter.
 `/bulletins/{id}/stories` supports only `limit` and `offset`; it reports
-every other key as sent, filter keys included, with code `unsupported`.
+non-empty `search`, parsed `sort`/`fields`, `trashed`, and well-formed filters
+with known operators as `unsupported`, using each key as sent. Shared parsing
+runs first: duplicate keys produce `duplicate`, malformed filter keys
+`invalid_format`, and unknown filter operators or invalid sort directions
+`invalid_choice`. Other unknown keys are ignored unless repeated; empty
+non-filter options are ignored.
 
 Earlier versions reported `filter[status]=bad` as `filter[status][eq]`,
 `filter[status][not]=bad` as `filter[status][ne]`, and `filter[bogus]=1` as
