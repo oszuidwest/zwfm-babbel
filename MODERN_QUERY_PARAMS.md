@@ -57,10 +57,8 @@ GET /api/v1/stories?filter[voice_id][null]=true
 GET /api/v1/stories?filter[voice_id][null]=false
 ```
 
-The string `null` is a value, not SQL NULL: non-string fields reject
-`filter[voice_id]=null` with 422, and string fields compare it as text.
 The "List queries" section of `openapi.yaml` describes NULL, soft-delete and
-date-time semantics in full.
+date-time semantics.
 
 #### Substring Matching (contains)
 ```http
@@ -105,7 +103,7 @@ GET /api/v1/stories?filter[status]=active&filter[has_audio]=false&sort=-created_
 
 `has_audio` is a virtual boolean field backed by the internal `audio_file` database column: it supports `eq` (the default), `ne`, and the `not` alias with a boolean value, and cannot be used for sorting. The legacy empty-string idiom on `audio_url` (`filter[audio_url]=` for absent, `filter[audio_url][ne]=` for present) still works but is deprecated; use `has_audio` instead. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
-> **Note:** The `ilike` operator is not implemented. `like` already follows the column collation, which is case-insensitive by default.
+> **Note:** The `ilike` operator is not implemented.
 
 ### 2. Sorting
 
@@ -187,9 +185,6 @@ GET /api/v1/stories?filter[status]=active
 
 # Non-expired stories (active on or after date)
 GET /api/v1/stories?filter[end_date][gte]=2024-06-15
-
-# Stories created in 2024 (a bare date means local midnight)
-GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01
 ```
 
 ### 7. Pagination

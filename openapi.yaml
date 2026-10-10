@@ -1548,7 +1548,7 @@ paths:
       description: |
         Performs a soft delete by setting deleted_at timestamp.
         The story no longer appears in default listings. List it with
-        `trashed=only` (deleted stories only) or `trashed=with` (all stories).
+        `trashed=only` or `trashed=with`.
         Story data and audio files are preserved for potential restoration.
       tags:
         - Stories
@@ -4192,7 +4192,10 @@ components:
             properties:
               field:
                 type: string
-                description: Field name that failed validation
+                description: |
+                  Field name that failed validation. For query parameters, the
+                  parameter key, such as `filter[status][eq]` or `sort`; see
+                  "Error labels" under "List queries".
                 example: "title"
               message:
                 type: string

@@ -241,14 +241,13 @@ describe('Stories', () => {
     });
   });
 
-  // Pins the 422 labels and accepted values of the examples under "List queries" in openapi.yaml.
+  // Pins the story examples under "List queries" in openapi.yaml; the query
+  // test generator pins the unknown-field, unknown-operator and duplicate-key
+  // labels on every list endpoint, and an encoded offset is accepted there too.
   describe('Documented Query Semantics', () => {
     test.each([
       ['filter[status]=bad', 'filter[status][eq]'],
       ['filter[status][not]=bad', 'filter[status][ne]'],
-      ['filter[status][unknown]=active', 'filter[status][unknown]'],
-      ['filter[bogus]=1', 'filter'],
-      ['sort=bogus', 'sort'],
       ['filter[voice_id]=null', 'filter[voice_id][eq]'],
       ['filter[weekdays]=abc', 'filter[weekdays][eq]'],
       // An unencoded plus sign decodes as a space.
@@ -257,11 +256,6 @@ describe('Stories', () => {
       const response = await global.api.apiCall('GET', `/stories?${qs}`);
       expect(response.status).toBe(422);
       expect(response.data.errors.map(error => error.field)).toEqual([field]);
-    });
-
-    test('when an offset is sent as %2B, then accepted', async () => {
-      const response = await global.api.apiCall('GET', '/stories?filter[created_at][gte]=2024-01-15T13:30:00%2B01:00');
-      expect(response.status).toBe(200);
     });
 
     // String fields compare text under the column collation, which ignores
