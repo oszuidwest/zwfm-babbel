@@ -74,7 +74,7 @@ func CreatedWithMessage(c *gin.Context, message string) {
 // RFC 9457 Problem Details compatible error response functions.
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
-func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
+func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.FieldError) {
 	ProblemCustom(c, ProblemTypeValidationError, "Validation Error", http.StatusUnprocessableEntity, detail, errors...)
 }
 
@@ -95,13 +95,8 @@ func ProblemInternalServer(c *gin.Context, detail string) {
 	ProblemCustom(c, ProblemTypeInternalServerError, "Internal Server Error", http.StatusInternalServerError, detail)
 }
 
-// ProblemBadRequest responds with HTTP 400 Bad Request.
-func ProblemBadRequest(c *gin.Context, detail string) {
-	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail)
-}
-
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
-func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
+func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.FieldError) {
 	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 
@@ -128,7 +123,7 @@ func ProblemNotAcceptable(c *gin.Context, detail string) {
 }
 
 // ProblemCustom responds with a custom problem type and optional field errors.
-func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string, errors ...apperrors.ValidationError) {
+func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string, errors ...apperrors.FieldError) {
 	problem := NewProblemDetail(problemType, title, status, detail)
 	problem.Errors = errors
 	SendProblem(c, problem)

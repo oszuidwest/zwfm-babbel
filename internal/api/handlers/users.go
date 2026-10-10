@@ -1,10 +1,7 @@
 package handlers
 
 import (
-	"errors"
-
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -59,7 +56,7 @@ func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions 
 // CreateUser accepts a JSON account payload and returns the created user ID.
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req utils.UserCreateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -92,7 +89,11 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	var req utils.UserUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
+		return
+	}
+
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
@@ -121,17 +122,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	err := h.userSvc.SoftDelete(c.Request.Context(), id)
-	if err != nil {
-		validationErr, ok := errors.AsType[*apperrors.ValidationError](err)
-		if ok && validationErr.Message == "cannot delete last admin" {
-			utils.ProblemCustom(c,
-				"https://babbel.api/problems/admin-constraint",
-				"Admin Constraint", 409,
-				"Cannot delete the last admin user",
-			)
-			return
-		}
+	if err := h.userSvc.SoftDelete(c.Request.Context(), id); err != nil {
 		handleServiceError(c, err, "User")
 		return
 	}
@@ -149,7 +140,7 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	var req struct {
 		Action string `json:"action" binding:"required,oneof=suspend restore"`
 	}
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 

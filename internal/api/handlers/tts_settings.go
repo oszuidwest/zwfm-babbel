@@ -36,7 +36,7 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 // UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
-	if !utils.BindJSONStrict(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 

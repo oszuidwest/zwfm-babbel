@@ -41,7 +41,7 @@ func (h *Handlers) GetVoice(c *gin.Context) {
 // CreateVoice accepts a JSON voice payload and persists a newsreader voice.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	}
 
 	var req utils.VoiceUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -70,15 +70,11 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	// Empty string is treated as clearing (same as null) because a blank
-	// ElevenLabs voice ID is unusable.
+	// JSON null clears the ElevenLabs voice ID.
 	updateReq := &services.UpdateVoiceRequest{
-		Name: req.Name,
-	}
-	if req.ElevenLabsVoiceID.HasValue() && *req.ElevenLabsVoiceID.Value != "" {
-		updateReq.ElevenLabsVoiceID = req.ElevenLabsVoiceID.Value
-	} else if req.ElevenLabsVoiceID.Set {
-		updateReq.ClearElevenLabsVoiceID = true
+		Name:                   req.Name,
+		ElevenLabsVoiceID:      req.ElevenLabsVoiceID.Value,
+		ClearElevenLabsVoiceID: req.ElevenLabsVoiceID.Set && req.ElevenLabsVoiceID.Value == nil,
 	}
 
 	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)

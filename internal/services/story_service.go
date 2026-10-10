@@ -118,12 +118,6 @@ type UpdateStoryRequest struct {
 // Create validates local-date bounds and optional voice ownership before
 // persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
-	if req.VoiceID != nil {
-		if err := requireExists(ctx, s.voiceRepo.Exists, "Story", "Voice", *req.VoiceID); err != nil {
-			return nil, err
-		}
-	}
-
 	startDate, err := parseStoryDate("start_date", req.StartDate)
 	if err != nil {
 		return nil, err
@@ -134,8 +128,14 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, err
 	}
 
-	if err := checkDateRange(startDate, endDate); err != nil {
+	if err := checkDateRange(startDate, endDate, "end_date"); err != nil {
 		return nil, err
+	}
+
+	if req.VoiceID != nil {
+		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *req.VoiceID); err != nil {
+			return nil, err
+		}
 	}
 
 	data := &repository.StoryCreateData{
@@ -180,13 +180,18 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 				end = (*time.Time)(&existing.EndDate)
 			}
 		}
-		if err := checkDateRange(*start, *end); err != nil {
+		// Blame the date the client sent; with both, the end date is out of order.
+		field := "end_date"
+		if endDate == nil {
+			field = "start_date"
+		}
+		if err := checkDateRange(*start, *end, field); err != nil {
 			return nil, err
 		}
 	}
 
 	if req.VoiceID != nil {
-		if err := requireExists(ctx, s.voiceRepo.Exists, "Story", "Voice", *req.VoiceID); err != nil {
+		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *req.VoiceID); err != nil {
 			return nil, err
 		}
 	}
@@ -210,21 +215,19 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	return s.GetByID(ctx, id)
 }
 
-// checkDateRange rejects an end date before the start date with a 422.
-func checkDateRange(start, end time.Time) error {
+// checkDateRange rejects an end date before the start date, labeling field.
+func checkDateRange(start, end time.Time, field string) error {
 	if !end.Before(start) {
 		return nil
 	}
-	return apperrors.NewValidationProblemError("Story", "Date validation failed", []apperrors.ValidationError{
-		{Field: "end_date", Message: "End date cannot be before start date"},
-	})
+	return apperrors.Invalid(field, apperrors.CodeDateOrder, "end_date cannot be before start_date")
 }
 
 // parseStoryDate parses a YYYY-MM-DD date in the server's local timezone.
 func parseStoryDate(field, value string) (time.Time, error) {
 	parsed, err := time.ParseInLocation(time.DateOnly, value, time.Local)
 	if err != nil {
-		return time.Time{}, apperrors.Validation("Story", field, "invalid format, must be YYYY-MM-DD")
+		return time.Time{}, apperrors.Invalid(field, apperrors.CodeInvalidFormat, "must be in YYYY-MM-DD format")
 	}
 	return parsed, nil
 }
@@ -332,12 +335,8 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 }
 
 // UpdateStatus changes a story's workflow state to draft, active, or expired.
+// Request binding validates status.
 func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) (*models.Story, error) {
-	storyStatus := models.StoryStatus(status)
-	if !storyStatus.IsValid() {
-		return nil, apperrors.Validation("Story", "status", "must be one of: draft, active, expired")
-	}
-
 	err := s.storyRepo.UpdateStatus(ctx, id, status)
 	if err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
@@ -408,7 +407,14 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		}
 	}()
 
-	return s.ProcessAudio(ctx, storyID, tempPath)
+	if err := s.ProcessAudio(ctx, storyID, tempPath); err != nil {
+		if errors.Is(err, audio.ErrSilent) {
+			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+				"ElevenLabs returned silent audio; try again", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // alertTTSError maps operational TTS failures to stable alert categories.
@@ -444,16 +450,20 @@ func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
 
 func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 	if story.AudioFile != "" && !force {
-		return apperrors.Validation("Story", "audio_file", "story already has audio - use ?force=true to overwrite")
+		return apperrors.Conflict("story.audio_exists", "Story already has audio",
+			"Use ?force=true to overwrite the existing audio")
 	}
 	if story.Text == "" {
-		return apperrors.Validation("Story", "text", "story has no text for TTS generation")
+		return apperrors.Conflict("story.no_text", "Story has no text for TTS generation",
+			"Add text to the story first")
 	}
 	if story.VoiceID == nil {
-		return apperrors.Validation("Story", "voice_id", "story has no voice assigned for TTS generation")
+		return apperrors.Conflict("story.no_voice", "Story has no voice assigned for TTS generation",
+			"Assign a voice to the story first")
 	}
 	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id", "voice has no ElevenLabs voice ID configured")
+		return apperrors.Conflict("voice.no_elevenlabs_id", "Voice has no ElevenLabs voice ID configured",
+			"Set elevenlabs_voice_id on the voice first")
 	}
 	return nil
 }
@@ -471,17 +481,10 @@ func validateTTSTextLength(text string) error {
 		return nil
 	}
 
-	return apperrors.NewValidationProblemError(
-		"story",
-		"Text exceeds ElevenLabs input limit",
-		[]apperrors.ValidationError{{
-			Field: "text",
-			Message: fmt.Sprintf(
-				"rune count %d exceeds ElevenLabs input limit of %d",
-				count,
-				tts.MaxInputChars,
-			),
-		}},
+	return apperrors.Conflict(
+		"story.tts_text_too_long",
+		fmt.Sprintf("Text with style prefix has %d characters; ElevenLabs accepts at most %d", count, tts.MaxInputChars),
+		"Shorten the story text or the TTS style prefix",
 	)
 }
 
@@ -505,11 +508,13 @@ func translateTTSError(storyID int64, err error) error {
 				apiErr,
 			)
 		case http.StatusNotFound:
-			return apperrors.ValidationWithCause("Voice", "elevenlabs_voice_id", apiErr.Error(), apiErr)
+			return apperrors.ConflictWithCause("voice.elevenlabs_not_found", "ElevenLabs does not know the configured voice ID",
+				"Check elevenlabs_voice_id on the story's voice", apiErr)
 		case http.StatusTooManyRequests:
 			return apperrors.RateLimited("TTS", apiErr.RetryAfter, apiErr)
 		case http.StatusUnprocessableEntity:
-			return apperrors.ValidationWithCause("TTS", "request", apiErr.Error(), apiErr)
+			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+				"ElevenLabs rejected the generated request; check the TTS settings", apiErr)
 		default:
 			logger.WithFields(map[string]any{
 				"story_id":    storyID,

@@ -22,24 +22,24 @@ func TestParseQueryParams_PassesRawValues(t *testing.T) {
 		target string
 		want   []cond
 	}{
-		{"/x?filter[id]=1", []cond{{Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}}}},
-		{"/x?filter[status][not]=draft", []cond{{Field: "status", Operator: repository.FilterNotEquals, Values: []string{"draft"}}}},
-		{"/x?filter[title][like]=news", []cond{{Field: "title", Operator: repository.FilterLike, Values: []string{"news"}}}},
-		{"/x?filter[voice_id][null]=not-bool", []cond{{Field: "voice_id", Operator: repository.FilterIsNull, Values: []string{"not-bool"}}}},
-		{"/x?filter[weekdays][band]=300", []cond{{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Values: []string{"300"}}}},
-		{"/x?filter[id][between]=1,%2010", []cond{{Field: "id", Operator: repository.FilterBetween, Values: []string{"1", "10"}}}},
-		{"/x?filter[id][in]=1,,2", []cond{{Field: "id", Operator: repository.FilterIn, Values: []string{"1", "", "2"}}}},
+		{"/x?filter[id]=1", []cond{{Key: "filter[id]", Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}}}},
+		{"/x?filter[status][not]=draft", []cond{{Key: "filter[status][not]", Field: "status", Operator: repository.FilterNotEquals, Values: []string{"draft"}}}},
+		{"/x?filter[title][like]=news", []cond{{Key: "filter[title][like]", Field: "title", Operator: repository.FilterLike, Values: []string{"news"}}}},
+		{"/x?filter[voice_id][null]=not-bool", []cond{{Key: "filter[voice_id][null]", Field: "voice_id", Operator: repository.FilterIsNull, Values: []string{"not-bool"}}}},
+		{"/x?filter[weekdays][band]=300", []cond{{Key: "filter[weekdays][band]", Field: "weekdays", Operator: repository.FilterBitwiseAnd, Values: []string{"300"}}}},
+		{"/x?filter[id][between]=1,%2010", []cond{{Key: "filter[id][between]", Field: "id", Operator: repository.FilterBetween, Values: []string{"1", "10"}}}},
+		{"/x?filter[id][in]=1,,2", []cond{{Key: "filter[id][in]", Field: "id", Operator: repository.FilterIn, Values: []string{"1", "", "2"}}}},
 		{"/x?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31", []cond{
-			{Field: "created_at", Operator: repository.FilterGreaterOrEq, Values: []string{"2024-01-01"}},
-			{Field: "created_at", Operator: repository.FilterLessOrEq, Values: []string{"2024-12-31"}},
+			{Key: "filter[created_at][gte]", Field: "created_at", Operator: repository.FilterGreaterOrEq, Values: []string{"2024-01-01"}},
+			{Key: "filter[created_at][lte]", Field: "created_at", Operator: repository.FilterLessOrEq, Values: []string{"2024-12-31"}},
 		}},
 		{"/x?filter[status][in]=active,draft&filter[status][ne]=archived", []cond{
-			{Field: "status", Operator: repository.FilterIn, Values: []string{"active", "draft"}},
-			{Field: "status", Operator: repository.FilterNotEquals, Values: []string{"archived"}},
+			{Key: "filter[status][in]", Field: "status", Operator: repository.FilterIn, Values: []string{"active", "draft"}},
+			{Key: "filter[status][ne]", Field: "status", Operator: repository.FilterNotEquals, Values: []string{"archived"}},
 		}},
 		{"/x?filter[id]=1&filter[id][eq]=2", []cond{
-			{Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}},
-			{Field: "id", Operator: repository.FilterEquals, Values: []string{"2"}},
+			{Key: "filter[id]", Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}},
+			{Key: "filter[id][eq]", Field: "id", Operator: repository.FilterEquals, Values: []string{"2"}},
 		}},
 	}
 	for _, tt := range tests {
@@ -62,18 +62,19 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 		name      string
 		target    string
 		wantField string
+		wantCode  string
 	}{
-		{name: "unknown operator", target: "/stories?filter[deleted_at][unknown]=value", wantField: "filter[deleted_at][unknown]"},
-		{name: "malformed filter key", target: "/stories?filter[]=1", wantField: "filter[]"},
-		{name: "invalid sort direction", target: "/stories?sort=id:sideways", wantField: "sort"},
+		{name: "unknown operator", target: "/stories?filter[deleted_at][unknown]=value", wantField: "filter[deleted_at][unknown]", wantCode: "invalid_choice"},
+		{name: "malformed filter key", target: "/stories?filter[]=1", wantField: "filter[]", wantCode: "invalid_format"},
+		{name: "invalid sort direction", target: "/stories?sort=id:sideways", wantField: "sort", wantCode: "invalid_choice"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			_, err := parseQueryParams(testQueryContext(t, tt.target))
-			if err == nil || err.Field != tt.wantField {
-				t.Fatalf("got %v, want apperrors.ValidationError for %q", err, tt.wantField)
+			if err == nil || err.Field != tt.wantField || err.Code != tt.wantCode {
+				t.Fatalf("got %+v, want %s/%s", err, tt.wantField, tt.wantCode)
 			}
 		})
 	}
@@ -88,16 +89,17 @@ func TestPagination(t *testing.T) {
 		wantOffset int
 		wantErr    bool
 		wantField  string
+		wantCode   string
 	}{
 		{name: "defaults when absent", target: "/x", wantLimit: 20, wantOffset: 0},
 		{name: "valid limit and offset", target: "/x?limit=5&offset=10", wantLimit: 5, wantOffset: 10},
 		{name: "limit at upper bound", target: "/x?limit=100", wantLimit: 100, wantOffset: 0},
-		{name: "non-integer limit rejected", target: "/x?limit=abc", wantErr: true, wantField: "limit"},
-		{name: "negative limit rejected", target: "/x?limit=-5", wantErr: true, wantField: "limit"},
-		{name: "zero limit rejected", target: "/x?limit=0", wantErr: true, wantField: "limit"},
-		{name: "limit over cap rejected", target: "/x?limit=101", wantErr: true, wantField: "limit"},
-		{name: "non-integer offset rejected", target: "/x?offset=foo", wantErr: true, wantField: "offset"},
-		{name: "negative offset rejected", target: "/x?offset=-1", wantErr: true, wantField: "offset"},
+		{name: "non-integer limit rejected", target: "/x?limit=abc", wantErr: true, wantField: "limit", wantCode: "invalid_format"},
+		{name: "negative limit rejected", target: "/x?limit=-5", wantErr: true, wantField: "limit", wantCode: "out_of_range"},
+		{name: "zero limit rejected", target: "/x?limit=0", wantErr: true, wantField: "limit", wantCode: "out_of_range"},
+		{name: "limit over cap rejected", target: "/x?limit=101", wantErr: true, wantField: "limit", wantCode: "out_of_range"},
+		{name: "non-integer offset rejected", target: "/x?offset=foo", wantErr: true, wantField: "offset", wantCode: "invalid_format"},
+		{name: "negative offset rejected", target: "/x?offset=-1", wantErr: true, wantField: "offset", wantCode: "out_of_range"},
 	}
 
 	for _, tt := range tests {
@@ -108,8 +110,8 @@ func TestPagination(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error, got limit=%d offset=%d", limit, offset)
 				}
-				if err.Field != tt.wantField {
-					t.Fatalf("Field = %q, want %q", err.Field, tt.wantField)
+				if err.Field != tt.wantField || err.Code != tt.wantCode {
+					t.Fatalf("error = %s/%s, want %s/%s", err.Field, err.Code, tt.wantField, tt.wantCode)
 				}
 				return
 			}

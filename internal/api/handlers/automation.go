@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -38,6 +39,27 @@ func NewAutomationHandler(bulletinSvc *services.BulletinService, stationSvc *ser
 	}
 }
 
+// maxMaxAgeSeconds keeps max_age within time.Duration.
+const maxMaxAgeSeconds = math.MaxInt64 / int64(time.Second)
+
+// parseMaxAge parses the required max_age query parameter in seconds.
+func parseMaxAge(raw string) (int64, *apperrors.FieldError) {
+	invalid := func(code, message string) (int64, *apperrors.FieldError) {
+		return 0, &apperrors.FieldError{Field: "max_age", Code: code, Message: message}
+	}
+	if raw == "" {
+		return invalid(apperrors.CodeRequired, "max_age is required (seconds)")
+	}
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	switch {
+	case err != nil && !errors.Is(err, strconv.ErrRange):
+		return invalid(apperrors.CodeInvalidFormat, fmt.Sprintf("expected integer, got %q", raw))
+	case err != nil || seconds < 0 || seconds > maxMaxAgeSeconds:
+		return invalid(apperrors.CodeOutOfRange, fmt.Sprintf("must be between 0 and %d seconds", maxMaxAgeSeconds))
+	}
+	return seconds, nil
+}
+
 type bulletinRequest struct {
 	stationID     int64
 	maxAgeSeconds int64
@@ -69,30 +91,14 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 	h.alerts.Resolve(c.Request.Context(), "security:automation-key",
 		"Radio automation key accepted again", "A request supplied the configured radio automation key.")
 
-	stationIDStr := c.Param("id")
-	stationID, err := strconv.ParseInt(stationIDStr, 10, 64)
-	if err != nil || stationID <= 0 {
-		utils.ProblemValidationError(c, "Invalid station ID", []apperrors.ValidationError{{
-			Field:   "id",
-			Message: "Station ID must be a positive integer",
-		}})
+	stationID, ok := utils.IDParam(c)
+	if !ok {
 		return nil
 	}
 
-	maxAgeStr := c.Query("max_age")
-	if maxAgeStr == "" {
-		utils.ProblemValidationError(c, "Missing required parameter", []apperrors.ValidationError{{
-			Field:   "max_age",
-			Message: "max_age parameter is required (seconds)",
-		}})
-		return nil
-	}
-	maxAgeSeconds, err := strconv.ParseInt(maxAgeStr, 10, 64)
-	if err != nil || maxAgeSeconds < 0 {
-		utils.ProblemValidationError(c, "Invalid parameter", []apperrors.ValidationError{{
-			Field:   "max_age",
-			Message: "max_age must be a non-negative integer (seconds)",
-		}})
+	maxAgeSeconds, fieldErr := parseMaxAge(c.Query("max_age"))
+	if fieldErr != nil {
+		utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.FieldError{*fieldErr})
 		return nil
 	}
 

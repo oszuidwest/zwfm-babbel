@@ -54,7 +54,7 @@ func resolvePauseSeconds(pauseSeconds *float64) float64 {
 // CreateStation accepts a JSON station payload and persists a radio station.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -75,7 +75,7 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 	}
 
 	var req utils.StationRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 

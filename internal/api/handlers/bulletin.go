@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,17 +29,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Date json.RawMessage `json:"date"`
-	}
+	// Bulletins are always generated for today, so the body takes no members.
+	var req struct{}
 	if !utils.BindOptionalJSON(c, &req) {
-		return
-	}
-
-	if len(req.Date) > 0 {
-		utils.ProblemValidationError(c, "Bulletins are always generated for today", []apperrors.ValidationError{
-			{Field: "date", Message: "date is no longer supported"},
-		})
 		return
 	}
 
@@ -229,8 +220,8 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	if _, present := c.GetQuery("latest"); present {
-		utils.ProblemQueryValidation(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.ValidationError{
-			{Field: "latest", Message: "parameter is no longer supported on the list endpoint"},
+		utils.ProblemQueryValidation(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.FieldError{
+			{Field: "latest", Code: apperrors.CodeUnsupported, Message: "parameter is no longer supported on the list endpoint"},
 		})
 		return
 	}

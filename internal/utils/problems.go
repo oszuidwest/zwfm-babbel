@@ -38,7 +38,7 @@ type ProblemDetail struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
 	// Errors contains field-level errors for validation and strict parsing responses.
-	Errors []apperrors.ValidationError `json:"errors,omitempty"`
+	Errors []apperrors.FieldError `json:"errors,omitempty"`
 }
 
 // Problem type URIs for common error types.

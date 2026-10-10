@@ -15,7 +15,7 @@ func TestValidateElevenLabsVoiceID(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "nil is allowed", input: nil},
-		{name: "empty string is allowed", input: new("")},
+		{name: "empty string is rejected", input: new(""), wantErr: true},
 		{name: "valid 20-char alphanumeric", input: new("21m00Tcm4TlvDq8ikWAM")},
 		{name: "valid with hyphen", input: new("voice-abcd1234")},
 		{name: "valid with underscore", input: new("voice_abcd1234")},
@@ -38,8 +38,8 @@ func TestValidateElevenLabsVoiceID(t *testing.T) {
 				if !errors.As(err, &validation) {
 					t.Fatalf("error type = %T, want *apperrors.ValidationError", err)
 				}
-				if validation.Field != "elevenlabs_voice_id" {
-					t.Fatalf("field = %q, want elevenlabs_voice_id", validation.Field)
+				if fe := validation.Errors[0]; fe.Field != "elevenlabs_voice_id" || fe.Code != apperrors.CodeInvalidFormat {
+					t.Fatalf("field error = %+v, want elevenlabs_voice_id/invalid_format", fe)
 				}
 				return
 			}

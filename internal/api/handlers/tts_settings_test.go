@@ -110,7 +110,7 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400: %s", recorder.Code, recorder.Body.String())
 			}
-			assertValidationField(t, recorder, tt.wantField)
+			assertFieldError(t, recorder, tt.wantField, "unknown_field")
 		})
 	}
 }

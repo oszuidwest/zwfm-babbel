@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"fmt"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -46,7 +49,7 @@ func (h *Handlers) GetStory(c *gin.Context) {
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -54,7 +57,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		req.Status = string(models.StoryStatusDraft)
 	}
 
-	weekdays := req.Weekdays
+	weekdays := models.Weekdays(req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
 	if weekdays == 0 {
 		weekdays = models.WeekdaysAll
 	}
@@ -89,12 +92,18 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	var req utils.StoryUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
 	if !utils.RequireAnyField(c, req) {
 		return
+	}
+
+	var weekdays *models.Weekdays
+	if req.Weekdays != nil {
+		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
+		weekdays = &w
 	}
 
 	svcReq := &services.UpdateStoryRequest{
@@ -104,7 +113,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		Status:     req.Status,
 		StartDate:  req.StartDate,
 		EndDate:    req.EndDate,
-		Weekdays:   req.Weekdays,
+		Weekdays:   weekdays,
 		IsBreaking: req.IsBreaking,
 		Metadata:   req.Metadata,
 	}
@@ -133,9 +142,10 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus changes workflow state or toggles soft deletion.
-// An empty deleted_at string restores the story; any non-empty deleted_at value
-// is treated as a soft-delete request for compatibility with the legacy API.
+// UpdateStoryStatus changes workflow state or toggles soft deletion; a request
+// sets exactly one of status and deleted_at. An empty deleted_at string
+// restores the story; any non-empty deleted_at value is treated as a
+// soft-delete request for compatibility with the legacy API.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -143,17 +153,26 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status    *string `json:"status"`
+		Status    *string `json:"status" binding:"omitempty,story_status"`
 		DeletedAt *string `json:"deleted_at"`
 	}
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	if req.Status == nil && req.DeletedAt == nil {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field (status or deleted_at) is required",
+	switch {
+	case req.Status == nil && req.DeletedAt == nil:
+		utils.ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeEmptyUpdate,
+			Message: "Provide status or deleted_at",
+		}})
+		return
+	case req.Status != nil && req.DeletedAt != nil:
+		utils.ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "status and deleted_at cannot be combined",
 		}})
 		return
 	}
@@ -200,7 +219,17 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 		return
 	}
 
-	force := c.Query("force") == "true"
+	force := false
+	if raw, present := c.GetQuery("force"); present {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.FieldError{{
+				Field: "force", Code: apperrors.CodeInvalidFormat, Message: fmt.Sprintf("expected boolean, got %q", raw),
+			}})
+			return
+		}
+		force = parsed
+	}
 
 	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force); err != nil {
 		handleServiceError(c, err, "Story")

@@ -16,11 +16,11 @@ import (
 var elevenLabsVoiceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
 func validateElevenLabsVoiceID(id *string) error {
-	if id == nil || *id == "" {
+	if id == nil {
 		return nil
 	}
 	if !elevenLabsVoiceIDPattern.MatchString(*id) {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id",
+		return apperrors.Invalid("elevenlabs_voice_id", apperrors.CodeInvalidFormat,
 			"must be 8-64 characters of letters, digits, hyphen, or underscore")
 	}
 	return nil

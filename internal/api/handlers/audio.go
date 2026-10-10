@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -179,12 +178,8 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		return
 	}
 
-	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "audio", fmt.Sprintf("story_%d", id))
-	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "audio",
-			Message: err.Error(),
-		}})
+	tempPath, cleanup, ok := utils.SaveAudioUpload(c, "audio", fmt.Sprintf("story_%d", id))
+	if !ok {
 		return
 	}
 	defer deferCleanup(cleanup, "audio file")()
@@ -212,12 +207,8 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 		return
 	}
 
-	tempPath, cleanup, err := utils.ValidateAndSaveAudioFile(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
-	if err != nil {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "jingle",
-			Message: err.Error(),
-		}})
+	tempPath, cleanup, ok := utils.SaveAudioUpload(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
+	if !ok {
 		return
 	}
 	defer deferCleanup(cleanup, "jingle file")()

@@ -171,12 +171,12 @@ func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: tt.rules})
 
-			var validationErr *apperrors.ValidationProblemError
+			var validationErr *apperrors.ValidationError
 			if !errors.As(err, &validationErr) {
-				t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
+				t.Fatalf("error type = %T, want *apperrors.ValidationError", err)
 			}
-			if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
-				return e.Field == tt.wantField && e.Message == tt.wantMessage
+			if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.FieldError) bool {
+				return e.Field == tt.wantField && e.Code == apperrors.CodeDuplicate && e.Message == tt.wantMessage
 			}) {
 				t.Fatalf("errors = %#v, want %s %q", validationErr.Errors, tt.wantField, tt.wantMessage)
 			}
@@ -431,12 +431,12 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 func assertPronunciationValidationField(t *testing.T, err error, wantField string) {
 	t.Helper()
 
-	var validationErr *apperrors.ValidationProblemError
+	var validationErr *apperrors.ValidationError
 	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
+		t.Fatalf("error type = %T, want *apperrors.ValidationError", err)
 	}
-	if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
-		return e.Field == wantField
+	if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.FieldError) bool {
+		return e.Field == wantField && e.Code != ""
 	}) {
 		t.Fatalf("errors = %#v, want field %q", validationErr.Errors, wantField)
 	}

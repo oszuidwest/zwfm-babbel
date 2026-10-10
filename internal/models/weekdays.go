@@ -1,10 +1,6 @@
 package models
 
-import (
-	"encoding/json"
-	"fmt"
-	"time"
-)
+import "time"
 
 // Weekdays represents a bitmask for scheduling stories on specific days of the week.
 // The bitmask uses Go's time.Weekday values where Sunday=0, Monday=1, etc.
@@ -38,16 +34,3 @@ const (
 // WeekdaysAll represents all days of the week (127).
 const WeekdaysAll Weekdays = WeekdaySunday | WeekdayMonday | WeekdayTuesday |
 	WeekdayWednesday | WeekdayThursday | WeekdayFriday | WeekdaySaturday
-
-// UnmarshalJSON implements json.Unmarshaler to deserialize Weekdays from an integer.
-func (w *Weekdays) UnmarshalJSON(data []byte) error {
-	var n uint8
-	if err := json.Unmarshal(data, &n); err != nil {
-		return fmt.Errorf("weekdays must be an integer (0-127): %w", err)
-	}
-	if n > 127 {
-		return fmt.Errorf("weekdays must be 0-127, got %d", n)
-	}
-	*w = Weekdays(n)
-	return nil
-}

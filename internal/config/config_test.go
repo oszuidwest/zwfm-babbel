@@ -288,18 +288,18 @@ func TestValidateLocalAuthConfig(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "minimum password length below fixed HTTP floor",
+			name: "minimum password length below floor",
 			mutate: func(cfg *Config) {
 				cfg.Auth.Local.MinPasswordLength = 7
 			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
 		},
 		{
-			name: "minimum password length above HTTP maximum",
+			name: "minimum password length above bcrypt limit",
 			mutate: func(cfg *Config) {
-				cfg.Auth.Local.MinPasswordLength = 129
+				cfg.Auth.Local.MinPasswordLength = 73
 			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
 		},
 		{
 			name: "max login attempts too low",
