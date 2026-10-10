@@ -126,7 +126,11 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 	}
 
-	return s.stationVoiceRepo.GetByID(ctx, id)
+	updated, err := s.stationVoiceRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
+	}
+	return updated, nil
 }
 
 // validateUpdateRequest checks that changed parents exist and that the final

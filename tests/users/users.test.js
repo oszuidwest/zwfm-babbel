@@ -135,15 +135,50 @@ describe('Users', () => {
   });
 
   describe('Last Admin Protection', () => {
-    test('when deleting the last admin, then returns a conflict', async () => {
+    let adminId;
+
+    beforeAll(async () => {
       const adminsResponse = await global.api.apiCall('GET', '/users?filter[role]=admin');
       expect(adminsResponse.status).toBe(200);
       const adminUsers = adminsResponse.data.data || [];
       expect(adminUsers).toHaveLength(1);
+      adminId = adminUsers[0].id;
+    });
 
-      const deleteResponse = await global.api.apiCall('DELETE', `/users/${adminUsers[0].id}`);
+    test('when deleting the last admin, then returns a conflict', async () => {
+      const deleteResponse = await global.api.apiCall('DELETE', `/users/${adminId}`);
       expect(deleteResponse.status).toBe(409);
       expect(deleteResponse.data.code).toBe('user.last_admin');
+    });
+
+    test.each([
+      ['PUT', { role: 'editor' }],
+      ['PUT', { suspended: true }],
+      ['PATCH', { action: 'suspend' }]
+    ])('when %s %j on the last admin, then returns a conflict and keeps the admin active', async (method, body) => {
+      const response = await global.api.apiCall(method, `/users/${adminId}`, body);
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('user.last_admin');
+
+      const admin = await global.api.apiCall('GET', `/users/${adminId}`);
+      expect(admin.data.role).toBe('admin');
+      expect(admin.data.suspended_at).toBeFalsy();
+    });
+
+    test('when another active admin exists, then an admin can be suspended and demoted', async () => {
+      const created = await global.api.apiCall('POST', '/users', {
+        ...usersSchema.createValidData(`secondadmin${Date.now()}${process.pid}`),
+        role: 'admin'
+      });
+      expect(created.status).toBe(201);
+      global.resources.track('users', created.data.id);
+
+      const suspended = await global.api.apiCall('PATCH', `/users/${created.data.id}`, { action: 'suspend' });
+      expect(suspended.status).toBe(200);
+      // A suspended admin no longer counts, so demoting it leaves the active admin in place.
+      const demoted = await global.api.apiCall('PUT', `/users/${created.data.id}`, { role: 'editor' });
+      expect(demoted.status).toBe(200);
+      expect(demoted.data.role).toBe('editor');
     });
   });
 

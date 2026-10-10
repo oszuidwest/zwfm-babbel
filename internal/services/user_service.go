@@ -221,6 +221,28 @@ func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, passwo
 	return nil
 }
 
+// guardLastAdminUpdate rejects demoting or suspending the last active admin.
+func (s *UserService) guardLastAdminUpdate(ctx context.Context, id int64, req *UpdateUserRequest) error {
+	demote := req.Role != nil && *req.Role != string(models.RoleAdmin)
+	suspend := req.Suspended != nil && *req.Suspended
+	if !demote && !suspend {
+		return nil
+	}
+	user, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpQuery, err)
+	}
+	// A suspended admin is not active, so changing it cannot remove the last one.
+	if user.Role != models.RoleAdmin || user.SuspendedAt != nil {
+		return nil
+	}
+	action := "suspend"
+	if demote {
+		action = "demote"
+	}
+	return s.requireOtherActiveAdmin(ctx, id, action)
+}
+
 // hashPassword returns the bcrypt hash stored for password.
 func hashPassword(password string) (string, error) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -231,8 +253,13 @@ func hashPassword(password string) (string, error) {
 }
 
 // Update applies account changes, including suspension, in one write and
-// returns the refreshed user.
+// returns the refreshed user. It rejects demoting or suspending the last
+// active admin.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
+	if err := s.guardLastAdminUpdate(ctx, id, req); err != nil {
+		return nil, err
+	}
+
 	updates := &repository.UserUpdate{
 		FullName: req.FullName,
 		Role:     req.Role,
@@ -284,14 +311,8 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	}
 
 	if user.Role == models.RoleAdmin {
-		adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
-		if err != nil {
-			return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
-		}
-
-		if adminCount == 0 {
-			return apperrors.Conflict("user.last_admin", "Cannot delete the last admin user",
-				"Give another user the admin role first")
+		if err := s.requireOtherActiveAdmin(ctx, id, "delete"); err != nil {
+			return err
 		}
 	}
 
@@ -301,6 +322,20 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 		return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
 	}
 
+	return nil
+}
+
+// requireOtherActiveAdmin returns 409 user.last_admin when no active admin
+// other than id remains, so action on id would leave none.
+func (s *UserService) requireOtherActiveAdmin(ctx context.Context, id int64, action string) error {
+	adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
+	if err != nil {
+		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
+	}
+	if adminCount == 0 {
+		return apperrors.Conflict("user.last_admin", "Cannot "+action+" the last admin user",
+			"Give another user the admin role first")
+	}
 	return nil
 }
 
