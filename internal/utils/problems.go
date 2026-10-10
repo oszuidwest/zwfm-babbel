@@ -64,41 +64,15 @@ const (
 )
 
 // NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
-func NewProblemDetail(problemType, title string, status int, detail, instance string) *ProblemDetail {
+// SendProblem fills Instance with the request path.
+func NewProblemDetail(problemType, title string, status int, detail string) *ProblemDetail {
 	return &ProblemDetail{
 		Type:      problemType,
 		Title:     title,
 		Status:    status,
 		Detail:    detail,
-		Instance:  instance,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
-}
-
-// NewValidationProblem creates a 422 response for validation errors.
-func NewValidationProblem(detail, instance string, errors []apperrors.ValidationError) *ProblemDetail {
-	problem := NewProblemDetail(
-		ProblemTypeValidationError,
-		"Validation Error",
-		422,
-		detail,
-		instance,
-	)
-	problem.Errors = errors
-	return problem
-}
-
-// NewBadRequestValidationProblem creates a 400 response with field-level parse errors.
-func NewBadRequestValidationProblem(detail string, errors []apperrors.ValidationError, instance string) *ProblemDetail {
-	problem := NewProblemDetail(
-		ProblemTypeBadRequest,
-		"Bad Request",
-		400,
-		detail,
-		instance,
-	)
-	problem.Errors = errors
-	return problem
 }
 
 // SendProblem sends an RFC 9457 problem details response.

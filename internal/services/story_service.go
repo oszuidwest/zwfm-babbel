@@ -118,14 +118,8 @@ type UpdateStoryRequest struct {
 // Create validates local-date bounds and optional voice ownership before
 // persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
-	if req.VoiceID != nil {
-		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
-		if err != nil {
-			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
-		}
-		if !exists {
-			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
-		}
+	if err := s.requireVoice(ctx, req.VoiceID); err != nil {
+		return nil, err
 	}
 
 	startDate, err := parseStoryDate("start_date", req.StartDate)
@@ -192,14 +186,8 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		}
 	}
 
-	if req.VoiceID != nil {
-		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
-		if err != nil {
-			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
-		}
-		if !exists {
-			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
-		}
+	if err := s.requireVoice(ctx, req.VoiceID); err != nil {
+		return nil, err
 	}
 
 	updates := &repository.StoryUpdate{
@@ -213,15 +201,27 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		Metadata:   req.Metadata,
 		IsBreaking: req.IsBreaking,
 	}
-	if *updates == (repository.StoryUpdate{}) {
-		return nil, apperrors.Validation("Story", "", "no fields to update")
-	}
 
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
+}
+
+// requireVoice returns NotFound when voiceID is set and the voice does not exist.
+func (s *StoryService) requireVoice(ctx context.Context, voiceID *int64) error {
+	if voiceID == nil {
+		return nil
+	}
+	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
+	if err != nil {
+		return apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+	}
+	if !exists {
+		return apperrors.NotFoundWithID("Voice", *voiceID)
+	}
+	return nil
 }
 
 // parseStoryDate parses a YYYY-MM-DD date in the server's local timezone.

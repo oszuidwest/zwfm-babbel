@@ -75,7 +75,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
+	if req == (utils.StationVoiceUpdateRequest{}) {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "fields",
 			Message: "No fields to update",

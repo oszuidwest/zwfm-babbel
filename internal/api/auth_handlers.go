@@ -1,10 +1,12 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"net/url"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
@@ -55,11 +57,8 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 
 // HandleOAuthCallback completes authentication and redirects to the frontend.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	session := h.authService.Session(c)
-	frontendURL, ok := auth.SessionFrontendURL(session)
-	if !ok || frontendURL == "" {
-		frontendURL = h.frontendURL
-	}
+	session := sessions.Default(c)
+	frontendURL := cmp.Or(auth.SessionFrontendURL(session), h.frontendURL)
 	if frontendURL == "" {
 		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
@@ -79,7 +78,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	auth.ClearSessionOAuth(session)
-	if err := session.Save(c); err != nil {
+	if err := session.Save(); err != nil {
 		logger.Error("Failed to save session after cleanup", "error", err)
 	}
 

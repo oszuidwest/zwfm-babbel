@@ -319,6 +319,23 @@ describe('Stories', () => {
       }
     });
 
+    test('when updating end_date before start_date, then 422 names end_date', async () => {
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'Reversed dates', text: 'Scheduled news', voice_id: voiceId,
+        start_date: '2026-10-01', end_date: '2026-10-31'
+      }, [stationId]);
+      expect(story).not.toBeNull();
+
+      const response = await global.api.apiCall('PUT', `/stories/${story.id}`, {
+        start_date: '2026-10-11', end_date: '2026-10-10'
+      });
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([
+        { field: 'end_date', message: 'End date cannot be before start date' }
+      ]);
+    });
+
     test('when creating future-dated story, then accepted', async () => {
       const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Future Story ${Date.now()}`,

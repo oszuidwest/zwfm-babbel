@@ -126,10 +126,6 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, err
 	}
 
-	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
-		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
-	}
-
 	updates := &repository.StationVoiceUpdate{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
@@ -262,7 +258,7 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	if _, err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
+	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 

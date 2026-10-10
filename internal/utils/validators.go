@@ -59,58 +59,21 @@ func storyStatusValidator(fl validator.FieldLevel) bool {
 	return status.IsValid()
 }
 
-// dateParseResult holds the result of parsing a date field.
-type dateParseResult struct {
-	Time           time.Time
-	IsEmpty        bool
-	FailValidation bool
-}
-
-// parseDateField parses supported date field shapes for custom validators.
-// The boolean return is false for unsupported field types.
-func parseDateField(field reflect.Value) (dateParseResult, bool) {
-	if !field.IsValid() || (field.Kind() == reflect.Pointer && field.IsNil()) {
-		return dateParseResult{IsEmpty: true}, true
-	}
-	if field.Type() == reflect.TypeFor[time.Time]() {
-		timeVal, ok := reflect.TypeAssert[time.Time](field)
-		return dateParseResult{Time: timeVal, FailValidation: !ok}, true
-	}
-	if field.Kind() == reflect.Pointer {
-		field = field.Elem()
-	}
-	if field.Kind() != reflect.String {
-		return dateParseResult{}, false // Unknown type, skip
-	}
-	if field.String() == "" {
-		return dateParseResult{IsEmpty: true}, true
-	}
-	t, err := time.ParseInLocation(time.DateOnly, field.String(), time.Local)
-	return dateParseResult{Time: t, FailValidation: err != nil}, true
-}
-
-// dateAfterValidator validates that a date field is after another date field in the same struct.
+// dateAfterValidator validates that a YYYY-MM-DD string field is on or after
+// another date field in the same struct. An empty field or a missing or
+// unparsable comparison field passes; an unparsable field fails.
 // Usage: `validate:"dateafter=StartDate"`.
 func dateAfterValidator(fl validator.FieldLevel) bool {
-	compareField := fl.Parent().FieldByName(fl.Param())
-	if !compareField.IsValid() {
-		return true // Comparison field doesn't exist, validation passes
+	endStr := fl.Field().String()
+	if endStr == "" {
+		return true
 	}
-
-	currentResult, currentOK := parseDateField(fl.Field())
-	if currentResult.FailValidation {
+	end, err := time.ParseInLocation(time.DateOnly, endStr, time.Local)
+	if err != nil {
 		return false
 	}
-	if !currentOK || currentResult.IsEmpty {
-		return true
-	}
-
-	compareResult, compareOK := parseDateField(compareField)
-	if !compareOK || compareResult.IsEmpty {
-		return true
-	}
-
-	return currentResult.Time.After(compareResult.Time) || currentResult.Time.Equal(compareResult.Time)
+	start, err := time.ParseInLocation(time.DateOnly, fl.Parent().FieldByName(fl.Param()).String(), time.Local)
+	return err != nil || !end.Before(start)
 }
 
 // dateFormatValidator validates date strings are in YYYY-MM-DD format.

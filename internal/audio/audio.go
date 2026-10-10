@@ -84,9 +84,9 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
-// It returns the duration in seconds.
-func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
-	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
+func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
+	_, err := s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
+	return err
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV, targeting -16 LUFS with

@@ -4,46 +4,27 @@ package auth
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	gormmysql "gorm.io/driver/mysql"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
 func openOAuthIntegrationDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
-	if dsn == "" {
-		if os.Getenv("CI") == "true" {
-			t.Fatal("BABBEL_TEST_DB_DSN is required in CI")
-		}
-		t.Skip("BABBEL_TEST_DB_DSN not set")
-	}
-	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{
-		SkipDefaultTransaction: true, Logger: logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := testutil.OpenIntegrationDB(t)
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatal(err)
 	}
 	sqlDB.SetMaxOpenConns(100)
 	sqlDB.SetMaxIdleConns(100)
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("close db: %v", err)
-		}
-	})
-	return db
+	return db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)})
 }
 
 type oauthFixture struct {

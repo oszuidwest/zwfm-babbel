@@ -142,7 +142,7 @@ type problemResponse struct {
 func TestProblemDetailAlwaysIncludesDetail(t *testing.T) {
 	t.Parallel()
 
-	body, err := json.Marshal(NewProblemDetail("about:blank", "Error", 500, "", "/test"))
+	body, err := json.Marshal(NewProblemDetail("about:blank", "Error", 500, ""))
 	if err != nil {
 		t.Fatalf("marshal problem: %v", err)
 	}
@@ -151,9 +151,11 @@ func TestProblemDetailAlwaysIncludesDetail(t *testing.T) {
 	}
 }
 
-func TestNewValidationProblemUsesAppErrorsValidationError(t *testing.T) {
+func TestValidationProblemUsesAppErrorsValidationError(t *testing.T) {
 	errs := []apperrors.ValidationError{{Resource: "TTSSettings", Field: "model", Message: "invalid model"}}
-	body, err := json.Marshal(NewValidationProblem("Validation failed", "/tts-settings", errs))
+	problem := NewProblemDetail(ProblemTypeValidationError, "Validation Error", 422, "Validation failed")
+	problem.Errors = errs
+	body, err := json.Marshal(problem)
 	if err != nil {
 		t.Fatalf("marshal problem: %v", err)
 	}

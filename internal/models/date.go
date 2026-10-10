@@ -2,7 +2,6 @@ package models
 
 import (
 	"database/sql/driver"
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -12,7 +11,7 @@ type Date time.Time
 
 // MarshalJSON implements json.Marshaler for a calendar date.
 func (d Date) MarshalJSON() ([]byte, error) {
-	return json.Marshal(time.Time(d).Format(time.DateOnly))
+	return time.Time(d).AppendFormat([]byte(`"`), time.DateOnly+`"`), nil
 }
 
 // Scan implements sql.Scanner for MySQL DATE values read with parseTime=true.
