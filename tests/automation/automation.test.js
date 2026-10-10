@@ -15,12 +15,14 @@ describe('Automation', () => {
 
   describe('Parameter Validation', () => {
     test.each([
-      ['when max_age missing, then returns 422', { key: automationKey }],
-      ['when max_age invalid, then returns 422', { key: automationKey, max_age: 'invalid' }],
-      ['when max_age negative, then returns 422', { key: automationKey, max_age: '-100' }]
-    ])('%s', async (_name, params) => {
+      ['when max_age missing, then returns 422', { key: automationKey }, 'required'],
+      ['when max_age invalid, then returns 422', { key: automationKey, max_age: 'invalid' }, 'invalid_format'],
+      ['when max_age negative, then returns 422', { key: automationKey, max_age: '-100' }, 'out_of_range'],
+      ['when max_age overflows a duration, then returns 422', { key: automationKey, max_age: '9223372036854775807' }, 'out_of_range']
+    ])('%s', async (_name, params, code) => {
       const response = await global.helpers.publicBulletinRequest(1, params);
       expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'max_age', code })]);
     });
 
     test('when station ID invalid, then returns 422', async () => {
@@ -33,6 +35,7 @@ describe('Automation', () => {
       });
 
       expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'id', code: 'invalid_format' })]);
     });
   });
 
@@ -46,7 +49,7 @@ describe('Automation', () => {
       expect(response.status).toBe(404);
     });
 
-    test('when station has no stories, then returns 422', async () => {
+    test('when station has no stories, then returns 409', async () => {
       const station = await global.helpers.createStation(global.resources, 'Empty Automation Station');
       expect(station).not.toBeNull();
 
@@ -55,7 +58,8 @@ describe('Automation', () => {
         max_age: '0'
       });
 
-      expect(response.status).toBe(422);
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('bulletin.no_stories');
     });
   });
 
@@ -99,37 +103,24 @@ describe('Automation', () => {
       stationId = station.id;
     });
 
-    test('when first request, then generates new bulletin', async () => {
-      // Uses station setup from beforeAll
-
-      const response = await global.helpers.publicBulletinRequest(stationId, {
+    test('when requesting twice within max age, then reuses the generated bulletin', async () => {
+      const generated = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      expect(response.status).toBe(200);
-      expect(response.headers['x-bulletin-cached']).toBe('false');
-      expect(response.headers['x-bulletin-id']).toBeDefined();
-    });
+      expect(generated.status).toBe(200);
+      expect(generated.headers['x-bulletin-cached']).toBe('false');
+      expect(generated.headers['x-bulletin-id']).toBeDefined();
 
-    test('when subsequent request, then returns cached', async () => {
-      // First request generates new bulletin
-      const response1 = await global.helpers.publicBulletinRequest(stationId, {
-        key: automationKey,
-        max_age: '0'
-      });
-      expect(response1.status).toBe(200);
-      expect(response1.headers['x-bulletin-id']).toBeDefined();
-
-      // Second request with high max_age should use cache
-      const response2 = await global.helpers.publicBulletinRequest(stationId, {
+      const cached = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '3600'
       });
 
-      expect(response2.status).toBe(200);
-      expect(response2.headers['x-bulletin-cached']).toBe('true');
-      expect(response2.headers['x-bulletin-id']).toBeDefined();
+      expect(cached.status).toBe(200);
+      expect(cached.headers['x-bulletin-cached']).toBe('true');
+      expect(cached.headers['x-bulletin-id']).toBe(generated.headers['x-bulletin-id']);
     });
   });
 
@@ -148,8 +139,6 @@ describe('Automation', () => {
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
-
       // Use today only
       const today = new Date();
       const year = today.getFullYear();
@@ -157,7 +146,7 @@ describe('Automation', () => {
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      await global.helpers.requireStationStoriesWithReadyAudio(global.resources, stationId, voiceId, [{
+      await global.helpers.requireStoriesWithReadyAudio(global.resources, voiceId, [{
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
         start_date: todayStr,

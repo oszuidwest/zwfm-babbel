@@ -100,6 +100,9 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 func (s *BulletinJobService) Enqueue(ctx context.Context, stationID int64) (*models.BulletinJob, error) {
 	job, err := s.repo.Create(ctx, stationID)
 	if err != nil {
+		if errors.Is(err, repository.ErrForeignKeyViolation) {
+			return nil, apperrors.NotFoundWithID("Station", stationID)
+		}
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
 	}
 	select {

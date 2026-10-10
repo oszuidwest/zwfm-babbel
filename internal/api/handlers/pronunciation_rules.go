@@ -46,7 +46,7 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 // UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
 	var req utils.PronunciationRulesUpdateRequest
-	if !utils.BindJSONStrict(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 

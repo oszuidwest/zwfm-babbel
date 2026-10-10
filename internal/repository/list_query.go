@@ -59,7 +59,7 @@ type SortField struct {
 }
 
 // FilterOperator names a filter operator. Values equal the public query
-// operator names because InvalidFilterError echoes them in 422 field labels.
+// operator names.
 type FilterOperator string
 
 const (
@@ -89,6 +89,8 @@ const (
 
 // FilterCondition holds a field, operator, and raw query values.
 type FilterCondition struct {
+	// Key is the literal query key, such as filter[status][eq], used to label errors.
+	Key      string
 	Field    string
 	Operator FilterOperator
 	// Values holds the raw query values: one for scalar operators, two for
@@ -99,6 +101,7 @@ type FilterCondition struct {
 // UnknownFieldError reports a field that is unavailable for filtering or sorting.
 type UnknownFieldError struct {
 	Kind  string // "filter" or "sort"
+	Key   string // literal query key: "sort" or the filter key
 	Field string
 }
 
@@ -109,14 +112,18 @@ func (e *UnknownFieldError) Error() string {
 
 // InvalidFilterError reports an unsupported operator or invalid filter values.
 type InvalidFilterError struct {
+	Key      string // literal query key
 	Field    string
 	Operator FilterOperator
-	Reason   string
+	// Code is the API field-error code: "unsupported", "invalid_format",
+	// "invalid_choice" or "out_of_range".
+	Code   string
+	Reason string
 }
 
 // Error returns the invalid filter message.
 func (e *InvalidFilterError) Error() string {
-	return fmt.Sprintf("invalid filter[%s][%s]: %s", e.Field, e.Operator, e.Reason)
+	return fmt.Sprintf("invalid %s: %s", e.Key, e.Reason)
 }
 
 // ListQuery contains parameters for listing entities.
@@ -234,7 +241,7 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 	for _, sf := range userSort {
 		field, ok := fieldMapping[sf.Field]
 		if !ok || field.Type == filterPresence {
-			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
+			return nil, &UnknownFieldError{Kind: "sort", Key: "sort", Field: sf.Field}
 		}
 		db = db.Order(field.Column + " " + sortDirectionSQL(sf.Direction))
 	}
@@ -265,7 +272,7 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	// SQL identifiers cannot be parameterized, so only mapped columns are allowed.
 	field, ok := fieldMapping[filter.Field]
 	if !ok {
-		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
+		return nil, &UnknownFieldError{Kind: "filter", Key: filter.Key, Field: filter.Field}
 	}
 	args, err := field.bind(filter)
 	if err != nil {
@@ -294,25 +301,25 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 // bind checks the operator and value count, then parses every value into its
 // bind argument.
 func (f FilterField) bind(filter FilterCondition) ([]any, error) {
-	invalid := func(reason string) error {
-		return &InvalidFilterError{Field: filter.Field, Operator: filter.Operator, Reason: reason}
+	invalid := func(code, reason string) error {
+		return &InvalidFilterError{Key: filter.Key, Field: filter.Field, Operator: filter.Operator, Code: code, Reason: reason}
 	}
 	if !f.allowsOperator(filter.Operator) {
-		return nil, invalid("operator not allowed on this field")
+		return nil, invalid("unsupported", "operator not allowed on this field")
 	}
 	n := len(filter.Values)
 	switch filter.Operator {
 	case FilterIn:
 		if n == 0 {
-			return nil, invalid("expected comma-separated values")
+			return nil, invalid("invalid_format", "expected comma-separated values")
 		}
 	case FilterBetween:
 		if n != 2 {
-			return nil, invalid("expected two comma-separated values")
+			return nil, invalid("invalid_format", "expected two comma-separated values")
 		}
 	default:
 		if n != 1 {
-			return nil, invalid("expected a single value")
+			return nil, invalid("invalid_format", "expected a single value")
 		}
 	}
 	args := make([]any, n)
@@ -324,11 +331,23 @@ func (f FilterField) bind(filter FilterCondition) ([]any, error) {
 			args[i], err = f.parseValue(raw)
 		}
 		if err != nil {
-			return nil, invalid(err.Error())
+			code := "invalid_format"
+			if valueErr, ok := errors.AsType[*filterValueError](err); ok {
+				code = valueErr.code
+			}
+			return nil, invalid(code, err.Error())
 		}
 	}
 	return args, nil
 }
+
+// filterValueError is a well-formed filter value outside the allowed values;
+// code is the API field-error code. Other value errors are format errors.
+type filterValueError struct {
+	code, message string
+}
+
+func (e *filterValueError) Error() string { return e.message }
 
 func (f FilterField) allowsOperator(op FilterOperator) bool {
 	switch op {
@@ -364,15 +383,19 @@ func (f FilterField) parseValue(raw string) (any, error) {
 	case filterDateTime:
 		return parseDateTime(raw, time.Local)
 	case filterBitmask:
-		if mask, err := strconv.ParseUint(raw, 10, 7); err == nil {
-			return mask, nil
+		mask, err := strconv.ParseUint(raw, 10, 64)
+		switch {
+		case err != nil && !errors.Is(err, strconv.ErrRange):
+			return nil, errors.New("expected integer between 0 and 127")
+		case err != nil || mask > 127:
+			return nil, &filterValueError{code: "out_of_range", message: "expected integer between 0 and 127"}
 		}
-		return nil, errors.New("expected integer between 0 and 127")
+		return mask, nil
 	case filterEnum:
 		if slices.Contains(f.Enum, raw) {
 			return raw, nil
 		}
-		return nil, errors.New("expected one of " + strings.Join(f.Enum, ", "))
+		return nil, &filterValueError{code: "invalid_choice", message: "expected one of " + strings.Join(f.Enum, ", ")}
 	}
 	if !validLiteral(f.Type, raw) {
 		return nil, errors.New("expected " + string(f.Type))

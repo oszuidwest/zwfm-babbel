@@ -296,7 +296,8 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 // StartOAuthFlow saves the login state and redirects to the OIDC provider.
 func (s *Service) StartOAuthFlow(c *gin.Context) {
 	if !s.config.Method.SupportsOIDC() {
-		utils.ProblemBadRequest(c, "OAuth authentication is disabled")
+		utils.ProblemCustom(c, utils.ProblemTypeResourceNotFound, "Resource Not Found", http.StatusNotFound,
+			"OAuth authentication is disabled")
 		return
 	}
 

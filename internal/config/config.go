@@ -120,9 +120,12 @@ type DatabaseConfig struct {
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
+// MaxPasswordBytes is the longest password bcrypt accepts.
+const MaxPasswordBytes = 72
+
 // LocalAuthConfig defines password policy and lockout rules for local authentication.
 type LocalAuthConfig struct {
-	// MinPasswordLength must be between 8 and 128.
+	// MinPasswordLength must be between 8 and 72, the bcrypt byte limit.
 	MinPasswordLength      int  `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
 	RequireUppercase       bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
 	RequireLowercase       bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
@@ -341,6 +344,10 @@ func (c *Config) validateCore() error {
 }
 
 func (c *Config) validateAuth() error {
+	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
+		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
+	}
+
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
@@ -411,9 +418,6 @@ func (c *Config) validateDatabasePool() error {
 }
 
 func (c *Config) validateLocalAuth() error {
-	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > 128 {
-		return errors.New("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128")
-	}
 	if c.Auth.Local.MaxLoginAttempts < 1 {
 		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
 	}

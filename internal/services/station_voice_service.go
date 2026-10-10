@@ -71,10 +71,10 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 	var result *models.StationVoice
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		if err := requireExists(txCtx, s.stationRepo.Exists, "StationVoice", "Station", req.StationID); err != nil {
+		if err := requireReference(txCtx, s.stationRepo.Exists, "StationVoice", "station_id", req.StationID); err != nil {
 			return err
 		}
-		if err := requireExists(txCtx, s.voiceRepo.Exists, "StationVoice", "Voice", req.VoiceID); err != nil {
+		if err := requireReference(txCtx, s.voiceRepo.Exists, "StationVoice", "voice_id", req.VoiceID); err != nil {
 			return err
 		}
 
@@ -133,12 +133,12 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 // station/voice pair stays unique. Binding enforces ID and mix_point ranges.
 func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int64, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
 	if req.StationID != nil {
-		if err := requireExists(ctx, s.stationRepo.Exists, "StationVoice", "Station", *req.StationID); err != nil {
+		if err := requireReference(ctx, s.stationRepo.Exists, "StationVoice", "station_id", *req.StationID); err != nil {
 			return err
 		}
 	}
 	if req.VoiceID != nil {
-		if err := requireExists(ctx, s.voiceRepo.Exists, "StationVoice", "Voice", *req.VoiceID); err != nil {
+		if err := requireReference(ctx, s.voiceRepo.Exists, "StationVoice", "voice_id", *req.VoiceID); err != nil {
 			return err
 		}
 	}

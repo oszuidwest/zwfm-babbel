@@ -203,14 +203,9 @@ class TestHelpers {
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @param {number[]} targetStations
    * @returns {Promise<{id: number}|null>}
    */
-  async createStory(resourceManager, data, targetStations) {
-    if (!targetStations || targetStations.length === 0) {
-      return null;
-    }
-
+  async createStory(resourceManager, data) {
     const today = new Date();
     const year = today.getFullYear();
 
@@ -225,7 +220,6 @@ class TestHelpers {
       end_date: data.end_date || `${year + 1}-12-31`,
       weekdays: data.weekdays !== undefined ? data.weekdays : 127,
       is_breaking: data.is_breaking !== undefined ? data.is_breaking : false,
-      target_stations: targetStations.map(id => parseSafeInteger(id, 'target station ID')),
       metadata: data.metadata || null
     };
 
@@ -242,10 +236,9 @@ class TestHelpers {
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @param {number[]} targetStations
    * @returns {Promise<{id: number}|null>}
    */
-  async createStoryWithAudio(resourceManager, data, targetStations) {
+  async createStoryWithAudio(resourceManager, data) {
     if (!this.isFFmpegAvailable()) {
       return null;
     }
@@ -257,7 +250,7 @@ class TestHelpers {
     }
 
     try {
-      const story = await this.createStory(resourceManager, data, targetStations);
+      const story = await this.createStory(resourceManager, data);
 
       if (!story) {
         return null;
@@ -279,11 +272,10 @@ class TestHelpers {
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @param {number[]} targetStations
    * @returns {Promise<{id: number}|null>}
    */
-  async createStoryWithReadyAudio(resourceManager, data, targetStations) {
-    const story = await this.createStoryWithAudio(resourceManager, data, targetStations);
+  async createStoryWithReadyAudio(resourceManager, data) {
+    const story = await this.createStoryWithAudio(resourceManager, data);
     if (!story) {
       return null;
     }
@@ -296,11 +288,10 @@ class TestHelpers {
    * Fails fast when the fixture cannot be prepared.
    * @param {Object} resourceManager
    * @param {Object} data
-   * @param {number[]} targetStations
    * @returns {Promise<{id: number}>}
    */
-  async requireStoryWithReadyAudio(resourceManager, data, targetStations) {
-    const story = await this.createStoryWithReadyAudio(resourceManager, data, targetStations);
+  async requireStoryWithReadyAudio(resourceManager, data) {
+    const story = await this.createStoryWithReadyAudio(resourceManager, data);
     if (!story) {
       throw new Error(`Failed to create ready story audio fixture: ${data.title || 'untitled story'}`);
     }
@@ -310,13 +301,11 @@ class TestHelpers {
   /**
    * Returns null if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
-   * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {Object[]} stories
    * @returns {Promise<Array<{id: number}>|null>}
    */
-  async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
-    const safeStationId = parseSafeInteger(stationId, 'station ID');
+  async createStoriesWithReadyAudio(resourceManager, voiceId, stories) {
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
     const created = [];
 
@@ -326,7 +315,7 @@ class TestHelpers {
         weekdays: 127,
         status: 'active',
         ...story
-      }, [safeStationId]);
+      });
 
       if (!createdStory) {
         return null;
@@ -340,15 +329,14 @@ class TestHelpers {
 
   /**
    * @param {Object} resourceManager
-   * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {Object[]} stories
    * @returns {Promise<Array<{id: number}>>}
    */
-  async requireStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
-    const created = await this.createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories);
+  async requireStoriesWithReadyAudio(resourceManager, voiceId, stories) {
+    const created = await this.createStoriesWithReadyAudio(resourceManager, voiceId, stories);
     if (!created) {
-      throw new Error(`Failed to create ready story audio fixtures for station ${stationId} and voice ${voiceId}`);
+      throw new Error(`Failed to create ready story audio fixtures for voice ${voiceId}`);
     }
     return created;
   }
@@ -463,7 +451,7 @@ class TestHelpers {
       ...storyOverrides
     };
 
-    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData, [station.id]);
+    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData);
 
     return { station, voice, stationVoice, story };
   }
@@ -487,11 +475,17 @@ class TestHelpers {
       validateStatus: () => true
     });
 
+    const contentType = response.headers['content-type'] || '';
+    // Errors are problem+json; decode them so tests can assert on the body.
+    const data = contentType.includes('json')
+      ? JSON.parse(Buffer.from(response.data).toString('utf8'))
+      : response.data;
+
     return {
       status: response.status,
-      data: response.data,
+      data,
       headers: response.headers,
-      contentType: response.headers['content-type']
+      contentType
     };
   }
 }

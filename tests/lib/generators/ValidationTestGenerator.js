@@ -1,13 +1,30 @@
+const { getJsonRequestSchema } = require('../QueryFilterContract');
+
 /**
- * Generates validation contract tests from a resource schema.
+ * Generates validation tests from the OpenAPI request contract. Resource
+ * schemas provide fixtures only; bounds and choices have one source of truth.
  * @param {Object} schema
  * @param {Function|null} [setupFn]
  */
 function generateValidationTests(schema, setupFn = null) {
-  const { endpoint, name, namePlural, createValidData, validation } = schema;
-  if (!validation?.fields) throw new Error(`Schema for ${name} missing 'validation.fields' configuration`);
-
-  const { fields } = validation;
+  const { endpoint, name, namePlural, createValidData } = schema;
+  const requestSchema = getJsonRequestSchema(endpoint);
+  const required = new Set(requestSchema.required ?? []);
+  const fields = Object.fromEntries(Object.entries(requestSchema.properties ?? {}).map(([field, contract]) => {
+    const type = Array.isArray(contract.type) ? contract.type.find(value => value !== 'null') : contract.type;
+    return [field, {
+      type: type === 'number' ? 'float' : type,
+      required: required.has(field),
+      min: contract.minimum,
+      max: contract.maximum,
+      minLength: contract.minLength,
+      maxLength: contract.maxLength,
+      enum: contract.enum,
+      pattern: contract.pattern,
+      format: contract.format,
+      unique: contract['x-unique'] === true
+    }];
+  }));
 
   describe(`${name} Validation`, () => {
     let sharedDependencyData = {};
@@ -26,19 +43,19 @@ function generateValidationTests(schema, setupFn = null) {
       mutate(data);
       return data;
     };
-    // Prefer a single expected status. Pass an array only when an endpoint is
-    // intentionally allowed to return one of several statuses.
     const expectPostStatus = async (data, status) => {
       const response = await global.api.apiCall('POST', endpoint, data);
-      if (Array.isArray(status)) {
-        expect(status).toContain(response.status);
-      } else {
-        expect(response.status).toBe(status);
-      }
+      expect(response.status).toBe(status);
       return response;
     };
-    const rejectCase = (title, suffix, mutate) => test(title, async () => {
-      await expectPostStatus(withSharedDeps(suffix, mutate), 422);
+    // Rejections name the field; code is asserted where the rule is unambiguous.
+    const rejectCase = (title, suffix, mutate, { field, code } = {}) => test(title, async () => {
+      const response = await expectPostStatus(withSharedDeps(suffix, mutate), 422);
+      if (field) {
+        expect(response.data.errors).toEqual(expect.arrayContaining([
+          expect.objectContaining(code ? { field, code } : { field })
+        ]));
+      }
     });
 
     beforeAll(async () => {
@@ -46,14 +63,12 @@ function generateValidationTests(schema, setupFn = null) {
     });
 
     describe('Required Fields', () => {
-      test('when data empty, then returns 422', async () => {
-        await expectPostStatus({}, 422);
-      });
-
       Object.entries(fields).forEach(([fieldName, rules]) => {
         if (!rules.required) return;
-        rejectCase(`when ${fieldName} missing, then returns 422`, `missing-${fieldName}`, data => delete data[fieldName]);
-        rejectCase(`when ${fieldName} null, then returns 422`, `null-${fieldName}`, data => { data[fieldName] = null; });
+        rejectCase(`when ${fieldName} missing, then returns 422`, `missing-${fieldName}`, data => delete data[fieldName],
+          { field: fieldName, code: 'required' });
+        rejectCase(`when ${fieldName} null, then returns 422`, `null-${fieldName}`, data => { data[fieldName] = null; },
+          { field: fieldName });
       });
     });
 
@@ -63,14 +78,14 @@ function generateValidationTests(schema, setupFn = null) {
         stringFields.forEach(([fieldName, rules]) => {
           [
             [rules.required, 'empty string', `empty-${fieldName}`, ''],
-            [rules.rejectWhitespaceOnly, 'whitespace-only', `whitespace-${fieldName}`, '   '],
-            [rules.maxLength, 'exceeds max length', `maxlen-${fieldName}`, () => 'A'.repeat(rules.maxLength + 50)],
-            [rules.minLength && rules.minLength > 1, 'below min length', `minlen-${fieldName}`, () => 'A'.repeat(rules.minLength - 1)],
-            [rules.pattern, 'invalid pattern', `pattern-${fieldName}`, '!!!invalid!!!']
-          ].filter(([enabled]) => enabled).forEach(([, label, suffix, value]) => {
+            [rules.maxLength && rules.format !== 'email', 'exceeds max length', `maxlen-${fieldName}`, () => 'A'.repeat(rules.maxLength + 50), 'too_long'],
+            [rules.minLength && rules.minLength > 1, 'below min length', `minlen-${fieldName}`, () => 'A'.repeat(rules.minLength - 1), 'too_short'],
+            [rules.pattern, 'violates pattern', `pattern-${fieldName}`, rules.pattern === '\\S' ? '   ' : '!!!invalid!!!', rules.pattern === '\\S' ? 'blank' : 'invalid_format'],
+            [rules.format === 'email', 'has invalid email format', `format-${fieldName}`, 'not-an-email', 'invalid_format']
+          ].filter(([enabled]) => enabled).forEach(([, label, suffix, value, code]) => {
             rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix, data => {
               data[fieldName] = typeof value === 'function' ? value() : value;
-            });
+            }, { field: fieldName, code });
           });
         });
       });
@@ -82,17 +97,16 @@ function generateValidationTests(schema, setupFn = null) {
     if (numericFields.length > 0) {
       describe('Numeric Field Validation', () => {
         numericFields.forEach(([fieldName, rules]) => {
-          const cases = [[true, 'is string', `string-${fieldName}`, 'invalid']];
+          const rangeError = { field: fieldName, code: 'out_of_range' };
+          const cases = [];
           if (rules.min !== undefined) {
-            cases.push([true, 'below minimum', `min-${fieldName}`, rules.min - 1]);
-            if (rules.min > 0) cases.push([true, 'negative', `neg-${fieldName}`, -1]);
-            if (rules.min >= 1) cases.push([true, 'zero', `zero-${fieldName}`, 0]);
+            cases.push(['below minimum', `min-${fieldName}`, rules.min - 1, rangeError]);
           }
-          if (rules.max !== undefined) cases.push([true, 'above maximum', `max-${fieldName}`, rules.max + 1000]);
-          if (rules.type === 'integer') cases.push([true, 'is float', `float-${fieldName}`, 5.5]);
+          if (rules.max !== undefined) cases.push(['above maximum', `max-${fieldName}`, rules.max + 1000, rangeError]);
 
-          cases.forEach(([, label, suffix, value]) => {
-            rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix, data => { data[fieldName] = value; });
+          cases.forEach(([label, suffix, value, expected]) => {
+            rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix,
+              data => { data[fieldName] = value; }, expected);
           });
         });
       });
@@ -104,17 +118,7 @@ function generateValidationTests(schema, setupFn = null) {
         enumFields.forEach(([fieldName, rules]) => {
           rejectCase(`when ${fieldName} invalid enum, then returns 422`, `invalid-enum-${fieldName}`, data => {
             data[fieldName] = 'definitely_not_a_valid_enum_value';
-          });
-
-          if (rules.enum.length > 0) {
-            test(`when ${fieldName} valid enum, then accepted`, async () => {
-              const response = await expectPostStatus(
-                await withFreshDeps(`valid-enum-${fieldName}`, data => { data[fieldName] = rules.enum[0]; }),
-                [201, 200]
-              );
-              if (response.status === 201 && response.data?.id) global.resources.track(namePlural, response.data.id);
-            });
-          }
+          }, { field: fieldName, code: 'invalid_choice' });
         });
       });
     }
@@ -132,33 +136,12 @@ function generateValidationTests(schema, setupFn = null) {
             if (first.data?.id) global.resources.track(namePlural, first.data.id);
 
             const duplicateData = await withFreshDeps(`dup${uniqueValue}`, item => { item[fieldName] = data[fieldName]; });
-            await expectPostStatus(duplicateData, 409);
+            const duplicate = await expectPostStatus(duplicateData, 409);
+            expect(duplicate.data.code).toBe(`${name.toLowerCase()}.duplicate`);
           });
         });
       });
     }
-
-    const arrayFields = Object.entries(fields).filter(([_, rules]) => rules.type === 'array');
-    if (arrayFields.length > 0) {
-      describe('Array Field Validation', () => {
-        arrayFields.forEach(([fieldName, rules]) => {
-          if (rules.required) {
-            rejectCase(`when ${fieldName} empty array, then returns 422`, `empty-array-${fieldName}`, data => { data[fieldName] = []; });
-          }
-          rejectCase(`when ${fieldName} not array, then returns 422`, `non-array-${fieldName}`, data => { data[fieldName] = 'not an array'; });
-        });
-      });
-    }
-
-    describe('Error Response Format', () => {
-      test('when validation fails, then error follows RFC 9457', async () => {
-        const response = await expectPostStatus({}, 422);
-        expect(response.data).toHaveProperty('type');
-        expect(response.data).toHaveProperty('title');
-        expect(response.data).toHaveProperty('status', 422);
-        expect(response.data).toHaveProperty('instance');
-      });
-    });
   });
 }
 

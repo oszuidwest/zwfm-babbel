@@ -1,6 +1,6 @@
 package utils
 
-import "encoding/json"
+import "encoding/json/v2"
 
 // Optional represents a JSON field that distinguishes three states:
 //   - Absent:  Set=false, Value=nil  (field not in JSON body)
@@ -14,13 +14,13 @@ import "encoding/json"
 // Integrates with the repository layer's Clear* flag convention:
 //
 //	if opt.IsClearing() { updates.ClearField = true }
-//	if opt.HasValue()   { updates.Field = opt.Value }
+//	updates.Field = opt.Value
 type Optional[T any] struct {
 	Set   bool
 	Value *T
 }
 
-// UnmarshalJSON implements json.Unmarshaler.
+// UnmarshalJSON implements json.Unmarshaler using v2 error semantics.
 // Only called when the field is present in the JSON body.
 func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	o.Set = true
@@ -33,11 +33,6 @@ func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	}
 	o.Value = &v
 	return nil
-}
-
-// HasValue reports whether the field was present with a non-null value.
-func (o Optional[T]) HasValue() bool {
-	return o.Set && o.Value != nil
 }
 
 // IsClearing reports whether the field was explicitly set to null.

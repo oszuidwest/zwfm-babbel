@@ -6,6 +6,7 @@ const OpenApiContractValidator = require('../lib/OpenApiContractValidator');
 const TestHelpers = require('../lib/TestHelpers');
 
 const SPEC_PATH = path.join(__dirname, '../../openapi.yaml');
+const TTS_ENABLED = process.env.BABBEL_TEST_TTS_ENABLED === 'true';
 
 describe('OpenAPI Contract', () => {
   let validator;
@@ -42,12 +43,17 @@ describe('OpenAPI Contract', () => {
       ),
       apiScenario('GET', '/api/v1/auth/config', '/auth/config'),
       apiScenario('POST', '/api/v1/sessions', '/sessions', { username: 'admin', password: 'admin' }),
-      rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }),
+      // The default test environment has no OIDC provider, so starting OAuth
+      // returns the documented not-found response instead of redirecting.
+      rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }, 404),
+      // The test environment has no frontend URL for callback redirects; this
+      // deliberately exercises the documented configuration-error response.
       rawScenario(
         'GET',
         '/api/v1/auth/oauth/callback',
         () => `${global.api.apiUrl}/auth/oauth/callback?state=contract&code=contract`,
-        { maxRedirects: 0 }
+        { maxRedirects: 0 },
+        500
       ),
       apiScenario('GET', '/api/v1/sessions/current', '/sessions/current'),
       scenario('DELETE', '/api/v1/sessions/current', async () => {
@@ -66,11 +72,12 @@ describe('OpenAPI Contract', () => {
             pathParams: { id: '0' }
           })).toThrow(/path parameter id does not match schema/);
 
-          // ...and the server must answer it with the documented 400 problem.
+          // ...and the server must answer it with the documented 422 problem.
           const response = await global.api.apiCall('GET', '/stations/0');
           validator.validateResponse({ method: 'GET', operationPath: '/api/v1/stations/{id}', response });
-          expect(response.status).toBe(400);
-          expect(response.data.type).toBe('https://babbel.api/problems/bad-request');
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          expect(response.data.errors).toEqual([expect.objectContaining({ field: 'id', code: 'out_of_range' })]);
           return response;
         }, 'GET /api/v1/stations/{id} invalid id'),
       scenario('GET', '/api/v1/stations', async () => {
@@ -255,15 +262,25 @@ describe('OpenAPI Contract', () => {
           try {
             const response = await global.api.uploadFile(`/stories/${ctx.story.id}/audio`, {}, oversizedPath, 'audio');
             validator.validateResponse({ method: 'POST', operationPath: '/api/v1/stories/{id}/audio', response });
-            expect(response.status).toBe(422);
-            expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
-            expect(response.data.errors[0].message).toContain('file too large');
+            expect(response.status).toBe(413);
+            expect(response.data.type).toBe('https://babbel.api/problems/payload-too-large');
             return response;
           } finally {
             cleanupFile(oversizedPath);
           }
         }, 'POST /api/v1/stories/{id}/audio oversized upload'),
-      apiScenario('POST', '/api/v1/stories/{id}/tts', () => `/stories/${ctx.story.id}/tts`),
+      // The preceding upload leaves the contract story with audio. Enabled TTS
+      // therefore reaches story.audio_exists; disabled TTS rejects earlier.
+      scenario('POST', '/api/v1/stories/{id}/tts', async () => {
+          const response = await apiCall(
+            'POST',
+            '/api/v1/stories/{id}/tts',
+            `/stories/${ctx.story.id}/tts`
+          );
+          expect(response.status).toBe(TTS_ENABLED ? 409 : 501);
+          expect(response.data.code).toBe(TTS_ENABLED ? 'story.audio_exists' : 'tts.not_configured');
+          return response;
+        }),
       apiScenario('GET', '/api/v1/settings/tts', '/settings/tts'),
       scenario('PATCH', '/api/v1/settings/tts', async () => {
           const current = await global.api.apiCall('GET', '/settings/tts');
@@ -281,13 +298,13 @@ describe('OpenAPI Contract', () => {
           status: 'active'
         })),
       scenario('DELETE', '/api/v1/stories/{id}', async () => {
-          const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'), [ctx.station.id]);
+          const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'));
           expect(story).not.toBeNull();
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
         }),
       apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
       scenario('PUT', '/api/v1/stories/{id}', async () => {
-          const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'), [ctx.station.id]);
+          const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'));
           expect(story).not.toBeNull();
           expect((await global.api.apiCall('DELETE', `/stories/${story.id}`)).status).toBe(204);
           const response = await apiCall('PUT', '/api/v1/stories/{id}', `/stories/${story.id}`, { title: 'Changed' });
@@ -306,7 +323,7 @@ describe('OpenAPI Contract', () => {
         '/api/v1/users/{id}',
         () => `/users/${ctx.user.id}`,
         { email: null, suspended: null },
-        { status: 400, code: 'user.validation_failed' }
+        { status: 422, type: 'https://babbel.api/problems/validation-error' }
       ),
       scenario('DELETE', '/api/v1/users/{id}', async () => {
           const createResponse = await global.api.apiCall('POST', '/users', userBody('delete'));
@@ -323,11 +340,11 @@ describe('OpenAPI Contract', () => {
             '/api/v1/stations/{id}/bulletins/latest',
             `/stations/${ctx.station.id}/bulletins/latest`
           );
+          expect(response.status).toBe(200);
           expect(response.data).not.toHaveProperty('data');
-          expect(response.data.id).toBe(ctx.bulletin.id);
+          expect(response.data.id).toBeGreaterThanOrEqual(ctx.bulletin.id);
           return response;
         }),
-      // Must follow the latest-bulletin check because it creates a newer one.
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const response = await apiCall(
             'POST',
@@ -336,11 +353,16 @@ describe('OpenAPI Contract', () => {
           );
           expect(response.status).toBe(202);
           expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
-          ctx.generationJobId = response.data.id;
           return response;
         }),
       scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
-          const job = (await global.helpers.waitForBulletinJob(ctx.generationJobId)).data;
+          const accepted = await apiCall(
+            'POST',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins`
+          );
+          expect(accepted.status).toBe(202);
+          const job = (await global.helpers.waitForBulletinJob(accepted.data.id)).data;
           expect(job.status).toBe('succeeded');
           return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
         }),
@@ -415,24 +437,38 @@ describe('OpenAPI Contract', () => {
     return typeof value === 'function' ? value() : value;
   }
 
-  function apiScenario(method, operationPath, endpoint, body, options) {
-    return scenario(method, operationPath, () => apiCall(method, operationPath, resolve(endpoint), resolve(body), resolve(options) || {}));
+  function apiScenario(method, operationPath, endpoint, body, options, expectedStatus = method === 'POST' ? 201 : 200) {
+    return scenario(method, operationPath, async () => {
+      const response = await apiCall(method, operationPath, resolve(endpoint), resolve(body), resolve(options) || {});
+      expect(response.status).toBe(expectedStatus);
+      return response;
+    });
   }
 
   function trackedApiScenario(method, operationPath, endpoint, body, resourceType) {
     return scenario(method, operationPath, async () => {
       const response = await apiCall(method, operationPath, resolve(endpoint), resolve(body));
+      expect(response.status).toBe(201);
+      expect(response.data.id).toEqual(expect.any(Number));
       global.resources.track(resourceType, response.data.id);
       return response;
     });
   }
 
-  function rawScenario(method, operationPath, url, options) {
-    return scenario(method, operationPath, () => rawCall(method, operationPath, resolve(url), resolve(options) || {}));
+  function rawScenario(method, operationPath, url, options, expectedStatus = 200) {
+    return scenario(method, operationPath, async () => {
+      const response = await rawCall(method, operationPath, resolve(url), resolve(options) || {});
+      expect(response.status).toBe(expectedStatus);
+      return response;
+    });
   }
 
   function uploadScenario(operationPath, endpoint, fileFieldName, requestBody) {
-    return scenario('POST', operationPath, () => uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody));
+    return scenario('POST', operationPath, async () => {
+      const response = await uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody);
+      expect(response.status).toBe(201);
+      return response;
+    });
   }
 
   function byteRangeScenario(operationPath, url, extraAssertions) {
@@ -481,6 +517,7 @@ describe('OpenAPI Contract', () => {
   function sparseListScenario(method, operationPath, endpoint, fields) {
     return scenario(method, operationPath, async () => {
       const response = await apiCall(method, operationPath, resolve(endpoint));
+      expect(response.status).toBe(200);
 
       const resolvedEndpoint = resolve(endpoint);
       const separator = resolvedEndpoint.includes('?') ? '&' : '?';
@@ -612,7 +649,7 @@ async function createContractContext() {
   expect(stationVoice).not.toBeNull();
   await uploadFixture(`/station-voices/${stationVoice.id}/audio`, 'jingle');
 
-  const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id), [station.id]);
+  const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id));
   expect(story).not.toBeNull();
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);

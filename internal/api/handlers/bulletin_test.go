@@ -27,8 +27,8 @@ func TestGenerateBulletinCombinesAcceptHeaders(t *testing.T) {
 
 	(&Handlers{}).GenerateBulletin(context)
 
-	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("GenerateBulletin() status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	if recorder.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("GenerateBulletin() status = %d, want %d", recorder.Code, http.StatusUnprocessableEntity)
 	}
 }
 
@@ -74,22 +74,23 @@ func TestAcceptsJSON(t *testing.T) {
 
 func TestGenerateBulletinRejectsDate(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		body string
+		name      string
+		body      string
+		wantField string
 	}{
-		{name: "empty date", body: `{"date":""}`},
-		{name: "null date", body: `{"date":null}`},
-		{name: "case insensitive date", body: `{"Date":"2026-10-07"}`},
+		{name: "empty date", body: `{"date":""}`, wantField: "date"},
+		{name: "null date", body: `{"date":null}`, wantField: "date"},
+		{name: "names are case-sensitive", body: `{"Date":"2026-10-07"}`, wantField: "Date"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			c, recorder := newGenerateBulletinContext(t, "1", test.body)
 
 			(&Handlers{}).GenerateBulletin(c)
 
-			if recorder.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("status = %d, want 422; body = %s", recorder.Code, recorder.Body.String())
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body = %s", recorder.Code, recorder.Body.String())
 			}
-			assertValidationField(t, recorder, "date")
+			assertFieldError(t, recorder, test.wantField, "unknown_field")
 		})
 	}
 }

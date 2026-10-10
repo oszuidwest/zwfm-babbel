@@ -75,11 +75,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
-		return nil, apperrors.NewValidationProblemError(
-			"tts_settings",
-			"One or more fields failed validation",
-			validationErrs,
-		)
+		return nil, &apperrors.ValidationError{Errors: validationErrs}
 	}
 
 	update := &repository.TTSSettingsUpdate{
@@ -140,12 +136,12 @@ func seedUpdateValue(seed *int64) *uint32 {
 	return &value
 }
 
-func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.ValidationError {
-	errs := []apperrors.ValidationError{}
+func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldError {
+	errs := []apperrors.FieldError{}
 
 	errs = append(errs, validateStability(req.Stability)...)
 	if v := req.ApplyTextNormalization; v != nil && !slices.Contains(allowedTextNormalizations, *v) {
-		errs = append(errs, fieldError("apply_text_normalization",
+		errs = append(errs, fieldError("apply_text_normalization", apperrors.CodeInvalidChoice,
 			"must be one of: "+strings.Join(allowedTextNormalizations, ", ")))
 	}
 	errs = append(errs, validateSeed(req.Seed)...)
@@ -154,29 +150,29 @@ func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.Valida
 	return errs
 }
 
-func validateStability(value *float64) []apperrors.ValidationError {
+func validateStability(value *float64) []apperrors.FieldError {
 	if value == nil || (*value >= 0 && *value <= 1) {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("stability", "must be between 0 and 1")}
+	return []apperrors.FieldError{fieldError("stability", apperrors.CodeOutOfRange, "must be between 0 and 1")}
 }
 
-func validateSeed(seed *int64) []apperrors.ValidationError {
+func validateSeed(seed *int64) []apperrors.FieldError {
 	if seed == nil || (*seed >= 0 && *seed <= maxElevenLabsSeedUint32) {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("seed", "must be between 0 and 4294967295")}
+	return []apperrors.FieldError{fieldError("seed", apperrors.CodeOutOfRange, "must be between 0 and 4294967295")}
 }
 
-func validateTTSStylePrefix(prefix *string) []apperrors.ValidationError {
+func validateTTSStylePrefix(prefix *string) []apperrors.FieldError {
 	if prefix == nil || utf8.RuneCountInString(*prefix) <= maxTTSStylePrefixRunes {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("tts_style_prefix", "must be at most 500 characters")}
+	return []apperrors.FieldError{fieldError("tts_style_prefix", apperrors.CodeTooLong, "must be at most 500 characters")}
 }
 
-func fieldError(field, message string) apperrors.ValidationError {
-	return apperrors.ValidationError{Field: field, Message: message}
+func fieldError(field, code, message string) apperrors.FieldError {
+	return apperrors.FieldError{Field: field, Code: code, Message: message}
 }
 
 func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) {

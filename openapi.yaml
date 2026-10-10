@@ -14,6 +14,46 @@ info:
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
     - Metadata: Returned as a JSON object
 
+    ## Validation errors
+
+    Errors are RFC 9457 Problem Details (`application/problem+json`). The
+    status tells what is wrong with the request:
+    - **400 Bad Request** (type `https://babbel.api/problems/bad-request`):
+      the body is not a valid JSON document for the endpoint. This covers
+      malformed JSON, trailing content, a duplicate member, a wrong JSON
+      type, an unknown member (names are case-sensitive), a root that is not
+      an object, and a missing required body. Malformed multipart form data
+      is also 400.
+    - **422 Unprocessable Entity** (type
+      `https://babbel.api/problems/validation-error`): the request is
+      well-formed, but the API rejects a value. This covers field rules,
+      cross-field rules such as date order, body references to resources
+      that do not exist (such as `voice_id` or `station_id`), an update that
+      sets no field, an invalid path `id`, invalid query parameters, and a
+      missing, unsupported or silent uploaded file.
+    - **409 Conflict**: the request conflicts with the current server state,
+      for example a duplicate name, a resource with dependencies, a story
+      that is not ready for TTS, or the last admin. The `code` member names
+      the conflict and `hint` suggests a fix. There is no `errors[]`.
+    - **404 Not Found**: only the resource in the URL path does not exist.
+    - **413 Payload Too Large**: the body is above the limit (1 MB for JSON
+      bodies, 100 MB for an uploaded audio file).
+
+    Every 400 and 422 response has an `errors[]` array with at least one
+    item. Each item has the string members `field`, `code` and `message`:
+    - `field` names the rejected value. For the body it is a path with JSON
+      names, a dot for members and `[n]` for array indices: `title`,
+      `rules[0].ipa`. For a query parameter it is the key as sent: `limit`,
+      `sort`, `filter[status][not]`. The path parameter is `id`. An uploaded
+      file uses the multipart field name: `audio` or `jingle`. `request`
+      means the body as a whole.
+    - `code` is one of `required`, `blank`, `too_short`, `too_long`,
+      `out_of_range`, `invalid_format`, `invalid_choice`, `invalid_type`,
+      `invalid_json`, `unknown_field`, `not_found`, `date_order`,
+      `empty_update`, `duplicate`, `unsupported` and `silent_audio`. The
+      list is closed; the `FieldError` schema describes each code.
+    - `message` is for people. Its wording can change; do not parse it.
+
     ## List queries
 
     Most list endpoints take `filter[field]` and `filter[field][operator]`.
@@ -21,22 +61,29 @@ info:
 
     ### Error labels
 
-    A 422 response names the rejected parameter in `errors[].field`:
-    - Implicit equality reports the canonical operator: `filter[status]=bad`
-      fails as `filter[status][eq]`.
-    - The `not` alias reports as `ne`: `filter[status][not]=bad` fails as
-      `filter[status][ne]`.
-    - An unknown field reports only the parameter name: `filter[bogus]=1`
-      fails as `filter`, and `sort=bogus` fails as `sort`.
-    - Duplicate, malformed and unknown-operator keys report the key as sent,
-      for example `filter[status][xyz]`. Operators are checked before fields,
-      so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
+    A 422 response names the rejected parameter in `errors[].field` with the
+    query key exactly as sent:
+    - `filter[status]=bad` fails as `filter[status]`, and
+      `filter[status][not]=bad` fails as `filter[status][not]`.
+    - An unknown field fails with code `unknown_field`: `filter[bogus]=1`
+      fails as `filter[bogus]`, `sort=bogus` as `sort` and `fields=bogus`
+      as `fields`.
+    - Duplicate, malformed and unknown-operator keys also report the key as
+      sent, for example `filter[status][xyz]`. Operators are checked before
+      fields, so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
     - Validation stops at the first invalid filter; `errors[]` names only that filter.
+    - Endpoints that support only `limit` and `offset` report non-empty
+      `search`, parsed `sort`/`fields`, `trashed`, and well-formed filters
+      with known operators as `unsupported`, using each key as sent. Shared
+      parsing runs first: duplicate keys produce `duplicate`, malformed filter
+      keys `invalid_format`, and unknown filter operators or invalid sort
+      directions `invalid_choice`. Other unknown keys are ignored unless
+      repeated; empty non-filter options are ignored.
 
     ### NULL
 
     - The string `null` is not SQL NULL. Non-string fields reject it with 422:
-      `filter[voice_id]=null` fails as `filter[voice_id][eq]`. String fields
+      `filter[voice_id]=null` fails as `filter[voice_id]`. String fields
       compare it as text under the column collation: `filter[title]=null`
       selects stories titled `null` (or `NULL`).
     - On fields with a nullable filter schema (for example story `voice_id`
@@ -85,6 +132,9 @@ info:
       returns 422. A comma fraction is kept instead of truncated.
     - `trashed` on list endpoints without soft deletion returns 422 instead
       of being ignored.
+    - `errors[].field` is the query key as sent. `filter[status]=bad` used
+      to fail as `filter[status][eq]`, `filter[status][not]=bad` as
+      `filter[status][ne]`, and `filter[bogus]=1` as `filter`.
 
     ## Authentication
 
@@ -203,6 +253,7 @@ paths:
         - If `max_age > 0`: Returns cached bulletin if created on the current local day and younger than max_age, otherwise generates new
         - If `max_age = 0`: Always generates a fresh bulletin
         - If endpoint is disabled (no API key configured): Returns 404
+        - If the station has no eligible stories: Returns 409 `bulletin.no_stories`
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
         Concurrent requests for the same station will queue for up to
@@ -305,14 +356,31 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
-        '416':
-          $ref: '#/components/responses/RangeNotSatisfiable'
-        '422':
-          description: Invalid parameters
+        '409':
+          description: The station has no eligible stories for a new bulletin (`bulletin.no_stories`)
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetails'
+                $ref: '#/components/schemas/ConflictError'
+              example:
+                type: "https://babbel.api/problems/bulletin.no_stories"
+                title: "Conflict"
+                status: 409
+                detail: "no active stories available for station 1"
+                instance: "/public/stations/1/bulletin.wav"
+                code: "bulletin.no_stories"
+                hint: "Add active stories with audio before generating a bulletin"
+        '416':
+          $ref: '#/components/responses/RangeNotSatisfiable'
+        '422':
+          description: |
+            Invalid path or query parameter. `errors[].field` is `id` or
+            `max_age`; `max_age` fails with `required`, `invalid_format` or
+            `out_of_range`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
         '500':
           description: Bulletin generation failed
           content:
@@ -365,6 +433,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required:
                 - username
                 - password
@@ -398,6 +467,27 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          description: A missing or empty `username` or `password` fails with code `required`.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "The request contains invalid data"
+                instance: "/api/v1/sessions"
+                errors:
+                  - field: "username"
+                    code: "required"
+                    message: "is required"
+                  - field: "password"
+                    code: "required"
+                    message: "is required"
 
   /api/v1/auth/oauth:
     get:
@@ -429,8 +519,18 @@ paths:
               schema:
                 type: string
                 description: OAuth provider authorization URL
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: OAuth authentication is disabled
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/resource-not-found"
+                title: "Resource Not Found"
+                status: 404
+                detail: "OAuth authentication is disabled"
+                instance: "/api/v1/auth/oauth"
         '500':
           description: Session storage failed before the redirect
           content:
@@ -675,8 +775,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Station'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -731,8 +831,8 @@ paths:
       responses:
         '204':
           description: Station deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -840,6 +940,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required:
                 - name
               properties:
@@ -848,10 +949,14 @@ paths:
                   minLength: 1
                   maxLength: 255
                   pattern: '\S'
+                  x-unique: true
                 elevenlabs_voice_id:
                   type: [string, 'null']
-                  maxLength: 255
-                  description: ElevenLabs voice identifier for TTS generation
+                  pattern: '^[A-Za-z0-9_-]{8,64}$'
+                  description: |
+                    ElevenLabs voice identifier for TTS generation: 8-64
+                    letters, digits, hyphens or underscores. Other values fail
+                    with 422 (`invalid_format`).
       responses:
         '201':
           description: Voice created
@@ -898,8 +1003,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Voice'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -921,6 +1026,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               minProperties: 1
               properties:
                 name:
@@ -930,8 +1036,11 @@ paths:
                   pattern: '\S'
                 elevenlabs_voice_id:
                   type: [string, 'null']
-                  maxLength: 255
-                  description: ElevenLabs voice identifier for TTS generation (set to null or empty string to clear)
+                  pattern: '^[A-Za-z0-9_-]{8,64}$'
+                  description: |
+                    ElevenLabs voice identifier for TTS generation: 8-64
+                    letters, digits, hyphens or underscores. Set to null to
+                    clear it; an empty string fails with 422 (`invalid_format`).
       responses:
         '200':
           description: Voice updated successfully
@@ -965,8 +1074,8 @@ paths:
       responses:
         '204':
           description: Voice deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1078,6 +1187,8 @@ paths:
       summary: Create a new story
       description: |
         Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
+        A `voice_id` that does not exist fails with 422 (`voice_id`, `not_found`).
+        An `end_date` before `start_date` fails with 422 (`end_date`, `date_order`).
       tags:
         - Stories
       requestBody:
@@ -1116,12 +1227,8 @@ paths:
                     message: "Story created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          description: The referenced voice does not exist
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -1163,8 +1270,8 @@ paths:
           $ref: '#/components/responses/AudioPartialContent'
         '304':
           $ref: '#/components/responses/AudioNotModified'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '416':
@@ -1181,6 +1288,14 @@ paths:
       description: |
         Upload audio file for a story. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
         Audio duration is automatically calculated and stored.
+
+        Errors:
+        - 400: the body is not valid multipart form data (`request`, `invalid_format`).
+        - 413: the file is larger than 100 MB.
+        - 422: the `audio` file is missing (`required`), has an unsupported
+          extension (`unsupported`), or is silent or below -50 LUFS
+          (`silent_audio`). Existing audio is kept.
+        - 500: the server could not store or process the file.
       tags:
         - Stories
       parameters:
@@ -1200,7 +1315,7 @@ paths:
                   description: |
                     Audio file (WAV, MP3, M4A, AAC, OGG, FLAC, or Opus).
                     Maximum file size is 100 MB; larger uploads are rejected
-                    with 422 Unprocessable Entity.
+                    with 413 Payload Too Large.
       responses:
         '201':
           description: Audio uploaded successfully
@@ -1220,6 +1335,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '410':
           $ref: '#/components/responses/StoryDeleted'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '401':
@@ -1263,9 +1380,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum: ["true"]
-          description: Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio.
+            type: boolean
+            default: false
+          description: |
+            Set to `true` to overwrite existing audio. Without it, a story that
+            already has audio fails with 409 `story.audio_exists`. A value that
+            is not a boolean fails with 422 (`errors[].field` is `force`, code
+            `invalid_format`).
       responses:
         '201':
           description: TTS audio generated successfully
@@ -1279,20 +1400,29 @@ paths:
                   message:
                     type: string
                     example: "TTS audio generated successfully"
-        '400':
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
           description: |
-            Validation error. Possible causes:
-            - Story has no text
-            - Story has no voice assigned
-            - Voice has no ElevenLabs voice ID configured
-            - Story already has audio (use ?force=true to overwrite)
-            - ElevenLabs voice ID not found
+            The story or its voice is not ready for TTS. `code` is one of:
+            - `story.audio_exists` - the story already has audio; retry with `?force=true` to overwrite it
+            - `story.no_text` - the story has no text
+            - `story.no_voice` - the story has no voice assigned
+            - `voice.no_elevenlabs_id` - the voice has no ElevenLabs voice ID configured
+            - `voice.elevenlabs_not_found` - ElevenLabs does not know the configured voice ID
+            - `story.tts_text_too_long` - the story text with the style prefix is over the ElevenLabs limit
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/ProblemDetails'
-        '404':
-          $ref: '#/components/responses/NotFound'
+                $ref: '#/components/schemas/ConflictError'
+              example:
+                type: "https://babbel.api/problems/story.audio_exists"
+                title: "Conflict"
+                status: 409
+                detail: "Story already has audio"
+                instance: "/api/v1/stories/1/tts"
+                code: "story.audio_exists"
+                hint: "Use ?force=true to overwrite the existing audio"
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -1478,8 +1608,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Story'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -1494,6 +1624,8 @@ paths:
       description: |
         Update story with JSON body. All fields are optional - only provided fields will be updated.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
+        A body that sets no field fails with 422 (`request`, `empty_update`);
+        a `voice_id` that does not exist fails with 422 (`voice_id`, `not_found`).
       tags:
         - Stories
       parameters:
@@ -1524,6 +1656,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -1551,8 +1685,8 @@ paths:
       responses:
         '204':
           description: Story soft deleted successfully, including an already deleted story
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -1565,10 +1699,15 @@ paths:
       operationId: patchStoriesId
       summary: Update story state
       description: |
-        Update story status or restore soft-deleted stories. 
+        Update story status or restore soft-deleted stories.
         This endpoint can be used to:
         - Change story status (draft, active, expired)
         - Restore a soft-deleted story by setting deleted_at to empty string
+
+        Send exactly one of `status` and `deleted_at`. Neither fails with 422
+        (`request`, `empty_update`); both fail with 422 (`request`,
+        `unsupported`). An unknown status fails with 422 (`status`,
+        `invalid_choice`).
       tags:
         - Stories
       parameters:
@@ -1579,6 +1718,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 status:
                   type: string
@@ -1611,6 +1751,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '410':
           $ref: '#/components/responses/StoryDeleted'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '401':
@@ -1703,8 +1845,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -1801,8 +1941,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -1817,6 +1957,10 @@ paths:
       description: |
         Update user information. All fields are optional - only provided fields will be updated.
         Can also suspend/restore users by setting the suspended field to true/false.
+        An empty body or a body with only null values fails with 422
+        (`request`, `empty_update`). A present empty string is validated like
+        any other value: `full_name: ""` fails as `blank`, `role: ""` as
+        `invalid_choice` and `password: ""` as `too_short`.
       tags:
         - Users
       parameters:
@@ -1857,7 +2001,7 @@ paths:
         Soft-deletes a user account. All active sessions for the user will be terminated.
         The user no longer appears in default listings. List it with
         `trashed=only` or `trashed=with`.
-        Cannot delete the last admin user.
+        Deleting the last admin user fails with 409 `user.last_admin`.
       tags:
         - Users
       parameters:
@@ -1865,8 +2009,8 @@ paths:
       responses:
         '204':
           description: User deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1894,6 +2038,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 action:
                   type: string
@@ -1914,6 +2059,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '401':
@@ -2048,8 +2195,8 @@ paths:
                 file_size: 2965440
                 story_count: 4
                 created_at: "2024-01-20T14:05:00Z"
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2146,8 +2293,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -2169,12 +2314,22 @@ paths:
 
         Every request creates a generation job. A single background worker
         processes jobs one at a time in submission order. Each job generates for
-        the local day the worker runs it. Takes no request body; a `date` field
-        returns `422`.
+        the local day the worker runs it. The request body is optional: only
+        an empty body or `{}` is accepted. Any member, including `date`,
+        returns `400` with code `unknown_field`.
       tags:
         - Bulletin
       parameters:
         - $ref: '#/components/parameters/id'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              maxProperties: 0
+              description: Empty object; the endpoint takes no options.
       responses:
         '202':
           description: Bulletin generation job accepted
@@ -2228,8 +2383,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BulletinJob'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2265,8 +2420,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BulletinResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -2308,8 +2463,8 @@ paths:
           $ref: '#/components/responses/AudioPartialContent'
         '304':
           $ref: '#/components/responses/AudioNotModified'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '416':
@@ -2362,8 +2517,6 @@ paths:
                     total: 2
                     limit: 20
                     offset: 0
-        '400':
-          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -2471,6 +2624,8 @@ paths:
       summary: Create a new station-voice relationship
       description: |
         Create station-voice relationship with JSON body. Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
+        A `station_id` or `voice_id` that does not exist fails with 422
+        (`errors[].code` is `not_found`).
       tags:
         - Station-Voices
       requestBody:
@@ -2501,12 +2656,6 @@ paths:
                     message: "Station-voice relationship created successfully"
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          description: The referenced station or voice does not exist
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/ProblemDetails'
         '409':
           $ref: '#/components/responses/Conflict'
         '422':
@@ -2550,8 +2699,8 @@ paths:
           $ref: '#/components/responses/AudioPartialContent'
         '304':
           $ref: '#/components/responses/AudioNotModified'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '416':
@@ -2567,6 +2716,13 @@ paths:
       summary: Upload station-voice jingle file
       description: |
         Upload jingle audio file for a station-voice relationship. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
+
+        Errors:
+        - 400: the body is not valid multipart form data (`request`, `invalid_format`).
+        - 413: the file is larger than 100 MB.
+        - 422: the `jingle` file is missing (`required`) or has an unsupported
+          extension (`unsupported`).
+        - 500: the server could not store or process the file.
       tags:
         - Station-Voices
       parameters:
@@ -2586,7 +2742,7 @@ paths:
                   description: |
                     Jingle audio file (WAV, MP3, M4A, AAC, OGG, FLAC, or Opus).
                     Maximum file size is 100 MB; larger uploads are rejected
-                    with 422 Unprocessable Entity.
+                    with 413 Payload Too Large.
       responses:
         '201':
           description: Jingle uploaded successfully
@@ -2604,6 +2760,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '401':
@@ -2628,8 +2786,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StationVoice'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -2644,6 +2802,9 @@ paths:
       description: |
         Update station-voice relationship properties with JSON body. All fields are optional - only provided fields will be updated.
         When updating station_id or voice_id, the system checks for duplicate combinations.
+        A `station_id` or `voice_id` that does not exist fails with 422
+        (`errors[].code` is `not_found`); 404 means only that the station-voice
+        in the path does not exist.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
       tags:
         - Station-Voices
@@ -2692,8 +2853,8 @@ paths:
       responses:
         '204':
           description: Station-voice relationship deleted
-        '400':
-          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '404':
           $ref: '#/components/responses/NotFound'
         '401':
@@ -2761,8 +2922,10 @@ components:
         type: integer
         minimum: 1
       description: |
-        Resource ID. Must be a positive integer; a malformed, zero, or negative
-        ID is rejected with 400 Bad Request.
+        Resource ID. Must be a positive integer. A malformed ID is rejected
+        with 422 Unprocessable Entity (`errors[].field` is `id`, code
+        `invalid_format`); a zero, negative or too large ID with code
+        `out_of_range`.
     rangeHeader:
       name: Range
       in: header
@@ -3261,6 +3424,7 @@ components:
 
     StationInput:
       type: object
+      additionalProperties: false
       required:
         - name
         - max_stories_per_block
@@ -3511,6 +3675,7 @@ components:
 
     StationVoiceCreate:
       type: object
+      additionalProperties: false
       required:
         - station_id
         - voice_id
@@ -3536,6 +3701,7 @@ components:
 
     StationVoiceUpdate:
       type: object
+      additionalProperties: false
       minProperties: 1
       description: |
         Station-voice relationship update schema for JSON API.
@@ -3654,6 +3820,7 @@ components:
 
     StoryCreate:
       type: object
+      additionalProperties: false
       required:
         - title
         - text
@@ -3718,6 +3885,7 @@ components:
 
     StoryUpdate:
       type: object
+      additionalProperties: false
       minProperties: 1
       description: |
         Story update schema for JSON API.
@@ -3895,6 +4063,7 @@ components:
 
     UserInput:
       type: object
+      additionalProperties: false
       required:
         - username
         - full_name
@@ -3917,8 +4086,12 @@ components:
           type: string
           writeOnly: true
           minLength: 8
-          maxLength: 128
-          description: User password. Must satisfy the configured local password policy.
+          maxLength: 72
+          description: |
+            User password. Must satisfy the configured local password policy:
+            at least `BABBEL_AUTH_MIN_PASSWORD_LENGTH` characters (`too_short`),
+            at most 72 bytes in UTF-8 (`too_long`), and the configured
+            character classes (`invalid_format`).
         email:
           type: [string, 'null']
           format: email
@@ -3939,6 +4112,7 @@ components:
 
     UserUpdate:
       type: object
+      additionalProperties: false
       description: |
         All fields are optional - only provided fields will be updated. Null is
         treated as omit. At least one non-null field must be provided; an
@@ -3979,8 +4153,11 @@ components:
           type: [string, 'null']
           writeOnly: true
           minLength: 8
-          maxLength: 128
-          description: New password. Must satisfy the configured local password policy. Null is treated as omit.
+          maxLength: 72
+          description: |
+            New password. Must satisfy the configured local password policy
+            (see `UserInput.password`); at most 72 bytes in UTF-8. Null is
+            treated as omit.
         email:
           anyOf:
             - type: string
@@ -4120,9 +4297,9 @@ components:
         ## Problem Types
 
         Generic problem type URIs (fixed):
-        - `https://babbel.api/problems/validation-error` - 422 request body or query parameter validation errors
+        - `https://babbel.api/problems/validation-error` - 422 rejected body, path or query values; has `errors[]`
         - `https://babbel.api/problems/resource-not-found` - 404 resource not found (generic)
-        - `https://babbel.api/problems/bad-request` - 400 malformed request
+        - `https://babbel.api/problems/bad-request` - 400 body is not valid JSON (or multipart form data) for the endpoint; has `errors[]`
         - `https://babbel.api/problems/payload-too-large` - 413 request body exceeds the API limit
         - `https://babbel.api/problems/authentication-required` - 401 authentication required
         - `https://babbel.api/problems/insufficient-permissions` - 403 insufficient permissions
@@ -4131,13 +4308,17 @@ components:
         Resource-specific problem type URIs follow the pattern
         `https://babbel.api/problems/{resource}.{error_type}` where the `code` field
         contains the `{resource}.{error_type}` value. Examples:
-        - `{resource}.not_found` - 404 typed resource not found
+        - `{resource}.not_found` - 404 typed resource not found (the resource in the URL path)
         - `story.deleted` - 410 write targeted a soft-deleted story; includes `deleted_at`
         - `{resource}.duplicate` - 409 unique constraint violation
         - `{resource}.has_dependencies` - 409 cannot delete, has dependent resources
-        - `{resource}.validation_failed` - 400 field-level validation error (also used for the "cannot delete last admin" constraint)
-        - `bulletin.no_stories` - 422 no active stories for bulletin generation
-        - `audio.silent` - 422 story audio is silent or below the -50 LUFS floor
+        - `{resource}.reference_missing` - 409 a referenced resource was deleted while the request ran
+        - `user.last_admin` - 409 cannot delete the last admin user
+        - `bulletin.no_stories` - 409 no active stories for bulletin generation
+        - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
+          `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
+        - `tts.upstream_failed` - 502 ElevenLabs failed, rejected the request or returned silent audio
+          (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
         - `internal.timeout` - 504 operation timed out
@@ -4188,25 +4369,114 @@ components:
           description: Original deletion timestamp, present for story.deleted problems
         errors:
           type: array
-          description: Field-level errors for validation or strict request-parsing responses (400 and 422)
+          description: |
+            Field-level errors. Present with at least one item on every 400
+            and 422 response; absent on other statuses.
           items:
-            type: object
-            properties:
-              field:
-                type: string
-                description: |
-                  Field or query parameter key that failed validation, such as
-                  `filter[status][eq]` or `sort`; see "Error labels" under "List queries".
-                example: "title"
-              message:
-                type: string
-                description: Human-readable error message
-                example: "Title is required"
+            $ref: '#/components/schemas/FieldError'
 
-    ValidationError:
+    FieldError:
+      type: object
+      description: One rejected request value.
+      required:
+        - field
+        - code
+        - message
+      properties:
+        field:
+          type: string
+          description: |
+            Public name of the rejected value:
+            - a body path with JSON names, a dot for members and `[n]` for
+              array indices, such as `title`, `rules[0].ipa` or `rules[1].string_to_replace`
+            - a query parameter key exactly as sent, such as `limit`, `sort`,
+              `fields`, `filter[status]` or `filter[status][not]`; see
+              "Error labels" under "List queries"
+            - `id` for the path parameter
+            - the multipart field name of an uploaded file: `audio` (story
+              audio) or `jingle` (station-voice audio)
+            - `request` for the body as a whole
+          example: "title"
+        code:
+          type: string
+          description: |
+            Why the value was rejected. The list is closed; clients can branch on it.
+            - `required` - a required value or the required body is missing
+            - `blank` - text is empty or only whitespace
+            - `too_short` / `too_long` - text or a list is too short or too
+              long; a password is `too_long` above 72 bytes
+            - `out_of_range` - a number is outside its bounds, including an ID of 0 or less
+            - `invalid_format` - a value is malformed: a date, an email, a
+              non-alphanumeric username, missing password character classes,
+              an ElevenLabs voice ID, a non-integer path ID or query number,
+              a non-boolean query flag, a malformed filter key or filter
+              value, or malformed multipart form data
+            - `invalid_choice` - a value is not in the allowed set, such as a
+              status, a role, a sort direction, a filter operator,
+              `apply_text_normalization` or `trashed`
+            - `invalid_type` - a body value has the wrong JSON type (400)
+            - `invalid_json` - the body is malformed JSON or has trailing content (400)
+            - `unknown_field` - an unknown body member (400), or an unknown
+              filter, sort or fields name (422)
+            - `not_found` - a body reference, such as `voice_id` or
+              `station_id`, names a resource that does not exist
+            - `date_order` - `end_date` is before `start_date`; `field` is
+              `start_date` when only `start_date` changed, otherwise `end_date`
+            - `empty_update` - the update sets no field; `field` is `request`
+            - `duplicate` - a duplicate JSON member (400), a repeated query
+              key, or a duplicate or conflicting pronunciation rule (422)
+            - `unsupported` - a query feature the endpoint does not support,
+              an operator the filter field does not support, an unsupported
+              upload file extension, or `status` combined with `deleted_at`
+              in `PATCH /stories/{id}`
+            - `silent_audio` - uploaded story audio is silent or below -50 LUFS; `field` is `audio`
+          enum:
+            - required
+            - blank
+            - too_short
+            - too_long
+            - out_of_range
+            - invalid_format
+            - invalid_choice
+            - invalid_type
+            - invalid_json
+            - unknown_field
+            - not_found
+            - date_order
+            - empty_update
+            - duplicate
+            - unsupported
+            - silent_audio
+          example: "required"
+        message:
+          type: string
+          description: Human-readable explanation. The wording can change; do not parse it.
+          example: "is required"
+
+    BadRequestError:
+      description: 400 problem; `errors[]` names each rejected part of the body.
       allOf:
         - $ref: '#/components/schemas/ProblemDetails'
         - type: object
+          required:
+            - errors
+          properties:
+            type:
+              example: "https://babbel.api/problems/bad-request"
+            title:
+              example: "Bad Request"
+            status:
+              example: 400
+            errors:
+              minItems: 1
+
+    ValidationError:
+      description: 422 problem; `errors[]` names each rejected value.
+      allOf:
+        - $ref: '#/components/schemas/ProblemDetails'
+        - type: object
+          required:
+            - errors
           properties:
             type:
               example: "https://babbel.api/problems/validation-error"
@@ -4214,6 +4484,8 @@ components:
               example: "Validation Error"
             status:
               example: 422
+            errors:
+              minItems: 1
 
     ConflictError:
       allOf:
@@ -4440,22 +4712,64 @@ components:
 
   responses:
     BadRequest:
-      description: Bad request
+      description: |
+        The body is not a valid JSON document for this endpoint: malformed
+        JSON, trailing content, a duplicate member, a wrong JSON type, an
+        unknown member, a root that is not an object, or a missing body. For
+        multipart uploads, the body is not valid multipart form data.
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ProblemDetails'
+            $ref: '#/components/schemas/BadRequestError'
           examples:
             unknown_field:
-              summary: Unknown request field
+              summary: Unknown request member
               value:
                 type: "https://babbel.api/problems/bad-request"
                 title: "Bad Request"
                 status: 400
-                detail: "Request body contains unknown fields"
+                detail: "Request body is not valid JSON for this endpoint"
+                instance: "/api/v1/stations"
                 errors:
                   - field: "unexpected_property"
+                    code: "unknown_field"
                     message: "unknown field"
+            invalid_type:
+              summary: Wrong JSON type inside an array item
+              value:
+                type: "https://babbel.api/problems/bad-request"
+                title: "Bad Request"
+                status: 400
+                detail: "Request body is not valid JSON for this endpoint"
+                instance: "/api/v1/settings/tts/pronunciations"
+                errors:
+                  - field: "rules[0].case_sensitive"
+                    code: "invalid_type"
+                    message: "expected boolean"
+            invalid_json:
+              summary: Malformed JSON
+              value:
+                type: "https://babbel.api/problems/bad-request"
+                title: "Bad Request"
+                status: 400
+                detail: "Request body is not valid JSON for this endpoint"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "request"
+                    code: "invalid_json"
+                    message: "jsontext: invalid character 'i' at start of value after offset 1"
+            invalid_multipart:
+              summary: Malformed multipart form data
+              value:
+                type: "https://babbel.api/problems/bad-request"
+                title: "Bad Request"
+                status: 400
+                detail: "Request body is not valid multipart form data"
+                instance: "/api/v1/stories/1/audio"
+                errors:
+                  - field: "request"
+                    code: "invalid_format"
+                    message: "request Content-Type isn't multipart/form-data"
     Unauthorized:
       description: Unauthorized
       headers:
@@ -4503,7 +4817,7 @@ components:
             code: "story.deleted"
             deleted_at: "2026-09-26T12:00:00+02:00"
     NotFound:
-      description: Resource not found
+      description: The resource in the URL path does not exist
       content:
         application/problem+json:
           schema:
@@ -4516,13 +4830,18 @@ components:
             $ref: '#/components/schemas/ProblemDetails'
     Conflict:
       description: |
-        Resource conflict (duplicate, constraint violation).
+        The request conflicts with the current server state.
 
         409 responses use resource-specific problem types in the pattern
-        `https://babbel.api/problems/{resource}.{error_type}`:
+        `https://babbel.api/problems/{code}`, with `title` "Conflict", a
+        top-level `code` and `hint`, and no `errors[]`:
         - `{resource}.duplicate` - Duplicate resource (e.g., `station.duplicate` when a station name already exists)
         - `{resource}.has_dependencies` - Resource has dependencies that prevent deletion
-        - `{resource}.conflict` - Other resource-state conflicts
+        - `{resource}.reference_missing` - A referenced resource was deleted while the request ran; reload and retry
+        - `user.last_admin` - The last admin user cannot be deleted
+        - `bulletin.no_stories` - No eligible stories for bulletin generation
+        - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
+          `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
       content:
         application/problem+json:
           schema:
@@ -4548,8 +4867,38 @@ components:
                 instance: "/api/v1/stations/1"
                 code: "station.has_dependencies"
                 hint: "Delete or reassign the associated related resources first"
+            last_admin:
+              summary: Deleting the last admin user
+              value:
+                type: "https://babbel.api/problems/user.last_admin"
+                title: "Conflict"
+                status: 409
+                detail: "Cannot delete the last admin user"
+                instance: "/api/v1/users/1"
+                code: "user.last_admin"
+                hint: "Give another user the admin role first"
+            reference_missing:
+              summary: A referenced resource was deleted concurrently
+              value:
+                type: "https://babbel.api/problems/story.reference_missing"
+                title: "Conflict"
+                status: 409
+                detail: "Story references a resource that no longer exists"
+                instance: "/api/v1/stories"
+                code: "story.reference_missing"
+                hint: "Reload the referenced resources and try again"
+            no_stories:
+              summary: No stories available for bulletin generation
+              value:
+                type: "https://babbel.api/problems/bulletin.no_stories"
+                title: "Conflict"
+                status: 409
+                detail: "no active stories available for station 1"
+                instance: "/public/stations/1/bulletin.wav"
+                code: "bulletin.no_stories"
+                hint: "Add active stories with audio before generating a bulletin"
     PayloadTooLarge:
-      description: Request body too large
+      description: Request body too large (above 1 MB for JSON, or an uploaded file above 100 MB)
       content:
         application/problem+json:
           schema:
@@ -4575,19 +4924,44 @@ components:
             code: "tts.rate_limited"
             hint: "Retry the request later"
     BadGateway:
-      description: Upstream service failed
+      description: |
+        Upstream service failed (`tts.upstream_failed`): ElevenLabs returned an
+        error, rejected the generated request, or returned silent audio.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetails'
-          example:
-            type: "https://babbel.api/problems/tts.upstream_failed"
-            title: "Bad Gateway"
-            status: 502
-            detail: "TTS upstream ElevenLabs failed"
-            instance: "/api/v1/stories/1/tts"
-            code: "tts.upstream_failed"
-            hint: "Please try again later"
+          examples:
+            upstream_failed:
+              summary: ElevenLabs returned an error
+              value:
+                type: "https://babbel.api/problems/tts.upstream_failed"
+                title: "Bad Gateway"
+                status: 502
+                detail: "TTS upstream ElevenLabs failed"
+                instance: "/api/v1/stories/1/tts"
+                code: "tts.upstream_failed"
+                hint: "Please try again later"
+            request_rejected:
+              summary: ElevenLabs rejected the generated request
+              value:
+                type: "https://babbel.api/problems/tts.upstream_failed"
+                title: "Bad Gateway"
+                status: 502
+                detail: "TTS upstream ElevenLabs failed"
+                instance: "/api/v1/stories/1/tts"
+                code: "tts.upstream_failed"
+                hint: "ElevenLabs rejected the generated request; check the TTS settings"
+            silent_audio:
+              summary: ElevenLabs returned silent audio
+              value:
+                type: "https://babbel.api/problems/tts.upstream_failed"
+                title: "Bad Gateway"
+                status: 502
+                detail: "TTS upstream ElevenLabs failed"
+                instance: "/api/v1/stories/1/tts"
+                code: "tts.upstream_failed"
+                hint: "ElevenLabs returned silent audio; try again"
     ServiceUnavailable:
       description: Service unavailable
       content:
@@ -4626,7 +5000,10 @@ components:
                 code: "tts.upstream_failed"
                 hint: "Check the ElevenLabs API key and account access"
     UnprocessableEntity:
-      description: Validation error
+      description: |
+        The request is well-formed, but the API rejects one or more values.
+        `errors[]` names each rejected body field, query parameter, path `id`
+        or uploaded file.
       content:
         application/problem+json:
           schema:
@@ -4638,33 +5015,75 @@ components:
                 type: "https://babbel.api/problems/validation-error"
                 title: "Validation Error"
                 status: 422
-                detail: "The request contains validation errors"
+                detail: "The request contains invalid data"
                 instance: "/api/v1/stations"
                 errors:
                   - field: "name"
-                    message: "Name is required"
+                    code: "required"
+                    message: "is required"
                   - field: "max_stories_per_block"
-                    message: "Must be between 1 and 50"
-            no_stories:
-              summary: No stories available for bulletin generation
+                    code: "out_of_range"
+                    message: "must be at most 50"
+            reference_not_found:
+              summary: A body reference names a resource that does not exist
               value:
-                type: "https://babbel.api/problems/bulletin.no_stories"
-                title: "Unprocessable Entity"
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
                 status: 422
-                detail: "no active stories available for bulletin generation"
-                instance: "/api/v1/stations/1/bulletins"
-                code: "bulletin.no_stories"
-                hint: "Add active stories with audio before generating a bulletin"
+                detail: "The request contains invalid data"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "voice_id"
+                    code: "not_found"
+                    message: "no resource with id 999"
+            empty_update:
+              summary: An update that sets no field
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "The request contains invalid data"
+                instance: "/api/v1/users/5"
+                errors:
+                  - field: "request"
+                    code: "empty_update"
+                    message: "At least one field must be provided"
+            invalid_path_id:
+              summary: Invalid path ID
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "Invalid path parameter"
+                instance: "/api/v1/stations/abc"
+                errors:
+                  - field: "id"
+                    code: "invalid_format"
+                    message: "expected integer, got \"abc\""
+            invalid_query:
+              summary: Invalid query parameter
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "Invalid query parameter"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "filter[status]"
+                    code: "invalid_choice"
+                    message: "expected one of draft, active, expired"
             silent_audio:
-              summary: Story audio is silent or below -50 LUFS; existing audio is preserved
+              summary: Uploaded story audio is silent or below -50 LUFS; existing audio is preserved
               value:
-                type: "https://babbel.api/problems/audio.silent"
-                title: "Unprocessable Entity"
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
                 status: 422
-                detail: "Audio is silent or too quiet"
+                detail: "The request contains invalid data"
                 instance: "/api/v1/stories/1/audio"
-                code: "audio.silent"
-                hint: "Check the recording level and input channel, then upload audible audio or regenerate speech"
+                errors:
+                  - field: "audio"
+                    code: "silent_audio"
+                    message: "audio is silent or too quiet; check the recording level and input channel"
     InternalServerError:
       description: Internal server error
       content:

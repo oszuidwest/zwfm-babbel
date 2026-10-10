@@ -18,57 +18,34 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPronunciationRulesResponseMapping(t *testing.T) {
-	updatedAt := time.Unix(1717200000, 0).UTC()
-	got := toPronunciationRulesResponse(&services.PronunciationRulesResponse{
-		Rules: []models.PronunciationRule{{
-			StringToReplace: "Albert Heijn",
-			IPA:             "ˈɑlbərt ˈɦɛin",
-			CaseSensitive:   true,
-			WordBoundaries:  false,
-		}},
-		UpdatedAt: &updatedAt,
-	})
-
-	if len(got.Rules) != 1 {
-		t.Fatalf("rules len = %d, want 1", len(got.Rules))
-	}
-	rule := got.Rules[0]
-	if rule.StringToReplace != "Albert Heijn" ||
-		rule.IPA != "ˈɑlbərt ˈɦɛin" ||
-		!rule.CaseSensitive ||
-		rule.WordBoundaries {
-		t.Fatalf("rule = %#v, want mapped pronunciation rule", rule)
-	}
-	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(updatedAt) {
-		t.Fatalf("updated_at = %v, want %v", got.UpdatedAt, updatedAt)
-	}
-}
-
 func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 	tests := []struct {
-		name      string
-		body      string
-		wantCode  int
-		wantField string
+		name           string
+		body           string
+		wantCode       int
+		wantField      string
+		wantFieldError string
 	}{
 		{
-			name:      "missing rules",
-			body:      `{}`,
-			wantCode:  http.StatusUnprocessableEntity,
-			wantField: "Rules",
+			name:           "missing rules",
+			body:           `{}`,
+			wantCode:       http.StatusUnprocessableEntity,
+			wantField:      "rules",
+			wantFieldError: "required",
 		},
 		{
-			name:      "alias is an unknown strict-binding field",
-			body:      `{"rules":[{"string_to_replace":"A","alias":"aa"}]}`,
-			wantCode:  http.StatusBadRequest,
-			wantField: "alias",
+			name:           "alias is an unknown field of its rule",
+			body:           `{"rules":[{"string_to_replace":"A","alias":"aa"}]}`,
+			wantCode:       http.StatusBadRequest,
+			wantField:      "rules[0].alias",
+			wantFieldError: "unknown_field",
 		},
 		{
-			name:      "unknown actor user id is rejected",
-			body:      `{"rules":[],"actor_user_id":1}`,
-			wantCode:  http.StatusBadRequest,
-			wantField: "actor_user_id",
+			name:           "unknown actor user id is rejected",
+			body:           `{"rules":[],"actor_user_id":1}`,
+			wantCode:       http.StatusBadRequest,
+			wantField:      "actor_user_id",
+			wantFieldError: "unknown_field",
 		},
 	}
 
@@ -86,7 +63,7 @@ func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 			if recorder.Code != tt.wantCode {
 				t.Fatalf("status = %d, want %d: %s", recorder.Code, tt.wantCode, recorder.Body.String())
 			}
-			assertValidationField(t, recorder, tt.wantField)
+			assertFieldError(t, recorder, tt.wantField, tt.wantFieldError)
 		})
 	}
 }

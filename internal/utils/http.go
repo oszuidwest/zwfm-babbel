@@ -5,10 +5,13 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -22,80 +25,98 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
 )
 
 const maxJSONRequestBodyBytes int64 = 1 << 20
 
-// IDParam extracts and validates the ID parameter from the request URL.
+// IDParam parses the positive integer id path parameter. On failure it writes
+// a 422 naming the id parameter and returns false.
 func IDParam(c *gin.Context) (int64, bool) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || id <= 0 {
-		ProblemBadRequest(c, "Invalid ID parameter")
-		return 0, false
+	raw := c.Param("id")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err == nil && id > 0 {
+		return id, true
 	}
-	return id, true
+	fe := apperrors.FieldError{Field: "id", Code: apperrors.CodeOutOfRange, Message: "must be a positive integer"}
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		fe.Message = "must be a positive 64-bit integer"
+	case err != nil:
+		fe.Code, fe.Message = apperrors.CodeInvalidFormat, fmt.Sprintf("expected integer, got %q", raw)
+	}
+	ProblemValidationError(c, "Invalid path parameter", fe)
+	return 0, false
 }
 
-// ValidateAndSaveAudioFile validates uploaded audio and stores it in a temp path.
-func ValidateAndSaveAudioFile(
-	c *gin.Context, fieldName string, prefix string,
-) (tempPath string, cleanup func() error, err error) {
-	file, header, err := c.Request.FormFile(fieldName)
+const maxAudioUploadBytes = 100 * 1024 * 1024
+
+var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
+
+// SaveAudioUpload stores the multipart file in field at a temporary path. On
+// failure it writes the response and returns false: 413 above 100 MB, 400 for
+// a body that is not multipart form data, 422 for a missing file or an
+// unsupported extension, and 500 when the file cannot be stored.
+func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
+	// Allow form overhead around a file at the size limit.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
+	file, header, err := c.Request.FormFile(field)
 	if err != nil {
-		return "", nil, err
-	}
-
-	if err := ValidateAudioFile(header); err != nil {
-		if closeErr := file.Close(); closeErr != nil {
-			logger.Warn("Failed to close file during validation error", "error", closeErr)
+		_, storageFailure := errors.AsType[*fs.PathError](err)
+		switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
+		case tooLarge:
+			ProblemPayloadTooLarge(c)
+		case errors.Is(err, http.ErrMissingFile):
+			ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+				Field: field, Code: apperrors.CodeRequired, Message: "file is required",
+			})
+		case storageFailure:
+			logger.Error("Failed to read uploaded audio", "error", err)
+			ProblemInternalServer(c, "Failed to store the uploaded file")
+		default:
+			ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
+				Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidFormat, Message: err.Error(),
+			})
 		}
-		return "", nil, fmt.Errorf("invalid audio file: %w", err)
+		return "", nil, false
 	}
 
-	safeFilename := SanitizeFilename(header.Filename)
-	tempPath = filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s", prefix, safeFilename))
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warn("Failed to close uploaded file", "error", err)
+		}
+	}()
 
+	if header.Size > maxAudioUploadBytes {
+		ProblemPayloadTooLarge(c)
+		return "", nil, false
+	}
+	if ext := strings.ToLower(filepath.Ext(header.Filename)); !slices.Contains(audioUploadExtensions, ext) {
+		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   field,
+			Code:    apperrors.CodeUnsupported,
+			Message: fmt.Sprintf("unsupported file type %q; use one of %s", ext, strings.Join(audioUploadExtensions, ", ")),
+		})
+		return "", nil, false
+	}
+
+	tempPath = filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s", prefix, SanitizeFilename(header.Filename)))
 	if err := saveFileToPath(file, tempPath); err != nil {
-		if closeErr := file.Close(); closeErr != nil {
-			logger.Warn("Failed to close file during save error", "error", closeErr)
-		}
-		return "", nil, err
+		logger.Error("Failed to store uploaded audio", "path", tempPath, "error", err)
+		ProblemInternalServer(c, "Failed to store the uploaded file")
+		return "", nil, false
 	}
 
 	cleanup = func() error {
-		var errs []error
-		if err := file.Close(); err != nil {
-			logger.Warn("Failed to close uploaded file during cleanup", "error", err)
-			errs = append(errs, err)
-		}
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
 			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
-			errs = append(errs, err)
+			return err
 		}
-		return errors.Join(errs...)
+		return nil
 	}
 
-	return tempPath, cleanup, nil
-}
-
-// ValidateAudioFile enforces the upload size limit and accepted audio
-// extensions before the file is written to permanent storage.
-func ValidateAudioFile(header *multipart.FileHeader) error {
-	const maxSize = 100 * 1024 * 1024
-	if header.Size > maxSize {
-		return fmt.Errorf("file too large (max 100MB)")
-	}
-
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	validExts := []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
-
-	if !slices.Contains(validExts, ext) {
-		return fmt.Errorf("unsupported file type: %s", ext)
-	}
-	return nil
+	return tempPath, cleanup, true
 }
 
 // SanitizeFilename removes path components and replaces spaces for storage
@@ -108,7 +129,7 @@ func SanitizeFilename(filename string) string {
 
 // saveFileToPath saves an uploaded multipart file to the specified path.
 func saveFileToPath(file multipart.File, dst string) error {
-	// #nosec G304 - dst is sanitized temp path from ValidateAndSaveAudioFile
+	// #nosec G304 - dst is sanitized temp path from SaveAudioUpload
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
@@ -124,31 +145,34 @@ func saveFileToPath(file multipart.File, dst string) error {
 }
 
 // StationRequest is the JSON body for creating or replacing radio station
-// settings. PauseSeconds is a pointer so an omitted field can fall back to the
-// default pause without conflating it with an explicit 0.
+// settings. Pointers distinguish omitted fields from explicit zeros: a missing
+// MaxStoriesPerBlock is required, a missing PauseSeconds falls back to the
+// default pause.
 type StationRequest struct {
 	Name               string   `json:"name" binding:"required,notblank,max=255"`
-	MaxStoriesPerBlock int      `json:"max_stories_per_block" binding:"gte=1,lte=50"`
+	MaxStoriesPerBlock *int     `json:"max_stories_per_block" binding:"required,gte=1,lte=50"`
 	PauseSeconds       *float64 `json:"pause_seconds" binding:"omitempty,gte=0,lte=60"`
 }
 
-// VoiceRequest is the JSON body for creating a newsreader voice.
+// VoiceRequest is the JSON body for creating a newsreader voice. The service
+// validates the ElevenLabs voice ID format.
 type VoiceRequest struct {
 	Name              string  `json:"name" binding:"required,notblank,max=255"`
-	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
+	ElevenLabsVoiceID *string `json:"elevenlabs_voice_id"`
 }
 
 // VoiceUpdateRequest is the JSON body for partial voice updates.
 // Name is omitted to skip updates; ElevenLabsVoiceID accepts JSON null to clear.
 type VoiceUpdateRequest struct {
 	Name              *string          `json:"name" binding:"omitempty,notblank,max=255"`
-	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id" binding:"omitempty,notblank,max=255"`
+	ElevenLabsVoiceID Optional[string] `json:"elevenlabs_voice_id"`
 }
 
 // StationVoiceRequest is the JSON body for linking a station to a voice.
+// Pointer IDs distinguish a missing ID from an explicit 0.
 type StationVoiceRequest struct {
-	StationID int64   `json:"station_id" binding:"required,min=1"`
-	VoiceID   int64   `json:"voice_id" binding:"required,min=1"`
+	StationID *int64  `json:"station_id" binding:"required,min=1"`
+	VoiceID   *int64  `json:"voice_id" binding:"required,min=1"`
 	MixPoint  float64 `json:"mix_point" binding:"gte=0,lte=300"`
 }
 
@@ -159,25 +183,27 @@ type StationVoiceUpdateRequest struct {
 	MixPoint  *float64 `json:"mix_point,omitempty" binding:"omitempty,gte=0,lte=300"`
 }
 
-// UserCreateRequest is the JSON body for creating local user accounts.
+// UserCreateRequest is the JSON body for creating local user accounts. The
+// service applies the configured password policy.
 type UserCreateRequest struct {
 	Username string             `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string             `json:"full_name" binding:"required,notblank,max=255"`
-	Password string             `json:"password" binding:"required,min=8,max=128"`
+	Password string             `json:"password" binding:"required"`
 	Email    *string            `json:"email" binding:"omitempty,email,max=255"`
 	Role     string             `json:"role" binding:"required,oneof=admin editor viewer"`
 	Metadata *datatypes.JSONMap `json:"metadata,omitempty"`
 }
 
-// UserUpdateRequest is the JSON body for partial account updates.
+// UserUpdateRequest is the JSON body for partial account updates. Nil fields
+// are left unchanged; an empty email clears the stored address.
 type UserUpdateRequest struct {
-	Username  string             `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
-	FullName  string             `json:"full_name" binding:"omitempty,notblank,max=255"`
-	Email     *string            `json:"email" binding:"omitempty,email,max=255"`
-	Password  string             `json:"password" binding:"omitempty,min=8,max=128"`
-	Role      string             `json:"role" binding:"omitempty,oneof=admin editor viewer"`
+	Username  *string            `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
+	FullName  *string            `json:"full_name" binding:"omitempty,notblank,max=255"`
+	Email     *string            `json:"email" binding:"omitempty,max=255,email|eq="`
+	Password  *string            `json:"password"`
+	Role      *string            `json:"role" binding:"omitempty,oneof=admin editor viewer"`
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
-	Suspended *bool              `json:"suspended" binding:"omitempty"`
+	Suspended *bool              `json:"suspended"`
 }
 
 // StoryCreateRequest is the JSON body for creating scheduled news stories.
@@ -185,11 +211,11 @@ type StoryCreateRequest struct {
 	Title     string `json:"title" binding:"required,notblank,max=500"`
 	Text      string `json:"text" binding:"required,notblank"`
 	VoiceID   *int64 `json:"voice_id" binding:"omitempty,min=1"`
-	Status    string `json:"status" binding:"omitempty,story_status"`
+	Status    string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate string `json:"start_date" binding:"required,dateformat"`
-	EndDate   string `json:"end_date" binding:"required,dateformat,dateafter=StartDate"`
-	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
-	Weekdays models.Weekdays `json:"weekdays"`
+	EndDate   string `json:"end_date" binding:"required,dateformat"`
+	// Weekdays is a models.Weekdays bitmask; 0 or omitted is stored as 127 (every day).
+	Weekdays int `json:"weekdays" binding:"gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
 	IsBreaking bool               `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
@@ -206,11 +232,11 @@ type StoryUpdateRequest struct {
 	Title     *string `json:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string `json:"text" binding:"omitempty,notblank"`
 	VoiceID   *int64  `json:"voice_id" binding:"omitempty,min=1"`
-	Status    *string `json:"status" binding:"omitempty,story_status"`
+	Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate *string `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string `json:"end_date" binding:"omitempty,dateformat"`
-	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
-	Weekdays *models.Weekdays `json:"weekdays"`
+	// Weekdays is a models.Weekdays bitmask; 0 selects no days, omission leaves it unchanged.
+	Weekdays *int `json:"weekdays" binding:"omitempty,gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
 	IsBreaking *bool              `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
@@ -262,135 +288,120 @@ func RequireAnyField[T comparable](c *gin.Context, req T) bool {
 	if req != zero {
 		return true
 	}
-	ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-		Field:   "request",
+	ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+		Field:   apperrors.FieldRequest,
+		Code:    apperrors.CodeEmptyUpdate,
 		Message: "At least one field must be provided",
-	}})
+	})
 	return false
 }
 
-// BindAndValidate decodes a JSON request, normalizes text fields, then validates.
-// Normalization runs before validation so that validators like notblank and max
-// operate on the decoded values rather than the raw encoded input.
-func BindAndValidate(c *gin.Context, req any) bool {
-	if err := newCappedJSONDecoder(c).Decode(req); err != nil {
+// BindJSON decodes a required JSON object body into req, rejecting unknown
+// members, then normalizes text fields and validates binding tags. On failure
+// it writes the response and returns false: 413 for an oversized body, 400 for
+// a body that is not a valid JSON document for req, and 422 for rejected values.
+func BindJSON(c *gin.Context, req any) bool {
+	return bindJSON(c, req, false)
+}
+
+// BindOptionalJSON is [BindJSON] for endpoints that also accept an empty body.
+func BindOptionalJSON(c *gin.Context, req any) bool {
+	return bindJSON(c, req, true)
+}
+
+func bindJSON(c *gin.Context, req any, optional bool) bool {
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
+	if err != nil {
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			ProblemPayloadTooLarge(c)
 			return false
 		}
-		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
-			{Field: "request", Message: "Invalid request format"},
-		})
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidJSON, Message: "request body could not be read"})
 		return false
 	}
 
-	return normalizeAndValidate(c, req)
-}
-
-// BindJSONStrict decodes JSON with unknown-field rejection, then normalizes and validates.
-func BindJSONStrict(c *gin.Context, req any) bool {
-	dec := newCappedJSONDecoder(c)
-	dec.DisallowUnknownFields()
-
-	if err := dec.Decode(req); err != nil {
-		handleStrictJSONDecodeError(c, err)
+	body = bytes.Trim(body, " \t\r\n")
+	switch {
+	case len(body) == 0 && optional:
+	case len(body) == 0:
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeRequired, Message: "request body is required"})
 		return false
+	case body[0] != '{':
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidType, Message: "request body must be a JSON object"})
+		return false
+	default:
+		if err := jsonv2.Unmarshal(body, req, jsonv2.RejectUnknownMembers(true)); err != nil {
+			fe := decodeFieldError(err)
+			if fe.Code == apperrors.CodeOutOfRange {
+				ProblemValidationError(c, "The request contains invalid data", fe)
+			} else {
+				problemInvalidJSON(c, fe)
+			}
+			return false
+		}
 	}
 
-	var extra any
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		ProblemBadRequestValidationError(
-			c,
-			"Request body contains invalid JSON",
-			[]apperrors.ValidationError{{Field: "request", Message: "unexpected trailing content"}},
-		)
-		return false
-	}
-
-	return normalizeAndValidate(c, req)
-}
-
-func newCappedJSONDecoder(c *gin.Context) *json.Decoder {
-	return json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
-}
-
-func normalizeAndValidate(c *gin.Context, req any) bool {
 	if n, ok := req.(textNormalizer); ok {
 		n.NormalizeText()
 	}
 
-	v, ok := binding.Validator.Engine().(*validator.Validate)
-	if !ok {
-		logger.Error("Validator engine is not *validator.Validate", "type", fmt.Sprintf("%T", binding.Validator.Engine()))
-		ProblemInternalServer(c, "Internal validation error")
+	if err := binding.Validator.ValidateStruct(req); err != nil {
+		ProblemValidationError(c, "The request contains invalid data", convertValidationErrors(err)...)
 		return false
 	}
-	if err := v.Struct(req); err != nil {
-		validationErrors := convertValidationErrors(err)
-		ProblemValidationError(c, "The request contains invalid data", validationErrors)
-		return false
-	}
-
 	return true
 }
 
-func handleStrictJSONDecodeError(c *gin.Context, err error) {
-	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-		ProblemPayloadTooLarge(c)
-		return
-	}
-
-	if errors.Is(err, io.EOF) {
-		ProblemBadRequestValidationError(
-			c,
-			"Request body contains invalid JSON",
-			[]apperrors.ValidationError{{Field: "request", Message: "request body is empty"}},
-		)
-		return
-	}
-
-	if typeErr, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
-		field := typeErr.Field
-		if field == "" {
-			field = "request"
-		}
-		ProblemBadRequestValidationError(
-			c,
-			"Request body contains invalid JSON",
-			[]apperrors.ValidationError{{
-				Field:   field,
-				Message: fmt.Sprintf("expected %s, got %s", expectedJSONType(typeErr.Type), typeErr.Value),
-			}},
-		)
-		return
-	}
-
-	if field, ok := unknownJSONField(err); ok {
-		ProblemBadRequestValidationError(
-			c,
-			"Request body contains unknown fields",
-			[]apperrors.ValidationError{{Field: field, Message: "unknown field"}},
-		)
-		return
-	}
-
-	ProblemBadRequestValidationError(
-		c,
-		"Request body contains invalid JSON",
-		[]apperrors.ValidationError{{Field: "request", Message: "invalid JSON: " + err.Error()}},
-	)
+func problemInvalidJSON(c *gin.Context, fe apperrors.FieldError) {
+	ProblemBadRequestValidationError(c, "Request body is not valid JSON for this endpoint", fe)
 }
 
-func unknownJSONField(err error) (string, bool) {
-	// encoding/json reports unknown fields as text, so parse the stable prefix.
-	const prefix = "json: unknown field "
-	message := err.Error()
-	if !strings.HasPrefix(message, prefix) {
-		return "", false
+// decodeFieldError classifies a JSON decoding error at the JSON path where it
+// occurred.
+func decodeFieldError(err error) apperrors.FieldError {
+	if semantic, ok := errors.AsType[*jsonv2.SemanticError](err); ok {
+		field := jsonPath(semantic.JSONPointer)
+		if errors.Is(err, strconv.ErrRange) {
+			return apperrors.FieldError{Field: field, Code: apperrors.CodeOutOfRange, Message: "number is out of range"}
+		}
+		if errors.Is(err, jsonv2.ErrUnknownName) {
+			return apperrors.FieldError{Field: field, Code: apperrors.CodeUnknownField, Message: "unknown field"}
+		}
+		goType := semantic.GoType
+		// Legacy custom unmarshalers may report their inner type in a v1 error.
+		if inner, ok := errors.AsType[*json.UnmarshalTypeError](semantic.Err); ok {
+			goType = inner.Type
+		}
+		return apperrors.FieldError{
+			Field:   field,
+			Code:    apperrors.CodeInvalidType,
+			Message: fmt.Sprintf("expected %s", expectedJSONType(goType)),
+		}
 	}
-	field := strings.TrimPrefix(message, prefix)
-	field = strings.Trim(field, `"`)
-	return field, field != ""
+	if syntactic, ok := errors.AsType[*jsontext.SyntacticError](err); ok && errors.Is(err, jsontext.ErrDuplicateName) {
+		return apperrors.FieldError{Field: jsonPath(syntactic.JSONPointer), Code: apperrors.CodeDuplicate, Message: "duplicate field"}
+	}
+	return apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidJSON, Message: err.Error()}
+}
+
+// jsonPath renders a JSON Pointer as a field path such as "rules[0].ipa".
+// Numeric tokens use brackets, including numeric keys inside metadata objects.
+func jsonPath(pointer jsontext.Pointer) string {
+	var b strings.Builder
+	for token := range pointer.Tokens() {
+		if _, err := strconv.Atoi(token); err == nil {
+			b.WriteString("[" + token + "]")
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('.')
+		}
+		b.WriteString(token)
+	}
+	if b.Len() == 0 {
+		return apperrors.FieldRequest
+	}
+	return b.String()
 }
 
 func expectedJSONType(t reflect.Type) string {
@@ -404,8 +415,9 @@ func expectedJSONType(t reflect.Type) string {
 	case reflect.Bool:
 		return "boolean"
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-		reflect.Float32, reflect.Float64:
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
 		return "number"
 	case reflect.String:
 		return "string"
@@ -418,93 +430,65 @@ func expectedJSONType(t reflect.Type) string {
 	}
 }
 
-// BindOptionalJSON accepts an empty body or decodes JSON into req. It writes a
-// Problem response and returns false for oversized, unreadable, or invalid input.
-func BindOptionalJSON(c *gin.Context, req any) bool {
-	if c == nil {
-		panic("utils: BindOptionalJSON requires a non-nil gin context")
-	}
-	if c.Request == nil || c.Request.Body == nil {
-		return true
-	}
-
-	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxJSONRequestBodyBytes))
-	if err != nil {
-		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-			ProblemPayloadTooLarge(c)
-			return false
-		}
-		ProblemBadRequest(c, fmt.Sprintf("Failed to read request body: %s", err.Error()))
-		return false
-	}
-
-	if len(bytes.TrimSpace(body)) == 0 {
-		return true
-	}
-
-	if err := json.Unmarshal(body, req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", []apperrors.ValidationError{
-			{Field: "request", Message: err.Error()},
-		})
-		return false
-	}
-
-	return true
-}
-
-func formatValidationMessage(field, tag, param string) string {
-	switch tag {
-	case "required":
-		return fmt.Sprintf("%s is required", field)
-	case "min":
-		if param == "1" {
-			return fmt.Sprintf("%s cannot be empty", field)
-		}
-		return fmt.Sprintf("%s must be at least %s characters", field, param)
-	case "max":
-		return fmt.Sprintf("%s cannot exceed %s characters", field, param)
-	case "email":
-		return fmt.Sprintf("%s must be a valid email address", field)
-	case "gte":
-		return fmt.Sprintf("%s must be at least %s", field, param)
-	case "lte":
-		return fmt.Sprintf("%s must be at most %s", field, param)
-	case "oneof":
-		return fmt.Sprintf("%s must be one of: %s", field, param)
-	case "alphanum":
-		return fmt.Sprintf("%s can only contain letters and numbers", field)
-	case "json":
-		return fmt.Sprintf("%s must be valid JSON", field)
-	case "notblank":
-		return fmt.Sprintf("%s cannot be empty or whitespace only", field)
-	case "story_status":
-		return fmt.Sprintf("%s must be one of: %s, %s, %s",
-			field, models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
-	case "dateformat":
-		return fmt.Sprintf("%s must be in YYYY-MM-DD format", field)
-	case "dateafter":
-		return fmt.Sprintf("%s must be after or equal to %s", field, param)
-	default:
-		return fmt.Sprintf("%s failed validation (%s)", field, tag)
-	}
-}
-
-func convertValidationErrors(err error) []apperrors.ValidationError {
+func convertValidationErrors(err error) []apperrors.FieldError {
 	validationErrors, ok := errors.AsType[validator.ValidationErrors](err)
 	if !ok {
-		return []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "Invalid request format",
+		logger.Error("Unexpected request validation error", "error", err)
+		return []apperrors.FieldError{{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeInvalidFormat,
+			Message: "Invalid request",
 		}}
 	}
 
-	validationErrs := make([]apperrors.ValidationError, 0, len(validationErrors))
+	errs := make([]apperrors.FieldError, 0, len(validationErrors))
 	for _, e := range validationErrors {
-		validationErrs = append(validationErrs, apperrors.ValidationError{
-			Field:   e.Field(),
-			Message: formatValidationMessage(e.Field(), e.Tag(), e.Param()),
-		})
+		code, message := describeValidationError(e)
+		errs = append(errs, apperrors.FieldError{Field: validationPath(e), Code: code, Message: message})
 	}
+	return errs
+}
 
-	return validationErrs
+// validationPath drops the root struct name from the validator namespace,
+// which InitializeValidators builds from JSON names.
+func validationPath(e validator.FieldError) string {
+	if _, path, ok := strings.Cut(e.Namespace(), "."); ok {
+		return path
+	}
+	return e.Field()
+}
+
+func describeValidationError(e validator.FieldError) (code, message string) {
+	param := e.Param()
+	isNumber := e.Kind() >= reflect.Int && e.Kind() <= reflect.Float64
+	switch e.Tag() {
+	case "required":
+		return apperrors.CodeRequired, "is required"
+	case "notblank":
+		return apperrors.CodeBlank, "cannot be empty or whitespace only"
+	case "min":
+		if isNumber {
+			return apperrors.CodeOutOfRange, "must be at least " + param
+		}
+		return apperrors.CodeTooShort, "must be at least " + param + " characters"
+	case "max":
+		if isNumber {
+			return apperrors.CodeOutOfRange, "must be at most " + param
+		}
+		return apperrors.CodeTooLong, "must be at most " + param + " characters"
+	case "gte":
+		return apperrors.CodeOutOfRange, "must be at least " + param
+	case "lte":
+		return apperrors.CodeOutOfRange, "must be at most " + param
+	case "oneof":
+		return apperrors.CodeInvalidChoice, "must be one of: " + strings.ReplaceAll(param, " ", ", ")
+	case "email", "email|eq=":
+		return apperrors.CodeInvalidFormat, "must be a valid email address"
+	case "alphanum":
+		return apperrors.CodeInvalidFormat, "can only contain letters and numbers"
+	case "dateformat":
+		return apperrors.CodeInvalidFormat, "must be in YYYY-MM-DD format"
+	default:
+		return apperrors.CodeInvalidFormat, "failed validation (" + e.Tag() + ")"
+	}
 }

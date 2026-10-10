@@ -8,9 +8,6 @@ const ELEVENLABS_VOICE_ID = process.env.BABBEL_TEST_ELEVENLABS_VOICE_ID || null;
 const NONEXISTENT_STORY_ID = 2147483647;
 
 describe('TTS', () => {
-  // Shared test station (only created when TTS tests actually run)
-  let testStationId = null;
-
   // Helper to create a voice with optional ElevenLabs voice ID
   const createVoice = async (baseName, elevenLabsVoiceId = null) => {
     const payload = { name: global.helpers.uniqueName(baseName) };
@@ -33,7 +30,7 @@ describe('TTS', () => {
       voice_id: voiceId,
       status: 'active',
       weekdays: 127
-    }, [testStationId]);
+    });
 
     return result ? result.id : null;
   };
@@ -52,15 +49,6 @@ describe('TTS', () => {
       global.helpers.cleanupTempFile(audioPath);
     }
   };
-
-  beforeAll(async () => {
-    // Only create test resources when TTS-dependent tests will actually run
-    if (TTS_ENABLED) {
-      const station = await global.helpers.createStation(global.resources, 'TTS Test Station');
-      expect(station).not.toBeNull();
-      testStationId = station.id;
-    }
-  });
 
   // Runs when TTS is disabled (default / CI)
   (TTS_ENABLED ? describe.skip : describe)('TTS Disabled', () => {
@@ -92,17 +80,17 @@ describe('TTS', () => {
       expect(response.data.code).toBe('story.deleted');
     });
 
-    test('when story has no voice, then returns 400', async () => {
+    test('when story has no voice, then returns 409', async () => {
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
       expect(storyId).not.toBeNull();
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('story.validation_failed');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.no_voice');
     });
 
-    test('when voice has no ElevenLabs ID, then returns 400', async () => {
+    test('when voice has no ElevenLabs ID, then returns 409', async () => {
       // Voice without elevenlabs_voice_id
       const voiceId = await createVoice('TTS No EL Voice');
       expect(voiceId).not.toBeNull();
@@ -112,12 +100,12 @@ describe('TTS', () => {
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('voice.validation_failed');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('voice.no_elevenlabs_id');
     });
 
-    test('when story already has audio without force, then returns 400', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
+    test('when story already has audio without force, then returns 409', async () => {
+      expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       // Voice with dummy elevenlabs ID (won't actually call ElevenLabs)
       const voiceId = await createVoice('TTS Audio Exists Voice', 'dummy-el-voice-id');
@@ -131,9 +119,9 @@ describe('TTS', () => {
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('story.validation_failed');
-      expect(response.data.detail).toContain('force');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.audio_exists');
+      expect(response.data.hint).toContain('force');
     });
   });
 
@@ -141,7 +129,7 @@ describe('TTS', () => {
   (TTS_ENABLED && TTS_REAL_API && ELEVENLABS_VOICE_ID ? describe : describe.skip)(
     'Real API (requires TTS + BABBEL_TEST_TTS_REAL_API=true)', () => {
     test('when force overwrite with real API, then returns 201', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
+      expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       const voiceId = await createVoice('TTS Force Voice', ELEVENLABS_VOICE_ID);
       expect(voiceId).not.toBeNull();

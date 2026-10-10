@@ -151,13 +151,13 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
-  test('when story target station ID is unsafe, then API is not called', async () => {
+  test('when story voice ID is unsafe, then API is not called', async () => {
     const api = { apiCall: jest.fn() };
     const helpers = new TestHelpers(api);
 
     await expect(
-      helpers.createStory({ track: jest.fn() }, { title: 'x', voice_id: 1 }, ['2; DROP TABLE stations'])
-    ).rejects.toThrow(/target station ID/);
+      helpers.createStory({ track: jest.fn() }, { title: 'x', voice_id: '1 OR 1=1' })
+    ).rejects.toThrow(/voice_id/);
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
@@ -168,16 +168,11 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
 
-    const story = await helpers.createStoryWithReadyAudio(
-      resourceManager,
-      { title: 'Story with audio' },
-      [10]
-    );
+    const story = await helpers.createStoryWithReadyAudio(resourceManager, { title: 'Story with audio' });
 
     expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
       resourceManager,
-      { title: 'Story with audio' },
-      [10]
+      { title: 'Story with audio' }
     );
     expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
     expect(story).toEqual({ id: 40 });
@@ -190,7 +185,7 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(false);
 
     await expect(
-      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' }, [10])
+      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' })
     ).resolves.toBeNull();
   });
 
@@ -200,11 +195,11 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue(null);
 
     await expect(
-      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' }, [10])
+      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' })
     ).rejects.toThrow(/Required story/);
   });
 
-  test('when creating station stories with ready audio, then applies shared station and voice defaults', async () => {
+  test('when creating stories with ready audio, then applies shared voice defaults', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
 
@@ -212,9 +207,8 @@ describe('TestHelpers', () => {
       .mockResolvedValueOnce({ id: 1 })
       .mockResolvedValueOnce({ id: 2 });
 
-    const stories = await helpers.createStationStoriesWithReadyAudio(
+    const stories = await helpers.createStoriesWithReadyAudio(
       resourceManager,
-      10,
       20,
       [
         { title: 'Breaking', text: 'Breaking story', is_breaking: true },
@@ -232,8 +226,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: true
-      }),
-      [10]
+      })
     );
     expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
       2,
@@ -245,8 +238,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: false
-      }),
-      [10]
+      })
     );
     expect(stories).toEqual([{ id: 1 }, { id: 2 }]);
   });
@@ -254,11 +246,11 @@ describe('TestHelpers', () => {
   test('when requiring station stories with ready audio fails, then throws', async () => {
     const helpers = new TestHelpers({});
 
-    jest.spyOn(helpers, 'createStationStoriesWithReadyAudio').mockResolvedValue(null);
+    jest.spyOn(helpers, 'createStoriesWithReadyAudio').mockResolvedValue(null);
 
     await expect(
-      helpers.requireStationStoriesWithReadyAudio({ track: jest.fn() }, 10, 20, [{ title: 'Missing audio' }])
-    ).rejects.toThrow(/station 10 and voice 20/);
+      helpers.requireStoriesWithReadyAudio({ track: jest.fn() }, 20, [{ title: 'Missing audio' }])
+    ).rejects.toThrow(/voice 20/);
   });
 
   test('when jingle upload fails, then station voice with jingle returns null with warning', async () => {
@@ -311,8 +303,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: true
-      }),
-      [10]
+      })
     );
     expect(fixture).toEqual({
       station: { id: 10, name: 'Station' },

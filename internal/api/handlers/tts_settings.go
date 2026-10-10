@@ -36,7 +36,7 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 // UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
-	if !utils.BindJSONStrict(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -74,12 +74,8 @@ func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.U
 		Stability:              req.Stability,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		TTSStylePrefix:         req.TTSStylePrefix,
-	}
-
-	if req.Seed.HasValue() {
-		serviceReq.Seed = req.Seed.Value
-	} else if req.Seed.IsClearing() {
-		serviceReq.ClearSeed = true
+		Seed:                   req.Seed.Value,
+		ClearSeed:              req.Seed.IsClearing(),
 	}
 
 	return serviceReq

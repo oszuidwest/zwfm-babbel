@@ -12,12 +12,3 @@ const (
 	// StoryStatusExpired indicates a story has passed its end date.
 	StoryStatusExpired StoryStatus = "expired"
 )
-
-// IsValid reports whether the status is a valid value.
-func (s StoryStatus) IsValid() bool {
-	switch s {
-	case StoryStatusDraft, StoryStatusActive, StoryStatusExpired:
-		return true
-	}
-	return false
-}

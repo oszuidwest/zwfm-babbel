@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -39,10 +40,14 @@ func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPoli
 	}
 }
 
-// Validate checks whether password satisfies the configured policy.
+// Validate checks whether password satisfies the configured policy and returns
+// a ValidationError for the password field.
 func (p PasswordPolicy) Validate(password string) error {
 	if utf8.RuneCountInString(password) < p.MinLength {
-		return fmt.Errorf("must be at least %d characters", p.MinLength)
+		return apperrors.Invalid("password", apperrors.CodeTooShort, fmt.Sprintf("must be at least %d characters", p.MinLength))
+	}
+	if len(password) > config.MaxPasswordBytes {
+		return apperrors.Invalid("password", apperrors.CodeTooLong, fmt.Sprintf("must be at most %d bytes", config.MaxPasswordBytes))
 	}
 
 	var hasUpper, hasLower, hasNumber, hasSpecial bool
@@ -59,21 +64,24 @@ func (p PasswordPolicy) Validate(password string) error {
 		}
 	}
 
-	return p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial)
-}
-
-func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) error {
-	switch {
-	case p.RequireUppercase && !hasUpper:
-		return errors.New("must contain an uppercase letter")
-	case p.RequireLowercase && !hasLower:
-		return errors.New("must contain a lowercase letter")
-	case p.RequireNumber && !hasNumber:
-		return errors.New("must contain a number")
-	case p.RequireSpecialChar && !hasSpecial:
-		return errors.New("must contain a special character")
+	if message := p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial); message != "" {
+		return apperrors.Invalid("password", apperrors.CodeInvalidFormat, message)
 	}
 	return nil
+}
+
+func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) string {
+	switch {
+	case p.RequireUppercase && !hasUpper:
+		return "must contain an uppercase letter"
+	case p.RequireLowercase && !hasLower:
+		return "must contain a lowercase letter"
+	case p.RequireNumber && !hasNumber:
+		return "must contain a number"
+	case p.RequireSpecialChar && !hasSpecial:
+		return "must contain a special character"
+	}
+	return ""
 }
 
 // CreateUserRequest carries the required fields for a local user account.
@@ -86,27 +94,23 @@ type CreateUserRequest struct {
 	Metadata *datatypes.JSONMap
 }
 
-// UpdateUserRequest carries PATCH-style account fields.
-// Email uses nil to skip updates and an empty string to clear the stored email.
+// UpdateUserRequest carries PATCH-style account fields. Nil fields are left
+// unchanged; an empty Email clears the stored email.
 type UpdateUserRequest struct {
-	Username  string
-	FullName  string
+	Username  *string
+	FullName  *string
 	Email     *string
-	Password  string
-	Role      string
+	Password  *string
+	Role      *string
 	Metadata  *datatypes.JSONMap
 	Suspended *bool
 }
 
-// Create validates role, password policy, and uniqueness before storing a
-// bcrypt password hash.
+// Create validates the password policy and uniqueness before storing a bcrypt
+// password hash. Request binding validates the role.
 func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
-	if err := validateRole(req.Role); err != nil {
-		return nil, err
-	}
-
 	if err := s.passwordPolicy.Validate(req.Password); err != nil {
-		return nil, apperrors.Validation("User", "password", err.Error())
+		return nil, err
 	}
 
 	taken, err := s.repo.IsUsernameTaken(ctx, req.Username, nil)
@@ -157,19 +161,19 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 
 // applyUsernameUpdate validates and applies username update.
 func (s *UserService) applyUsernameUpdate(
-	ctx context.Context, updates *repository.UserUpdate, username string, excludeID int64,
+	ctx context.Context, updates *repository.UserUpdate, username *string, excludeID int64,
 ) error {
-	if username == "" {
+	if username == nil {
 		return nil
 	}
-	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
+	taken, err := s.repo.IsUsernameTaken(ctx, *username, &excludeID)
 	if err != nil {
 		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 	if taken {
-		return apperrors.Duplicate("User", "username", username)
+		return apperrors.Duplicate("User", "username", *username)
 	}
-	updates.Username = &username
+	updates.Username = username
 	return nil
 }
 
@@ -197,14 +201,14 @@ func (s *UserService) applyEmailUpdate(
 }
 
 // applyPasswordUpdate hashes and applies password update.
-func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password string) error {
-	if password == "" {
+func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password *string) error {
+	if password == nil {
 		return nil
 	}
-	if err := s.passwordPolicy.Validate(password); err != nil {
-		return apperrors.Validation("User", "password", err.Error())
+	if err := s.passwordPolicy.Validate(*password); err != nil {
+		return err
 	}
-	hashedPassword, err := hashPassword(password)
+	hashedPassword, err := hashPassword(*password)
 	if err != nil {
 		return err
 	}
@@ -226,31 +230,13 @@ func hashPassword(password string) (string, error) {
 	return string(hashed), nil
 }
 
-func validateRole(role string) error {
-	if !models.UserRole(role).IsValid() {
-		return apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
-	}
-	return nil
-}
-
-// applyRoleUpdate validates and applies role update.
-func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role string) error {
-	if role == "" {
-		return nil
-	}
-	if err := validateRole(role); err != nil {
-		return err
-	}
-	updates.Role = &role
-	return nil
-}
-
 // Update applies account changes, including suspension, in one write and
 // returns the refreshed user.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
-	updates := &repository.UserUpdate{Metadata: req.Metadata}
-	if req.FullName != "" {
-		updates.FullName = &req.FullName
+	updates := &repository.UserUpdate{
+		FullName: req.FullName,
+		Role:     req.Role,
+		Metadata: req.Metadata,
 	}
 
 	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
@@ -262,9 +248,6 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	if err := s.applyPasswordUpdate(updates, req.Password); err != nil {
 		return nil, err
 	}
-	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
-		return nil, err
-	}
 
 	if req.Suspended != nil {
 		if *req.Suspended {
@@ -273,10 +256,6 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 		} else {
 			updates.ClearSuspendedAt = true
 		}
-	}
-
-	if *updates == (repository.UserUpdate{}) {
-		return nil, apperrors.Validation("User", "", "no fields to update")
 	}
 
 	if err := s.repo.Update(ctx, id, updates); err != nil {
@@ -311,7 +290,8 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 		}
 
 		if adminCount == 0 {
-			return apperrors.Validation("User", "", "cannot delete last admin")
+			return apperrors.Conflict("user.last_admin", "Cannot delete the last admin user",
+				"Give another user the admin role first")
 		}
 	}
 

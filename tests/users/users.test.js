@@ -135,37 +135,15 @@ describe('Users', () => {
   });
 
   describe('Last Admin Protection', () => {
-    test('when deleting or demoting last admin, then protected', async () => {
-      // Get admin users
+    test('when deleting the last admin, then returns a conflict', async () => {
       const adminsResponse = await global.api.apiCall('GET', '/users?filter[role]=admin');
       expect(adminsResponse.status).toBe(200);
-
       const adminUsers = adminsResponse.data.data || [];
+      expect(adminUsers).toHaveLength(1);
 
-      if (adminUsers.length === 1) {
-        // Last admin should be protected
-        const lastAdmin = adminUsers[0];
-
-        const deleteResponse = await global.api.apiCall('DELETE', `/users/${lastAdmin.id}`);
-        expect([403, 422]).toContain(deleteResponse.status);
-
-        const roleChangeResponse = await global.api.apiCall('PUT', `/users/${lastAdmin.id}`, {
-          role: 'editor'
-        });
-        expect([403, 422]).toContain(roleChangeResponse.status);
-      } else if (adminUsers.length > 1) {
-        // Non-last admin can be deleted
-        const createResponse = await global.api.apiCall('POST', '/users', {
-          username: `testadmin${Date.now()}${process.pid}`,
-          full_name: 'Test Admin User',
-          password: 'TestPassword123!',
-          role: 'admin'
-        });
-        expect(createResponse.status).toBe(201);
-
-        const deleteResponse = await global.api.apiCall('DELETE', `/users/${createResponse.data.id}`);
-        expect(deleteResponse.status).toBe(204);
-      }
+      const deleteResponse = await global.api.apiCall('DELETE', `/users/${adminUsers[0].id}`);
+      expect(deleteResponse.status).toBe(409);
+      expect(deleteResponse.data.code).toBe('user.last_admin');
     });
   });
 

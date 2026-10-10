@@ -20,9 +20,9 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 	tooLongPrefix := strings.Repeat("é", maxTTSStylePrefixRunes+1)
 
 	tests := []struct {
-		name       string
-		req        *UpdateTTSSettingsRequest
-		wantFields []string
+		name string
+		req  *UpdateTTSSettingsRequest
+		want map[string]string
 	}{
 		{
 			name: "valid boundary values",
@@ -41,11 +41,11 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 				ApplyTextNormalization: &invalidNormalization,
 				TTSStylePrefix:         &tooLongPrefix,
 			},
-			wantFields: []string{
-				"stability",
-				"apply_text_normalization",
-				"seed",
-				"tts_style_prefix",
+			want: map[string]string{
+				"stability":                apperrors.CodeOutOfRange,
+				"apply_text_normalization": apperrors.CodeInvalidChoice,
+				"seed":                     apperrors.CodeOutOfRange,
+				"tts_style_prefix":         apperrors.CodeTooLong,
 			},
 		},
 	}
@@ -53,38 +53,30 @@ func TestValidateTTSSettingsUpdate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			errs := validateTTSSettingsUpdate(tt.req)
-			gotFields := make([]string, 0, len(errs))
+			got := make(map[string]string, len(errs))
 			for _, err := range errs {
-				gotFields = append(gotFields, err.Field)
+				if err.Message == "" {
+					t.Fatalf("error for %q has an empty message", err.Field)
+				}
+				got[err.Field] = err.Code
 			}
-			if !equalStringsAsSet(gotFields, tt.wantFields) {
-				t.Fatalf("fields = %v, want %v", gotFields, tt.wantFields)
+			if !equalStringMaps(got, tt.want) {
+				t.Fatalf("field codes = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestValidateTTSSettingsUpdateEnumMessageIncludesAllowedNormalizations(t *testing.T) {
-	invalidNormalization := "sometimes"
-	errs := validateTTSSettingsUpdate(&UpdateTTSSettingsRequest{
-		ApplyTextNormalization: &invalidNormalization,
-	})
-
-	var gotMessage string
-	for _, err := range errs {
-		if err.Field == "apply_text_normalization" {
-			gotMessage = err.Message
-			break
+func equalStringMaps(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if b[key] != value {
+			return false
 		}
 	}
-	if gotMessage == "" {
-		t.Fatalf("missing apply_text_normalization error in %#v", errs)
-	}
-	for _, allowed := range allowedTextNormalizations {
-		if !strings.Contains(gotMessage, allowed) {
-			t.Fatalf("message = %q, want allowed value %q", gotMessage, allowed)
-		}
-	}
+	return true
 }
 
 func TestSeedUpdateValue(t *testing.T) {
@@ -239,15 +231,4 @@ func TestBuildTTSSettingsAuditFields_NoChangeReturnsNil(t *testing.T) {
 	if fields := buildTTSSettingsAuditFields(noop, before, after); fields != nil {
 		t.Fatalf("expected nil for no-change update, got %#v", fields)
 	}
-}
-
-func equalStringsAsSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	a = slices.Clone(a)
-	b = slices.Clone(b)
-	slices.Sort(a)
-	slices.Sort(b)
-	return slices.Equal(a, b)
 }

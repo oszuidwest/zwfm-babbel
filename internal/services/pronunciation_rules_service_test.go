@@ -142,10 +142,9 @@ func TestMaterializePronunciationRulesValidation(t *testing.T) {
 
 func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 	tests := []struct {
-		name        string
-		rules       []PronunciationRuleUpdate
-		wantField   string
-		wantMessage string
+		name      string
+		rules     []PronunciationRuleUpdate
+		wantField string
 	}{
 		{
 			name: "byte exact duplicate",
@@ -153,8 +152,7 @@ func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 				{StringToReplace: "PSV", IPA: "one"},
 				{StringToReplace: "PSV", IPA: "two"},
 			},
-			wantField:   "rules[1].string_to_replace",
-			wantMessage: "duplicates rules[0]",
+			wantField: "rules[1].string_to_replace",
 		},
 		{
 			name: "case insensitive shadow",
@@ -162,8 +160,7 @@ func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 				{StringToReplace: "PSV", IPA: "one", CaseSensitive: new(false)},
 				{StringToReplace: "psv", IPA: "two"},
 			},
-			wantField:   "rules[0].string_to_replace",
-			wantMessage: "conflicts with rules[1] under case-insensitive matching",
+			wantField: "rules[0].string_to_replace",
 		},
 	}
 
@@ -171,14 +168,14 @@ func TestMaterializePronunciationRulesConflicts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := materializePronunciationRules(&UpdatePronunciationRulesRequest{Rules: tt.rules})
 
-			var validationErr *apperrors.ValidationProblemError
+			var validationErr *apperrors.ValidationError
 			if !errors.As(err, &validationErr) {
-				t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
+				t.Fatalf("error type = %T, want *apperrors.ValidationError", err)
 			}
-			if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
-				return e.Field == tt.wantField && e.Message == tt.wantMessage
+			if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.FieldError) bool {
+				return e.Field == tt.wantField && e.Code == apperrors.CodeDuplicate && e.Message != ""
 			}) {
-				t.Fatalf("errors = %#v, want %s %q", validationErr.Errors, tt.wantField, tt.wantMessage)
+				t.Fatalf("errors = %#v, want %s/%s with a message", validationErr.Errors, tt.wantField, apperrors.CodeDuplicate)
 			}
 		})
 	}
@@ -431,12 +428,12 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 func assertPronunciationValidationField(t *testing.T, err error, wantField string) {
 	t.Helper()
 
-	var validationErr *apperrors.ValidationProblemError
+	var validationErr *apperrors.ValidationError
 	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
+		t.Fatalf("error type = %T, want *apperrors.ValidationError", err)
 	}
-	if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.ValidationError) bool {
-		return e.Field == wantField
+	if !slices.ContainsFunc(validationErr.Errors, func(e apperrors.FieldError) bool {
+		return e.Field == wantField && e.Code != ""
 	}) {
 		t.Fatalf("errors = %#v, want field %q", validationErr.Errors, wantField)
 	}

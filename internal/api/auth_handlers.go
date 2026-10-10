@@ -35,9 +35,7 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ProblemBadRequest(c, "Invalid login request format")
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 

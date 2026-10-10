@@ -1,7 +1,10 @@
 // Package apperrors provides domain-level error definitions for the Babbel API.
 package apperrors
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // NotFoundError indicates the requested resource does not exist.
 type NotFoundError struct {
@@ -88,55 +91,85 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
 
-// ValidationError indicates validation failure on input data.
-type ValidationError struct {
-	Resource string `json:"-"`
-	Field    string `json:"field"`
-	Message  string `json:"message"`
-	cause    error
+// Field-error codes identify why a request value was rejected. The list is
+// closed: clients may branch on these values.
+const (
+	CodeRequired      = "required"
+	CodeBlank         = "blank"
+	CodeTooShort      = "too_short"
+	CodeTooLong       = "too_long"
+	CodeOutOfRange    = "out_of_range"
+	CodeInvalidFormat = "invalid_format"
+	CodeInvalidChoice = "invalid_choice"
+	CodeInvalidType   = "invalid_type"
+	CodeInvalidJSON   = "invalid_json"
+	CodeUnknownField  = "unknown_field"
+	CodeNotFound      = "not_found"
+	CodeDateOrder     = "date_order"
+	CodeEmptyUpdate   = "empty_update"
+	CodeDuplicate     = "duplicate"
+	CodeUnsupported   = "unsupported"
+	CodeSilentAudio   = "silent_audio"
+)
+
+// FieldRequest labels errors about the request body as a whole.
+const FieldRequest = "request"
+
+// FieldError identifies one rejected request value by its public name: a JSON
+// path such as "rules[0].ipa", a query parameter key, the path parameter "id",
+// a multipart field name, or FieldRequest.
+type FieldError struct {
+	Field   string `json:"field"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
-// Error formats validation failures as either field-specific or general
-// messages.
+// ValidationError reports well-formed request content that the API rejects.
+type ValidationError struct {
+	Errors []FieldError
+	cause  error
+}
+
+// Error joins the field errors for logs.
 func (e *ValidationError) Error() string {
-	if e.Field != "" {
-		return fmt.Sprintf("%s: %s", e.Field, e.Message)
+	parts := make([]string, len(e.Errors))
+	for i, fe := range e.Errors {
+		parts[i] = fe.Field + ": " + fe.Message
 	}
-	return e.Message
+	return strings.Join(parts, "; ")
 }
 
 // Unwrap exposes the captured validation cause for errors.Is/As.
 func (e *ValidationError) Unwrap() error { return e.cause }
 
-// Validation creates a ValidationError for the given resource, field, and message.
-func Validation(resource, field, message string) *ValidationError {
-	return &ValidationError{Resource: resource, Field: field, Message: message}
+// Invalid creates a ValidationError for one field.
+func Invalid(field, code, message string) *ValidationError {
+	return &ValidationError{Errors: []FieldError{{Field: field, Code: code, Message: message}}}
 }
 
-// ValidationWithCause creates a ValidationError with an underlying cause.
-func ValidationWithCause(resource, field, message string, cause error) *ValidationError {
-	return &ValidationError{Resource: resource, Field: field, Message: message, cause: cause}
+// ConflictError reports a request that conflicts with the current server state,
+// such as a missing prerequisite on the target resource.
+type ConflictError struct {
+	Code    string
+	Message string
+	Hint    string
+	cause   error
 }
 
-// ValidationProblemError aggregates multi-field validation failures for HTTP 422 responses.
-type ValidationProblemError struct {
-	Resource string
-	Detail   string
-	Errors   []ValidationError
-	cause    error
+// Error returns the client-facing conflict message.
+func (e *ConflictError) Error() string { return e.Message }
+
+// Unwrap exposes the captured conflict cause for errors.Is/As.
+func (e *ConflictError) Unwrap() error { return e.cause }
+
+// Conflict creates a ConflictError with a problem code such as "story.no_text".
+func Conflict(code, message, hint string) *ConflictError {
+	return &ConflictError{Code: code, Message: message, Hint: hint}
 }
 
-// Error exposes the aggregate validation detail used by HTTP 422 responses.
-func (e *ValidationProblemError) Error() string {
-	return e.Detail
-}
-
-// Unwrap exposes the captured aggregate validation cause for errors.Is/As.
-func (e *ValidationProblemError) Unwrap() error { return e.cause }
-
-// NewValidationProblemError creates a ValidationProblemError for the given resource.
-func NewValidationProblemError(resource, detail string, errs []ValidationError) *ValidationProblemError {
-	return &ValidationProblemError{Resource: resource, Detail: detail, Errors: errs}
+// ConflictWithCause creates a ConflictError with an underlying cause.
+func ConflictWithCause(code, message, hint string, cause error) *ConflictError {
+	return &ConflictError{Code: code, Message: message, Hint: hint, cause: cause}
 }
 
 // NotInitializedError indicates a required singleton resource is not initialized.
@@ -273,7 +306,6 @@ const (
 	CodeBulletinNoStories     = "bulletin.no_stories"
 	CodeTimeout               = "internal.timeout"
 	CodeAudioProcessingFailed = "audio.processing_failed"
-	CodeAudioSilent           = "audio.silent"
 	CodeGenerationFailed      = "internal.generation_failed"
 	CodeRetriesExhausted      = "internal.retries_exhausted"
 )

@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -121,23 +120,15 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
-		logErrorWithCause(strings.ToLower(vp.Resource), "validation_failed", err, vp.Unwrap())
-		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
+	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
+		logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, validation.Unwrap())
+		utils.ProblemValidationError(c, "The request contains invalid data", validation.Errors...)
 		return
 	}
 
-	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
-		logErrorWithCause(validation.Resource, "validation_failed", err, validation.Unwrap())
-		hint := "Check your input and try again"
-		if validation.Field != "" {
-			hint = fmt.Sprintf("Check the %s field", validation.Field)
-		}
-		utils.ProblemExtended(c, http.StatusBadRequest,
-			validation.Error(),
-			strings.ToLower(validation.Resource)+".validation_failed",
-			hint,
-		)
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+		logErrorWithCause(strings.ToLower(fallbackResource), "conflict", err, conflict.Unwrap())
+		utils.ProblemExtended(c, http.StatusConflict, conflict.Message, conflict.Code, conflict.Hint)
 		return
 	}
 
@@ -147,7 +138,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
 		logError("bulletin", "no_stories", err)
-		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+		utils.ProblemExtended(c, http.StatusConflict,
 			noStories.Error(),
 			apperrors.CodeBulletinNoStories,
 			"Add active stories with audio before generating a bulletin",
@@ -187,15 +178,6 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
-	if errors.Is(err, audio.ErrSilent) {
-		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
-			"Audio is silent or too quiet",
-			apperrors.CodeAudioSilent,
-			"Check the recording level and input channel, then upload audible audio or regenerate speech",
-		)
-		return true
-	}
-
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
@@ -260,15 +242,15 @@ func alertRequestFailure(c *gin.Context, event notify.Event) {
 }
 
 func handleQueryShapeError(c *gin.Context, err error) bool {
-	var invalid apperrors.ValidationError
+	var invalid apperrors.FieldError
 	if unknownField, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
-		invalid = apperrors.ValidationError{Field: unknownField.Kind, Message: unknownField.Error()}
+		invalid = apperrors.FieldError{Field: unknownField.Key, Code: apperrors.CodeUnknownField, Message: unknownField.Error()}
 	} else if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
-		invalid = apperrors.ValidationError{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason}
+		invalid = apperrors.FieldError{Field: invalidFilter.Key, Code: invalidFilter.Code, Message: invalidFilter.Reason}
 	} else {
 		return false
 	}
-	utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{invalid})
+	utils.ProblemQueryValidation(c, "Invalid query parameter", invalid)
 	return true
 }
 

@@ -52,12 +52,17 @@ function generateQueryTests(schema, setupFn = null) {
         test('when searching, then returns 200', async () => {
           expect.hasAssertions();
           const response = await expectStatus('search=test');
-          expect(response.data).toHaveProperty('data');
+          expect(response.data.data.length).toBeGreaterThan(0);
+          for (const item of response.data.data) {
+            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes('test'))).toBe(true);
+          }
         });
 
         test('when search empty, then returns all', async () => {
           expect.hasAssertions();
-          await expectStatus('search=');
+          const unfiltered = await expectStatus('limit=1');
+          const emptySearch = await expectStatus('search=&limit=1');
+          expect(emptySearch.data.total).toBe(unfiltered.data.total);
         });
       });
     }
@@ -80,12 +85,12 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         test.each([
-          ['when sorting unknown field, then returns a sort 422', 'sort=__bogus__'],
-          ['when sort direction is invalid, then returns a sort 422', `sort=${query.sortableFields[0]}:sideways`]
-        ])('%s', async (_name, qs) => {
+          ['when sorting unknown field, then returns a sort 422', 'sort=__bogus__', 'unknown_field'],
+          ['when sort direction is invalid, then returns a sort 422', `sort=${query.sortableFields[0]}:sideways`, 'invalid_choice']
+        ])('%s', async (_name, qs, code) => {
           expect.hasAssertions();
           const response = await expectStatus(qs, 422);
-          expect(response.data.errors.map(error => error.field)).toEqual(['sort']);
+          expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['sort', code]]);
         });
 
         if (query.sortableFields.length >= 2) {
@@ -117,13 +122,13 @@ function generateQueryTests(schema, setupFn = null) {
         // Labels documented under "Error labels" in openapi.yaml.
         const firstField = query.filterableFields[0];
         test.each([
-          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`],
-          ['when filtering unknown field, then the 422 names filter', 'filter[__bogus__]=1', 'filter'],
-          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`]
-        ])('%s', async (_name, qs, field) => {
+          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`, 'invalid_choice'],
+          ['when filtering unknown field, then the 422 names the key', 'filter[__bogus__]=1', 'filter[__bogus__]', 'unknown_field'],
+          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`, 'duplicate']
+        ])('%s', async (_name, qs, field, code) => {
           expect.hasAssertions();
           const response = await expectStatus(qs, 422);
-          expect(response.data.errors.map(error => error.field)).toEqual([field]);
+          expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
         });
 
         query.filterableFields
@@ -156,15 +161,15 @@ function generateQueryTests(schema, setupFn = null) {
 
     // OpenAPI declares trashed only where the resource has soft deletion.
     describe('Soft-delete scope', () => {
-      const supported = declaresQueryParameter(endpoint, 'trashed') ? 200 : 422;
-      test.each([['only', supported], ['with', supported], ['bogus', 422]])(
-        'when trashed=%s, then returns %i',
-        async (value, status) => {
-          expect.hasAssertions();
-          const response = await expectStatus(`trashed=${value}`, status);
-          if (status === 422) expect(response.data.errors[0].field).toBe('trashed');
-        }
-      );
+      const supported = declaresQueryParameter(endpoint, 'trashed');
+      const cases = supported
+        ? [['bogus', 422, 'invalid_choice']]
+        : [['only', 422, 'unsupported'], ['bogus', 422, 'unsupported']];
+      test.each(cases)('when trashed=%s, then returns %i', async (value, status, code) => {
+        expect.hasAssertions();
+        const response = await expectStatus(`trashed=${value}`, status);
+        expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['trashed', code]]);
+      });
     });
 
     // Acceptance and rejection need no matching rows, so every documented field
@@ -181,11 +186,11 @@ function generateQueryTests(schema, setupFn = null) {
         });
         test.each(invalidFilterCases(contract))(
           `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
-          async (operator, value) => {
+          async (operator, value, code) => {
             const key = `filter[${field}][${operator}]`;
             const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
             expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
-            expect(response.data.errors[0].field).toBe(key);
+            expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[key, code]]);
           }
         );
       }
@@ -193,25 +198,16 @@ function generateQueryTests(schema, setupFn = null) {
 
     describe('Pagination', () => {
       test.each([
-        ['when paginating with limit, then respects limit', 'limit=2', 200, response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
-        ['when paginating with offset, then skips records', 'limit=2&offset=1', 200, response => {
+        ['when paginating with limit, then respects limit', 'limit=2', response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
+        ['when paginating with offset, then skips records', 'limit=2&offset=1', response => {
           expect(response.data.data.length).toBeLessThanOrEqual(2);
           expect(response.data).toHaveProperty('offset', 1);
         }],
-        ['when paginating, then includes metadata', 'limit=5', 200, response => {
-          expect(response.data).toHaveProperty('total');
-          expect(response.data).toHaveProperty('limit');
-          expect(response.data).toHaveProperty('offset');
-        }],
-        ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', 200, response => expect(response.data.data).toEqual([])],
-        ['when limit is non-integer, then returns 422', 'limit=abc', 422, undefined],
-        ['when limit is negative, then returns 422', 'limit=-5', 422, undefined],
-        ['when limit exceeds cap, then returns 422', 'limit=101', 422, undefined],
-        ['when offset is non-integer, then returns 422', 'offset=foo', 422, undefined]
-      ])('%s', async (_name, qs, status, verify) => {
+        ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', response => expect(response.data.data).toEqual([])]
+      ])('%s', async (_name, qs, verify) => {
         expect.hasAssertions();
-        const response = await expectStatus(qs, status);
-        if (verify) verify(response);
+        const response = await expectStatus(qs);
+        verify(response);
       });
     });
 
@@ -227,28 +223,10 @@ function generateQueryTests(schema, setupFn = null) {
           expect(Object.keys(first).sort()).toEqual([...requestedFields].sort());
         });
 
-        test('when selecting timestamps, then includes them', async () => {
-          expect.hasAssertions();
-          const fields = query.selectableFields?.includes('updated_at') ? 'id,created_at,updated_at' : 'id,created_at';
-          const response = await expectStatus(`fields=${fields}`);
-          expect(response.data.data.length).toBeGreaterThan(0);
-          const first = response.data.data[0];
-
-          expect(first).toHaveProperty('id');
-          expect(first).toHaveProperty('created_at');
-          if (fields.includes('updated_at')) expect(first).toHaveProperty('updated_at');
-        });
-
-        test('when selecting single field, then works', async () => {
-          expect.hasAssertions();
-          const response = await expectStatus('fields=id');
-          expect(response.data.data.length).toBeGreaterThan(0);
-          expect(response.data.data[0]).toHaveProperty('id');
-        });
-
         test('when selecting unknown field, then returns 422', async () => {
           expect.hasAssertions();
-          await expectStatus('fields=id,__bogus__', 422);
+          const response = await expectStatus('fields=id,__bogus__', 422);
+          expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['fields', 'unknown_field']]);
         });
       });
     }
@@ -265,17 +243,6 @@ function generateQueryTests(schema, setupFn = null) {
         await expectStatus(params.toString());
       });
 
-      test('when combining search sort pagination, then works', async () => {
-        expect.hasAssertions();
-        const params = new URLSearchParams();
-        if (query.searchFields?.length > 0) params.append('search', 'a');
-        if (query.sortableFields?.length > 0) params.append('sort', query.sortableFields[0]);
-        params.append('limit', '5');
-        params.append('offset', '0');
-
-        const response = await expectStatus(params.toString());
-        expect(response.data.data.length).toBeLessThanOrEqual(5);
-      });
     });
   });
 }

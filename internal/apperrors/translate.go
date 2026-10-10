@@ -2,6 +2,8 @@ package apperrors
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
@@ -61,10 +63,16 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		if op == OpDelete {
 			return DependencyWithCause(resource, "related resources", err)
 		}
-		return ValidationWithCause(resource, "reference", "references non-existent resource", err)
+		// Services check references first, so a violation here means the
+		// referenced row disappeared concurrently.
+		return ConflictWithCause(strings.ToLower(resource)+".reference_missing",
+			fmt.Sprintf("%s references a resource that no longer exists", resource),
+			"Reload the referenced resources and try again", err)
 
 	case errors.Is(err, repository.ErrDataTooLong):
-		return ValidationWithCause(resource, "field", "exceeds maximum length", err)
+		validation := Invalid(FieldRequest, CodeTooLong, "a value exceeds the maximum stored length")
+		validation.cause = err
+		return validation
 
 	default:
 		return Database(resource, op.String(), err)

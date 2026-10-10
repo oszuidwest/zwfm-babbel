@@ -30,7 +30,7 @@ describe('Stations', () => {
       voiceId = voice.id;
     });
 
-    test('when deleting station with station-voices, then protected or cascades', async () => {
+    test('when deleting station with station-voices, then returns dependency conflict', async () => {
       // Create station-voice relationship
       const svResponse = await global.api.apiCall('POST', '/station-voices', {
         station_id: stationId,
@@ -43,13 +43,8 @@ describe('Stations', () => {
 
       const deleteResponse = await global.api.apiCall('DELETE', `/stations/${stationId}`);
 
-      // Should either protect (409) or cascade delete (204)
-      expect([204, 409]).toContain(deleteResponse.status);
-
-      // Cleanup: Untrack if deleted
-      if (deleteResponse.status === 204) {
-        global.resources.untrack('stations', stationId);
-      }
+      expect(deleteResponse.status).toBe(409);
+      expect(deleteResponse.data.code).toBe('station.has_dependencies');
     });
   });
 
