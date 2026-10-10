@@ -7,7 +7,8 @@ import (
 )
 
 // Initialize sets up the logging system with the specified level and mode.
-// It installs the logger as the slog default, which every helper here uses.
+// It installs a new logger as the slog default. Info, Error, Debug, Warn and
+// WithFields read slog.Default on each call.
 func Initialize(level string, development bool) error {
 	var handler slog.Handler
 	opts := &slog.HandlerOptions{

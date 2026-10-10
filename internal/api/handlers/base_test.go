@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -252,13 +255,20 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 }
 
 // captureLogs sends the slog default to a JSON buffer for one test and
-// returns a function that decodes the records logged so far.
+// returns a function that decodes the records logged so far. It swaps
+// process-wide loggers, so do not use it in parallel tests.
 func captureLogs(t *testing.T) func() []map[string]any {
 	t.Helper()
 	var buf bytes.Buffer
-	previous := slog.Default()
+	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	// SetDefault also redirects the log package, and restoring the built-in
+	// default handler does not undo that.
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
 	return func() []map[string]any {
 		var records []map[string]any
 		for line := range bytes.Lines(buf.Bytes()) {
@@ -272,12 +282,13 @@ func captureLogs(t *testing.T) func() []map[string]any {
 	}
 }
 
-// Invalid list queries are expected client input, whether the parser or the
-// repository rejects them: one Debug record and no alert. A database failure
-// stays at Error and alerts.
+// Invalid list queries are expected client input, whichever check rejects
+// them: one Debug record and no alert, even when a query error arrives
+// wrapped. A database failure logs at Error and alerts.
 func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 	tests := []struct {
 		name       string
+		target     string // defaults to an unknown filter operator
 		respond    func(*gin.Context)
 		wantStatus int
 		wantLevel  string
@@ -306,6 +317,29 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 			wantLevel:  "DEBUG",
 		},
 		{
+			name:       "pagination-only endpoint rejects search",
+			target:     "/api/v1/bulletins/1/stories?search=x",
+			respond:    func(c *gin.Context) { utils.ParsePaginationOnly(c) },
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
+			name: "sparse fieldset names an unknown field",
+			respond: func(c *gin.Context) {
+				utils.PaginatedListResponse(c, &utils.QueryParams{Fields: []string{"bogus"}}, &repository.ListResult[models.Story]{})
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
+			name: "query error wrapped as a database error",
+			respond: func(c *gin.Context) {
+				handleServiceError(c, apperrors.Database("Story", "query", &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}), "Story")
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
 			name: "database failure",
 			respond: func(c *gin.Context) {
 				handleServiceError(c, apperrors.Database("Story", "query", errors.New("connection lost")), "Story")
@@ -319,7 +353,8 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			records := captureLogs(t)
 			c, rec := newProblemContext(t)
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories?filter[id][unknown]=1", nil)
+			target := cmp.Or(tt.target, "/api/v1/stories?filter[id][unknown]=1")
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 			alerts := &automationAlertRecorder{}
 			c.Set(alertContextKey, alerts)
 
@@ -333,8 +368,9 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 				t.Fatalf("records = %v, want one %s record", logged, tt.wantLevel)
 			}
 			if tt.wantLevel == "DEBUG" {
-				if errs, _ := logged[0]["errors"].([]any); logged[0]["error_type"] != "query_validation" || len(errs) != 1 {
-					t.Fatalf("record = %v, want error_type query_validation with one field error", logged[0])
+				_, hasRoute := logged[0]["route"]
+				if errs, _ := logged[0]["errors"].([]any); logged[0]["error_type"] != "query_validation" || len(errs) != 1 || !hasRoute {
+					t.Fatalf("record = %v, want error_type query_validation, a route and one field error", logged[0])
 				}
 			}
 			if len(alerts.events) != tt.wantAlerts {

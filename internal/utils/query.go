@@ -423,16 +423,16 @@ func emitQueryError(c *gin.Context, err error) {
 	ProblemBadRequest(c, err.Error())
 }
 
-// ProblemQueryValidation writes a 422 for invalid list query parameters,
-// whether the parser or the repository rejected them. These are expected
-// client errors: the response names each field and the access log records
-// the status, so the details log at Debug, without sampling, and never alert.
-func ProblemQueryValidation(c *gin.Context, detail string, errors []apperrors.ValidationError) {
+// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// logs the field errors at Debug. These are expected client errors: the
+// response names each field and the access log records the status, so they
+// never log at Error or alert.
+func ProblemQueryValidation(c *gin.Context, detail string, errs []apperrors.ValidationError) {
 	logger.Debug("Invalid query parameters",
 		"error_type", "query_validation",
-		"route", c.FullPath(),
-		"errors", errors)
-	ProblemValidationError(c, detail, errors)
+		"route", c.Request.Method+" "+c.FullPath(),
+		"errors", errs)
+	ProblemValidationError(c, detail, errs)
 }
 
 // PaginatedListResponse writes a page with optional sparse fieldsets.

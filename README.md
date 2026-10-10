@@ -229,11 +229,17 @@ If a bulletin cannot be written completely to the automation client, Babbel logs
 
 ### Logging
 
+Use this environment variable to set the log level:
+
 | Env var | Default | Description |
 |---|---|---|
-| `BABBEL_LOG_LEVEL` | `4` | The value 5 or higher enables debug logs. Lower values log at info level. |
+| `BABBEL_LOG_LEVEL` | `4` | The value 5 or higher enables debug logs. Lower values set the info level. |
 
-Babbel writes one access log line for each request, without the query string. Server failures, for example database errors, log at error level and can send an alert. Invalid list query parameters are client errors: the 422 response names each field. Babbel logs these errors at debug level, with the route and the field errors. Babbel does not sample these logs and does not send an alert for them.
+Babbel writes one access log line for each request. The line does not include the query string. `BABBEL_LOG_LEVEL` does not change the access log.
+
+Babbel logs server failures, for example database errors, at error level. These failures can cause an alert. Some client errors, for example 404 and 409 responses, also log at error level.
+
+Invalid list query parameters are client errors. The 422 response shows each field that is not valid. Babbel logs these errors at debug level, with the route and the field errors. At the default level, Babbel does not write these logs. These errors do not cause an alert.
 
 ### Operational e-mail notifications
 
