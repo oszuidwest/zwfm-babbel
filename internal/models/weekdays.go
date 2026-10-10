@@ -39,11 +39,6 @@ const (
 const WeekdaysAll Weekdays = WeekdaySunday | WeekdayMonday | WeekdayTuesday |
 	WeekdayWednesday | WeekdayThursday | WeekdayFriday | WeekdaySaturday
 
-// MarshalJSON implements json.Marshaler to serialize Weekdays as an integer.
-func (w Weekdays) MarshalJSON() ([]byte, error) {
-	return json.Marshal(uint8(w))
-}
-
 // UnmarshalJSON implements json.Unmarshaler to deserialize Weekdays from an integer.
 func (w *Weekdays) UnmarshalJSON(data []byte) error {
 	var n uint8

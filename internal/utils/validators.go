@@ -69,61 +69,24 @@ type dateParseResult struct {
 // parseDateField parses supported date field shapes for custom validators.
 // The boolean return is false for unsupported field types.
 func parseDateField(field reflect.Value) (dateParseResult, bool) {
-	result := dateParseResult{}
-
-	if !field.IsValid() {
-		result.IsEmpty = true
-		return result, true
+	if !field.IsValid() || (field.Kind() == reflect.Pointer && field.IsNil()) {
+		return dateParseResult{IsEmpty: true}, true
 	}
-
-	switch {
-	case field.Type() == reflect.TypeFor[time.Time]():
+	if field.Type() == reflect.TypeFor[time.Time]() {
 		timeVal, ok := reflect.TypeAssert[time.Time](field)
-		if !ok {
-			result.FailValidation = true
-			return result, true
-		}
-		result.Time = timeVal
-		return result, true
-
-	case field.Kind() == reflect.String:
-		dateStr := field.String()
-		if dateStr == "" {
-			result.IsEmpty = true
-			return result, true
-		}
-		t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-		if err != nil {
-			result.FailValidation = true
-			return result, true
-		}
-		result.Time = t
-		return result, true
-
-	case field.Kind() == reflect.Pointer && !field.IsNil():
-		if field.Elem().Kind() == reflect.String {
-			dateStr := field.Elem().String()
-			if dateStr == "" {
-				result.IsEmpty = true
-				return result, true
-			}
-			t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-			if err != nil {
-				result.FailValidation = true
-				return result, true
-			}
-			result.Time = t
-			return result, true
-		}
-		return result, false // Unknown pointer type, skip
-
-	case field.Kind() == reflect.Pointer && field.IsNil():
-		result.IsEmpty = true
-		return result, true
-
-	default:
-		return result, false // Unknown type, skip
+		return dateParseResult{Time: timeVal, FailValidation: !ok}, true
 	}
+	if field.Kind() == reflect.Pointer {
+		field = field.Elem()
+	}
+	if field.Kind() != reflect.String {
+		return dateParseResult{}, false // Unknown type, skip
+	}
+	if field.String() == "" {
+		return dateParseResult{IsEmpty: true}, true
+	}
+	t, err := time.ParseInLocation(time.DateOnly, field.String(), time.Local)
+	return dateParseResult{Time: t, FailValidation: err != nil}, true
 }
 
 // dateAfterValidator validates that a date field is after another date field in the same struct.
@@ -157,6 +120,6 @@ func dateFormatValidator(fl validator.FieldLevel) bool {
 		return true // Empty strings are valid for optional fields
 	}
 
-	_, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
+	_, err := time.ParseInLocation(time.DateOnly, dateStr, time.Local)
 	return err == nil
 }

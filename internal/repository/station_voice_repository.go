@@ -55,16 +55,7 @@ func (r *StationVoiceRepository) GetByID(ctx context.Context, id int64) (*models
 
 // Update applies non-nil station-voice fields.
 func (r *StationVoiceRepository) Update(ctx context.Context, id int64, u *StationVoiceUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 // IsCombinationTaken reports whether a station-voice combination is already in use.

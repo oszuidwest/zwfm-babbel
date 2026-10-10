@@ -101,8 +101,8 @@ type UpdateUserRequest struct {
 // Create validates role, password policy, and uniqueness before storing a
 // bcrypt password hash.
 func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
-	if !models.UserRole(req.Role).IsValid() {
-		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
+	if err := validateRole(req.Role); err != nil {
+		return nil, err
 	}
 
 	if err := s.passwordPolicy.Validate(req.Password); err != nil {
@@ -127,9 +127,9 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		}
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashedPassword, err := hashPassword(req.Password)
 	if err != nil {
-		return nil, apperrors.Database("User", "hash", err)
+		return nil, err
 	}
 
 	var emailValue *string
@@ -141,7 +141,7 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		Username:     req.Username,
 		FullName:     req.FullName,
 		Email:        emailValue,
-		PasswordHash: string(hashedPassword),
+		PasswordHash: hashedPassword,
 		Role:         req.Role,
 		Metadata:     req.Metadata,
 	})
@@ -204,17 +204,32 @@ func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, passwo
 	if err := s.passwordPolicy.Validate(password); err != nil {
 		return apperrors.Validation("User", "password", err.Error())
 	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := hashPassword(password)
 	if err != nil {
-		return apperrors.Database("User", "hash", err)
+		return err
 	}
-	hashedStr := string(hashedPassword)
 	now := time.Now()
 	zero := 0
-	updates.PasswordHash = &hashedStr
+	updates.PasswordHash = &hashedPassword
 	updates.PasswordChangedAt = &now
 	updates.FailedLoginAttempts = &zero
 	updates.ClearLockedUntil = true
+	return nil
+}
+
+// hashPassword returns the bcrypt hash stored for password.
+func hashPassword(password string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", apperrors.Database("User", "hash", err)
+	}
+	return string(hashed), nil
+}
+
+func validateRole(role string) error {
+	if !models.UserRole(role).IsValid() {
+		return apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
+	}
 	return nil
 }
 
@@ -223,50 +238,10 @@ func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role strin
 	if role == "" {
 		return nil
 	}
-	if !models.UserRole(role).IsValid() {
-		return apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
+	if err := validateRole(role); err != nil {
+		return err
 	}
 	updates.Role = &role
-	return nil
-}
-
-// applyFullNameUpdate applies full name update.
-func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullName string) {
-	if fullName != "" {
-		updates.FullName = &fullName
-	}
-}
-
-// applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata *datatypes.JSONMap) {
-	if metadata != nil {
-		u.Metadata = metadata
-	}
-}
-
-// handleSuspendedUpdate handles the suspended state update.
-func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspended *bool) error {
-	if suspended == nil {
-		return nil
-	}
-	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
-		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
-	}
-	return nil
-}
-
-// hasFieldUpdates reports whether any field updates are present.
-func hasFieldUpdates(u *repository.UserUpdate) bool {
-	return u.Username != nil || u.FullName != nil ||
-		u.Email != nil || u.ClearEmail || u.PasswordHash != nil ||
-		u.Role != nil || u.Metadata != nil
-}
-
-// executeFieldUpdates applies field updates to the repository.
-func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates *repository.UserUpdate) error {
-	if err := s.repo.Update(ctx, id, updates); err != nil {
-		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
-	}
 	return nil
 }
 
@@ -274,7 +249,10 @@ func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates
 // Suspended is updated separately so callers can suspend an account without
 // sending any other changed fields.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
-	updates := &repository.UserUpdate{}
+	updates := &repository.UserUpdate{Metadata: req.Metadata}
+	if req.FullName != "" {
+		updates.FullName = &req.FullName
+	}
 
 	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
 		return nil, err
@@ -288,21 +266,21 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
 		return nil, err
 	}
-	s.applyFullNameUpdate(updates, req.FullName)
-	s.applyMetadataUpdate(updates, req.Metadata)
 
-	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
-		return nil, err
+	if req.Suspended != nil {
+		if err := s.repo.SetSuspended(ctx, id, *req.Suspended); err != nil {
+			return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
+		}
 	}
 
-	hasUpdates := hasFieldUpdates(updates)
+	hasUpdates := *updates != (repository.UserUpdate{})
 	if !hasUpdates && req.Suspended == nil {
 		return nil, apperrors.Validation("User", "", "no fields to update")
 	}
 
 	if hasUpdates {
-		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
-			return nil, err
+		if err := s.repo.Update(ctx, id, updates); err != nil {
+			return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
 		}
 	}
 

@@ -28,7 +28,7 @@ func NewStoryExpirationService(db *gorm.DB, alerts notify.Alerter) *StoryExpirat
 	s := &StoryExpirationService{
 		repo: repository.NewStoryRepository(db),
 	}
-	s.runner = newRunner("story expiration service", 1*time.Hour, 30*time.Second, s.expireStories, alerts)
+	s.runner = newRunner("story expiration service", time.Hour, 30*time.Second, s.expireStories, alerts)
 	return s
 }
 

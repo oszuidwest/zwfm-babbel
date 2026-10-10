@@ -35,14 +35,6 @@ func (o *Optional[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// MarshalJSON implements json.Marshaler for completeness.
-func (o Optional[T]) MarshalJSON() ([]byte, error) {
-	if !o.Set || o.Value == nil {
-		return []byte("null"), nil
-	}
-	return json.Marshal(*o.Value)
-}
-
 // HasValue reports whether the field was present with a non-null value.
 func (o Optional[T]) HasValue() bool {
 	return o.Set && o.Value != nil

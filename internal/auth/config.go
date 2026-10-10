@@ -1,10 +1,6 @@
 package auth
 
-import (
-	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/oszuidwest/zwfm-babbel/internal/config"
-	"golang.org/x/oauth2"
-)
+import "github.com/oszuidwest/zwfm-babbel/internal/config"
 
 // Config combines all authentication methods (local, OIDC) and session management settings.
 type Config struct {
@@ -39,12 +35,6 @@ type OIDCConfig struct {
 
 	// Scopes lists the OAuth2 scopes requested during login.
 	Scopes []string
-
-	// Provider is the initialized OIDC provider.
-	Provider *oidc.Provider
-
-	// OAuth2Config is the initialized OAuth2 client configuration.
-	OAuth2Config *oauth2.Config
 }
 
 // LocalConfig defines password policies and lockout rules for database-backed authentication.

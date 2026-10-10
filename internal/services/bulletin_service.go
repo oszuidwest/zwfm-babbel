@@ -111,15 +111,16 @@ func (s *BulletinService) create(
 		return 0, err
 	}
 
+	noStoriesKey := fmt.Sprintf("bulletin:no-stories:station:%d", stationID)
 	if len(stories) == 0 {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:     fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
+			Key:     noStoriesKey,
 			Summary: fmt.Sprintf("No stories available for station %d", stationID),
 			Details: "No eligible stories are available, so no on-air bulletin can be generated for this station.",
 		})
 		return 0, apperrors.NoStories(stationID)
 	}
-	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:no-stories:station:%d", stationID),
+	s.alerts.Resolve(ctx, noStoriesKey,
 		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
 
 	// Capture jingle context from the highest-priority story (first in SQL order)
@@ -138,17 +139,18 @@ func (s *BulletinService) create(
 		stories[i], stories[j] = stories[j], stories[i]
 	})
 
+	generationKey := fmt.Sprintf("bulletin:generation:station:%d", stationID)
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:               fmt.Sprintf("bulletin:generation:station:%d", stationID),
+			Key:               generationKey,
 			Summary:           fmt.Sprintf("Bulletin generation failed for station %d", stationID),
 			Details:           err.Error(),
 			RequiresThreshold: errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
 		})
 		return 0, err
 	}
-	s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", stationID),
+	s.alerts.Resolve(ctx, generationKey,
 		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
 
 	var fileSize int64
@@ -183,7 +185,7 @@ func (s *BulletinService) generateBulletinAudio(
 		}
 	}()
 
-	if _, err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, temporaryPath); err != nil {
+	if err := s.audioSvc.CreateBulletin(ctx, station, stories, jingle, temporaryPath); err != nil {
 		return "", apperrors.Audio("Bulletin", "generate", err)
 	}
 	if err := os.Rename(temporaryPath, bulletinPath); err != nil {
@@ -335,17 +337,18 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 	kept := make([]repository.BulletinStoryData, 0, len(stories))
 	for _, story := range stories {
 		path := utils.StoryPath(s.config, story.ID)
+		key := fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID)
 		if _, err := os.Stat(path); err != nil {
 			logger.Warn("Skipping story with missing audio file during bulletin generation",
 				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)
 			s.alerts.Alert(ctx, notify.Event{
-				Key:     fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
+				Key:     key,
 				Summary: fmt.Sprintf("Story audio missing for station %d", stationID),
 				Details: fmt.Sprintf("Story %d exists in the database but its processed audio file is unavailable at %s: %v", story.ID, path, err),
 			})
 			continue
 		}
-		s.alerts.Resolve(ctx, fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID),
+		s.alerts.Resolve(ctx, key,
 			fmt.Sprintf("Story audio recovered for station %d", stationID),
 			fmt.Sprintf("Processed audio for story %d is readable again.", story.ID))
 		kept = append(kept, story)

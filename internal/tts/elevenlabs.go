@@ -132,9 +132,8 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 
 	// Defense-in-depth: escape the voice ID path segment in case upstream validation
 	// is bypassed. The service layer also allowlists voice IDs at write time.
-	query := url.Values{}
-	query.Set("output_format", outputFormatOpus48k128)
-	reqURL := fmt.Sprintf("%s/v1/text-to-speech/%s?%s", s.baseURL, url.PathEscape(voiceID), query.Encode())
+	reqURL := fmt.Sprintf("%s/v1/text-to-speech/%s?output_format=%s",
+		s.baseURL, url.PathEscape(voiceID), outputFormatOpus48k128)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create TTS request: %w", err)
@@ -170,8 +169,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 		}
 	}
 
-	limitedReader := io.LimitReader(resp.Body, maxAudioResponseBytes+1)
-	audio, err := io.ReadAll(limitedReader)
+	audio, err := io.ReadAll(io.LimitReader(resp.Body, maxAudioResponseBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read TTS response: %w", err)
 	}
@@ -268,11 +266,7 @@ func elevenLabsResponseLogLevel(statusCode int) slog.Level {
 }
 
 func concurrencyHeaderValue(header http.Header, key string) string {
-	value := header.Get(key)
-	if value == "" {
-		return ""
-	}
-	count, err := strconv.Atoi(value)
+	count, err := strconv.Atoi(header.Get(key))
 	if err != nil || count < 0 {
 		return ""
 	}

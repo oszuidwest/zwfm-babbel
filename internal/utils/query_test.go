@@ -282,3 +282,58 @@ func testQueryContext(t *testing.T, target string) *gin.Context {
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	return c
 }
+
+// Projection dereferences the input or each slice element at most once;
+// anything else projects to an empty map.
+func TestFilterStructFields_ProjectionShapes(t *testing.T) {
+	t.Parallel()
+
+	type row struct {
+		ID     int    `json:"id"`
+		Name   string `json:"name,omitempty"`
+		Secret string `json:"-"`
+		Plain  int
+		Extra  int `json:"extra"`
+	}
+	r := row{ID: 1, Secret: "s", Plain: 2, Extra: 3}
+	rp := &r
+	var nilRow *row
+	fields := []string{"id", "name", "Plain", "Secret", "-", "missing"}
+	want := map[string]any{"id": 1, "name": "", "Plain": 2}
+	empty := map[string]any{}
+	rows := []row{r}
+
+	tests := []struct {
+		name string
+		data any
+		want any
+	}{
+		{name: "nil", data: nil, want: nil},
+		{name: "typed nil pointer", data: nilRow, want: nilRow},
+		{name: "struct", data: r, want: want},
+		{name: "pointer", data: rp, want: want},
+		{name: "double pointer", data: &rp, want: empty},
+		{name: "scalar", data: 5, want: empty},
+		{name: "slice", data: rows, want: []map[string]any{want}},
+		{name: "slice pointer", data: &rows, want: []map[string]any{want}},
+		{name: "pointer elements", data: []*row{rp, nil}, want: []map[string]any{want, empty}},
+		{
+			name: "interface elements",
+			data: []any{r, rp, &rp, nil, nilRow, 5},
+			want: []map[string]any{want, want, empty, empty, empty, empty},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := FilterStructFields(tt.data, fields); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("FilterStructFields() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	if got := FilterStructFields(rows, nil); !reflect.DeepEqual(got, rows) {
+		t.Fatalf("no fields: got %#v, want input unchanged", got)
+	}
+}

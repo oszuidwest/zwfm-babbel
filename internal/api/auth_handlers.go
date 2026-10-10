@@ -58,12 +58,11 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	session := h.authService.Session(c)
 	frontendURL, ok := auth.SessionFrontendURL(session)
 	if !ok || frontendURL == "" {
-		if h.frontendURL != "" {
-			frontendURL = h.frontendURL
-		} else {
-			utils.ProblemInternalServer(c, "No frontend URL configured")
-			return
-		}
+		frontendURL = h.frontendURL
+	}
+	if frontendURL == "" {
+		utils.ProblemInternalServer(c, "No frontend URL configured")
+		return
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
@@ -93,7 +92,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to logout")
 		return
 	}
-	c.Status(http.StatusNoContent)
+	utils.NoContent(c)
 }
 
 // GetCurrentUser returns the authenticated user's profile and effective permissions.

@@ -18,36 +18,14 @@ func SessionUserID(session Session) (int64, bool) {
 	return coerceInt64(session.Get(string(SessKeyUserID)))
 }
 
-// SessionString retrieves a string value from session by key.
-func SessionString(session Session, key SessionKey) (string, bool) {
-	val := session.Get(string(key))
-	if val == nil {
-		return "", false
-	}
-	if s, ok := val.(string); ok {
-		return s, true
-	}
-	return "", false
-}
-
-// SessionOAuthState retrieves the OAuth state token from session.
-func SessionOAuthState(session Session) (string, bool) {
-	return SessionString(session, SessKeyOAuthState)
+func sessionString(session Session, key SessionKey) (string, bool) {
+	s, ok := session.Get(string(key)).(string)
+	return s, ok
 }
 
 // SessionFrontendURL retrieves the frontend URL from session.
 func SessionFrontendURL(session Session) (string, bool) {
-	return SessionString(session, SessKeyFrontendURL)
-}
-
-// SetSessionOAuthState stores the OAuth state token in session.
-func SetSessionOAuthState(session Session, state string) {
-	session.Set(string(SessKeyOAuthState), state)
-}
-
-// SetSessionFrontendURL stores the frontend URL in session.
-func SetSessionFrontendURL(session Session, url string) {
-	session.Set(string(SessKeyFrontendURL), url)
+	return sessionString(session, SessKeyFrontendURL)
 }
 
 // ClearSessionOAuth clears OAuth-specific session data after callback.

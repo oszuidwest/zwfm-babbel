@@ -193,14 +193,12 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	if req.Status != nil {
-		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
-		if err != nil {
-			handleServiceError(c, err, "Story")
-			return
-		}
-		utils.Success(c, updated)
+	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
 	}
+	utils.Success(c, updated)
 }
 
 // GenerateStoryTTS generates audio for a story using text-to-speech.
@@ -231,7 +229,7 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 		return true // Skip validation if either date is missing
 	}
 
-	startDate, err := time.ParseInLocation("2006-01-02", *startDateStr, time.Local)
+	startDate, err := time.ParseInLocation(time.DateOnly, *startDateStr, time.Local)
 	if err != nil {
 		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
 			{Field: "start_date", Message: "Invalid start date format"},
@@ -239,7 +237,7 @@ func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *s
 		return false
 	}
 
-	endDate, err := time.ParseInLocation("2006-01-02", *endDateStr, time.Local)
+	endDate, err := time.ParseInLocation(time.DateOnly, *endDateStr, time.Local)
 	if err != nil {
 		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
 			{Field: "end_date", Message: "Invalid end date format"},

@@ -14,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
@@ -91,39 +92,33 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 	var cleanupErr error
 
 	for _, b := range bulletins {
-		if b.AudioFile == "" {
-			if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
-				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("mark bulletin %d purged: %w", b.ID, err))
-				logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
-			}
-			continue
-		}
-
-		filePath := filepath.Join(s.config.Audio.OutputPath, b.AudioFile)
-		info, statErr := os.Stat(filePath)
-		if statErr != nil && !os.IsNotExist(statErr) {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat bulletin %d: %w", b.ID, statErr))
-			logger.Error("Failed to stat bulletin file", "path", filePath, "error", statErr)
-			continue
-		}
-
 		var fileBytes int64
-		if info != nil {
-			fileBytes = info.Size()
-		}
-		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove bulletin %d: %w", b.ID, err))
-			logger.Error("Failed to remove bulletin file", "path", filePath, "error", err)
-			continue
+		if b.AudioFile != "" {
+			filePath := utils.BulletinPath(s.config, b.AudioFile)
+			info, statErr := os.Stat(filePath)
+			if statErr != nil && !os.IsNotExist(statErr) {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat bulletin %d: %w", b.ID, statErr))
+				logger.Error("Failed to stat bulletin file", "path", filePath, "error", statErr)
+				continue
+			}
+			if info != nil {
+				fileBytes = info.Size()
+			}
+			if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove bulletin %d: %w", b.ID, err))
+				logger.Error("Failed to remove bulletin file", "path", filePath, "error", err)
+				continue
+			}
 		}
 		if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("mark bulletin %d purged: %w", b.ID, err))
 			logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			continue
 		}
-
-		stats.count++
-		stats.bytesFreed += fileBytes
+		if b.AudioFile != "" {
+			stats.count++
+			stats.bytesFreed += fileBytes
+		}
 	}
 
 	return stats, cleanupErr

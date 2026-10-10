@@ -7,59 +7,34 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// GinSessionStore implements SessionStore using gin-contrib/sessions.
-type GinSessionStore struct {
-	name string
+// Session is the request session. Key types match gin-contrib/sessions. Save
+// takes the gin.Context for callers' convenience; the request's session is
+// already bound to it.
+type Session interface {
+	Get(key any) any
+	Set(key, value any)
+	Delete(key any)
+	Clear()
+	Save(c *gin.Context) error
 }
 
-// NewGinSessionStore creates a new server-side in-memory session store.
-func NewGinSessionStore(cfg SessionConfig) (SessionStore, sessions.Store, error) {
+// newSessionStore creates a server-side in-memory session store.
+func newSessionStore(cfg SessionConfig) sessions.Store {
 	store := memstore.NewStore([]byte(cfg.SecretKey))
-
-	// Configure session store options.
-	sameSite := config.CookieSameSite(cfg.CookieSameSite)
 	store.Options(sessions.Options{
 		Path:     cfg.CookiePath,
 		Domain:   cfg.CookieDomain,
 		MaxAge:   cfg.MaxAge,
 		Secure:   cfg.CookieSecure,
 		HttpOnly: cfg.CookieHTTPOnly,
-		SameSite: sameSite.ToHTTP(),
+		SameSite: config.CookieSameSite(cfg.CookieSameSite).ToHTTP(),
 	})
-
-	return &GinSessionStore{name: cfg.CookieName}, store, nil
+	return store
 }
 
-// Get returns a session for the given context.
-func (s *GinSessionStore) Get(c *gin.Context) Session {
-	return &ginSession{
-		session: sessions.Default(c),
-	}
-}
+// ginSession adapts gin-contrib's session to Session.
+type ginSession struct{ sessions.Session }
 
-// ginSession implements Session interface.
-type ginSession struct {
-	session sessions.Session
-}
+func (s ginSession) Save(*gin.Context) error { return s.Session.Save() }
 
-func (s *ginSession) Get(key string) any {
-	return s.session.Get(key)
-}
-
-func (s *ginSession) Set(key string, value any) {
-	s.session.Set(key, value)
-}
-
-func (s *ginSession) Delete(key string) {
-	s.session.Delete(key)
-}
-
-func (s *ginSession) Clear() {
-	s.session.Clear()
-}
-
-// Save persists the session. The gin.Context parameter is unused here but
-// required by the Session interface.
-func (s *ginSession) Save(_ *gin.Context) error {
-	return s.session.Save()
-}
+func sessionFor(c *gin.Context) Session { return ginSession{sessions.Default(c)} }

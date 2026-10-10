@@ -70,16 +70,7 @@ func (r *UserRepository) Create(ctx context.Context, params CreateUserParams) (*
 
 // Update updates a user. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *UserRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 // IsUsernameTaken reports whether the username is already in use.
@@ -111,14 +102,11 @@ func (r *UserRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 
 // SetSuspended updates the user's suspended status.
 func (r *UserRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
-	var updateMap map[string]any
+	var suspendedAt any
 	if suspended {
-		updateMap = map[string]any{"suspended_at": time.Now()}
-	} else {
-		updateMap = map[string]any{"suspended_at": nil}
+		suspendedAt = time.Now()
 	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return r.UpdateByID(ctx, id, map[string]any{"suspended_at": suspendedAt})
 }
 
 // DeleteSessions removes all sessions for a user.

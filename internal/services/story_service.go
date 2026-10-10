@@ -128,14 +128,14 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		}
 	}
 
-	startDate, err := time.ParseInLocation("2006-01-02", req.StartDate, time.Local)
+	startDate, err := parseStoryDate("start_date", req.StartDate)
 	if err != nil {
-		return nil, apperrors.Validation("Story", "start_date", "invalid format, must be YYYY-MM-DD")
+		return nil, err
 	}
 
-	endDate, err := time.ParseInLocation("2006-01-02", req.EndDate, time.Local)
+	endDate, err := parseStoryDate("end_date", req.EndDate)
 	if err != nil {
-		return nil, apperrors.Validation("Story", "end_date", "invalid format, must be YYYY-MM-DD")
+		return nil, err
 	}
 
 	if endDate.Before(startDate) {
@@ -192,12 +192,28 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		}
 	}
 
-	updates, err := s.buildUpdateStruct(ctx, req, startDate, endDate)
-	if err != nil {
-		return nil, err
+	if req.VoiceID != nil {
+		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
+		if err != nil {
+			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+		}
+		if !exists {
+			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
+		}
 	}
 
-	if updates == nil {
+	updates := &repository.StoryUpdate{
+		Title:      req.Title,
+		Text:       req.Text,
+		VoiceID:    req.VoiceID,
+		Status:     req.Status,
+		StartDate:  startDate,
+		EndDate:    endDate,
+		Weekdays:   req.Weekdays,
+		Metadata:   req.Metadata,
+		IsBreaking: req.IsBreaking,
+	}
+	if *updates == (repository.StoryUpdate{}) {
 		return nil, apperrors.Validation("Story", "", "no fields to update")
 	}
 
@@ -208,22 +224,31 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	return s.GetByID(ctx, id)
 }
 
+// parseStoryDate parses a YYYY-MM-DD date in the server's local timezone.
+func parseStoryDate(field, value string) (time.Time, error) {
+	parsed, err := time.ParseInLocation(time.DateOnly, value, time.Local)
+	if err != nil {
+		return time.Time{}, apperrors.Validation("Story", field, "invalid format, must be YYYY-MM-DD")
+	}
+	return parsed, nil
+}
+
 // parseDateUpdates parses changed date fields in the server's local timezone.
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
 	var startDate, endDate *time.Time
 
 	if req.StartDate != nil {
-		parsed, err := time.ParseInLocation("2006-01-02", *req.StartDate, time.Local)
+		parsed, err := parseStoryDate("start_date", *req.StartDate)
 		if err != nil {
-			return nil, nil, apperrors.Validation("Story", "start_date", "invalid format, must be YYYY-MM-DD")
+			return nil, nil, err
 		}
 		startDate = &parsed
 	}
 
 	if req.EndDate != nil {
-		parsed, err := time.ParseInLocation("2006-01-02", *req.EndDate, time.Local)
+		parsed, err := parseStoryDate("end_date", *req.EndDate)
 		if err != nil {
-			return nil, nil, apperrors.Validation("Story", "end_date", "invalid format, must be YYYY-MM-DD")
+			return nil, nil, err
 		}
 		endDate = &parsed
 	}
@@ -235,72 +260,6 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 	}
 
 	return startDate, endDate, nil
-}
-
-// buildUpdateStruct translates API-level PATCH semantics into repository
-// updates and verifies a changed voice exists.
-func (s *StoryService) buildUpdateStruct(
-	ctx context.Context,
-	req *UpdateStoryRequest,
-	startDate, endDate *time.Time,
-) (*repository.StoryUpdate, error) {
-	updates := &repository.StoryUpdate{}
-	hasUpdates := false
-
-	if req.Title != nil {
-		updates.Title = req.Title
-		hasUpdates = true
-	}
-	if req.Text != nil {
-		updates.Text = req.Text
-		hasUpdates = true
-	}
-	if req.Status != nil {
-		updates.Status = req.Status
-		hasUpdates = true
-	}
-
-	if req.VoiceID != nil {
-		exists, err := s.voiceRepo.Exists(ctx, *req.VoiceID)
-		if err != nil {
-			return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
-		}
-		if !exists {
-			return nil, apperrors.NotFoundWithID("Voice", *req.VoiceID)
-		}
-		updates.VoiceID = req.VoiceID
-		hasUpdates = true
-	}
-
-	if startDate != nil {
-		updates.StartDate = startDate
-		hasUpdates = true
-	}
-	if endDate != nil {
-		updates.EndDate = endDate
-		hasUpdates = true
-	}
-
-	if req.Weekdays != nil {
-		updates.Weekdays = req.Weekdays
-		hasUpdates = true
-	}
-
-	if req.IsBreaking != nil {
-		updates.IsBreaking = req.IsBreaking
-		hasUpdates = true
-	}
-
-	if req.Metadata != nil {
-		updates.Metadata = req.Metadata
-		hasUpdates = true
-	}
-
-	if !hasUpdates {
-		return nil, nil
-	}
-
-	return updates, nil
 }
 
 // GetByID loads a story and maps repository misses to a domain not-found error.
@@ -364,7 +323,7 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 		}
 	}()
 
-	_, duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
+	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}

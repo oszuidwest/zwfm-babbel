@@ -80,24 +80,24 @@ func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.Va
 
 // ProblemNotFound responds with HTTP 404 Not Found.
 func ProblemNotFound(c *gin.Context, resource string) {
-	SendProblem(c, NewNotFoundProblem(resource, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeResourceNotFound, "Resource Not Found", http.StatusNotFound, resource+" not found")
 }
 
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
 // Per RFC 7235, includes WWW-Authenticate header.
 func ProblemAuthentication(c *gin.Context, detail string) {
 	c.Header("WWW-Authenticate", `Session realm="Babbel API"`)
-	SendProblem(c, NewAuthenticationProblem(detail, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeAuthenticationRequired, "Authentication Required", http.StatusUnauthorized, detail)
 }
 
 // ProblemInternalServer responds with HTTP 500 Internal Server Error.
 func ProblemInternalServer(c *gin.Context, detail string) {
-	SendProblem(c, NewInternalServerProblem(detail, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeInternalServerError, "Internal Server Error", http.StatusInternalServerError, detail)
 }
 
 // ProblemBadRequest responds with HTTP 400 Bad Request.
 func ProblemBadRequest(c *gin.Context, detail string) {
-	SendProblem(c, NewBadRequestProblem(detail, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail)
 }
 
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.

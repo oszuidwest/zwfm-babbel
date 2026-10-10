@@ -242,9 +242,6 @@ func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []appe
 }
 
 func translatePronunciationRulesRepoError(op apperrors.Operation, err error) error {
-	if err == nil {
-		return nil
-	}
 	if errors.Is(err, repository.ErrSchemaUnavailable) {
 		return apperrors.NotInitialized(
 			"pronunciation_rules",

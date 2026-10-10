@@ -88,26 +88,6 @@ func DependencyWithCause(resource, dependency string, cause error) *DependencyEr
 	return &DependencyError{Resource: resource, Dependency: dependency, cause: cause}
 }
 
-// ConflictError indicates a state conflict that prevented the operation.
-type ConflictError struct {
-	Resource string
-	Detail   string
-	Hint     string
-	Code     string
-	cause    error
-}
-
-// Error prefers the client-facing conflict detail when one is available.
-func (e *ConflictError) Error() string {
-	if e.Detail != "" {
-		return e.Detail
-	}
-	return fmt.Sprintf("%s conflict", e.Resource)
-}
-
-// Unwrap exposes the captured conflict cause for errors.Is/As.
-func (e *ConflictError) Unwrap() error { return e.cause }
-
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
 	Resource string `json:"-"`
@@ -307,9 +287,6 @@ type NoStoriesError struct {
 func (e *NoStoriesError) Error() string {
 	return fmt.Sprintf("no active stories available for station %d", e.StationID)
 }
-
-// Unwrap returns nil because NoStoriesError has no nested cause.
-func (e *NoStoriesError) Unwrap() error { return nil }
 
 // NoStories creates a NoStoriesError for the given station ID.
 func NoStories(stationID int64) *NoStoriesError {

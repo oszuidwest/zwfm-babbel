@@ -45,10 +45,6 @@ func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, e
 // Update writes non-nil fields without checking RowsAffected, allowing idempotent
 // updates. Callers must first verify that the singleton row exists.
 func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate) error {
-	if u == nil {
-		return nil
-	}
-
 	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil

@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -48,8 +47,6 @@ const (
 	ProblemTypeValidationError = "https://babbel.api/problems/validation-error"
 	// ProblemTypeResourceNotFound identifies a missing resource.
 	ProblemTypeResourceNotFound = "https://babbel.api/problems/resource-not-found"
-	// ProblemTypeDuplicateResource identifies a uniqueness conflict.
-	ProblemTypeDuplicateResource = "https://babbel.api/problems/duplicate-resource"
 	// ProblemTypeAuthenticationRequired identifies missing or invalid credentials.
 	ProblemTypeAuthenticationRequired = "https://babbel.api/problems/authentication-required"
 	// ProblemTypeInsufficientPermissions identifies an authorization failure.
@@ -102,50 +99,6 @@ func NewBadRequestValidationProblem(detail string, errors []apperrors.Validation
 	)
 	problem.Errors = errors
 	return problem
-}
-
-// NewNotFoundProblem creates a 404 response for missing resources.
-func NewNotFoundProblem(resource, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeResourceNotFound,
-		"Resource Not Found",
-		404,
-		fmt.Sprintf("%s not found", resource),
-		instance,
-	)
-}
-
-// NewAuthenticationProblem creates a 401 response for authentication failures.
-func NewAuthenticationProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeAuthenticationRequired,
-		"Authentication Required",
-		401,
-		detail,
-		instance,
-	)
-}
-
-// NewInternalServerProblem creates a 500 response for server-side errors.
-func NewInternalServerProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeInternalServerError,
-		"Internal Server Error",
-		500,
-		detail,
-		instance,
-	)
-}
-
-// NewBadRequestProblem creates a 400 response for malformed requests.
-func NewBadRequestProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeBadRequest,
-		"Bad Request",
-		400,
-		detail,
-		instance,
-	)
 }
 
 // SendProblem sends an RFC 9457 problem details response.

@@ -94,13 +94,9 @@ func matchRuleAt(
 	rules []compiledPronunciationRule,
 ) (compiledPronunciationRule, bool) {
 	for _, rule := range rules {
-		if len(rule.pattern) == 0 {
-			continue
+		if ruleMatchesAt(input, pos, rule) {
+			return rule, true
 		}
-		if !ruleMatchesAt(input, pos, rule) {
-			continue
-		}
-		return rule, true
 	}
 	return compiledPronunciationRule{}, false
 }
@@ -118,13 +114,7 @@ func ruleMatchesAt(input []rune, pos int, rule compiledPronunciationRule) bool {
 	// materializing a substring per candidate check.
 	for i, patternRune := range rule.pattern {
 		inputRune := input[pos+i]
-		if rule.CaseSensitive {
-			if inputRune != patternRune {
-				return false
-			}
-			continue
-		}
-		if !runesEqualFold(inputRune, patternRune) {
+		if inputRune != patternRune && (rule.CaseSensitive || !runesEqualFold(inputRune, patternRune)) {
 			return false
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -23,7 +24,7 @@ const (
 	TTSNormalizationOff = "off"
 
 	maxTTSStylePrefixRunes  = 500
-	maxElevenLabsSeedUint32 = 4_294_967_295
+	maxElevenLabsSeedUint32 = math.MaxUint32
 )
 
 var allowedTextNormalizations = []string{
@@ -103,7 +104,6 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 }
 
 // IsEmpty reports whether no fields are set.
-// Keep it aligned with utils.TTSSettingsUpdateRequest.IsEmpty.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 	return r.Stability == nil &&
 		r.ApplyTextNormalization == nil &&
@@ -144,27 +144,14 @@ func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.Valida
 	errs := []apperrors.ValidationError{}
 
 	errs = append(errs, validateStability(req.Stability)...)
-	errs = append(errs, validateEnumField(
-		"apply_text_normalization",
-		req.ApplyTextNormalization,
-		allowedTextNormalizations,
-		enumMessage(allowedTextNormalizations),
-	)...)
+	if v := req.ApplyTextNormalization; v != nil && !slices.Contains(allowedTextNormalizations, *v) {
+		errs = append(errs, fieldError("apply_text_normalization",
+			"must be one of: "+strings.Join(allowedTextNormalizations, ", ")))
+	}
 	errs = append(errs, validateSeed(req.Seed)...)
 	errs = append(errs, validateTTSStylePrefix(req.TTSStylePrefix)...)
 
 	return errs
-}
-
-func enumMessage(allowed []string) string {
-	return "must be one of: " + strings.Join(allowed, ", ")
-}
-
-func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.ValidationError {
-	if value == nil || slices.Contains(allowed, *value) {
-		return nil
-	}
-	return []apperrors.ValidationError{fieldError(field, message)}
 }
 
 func validateStability(value *float64) []apperrors.ValidationError {

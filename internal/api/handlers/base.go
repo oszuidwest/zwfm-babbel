@@ -22,7 +22,6 @@ import (
 // HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
 	AudioRepo             repository.AudioRepository
-	AudioSvc              *audio.Service
 	Config                *config.Config
 	BulletinSvc           *services.BulletinService
 	BulletinJobSvc        *services.BulletinJobService
@@ -39,7 +38,6 @@ type HandlersDeps struct {
 // Handlers owns shared dependencies used by endpoint methods.
 type Handlers struct {
 	audioRepo             repository.AudioRepository
-	audioSvc              *audio.Service
 	config                *config.Config
 	bulletinSvc           *services.BulletinService
 	bulletinJobSvc        *services.BulletinJobService
@@ -57,7 +55,6 @@ type Handlers struct {
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
 		audioRepo:             deps.AudioRepo,
-		audioSvc:              deps.AudioSvc,
 		config:                deps.Config,
 		bulletinSvc:           deps.BulletinSvc,
 		bulletinJobSvc:        deps.BulletinJobSvc,
@@ -121,10 +118,6 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 			strings.ToLower(dependency.Resource)+".has_dependencies",
 			fmt.Sprintf("Delete or reassign the associated %s first", dependency.Dependency),
 		)
-		return
-	}
-
-	if handleConflictError(c, err) {
 		return
 	}
 
@@ -294,24 +287,6 @@ func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) b
 	return false
 }
 
-func handleConflictError(c *gin.Context, err error) bool {
-	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
-		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
-		code := strings.ToLower(conflict.Resource) + ".conflict"
-		if conflict.Code != "" {
-			code = conflict.Code
-		}
-		hint := conflict.Hint
-		if hint == "" {
-			hint = "Reload the resource and try again"
-		}
-		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
-		return true
-	}
-
-	return false
-}
-
 func handleAvailabilityError(c *gin.Context, err error) bool {
 	if deleted, ok := errors.AsType[*repository.StoryDeletedError](err); ok {
 		logError("Story", "deleted", err)
@@ -393,10 +368,7 @@ func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 
 // logError logs an error with structured fields for filtering.
 func logError(resource, errorType string, err error) {
-	logger.WithFields(map[string]any{
-		"resource":   resource,
-		"error_type": errorType,
-	}).Error(err.Error())
+	logErrorWithCause(resource, errorType, err, nil)
 }
 
 // logErrorWithCause logs an error with the underlying cause for internal errors.
