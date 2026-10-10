@@ -344,6 +344,10 @@ func (c *Config) validateCore() error {
 }
 
 func (c *Config) validateAuth() error {
+	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
+		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
+	}
+
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
@@ -414,9 +418,6 @@ func (c *Config) validateDatabasePool() error {
 }
 
 func (c *Config) validateLocalAuth() error {
-	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
-		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
-	}
 	if c.Auth.Local.MaxLoginAttempts < 1 {
 		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
 	}

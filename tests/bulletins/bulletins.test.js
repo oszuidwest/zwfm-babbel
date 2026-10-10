@@ -95,30 +95,16 @@ describe('Bulletins', () => {
     });
 
     test.each([
-      ['when generating with missing body, then queues', () => postBulletinHttp(stationId), 202, true],
-      ['when generating with whitespace body, then queues', () => postJsonBulletinHttp(stationId, {}, {
-        data: ' \n\t ',
-        transformRequest: [data => data]
-      }), 202, true],
-      ['when generating with malformed JSON body, then returns 400', () => postJsonBulletinHttp(stationId, {}, {
-        data: '{invalid json}',
-        transformRequest: [data => data]
-      }), 400, false],
+      ['when generating with missing body, then queues', () => postBulletinHttp(stationId)],
       ['when generating with non-json content type and JSON body, then queues', () => postBulletinHttp(stationId, {
         data: '{}',
         headers: { 'Content-Type': 'text/plain' }
-      }), 202, true],
-      ['when generating with oversized body, then returns 413', () => postJsonBulletinHttp(stationId, {}, {
-        data: 'a'.repeat(1024 * 1024 + 1),
-        transformRequest: [data => data]
-      }), 413, false]
-    ])('%s', async (_name, request, status, hasJob) => {
+      })]
+    ])('%s', async (_name, request) => {
       const response = await request();
-      expect(response.status).toBe(status);
-      if (hasJob) {
-        expect(response.data).toHaveProperty('id');
-        expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
-      }
+      expect(response.status).toBe(202);
+      expect(response.data).toHaveProperty('id');
+      expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
     });
 
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {

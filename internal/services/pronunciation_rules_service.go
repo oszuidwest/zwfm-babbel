@@ -164,7 +164,7 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]mode
 
 	errs = append(errs, validatePronunciationRuleConflicts(rules)...)
 	if len(errs) > 0 {
-		return nil, apperrors.InvalidFields(errs)
+		return nil, &apperrors.ValidationError{Errors: errs}
 	}
 	return rules, nil
 }
@@ -186,11 +186,8 @@ func validatePronunciationTextField(field, value string, disallowSlash bool) []a
 	if disallowSlash && strings.Contains(value, "/") {
 		errs = append(errs, fieldError(field, apperrors.CodeInvalidFormat, "cannot contain forward slash"))
 	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			errs = append(errs, fieldError(field, apperrors.CodeInvalidFormat, "cannot contain control characters"))
-			break
-		}
+	if strings.ContainsFunc(value, unicode.IsControl) {
+		errs = append(errs, fieldError(field, apperrors.CodeInvalidFormat, "cannot contain control characters"))
 	}
 	return errs
 }

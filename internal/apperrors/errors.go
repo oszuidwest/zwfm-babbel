@@ -116,8 +116,8 @@ const (
 const FieldRequest = "request"
 
 // FieldError identifies one rejected request value by its public name: a JSON
-// path such as "rules[0].ipa", a query parameter key, a multipart field name,
-// or FieldRequest.
+// path such as "rules[0].ipa", a query parameter key, the path parameter "id",
+// a multipart field name, or FieldRequest.
 type FieldError struct {
 	Field   string `json:"field"`
 	Code    string `json:"code"`
@@ -145,18 +145,6 @@ func (e *ValidationError) Unwrap() error { return e.cause }
 // Invalid creates a ValidationError for one field.
 func Invalid(field, code, message string) *ValidationError {
 	return &ValidationError{Errors: []FieldError{{Field: field, Code: code, Message: message}}}
-}
-
-// InvalidWithCause creates a single-field ValidationError with an underlying cause.
-func InvalidWithCause(field, code, message string, cause error) *ValidationError {
-	err := Invalid(field, code, message)
-	err.cause = cause
-	return err
-}
-
-// InvalidFields creates a ValidationError from one or more field errors.
-func InvalidFields(errs []FieldError) *ValidationError {
-	return &ValidationError{Errors: errs}
 }
 
 // ConflictError reports a request that conflicts with the current server state,

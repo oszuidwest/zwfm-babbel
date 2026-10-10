@@ -100,7 +100,7 @@ func ProblemBadRequestValidationError(c *gin.Context, detail string, errors ...a
 	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 
-// ProblemPayloadTooLarge responds with HTTP 413 for JSON request bodies above the size cap.
+// ProblemPayloadTooLarge responds with HTTP 413 for request bodies above their size cap.
 func ProblemPayloadTooLarge(c *gin.Context) {
 	ProblemCustom(
 		c,

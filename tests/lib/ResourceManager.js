@@ -47,31 +47,20 @@ class ResourceManager {
     this.tracked[type].add(String(id));
   }
 
-  /** @returns {Promise<{deleted: number, failed: number, errors: string[]}>} */
   async cleanupAll() {
-    const snapshot = Object.fromEntries(
-      Object.entries(this.tracked).map(([type, ids]) => [type, [...ids]])
-    );
-    let deleted = 0;
-
     for (const type of ResourceManager.CLEANUP_ORDER) {
       // Bulletins have no DELETE endpoint; the database pass below removes
       // them together with jobs and joins belonging to tracked stations.
       if (type === 'bulletins') continue;
-      deleted += await this.cleanupType(type);
+      await this.cleanupType(type);
     }
 
-    try {
-      this.cleanupDatabase(snapshot);
-      for (const ids of Object.values(this.tracked)) ids.clear();
-      return { deleted, failed: 0, errors: [] };
-    } catch (error) {
-      return { deleted, failed: 1, errors: [error.message] };
-    }
+    this.cleanupDatabase();
+    for (const ids of Object.values(this.tracked)) ids.clear();
   }
 
-  cleanupDatabase(snapshot) {
-    const ids = type => snapshot[type].map(id => sqlInteger(id, `${type} ID`));
+  cleanupDatabase() {
+    const ids = type => [...this.tracked[type]].map(id => sqlInteger(id, `${type} ID`));
     const whereIDs = (column, values) => values.length > 0 ? `${column} IN (${values.join(', ')})` : null;
     const statements = [];
     const bulletinPredicates = [
@@ -98,35 +87,18 @@ class ResourceManager {
 
   /**
    * @param {string} type
-   * @returns {Promise<number>} Number removed (or already absent) via the API.
    */
   async cleanupType(type) {
     const ids = this.tracked[type];
-    if (!ids || ids.size === 0) {
-      return 0;
-    }
-
     const endpoint = ResourceManager.ENDPOINTS[type];
-    if (!endpoint) {
-      return 0;
-    }
-
-    let deleted = 0;
 
     for (const id of ids) {
       try {
-        const response = await this.api.apiCall('DELETE', `${endpoint}/${id}`);
-
-        if (response.status === 204 || response.status === 200 || response.status === 404) {
-          // Already absent is a successful cleanup.
-          deleted++;
-        }
+        await this.api.apiCall('DELETE', `${endpoint}/${id}`);
       } catch {
         // The database fallback below remains authoritative for cleanup.
       }
     }
-
-    return deleted;
   }
 
   /**

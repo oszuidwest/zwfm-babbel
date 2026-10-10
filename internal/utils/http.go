@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -62,6 +63,7 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
 	file, header, err := c.Request.FormFile(field)
 	if err != nil {
+		_, storageFailure := errors.AsType[*fs.PathError](err)
 		switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
 		case tooLarge:
 			ProblemPayloadTooLarge(c)
@@ -69,6 +71,9 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 			ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 				Field: field, Code: apperrors.CodeRequired, Message: "file is required",
 			})
+		case storageFailure:
+			logger.Error("Failed to read uploaded audio", "error", err)
+			ProblemInternalServer(c, "Failed to store the uploaded file")
 		default:
 			ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
 				Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidFormat, Message: err.Error(),
@@ -77,19 +82,17 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		return "", nil, false
 	}
 
-	closeFile := func() {
+	defer func() {
 		if err := file.Close(); err != nil {
 			logger.Warn("Failed to close uploaded file", "error", err)
 		}
-	}
+	}()
 
 	if header.Size > maxAudioUploadBytes {
-		closeFile()
 		ProblemPayloadTooLarge(c)
 		return "", nil, false
 	}
 	if ext := strings.ToLower(filepath.Ext(header.Filename)); !slices.Contains(audioUploadExtensions, ext) {
-		closeFile()
 		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeUnsupported,
@@ -100,23 +103,17 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 
 	tempPath = filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s", prefix, SanitizeFilename(header.Filename)))
 	if err := saveFileToPath(file, tempPath); err != nil {
-		closeFile()
 		logger.Error("Failed to store uploaded audio", "path", tempPath, "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
 		return "", nil, false
 	}
 
 	cleanup = func() error {
-		var errs []error
-		if err := file.Close(); err != nil {
-			logger.Warn("Failed to close uploaded file during cleanup", "error", err)
-			errs = append(errs, err)
-		}
 		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
 			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
-			errs = append(errs, err)
+			return err
 		}
-		return errors.Join(errs...)
+		return nil
 	}
 
 	return tempPath, cleanup, true
@@ -202,11 +199,11 @@ type UserCreateRequest struct {
 type UserUpdateRequest struct {
 	Username  *string            `json:"username" binding:"omitempty,min=3,max=100,alphanum"`
 	FullName  *string            `json:"full_name" binding:"omitempty,notblank,max=255"`
-	Email     *string            `json:"email" binding:"omitempty,email,max=255"`
+	Email     *string            `json:"email" binding:"omitempty,max=255,email|eq="`
 	Password  *string            `json:"password"`
 	Role      *string            `json:"role" binding:"omitempty,oneof=admin editor viewer"`
 	Metadata  *datatypes.JSONMap `json:"metadata,omitempty"`
-	Suspended *bool              `json:"suspended" binding:"omitempty"`
+	Suspended *bool              `json:"suspended"`
 }
 
 // StoryCreateRequest is the JSON body for creating scheduled news stories.
@@ -217,8 +214,7 @@ type StoryCreateRequest struct {
 	Status    string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate string `json:"start_date" binding:"required,dateformat"`
 	EndDate   string `json:"end_date" binding:"required,dateformat"`
-	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
-	// 0 selects every day.
+	// Weekdays is a models.Weekdays bitmask; 0 or omitted is stored as 127 (every day).
 	Weekdays int `json:"weekdays" binding:"gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
 	IsBreaking bool               `json:"is_breaking"`
@@ -239,7 +235,7 @@ type StoryUpdateRequest struct {
 	Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate *string `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string `json:"end_date" binding:"omitempty,dateformat"`
-	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
+	// Weekdays is a models.Weekdays bitmask; 0 selects no days, omission leaves it unchanged.
 	Weekdays *int `json:"weekdays" binding:"omitempty,gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
 	IsBreaking *bool              `json:"is_breaking"`
@@ -335,7 +331,12 @@ func bindJSON(c *gin.Context, req any, optional bool) bool {
 		return false
 	default:
 		if err := jsonv2.Unmarshal(body, req, jsonv2.RejectUnknownMembers(true)); err != nil {
-			problemInvalidJSON(c, decodeFieldError(err))
+			fe := decodeFieldError(err)
+			if fe.Code == apperrors.CodeOutOfRange {
+				ProblemValidationError(c, "The request contains invalid data", fe)
+			} else {
+				problemInvalidJSON(c, fe)
+			}
 			return false
 		}
 	}
@@ -360,11 +361,14 @@ func problemInvalidJSON(c *gin.Context, fe apperrors.FieldError) {
 func decodeFieldError(err error) apperrors.FieldError {
 	if semantic, ok := errors.AsType[*jsonv2.SemanticError](err); ok {
 		field := jsonPath(semantic.JSONPointer)
+		if errors.Is(err, strconv.ErrRange) {
+			return apperrors.FieldError{Field: field, Code: apperrors.CodeOutOfRange, Message: "number is out of range"}
+		}
 		if errors.Is(err, jsonv2.ErrUnknownName) {
 			return apperrors.FieldError{Field: field, Code: apperrors.CodeUnknownField, Message: "unknown field"}
 		}
 		goType := semantic.GoType
-		// A custom UnmarshalJSON, such as Optional's, reports the inner type.
+		// Legacy custom unmarshalers may report their inner type in a v1 error.
 		if inner, ok := errors.AsType[*json.UnmarshalTypeError](semantic.Err); ok {
 			goType = inner.Type
 		}
@@ -381,7 +385,7 @@ func decodeFieldError(err error) apperrors.FieldError {
 }
 
 // jsonPath renders a JSON Pointer as a field path such as "rules[0].ipa".
-// Numeric tokens are array indices: request types have no integer-named members.
+// Numeric tokens use brackets, including numeric keys inside metadata objects.
 func jsonPath(pointer jsontext.Pointer) string {
 	var b strings.Builder
 	for token := range pointer.Tokens() {
@@ -478,7 +482,7 @@ func describeValidationError(e validator.FieldError) (code, message string) {
 		return apperrors.CodeOutOfRange, "must be at most " + param
 	case "oneof":
 		return apperrors.CodeInvalidChoice, "must be one of: " + strings.ReplaceAll(param, " ", ", ")
-	case "email":
+	case "email", "email|eq=":
 		return apperrors.CodeInvalidFormat, "must be a valid email address"
 	case "alphanum":
 		return apperrors.CodeInvalidFormat, "can only contain letters and numbers"

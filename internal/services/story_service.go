@@ -161,6 +161,11 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 // Update applies a partial story update and validates the effective date range,
 // including the existing date when only one side of the range changes.
 func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryRequest) (*models.Story, error) {
+	existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
+	}
+
 	startDate, endDate, err := s.parseDateUpdates(req)
 	if err != nil {
 		return nil, err
@@ -168,17 +173,11 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 
 	if startDate != nil || endDate != nil {
 		start, end := startDate, endDate
-		if start == nil || end == nil {
-			existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
-			if err != nil {
-				return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
-			}
-			if start == nil {
-				start = (*time.Time)(&existing.StartDate)
-			}
-			if end == nil {
-				end = (*time.Time)(&existing.EndDate)
-			}
+		if start == nil {
+			start = (*time.Time)(&existing.StartDate)
+		}
+		if end == nil {
+			end = (*time.Time)(&existing.EndDate)
 		}
 		// Blame the date the client sent; with both, the end date is out of order.
 		field := "end_date"
@@ -395,7 +394,6 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		s.alertTTSError(ctx, storyID, err)
 		return translateTTSError(storyID, err)
 	}
-	s.resolveTTSAlerts(ctx)
 
 	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
@@ -409,11 +407,13 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 	if err := s.ProcessAudio(ctx, storyID, tempPath); err != nil {
 		if errors.Is(err, audio.ErrSilent) {
+			s.alertTTSError(ctx, storyID, err)
 			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
 				"ElevenLabs returned silent audio; try again", err)
 		}
 		return err
 	}
+	s.resolveTTSAlerts(ctx)
 	return nil
 }
 
@@ -434,8 +434,8 @@ func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err err
 		case http.StatusTooManyRequests:
 			event.Key = "tts:rate-limit"
 			event.Summary = "ElevenLabs quota or rate limit is repeatedly exceeded"
-		case http.StatusNotFound, http.StatusUnprocessableEntity:
-			return // Voice/request validation errors are user-actionable, not incidents.
+		case http.StatusNotFound:
+			return // A missing voice is user-actionable, not an incident.
 		}
 	}
 	s.alerts.Alert(ctx, event)

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -184,15 +185,18 @@ func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want b
 	if w.Code != want.status {
 		t.Errorf("status = %d, want %d; response: %s", w.Code, want.status, w.Body.String())
 	}
-	if want.status == 413 {
-		return
-	}
 	if contentType := w.Header().Get("Content-Type"); contentType != "application/problem+json" {
 		t.Fatalf("Content-Type = %q, want application/problem+json", contentType)
 	}
 	var resp problemResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response body: %v", err)
+	}
+	if want.field == "" {
+		if len(resp.Errors) != 0 {
+			t.Fatalf("errors = %+v, want no field errors", resp.Errors)
+		}
+		return
 	}
 	if len(resp.Errors) != 1 {
 		t.Fatalf("errors = %+v, want exactly one %s/%s error", resp.Errors, want.field, want.code)
@@ -324,6 +328,23 @@ func TestBindJSON_PartialUpdates(t *testing.T) {
 		if req.Password == nil || *req.Password != "" {
 			t.Fatalf("Password = %v, want pointer to empty string", req.Password)
 		}
+	})
+	t.Run("user empty email clears the stored address", func(t *testing.T) {
+		t.Parallel()
+		req := bindCase[UserUpdateRequest](t, `{"email":""}`, bindExpect{ok: true})
+		if req.Email == nil || *req.Email != "" {
+			t.Fatalf("Email = %v, want pointer to empty string", req.Email)
+		}
+	})
+	t.Run("integer overflow", func(t *testing.T) {
+		t.Parallel()
+		bindCase[StoryUpdateRequest](t, `{"voice_id":9223372036854775808}`,
+			bindExpect{status: 422, field: "voice_id", code: "out_of_range"})
+	})
+	t.Run("optional integer overflow", func(t *testing.T) {
+		t.Parallel()
+		bindCase[TTSSettingsUpdateRequest](t, `{"seed":9223372036854775808}`,
+			bindExpect{status: 422, field: "seed", code: "out_of_range"})
 	})
 	t.Run("voice null clears the ElevenLabs id", func(t *testing.T) {
 		t.Parallel()
@@ -470,6 +491,31 @@ func TestIDParam(t *testing.T) {
 				checkBindResult(t, w, false, bindExpect{status: 422, field: "id", code: tt.wantCode})
 			}
 		})
+	}
+}
+
+func TestSaveAudioUpload_StorageFailure(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("audio", "clip.wav")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// net/http spills file parts larger than 32 MiB to its temp directory.
+	if _, err := io.WriteString(part, strings.Repeat("x", 33<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, w := newTestContext(t, "")
+	c.Request.Body = io.NopCloser(&body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
+	checkBindResult(t, w, ok, bindExpect{status: 500})
+	if strings.Contains(w.Body.String(), os.TempDir()) {
+		t.Fatalf("response exposes the temp path: %s", w.Body.String())
 	}
 }
 

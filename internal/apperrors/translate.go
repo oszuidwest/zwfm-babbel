@@ -70,7 +70,9 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 			"Reload the referenced resources and try again", err)
 
 	case errors.Is(err, repository.ErrDataTooLong):
-		return InvalidWithCause(FieldRequest, CodeTooLong, "a value exceeds the maximum stored length", err)
+		validation := Invalid(FieldRequest, CodeTooLong, "a value exceeds the maximum stored length")
+		validation.cause = err
+		return validation
 
 	default:
 		return Database(resource, op.String(), err)

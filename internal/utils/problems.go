@@ -37,7 +37,7 @@ type ProblemDetail struct {
 	// DeletedAt is the deletion time for story.deleted responses.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	// Errors contains field-level errors for validation and strict parsing responses.
+	// Errors contains field-level errors for validation and request parsing responses.
 	Errors []apperrors.FieldError `json:"errors,omitempty"`
 }
 

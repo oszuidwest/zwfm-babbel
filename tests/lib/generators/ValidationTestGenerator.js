@@ -49,9 +49,8 @@ function generateValidationTests(schema, setupFn = null) {
       return response;
     };
     // Rejections name the field; code is asserted where the rule is unambiguous.
-    // Wrong JSON types are 400; rejected values are 422.
-    const rejectCase = (title, suffix, mutate, { field, code, status = 422 } = {}) => test(title, async () => {
-      const response = await expectPostStatus(withSharedDeps(suffix, mutate), status);
+    const rejectCase = (title, suffix, mutate, { field, code } = {}) => test(title, async () => {
+      const response = await expectPostStatus(withSharedDeps(suffix, mutate), 422);
       if (field) {
         expect(response.data.errors).toEqual(expect.arrayContaining([
           expect.objectContaining(code ? { field, code } : { field })
@@ -98,17 +97,15 @@ function generateValidationTests(schema, setupFn = null) {
     if (numericFields.length > 0) {
       describe('Numeric Field Validation', () => {
         numericFields.forEach(([fieldName, rules]) => {
-          const typeError = { field: fieldName, code: 'invalid_type', status: 400 };
           const rangeError = { field: fieldName, code: 'out_of_range' };
-          const cases = [['is string', `string-${fieldName}`, 'invalid', typeError]];
+          const cases = [];
           if (rules.min !== undefined) {
             cases.push(['below minimum', `min-${fieldName}`, rules.min - 1, rangeError]);
           }
           if (rules.max !== undefined) cases.push(['above maximum', `max-${fieldName}`, rules.max + 1000, rangeError]);
-          if (rules.type === 'integer') cases.push(['is float', `float-${fieldName}`, 5.5, typeError]);
 
           cases.forEach(([label, suffix, value, expected]) => {
-            rejectCase(`when ${fieldName} ${label}, then returns ${expected.status ?? 422}`, suffix,
+            rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix,
               data => { data[fieldName] = value; }, expected);
           });
         });

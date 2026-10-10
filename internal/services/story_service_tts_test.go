@@ -320,7 +320,10 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 		},
 		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
-		{name: "invalid request is user error", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity}},
+		{
+			name: "upstream rejects request", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity},
+			wantKey: "tts:upstream", wantRequiresThreshold: true,
+		},
 	}
 
 	for _, tt := range tests {

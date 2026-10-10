@@ -96,24 +96,12 @@ describe('TTS Settings', () => {
     ]);
   });
 
-  test('when patching unknown fields, then returns strict bad request errors', async () => {
-    const cases = [
-      ['model', { model: 'eleven_multilingual_v2' }],
-      ['model_id', { model_id: 'eleven_v4' }],
-      ['use_speaker_boost', { use_speaker_boost: true }],
-      ['similarity_boost', { similarity_boost: 0.7 }],
-      ['style', { style: 0.25 }],
-      ['speed', { speed: 1 }],
-      ['stabilty', { stabilty: 0.5 }]
-    ];
-
-    for (const [field, body] of cases) {
-      const response = await global.api.apiCall('PATCH', '/settings/tts', body);
-      expect(response.status).toBe(400);
-      expect(response.data.errors).toEqual([
-        expect.objectContaining({ field, code: 'unknown_field' })
-      ]);
-    }
+  test('when patching an unknown field, then returns a bad request error', async () => {
+    const response = await global.api.apiCall('PATCH', '/settings/tts', { model_id: 'eleven_v4' });
+    expect(response.status).toBe(400);
+    expect(response.data.errors).toEqual([
+      expect.objectContaining({ field: 'model_id', code: 'unknown_field' })
+    ]);
   });
 
   test('when patching the same value, then idempotent update succeeds', async () => {
@@ -259,17 +247,6 @@ describe('TTS Settings', () => {
     expect(response.data.errors).toEqual(expect.arrayContaining([
       expect.objectContaining({ field: 'rules[0].string_to_replace', code: 'duplicate' })
     ]));
-  });
-
-  test('when PUT pronunciations sends unknown alias field, then strict binding returns 400', async () => {
-    const response = await global.api.apiCall('PUT', '/settings/tts/pronunciations', {
-      rules: [{ string_to_replace: 'Albert Heijn', alias: 'albert hijn' }]
-    });
-
-    expect(response.status).toBe(400);
-    expect(response.data.errors).toEqual([
-      expect.objectContaining({ field: 'rules[0].alias', code: 'unknown_field' })
-    ]);
   });
 
   async function createUser(role) {

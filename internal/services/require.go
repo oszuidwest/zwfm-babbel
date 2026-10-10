@@ -21,6 +21,7 @@ func requireExists(ctx context.Context, exists func(context.Context, int64) (boo
 
 // requireReference returns a 422 for field when the request body references
 // an id that does not exist. URL resources use requireExists for a 404.
+// owner names the resource being written, for translating lookup failures.
 func requireReference(ctx context.Context, exists func(context.Context, int64) (bool, error), owner, field string, id int64) error {
 	ok, err := exists(ctx, id)
 	if err != nil {

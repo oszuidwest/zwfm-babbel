@@ -123,7 +123,7 @@ type InvalidFilterError struct {
 
 // Error returns the invalid filter message.
 func (e *InvalidFilterError) Error() string {
-	return fmt.Sprintf("invalid filter[%s][%s]: %s", e.Field, e.Operator, e.Reason)
+	return fmt.Sprintf("invalid %s: %s", e.Key, e.Reason)
 }
 
 // ListQuery contains parameters for listing entities.

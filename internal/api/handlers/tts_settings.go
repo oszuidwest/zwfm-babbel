@@ -74,12 +74,8 @@ func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.U
 		Stability:              req.Stability,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		TTSStylePrefix:         req.TTSStylePrefix,
-	}
-
-	if req.Seed.HasValue() {
-		serviceReq.Seed = req.Seed.Value
-	} else if req.Seed.IsClearing() {
-		serviceReq.ClearSeed = true
+		Seed:                   req.Seed.Value,
+		ClearSeed:              req.Seed.IsClearing(),
 	}
 
 	return serviceReq

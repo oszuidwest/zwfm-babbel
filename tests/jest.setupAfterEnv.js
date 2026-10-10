@@ -30,9 +30,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (resourceManager) {
-    const result = await resourceManager.cleanupAll();
-    if (result.failed > 0) {
-      throw new Error(`Failed to clean up integration-test resources: ${result.errors.join('; ')}`);
-    }
+    await resourceManager.cleanupAll();
   }
 });

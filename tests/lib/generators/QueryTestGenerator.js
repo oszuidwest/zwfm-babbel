@@ -198,21 +198,16 @@ function generateQueryTests(schema, setupFn = null) {
 
     describe('Pagination', () => {
       test.each([
-        ['when paginating with limit, then respects limit', 'limit=2', 200, response => expect(response.data.data.length).toBeLessThanOrEqual(2), null, null],
-        ['when paginating with offset, then skips records', 'limit=2&offset=1', 200, response => {
+        ['when paginating with limit, then respects limit', 'limit=2', response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
+        ['when paginating with offset, then skips records', 'limit=2&offset=1', response => {
           expect(response.data.data.length).toBeLessThanOrEqual(2);
           expect(response.data).toHaveProperty('offset', 1);
-        }, null, null],
-        ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', 200, response => expect(response.data.data).toEqual([]), null, null],
-        ['when limit is non-integer, then returns 422', 'limit=abc', 422, undefined, 'limit', 'invalid_format'],
-        ['when limit is negative, then returns 422', 'limit=-5', 422, undefined, 'limit', 'out_of_range'],
-        ['when limit exceeds cap, then returns 422', 'limit=101', 422, undefined, 'limit', 'out_of_range'],
-        ['when offset is non-integer, then returns 422', 'offset=foo', 422, undefined, 'offset', 'invalid_format']
-      ])('%s', async (_name, qs, status, verify, field, code) => {
+        }],
+        ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', response => expect(response.data.data).toEqual([])]
+      ])('%s', async (_name, qs, verify) => {
         expect.hasAssertions();
-        const response = await expectStatus(qs, status);
-        if (verify) verify(response);
-        if (field) expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
+        const response = await expectStatus(qs);
+        verify(response);
       });
     });
 

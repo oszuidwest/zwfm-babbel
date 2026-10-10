@@ -357,10 +357,10 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 
 func TestHandleServiceError_ValidationReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
-	err := apperrors.InvalidFields([]apperrors.FieldError{
+	err := &apperrors.ValidationError{Errors: []apperrors.FieldError{
 		{Field: "stability", Code: apperrors.CodeOutOfRange, Message: "must be between 0 and 1"},
 		{Field: "tts_style_prefix", Code: apperrors.CodeTooLong, Message: "must be at most 500 characters"},
-	})
+	}}
 
 	handleServiceError(c, err, "tts_settings")
 

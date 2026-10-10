@@ -364,10 +364,6 @@ runs first: duplicate keys produce `duplicate`, malformed filter keys
 `invalid_choice`. Other unknown keys are ignored unless repeated; empty
 non-filter options are ignored.
 
-Earlier versions reported `filter[status]=bad` as `filter[status][eq]`,
-`filter[status][not]=bad` as `filter[status][ne]`, and `filter[bogus]=1` as
-`filter`.
-
 ## Performance Considerations
 
 - **Field Selection**: Reduces payload size and database load

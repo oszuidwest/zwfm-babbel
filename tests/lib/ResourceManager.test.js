@@ -13,7 +13,7 @@ describe('ResourceManager', () => {
     resources.track('stations', 7);
     resources.track('users', 12);
 
-    await expect(resources.cleanupAll()).resolves.toMatchObject({ failed: 0 });
+    await resources.cleanupAll();
     expect(api.apiCall).not.toHaveBeenCalledWith('DELETE', expect.stringContaining('/bulletins/'));
     expect(mysql.execSQLScript).toHaveBeenCalledTimes(1);
 
@@ -31,10 +31,7 @@ describe('ResourceManager', () => {
     const resources = new ResourceManager(api, mysql);
     resources.track('stations', 7);
 
-    await expect(resources.cleanupAll()).resolves.toEqual(expect.objectContaining({
-      failed: 1,
-      errors: ['database unavailable']
-    }));
+    await expect(resources.cleanupAll()).rejects.toThrow('database unavailable');
     expect(resources.tracked.stations).toEqual(new Set(['7']));
   });
 });

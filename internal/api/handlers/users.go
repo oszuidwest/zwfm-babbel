@@ -97,17 +97,9 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	serviceReq := &services.UpdateUserRequest{
-		Username:  req.Username,
-		FullName:  req.FullName,
-		Email:     req.Email,
-		Password:  req.Password,
-		Role:      req.Role,
-		Metadata:  req.Metadata,
-		Suspended: req.Suspended,
-	}
+	serviceReq := services.UpdateUserRequest(req)
 
-	updated, err := h.userSvc.Update(c.Request.Context(), id, serviceReq)
+	updated, err := h.userSvc.Update(c.Request.Context(), id, &serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return

@@ -75,7 +75,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
-		return nil, apperrors.InvalidFields(validationErrs)
+		return nil, &apperrors.ValidationError{Errors: validationErrs}
 	}
 
 	update := &repository.TTSSettingsUpdate{

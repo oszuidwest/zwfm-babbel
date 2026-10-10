@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -62,9 +64,15 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
 			service.config = cfg
 			service.audioSvc = audio.NewService(cfg, nil)
+			alerts := &capturingAlerter{}
+			service.alerts = alerts
 
-			if err := tt.run(t.Context(), service, story.ID); !errors.Is(err, audio.ErrSilent) {
+			err := tt.run(t.Context(), service, story.ID)
+			if !errors.Is(err, audio.ErrSilent) {
 				t.Fatalf("error = %v, want audio.ErrSilent", err)
+			}
+			if tt.name == "forced TTS" {
+				assertSilentTTSFailure(t, err, alerts)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
@@ -78,5 +86,19 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 				t.Fatalf("existing audio = %q, %v; want %q", got, err, existingAudio)
 			}
 		})
+	}
+}
+
+func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
+	t.Helper()
+	upstream, ok := errors.AsType[*apperrors.UpstreamError](err)
+	if !ok || upstream.Status != http.StatusBadGateway {
+		t.Fatalf("error = %v, want UpstreamError with status 502", err)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold {
+		t.Fatalf("alerts = %+v, want tts:upstream requiring a threshold", alerts.events)
+	}
+	if len(alerts.resolved) != 0 {
+		t.Fatalf("resolved alerts = %v, want none for silent audio", alerts.resolved)
 	}
 }
