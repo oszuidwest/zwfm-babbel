@@ -120,6 +120,20 @@ function createMySQLExecutor(options = {}) {
       }
     },
 
+    // Ranks rows with MySQL's own ORDER BY on column, so strings compare
+    // under the column collation and equal values share a rank.
+    rankByColumn(table, column, ids) {
+      for (const [label, name] of [['table', table], ['column', column]]) {
+        if (!/^\w+$/.test(name)) throw new Error(`Invalid ${label}: ${name}`);
+      }
+      const idList = ids.map(id => sqlInteger(id, 'id')).join(', ');
+      const output = this.execSQL(
+        `SELECT id, DENSE_RANK() OVER (ORDER BY ${column}) FROM ${table} WHERE id IN (${idList})`,
+        { silent: true }
+      );
+      return new Map(output.trim().split('\n').filter(Boolean).map(line => line.split('\t').map(Number)));
+    },
+
     execSQLScript(input, execOptions = {}) {
       const target = resolveTarget();
       try {

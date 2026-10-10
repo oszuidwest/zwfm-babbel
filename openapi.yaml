@@ -2817,6 +2817,12 @@ components:
         - `name:asc` or `+name` - ascending
         - `name:desc` or `-name` - descending
         - `created_at:desc,name:asc` - multiple fields
+
+        Text fields sort by the database column collation, not by code point.
+        With the MySQL 8.4 default `utf8mb4_0900_ai_ci`, case and accents do
+        not count: `apple` sorts before `Banana`, and `delta` equals `Delta`.
+        Rows with equal values have no defined order; add a field such as
+        `id` for a stable order.
       examples:
         single_field:
           value: "name:asc"

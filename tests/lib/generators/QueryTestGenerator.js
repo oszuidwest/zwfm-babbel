@@ -1,4 +1,5 @@
 const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -26,6 +27,22 @@ function generateQueryTests(schema, setupFn = null) {
     return values;
   };
   const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
+  const mysql = createMySQLExecutor();
+  const table = endpoint.slice(1).replaceAll('-', '_');
+  // Returns comparable sort keys. Strings follow the column collation, which
+  // JavaScript cannot reproduce, so MySQL ranks them; equal values share a
+  // rank and may come back in any order. Dates compare as instants.
+  const sortKeys = (response, field) => {
+    const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
+    expect(items.length).toBeGreaterThan(0);
+    const { value } = filters[field];
+    if (value.format === 'date' || value.format === 'date-time') return items.map(item => Date.parse(item[field]));
+    if (value.type === 'string') {
+      const ranks = mysql.rankByColumn(table, field, items.map(item => item.id));
+      return items.map(item => ranks.get(item.id));
+    }
+    return items.map(item => item[field]);
+  };
 
   describe(`${name} Query Parameters`, () => {
     beforeAll(async () => {
@@ -50,14 +67,15 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
+          if (!filters[field]) throw new Error(`${name} sortableFields: ${field} is not a documented filter for ${endpoint}`);
           test.each([
             [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
             [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
           ])('%s', async (_name, sort, compare) => {
             expect.hasAssertions();
             const response = await expectStatus(`sort=${sort}`);
-            const values = expectValuesFor(response, field);
-            if (values.length > 1) expect(isSorted(values, compare)).toBe(true);
+            const keys = sortKeys(response, field);
+            if (keys.length > 1) expect(isSorted(keys, compare)).toBe(true);
           });
         });
 

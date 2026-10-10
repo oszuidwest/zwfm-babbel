@@ -1,5 +1,6 @@
 const usersSchema = require('../lib/schemas/users.schema');
 const { generateCrudTests, generateQueryTests, generateTrashedTests, generateValidationTests } = require('../lib/generators');
+const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
   // Generate standard CRUD, Query, and Validation tests
@@ -22,6 +23,54 @@ describe('Users', () => {
       const response = await global.api.apiCall('GET', `/users?${new URLSearchParams({ [key]: value })}`);
       expect(response.status).toBe(422);
       expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+    });
+  });
+
+  // Strings sort by the column collation, not by code point. The fixtures mix
+  // case and accents and include collation ties (full_name is not unique,
+  // unlike voice and station names). Only rows with the unique prefix are
+  // listed, so other suites' data cannot change the outcome.
+  describe('Full Name Sorting Collation', () => {
+    const mysql = createMySQLExecutor();
+    const prefix = `SortCollation ${Date.now()} ${process.pid}`;
+    const fixtures = [];
+    const rankFixtures = () => mysql.rankByColumn('users', 'full_name', fixtures.map(user => user.id));
+    const isAscending = ranks => ranks.every((rank, index) => index === 0 || rank >= ranks[index - 1]);
+
+    beforeAll(async () => {
+      for (const [index, suffix] of ['cherry', 'Banana', '\u00e9cho', 'apple', 'delta', 'Delta', 'echo'].entries()) {
+        const fullName = `${prefix} ${suffix}`;
+        const response = await global.api.apiCall('POST', '/users', {
+          username: `sortcollation${Date.now()}${process.pid}${index}`,
+          full_name: fullName,
+          password: 'TestPassword123!',
+          role: 'viewer'
+        });
+        expect(response.status).toBe(201);
+        global.resources.track('users', response.data.id);
+        fixtures.push({ id: response.data.id, fullName });
+      }
+    });
+
+    test('when fixtures mix case and accents, then code point order disagrees with the collation and ties exist', () => {
+      const ranks = rankFixtures();
+      const byCodePoint = [...fixtures].sort((a, b) => (a.fullName < b.fullName ? -1 : Number(a.fullName > b.fullName)));
+      expect(isAscending(byCodePoint.map(user => ranks.get(user.id)))).toBe(false);
+      expect(new Set(ranks.values()).size).toBeLessThan(fixtures.length);
+    });
+
+    test.each([['full_name', 1], ['-full_name', -1]])('when sorting the fixtures by %s, then the order follows the collation', async (sort, direction) => {
+      const response = await global.api.apiCall(
+        'GET',
+        `/users?filter[full_name][like]=${encodeURIComponent(prefix)}&sort=${sort}&limit=100`
+      );
+      expect(response.status).toBe(200);
+      const listed = response.data.data;
+      expect(listed.map(user => user.id).sort((a, b) => a - b))
+        .toEqual(fixtures.map(user => user.id).sort((a, b) => a - b));
+
+      const ranks = rankFixtures();
+      expect(isAscending(listed.map(user => direction * ranks.get(user.id)))).toBe(true);
     });
   });
 
