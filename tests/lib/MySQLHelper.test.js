@@ -144,7 +144,6 @@ describe('MySQLHelper', () => {
     ['voices', 'name DESC', 1],
     ['voices', 'name', '1 OR 1=1']
   ])('when ranking with table %p, column %p and id %p, then rejected', (table, column, id) => {
-    execFileSync.mockReturnValue('babbel-mysql\n');
     expect(() => createMySQLExecutor().rankByColumn(table, column, [id])).toThrow(/Invalid/);
   });
 

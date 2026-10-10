@@ -18,14 +18,12 @@ function generateQueryTests(schema, setupFn = null) {
     return response;
   };
   // Optional fields may be absent from the fixtures.
-  const valuesFor = (response, field) => (response.data.data || [])
-    .map(item => item[field])
-    .filter(value => value !== null && value !== undefined);
-  const expectValuesFor = (response, field) => {
-    const values = valuesFor(response, field);
-    expect(values.length).toBeGreaterThan(0);
-    return values;
+  const expectItemsWith = (response, field) => {
+    const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
+    expect(items.length).toBeGreaterThan(0);
+    return items;
   };
+  const expectValuesFor = (response, field) => expectItemsWith(response, field).map(item => item[field]);
   const mysql = createMySQLExecutor();
   const table = endpoint.slice(1).replaceAll('-', '_');
   // Returns numeric sort keys. Strings follow the column collation, which
@@ -34,8 +32,7 @@ function generateQueryTests(schema, setupFn = null) {
   // Assumes each field is a same-named column of the table named after the
   // endpoint.
   const sortKeys = (response, field) => {
-    const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
-    expect(items.length).toBeGreaterThan(0);
+    const items = expectItemsWith(response, field);
     const { value } = filters[field];
     if (value.format === 'date' || value.format === 'date-time') return items.map(item => Date.parse(item[field]));
     if (value.type === 'string') {

@@ -124,9 +124,8 @@ function createMySQLExecutor(options = {}) {
     // under the column collation and equal values share a rank. Returns a Map
     // from id to dense rank; ids must not be empty.
     rankByColumn(table, column, ids) {
-      for (const [label, name] of [['table', table], ['column', column]]) {
-        if (!/^\w+$/.test(name)) throw new Error(`Invalid ${label}: ${name}`);
-      }
+      if (!/^\w+$/.test(table)) throw new Error(`Invalid table: ${table}`);
+      if (!/^\w+$/.test(column)) throw new Error(`Invalid column: ${column}`);
       const idList = ids.map(id => sqlInteger(id, 'id')).join(', ');
       const output = this.execSQL(
         `SELECT id, DENSE_RANK() OVER (ORDER BY ${column}) FROM ${table} WHERE id IN (${idList})`,

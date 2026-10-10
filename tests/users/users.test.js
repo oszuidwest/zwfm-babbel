@@ -32,17 +32,17 @@ describe('Users', () => {
   // as delta and Delta. Only rows with the unique prefix are listed, so other
   // suites' data cannot change the outcome.
   describe('Full Name Sorting Collation', () => {
-    const mysql = createMySQLExecutor();
-    const prefix = `SortCollation ${Date.now()} ${process.pid}`;
+    const stamp = `${Date.now()}${process.pid}`;
+    const prefix = `SortCollation ${stamp}`;
     const fixtures = [];
-    const rankFixtures = () => mysql.rankByColumn('users', 'full_name', fixtures.map(user => user.id));
-    const sorted = (ranks, direction = 1) => [...ranks].sort((a, b) => direction * (a - b));
+    let ranks;
+    const sorted = (values, direction = 1) => [...values].sort((a, b) => direction * (a - b));
 
     beforeAll(async () => {
       for (const [index, suffix] of ['cherry', 'Banana', '\u00e9cho', 'apple', 'delta', 'Delta', 'echo'].entries()) {
         const fullName = `${prefix} ${suffix}`;
         const response = await global.api.apiCall('POST', '/users', {
-          username: `sortcollation${Date.now()}${process.pid}${index}`,
+          username: `sortcollation${stamp}${index}`,
           full_name: fullName,
           password: 'TestPassword123!',
           role: 'viewer'
@@ -51,10 +51,10 @@ describe('Users', () => {
         global.resources.track('users', response.data.id);
         fixtures.push({ id: response.data.id, fullName });
       }
+      ranks = createMySQLExecutor().rankByColumn('users', 'full_name', fixtures.map(user => user.id));
     });
 
     test('when fixtures mix case and accents, then code point order disagrees with the collation and ties exist', () => {
-      const ranks = rankFixtures();
       const byCodePoint = [...fixtures].sort((a, b) => (a.fullName < b.fullName ? -1 : Number(a.fullName > b.fullName)));
       const codePointRanks = byCodePoint.map(user => ranks.get(user.id));
       expect(codePointRanks).not.toEqual(sorted(codePointRanks));
@@ -68,10 +68,8 @@ describe('Users', () => {
       );
       expect(response.status).toBe(200);
       const listed = response.data.data;
-      expect(listed.map(user => user.id).sort((a, b) => a - b))
-        .toEqual(fixtures.map(user => user.id).sort((a, b) => a - b));
+      expect(sorted(listed.map(user => user.id))).toEqual(sorted(fixtures.map(user => user.id)));
 
-      const ranks = rankFixtures();
       const listedRanks = listed.map(user => ranks.get(user.id));
       expect(listedRanks).toEqual(sorted(listedRanks, direction));
     });
