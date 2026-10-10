@@ -121,7 +121,8 @@ function createMySQLExecutor(options = {}) {
     },
 
     // Ranks rows with MySQL's own ORDER BY on column, so strings compare
-    // under the column collation and equal values share a rank.
+    // under the column collation and equal values share a rank. Returns a Map
+    // from id to dense rank; ids must not be empty.
     rankByColumn(table, column, ids) {
       for (const [label, name] of [['table', table], ['column', column]]) {
         if (!/^\w+$/.test(name)) throw new Error(`Invalid ${label}: ${name}`);

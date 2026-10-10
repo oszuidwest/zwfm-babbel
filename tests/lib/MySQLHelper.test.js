@@ -121,7 +121,7 @@ describe('MySQLHelper', () => {
     );
   });
 
-  test('when ranking by a column, then MySQL orders the rows and ties share a rank', () => {
+  test('when ranking by a column, then the SQL ranks by it and the output maps ids to ranks', () => {
     execFileSync.mockImplementation((bin, args) => {
       if (bin === 'docker' && args[0] === 'ps') {
         return 'babbel-mysql\n';

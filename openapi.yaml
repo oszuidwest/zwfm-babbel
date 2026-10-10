@@ -2819,10 +2819,11 @@ components:
         - `created_at:desc,name:asc` - multiple fields
 
         Text fields sort by the database column collation, not by code point.
-        With the MySQL 8.4 default `utf8mb4_0900_ai_ci`, case and accents do
-        not count: `apple` sorts before `Banana`, and `delta` equals `Delta`.
-        Rows with equal values have no defined order; add a field such as
-        `id` for a stable order.
+        With MySQL's default collation `utf8mb4_0900_ai_ci` (8.0 and later),
+        case and accents do not count: `apple` sorts before `Banana`, and
+        `delta` equals `Delta`. Rows with equal values, also under the default
+        sort, have no defined order and can repeat or go missing across pages;
+        add `id` as the last sort field for a stable order.
       examples:
         single_field:
           value: "name:asc"

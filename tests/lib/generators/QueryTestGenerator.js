@@ -26,12 +26,13 @@ function generateQueryTests(schema, setupFn = null) {
     expect(values.length).toBeGreaterThan(0);
     return values;
   };
-  const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
   const mysql = createMySQLExecutor();
   const table = endpoint.slice(1).replaceAll('-', '_');
-  // Returns comparable sort keys. Strings follow the column collation, which
-  // JavaScript cannot reproduce, so MySQL ranks them; equal values share a
-  // rank and may come back in any order. Dates compare as instants.
+  // Returns numeric sort keys. Strings follow the column collation, which
+  // JavaScript cannot reproduce exactly, so MySQL ranks them; equal values
+  // share a rank and may come back in any order. Dates compare as instants.
+  // Assumes each field is a same-named column of the table named after the
+  // endpoint.
   const sortKeys = (response, field) => {
     const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
     expect(items.length).toBeGreaterThan(0);
@@ -69,13 +70,15 @@ function generateQueryTests(schema, setupFn = null) {
         query.sortableFields.forEach(field => {
           if (!filters[field]) throw new Error(`${name} sortableFields: ${field} is not a documented filter for ${endpoint}`);
           test.each([
-            [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
-            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
-          ])('%s', async (_name, sort, compare) => {
+            [`when sorting asc by ${field}, then ordered correctly`, field, 1],
+            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, -1]
+          ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
             const response = await expectStatus(`sort=${sort}`);
             const keys = sortKeys(response, field);
-            if (keys.length > 1) expect(isSorted(keys, compare)).toBe(true);
+            // A missing rank or unparsable date would sort to the end unnoticed.
+            expect(keys.every(Number.isFinite)).toBe(true);
+            expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
           });
         });
 

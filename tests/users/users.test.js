@@ -27,15 +27,16 @@ describe('Users', () => {
   });
 
   // Strings sort by the column collation, not by code point. The fixtures mix
-  // case and accents and include collation ties (full_name is not unique,
-  // unlike voice and station names). Only rows with the unique prefix are
-  // listed, so other suites' data cannot change the outcome.
+  // case and accents and include collation ties, which need a non-unique
+  // column: voice and station names reject collation-equal duplicates such
+  // as delta and Delta. Only rows with the unique prefix are listed, so other
+  // suites' data cannot change the outcome.
   describe('Full Name Sorting Collation', () => {
     const mysql = createMySQLExecutor();
     const prefix = `SortCollation ${Date.now()} ${process.pid}`;
     const fixtures = [];
     const rankFixtures = () => mysql.rankByColumn('users', 'full_name', fixtures.map(user => user.id));
-    const isAscending = ranks => ranks.every((rank, index) => index === 0 || rank >= ranks[index - 1]);
+    const sorted = (ranks, direction = 1) => [...ranks].sort((a, b) => direction * (a - b));
 
     beforeAll(async () => {
       for (const [index, suffix] of ['cherry', 'Banana', '\u00e9cho', 'apple', 'delta', 'Delta', 'echo'].entries()) {
@@ -55,7 +56,8 @@ describe('Users', () => {
     test('when fixtures mix case and accents, then code point order disagrees with the collation and ties exist', () => {
       const ranks = rankFixtures();
       const byCodePoint = [...fixtures].sort((a, b) => (a.fullName < b.fullName ? -1 : Number(a.fullName > b.fullName)));
-      expect(isAscending(byCodePoint.map(user => ranks.get(user.id)))).toBe(false);
+      const codePointRanks = byCodePoint.map(user => ranks.get(user.id));
+      expect(codePointRanks).not.toEqual(sorted(codePointRanks));
       expect(new Set(ranks.values()).size).toBeLessThan(fixtures.length);
     });
 
@@ -70,7 +72,8 @@ describe('Users', () => {
         .toEqual(fixtures.map(user => user.id).sort((a, b) => a - b));
 
       const ranks = rankFixtures();
-      expect(isAscending(listed.map(user => direction * ranks.get(user.id)))).toBe(true);
+      const listedRanks = listed.map(user => ranks.get(user.id));
+      expect(listedRanks).toEqual(sorted(listedRanks, direction));
     });
   });
 
