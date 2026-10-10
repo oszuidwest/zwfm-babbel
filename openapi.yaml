@@ -1587,15 +1587,15 @@ paths:
                 deleted_at:
                   type: string
                   description: Set to empty string ("") to restore a soft-deleted story, or any other value to soft-delete
-              example:
-                updateStatus:
-                  summary: Update story status
-                  value:
-                    status: "active"
-                restoreStory:
-                  summary: Restore a soft-deleted story
-                  value:
-                    deleted_at: ""
+            examples:
+              updateStatus:
+                summary: Update story status
+                value:
+                  status: "active"
+              restoreStory:
+                summary: Restore a soft-deleted story
+                value:
+                  deleted_at: ""
       responses:
         '200':
           description: Story state updated successfully (status change or restore). Returns the updated story.
@@ -4493,6 +4493,8 @@ components:
                   code:
                     type: string
                     const: story.deleted
+                  deleted_at:
+                    $ref: '#/components/schemas/ProblemDetails/properties/deleted_at'
           example:
             type: "https://babbel.api/problems/story.deleted"
             title: "Gone"
