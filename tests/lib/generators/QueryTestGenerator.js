@@ -117,13 +117,13 @@ function generateQueryTests(schema, setupFn = null) {
         // Labels documented under "Error labels" in openapi.yaml.
         const firstField = query.filterableFields[0];
         test.each([
-          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`],
-          ['when filtering unknown field, then the 422 names filter', 'filter[__bogus__]=1', 'filter'],
-          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`]
-        ])('%s', async (_name, qs, field) => {
+          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`, 'invalid_choice'],
+          ['when filtering unknown field, then the 422 names the key', 'filter[__bogus__]=1', 'filter[__bogus__]', 'unknown_field'],
+          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`, 'duplicate']
+        ])('%s', async (_name, qs, field, code) => {
           expect.hasAssertions();
           const response = await expectStatus(qs, 422);
-          expect(response.data.errors.map(error => error.field)).toEqual([field]);
+          expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
         });
 
         query.filterableFields

@@ -79,7 +79,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual([
-      { field: 'request', message: 'At least one field must be provided' }
+      { field: 'request', code: 'empty_update', message: 'At least one field must be provided' }
     ]);
   });
 
@@ -92,7 +92,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(400);
     expect(response.data.errors).toEqual([
-      { field: 'request', message: 'request body is empty' }
+      { field: 'request', code: 'required', message: 'request body is required' }
     ]);
   });
 
@@ -110,7 +110,7 @@ describe('TTS Settings', () => {
     for (const [field, body, message] of cases) {
       const response = await global.api.apiCall('PATCH', '/settings/tts', body);
       expect(response.status).toBe(400);
-      expect(response.data.errors).toEqual([{ field, message }]);
+      expect(response.data.errors).toEqual([{ field, code: 'unknown_field', message }]);
     }
   });
 
@@ -134,9 +134,8 @@ describe('TTS Settings', () => {
     expect(response.status).toBe(422);
     expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
     expect(response.data.errors).toEqual([
-      { field: 'stability', message: 'must be between 0 and 1' }
+      { field: 'stability', code: 'out_of_range', message: 'must be between 0 and 1' }
     ]);
-    expect(response.data.errors[0]).not.toHaveProperty('code');
   });
 
   test('when patching prefix over 500 runes, then returns validation error', async () => {
@@ -146,7 +145,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'tts_style_prefix', message: 'must be at most 500 characters' }
+      { field: 'tts_style_prefix', code: 'too_long', message: 'must be at most 500 characters' }
     ]));
   });
 
@@ -216,7 +215,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'rules', message: 'must contain at most 1000 rules' }
+      { field: 'rules', code: 'too_long', message: 'must contain at most 1000 rules' }
     ]));
   });
 
@@ -242,7 +241,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'rules[1].string_to_replace', message: 'duplicates rules[0]' }
+      { field: 'rules[1].string_to_replace', code: 'duplicate', message: 'duplicates rules[0]' }
     ]));
   });
 
@@ -258,6 +257,7 @@ describe('TTS Settings', () => {
     expect(response.data.errors).toEqual(expect.arrayContaining([
       {
         field: 'rules[0].string_to_replace',
+        code: 'duplicate',
         message: 'conflicts with rules[1] under case-insensitive matching'
       }
     ]));
@@ -270,7 +270,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(400);
     expect(response.data.errors).toEqual([
-      { field: 'alias', message: 'unknown field' }
+      { field: 'rules[0].alias', code: 'unknown_field', message: 'unknown field' }
     ]);
   });
 

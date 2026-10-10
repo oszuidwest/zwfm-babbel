@@ -85,11 +85,11 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test('when generating with date, then returns 422', async () => {
+    test('when generating with date, then returns 400', async () => {
       const response = await enqueueBulletin(stationId, { date: '2026-10-07' });
 
-      expect(response.status).toBe(422);
-      expect(response.data.errors).toEqual([{ field: 'date', message: 'date is no longer supported' }]);
+      expect(response.status).toBe(400);
+      expect(response.data.errors).toEqual([{ field: 'date', code: 'unknown_field', message: 'unknown field' }]);
     });
 
     test.each([
@@ -98,10 +98,10 @@ describe('Bulletins', () => {
         data: ' \n\t ',
         transformRequest: [data => data]
       }), 202, true],
-      ['when generating with malformed JSON body, then returns 422', () => postJsonBulletinHttp(stationId, {}, {
+      ['when generating with malformed JSON body, then returns 400', () => postJsonBulletinHttp(stationId, {}, {
         data: '{invalid json}',
         transformRequest: [data => data]
-      }), 422, false],
+      }), 400, false],
       ['when generating with non-json content type and JSON body, then queues', () => postBulletinHttp(stationId, {
         data: '{}',
         headers: { 'Content-Type': 'text/plain' }
@@ -149,7 +149,7 @@ describe('Bulletins', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: true
-      }, [station.id]);
+      });
 
       await global.helpers.requireStoryWithReadyAudio(global.resources, {
         title: `JingleCtxRegular_${Date.now()}`,
@@ -158,7 +158,7 @@ describe('Bulletins', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: false
-      }, [station.id]);
+      });
 
       // Generate 5 bulletins - each shuffle is independent
       const runs = 5;

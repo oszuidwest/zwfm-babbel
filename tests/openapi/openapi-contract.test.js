@@ -66,11 +66,12 @@ describe('OpenAPI Contract', () => {
             pathParams: { id: '0' }
           })).toThrow(/path parameter id does not match schema/);
 
-          // ...and the server must answer it with the documented 400 problem.
+          // ...and the server must answer it with the documented 422 problem.
           const response = await global.api.apiCall('GET', '/stations/0');
           validator.validateResponse({ method: 'GET', operationPath: '/api/v1/stations/{id}', response });
-          expect(response.status).toBe(400);
-          expect(response.data.type).toBe('https://babbel.api/problems/bad-request');
+          expect(response.status).toBe(422);
+          expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
+          expect(response.data.errors).toEqual([expect.objectContaining({ field: 'id', code: 'out_of_range' })]);
           return response;
         }, 'GET /api/v1/stations/{id} invalid id'),
       scenario('GET', '/api/v1/stations', async () => {
@@ -255,9 +256,8 @@ describe('OpenAPI Contract', () => {
           try {
             const response = await global.api.uploadFile(`/stories/${ctx.story.id}/audio`, {}, oversizedPath, 'audio');
             validator.validateResponse({ method: 'POST', operationPath: '/api/v1/stories/{id}/audio', response });
-            expect(response.status).toBe(422);
-            expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
-            expect(response.data.errors[0].message).toContain('file too large');
+            expect(response.status).toBe(413);
+            expect(response.data.type).toBe('https://babbel.api/problems/payload-too-large');
             return response;
           } finally {
             cleanupFile(oversizedPath);
@@ -281,13 +281,13 @@ describe('OpenAPI Contract', () => {
           status: 'active'
         })),
       scenario('DELETE', '/api/v1/stories/{id}', async () => {
-          const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'), [ctx.station.id]);
+          const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'));
           expect(story).not.toBeNull();
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
         }),
       apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
       scenario('PUT', '/api/v1/stories/{id}', async () => {
-          const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'), [ctx.station.id]);
+          const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'));
           expect(story).not.toBeNull();
           expect((await global.api.apiCall('DELETE', `/stories/${story.id}`)).status).toBe(204);
           const response = await apiCall('PUT', '/api/v1/stories/{id}', `/stories/${story.id}`, { title: 'Changed' });
@@ -306,7 +306,7 @@ describe('OpenAPI Contract', () => {
         '/api/v1/users/{id}',
         () => `/users/${ctx.user.id}`,
         { email: null, suspended: null },
-        { status: 400, code: 'user.validation_failed' }
+        { status: 422, type: 'https://babbel.api/problems/validation-error' }
       ),
       scenario('DELETE', '/api/v1/users/{id}', async () => {
           const createResponse = await global.api.apiCall('POST', '/users', userBody('delete'));
@@ -612,7 +612,7 @@ async function createContractContext() {
   expect(stationVoice).not.toBeNull();
   await uploadFixture(`/station-voices/${stationVoice.id}/audio`, 'jingle');
 
-  const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id), [station.id]);
+  const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id));
   expect(story).not.toBeNull();
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);

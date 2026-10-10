@@ -15,12 +15,14 @@ describe('Automation', () => {
 
   describe('Parameter Validation', () => {
     test.each([
-      ['when max_age missing, then returns 422', { key: automationKey }],
-      ['when max_age invalid, then returns 422', { key: automationKey, max_age: 'invalid' }],
-      ['when max_age negative, then returns 422', { key: automationKey, max_age: '-100' }]
-    ])('%s', async (_name, params) => {
+      ['when max_age missing, then returns 422', { key: automationKey }, 'required'],
+      ['when max_age invalid, then returns 422', { key: automationKey, max_age: 'invalid' }, 'invalid_format'],
+      ['when max_age negative, then returns 422', { key: automationKey, max_age: '-100' }, 'out_of_range'],
+      ['when max_age overflows a duration, then returns 422', { key: automationKey, max_age: '9223372036854775807' }, 'out_of_range']
+    ])('%s', async (_name, params, code) => {
       const response = await global.helpers.publicBulletinRequest(1, params);
       expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'max_age', code })]);
     });
 
     test('when station ID invalid, then returns 422', async () => {
@@ -33,6 +35,7 @@ describe('Automation', () => {
       });
 
       expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'id', code: 'invalid_format' })]);
     });
   });
 
@@ -46,7 +49,7 @@ describe('Automation', () => {
       expect(response.status).toBe(404);
     });
 
-    test('when station has no stories, then returns 422', async () => {
+    test('when station has no stories, then returns 409', async () => {
       const station = await global.helpers.createStation(global.resources, 'Empty Automation Station');
       expect(station).not.toBeNull();
 
@@ -55,7 +58,8 @@ describe('Automation', () => {
         max_age: '0'
       });
 
-      expect(response.status).toBe(422);
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('bulletin.no_stories');
     });
   });
 

@@ -42,11 +42,28 @@ describe('Authentication', () => {
       expect(response.status).toBe(401);
     });
 
-    test('when credentials empty, then returns 400', async () => {
-      // Empty body hits binding:"required" validation before auth check
+    test('when credentials empty, then returns 422 naming both fields', async () => {
+      // Required-field validation runs before the credential check.
       const response = await global.api.apiCall('POST', '/sessions', {});
 
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'username', code: 'required' }),
+        expect.objectContaining({ field: 'password', code: 'required' })
+      ]));
+    });
+
+    test('when login body has an unknown field, then returns 400', async () => {
+      const response = await global.api.apiCall('POST', '/sessions', {
+        username: 'admin',
+        password: 'admin',
+        remember: true
+      });
+
       expect(response.status).toBe(400);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field: 'remember', code: 'unknown_field' })
+      ]);
     });
   });
 

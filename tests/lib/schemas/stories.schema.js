@@ -1,4 +1,4 @@
-// Tests supply voice_id and target_stations through their fixture setup.
+// Tests supply voice_id through their fixture setup.
 
 module.exports = {
   name: 'Story',
@@ -46,11 +46,6 @@ module.exports = {
         type: 'integer',
         required: true,
         min: 1
-      },
-      target_stations: {
-        type: 'array',
-        required: true,
-        minItems: 1
       },
       status: {
         type: 'string',

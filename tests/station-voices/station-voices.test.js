@@ -175,7 +175,7 @@ describe('Station-Voices', () => {
   });
 
   describe('Foreign Key Validation', () => {
-    test('when station_id invalid, then returns error', async () => {
+    test('when station_id references a missing resource, then returns 422', async () => {
       const voice = await global.helpers.createVoice(global.resources, 'FKValidationVoice');
 
       const response = await global.api.apiCall('POST', '/station-voices', {
@@ -184,10 +184,11 @@ describe('Station-Voices', () => {
         mix_point: 2.0
       });
 
-      expect([404, 422]).toContain(response.status);
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'station_id', code: 'not_found' })]);
     });
 
-    test('when voice_id invalid, then returns error', async () => {
+    test('when voice_id references a missing resource, then returns 422', async () => {
       const station = await global.helpers.createStation(global.resources, 'FKValidationStation');
 
       const response = await global.api.apiCall('POST', '/station-voices', {
@@ -196,7 +197,8 @@ describe('Station-Voices', () => {
         mix_point: 2.0
       });
 
-      expect([404, 422]).toContain(response.status);
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'voice_id', code: 'not_found' })]);
     });
   });
 });

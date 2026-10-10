@@ -151,13 +151,13 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
-  test('when story target station ID is unsafe, then API is not called', async () => {
+  test('when story voice ID is unsafe, then API is not called', async () => {
     const api = { apiCall: jest.fn() };
     const helpers = new TestHelpers(api);
 
     await expect(
-      helpers.createStory({ track: jest.fn() }, { title: 'x', voice_id: 1 }, ['2; DROP TABLE stations'])
-    ).rejects.toThrow(/target station ID/);
+      helpers.createStory({ track: jest.fn() }, { title: 'x', voice_id: '1 OR 1=1' })
+    ).rejects.toThrow(/voice_id/);
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
@@ -168,16 +168,11 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
 
-    const story = await helpers.createStoryWithReadyAudio(
-      resourceManager,
-      { title: 'Story with audio' },
-      [10]
-    );
+    const story = await helpers.createStoryWithReadyAudio(resourceManager, { title: 'Story with audio' });
 
     expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
       resourceManager,
-      { title: 'Story with audio' },
-      [10]
+      { title: 'Story with audio' }
     );
     expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
     expect(story).toEqual({ id: 40 });
@@ -190,7 +185,7 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(false);
 
     await expect(
-      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' }, [10])
+      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' })
     ).resolves.toBeNull();
   });
 
@@ -200,7 +195,7 @@ describe('TestHelpers', () => {
     jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue(null);
 
     await expect(
-      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' }, [10])
+      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' })
     ).rejects.toThrow(/Required story/);
   });
 

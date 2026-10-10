@@ -37,8 +37,15 @@ function generateValidationTests(schema, setupFn = null) {
       }
       return response;
     };
-    const rejectCase = (title, suffix, mutate) => test(title, async () => {
-      await expectPostStatus(withSharedDeps(suffix, mutate), 422);
+    // Rejections name the field; code is asserted where the rule is unambiguous.
+    // Wrong JSON types are 400; rejected values are 422.
+    const rejectCase = (title, suffix, mutate, { field, code, status = 422 } = {}) => test(title, async () => {
+      const response = await expectPostStatus(withSharedDeps(suffix, mutate), status);
+      if (field) {
+        expect(response.data.errors).toEqual(expect.arrayContaining([
+          expect.objectContaining(code ? { field, code } : { field })
+        ]));
+      }
     });
 
     beforeAll(async () => {
@@ -52,8 +59,10 @@ function generateValidationTests(schema, setupFn = null) {
 
       Object.entries(fields).forEach(([fieldName, rules]) => {
         if (!rules.required) return;
-        rejectCase(`when ${fieldName} missing, then returns 422`, `missing-${fieldName}`, data => delete data[fieldName]);
-        rejectCase(`when ${fieldName} null, then returns 422`, `null-${fieldName}`, data => { data[fieldName] = null; });
+        rejectCase(`when ${fieldName} missing, then returns 422`, `missing-${fieldName}`, data => delete data[fieldName],
+          { field: fieldName, code: 'required' });
+        rejectCase(`when ${fieldName} null, then returns 422`, `null-${fieldName}`, data => { data[fieldName] = null; },
+          { field: fieldName });
       });
     });
 
@@ -64,13 +73,13 @@ function generateValidationTests(schema, setupFn = null) {
           [
             [rules.required, 'empty string', `empty-${fieldName}`, ''],
             [rules.rejectWhitespaceOnly, 'whitespace-only', `whitespace-${fieldName}`, '   '],
-            [rules.maxLength, 'exceeds max length', `maxlen-${fieldName}`, () => 'A'.repeat(rules.maxLength + 50)],
-            [rules.minLength && rules.minLength > 1, 'below min length', `minlen-${fieldName}`, () => 'A'.repeat(rules.minLength - 1)],
+            [rules.maxLength, 'exceeds max length', `maxlen-${fieldName}`, () => 'A'.repeat(rules.maxLength + 50), 'too_long'],
+            [rules.minLength && rules.minLength > 1, 'below min length', `minlen-${fieldName}`, () => 'A'.repeat(rules.minLength - 1), 'too_short'],
             [rules.pattern, 'invalid pattern', `pattern-${fieldName}`, '!!!invalid!!!']
-          ].filter(([enabled]) => enabled).forEach(([, label, suffix, value]) => {
+          ].filter(([enabled]) => enabled).forEach(([, label, suffix, value, code]) => {
             rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix, data => {
               data[fieldName] = typeof value === 'function' ? value() : value;
-            });
+            }, { field: fieldName, code });
           });
         });
       });
@@ -82,17 +91,20 @@ function generateValidationTests(schema, setupFn = null) {
     if (numericFields.length > 0) {
       describe('Numeric Field Validation', () => {
         numericFields.forEach(([fieldName, rules]) => {
-          const cases = [[true, 'is string', `string-${fieldName}`, 'invalid']];
+          const typeError = { field: fieldName, code: 'invalid_type', status: 400 };
+          const rangeError = { field: fieldName, code: 'out_of_range' };
+          const cases = [['is string', `string-${fieldName}`, 'invalid', typeError]];
           if (rules.min !== undefined) {
-            cases.push([true, 'below minimum', `min-${fieldName}`, rules.min - 1]);
-            if (rules.min > 0) cases.push([true, 'negative', `neg-${fieldName}`, -1]);
-            if (rules.min >= 1) cases.push([true, 'zero', `zero-${fieldName}`, 0]);
+            cases.push(['below minimum', `min-${fieldName}`, rules.min - 1, rangeError]);
+            if (rules.min > 0) cases.push(['negative', `neg-${fieldName}`, -1, rangeError]);
+            if (rules.min >= 1) cases.push(['zero', `zero-${fieldName}`, 0, rangeError]);
           }
-          if (rules.max !== undefined) cases.push([true, 'above maximum', `max-${fieldName}`, rules.max + 1000]);
-          if (rules.type === 'integer') cases.push([true, 'is float', `float-${fieldName}`, 5.5]);
+          if (rules.max !== undefined) cases.push(['above maximum', `max-${fieldName}`, rules.max + 1000, rangeError]);
+          if (rules.type === 'integer') cases.push(['is float', `float-${fieldName}`, 5.5, typeError]);
 
-          cases.forEach(([, label, suffix, value]) => {
-            rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix, data => { data[fieldName] = value; });
+          cases.forEach(([label, suffix, value, expected]) => {
+            rejectCase(`when ${fieldName} ${label}, then returns ${expected.status ?? 422}`, suffix,
+              data => { data[fieldName] = value; }, expected);
           });
         });
       });
@@ -104,7 +116,7 @@ function generateValidationTests(schema, setupFn = null) {
         enumFields.forEach(([fieldName, rules]) => {
           rejectCase(`when ${fieldName} invalid enum, then returns 422`, `invalid-enum-${fieldName}`, data => {
             data[fieldName] = 'definitely_not_a_valid_enum_value';
-          });
+          }, { field: fieldName, code: 'invalid_choice' });
 
           if (rules.enum.length > 0) {
             test(`when ${fieldName} valid enum, then accepted`, async () => {
@@ -143,9 +155,11 @@ function generateValidationTests(schema, setupFn = null) {
       describe('Array Field Validation', () => {
         arrayFields.forEach(([fieldName, rules]) => {
           if (rules.required) {
-            rejectCase(`when ${fieldName} empty array, then returns 422`, `empty-array-${fieldName}`, data => { data[fieldName] = []; });
+            rejectCase(`when ${fieldName} empty array, then returns 422`, `empty-array-${fieldName}`, data => { data[fieldName] = []; },
+              { field: fieldName });
           }
-          rejectCase(`when ${fieldName} not array, then returns 422`, `non-array-${fieldName}`, data => { data[fieldName] = 'not an array'; });
+          rejectCase(`when ${fieldName} not array, then returns 400`, `non-array-${fieldName}`, data => { data[fieldName] = 'not an array'; },
+            { field: fieldName, code: 'invalid_type', status: 400 });
         });
       });
     }

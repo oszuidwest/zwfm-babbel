@@ -49,13 +49,12 @@ function measureLoudness(inputPath) {
 }
 
 describe('Stories', () => {
-  const storyData = (voiceId, targetStations, overrides = {}) => ({
+  const storyData = (voiceId, overrides = {}) => ({
     title: `Story ${Date.now()}`,
     text: 'Test content',
     voice_id: voiceId,
     status: 'active',
     weekdays: 127,
-    ...(targetStations !== undefined ? { target_stations: targetStations } : {}),
     ...overrides
   });
 
@@ -70,7 +69,7 @@ describe('Stories', () => {
       voice_id: voice.id,
       weekdays,
       status
-    }, [station.id]);
+    });
 
     return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
   };
@@ -107,7 +106,7 @@ describe('Stories', () => {
         voice_id: voiceId,
         weekdays: 127,
         status: 'active'
-      }, [stationId]);
+      });
       storyId = story.id;
     });
 
@@ -221,7 +220,7 @@ describe('Stories', () => {
         deleted = await createStoryWithDeps('Trashed', 'To be trashed', 'TrashVoice', 'TrashStation');
         active = await global.helpers.createStory(global.resources, {
           title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
-        }, [deleted.stationId]);
+        });
         expect(active).not.toBeNull();
         expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
       });
@@ -245,16 +244,17 @@ describe('Stories', () => {
   // generator pins the remaining labels on every list endpoint.
   describe('Documented Query Semantics', () => {
     test.each([
-      ['filter[status]=bad', 'filter[status][eq]'],
-      ['filter[status][not]=bad', 'filter[status][ne]'],
-      ['filter[voice_id]=null', 'filter[voice_id][eq]'],
-      ['filter[weekdays]=abc', 'filter[weekdays][eq]'],
+      ['filter[status]=bad', 'filter[status]', 'invalid_choice'],
+      ['filter[status][not]=bad', 'filter[status][not]', 'invalid_choice'],
+      ['filter[voice_id]=null', 'filter[voice_id]', 'invalid_format'],
+      ['filter[weekdays]=abc', 'filter[weekdays]', 'invalid_format'],
+      ['filter[weekdays]=128', 'filter[weekdays]', 'out_of_range'],
       // An unencoded plus sign decodes as a space.
-      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]']
-    ])('when %s is invalid, then the 422 names %s', async (qs, field) => {
+      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]', 'invalid_format']
+    ])('when %s is invalid, then the 422 names %s', async (qs, field, code) => {
       const response = await global.api.apiCall('GET', `/stories?${qs}`);
       expect(response.status).toBe(422);
-      expect(response.data.errors.map(error => error.field)).toEqual([field]);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
     });
 
     // The default collation ignores case; literal null is text, not SQL NULL.
@@ -292,7 +292,7 @@ describe('Stories', () => {
       const story = await global.helpers.createStory(global.resources, {
         title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
         start_date: '2026-09-26', end_date: '2026-10-25'
-      }, [stationId]);
+      });
       expect(story).not.toBeNull();
       const path = `/stories/${story.id}`;
       const dates = { start_date: '2026-09-26', end_date: '2026-10-25' };
@@ -320,28 +320,28 @@ describe('Stories', () => {
     });
 
     test.each([
-      ['both dates', { start_date: '2026-10-11', end_date: '2026-10-10' }],
-      ['only start_date after stored end_date', { start_date: '2026-11-01' }],
-      ['only end_date before stored start_date', { end_date: '2026-09-30' }]
-    ])('when updating %s into a reversed range, then 422 names end_date', async (_name, update) => {
+      ['both dates', { start_date: '2026-10-11', end_date: '2026-10-10' }, 'end_date'],
+      ['only start_date after stored end_date', { start_date: '2026-11-01' }, 'start_date'],
+      ['only end_date before stored start_date', { end_date: '2026-09-30' }, 'end_date']
+    ])('when updating %s into a reversed range, then 422 names %s', async (_name, update, field) => {
       const dates = { start_date: '2026-10-01', end_date: '2026-10-31' };
       const story = await global.helpers.createStory(global.resources, {
         title: 'Reversed dates', text: 'Scheduled news', voice_id: voiceId, ...dates
-      }, [stationId]);
+      });
       expect(story).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${story.id}`, update);
 
       expect(response.status).toBe(422);
       expect(response.data.errors).toEqual([
-        { field: 'end_date', message: 'End date cannot be before start date' }
+        { field, code: 'date_order', message: 'end_date cannot be before start_date' }
       ]);
       const stored = await global.api.apiCall('GET', `/stories/${story.id}`);
       expect(stored.data).toMatchObject(dates);
     });
 
     test('when creating future-dated story, then accepted', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Future Story ${Date.now()}`,
         text: 'Scheduled for future',
         start_date: '2030-01-01',
@@ -354,7 +354,7 @@ describe('Stories', () => {
     });
 
     test('when creating weekend-only story, then accepted', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Weekend Story ${Date.now()}`,
         text: 'Weekend only',
         start_date: '2024-01-01',
@@ -378,66 +378,6 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.data.weekdays).toBe(42);
-    });
-  });
-
-  describe('Station Targeting', () => {
-    let voiceId, station1Id, station2Id;
-
-    beforeAll(async () => {
-      const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
-      const station1 = await global.helpers.createStation(global.resources, 'Target1');
-      const station2 = await global.helpers.createStation(global.resources, 'Target2');
-      voiceId = voice.id;
-      station1Id = station1.id;
-      station2Id = station2.id;
-    });
-
-    test('when creating with multiple target_stations, then all assigned', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [station1Id, station2Id], {
-        title: `Multi-Target ${Date.now()}`,
-        text: 'Targets multiple stations',
-        start_date: '2024-01-01',
-        end_date: '2024-12-31'
-      }));
-
-      expect(response.status).toBe(201);
-
-      global.resources.track('stories', response.data.id);
-
-      const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
-      expect(getResponse.status).toBe(200);
-      if (getResponse.data.target_stations) {
-        expect(getResponse.data.target_stations).toContain(station1Id);
-        expect(getResponse.data.target_stations).toContain(station2Id);
-      }
-    });
-
-    test('when target_stations missing, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, undefined, {
-        title: 'No Targets',
-        text: 'Missing target stations'
-      }));
-
-      expect([400, 422]).toContain(response.status);
-    });
-
-    test('when target_stations empty array, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [], {
-        title: 'Empty Targets',
-        text: 'Empty array'
-      }));
-
-      expect([400, 422]).toContain(response.status);
-    });
-
-    test('when target_stations has invalid ID, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [999999], {
-        title: 'Invalid Station',
-        text: 'Non-existent station'
-      }));
-
-      expect([404, 422]).toContain(response.status);
     });
   });
 
@@ -488,7 +428,7 @@ describe('Stories', () => {
 
         const replacement = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
         expect(replacement.status).toBe(422);
-        expect(replacement.data.code).toBe('audio.silent');
+        expect(replacement.data.errors).toEqual([expect.objectContaining({ field: 'audio', code: 'silent_audio' })]);
         const after = await global.api.apiCall('GET', `/stories/${result.id}`);
         expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
         expect(after.data.updated_at).toBe(before.data.updated_at);
@@ -632,7 +572,7 @@ describe('Stories', () => {
       const voice = await global.helpers.createVoice(global.resources, 'MetaVoice');
       const station = await global.helpers.createStation(global.resources, 'MetaStation');
 
-      const response = await global.api.apiCall('POST', '/stories', storyData(voice.id, [station.id], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voice.id, {
         title: `Metadata Story ${Date.now()}`,
         text: 'Story with metadata',
         start_date: '2024-01-01',
@@ -675,7 +615,7 @@ describe('Stories', () => {
     });
 
     test('when creating story with is_breaking=true, then persists flag', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking Story ${Date.now()}`,
         text: 'Breaking news content',
         start_date: '2024-01-01',
@@ -691,7 +631,7 @@ describe('Stories', () => {
     });
 
     test('when creating story without is_breaking, then defaults to false', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Normal Story ${Date.now()}`,
         text: 'Normal news content',
         start_date: '2024-01-01',
@@ -718,7 +658,7 @@ describe('Stories', () => {
     });
 
     test('when updating is_breaking to false, then persists', async () => {
-      const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking to Normal ${Date.now()}`,
         text: 'Was breaking',
         start_date: '2024-01-01',

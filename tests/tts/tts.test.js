@@ -33,7 +33,7 @@ describe('TTS', () => {
       voice_id: voiceId,
       status: 'active',
       weekdays: 127
-    }, [testStationId]);
+    });
 
     return result ? result.id : null;
   };
@@ -92,17 +92,17 @@ describe('TTS', () => {
       expect(response.data.code).toBe('story.deleted');
     });
 
-    test('when story has no voice, then returns 400', async () => {
+    test('when story has no voice, then returns 409', async () => {
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
       expect(storyId).not.toBeNull();
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('story.validation_failed');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.no_voice');
     });
 
-    test('when voice has no ElevenLabs ID, then returns 400', async () => {
+    test('when voice has no ElevenLabs ID, then returns 409', async () => {
       // Voice without elevenlabs_voice_id
       const voiceId = await createVoice('TTS No EL Voice');
       expect(voiceId).not.toBeNull();
@@ -112,11 +112,11 @@ describe('TTS', () => {
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('voice.validation_failed');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('voice.no_elevenlabs_id');
     });
 
-    test('when story already has audio without force, then returns 400', async () => {
+    test('when story already has audio without force, then returns 409', async () => {
       if (!global.helpers.isFFmpegAvailable()) return;
 
       // Voice with dummy elevenlabs ID (won't actually call ElevenLabs)
@@ -131,9 +131,9 @@ describe('TTS', () => {
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('story.validation_failed');
-      expect(response.data.detail).toContain('force');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.audio_exists');
+      expect(response.data.hint).toContain('force');
     });
   });
 
