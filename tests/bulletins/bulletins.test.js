@@ -490,7 +490,8 @@ describe('Bulletins', () => {
       ['when called with filter, then returns 422', 'filter[story_id]=1'],
       ['when called with sort, then returns 422', 'sort=story_order'],
       ['when called with fields, then returns 422', 'fields=id,story_id'],
-      ['when called with search, then returns 422', 'search=anything']
+      ['when called with search, then returns 422', 'search=anything'],
+      ['when called with trashed, then returns 422', 'trashed=only']
     ])('%s', async (_name, query) => {
       const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
       expect(response.status).toBe(422);
@@ -521,15 +522,29 @@ describe('Bulletins', () => {
 
   describe('Station Bulletin Endpoints', () => {
     let stationId;
+    let storyId;
 
     beforeAll(async () => {
-      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+      const { station, story } = await global.helpers.createBroadcastFixture(global.resources, {
         stationName: 'StationBulletinEndpoint',
         voiceName: 'StationBulletinVoice',
         storyTitle: 'StationBulletinStory',
         storyText: 'Station endpoint test story'
       });
       stationId = station.id;
+      storyId = story.id;
+    });
+
+    // Bulletins have no soft deletion, so nested bulletin lists reject trashed.
+    test.each([
+      ['station bulletins', 'only', () => `/stations/${stationId}/bulletins`],
+      ['station bulletins', 'with', () => `/stations/${stationId}/bulletins`],
+      ['story bulletin history', 'only', () => `/stories/${storyId}/bulletins`],
+      ['story bulletin history', 'with', () => `/stories/${storyId}/bulletins`]
+    ])('when listing %s with trashed=%s, then returns a trashed 422', async (_name, value, path) => {
+      const response = await global.api.apiCall('GET', `${path()}?trashed=${value}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('trashed');
     });
 
     test('when generating station bulletin, then succeeds', async () => {

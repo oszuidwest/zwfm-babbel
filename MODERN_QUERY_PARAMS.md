@@ -9,7 +9,7 @@ The query parameter system provides:
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
-- **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records
+- **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
 Most resource list endpoints support the full set. A few relationship/history
@@ -146,6 +146,13 @@ GET /api/v1/stories?trashed=with        # All records including deleted
 
 GET /api/v1/users?trashed=with          # All users including deleted
 GET /api/v1/users?trashed=only          # Only deleted users
+```
+
+Only stories and users have soft deletion. Every other list endpoint rejects
+a non-empty `trashed` with 422 and an error for the `trashed` field:
+
+```http
+GET /api/v1/stations?trashed=only       # 422, errors[0].field = "trashed"
 ```
 
 To filter by the `status` field (e.g., draft/active/expired), use `filter[status]`:

@@ -182,6 +182,56 @@ func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 	}
 }
 
+// Only soft-delete resources accept trashed. Elsewhere a set value is a
+// trashed 422, and an empty value counts as omitted.
+func TestParseListQuery_TrashedSupport(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		parse     func(*gin.Context) (*QueryParams, bool)
+		target    string
+		wantField string
+	}{
+		{name: "unsupported only", parse: ParseListQuery, target: "/x?trashed=only", wantField: "trashed"},
+		{name: "unsupported with", parse: ParseListQuery, target: "/x?trashed=with", wantField: "trashed"},
+		{name: "unsupported invalid", parse: ParseListQuery, target: "/x?trashed=bogus", wantField: "trashed"},
+		{name: "unsupported empty", parse: ParseListQuery, target: "/x?trashed="},
+		{name: "supported only", parse: ParseListQueryWithTrashed, target: "/x?trashed=only"},
+		{name: "supported with", parse: ParseListQueryWithTrashed, target: "/x?trashed=with"},
+		{name: "supported invalid", parse: ParseListQueryWithTrashed, target: "/x?trashed=bogus", wantField: "trashed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, nil)
+
+			params, ok := tt.parse(c)
+			if tt.wantField == "" {
+				if !ok || params == nil {
+					t.Fatalf("rejected; status = %d, body = %s", w.Code, w.Body.String())
+				}
+				return
+			}
+			if ok || w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("ok = %v, status = %d, want 422", ok, w.Code)
+			}
+			var body struct {
+				Errors []struct {
+					Field string `json:"field"`
+				} `json:"errors"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal: %v; body: %s", err, w.Body.String())
+			}
+			if len(body.Errors) != 1 || body.Errors[0].Field != tt.wantField {
+				t.Fatalf("errors = %+v, want one %q error", body.Errors, tt.wantField)
+			}
+		})
+	}
+}
+
 func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	t.Parallel()
 	c := testQueryContext(t, "/x?filter[name]=a&filter[name]=b")

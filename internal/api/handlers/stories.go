@@ -12,7 +12,7 @@ import (
 
 // ListStories returns a paginated list of stories with modern query parameter support.
 func (h *Handlers) ListStories(c *gin.Context) {
-	params, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
 		return
 	}

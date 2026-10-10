@@ -8,9 +8,16 @@ const resolve = schema => schema.$ref
   ? resolve(schema.$ref.slice(2).split('/').reduce((node, key) => node[key], document))
   : schema;
 
+const queryParameter = (endpoint, name) => document.paths[`/api/v1${endpoint}`].get.parameters
+  .map(resolve)
+  .find(parameter => parameter.in === 'query' && parameter.name === name);
+
+function declaresQueryParameter(endpoint, name) {
+  return queryParameter(endpoint, name) !== undefined;
+}
+
 function getFilterContracts(endpoint) {
-  const parameters = document.paths[`/api/v1${endpoint}`].get.parameters.map(resolve);
-  const filter = parameters.find(parameter => parameter.in === 'query' && parameter.name === 'filter');
+  const filter = queryParameter(endpoint, 'filter');
   return Object.fromEntries(Object.entries(filter.schema.properties).map(([field, schema]) => {
     const variants = resolve(schema).oneOf.map(resolve);
     const operators = variants.find(variant => variant.type === 'object').properties;
@@ -60,4 +67,4 @@ function invalidFilterCases(contract) {
   return cases;
 }
 
-module.exports = { getFilterContracts, filterExamples, invalidFilterCases };
+module.exports = { declaresQueryParameter, getFilterContracts, filterExamples, invalidFilterCases };

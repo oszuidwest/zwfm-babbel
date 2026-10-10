@@ -25,6 +25,41 @@ describe('Users', () => {
     });
   });
 
+  describe('Soft-Deleted Users', () => {
+    let username;
+
+    beforeAll(async () => {
+      username = `trashedtest${Date.now()}${process.pid}`;
+      const created = await global.api.apiCall('POST', '/users', {
+        username,
+        full_name: 'Trashed Test User',
+        password: 'TestPassword123!',
+        role: 'viewer'
+      });
+      expect(created.status).toBe(201);
+      const deleted = await global.api.apiCall('DELETE', `/users/${created.data.id}`);
+      expect(deleted.status).toBe(204);
+    });
+
+    test.each([
+      ['omitted', '', 0],
+      ['only', '&trashed=only', 1],
+      ['with', '&trashed=with', 1]
+    ])('when trashed is %s, then the deleted user is listed accordingly', async (_name, trashed, total) => {
+      const response = await global.api.apiCall('GET', `/users?filter[username]=${username}${trashed}`);
+      expect(response.status).toBe(200);
+      expect(response.data.total).toBe(total);
+      response.data.data.forEach(user => expect(user.deleted_at).not.toBeNull());
+    });
+
+    test('when trashed=only, then every listed user is deleted', async () => {
+      const response = await global.api.apiCall('GET', '/users?trashed=only&limit=100');
+      expect(response.status).toBe(200);
+      expect(response.data.data.length).toBeGreaterThan(0);
+      response.data.data.forEach(user => expect(user.deleted_at).not.toBeNull());
+    });
+  });
+
   describe('User Suspension', () => {
     let userId;
 

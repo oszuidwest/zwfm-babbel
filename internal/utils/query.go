@@ -352,9 +352,21 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// ParseListQuery parses list options. On parse errors it writes an RFC 9457
-// response and returns false. The embedded ListQuery is ready for the repository.
+// ParseListQuery parses list options for resources without soft deletion and
+// rejects a non-empty trashed. On errors it writes an RFC 9457 response and
+// returns false. The embedded ListQuery is ready for the repository.
 func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
+	params, ok := ParseListQueryWithTrashed(c)
+	if ok && params.Trashed != "" {
+		emitQueryError(c, &QueryParamError{Field: "trashed", Message: unsupportedOnEndpoint})
+		return nil, false
+	}
+	return params, ok
+}
+
+// ParseListQueryWithTrashed is [ParseListQuery] for resources with soft
+// deletion, so it accepts trashed.
+func ParseListQueryWithTrashed(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
 	if err != nil {
 		emitQueryError(c, err)
@@ -362,6 +374,8 @@ func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
 	}
 	return params, true
 }
+
+const unsupportedOnEndpoint = "not supported on this endpoint"
 
 // ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
 // fields, and trashed options with a 422 response.
@@ -373,19 +387,19 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 	}
 	var unsupported []apperrors.ValidationError
 	if params.Search != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: unsupportedOnEndpoint})
 	}
 	if params.Trashed != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: unsupportedOnEndpoint})
 	}
 	if len(unsupported) > 0 {
 		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)

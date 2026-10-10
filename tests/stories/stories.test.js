@@ -213,28 +213,32 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
-    test('when trashed=only, then returns soft-deleted stories', async () => {
+    test('when trashed=only, then returns only soft-deleted stories', async () => {
       const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
       await global.api.apiCall('DELETE', `/stories/${result.id}`);
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=only');
+      const trashed = await global.api.apiCall('GET', `/stories?trashed=only&filter[id]=${result.id}`);
+      expect(trashed.status).toBe(200);
+      expect(trashed.data.total).toBe(1);
 
+      const active = await global.api.apiCall('GET', `/stories?filter[id]=${result.id}`);
+      expect(active.status).toBe(200);
+      expect(active.data.total).toBe(0);
+
+      const response = await global.api.apiCall('GET', '/stories?trashed=only&limit=100');
       expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      expect(response.data.data.length).toBeGreaterThan(0);
+      response.data.data.forEach(story => expect(story.deleted_at).not.toBeNull());
     });
 
     test('when trashed=with, then includes soft-deleted stories', async () => {
       const result = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
       await global.api.apiCall('DELETE', `/stories/${result.id}`);
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=with');
+      const response = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${result.id}`);
 
       expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      expect(response.data.total).toBe(1);
     });
   });
 

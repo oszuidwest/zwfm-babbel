@@ -1,4 +1,4 @@
-const { getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -160,6 +160,25 @@ function generateQueryTests(schema, setupFn = null) {
         }
       });
     }
+
+    // OpenAPI declares trashed only where the resource has soft deletion.
+    describe('Soft-delete scope', () => {
+      const supportsTrashed = declaresQueryParameter(endpoint, 'trashed');
+      test.each(['only', 'with'])(
+        `when trashed=%s, then ${supportsTrashed ? 'accepted' : 'returns a trashed 422'}`,
+        async value => {
+          expect.hasAssertions();
+          const response = await expectStatus(`trashed=${value}`, supportsTrashed ? 200 : 422);
+          if (!supportsTrashed) expect(response.data.errors[0].field).toBe('trashed');
+        }
+      );
+
+      test('when trashed is invalid, then returns a trashed 422', async () => {
+        expect.hasAssertions();
+        const response = await expectStatus('trashed=bogus', 422);
+        expect(response.data.errors[0].field).toBe('trashed');
+      });
+    });
 
     describe('Pagination', () => {
       test.each([
