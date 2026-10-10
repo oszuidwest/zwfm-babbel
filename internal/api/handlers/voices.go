@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -67,11 +66,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 		return
 	}
 
-	if req.Name == nil && !req.ElevenLabsVoiceID.Set {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field must be provided",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 

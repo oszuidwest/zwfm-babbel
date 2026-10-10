@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
-	db := openIntegrationDB(t).Begin()
+	db := testutil.OpenIntegrationDB(t).Begin()
 	if db.Error != nil {
 		t.Fatal(db.Error)
 	}
@@ -51,7 +52,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 }
 
 func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing.T) {
-	db := openIntegrationDB(t).Begin()
+	db := testutil.OpenIntegrationDB(t).Begin()
 	if db.Error != nil {
 		t.Fatal(db.Error)
 	}

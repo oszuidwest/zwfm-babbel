@@ -245,9 +245,8 @@ func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role strin
 	return nil
 }
 
-// Update applies account changes and returns the refreshed user.
-// Suspended is updated separately so callers can suspend an account without
-// sending any other changed fields.
+// Update applies account changes, including suspension, in one write and
+// returns the refreshed user.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
 	updates := &repository.UserUpdate{Metadata: req.Metadata}
 	if req.FullName != "" {
@@ -268,20 +267,20 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	}
 
 	if req.Suspended != nil {
-		if err := s.repo.SetSuspended(ctx, id, *req.Suspended); err != nil {
-			return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
+		if *req.Suspended {
+			now := time.Now()
+			updates.SuspendedAt = &now
+		} else {
+			updates.ClearSuspendedAt = true
 		}
 	}
 
-	hasUpdates := *updates != (repository.UserUpdate{})
-	if !hasUpdates && req.Suspended == nil {
+	if *updates == (repository.UserUpdate{}) {
 		return nil, apperrors.Validation("User", "", "no fields to update")
 	}
 
-	if hasUpdates {
-		if err := s.repo.Update(ctx, id, updates); err != nil {
-			return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
-		}
+	if err := s.repo.Update(ctx, id, updates); err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
 	}
 
 	return s.GetByID(ctx, id)
@@ -323,25 +322,6 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	}
 
 	return nil
-}
-
-// Suspend prevents a user from logging in and returns the refreshed account.
-func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, true); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
-}
-
-// Unsuspend allows a suspended user to log in again and returns the refreshed
-// account.
-func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, false); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
 }
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.

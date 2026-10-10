@@ -138,23 +138,11 @@ type ListResult[T any] struct {
 	Offset int
 }
 
-// NewListQuery returns a query limited to the first 20 results.
-func NewListQuery() *ListQuery {
-	return &ListQuery{
-		Limit:  20,
-		Offset: 0,
-	}
-}
-
 // ApplyListQuery returns a filtered, sorted page and the total matching count.
-// A nil query uses [NewListQuery]. Field names and filter values are validated
-// against fieldMapping; searchFields must contain trusted database columns.
+// Field names and filter values are validated against fieldMapping;
+// searchFields must contain trusted database columns.
 // defaultSort applies when query.Sort is empty, skipping unmapped fields.
 func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort []SortField) (*ListResult[T], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
 	db = applySearch(db, query.Search, searchFields)
 
 	for _, filter := range query.Filters {

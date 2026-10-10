@@ -21,10 +21,12 @@ type UserUpdate struct {
 	// LockedUntil lets BuildUpdateMap resolve ClearLockedUntil to locked_until.
 	LockedUntil       *time.Time
 	PasswordChangedAt *time.Time
+	SuspendedAt       *time.Time
 	Metadata          *datatypes.JSONMap
 
 	ClearEmail       bool
 	ClearLockedUntil bool
+	ClearSuspendedAt bool
 }
 
 // CreateUserParams holds the parameters for creating a new user.
@@ -100,15 +102,6 @@ func (r *UserRepository) CountActiveAdminsExcluding(ctx context.Context, exclude
 	return int(count), nil
 }
 
-// SetSuspended updates the user's suspended status.
-func (r *UserRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
-	var suspendedAt any
-	if suspended {
-		suspendedAt = time.Now()
-	}
-	return r.UpdateByID(ctx, id, map[string]any{"suspended_at": suspendedAt})
-}
-
 // DeleteSessions removes all sessions for a user.
 func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error {
 	// user_sessions is not a GORM model, so use raw SQL.
@@ -130,10 +123,6 @@ var userSearchFields = []string{"username", "full_name"}
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.
 func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
 	db := r.db.WithContext(ctx).Model(&models.User{})
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 

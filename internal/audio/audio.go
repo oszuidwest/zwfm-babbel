@@ -84,8 +84,7 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
-// It returns the duration in seconds.
-func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
+func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
@@ -112,12 +111,15 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 		return 0, ErrSilent
 	}
 
-	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
+	if err := s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats)); err != nil {
+		return 0, err
+	}
+	return s.Duration(ctx, outputPath)
 }
 
 func (s *Service) convertToWAV(
 	ctx context.Context, inputPath, outputPath string, channels ChannelCount, audioFilter string,
-) (float64, error) {
+) error {
 	args := []string{"-i", inputPath}
 	if audioFilter != "" {
 		args = append(args, "-af", audioFilter)
@@ -133,10 +135,9 @@ func (s *Service) convertToWAV(
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	if err := cmd.Run(); err != nil {
-		return 0, fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
+		return fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
 	}
-
-	return s.Duration(ctx, outputPath)
+	return nil
 }
 
 func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudnormStats, error) {

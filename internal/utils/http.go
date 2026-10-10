@@ -39,44 +39,6 @@ func IDParam(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-const (
-	defaultPaginationLimit = 20
-	maxPaginationLimit     = 100
-)
-
-// Pagination extracts pagination parameters from the query string. Absent
-// parameters fall back to defaults (limit=20, offset=0). Malformed or
-// out-of-range values return a *QueryParamError so the caller can surface a
-// structured 422 response instead of silently substituting defaults.
-func Pagination(c *gin.Context) (limit, offset int, err error) {
-	limit = defaultPaginationLimit
-	if raw := c.Query("limit"); raw != "" {
-		l, atoiErr := strconv.Atoi(raw)
-		switch {
-		case atoiErr != nil:
-			return 0, 0, &QueryParamError{Field: "limit", Message: fmt.Sprintf("expected integer, got %q", raw)}
-		case l < 1:
-			return 0, 0, &QueryParamError{Field: "limit", Message: "must be >= 1"}
-		case l > maxPaginationLimit:
-			return 0, 0, &QueryParamError{Field: "limit", Message: fmt.Sprintf("must be <= %d", maxPaginationLimit)}
-		default:
-			limit = l
-		}
-	}
-	if raw := c.Query("offset"); raw != "" {
-		o, atoiErr := strconv.Atoi(raw)
-		switch {
-		case atoiErr != nil:
-			return 0, 0, &QueryParamError{Field: "offset", Message: fmt.Sprintf("expected integer, got %q", raw)}
-		case o < 0:
-			return 0, 0, &QueryParamError{Field: "offset", Message: "must be >= 0"}
-		default:
-			offset = o
-		}
-	}
-	return limit, offset, nil
-}
-
 // ValidateAndSaveAudioFile validates uploaded audio and stores it in a temp path.
 func ValidateAndSaveAudioFile(
 	c *gin.Context, fieldName string, prefix string,
@@ -291,6 +253,20 @@ func (r *StoryUpdateRequest) NormalizeText() {
 
 type textNormalizer interface {
 	NormalizeText()
+}
+
+// RequireAnyField responds with HTTP 422 and returns false when the partial
+// update request req sets no field.
+func RequireAnyField[T comparable](c *gin.Context, req T) bool {
+	var zero T
+	if req != zero {
+		return true
+	}
+	ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
+		Field:   "request",
+		Message: "At least one field must be provided",
+	}})
+	return false
 }
 
 // BindAndValidate decodes a JSON request, normalizes text fields, then validates.

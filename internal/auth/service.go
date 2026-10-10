@@ -168,9 +168,9 @@ func (s *Service) SessionMiddleware() gin.HandlerFunc {
 // Middleware validates the session user and loads their current role.
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		session := sessionFor(c)
+		session := sessions.Default(c)
 
-		userID, ok := SessionUserID(session)
+		userID, ok := coerceInt64(session.Get(sessKeyUserID))
 		if !ok {
 			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
@@ -190,8 +190,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete(string(SessKeyUserID))
-			if saveErr := session.Save(c); saveErr != nil {
+			session.Delete(sessKeyUserID)
+			if saveErr := session.Save(); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -303,17 +303,17 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	// Bind the callback to this session to prevent login CSRF.
 	state := rand.Text()
 
-	session := sessionFor(c)
-	session.Set(string(SessKeyOAuthState), state)
+	session := sessions.Default(c)
+	session.Set(sessKeyOAuthState, state)
 
 	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
 		if s.isAllowedFrontendURL(frontendURL) {
-			session.Set(string(SessKeyFrontendURL), frontendURL)
+			session.Set(sessKeyFrontendURL, frontendURL)
 		} else {
 			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
 		}
 	}
-	if err := session.Save(c); err != nil {
+	if err := session.Save(); err != nil {
 		logger.Error("Failed to save OAuth session", "error", err)
 		utils.ProblemInternalServer(c, "Session error")
 		return
@@ -324,10 +324,10 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 
 // FinishOAuthFlow validates the OIDC callback and creates a session.
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
-	session := sessionFor(c)
+	session := sessions.Default(c)
 
 	state := c.Query("state")
-	savedState, ok := sessionString(session, SessKeyOAuthState)
+	savedState, ok := session.Get(sessKeyOAuthState).(string)
 	if !ok || state != savedState {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key:     oauthInvalidStateAlertKey,
@@ -338,7 +338,9 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	session.Delete(string(SessKeyOAuthState))
+	// CreateSession's save persists these deletions on success.
+	session.Delete(sessKeyOAuthState)
+	session.Delete(sessKeyFrontendURL)
 
 	code := c.Query("code")
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -396,16 +398,11 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	return nil
 }
 
-// Session returns the request's session.
-func (s *Service) Session(c *gin.Context) Session {
-	return sessionFor(c)
-}
-
 // Logout clears and saves the current session.
 func (s *Service) Logout(c *gin.Context) error {
-	session := sessionFor(c)
+	session := sessions.Default(c)
 	session.Clear()
-	if err := session.Save(c); err != nil {
+	if err := session.Save(); err != nil {
 		logger.Error("Failed to save session during logout", "error", err)
 		return fmt.Errorf("failed to save session: %w", err)
 	}
@@ -415,9 +412,9 @@ func (s *Service) Logout(c *gin.Context) error {
 // CreateSession stores the authenticated user's ID in the session.
 // Middleware reads their role from the database on each request.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
-	session := sessionFor(c)
-	session.Set(string(SessKeyUserID), userID)
-	return session.Save(c)
+	session := sessions.Default(c)
+	session.Set(sessKeyUserID, userID)
+	return session.Save()
 }
 
 func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {

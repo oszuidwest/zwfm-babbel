@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"time"
-
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -95,18 +93,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
-		return
-	}
-
-	hasUpdates := req.Title != nil || req.Text != nil || req.Status != nil ||
-		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		req.Weekdays != nil || req.IsBreaking != nil || req.Metadata != nil
-	if !hasUpdates {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
@@ -221,36 +208,4 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 	}
 
 	utils.CreatedWithMessage(c, "TTS audio generated successfully")
-}
-
-// validateDateRange reports whether the date range is valid.
-func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *string) bool {
-	if startDateStr == nil || endDateStr == nil {
-		return true // Skip validation if either date is missing
-	}
-
-	startDate, err := time.ParseInLocation(time.DateOnly, *startDateStr, time.Local)
-	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "start_date", Message: "Invalid start date format"},
-		})
-		return false
-	}
-
-	endDate, err := time.ParseInLocation(time.DateOnly, *endDateStr, time.Local)
-	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "end_date", Message: "Invalid end date format"},
-		})
-		return false
-	}
-
-	if endDate.Before(startDate) {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "end_date", Message: "End date cannot be before start date"},
-		})
-		return false
-	}
-
-	return true
 }

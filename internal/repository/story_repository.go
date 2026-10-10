@@ -191,10 +191,6 @@ var storySearchFields = []string{"title", "text"}
 // List retrieves stories with filtering, sorting, and pagination.
 // query.Trashed controls inclusion of soft-deleted stories.
 func (r *StoryRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
 	db := r.db.WithContext(ctx).Model(&models.Story{}).Preload("Voice")
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 

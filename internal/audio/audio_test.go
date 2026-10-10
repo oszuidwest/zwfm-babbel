@@ -331,7 +331,7 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 		"-y", inputPath,
 	)
 
-	if _, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
+	if err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertJingleToWAV error: %v", err)
 	}
 

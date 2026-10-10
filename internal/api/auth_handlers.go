@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"net/url"
@@ -55,11 +56,7 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 
 // HandleOAuthCallback completes authentication and redirects to the frontend.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	session := h.authService.Session(c)
-	frontendURL, ok := auth.SessionFrontendURL(session)
-	if !ok || frontendURL == "" {
-		frontendURL = h.frontendURL
-	}
+	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
 	if frontendURL == "" {
 		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
@@ -76,11 +73,6 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		}
 		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(message))
 		return
-	}
-
-	auth.ClearSessionOAuth(session)
-	if err := session.Save(c); err != nil {
-		logger.Error("Failed to save session after cleanup", "error", err)
 	}
 
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")

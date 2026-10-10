@@ -319,6 +319,27 @@ describe('Stories', () => {
       }
     });
 
+    test.each([
+      ['both dates', { start_date: '2026-10-11', end_date: '2026-10-10' }],
+      ['only start_date after stored end_date', { start_date: '2026-11-01' }],
+      ['only end_date before stored start_date', { end_date: '2026-09-30' }]
+    ])('when updating %s into a reversed range, then 422 names end_date', async (_name, update) => {
+      const dates = { start_date: '2026-10-01', end_date: '2026-10-31' };
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'Reversed dates', text: 'Scheduled news', voice_id: voiceId, ...dates
+      }, [stationId]);
+      expect(story).not.toBeNull();
+
+      const response = await global.api.apiCall('PUT', `/stories/${story.id}`, update);
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([
+        { field: 'end_date', message: 'End date cannot be before start date' }
+      ]);
+      const stored = await global.api.apiCall('GET', `/stories/${story.id}`);
+      expect(stored.data).toMatchObject(dates);
+    });
+
     test('when creating future-dated story, then accepted', async () => {
       const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
         title: `Future Story ${Date.now()}`,

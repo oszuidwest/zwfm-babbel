@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -46,7 +45,7 @@ func TestParseQueryParams_PassesRawValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
 			t.Parallel()
-			params, err := ParseQueryParams(testQueryContext(t, tt.target))
+			params, err := parseQueryParams(testQueryContext(t, tt.target))
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -72,10 +71,9 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ParseQueryParams(testQueryContext(t, tt.target))
-			var qpe *QueryParamError
-			if !errors.As(err, &qpe) || qpe.Field != tt.wantField {
-				t.Fatalf("got %v, want QueryParamError for %q", err, tt.wantField)
+			_, err := parseQueryParams(testQueryContext(t, tt.target))
+			if err == nil || err.Field != tt.wantField {
+				t.Fatalf("got %v, want apperrors.ValidationError for %q", err, tt.wantField)
 			}
 		})
 	}
@@ -105,17 +103,13 @@ func TestPagination(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			limit, offset, err := Pagination(testQueryContext(t, tt.target))
+			limit, offset, err := parsePagination(testQueryContext(t, tt.target).Request.URL.Query())
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error, got limit=%d offset=%d", limit, offset)
 				}
-				var qpe *QueryParamError
-				if !errors.As(err, &qpe) {
-					t.Fatalf("expected *QueryParamError, got %T", err)
-				}
-				if qpe.Field != tt.wantField {
-					t.Fatalf("Field = %q, want %q", qpe.Field, tt.wantField)
+				if err.Field != tt.wantField {
+					t.Fatalf("Field = %q, want %q", err.Field, tt.wantField)
 				}
 				return
 			}
@@ -149,19 +143,15 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := ParseQueryParams(testQueryContext(t, tt.target))
+			_, err := parseQueryParams(testQueryContext(t, tt.target))
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			var qpe *QueryParamError
-			if !errors.As(err, &qpe) {
-				t.Fatalf("expected *QueryParamError, got %T (%v)", err, err)
+			if err.Field != tt.wantField {
+				t.Fatalf("Field = %q, want %q", err.Field, tt.wantField)
 			}
-			if qpe.Field != tt.wantField {
-				t.Fatalf("Field = %q, want %q", qpe.Field, tt.wantField)
-			}
-			if !strings.Contains(qpe.Message, "multiple values") {
-				t.Fatalf("Message = %q, want substring 'multiple values'", qpe.Message)
+			if !strings.Contains(err.Message, "multiple values") {
+				t.Fatalf("Message = %q, want substring 'multiple values'", err.Message)
 			}
 		})
 	}
@@ -169,7 +159,7 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 
 func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 	t.Parallel()
-	params, err := ParseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
+	params, err := parseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -234,16 +224,12 @@ func TestParseListQuery_TrashedSupport(t *testing.T) {
 func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	t.Parallel()
 	c := testQueryContext(t, "/x?filter[name]=a&filter[name]=b")
-	_, err := ParseQueryParams(c)
+	_, err := parseQueryParams(c)
 	if err == nil {
 		t.Fatal("expected error for duplicate filter values")
 	}
-	var qpe *QueryParamError
-	if !errors.As(err, &qpe) {
-		t.Fatalf("expected *QueryParamError, got %T", err)
-	}
-	if !strings.Contains(qpe.Message, "multiple values") {
-		t.Fatalf("Message = %q, want substring 'multiple values'", qpe.Message)
+	if !strings.Contains(err.Message, "multiple values") {
+		t.Fatalf("Message = %q, want substring 'multiple values'", err.Message)
 	}
 }
 
@@ -376,13 +362,13 @@ func TestFilterStructFields_ProjectionShapes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := FilterStructFields(tt.data, fields); !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("FilterStructFields() = %#v, want %#v", got, tt.want)
+			if got := filterStructFields(tt.data, fields); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("filterStructFields() = %#v, want %#v", got, tt.want)
 			}
 		})
 	}
 
-	if got := FilterStructFields(rows, nil); !reflect.DeepEqual(got, rows) {
+	if got := filterStructFields(rows, nil); !reflect.DeepEqual(got, rows) {
 		t.Fatalf("no fields: got %#v, want input unchanged", got)
 	}
 }

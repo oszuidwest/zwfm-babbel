@@ -84,12 +84,8 @@ func (s *StationService) Exists(ctx context.Context, id int64) (bool, error) {
 
 // Delete removes a station only when no station-voice relationships depend on it.
 func (s *StationService) Delete(ctx context.Context, id int64) error {
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoError("Station", apperrors.OpQuery, err)
-	}
-	if !exists {
-		return apperrors.NotFoundWithID("Station", id)
+	if err := requireExists(ctx, s.repo.Exists, "Station", "Station", id); err != nil {
+		return err
 	}
 
 	hasDeps, err := s.repo.HasDependencies(ctx, id)
