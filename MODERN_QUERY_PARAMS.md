@@ -5,7 +5,7 @@ This document describes the comprehensive modern query parameter system implemen
 ## Overview
 
 The query parameter system provides:
-- **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
+- **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
@@ -36,9 +36,11 @@ GET /api/v1/stories?filter[status][not]=draft
 GET /api/v1/stories?filter[created_at][gte]=2024-01-01
 GET /api/v1/stories?filter[created_at][lt]=2024-12-31
 
-# Inclusive ranges
-GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
-GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
+# Whole days on a date-time field: a bare date means local midnight
+GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01
+
+# Inclusive range on a date field
+GET /api/v1/stories?filter[start_date][between]=2024-01-01,2024-12-31
 ```
 
 #### Array Filters (IN operations)
@@ -48,9 +50,19 @@ GET /api/v1/stories?filter[status][in]=active,draft
 GET /api/v1/stories?filter[voice_id][in]=1,2,3
 ```
 
+#### NULL Checks
+```http
+# NULL and non-NULL, on fields that document the null operator
+GET /api/v1/stories?filter[voice_id][null]=true
+GET /api/v1/stories?filter[voice_id][null]=false
+```
+
+The "List queries" section of `openapi.yaml` describes NULL, soft-delete and
+date-time semantics.
+
 #### Substring Matching (contains)
 ```http
-# Case-sensitive "contains" match; the value is matched literally, not as a pattern
+# Case sensitivity follows the column collation (case-insensitive by default)
 GET /api/v1/stories?filter[title][like]=news
 ```
 
@@ -90,7 +102,7 @@ GET /api/v1/stories?filter[status]=active&filter[has_audio]=false&sort=-created_
 
 `has_audio` is a virtual boolean field backed by the internal `audio_file` database column: it supports `eq` (the default), `ne`, and the `not` alias with a boolean value, and cannot be used for sorting. The legacy empty-string idiom on `audio_url` (`filter[audio_url]=` for absent, `filter[audio_url][ne]=` for present) still works but is deprecated; use `has_audio` instead. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
-> **Note:** The `ilike` operator is not implemented. Use `like` for case-sensitive substring (contains) matching.
+> **Note:** The `ilike` operator is not implemented.
 
 ### 2. Sorting
 
@@ -172,10 +184,6 @@ GET /api/v1/stories?filter[status]=active
 
 # Non-expired stories (active on or after date)
 GET /api/v1/stories?filter[end_date][gte]=2024-06-15
-
-# Stories created in a date range
-GET /api/v1/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31
-GET /api/v1/stories?filter[created_at][between]=2024-01-01,2024-12-31
 ```
 
 ### 7. Pagination
@@ -207,7 +215,7 @@ GET /api/v1/stories?filter[status]=active&filter[voice_id][in]=1,2,3
 GET /api/v1/users?filter[role]=editor&trashed=with&search=john&sort=username
 
 # Date range queries
-GET /api/v1/users?filter[last_login_at][gte]=2024-01-01&filter[login_count][gt]=10
+GET /api/v1/users?filter[created_at][gte]=2024-01-01&filter[role][in]=admin,editor
 ```
 
 ### Bulletins API
@@ -303,7 +311,9 @@ FieldMapping: map[string]string{
 
 ## Error Handling
 
-The system provides RFC 9457 Problem Details responses for invalid parameters:
+The system provides RFC 9457 Problem Details responses for invalid parameters.
+"Error labels" under "List queries" in `openapi.yaml` describes how
+`errors[].field` names each parameter:
 
 ```json
 {
@@ -316,7 +326,7 @@ The system provides RFC 9457 Problem Details responses for invalid parameters:
   "errors": [
     {
       "field": "sort",
-      "message": "unknown field \"invalid_field\""
+      "message": "unknown sort field \"invalid_field\""
     }
   ]
 }
@@ -371,8 +381,8 @@ GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&trashed=w
 
 ### Data Export
 ```http
-# Bulk export with date range (use gte + lte for ranges)
-GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31&limit=1000&fields=id,filename,created_at,station_name
+# First export page of 2024 (gte the first day, lt the day after)
+GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01&limit=100&fields=id,filename,created_at,station_name
 ```
 
 ### Integration Testing

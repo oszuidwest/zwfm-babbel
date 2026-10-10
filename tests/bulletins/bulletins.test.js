@@ -670,11 +670,11 @@ describe('Bulletins', () => {
         const inside = await list(`filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}`);
         expect(inside.map(b => b.filename)).toEqual([insideFilename]);
 
-        // The inside row's instant as the API reports it, spelled in UTC, with
-        // an explicit offset, and as the server-local string it was inserted as.
-        // The stack runs in a non-UTC zone, so a misread offset misses the row.
+        // Spell the API instant with Z, zero and positive offsets, and local time.
+        // The stack's non-UTC zone makes a misread offset miss the row.
         const utc = new Date(inside[0].created_at).toISOString().replace('.000Z', 'Z');
-        for (const value of [utc, utc.replace('Z', '+00:00'), rows[1].createdAt]) {
+        const plusOne = new Date(Date.parse(utc) + 3600 * 1000).toISOString().replace('.000Z', '+01:00');
+        for (const value of [utc, utc.replace('Z', '+00:00'), plusOne, rows[1].createdAt]) {
           expect((await list(`filter[created_at][eq]=${encodeURIComponent(value)}`)).map(b => b.filename)).toEqual([insideFilename]);
         }
 

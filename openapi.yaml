@@ -14,6 +14,78 @@ info:
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
     - Metadata: Returned as a JSON object
 
+    ## List queries
+
+    Most list endpoints take `filter[field]` and `filter[field][operator]`.
+    Each endpoint's `filter` parameter documents its fields and operators.
+
+    ### Error labels
+
+    A 422 response names the rejected parameter in `errors[].field`:
+    - Implicit equality reports the canonical operator: `filter[status]=bad`
+      fails as `filter[status][eq]`.
+    - The `not` alias reports as `ne`: `filter[status][not]=bad` fails as
+      `filter[status][ne]`.
+    - An unknown field reports only the parameter name: `filter[bogus]=1`
+      fails as `filter`, and `sort=bogus` fails as `sort`.
+    - Duplicate, malformed and unknown-operator keys report the key as sent,
+      for example `filter[status][xyz]`. Operators are checked before fields,
+      so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
+    - Validation stops at the first invalid filter; `errors[]` names only that filter.
+
+    ### NULL
+
+    - The string `null` is not SQL NULL. Non-string fields reject it with 422:
+      `filter[voice_id]=null` fails as `filter[voice_id][eq]`. String fields
+      compare it as text under the column collation: `filter[title]=null`
+      selects stories titled `null` (or `NULL`).
+    - On fields with a nullable filter schema (for example story `voice_id`
+      and `deleted_at`, user `email`), `filter[field][null]=true` selects NULL
+      and `filter[field][null]=false` selects non-NULL values. The operator
+      takes one boolean; there is no `not_null` operator.
+
+    ### Soft deletion
+
+    - Stories and users list active records by default. `trashed=only` lists
+      only deleted records and `trashed=with` lists both. Other list
+      endpoints reject a non-empty `trashed` with 422.
+    - Story `deleted_at` conditions other than `filter[deleted_at][null]=true`
+      match nothing in the default scope, including `filter[deleted_at][null]=false`.
+      Add `trashed=only` or `trashed=with` to include deleted rows.
+
+    ### Dates and times
+
+    - RFC 3339 date-times identify instants: `2024-01-15T12:30:00Z` and
+      `2024-01-15T13:30:00+01:00` select the same rows. Use uppercase `T`
+      and `Z` and a colon in the offset.
+    - The space-separated form `2024-01-15 13:30:00` has no offset and uses
+      the server's local timezone. `2024-01-15T13:30:00` without an offset
+      fails with 422. A bare date such as `2024-01-15` means local midnight,
+      so select whole days with `gte` on the first day and `lt` on the day
+      after: `filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`.
+      Date fields such as `start_date` compare calendar dates without timezones.
+    - URL-encode `+` as `%2B`, as in
+      `filter[created_at][gte]=2024-01-15T13:30:00%2B01:00`. An unencoded `+`
+      decodes as a space, and the value fails with 422. Inside `in` and
+      `between`, write fractions with a dot; a comma splits the list.
+    - The server's local timezone is the Babbel process's `TZ`; the database
+      driver binds times in that zone. The MySQL session timezone must match;
+      the Docker Compose files set the same `TZ` for both containers.
+
+    ### Compatibility
+
+    Typed filter validation changed these behaviors:
+    - Values that MySQL used to coerce, such as `filter[voice_id][ne]=null`
+      or `filter[weekdays]=abc`, return 422 instead of 200 with unexpected
+      rows. String fields still accept `null` as text.
+    - Operators a field does not document, such as `filter[title][null]` or
+      `filter[voice_id][like]`, return 422.
+    - An RFC 3339 `Z` suffix means UTC; it used to be read as local time. A
+      date-time with `T` and no offset used to be read as local time and now
+      returns 422. A comma fraction is kept instead of truncated.
+    - `trashed` on list endpoints without soft deletion returns 422 instead
+      of being ignored.
+
     ## Authentication
 
     - **Local**: Username/password with session cookies
@@ -1469,7 +1541,8 @@ paths:
       summary: Delete story (soft delete)
       description: |
         Performs a soft delete by setting deleted_at timestamp.
-        The story will no longer appear in listings unless trashed=with is specified.
+        The story no longer appears in default listings. List it with
+        `trashed=only` or `trashed=with`.
         Story data and audio files are preserved for potential restoration.
       tags:
         - Stories
@@ -1782,6 +1855,8 @@ paths:
       summary: Delete user
       description: |
         Soft-deletes a user account. All active sessions for the user will be terminated.
+        The user no longer appears in default listings. List it with
+        `trashed=only` or `trashed=with`.
         Cannot delete the last admin user.
       tags:
         - Users
@@ -2826,7 +2901,10 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed story filters. Use `has_audio` to filter by audio presence.
+      description: |
+        Typed story filters. Use `has_audio` to filter by audio presence.
+        The default excludes deleted stories; `deleted_at` conditions other
+        than `[null]=true` need `trashed=only` or `trashed=with` to match.
       schema:
         type: object
         additionalProperties: false
@@ -2919,7 +2997,7 @@ components:
         eq: { type: string }
         ne: { type: string }
         not: { type: string, description: Alias for `ne`. }
-        like: { type: string, description: Case-sensitive literal substring match. }
+        like: { type: string, description: Literal substring match; case sensitivity follows the column collation (case-insensitive by default). }
         in: { type: string, description: Comma-separated values. }
     NullableStringFilterOperators:
       type: object
@@ -2928,7 +3006,7 @@ components:
         eq: { type: string }
         ne: { type: string }
         not: { type: string, description: Alias for `ne`. }
-        like: { type: string, description: Case-sensitive literal substring match. }
+        like: { type: string, description: Literal substring match; case sensitivity follows the column collation (case-insensitive by default). }
         in: { type: string, description: Comma-separated values. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
     IntegerFilter:
@@ -3022,7 +3100,14 @@ components:
         in: { type: string, description: Comma-separated dates. }
         between: { type: string, description: Two comma-separated inclusive date bounds. }
     DateTimeValue:
-      description: RFC 3339 date-time, YYYY-MM-DD HH:MM:SS (optionally with fractional seconds), or a bare YYYY-MM-DD date compared as midnight. Comma fractions are accepted only in scalar filters; use a decimal point in `in` and `between`, where commas separate values even when URL-encoded.
+      description: |
+        RFC 3339 date-time with an uppercase `T` and `Z`, YYYY-MM-DD HH:MM:SS
+        (optionally with fractional seconds), or a bare YYYY-MM-DD date
+        compared as midnight. An RFC 3339 offset identifies an instant; the
+        other forms use the server's local timezone. URL-encode `+` in offsets
+        as `%2B`. Comma fractions are accepted only in scalar filters; use a
+        decimal point in `in` and `between`, where commas separate values
+        even when URL-encoded.
       anyOf:
         - type: string
           format: date-time
@@ -4102,7 +4187,9 @@ components:
             properties:
               field:
                 type: string
-                description: Field name that failed validation
+                description: |
+                  Field or query parameter key that failed validation, such as
+                  `filter[status][eq]` or `sort`; see "Error labels" under "List queries".
                 example: "title"
               message:
                 type: string

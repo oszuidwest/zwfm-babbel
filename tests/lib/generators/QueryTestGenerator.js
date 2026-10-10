@@ -62,11 +62,12 @@ function generateQueryTests(schema, setupFn = null) {
         });
 
         test.each([
-          ['when sorting unknown field, then returns 422', 'sort=__bogus__'],
-          ['when sort direction is invalid, then returns 422', `sort=${query.sortableFields[0]}:sideways`]
+          ['when sorting unknown field, then returns a sort 422', 'sort=__bogus__'],
+          ['when sort direction is invalid, then returns a sort 422', `sort=${query.sortableFields[0]}:sideways`]
         ])('%s', async (_name, qs) => {
           expect.hasAssertions();
-          await expectStatus(qs, 422);
+          const response = await expectStatus(qs, 422);
+          expect(response.data.errors.map(error => error.field)).toEqual(['sort']);
         });
 
         if (query.sortableFields.length >= 2) {
@@ -95,14 +96,16 @@ function generateQueryTests(schema, setupFn = null) {
           });
         });
 
+        // Labels documented under "Error labels" in openapi.yaml.
         const firstField = query.filterableFields[0];
         test.each([
-          ['when filtering with unknown operator, then returns 422', `filter[${firstField}][unknown]=1`],
-          ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
-          ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
-        ])('%s', async (_name, qs) => {
+          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`],
+          ['when filtering unknown field, then the 422 names filter', 'filter[__bogus__]=1', 'filter'],
+          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`]
+        ])('%s', async (_name, qs, field) => {
           expect.hasAssertions();
-          await expectStatus(qs, 422);
+          const response = await expectStatus(qs, 422);
+          expect(response.data.errors.map(error => error.field)).toEqual([field]);
         });
 
         query.filterableFields
