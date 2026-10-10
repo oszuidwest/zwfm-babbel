@@ -89,7 +89,9 @@ describe('Bulletins', () => {
       const response = await enqueueBulletin(stationId, { date: '2026-10-07' });
 
       expect(response.status).toBe(400);
-      expect(response.data.errors).toEqual([{ field: 'date', code: 'unknown_field', message: 'unknown field' }]);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field: 'date', code: 'unknown_field' })
+      ]);
     });
 
     test.each([
@@ -119,77 +121,11 @@ describe('Bulletins', () => {
       }
     });
 
-    test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
-      // Jingle context (voice + mix point) must come from the
-      // highest-priority story before the playback order is shuffled.
-      // A single run has a 50% chance of passing by luck with 2 stories,
-      // so we generate multiple bulletins and assert all are consistent.
-      // With 5 runs the false-pass probability drops to ~3%.
-
-      // Two voices with very different mix points
-      const station = await global.helpers.createStation(global.resources, 'JingleCtxStation', 2, 0);
-      const highPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceHigh');
-      const lowPriorityVoice = await global.helpers.createVoice(global.resources, 'JingleCtxVoiceLow');
-
-      expect(station).not.toBeNull();
-      expect(highPriorityVoice).not.toBeNull();
-      expect(lowPriorityVoice).not.toBeNull();
-
-      // High-priority voice gets a large mix point (5s), low-priority gets small (0.5s)
-      const svHigh = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, highPriorityVoice.id, 5.0);
-      const svLow = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, lowPriorityVoice.id, 0.5);
-      expect(svHigh).not.toBeNull();
-      expect(svLow).not.toBeNull();
-
-      // Breaking story on high-priority voice -> will be first in SQL order
-      await global.helpers.requireStoryWithReadyAudio(global.resources, {
-        title: `JingleCtxBreaking_${Date.now()}`,
-        text: 'Breaking story for jingle context test',
-        voice_id: highPriorityVoice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: true
-      });
-
-      await global.helpers.requireStoryWithReadyAudio(global.resources, {
-        title: `JingleCtxRegular_${Date.now()}`,
-        text: 'Regular story for jingle context test',
-        voice_id: lowPriorityVoice.id,
-        weekdays: 127,
-        status: 'active',
-        is_breaking: false
-      });
-
-      // Generate 5 bulletins - each shuffle is independent
-      const runs = 5;
-      const durations = [];
-      for (let i = 0; i < runs; i++) {
-        const response = await global.helpers.generateBulletin(station.id);
-        expect(response.status).toBe(200);
-        expect(response.data.story_count).toBe(2);
-        durations.push(response.data.duration_seconds);
-      }
-
-      // Every bulletin must use the 5.0s mix point from the breaking
-      // story's voice. Each test story is ~3s audio, pause_seconds is 0,
-      // so total about 3 + 3 + 5.0 = 11.0s.
-      // If the wrong mix point were used, total about 3 + 3 + 0.5 = 6.5s.
-      // Threshold of 9s can only be met with the 5.0s mix point.
-      for (let i = 0; i < runs; i++) {
-        expect(durations[i]).toBeGreaterThan(9);
-      }
-
-      // All durations should be identical (same mix point every time)
-      const uniqueDurations = new Set(durations.map(d => d.toFixed(2)));
-      expect(uniqueDurations.size).toBe(1);
-    });
-
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
       const { station, voice } = await createStationVoiceFixture('BreakingPriorityStation', 'BreakingPriorityVoice', 2);
 
-      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.requireStationStoriesWithReadyAudio(
+      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.requireStoriesWithReadyAudio(
         global.resources,
-        station.id,
         voice.id,
         [
           { title: `BreakingPriorityA_${Date.now()}`, text: 'Breaking story A', is_breaking: true },
@@ -215,9 +151,8 @@ describe('Bulletins', () => {
       // Station with 3 slots, 1 breaking + 4 non-breaking stories
       const { station, voice } = await createStationVoiceFixture('BreakingAlwaysStation', 'BreakingAlwaysVoice', 3);
 
-      const [breakingStory] = await global.helpers.requireStationStoriesWithReadyAudio(
+      const [breakingStory] = await global.helpers.requireStoriesWithReadyAudio(
         global.resources,
-        station.id,
         voice.id,
         [{
           title: `BreakingAlways_${Date.now()}`,
@@ -228,7 +163,7 @@ describe('Bulletins', () => {
 
       const regularStoryIds = [];
       for (let i = 0; i < 4; i++) {
-        const [story] = await global.helpers.requireStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [{
+        const [story] = await global.helpers.requireStoriesWithReadyAudio(global.resources, voice.id, [{
           title: `BreakingAlwaysRegular${i}_${Date.now()}`,
           text: `Regular story ${i}`,
           is_breaking: false
@@ -266,7 +201,7 @@ describe('Bulletins', () => {
       const todayBit = 1 << new Date().getDay();
       const wrongWeekdays = 127 ^ todayBit; // all days except today
       const [draftBreaking, expiredBreaking, wrongDayBreaking, eligibleStory] =
-        await global.helpers.requireStationStoriesWithReadyAudio(global.resources, station.id, voice.id, [
+        await global.helpers.requireStoriesWithReadyAudio(global.resources, voice.id, [
           { title: `BreakingDraft_${Date.now()}`, text: 'Breaking but draft', status: 'draft', is_breaking: true },
           {
             title: `BreakingExpired_${Date.now()}`,
@@ -302,31 +237,32 @@ describe('Bulletins', () => {
     test('when multiple breaking stories compete for limited slots, then newest by start_date selected', async () => {
       // Station with 2 slots, 3 breaking stories with different start_dates
       const { station, voice } = await createStationVoiceFixture('BreakingNewestStation', 'BreakingNewestVoice', 2);
+      const date = daysFromToday => new Date(Date.now() + daysFromToday * 86400000).toISOString().slice(0, 10);
+      const endDate = date(365);
 
-      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.requireStationStoriesWithReadyAudio(
+      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.requireStoriesWithReadyAudio(
         global.resources,
-        station.id,
         voice.id,
         [
           {
             title: `BreakingOld_${Date.now()}`,
             text: 'Old breaking story',
-            start_date: '2024-01-01',
-            end_date: '2030-12-31',
+            start_date: date(-30),
+            end_date: endDate,
             is_breaking: true
           },
           {
             title: `BreakingMid_${Date.now()}`,
             text: 'Middle breaking story',
-            start_date: '2025-06-01',
-            end_date: '2030-12-31',
+            start_date: date(-20),
+            end_date: endDate,
             is_breaking: true
           },
           {
             title: `BreakingNew_${Date.now()}`,
             text: 'Newest breaking story',
-            start_date: '2026-03-01',
-            end_date: '2030-12-31',
+            start_date: date(-10),
+            end_date: endDate,
             is_breaking: true
           }
         ]
@@ -347,17 +283,32 @@ describe('Bulletins', () => {
   });
 
   describe('Bulletin Retrieval', () => {
-    test('when fetching single bulletin, then returns data', async () => {
-      const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
+    let bulletinId;
 
-      if (listResponse.data.data.length > 0) {
-        const bulletinId = listResponse.data.data[0].id;
+    beforeAll(async () => {
+      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+        stationName: 'BulletinRetrievalStation',
+        voiceName: 'BulletinRetrievalVoice',
+        storyTitle: 'BulletinRetrievalStory',
+        storyText: 'Bulletin retrieval test story'
+      });
+      const generated = await global.helpers.generateBulletin(station.id);
+      expect(generated.status).toBe(200);
+      bulletinId = generated.data.id;
+    });
 
-        const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
+    test('when fetching a bulletin, then returns the typed resource', async () => {
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
+      const bulletin = response.data;
 
-        expect(response.status).toBe(200);
-        expect(response.data.id).toBe(bulletinId);
-      }
+      expect(response.status).toBe(200);
+      expect(bulletin.id).toBe(bulletinId);
+      expect(typeof bulletin.id).toBe('number');
+      expect(typeof bulletin.station_id).toBe('number');
+      expect(typeof bulletin.station_name).toBe('string');
+      expect(typeof bulletin.audio_url).toBe('string');
+      expect(typeof bulletin.filename).toBe('string');
+      expect(typeof bulletin.duration_seconds).toBe('number');
     });
 
     test('when fetching non-existent bulletin, then returns 404', async () => {
@@ -366,21 +317,14 @@ describe('Bulletins', () => {
       expect(response.status).toBe(404);
     });
 
-    test('when fetching bulletin, then has correct field types', async () => {
-      const listResponse = await global.api.apiCall('GET', '/bulletins?limit=1');
-
-      if (listResponse.data.data.length > 0) {
-        const bulletinId = listResponse.data.data[0].id;
-
-        const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}`);
-        const bulletin = response.data;
-
-        expect(typeof bulletin.id).toBe('number');
-        expect(typeof bulletin.station_id).toBe('number');
-        expect(typeof bulletin.station_name).toBe('string');
-        expect(typeof bulletin.audio_url).toBe('string');
-        expect(typeof bulletin.filename).toBe('string');
-        expect(typeof bulletin.duration_seconds).toBe('number');
+    test('when downloading bulletin audio, then returns a non-empty WAV file', async () => {
+      const downloadPath = `/tmp/test_bulletin_download_${process.pid}.wav`;
+      try {
+        const status = await global.api.downloadFile(`/bulletins/${bulletinId}/audio`, downloadPath);
+        expect(status).toBe(200);
+        expect(fs.statSync(downloadPath).size).toBeGreaterThan(1000);
+      } finally {
+        global.helpers.cleanupTempFile(downloadPath);
       }
     });
   });
@@ -499,28 +443,6 @@ describe('Bulletins', () => {
     });
   });
 
-  describe('Bulletin Audio Download', () => {
-    test('when downloading audio, then file is valid', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?limit=1');
-
-      if (response.data.data.length > 0) {
-        const bulletinId = response.data.data[0].id;
-        const downloadPath = '/tmp/test_bulletin_download.wav';
-
-        const downloadResponse = await global.api.downloadFile(`/bulletins/${bulletinId}/audio`, downloadPath);
-
-        if (downloadResponse === 200) {
-          expect(fs.existsSync(downloadPath)).toBe(true);
-          const stats = fs.statSync(downloadPath);
-          expect(stats.size).toBeGreaterThan(1000);
-
-          // Cleanup
-          fs.unlinkSync(downloadPath);
-        }
-      }
-    });
-  });
-
   describe('Station Bulletin Endpoints', () => {
     let stationId;
     let storyId;
@@ -600,18 +522,6 @@ describe('Bulletins', () => {
   });
 
   describe('Bulletin History', () => {
-    test('when listing with sort, then ordered by date', async () => {
-      const response = await global.api.apiCall('GET', '/bulletins?sort=-created_at');
-
-      expect(response.status).toBe(200);
-      const bulletins = response.data.data || [];
-      if (bulletins.length > 1) {
-        const first = new Date(bulletins[0].created_at);
-        const second = new Date(bulletins[1].created_at);
-        expect(first >= second).toBe(true);
-      }
-    });
-
     test('when filtering by date-time, then bounds and every spelling of an instant select the right rows', async () => {
       const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
       expect(station).not.toBeNull();

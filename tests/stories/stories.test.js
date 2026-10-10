@@ -11,6 +11,12 @@ const LOUDNESS_TOLERANCE_LU = 0.5;
 const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
 const TRUE_PEAK_TOLERANCE_DB = 0.3;
 
+const dateFromToday = days => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+const activeDateRange = () => ({
+  start_date: dateFromToday(0),
+  end_date: dateFromToday(366)
+});
+
 function runFFmpeg(args) {
   const result = spawnSync('ffmpeg', args, { encoding: 'utf8' });
   if (result.status !== 0) {
@@ -282,6 +288,19 @@ describe('Stories', () => {
       voiceId = voice.id;
     });
 
+    test('when creating a reversed date range, then rejects end_date', async () => {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
+        title: `Reversed create ${Date.now()}`,
+        start_date: '2026-12-31',
+        end_date: '2026-01-01'
+      }));
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field: 'end_date', code: 'date_order' })
+      ]);
+    });
+
     test('calendar dates round-trip and filter correctly', async () => {
       const story = await global.helpers.createStory(global.resources, {
         title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
@@ -328,7 +347,7 @@ describe('Stories', () => {
 
       expect(response.status).toBe(422);
       expect(response.data.errors).toEqual([
-        { field, code: 'date_order', message: 'end_date cannot be before start_date' }
+        expect.objectContaining({ field, code: 'date_order' })
       ]);
       const stored = await global.api.apiCall('GET', `/stories/${story.id}`);
       expect(stored.data).toMatchObject(dates);
@@ -338,8 +357,8 @@ describe('Stories', () => {
       const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Future Story ${Date.now()}`,
         text: 'Scheduled for future',
-        start_date: '2030-01-01',
-        end_date: '2030-12-31'
+        start_date: dateFromToday(1),
+        end_date: dateFromToday(366)
       }));
 
       expect(response.status).toBe(201);
@@ -380,7 +399,7 @@ describe('Stories', () => {
 
     beforeAll(() => {
       if (!global.helpers.createTestAudioFile(testAudio, 2)) {
-        console.log('Could not create test audio file (ffmpeg unavailable or failed)');
+        throw new Error('Story audio tests require ffmpeg');
       }
     });
 
@@ -389,8 +408,6 @@ describe('Stories', () => {
     });
 
     test('when uploading audio, then attached to story', async () => {
-      if (!fs.existsSync(testAudio)) return;
-
       const result = await createStoryWithDeps('AudioUpload', 'Has audio', 'AudioVoice');
       expect(result).not.toBeNull();
 
@@ -403,8 +420,6 @@ describe('Stories', () => {
     });
 
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
-      if (!fs.existsSync(testAudio)) return;
-
       const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
       const inputAudio = `${prefix}_input.wav`;
       const beforeAudio = `${prefix}_before.wav`;
@@ -446,8 +461,6 @@ describe('Stories', () => {
     });
 
     test('when uploading quiet story audio, then normalizes loudness to -16 LUFS', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
-
       const inputAudio = `/tmp/test_story_loudness_input_${Date.now()}_${process.pid}.wav`;
       const outputAudio = `/tmp/test_story_loudness_output_${Date.now()}_${process.pid}.wav`;
 
@@ -488,8 +501,7 @@ describe('Stories', () => {
 
     beforeAll(async () => {
       if (!global.helpers.createTestAudioFile(testAudio, 1)) {
-        console.warn('Audio presence filter tests will be skipped (ffmpeg not available)');
-        return;
+        throw new Error('Audio presence filter tests require ffmpeg');
       }
 
       const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1');
@@ -526,14 +538,10 @@ describe('Stories', () => {
     };
 
     test('when filtering has_audio=true, then returns only stories with audio', async () => {
-      if (!withAudioId) return;
-
       expect(await listScopedIds('true')).toEqual([withAudioId]);
     });
 
     test('when filtering has_audio=false, then includes empty and NULL audio stories', async () => {
-      if (!withAudioId) return;
-
       expect((await listScopedIds('false')).sort()).toEqual([withoutAudioId, nullAudioId].sort());
     });
 
@@ -608,8 +616,7 @@ describe('Stories', () => {
       const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking Story ${Date.now()}`,
         text: 'Breaking news content',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31',
+        ...activeDateRange(),
         is_breaking: true
       }));
 
@@ -624,8 +631,7 @@ describe('Stories', () => {
       const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Normal Story ${Date.now()}`,
         text: 'Normal news content',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31'
+        ...activeDateRange()
       }));
 
       expect(response.status).toBe(201);
@@ -651,8 +657,7 @@ describe('Stories', () => {
       const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking to Normal ${Date.now()}`,
         text: 'Was breaking',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31',
+        ...activeDateRange(),
         is_breaking: true
       }));
       expect(createResponse.status).toBe(201);

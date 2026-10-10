@@ -14,6 +14,13 @@ const queryParameter = (endpoint, name) => document.paths[`/api/v1${endpoint}`].
 
 const declaresQueryParameter = (endpoint, name) => queryParameter(endpoint, name) !== undefined;
 
+function getJsonRequestSchema(endpoint, method = 'post') {
+  const operation = document.paths[`/api/v1${endpoint}`]?.[method];
+  const schema = operation?.requestBody?.content?.['application/json']?.schema;
+  if (!schema) throw new Error(`OpenAPI has no JSON ${method.toUpperCase()} request schema for ${endpoint}`);
+  return resolve(schema);
+}
+
 function getFilterContracts(endpoint) {
   const filter = queryParameter(endpoint, 'filter');
   return Object.fromEntries(Object.entries(filter.schema.properties).map(([field, schema]) => {
@@ -90,15 +97,27 @@ function invalidFilterCases(contract) {
   const invalid = invalidFilterExample(contract);
   const cases = [];
   if (invalid !== undefined) {
-    cases.push(['eq', invalid]);
-    if (operators.in) cases.push(['in', `${valid},${invalid}`]);
-    if (operators.between) cases.push(['between', `${valid},${invalid}`]);
-    if (operators.band) cases.push(['band', invalid]);
+    const code = contract.value.enum
+      ? 'invalid_choice'
+      : contract.value.maximum !== undefined && Number(invalid) > contract.value.maximum
+        ? 'out_of_range'
+        : 'invalid_format';
+    cases.push(['eq', invalid, code]);
+    if (operators.in) cases.push(['in', `${valid},${invalid}`, code]);
+    if (operators.between) cases.push(['between', `${valid},${invalid}`, code]);
+    if (operators.band) cases.push(['band', invalid, code]);
   }
   for (const [operator, raw] of [['like', '1'], ['in', `${valid},${valid}`], ['gte', valid], ['null', 'true']]) {
-    if (!operators[operator]) cases.push([operator, raw]);
+    if (!operators[operator]) cases.push([operator, raw, 'unsupported']);
   }
   return cases;
 }
 
-module.exports = { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases };
+module.exports = {
+  declaresQueryParameter,
+  getFilterContracts,
+  getJsonRequestSchema,
+  filterExamples,
+  validFilterCases,
+  invalidFilterCases
+};

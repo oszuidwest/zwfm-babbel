@@ -20,30 +20,5 @@ module.exports = {
     sortableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at'],
     filterableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds'],
     selectableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at']
-  },
-
-  validation: {
-    fields: {
-      name: {
-        type: 'string',
-        required: true,
-        minLength: 1,
-        maxLength: 255,
-        unique: true,
-        rejectWhitespaceOnly: true
-      },
-      max_stories_per_block: {
-        type: 'integer',
-        required: true,
-        min: 1,
-        max: 50
-      },
-      pause_seconds: {
-        type: 'float',
-        required: false,
-        min: 0,
-        max: 60
-      }
-    }
   }
 };

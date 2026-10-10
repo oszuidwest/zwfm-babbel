@@ -27,8 +27,5 @@ module.exports = {
 
   verbose: true,
 
-  // Database clients may retain handles after the suites finish.
-  forceExit: true,
-
   transform: {}
 };

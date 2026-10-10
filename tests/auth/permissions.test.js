@@ -1,6 +1,8 @@
 const ApiHelper = require('../lib/ApiHelper');
 
 describe('Permissions', () => {
+  let originalPronunciationRules;
+  let pronunciationRulesLoaded = false;
   // Helper to create a user
   const createUser = async (username, fullName, password, role) => {
     const response = await global.api.apiCall('POST', '/users', {
@@ -39,10 +41,19 @@ describe('Permissions', () => {
     await restoreAdmin();
     const response = await global.api.apiCall('GET', '/settings/tts');
     expect(response.status).toBe(200);
+    const pronunciations = await global.api.apiCall('GET', '/settings/tts/pronunciations');
+    expect(pronunciations.status).toBe(200);
+    originalPronunciationRules = pronunciations.data.rules;
+    pronunciationRulesLoaded = true;
   });
 
   afterAll(async () => {
+    if (!pronunciationRulesLoaded) return;
     await restoreAdmin();
+    const response = await global.api.apiCall('PUT', '/settings/tts/pronunciations', {
+      rules: originalPronunciationRules
+    });
+    expect(response.status).toBe(200);
   });
 
   describe('Admin Permissions', () => {

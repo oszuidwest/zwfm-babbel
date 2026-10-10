@@ -103,37 +103,24 @@ describe('Automation', () => {
       stationId = station.id;
     });
 
-    test('when first request, then generates new bulletin', async () => {
-      // Uses station setup from beforeAll
-
-      const response = await global.helpers.publicBulletinRequest(stationId, {
+    test('when requesting twice within max age, then reuses the generated bulletin', async () => {
+      const generated = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
       });
 
-      expect(response.status).toBe(200);
-      expect(response.headers['x-bulletin-cached']).toBe('false');
-      expect(response.headers['x-bulletin-id']).toBeDefined();
-    });
+      expect(generated.status).toBe(200);
+      expect(generated.headers['x-bulletin-cached']).toBe('false');
+      expect(generated.headers['x-bulletin-id']).toBeDefined();
 
-    test('when subsequent request, then returns cached', async () => {
-      // First request generates new bulletin
-      const response1 = await global.helpers.publicBulletinRequest(stationId, {
-        key: automationKey,
-        max_age: '0'
-      });
-      expect(response1.status).toBe(200);
-      expect(response1.headers['x-bulletin-id']).toBeDefined();
-
-      // Second request with high max_age should use cache
-      const response2 = await global.helpers.publicBulletinRequest(stationId, {
+      const cached = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '3600'
       });
 
-      expect(response2.status).toBe(200);
-      expect(response2.headers['x-bulletin-cached']).toBe('true');
-      expect(response2.headers['x-bulletin-id']).toBeDefined();
+      expect(cached.status).toBe(200);
+      expect(cached.headers['x-bulletin-cached']).toBe('true');
+      expect(cached.headers['x-bulletin-id']).toBe(generated.headers['x-bulletin-id']);
     });
   });
 
@@ -152,8 +139,6 @@ describe('Automation', () => {
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
-
       // Use today only
       const today = new Date();
       const year = today.getFullYear();
@@ -161,7 +146,7 @@ describe('Automation', () => {
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      await global.helpers.requireStationStoriesWithReadyAudio(global.resources, stationId, voiceId, [{
+      await global.helpers.requireStoriesWithReadyAudio(global.resources, voiceId, [{
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
         start_date: todayStr,

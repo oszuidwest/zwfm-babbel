@@ -949,6 +949,7 @@ paths:
                   minLength: 1
                   maxLength: 255
                   pattern: '\S'
+                  x-unique: true
                 elevenlabs_voice_id:
                   type: [string, 'null']
                   pattern: '^[A-Za-z0-9_-]{8,64}$'

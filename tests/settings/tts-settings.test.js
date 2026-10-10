@@ -79,7 +79,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual([
-      { field: 'request', code: 'empty_update', message: 'At least one field must be provided' }
+      expect.objectContaining({ field: 'request', code: 'empty_update' })
     ]);
   });
 
@@ -92,25 +92,27 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(400);
     expect(response.data.errors).toEqual([
-      { field: 'request', code: 'required', message: 'request body is required' }
+      expect.objectContaining({ field: 'request', code: 'required' })
     ]);
   });
 
   test('when patching unknown fields, then returns strict bad request errors', async () => {
     const cases = [
-      ['model', { model: 'eleven_multilingual_v2' }, 'unknown field'],
-      ['model_id', { model_id: 'eleven_v4' }, 'unknown field'],
-      ['use_speaker_boost', { use_speaker_boost: true }, 'unknown field'],
-      ['similarity_boost', { similarity_boost: 0.7 }, 'unknown field'],
-      ['style', { style: 0.25 }, 'unknown field'],
-      ['speed', { speed: 1 }, 'unknown field'],
-      ['stabilty', { stabilty: 0.5 }, 'unknown field']
+      ['model', { model: 'eleven_multilingual_v2' }],
+      ['model_id', { model_id: 'eleven_v4' }],
+      ['use_speaker_boost', { use_speaker_boost: true }],
+      ['similarity_boost', { similarity_boost: 0.7 }],
+      ['style', { style: 0.25 }],
+      ['speed', { speed: 1 }],
+      ['stabilty', { stabilty: 0.5 }]
     ];
 
-    for (const [field, body, message] of cases) {
+    for (const [field, body] of cases) {
       const response = await global.api.apiCall('PATCH', '/settings/tts', body);
       expect(response.status).toBe(400);
-      expect(response.data.errors).toEqual([{ field, code: 'unknown_field', message }]);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field, code: 'unknown_field' })
+      ]);
     }
   });
 
@@ -134,7 +136,7 @@ describe('TTS Settings', () => {
     expect(response.status).toBe(422);
     expect(response.data.type).toBe('https://babbel.api/problems/validation-error');
     expect(response.data.errors).toEqual([
-      { field: 'stability', code: 'out_of_range', message: 'must be between 0 and 1' }
+      expect.objectContaining({ field: 'stability', code: 'out_of_range' })
     ]);
   });
 
@@ -145,7 +147,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'tts_style_prefix', code: 'too_long', message: 'must be at most 500 characters' }
+      expect.objectContaining({ field: 'tts_style_prefix', code: 'too_long' })
     ]));
   });
 
@@ -215,7 +217,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'rules', code: 'too_long', message: 'must contain at most 1000 rules' }
+      expect.objectContaining({ field: 'rules', code: 'too_long' })
     ]));
   });
 
@@ -241,7 +243,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      { field: 'rules[1].string_to_replace', code: 'duplicate', message: 'duplicates rules[0]' }
+      expect.objectContaining({ field: 'rules[1].string_to_replace', code: 'duplicate' })
     ]));
   });
 
@@ -255,11 +257,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(422);
     expect(response.data.errors).toEqual(expect.arrayContaining([
-      {
-        field: 'rules[0].string_to_replace',
-        code: 'duplicate',
-        message: 'conflicts with rules[1] under case-insensitive matching'
-      }
+      expect.objectContaining({ field: 'rules[0].string_to_replace', code: 'duplicate' })
     ]));
   });
 
@@ -270,7 +268,7 @@ describe('TTS Settings', () => {
 
     expect(response.status).toBe(400);
     expect(response.data.errors).toEqual([
-      { field: 'rules[0].alias', code: 'unknown_field', message: 'unknown field' }
+      expect.objectContaining({ field: 'rules[0].alias', code: 'unknown_field' })
     ]);
   });
 

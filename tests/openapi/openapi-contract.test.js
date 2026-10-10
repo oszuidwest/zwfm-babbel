@@ -6,6 +6,7 @@ const OpenApiContractValidator = require('../lib/OpenApiContractValidator');
 const TestHelpers = require('../lib/TestHelpers');
 
 const SPEC_PATH = path.join(__dirname, '../../openapi.yaml');
+const TTS_ENABLED = process.env.BABBEL_TEST_TTS_ENABLED === 'true';
 
 describe('OpenAPI Contract', () => {
   let validator;
@@ -42,12 +43,17 @@ describe('OpenAPI Contract', () => {
       ),
       apiScenario('GET', '/api/v1/auth/config', '/auth/config'),
       apiScenario('POST', '/api/v1/sessions', '/sessions', { username: 'admin', password: 'admin' }),
-      rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }),
+      // The default test environment has no OIDC provider, so starting OAuth
+      // returns the documented not-found response instead of redirecting.
+      rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }, 404),
+      // The test environment has no frontend URL for callback redirects; this
+      // deliberately exercises the documented configuration-error response.
       rawScenario(
         'GET',
         '/api/v1/auth/oauth/callback',
         () => `${global.api.apiUrl}/auth/oauth/callback?state=contract&code=contract`,
-        { maxRedirects: 0 }
+        { maxRedirects: 0 },
+        500
       ),
       apiScenario('GET', '/api/v1/sessions/current', '/sessions/current'),
       scenario('DELETE', '/api/v1/sessions/current', async () => {
@@ -263,7 +269,18 @@ describe('OpenAPI Contract', () => {
             cleanupFile(oversizedPath);
           }
         }, 'POST /api/v1/stories/{id}/audio oversized upload'),
-      apiScenario('POST', '/api/v1/stories/{id}/tts', () => `/stories/${ctx.story.id}/tts`),
+      // The preceding upload leaves the contract story with audio. Enabled TTS
+      // therefore reaches story.audio_exists; disabled TTS rejects earlier.
+      scenario('POST', '/api/v1/stories/{id}/tts', async () => {
+          const response = await apiCall(
+            'POST',
+            '/api/v1/stories/{id}/tts',
+            `/stories/${ctx.story.id}/tts`
+          );
+          expect(response.status).toBe(TTS_ENABLED ? 409 : 501);
+          expect(response.data.code).toBe(TTS_ENABLED ? 'story.audio_exists' : 'tts.not_configured');
+          return response;
+        }),
       apiScenario('GET', '/api/v1/settings/tts', '/settings/tts'),
       scenario('PATCH', '/api/v1/settings/tts', async () => {
           const current = await global.api.apiCall('GET', '/settings/tts');
@@ -323,11 +340,11 @@ describe('OpenAPI Contract', () => {
             '/api/v1/stations/{id}/bulletins/latest',
             `/stations/${ctx.station.id}/bulletins/latest`
           );
+          expect(response.status).toBe(200);
           expect(response.data).not.toHaveProperty('data');
-          expect(response.data.id).toBe(ctx.bulletin.id);
+          expect(response.data.id).toBeGreaterThanOrEqual(ctx.bulletin.id);
           return response;
         }),
-      // Must follow the latest-bulletin check because it creates a newer one.
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const response = await apiCall(
             'POST',
@@ -336,11 +353,16 @@ describe('OpenAPI Contract', () => {
           );
           expect(response.status).toBe(202);
           expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
-          ctx.generationJobId = response.data.id;
           return response;
         }),
       scenario('GET', '/api/v1/bulletin-jobs/{id}', async () => {
-          const job = (await global.helpers.waitForBulletinJob(ctx.generationJobId)).data;
+          const accepted = await apiCall(
+            'POST',
+            '/api/v1/stations/{id}/bulletins',
+            `/stations/${ctx.station.id}/bulletins`
+          );
+          expect(accepted.status).toBe(202);
+          const job = (await global.helpers.waitForBulletinJob(accepted.data.id)).data;
           expect(job.status).toBe('succeeded');
           return apiCall('GET', '/api/v1/bulletin-jobs/{id}', `/bulletin-jobs/${job.id}`);
         }),
@@ -415,24 +437,38 @@ describe('OpenAPI Contract', () => {
     return typeof value === 'function' ? value() : value;
   }
 
-  function apiScenario(method, operationPath, endpoint, body, options) {
-    return scenario(method, operationPath, () => apiCall(method, operationPath, resolve(endpoint), resolve(body), resolve(options) || {}));
+  function apiScenario(method, operationPath, endpoint, body, options, expectedStatus = method === 'POST' ? 201 : 200) {
+    return scenario(method, operationPath, async () => {
+      const response = await apiCall(method, operationPath, resolve(endpoint), resolve(body), resolve(options) || {});
+      expect(response.status).toBe(expectedStatus);
+      return response;
+    });
   }
 
   function trackedApiScenario(method, operationPath, endpoint, body, resourceType) {
     return scenario(method, operationPath, async () => {
       const response = await apiCall(method, operationPath, resolve(endpoint), resolve(body));
+      expect(response.status).toBe(201);
+      expect(response.data.id).toEqual(expect.any(Number));
       global.resources.track(resourceType, response.data.id);
       return response;
     });
   }
 
-  function rawScenario(method, operationPath, url, options) {
-    return scenario(method, operationPath, () => rawCall(method, operationPath, resolve(url), resolve(options) || {}));
+  function rawScenario(method, operationPath, url, options, expectedStatus = 200) {
+    return scenario(method, operationPath, async () => {
+      const response = await rawCall(method, operationPath, resolve(url), resolve(options) || {});
+      expect(response.status).toBe(expectedStatus);
+      return response;
+    });
   }
 
   function uploadScenario(operationPath, endpoint, fileFieldName, requestBody) {
-    return scenario('POST', operationPath, () => uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody));
+    return scenario('POST', operationPath, async () => {
+      const response = await uploadCall(operationPath, resolve(endpoint), fileFieldName, requestBody);
+      expect(response.status).toBe(201);
+      return response;
+    });
   }
 
   function byteRangeScenario(operationPath, url, extraAssertions) {
@@ -481,6 +517,7 @@ describe('OpenAPI Contract', () => {
   function sparseListScenario(method, operationPath, endpoint, fields) {
     return scenario(method, operationPath, async () => {
       const response = await apiCall(method, operationPath, resolve(endpoint));
+      expect(response.status).toBe(200);
 
       const resolvedEndpoint = resolve(endpoint);
       const separator = resolvedEndpoint.includes('?') ? '&' : '?';

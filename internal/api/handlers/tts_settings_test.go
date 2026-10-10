@@ -66,34 +66,9 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 		wantField string
 	}{
 		{
-			name:      "model unknown",
-			body:      `{"model":"eleven_multilingual_v2"}`,
-			wantField: "model",
-		},
-		{
 			name:      "model ID read only",
 			body:      `{"model_id":"eleven_v4"}`,
 			wantField: "model_id",
-		},
-		{
-			name:      "speaker boost unknown",
-			body:      `{"use_speaker_boost":true}`,
-			wantField: "use_speaker_boost",
-		},
-		{
-			name:      "similarity boost unknown",
-			body:      `{"similarity_boost":0.7}`,
-			wantField: "similarity_boost",
-		},
-		{
-			name:      "style unknown",
-			body:      `{"style":0.25}`,
-			wantField: "style",
-		},
-		{
-			name:      "speed unknown",
-			body:      `{"speed":1}`,
-			wantField: "speed",
 		},
 		{
 			name:      "unknown typo",

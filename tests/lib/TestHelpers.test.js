@@ -199,7 +199,7 @@ describe('TestHelpers', () => {
     ).rejects.toThrow(/Required story/);
   });
 
-  test('when creating station stories with ready audio, then applies shared station and voice defaults', async () => {
+  test('when creating stories with ready audio, then applies shared voice defaults', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
 
@@ -207,9 +207,8 @@ describe('TestHelpers', () => {
       .mockResolvedValueOnce({ id: 1 })
       .mockResolvedValueOnce({ id: 2 });
 
-    const stories = await helpers.createStationStoriesWithReadyAudio(
+    const stories = await helpers.createStoriesWithReadyAudio(
       resourceManager,
-      10,
       20,
       [
         { title: 'Breaking', text: 'Breaking story', is_breaking: true },
@@ -247,11 +246,11 @@ describe('TestHelpers', () => {
   test('when requiring station stories with ready audio fails, then throws', async () => {
     const helpers = new TestHelpers({});
 
-    jest.spyOn(helpers, 'createStationStoriesWithReadyAudio').mockResolvedValue(null);
+    jest.spyOn(helpers, 'createStoriesWithReadyAudio').mockResolvedValue(null);
 
     await expect(
-      helpers.requireStationStoriesWithReadyAudio({ track: jest.fn() }, 10, 20, [{ title: 'Missing audio' }])
-    ).rejects.toThrow(/station 10 and voice 20/);
+      helpers.requireStoriesWithReadyAudio({ track: jest.fn() }, 20, [{ title: 'Missing audio' }])
+    ).rejects.toThrow(/voice 20/);
   });
 
   test('when jingle upload fails, then station voice with jingle returns null with warning', async () => {

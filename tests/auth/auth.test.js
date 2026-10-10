@@ -68,16 +68,12 @@ describe('Authentication', () => {
   });
 
   describe('Successful Login', () => {
-    test('when admin logs in, then session created', async () => {
+    test('when admin logs in, then the session contains the user', async () => {
       const loginResponse = await global.api.apiLogin('admin', 'admin');
 
       expect(loginResponse.status).toBe(201);
       expect(await global.api.isSessionActive()).toBe(true);
-    });
-
-    test('when session active, then contains user info', async () => {
       const sessionInfo = await global.api.getCurrentSession();
-
       expect(sessionInfo).not.toBeNull();
       expect(sessionInfo.username).toBe('admin');
       expect(sessionInfo.role).toBe('admin');

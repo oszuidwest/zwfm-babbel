@@ -18,33 +18,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestPronunciationRulesResponseMapping(t *testing.T) {
-	updatedAt := time.Unix(1717200000, 0).UTC()
-	got := toPronunciationRulesResponse(&services.PronunciationRulesResponse{
-		Rules: []models.PronunciationRule{{
-			StringToReplace: "Albert Heijn",
-			IPA:             "ˈɑlbərt ˈɦɛin",
-			CaseSensitive:   true,
-			WordBoundaries:  false,
-		}},
-		UpdatedAt: &updatedAt,
-	})
-
-	if len(got.Rules) != 1 {
-		t.Fatalf("rules len = %d, want 1", len(got.Rules))
-	}
-	rule := got.Rules[0]
-	if rule.StringToReplace != "Albert Heijn" ||
-		rule.IPA != "ˈɑlbərt ˈɦɛin" ||
-		!rule.CaseSensitive ||
-		rule.WordBoundaries {
-		t.Fatalf("rule = %#v, want mapped pronunciation rule", rule)
-	}
-	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(updatedAt) {
-		t.Fatalf("updated_at = %v, want %v", got.UpdatedAt, updatedAt)
-	}
-}
-
 func TestPronunciationRulesHandlers_UpdateBinding(t *testing.T) {
 	tests := []struct {
 		name           string

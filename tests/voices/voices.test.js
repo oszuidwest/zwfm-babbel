@@ -11,26 +11,15 @@ describe('Voices', () => {
   // Tests specific to voice behavior that can't be generated
 
   describe('Voice with Associated Stories', () => {
-    let stationId;
     let voiceId;
 
     beforeAll(async () => {
-      // Create station and voice for dependency testing
-      const station = await global.helpers.createStation(
-        global.resources,
-        'VoiceTestStation',
-        4,
-        2.0
-      );
-      expect(station).not.toBeNull();
-      stationId = station.id;
-
       const voice = await global.helpers.createVoice(global.resources, 'AssociatedVoice');
       expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 
-    test('when deleting voice with stories, then protected or cascades', async () => {
+    test('when deleting voice with stories, then returns dependency conflict', async () => {
       // Create story with voice dependency
       const storyData = {
         title: 'Voice Association Test Story',
@@ -49,13 +38,8 @@ describe('Voices', () => {
 
       const deleteResponse = await global.api.apiCall('DELETE', `/voices/${voiceId}`);
 
-      // Should either protect (409) or cascade delete (204)
-      expect([204, 409]).toContain(deleteResponse.status);
-
-      // Cleanup: Untrack if deleted
-      if (deleteResponse.status === 204) {
-        global.resources.untrack('voices', voiceId);
-      }
+      expect(deleteResponse.status).toBe(409);
+      expect(deleteResponse.data.code).toBe('voice.has_dependencies');
     });
   });
 });

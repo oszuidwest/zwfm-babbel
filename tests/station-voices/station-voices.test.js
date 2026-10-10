@@ -31,10 +31,9 @@ describe('Station-Voices', () => {
         mix_point: data.mix
       });
 
-      if (response.status === 201) {
-        global.resources.track('stationVoices', response.data.id);
-        ids.push(response.data.id);
-      }
+      expect(response.status).toBe(201);
+      global.resources.track('stationVoices', response.data.id);
+      ids.push(response.data.id);
     }
     return ids;
   };
@@ -66,17 +65,16 @@ describe('Station-Voices', () => {
       const duplicate = await global.api.apiCall('POST', '/station-voices', data);
 
       expect(duplicate.status).toBe(409);
+      expect(duplicate.data.code).toBe('stationvoice.duplicate');
     });
   });
 
   describe('Station-Voice Audio', () => {
     const testAudio = '/tmp/test_jingle.wav';
-    let audioAvailable = false;
 
     beforeAll(() => {
-      audioAvailable = global.helpers.createTestAudioFile(testAudio, 1);
-      if (!audioAvailable) {
-        console.warn('Audio tests will be skipped (ffmpeg not available)');
+      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
+        throw new Error('Station-voice audio tests require ffmpeg');
       }
     });
 
@@ -85,8 +83,6 @@ describe('Station-Voices', () => {
     });
 
     test('when uploading jingle, then attached', async () => {
-      if (!audioAvailable) return;
-
       const station = await global.helpers.createStation(global.resources, 'AudioTestStation');
       const voice = await global.helpers.createVoice(global.resources, 'AudioTestVoice');
       const response = await global.api.apiCall('POST', '/station-voices', {
@@ -127,8 +123,6 @@ describe('Station-Voices', () => {
     });
 
     test('when filtering has_audio, then partitions by jingle presence', async () => {
-      if (!audioAvailable) return;
-
       // Two voices on one station, only one with a jingle
       const station = await global.helpers.createStation(global.resources, 'HasAudioFilterStation');
       const voiceWith = await global.helpers.createVoice(global.resources, 'HasAudioFilterVoice1');

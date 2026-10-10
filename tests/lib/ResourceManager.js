@@ -1,4 +1,5 @@
 // Tracks integration-test resources for dependency-safe cleanup.
+const { createMySQLExecutor, sqlInteger } = require('./MySQLHelper');
 
 class ResourceManager {
   static CLEANUP_ORDER = [
@@ -19,8 +20,9 @@ class ResourceManager {
     users: '/users'
   };
 
-  constructor(apiHelper) {
+  constructor(apiHelper, mysql = createMySQLExecutor()) {
     this.api = apiHelper;
+    this.mysql = mysql;
     this.tracked = {
       stations: new Set(),
       voices: new Set(),
@@ -37,43 +39,79 @@ class ResourceManager {
    */
   track(type, id) {
     if (!this.tracked[type]) {
-      console.warn(`ResourceManager: unknown resource type '${type}' (known: ${Object.keys(this.tracked).join(', ')})`);
-      return;
+      throw new Error(`ResourceManager: unknown resource type '${type}' (known: ${Object.keys(this.tracked).join(', ')})`);
+    }
+    if (id === undefined || id === null || id === '') {
+      throw new Error(`ResourceManager: cannot track ${type} without an ID`);
     }
     this.tracked[type].add(String(id));
   }
 
-  /** @returns {Promise<{deleted: number, failed: number}>} */
+  /** @returns {Promise<{deleted: number, failed: number, errors: string[]}>} */
   async cleanupAll() {
+    const snapshot = Object.fromEntries(
+      Object.entries(this.tracked).map(([type, ids]) => [type, [...ids]])
+    );
     let deleted = 0;
-    let failed = 0;
 
     for (const type of ResourceManager.CLEANUP_ORDER) {
-      const result = await this.cleanupType(type);
-      deleted += result.deleted;
-      failed += result.failed;
+      // Bulletins have no DELETE endpoint; the database pass below removes
+      // them together with jobs and joins belonging to tracked stations.
+      if (type === 'bulletins') continue;
+      deleted += await this.cleanupType(type);
     }
 
-    return { deleted, failed };
+    try {
+      this.cleanupDatabase(snapshot);
+      for (const ids of Object.values(this.tracked)) ids.clear();
+      return { deleted, failed: 0, errors: [] };
+    } catch (error) {
+      return { deleted, failed: 1, errors: [error.message] };
+    }
+  }
+
+  cleanupDatabase(snapshot) {
+    const ids = type => snapshot[type].map(id => sqlInteger(id, `${type} ID`));
+    const whereIDs = (column, values) => values.length > 0 ? `${column} IN (${values.join(', ')})` : null;
+    const statements = [];
+    const bulletinPredicates = [
+      whereIDs('id', ids('bulletins')),
+      whereIDs('station_id', ids('stations'))
+    ].filter(Boolean);
+    if (bulletinPredicates.length > 0) {
+      statements.push(`DELETE FROM bulletins WHERE ${bulletinPredicates.join(' OR ')}`);
+    }
+    for (const [type, table] of [
+      ['stories', 'stories'],
+      ['stationVoices', 'station_voices'],
+      ['voices', 'voices'],
+      ['stations', 'stations'],
+      ['users', 'users']
+    ]) {
+      const predicate = whereIDs('id', ids(type));
+      if (predicate) statements.push(`DELETE FROM ${table} WHERE ${predicate}`);
+    }
+    if (statements.length > 0) {
+      this.mysql.execSQLScript(`START TRANSACTION;\n${statements.join(';\n')};\nCOMMIT;\n`);
+    }
   }
 
   /**
    * @param {string} type
-   * @returns {Promise<{deleted: number, failed: number}>}
+   * @returns {Promise<number>} Number removed (or already absent) via the API.
    */
   async cleanupType(type) {
     const ids = this.tracked[type];
     if (!ids || ids.size === 0) {
-      return { deleted: 0, failed: 0 };
+      return 0;
     }
 
     const endpoint = ResourceManager.ENDPOINTS[type];
     if (!endpoint) {
-      return { deleted: 0, failed: ids.size };
+      return 0;
     }
 
     let deleted = 0;
-    let failed = 0;
 
     for (const id of ids) {
       try {
@@ -82,17 +120,13 @@ class ResourceManager {
         if (response.status === 204 || response.status === 200 || response.status === 404) {
           // Already absent is a successful cleanup.
           deleted++;
-        } else {
-          failed++;
         }
-      } catch (error) {
-        failed++;
+      } catch {
+        // The database fallback below remains authoritative for cleanup.
       }
     }
 
-    this.tracked[type].clear();
-
-    return { deleted, failed };
+    return deleted;
   }
 
   /**

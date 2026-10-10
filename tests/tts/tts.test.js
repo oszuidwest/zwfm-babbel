@@ -105,7 +105,7 @@ describe('TTS', () => {
     });
 
     test('when story already has audio without force, then returns 409', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
+      expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       // Voice with dummy elevenlabs ID (won't actually call ElevenLabs)
       const voiceId = await createVoice('TTS Audio Exists Voice', 'dummy-el-voice-id');
@@ -129,7 +129,7 @@ describe('TTS', () => {
   (TTS_ENABLED && TTS_REAL_API && ELEVENLABS_VOICE_ID ? describe : describe.skip)(
     'Real API (requires TTS + BABBEL_TEST_TTS_REAL_API=true)', () => {
     test('when force overwrite with real API, then returns 201', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
+      expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       const voiceId = await createVoice('TTS Force Voice', ELEVENLABS_VOICE_ID);
       expect(voiceId).not.toBeNull();

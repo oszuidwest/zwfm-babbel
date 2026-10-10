@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
+	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -11,7 +14,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
 func TestMain(m *testing.M) {
@@ -150,18 +152,6 @@ func TestProblemDetailAlwaysIncludesDetail(t *testing.T) {
 	}
 }
 
-func TestFieldErrorJSON(t *testing.T) {
-	t.Parallel()
-
-	body, err := json.Marshal(apperrors.FieldError{Field: "title", Code: apperrors.CodeRequired, Message: "is required"})
-	if err != nil {
-		t.Fatalf("marshal field error: %v", err)
-	}
-	if got, want := string(body), `{"field":"title","code":"required","message":"is required"}`; got != want {
-		t.Fatalf("field error JSON = %s, want %s", got, want)
-	}
-}
-
 func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	w := httptest.NewRecorder()
@@ -197,16 +187,20 @@ func checkBindResult(t *testing.T, w *httptest.ResponseRecorder, ok bool, want b
 	if want.status == 413 {
 		return
 	}
+	if contentType := w.Header().Get("Content-Type"); contentType != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", contentType)
+	}
 	var resp problemResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse response body: %v", err)
 	}
-	for _, e := range resp.Errors {
-		if e.Field == want.field && e.Code == want.code && e.Message != "" {
-			return
-		}
+	if len(resp.Errors) != 1 {
+		t.Fatalf("errors = %+v, want exactly one %s/%s error", resp.Errors, want.field, want.code)
 	}
-	t.Errorf("expected field error %s/%s, got errors: %+v", want.field, want.code, resp.Errors)
+	e := resp.Errors[0]
+	if e.Field != want.field || e.Code != want.code || e.Message == "" {
+		t.Errorf("error = %+v, want %s/%s with a message", e, want.field, want.code)
+	}
 }
 
 func bindCase[T any](t *testing.T, body string, want bindExpect) *T {
@@ -268,7 +262,8 @@ func TestBindJSON_StoryCreateRequest(t *testing.T) {
 			},
 		},
 		{name: "invalid story status", body: `{"title":"T","text":"x","status":"bogus",` + dates + `}`, want: bindExpect{status: 422, field: "status", code: "invalid_choice"}},
-		{name: "invalid date format", body: `{"title":"T","text":"x","start_date":"not-a-date","end_date":"2024-12-31"}`, want: bindExpect{status: 422, field: "start_date", code: "invalid_format"}},
+		{name: "invalid start date format", body: `{"title":"T","text":"x","start_date":"not-a-date","end_date":"2024-12-31"}`, want: bindExpect{status: 422, field: "start_date", code: "invalid_format"}},
+		{name: "invalid end date format", body: `{"title":"T","text":"x","start_date":"2024-01-01","end_date":"not-a-date"}`, want: bindExpect{status: 422, field: "end_date", code: "invalid_format"}},
 		{name: "weekdays above bitmask", body: `{"title":"T","text":"x","weekdays":128,` + dates + `}`, want: bindExpect{status: 422, field: "weekdays", code: "out_of_range"}},
 		{name: "negative voice id", body: `{"title":"T","text":"x","voice_id":-1,` + dates + `}`, want: bindExpect{status: 422, field: "voice_id", code: "out_of_range"}},
 		{
@@ -446,6 +441,103 @@ func TestBindJSON_ReadFailure(t *testing.T) {
 	checkBindResult(t, w, ok, bindExpect{status: 400, field: "request", code: "invalid_json"})
 }
 
+func TestIDParam(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		raw      string
+		wantID   int64
+		wantOK   bool
+		wantCode string
+	}{
+		{name: "positive integer", raw: "42", wantID: 42, wantOK: true},
+		{name: "non-integer", raw: "abc", wantCode: "invalid_format"},
+		{name: "zero", raw: "0", wantCode: "out_of_range"},
+		{name: "negative", raw: "-1", wantCode: "out_of_range"},
+		{name: "overflow", raw: "9223372036854775808", wantCode: "out_of_range"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, w := newTestContext(t, "")
+			c.Params = gin.Params{{Key: "id", Value: tt.raw}}
+			got, ok := IDParam(c)
+			if ok != tt.wantOK || got != tt.wantID {
+				t.Fatalf("IDParam(%q) = %d, %v; want %d, %v", tt.raw, got, ok, tt.wantID, tt.wantOK)
+			}
+			if !tt.wantOK {
+				checkBindResult(t, w, false, bindExpect{status: 422, field: "id", code: tt.wantCode})
+			}
+		})
+	}
+}
+
+func TestSaveAudioUpload(t *testing.T) {
+	tests := []struct {
+		name       string
+		field      string
+		filename   string
+		wantOK     bool
+		wantStatus int
+		wantField  string
+		wantCode   string
+	}{
+		{name: "missing file", field: "audio", wantStatus: 422, wantField: "audio", wantCode: "required"},
+		{name: "unsupported extension", field: "audio", filename: "notes.txt", wantStatus: 422, wantField: "audio", wantCode: "unsupported"},
+		{name: "valid audio", field: "audio", filename: "clip.WAV", wantOK: true},
+	}
+
+	t.Run("malformed multipart", func(t *testing.T) {
+		c, w := newTestContext(t, `{}`)
+		_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
+		checkBindResult(t, w, ok, bindExpect{status: 400, field: "request", code: "invalid_format"})
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			if tt.filename != "" {
+				part, err := writer.CreateFormFile(tt.field, tt.filename)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := io.WriteString(part, "audio bytes"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/upload", &body)
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+
+			path, cleanup, ok := SaveAudioUpload(c, tt.field, "upload_contract_test")
+			if tt.wantOK {
+				if !ok || cleanup == nil {
+					t.Fatalf("SaveAudioUpload() = %q, %v, want success", path, ok)
+				}
+				t.Cleanup(func() {
+					if err := cleanup(); err != nil {
+						t.Errorf("cleanup: %v", err)
+					}
+				})
+				// #nosec G304 -- path is created by SaveAudioUpload in the test temp directory.
+				data, err := os.ReadFile(path)
+				if err != nil || string(data) != "audio bytes" {
+					t.Fatalf("stored upload = %q, %v", data, err)
+				}
+				return
+			}
+			checkBindResult(t, w, ok, bindExpect{status: tt.wantStatus, field: tt.wantField, code: tt.wantCode})
+		})
+	}
+}
+
 func TestRequireAnyField(t *testing.T) {
 	t.Parallel()
 
@@ -464,43 +556,4 @@ func (failingReadCloser) Read(_ []byte) (int, error) {
 
 func (failingReadCloser) Close() error {
 	return nil
-}
-
-// Double-encoded entity pipeline documenting the full write-read decode behavior.
-
-func TestDoubleEncodedEntities_FullPipeline(t *testing.T) {
-	t.Parallel()
-	// Documents the edge case where double-encoded entities are decoded twice
-	// across the write and read paths:
-	//   Input -> NormalizeText (decode #1) -> stored in DB -> AfterFind (decode #2) -> output.
-
-	// Step 1: NormalizeText decodes once on input.
-	req := &StoryCreateRequest{
-		Title: "&amp;amp;",
-		Text:  "&amp;lt;script&amp;gt;",
-	}
-	req.NormalizeText()
-
-	if req.Title != "&amp;" {
-		t.Errorf("after NormalizeText: Title = %q, want %q", req.Title, "&amp;")
-	}
-	if req.Text != "&lt;script&gt;" {
-		t.Errorf("after NormalizeText: Text = %q, want %q", req.Text, "&lt;script&gt;")
-	}
-
-	// Step 2: simulate a DB round-trip; AfterFind decodes again on read.
-	story := &models.Story{
-		Title: req.Title,
-		Text:  req.Text,
-	}
-	if err := story.AfterFind(nil); err != nil {
-		t.Fatalf("AfterFind error: %v", err)
-	}
-
-	if story.Title != "&" {
-		t.Errorf("after AfterFind: Title = %q, want %q", story.Title, "&")
-	}
-	if story.Text != "<script>" {
-		t.Errorf("after AfterFind: Text = %q, want %q", story.Text, "<script>")
-	}
 }

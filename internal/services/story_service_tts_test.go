@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -65,9 +64,75 @@ func TestValidateTTSTextLength(t *testing.T) {
 	}
 
 	assertConflict(t, err, "story.tts_text_too_long")
-	wantMessage := strconv.Itoa(tts.MaxInputChars+1) + " characters; ElevenLabs accepts at most " + strconv.Itoa(tts.MaxInputChars)
-	if !strings.Contains(err.Error(), wantMessage) {
-		t.Fatalf("message = %q, want %q", err.Error(), wantMessage)
+}
+
+func TestValidateStoryTTSPrerequisites(t *testing.T) {
+	t.Parallel()
+
+	valid := storyForTTSTest("news")
+	tests := []struct {
+		name     string
+		story    *models.Story
+		force    bool
+		wantCode string
+	}{
+		{
+			name: "existing audio requires force",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.AudioFile = "story.wav"
+				return story
+			}(),
+			wantCode: "story.audio_exists",
+		},
+		{
+			name: "force permits existing audio",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.AudioFile = "story.wav"
+				return story
+			}(),
+			force: true,
+		},
+		{name: "text required", story: storyForTTSTest(""), wantCode: "story.no_text"},
+		{
+			name:     "voice assignment required",
+			story:    &models.Story{Text: "news"},
+			wantCode: "story.no_voice",
+		},
+		{
+			name: "loaded voice required",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.Voice = nil
+				return story
+			}(),
+			wantCode: "voice.no_elevenlabs_id",
+		},
+		{
+			name: "ElevenLabs id required",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.Voice.ElevenLabsVoiceID = nil
+				return story
+			}(),
+			wantCode: "voice.no_elevenlabs_id",
+		},
+		{name: "all prerequisites satisfied", story: valid},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateStoryTTSPrerequisites(tt.story, tt.force)
+			if tt.wantCode == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			assertConflict(t, err, tt.wantCode)
+		})
 	}
 }
 

@@ -301,12 +301,11 @@ class TestHelpers {
   /**
    * Returns null if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
-   * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {Object[]} stories
    * @returns {Promise<Array<{id: number}>|null>}
    */
-  async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
+  async createStoriesWithReadyAudio(resourceManager, voiceId, stories) {
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
     const created = [];
 
@@ -330,15 +329,14 @@ class TestHelpers {
 
   /**
    * @param {Object} resourceManager
-   * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {Object[]} stories
    * @returns {Promise<Array<{id: number}>>}
    */
-  async requireStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
-    const created = await this.createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories);
+  async requireStoriesWithReadyAudio(resourceManager, voiceId, stories) {
+    const created = await this.createStoriesWithReadyAudio(resourceManager, voiceId, stories);
     if (!created) {
-      throw new Error(`Failed to create ready story audio fixtures for station ${stationId} and voice ${voiceId}`);
+      throw new Error(`Failed to create ready story audio fixtures for voice ${voiceId}`);
     }
     return created;
   }

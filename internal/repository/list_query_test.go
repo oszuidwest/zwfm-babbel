@@ -80,6 +80,7 @@ func TestApplyFilterCondition_SQL(t *testing.T) {
 		{FilterCondition{Field: "weekdays", Operator: FilterBitwiseAnd, Values: []string{"62"}}, "(weekdays & ?) != 0", []any{uint64(62)}},
 		// LIKE wraps the value once and escapes wildcards with the declared escape character.
 		{FilterCondition{Field: "title", Operator: FilterLike, Values: []string{`50%_x`}}, `title LIKE ? ESCAPE '\\'`, []any{`%50\%\_x%`}},
+		{FilterCondition{Field: "title", Operator: FilterLike, Values: []string{`a\b`}}, `title LIKE ? ESCAPE '\\'`, []any{`%a\\b%`}},
 		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"true"}}, "voice_id IS NULL", nil},
 		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"false"}}, "voice_id IS NOT NULL", nil},
 		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"0"}}, "voice_id IS NOT NULL", nil},
@@ -116,6 +117,34 @@ func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	}
 }
 
+func TestApplySorting_SQL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		userSort    []SortField
+		defaultSort []SortField
+		wantSQL     string
+	}{
+		{name: "ascending", userSort: []SortField{{Field: "title", Direction: SortAsc}}, wantSQL: "ORDER BY title ASC"},
+		{name: "descending", userSort: []SortField{{Field: "title", Direction: SortDesc}}, wantSQL: "ORDER BY title DESC"},
+		{name: "unknown direction falls back to ascending", userSort: []SortField{{Field: "title", Direction: SortDirection("sideways")}}, wantSQL: "ORDER BY title ASC"},
+		{name: "default skips unmapped fields", defaultSort: []SortField{{Field: "bogus", Direction: SortDesc}, {Field: "id", Direction: SortDesc}}, wantSQL: "ORDER BY id DESC"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := applySorting(dryRunDB(t).Table("stories"), tt.userSort, tt.defaultSort, storyFieldMapping)
+			if err != nil {
+				t.Fatalf("applySorting: %v", err)
+			}
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
+				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
+			}
+		})
+	}
+}
+
 // dryRunDB builds MySQL statements without a database connection.
 func dryRunDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -127,45 +156,6 @@ func dryRunDB(t *testing.T) *gorm.DB {
 		t.Fatalf("open dry-run db: %v", err)
 	}
 	return db
-}
-
-func TestEscapeLikePattern(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "plain text untouched", in: "news", want: "news"},
-		{name: "percent escaped", in: "50%", want: `50\%`},
-		{name: "underscore escaped", in: "a_b", want: `a\_b`},
-		{name: "backslash escaped", in: `a\b`, want: `a\\b`},
-		{name: "backslash before wildcard", in: `\%`, want: `\\\%`},
-		{name: "mixed metacharacters", in: "100%_done", want: `100\%\_done`},
-		{name: "empty string", in: "", want: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			if got := escapeLikePattern(tt.in); got != tt.want {
-				t.Fatalf("escapeLikePattern(%q) = %q, want %q", tt.in, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSortDirectionSQL(t *testing.T) {
-	t.Parallel()
-	if got := sortDirectionSQL(SortAsc); got != "ASC" {
-		t.Fatalf("SortAsc -> %q, want ASC", got)
-	}
-	if got := sortDirectionSQL(SortDesc); got != "DESC" {
-		t.Fatalf("SortDesc -> %q, want DESC", got)
-	}
-	if got := sortDirectionSQL(SortDirection("garbage")); got != "ASC" {
-		t.Fatalf("unknown direction -> %q, want ASC fallback", got)
-	}
 }
 
 func TestApplyFilterCondition_TypedValues(t *testing.T) {
