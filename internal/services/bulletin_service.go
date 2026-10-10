@@ -123,21 +123,9 @@ func (s *BulletinService) create(
 	s.alerts.Resolve(ctx, noStoriesKey,
 		fmt.Sprintf("Stories available again for station %d", stationID), "Bulletin generation can continue.")
 
-	// Capture jingle context from the highest-priority story (first in SQL order)
-	// before shuffling - jingle selection must be stable regardless of playback order.
-	jingle := audio.JingleContext{
-		VoiceID:  stories[0].VoiceID,
-		MixPoint: stories[0].MixPoint,
-	}
 	s.reportVoiceConsistency(ctx, stationID, stories)
 
-	// Shuffle story order for natural radio flow.
-	// Breaking priority and fair rotation determine which stories are selected;
-	// playback order is randomized so breaking stories appear in varied positions.
-	// #nosec G404 -- playback-order shuffle, not security-sensitive randomness.
-	rand.Shuffle(len(stories), func(i, j int) {
-		stories[i], stories[j] = stories[j], stories[i]
-	})
+	jingle := prepareStoriesForPlayback(stories, rand.Shuffle)
 
 	generationKey := fmt.Sprintf("bulletin:generation:station:%d", stationID)
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
@@ -166,6 +154,21 @@ func (s *BulletinService) create(
 		FileSize:     fileSize,
 		Stories:      stories,
 	}, finalize)
+}
+
+// prepareStoriesForPlayback captures jingle settings from the highest-priority
+// story before randomizing the on-air order. Breaking priority and fair
+// rotation determine which stories are selected; shuffling gives breaking
+// stories varied positions during playback.
+func prepareStoriesForPlayback(stories []repository.BulletinStoryData, shuffle func(int, func(int, int))) audio.JingleContext {
+	jingle := audio.JingleContext{
+		VoiceID:  stories[0].VoiceID,
+		MixPoint: stories[0].MixPoint,
+	}
+	shuffle(len(stories), func(i, j int) {
+		stories[i], stories[j] = stories[j], stories[i]
+	})
+	return jingle
 }
 
 // generateBulletinAudio renders to a temporary file and publishes the completed
