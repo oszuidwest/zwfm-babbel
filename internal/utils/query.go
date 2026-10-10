@@ -31,8 +31,9 @@ type QueryParams struct {
 }
 
 // ParseQueryParams parses list options and validates query syntax, operator
-// names, duplicate keys, pagination, and trashed. The repository validates
-// field names, operator applicability, and values.
+// names, duplicate keys, and pagination. The repository validates field
+// names, operator applicability, and values. Callers decide on trashed:
+// [ParseListQueryWithTrashed] validates its value, the other parsers reject it.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
@@ -65,10 +66,6 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
-	if params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
-		return nil, &QueryParamError{Field: "trashed", Message: "expected only or with"}
-	}
-
 	params.Search = c.Query("search")
 
 	return params, nil
@@ -353,21 +350,28 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 }
 
 // ParseListQuery parses list options for resources without soft deletion and
-// rejects a non-empty trashed. On errors it writes an RFC 9457 response and
+// rejects any non-empty trashed. On errors it writes an RFC 9457 response and
 // returns false. The embedded ListQuery is ready for the repository.
 func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
-	params, ok := ParseListQueryWithTrashed(c)
-	if ok && params.Trashed != "" {
-		emitQueryError(c, &QueryParamError{Field: "trashed", Message: unsupportedOnEndpoint})
+	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" {
+		err = &QueryParamError{Field: "trashed", Message: unsupportedOnEndpoint}
+	}
+	if err != nil {
+		emitQueryError(c, err)
 		return nil, false
 	}
-	return params, ok
+	return params, true
 }
 
-// ParseListQueryWithTrashed is [ParseListQuery] for resources with soft
-// deletion, so it accepts trashed.
+// ParseListQueryWithTrashed is like [ParseListQuery] but accepts trashed=only
+// or trashed=with, for resources with soft deletion. An empty or omitted
+// trashed lists active records only.
 func ParseListQueryWithTrashed(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
+		err = &QueryParamError{Field: "trashed", Message: "expected only or with"}
+	}
 	if err != nil {
 		emitQueryError(c, err)
 		return nil, false

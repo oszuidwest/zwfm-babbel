@@ -2,6 +2,7 @@ const fs = require('fs');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelper');
+const { declaresQueryParameter } = require('../lib/QueryFilterContract');
 
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
@@ -535,13 +536,15 @@ describe('Bulletins', () => {
       storyId = story.id;
     });
 
-    // Bulletins have no soft deletion, so nested bulletin lists reject trashed.
+    // Bulletins have no soft deletion, so nested bulletin lists neither declare
+    // nor accept trashed.
     test.each([
-      ['station bulletins', 'only', () => `/stations/${stationId}/bulletins`],
-      ['station bulletins', 'with', () => `/stations/${stationId}/bulletins`],
-      ['story bulletin history', 'only', () => `/stories/${storyId}/bulletins`],
-      ['story bulletin history', 'with', () => `/stories/${storyId}/bulletins`]
-    ])('when listing %s with trashed=%s, then returns a trashed 422', async (_name, value, path) => {
+      ['/stations/{id}/bulletins', 'only', () => `/stations/${stationId}/bulletins`],
+      ['/stations/{id}/bulletins', 'with', () => `/stations/${stationId}/bulletins`],
+      ['/stories/{id}/bulletins', 'only', () => `/stories/${storyId}/bulletins`],
+      ['/stories/{id}/bulletins', 'with', () => `/stories/${storyId}/bulletins`]
+    ])('when listing %s with trashed=%s, then returns a trashed 422', async (template, value, path) => {
+      expect(declaresQueryParameter(template, 'trashed')).toBe(false);
       const response = await global.api.apiCall('GET', `${path()}?trashed=${value}`);
       expect(response.status).toBe(422);
       expect(response.data.errors[0].field).toBe('trashed');

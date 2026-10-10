@@ -41,22 +41,22 @@ describe('Users', () => {
       expect(deleted.status).toBe(204);
     });
 
+    // The active admin and the deleted fixture user; flags are sorted deleted_at presence.
     test.each([
-      ['omitted', '', 0],
-      ['only', '&trashed=only', 1],
-      ['with', '&trashed=with', 1]
-    ])('when trashed is %s, then the deleted user is listed accordingly', async (_name, trashed, total) => {
-      const response = await global.api.apiCall('GET', `/users?filter[username]=${username}${trashed}`);
+      ['omitted', '', [false]],
+      ['only', '&trashed=only', [true]],
+      ['with', '&trashed=with', [false, true]]
+    ])('when trashed is %s, then the listed users have deleted flags %j', async (_name, trashed, flags) => {
+      const response = await global.api.apiCall('GET', `/users?filter[username][in]=admin,${username}${trashed}`);
       expect(response.status).toBe(200);
-      expect(response.data.total).toBe(total);
-      response.data.data.forEach(user => expect(user.deleted_at).not.toBeNull());
+      expect(response.data.data.map(user => user.deleted_at !== null).sort()).toEqual(flags);
     });
 
     test('when trashed=only, then every listed user is deleted', async () => {
       const response = await global.api.apiCall('GET', '/users?trashed=only&limit=100');
       expect(response.status).toBe(200);
       expect(response.data.data.length).toBeGreaterThan(0);
-      response.data.data.forEach(user => expect(user.deleted_at).not.toBeNull());
+      response.data.data.forEach(user => expect(user.deleted_at).toEqual(expect.any(String)));
     });
   });
 

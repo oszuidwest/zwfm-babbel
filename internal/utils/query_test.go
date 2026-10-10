@@ -67,7 +67,6 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 		{name: "unknown operator", target: "/stories?filter[deleted_at][unknown]=value", wantField: "filter[deleted_at][unknown]"},
 		{name: "malformed filter key", target: "/stories?filter[]=1", wantField: "filter[]"},
 		{name: "invalid sort direction", target: "/stories?sort=id:sideways", wantField: "sort"},
-		{name: "unknown trashed value", target: "/stories?trashed=bogus", wantField: "trashed"},
 	}
 
 	for _, tt := range tests {
@@ -182,23 +181,27 @@ func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 	}
 }
 
-// Only soft-delete resources accept trashed. Elsewhere a set value is a
-// trashed 422, and an empty value counts as omitted.
+// Only soft-delete resources accept trashed, and only its two values. Any
+// other non-empty value fails with one trashed error. An empty trashed counts
+// as omitted everywhere.
 func TestParseListQuery_TrashedSupport(t *testing.T) {
 	t.Parallel()
+	const unsupported, invalid = "not supported on this endpoint", "expected only or with"
 	tests := []struct {
-		name      string
-		parse     func(*gin.Context) (*QueryParams, bool)
-		target    string
-		wantField string
+		name        string
+		parse       func(*gin.Context) (*QueryParams, bool)
+		target      string
+		wantTrashed string
+		wantMessage string
 	}{
-		{name: "unsupported only", parse: ParseListQuery, target: "/x?trashed=only", wantField: "trashed"},
-		{name: "unsupported with", parse: ParseListQuery, target: "/x?trashed=with", wantField: "trashed"},
-		{name: "unsupported invalid", parse: ParseListQuery, target: "/x?trashed=bogus", wantField: "trashed"},
+		{name: "unsupported only", parse: ParseListQuery, target: "/x?trashed=only", wantMessage: unsupported},
+		{name: "unsupported with", parse: ParseListQuery, target: "/x?trashed=with", wantMessage: unsupported},
+		{name: "unsupported invalid", parse: ParseListQuery, target: "/x?trashed=bogus", wantMessage: unsupported},
 		{name: "unsupported empty", parse: ParseListQuery, target: "/x?trashed="},
-		{name: "supported only", parse: ParseListQueryWithTrashed, target: "/x?trashed=only"},
-		{name: "supported with", parse: ParseListQueryWithTrashed, target: "/x?trashed=with"},
-		{name: "supported invalid", parse: ParseListQueryWithTrashed, target: "/x?trashed=bogus", wantField: "trashed"},
+		{name: "supported only", parse: ParseListQueryWithTrashed, target: "/x?trashed=only", wantTrashed: "only"},
+		{name: "supported with", parse: ParseListQueryWithTrashed, target: "/x?trashed=with", wantTrashed: "with"},
+		{name: "supported empty", parse: ParseListQueryWithTrashed, target: "/x?trashed="},
+		{name: "supported invalid", parse: ParseListQueryWithTrashed, target: "/x?trashed=bogus", wantMessage: invalid},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -208,9 +211,9 @@ func TestParseListQuery_TrashedSupport(t *testing.T) {
 			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, nil)
 
 			params, ok := tt.parse(c)
-			if tt.wantField == "" {
-				if !ok || params == nil {
-					t.Fatalf("rejected; status = %d, body = %s", w.Code, w.Body.String())
+			if tt.wantMessage == "" {
+				if !ok || params.Trashed != tt.wantTrashed || w.Body.Len() != 0 {
+					t.Fatalf("ok = %v, params = %+v, body = %s; want trashed %q and no response", ok, params, w.Body.String(), tt.wantTrashed)
 				}
 				return
 			}
@@ -219,14 +222,15 @@ func TestParseListQuery_TrashedSupport(t *testing.T) {
 			}
 			var body struct {
 				Errors []struct {
-					Field string `json:"field"`
+					Field   string `json:"field"`
+					Message string `json:"message"`
 				} `json:"errors"`
 			}
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal: %v; body: %s", err, w.Body.String())
 			}
-			if len(body.Errors) != 1 || body.Errors[0].Field != tt.wantField {
-				t.Fatalf("errors = %+v, want one %q error", body.Errors, tt.wantField)
+			if len(body.Errors) != 1 || body.Errors[0].Field != "trashed" || body.Errors[0].Message != tt.wantMessage {
+				t.Fatalf("errors = %+v, want one trashed error %q", body.Errors, tt.wantMessage)
 			}
 		})
 	}

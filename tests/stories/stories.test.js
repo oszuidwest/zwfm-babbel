@@ -215,7 +215,7 @@ describe('Stories', () => {
 
     test('when trashed=only, then returns only soft-deleted stories', async () => {
       const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+      expect((await global.api.apiCall('DELETE', `/stories/${result.id}`)).status).toBe(204);
 
       const trashed = await global.api.apiCall('GET', `/stories?trashed=only&filter[id]=${result.id}`);
       expect(trashed.status).toBe(200);
@@ -228,17 +228,21 @@ describe('Stories', () => {
       const response = await global.api.apiCall('GET', '/stories?trashed=only&limit=100');
       expect(response.status).toBe(200);
       expect(response.data.data.length).toBeGreaterThan(0);
-      response.data.data.forEach(story => expect(story.deleted_at).not.toBeNull());
+      response.data.data.forEach(story => expect(story.deleted_at).toEqual(expect.any(String)));
     });
 
-    test('when trashed=with, then includes soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    test('when trashed=with, then lists soft-deleted and active stories', async () => {
+      const deleted = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
+      const active = await global.helpers.createStory(global.resources, {
+        title: 'TrashedWithActive', text: 'Stays active', voice_id: deleted.voiceId
+      }, [deleted.stationId]);
+      expect(active).not.toBeNull();
+      expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
 
-      const response = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${result.id}`);
+      const response = await global.api.apiCall('GET', `/stories?trashed=with&filter[id][in]=${deleted.id},${active.id}`);
 
       expect(response.status).toBe(200);
-      expect(response.data.total).toBe(1);
+      expect(response.data.total).toBe(2);
     });
   });
 
