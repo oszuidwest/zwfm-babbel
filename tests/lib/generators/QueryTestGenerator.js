@@ -163,21 +163,15 @@ function generateQueryTests(schema, setupFn = null) {
 
     // OpenAPI declares trashed only where the resource has soft deletion.
     describe('Soft-delete scope', () => {
-      const supportsTrashed = declaresQueryParameter(endpoint, 'trashed');
-      test.each(['only', 'with'])(
-        `when trashed=%s, then ${supportsTrashed ? 'accepted' : 'returns a trashed 422'}`,
-        async value => {
+      const supported = declaresQueryParameter(endpoint, 'trashed') ? 200 : 422;
+      test.each([['only', supported], ['with', supported], ['bogus', 422]])(
+        'when trashed=%s, then returns %i',
+        async (value, status) => {
           expect.hasAssertions();
-          const response = await expectStatus(`trashed=${value}`, supportsTrashed ? 200 : 422);
-          if (!supportsTrashed) expect(response.data.errors[0].field).toBe('trashed');
+          const response = await expectStatus(`trashed=${value}`, status);
+          if (status === 422) expect(response.data.errors[0].field).toBe('trashed');
         }
       );
-
-      test('when trashed is invalid, then returns a trashed 422', async () => {
-        expect.hasAssertions();
-        const response = await expectStatus('trashed=bogus', 422);
-        expect(response.data.errors[0].field).toBe('trashed');
-      });
     });
 
     describe('Pagination', () => {

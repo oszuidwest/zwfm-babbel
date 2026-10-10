@@ -213,36 +213,36 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
-    test('when trashed=only, then returns only soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
-      expect((await global.api.apiCall('DELETE', `/stories/${result.id}`)).status).toBe(204);
+    describe('trashed', () => {
+      let deleted;
+      let active;
 
-      const trashed = await global.api.apiCall('GET', `/stories?trashed=only&filter[id]=${result.id}`);
-      expect(trashed.status).toBe(200);
-      expect(trashed.data.total).toBe(1);
+      beforeAll(async () => {
+        deleted = await createStoryWithDeps('Trashed', 'To be trashed', 'TrashVoice', 'TrashStation');
+        active = await global.helpers.createStory(global.resources, {
+          title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
+        }, [deleted.stationId]);
+        expect(active).not.toBeNull();
+        expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
+      });
 
-      const active = await global.api.apiCall('GET', `/stories?filter[id]=${result.id}`);
-      expect(active.status).toBe(200);
-      expect(active.data.total).toBe(0);
+      // Flags are the sorted deleted_at presence of the listed stories.
+      test.each([
+        ['omitted', '', [false]],
+        ['only', '&trashed=only', [true]],
+        ['with', '&trashed=with', [false, true]]
+      ])('when trashed is %s, then the listed stories have deleted flags %j', async (_name, trashed, flags) => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id][in]=${deleted.id},${active.id}${trashed}`);
+        expect(response.status).toBe(200);
+        expect(response.data.data.map(story => story.deleted_at !== null).sort()).toEqual(flags);
+      });
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=only&limit=100');
-      expect(response.status).toBe(200);
-      expect(response.data.data.length).toBeGreaterThan(0);
-      response.data.data.forEach(story => expect(story.deleted_at).toEqual(expect.any(String)));
-    });
-
-    test('when trashed=with, then lists soft-deleted and active stories', async () => {
-      const deleted = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
-      const active = await global.helpers.createStory(global.resources, {
-        title: 'TrashedWithActive', text: 'Stays active', voice_id: deleted.voiceId
-      }, [deleted.stationId]);
-      expect(active).not.toBeNull();
-      expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
-
-      const response = await global.api.apiCall('GET', `/stories?trashed=with&filter[id][in]=${deleted.id},${active.id}`);
-
-      expect(response.status).toBe(200);
-      expect(response.data.total).toBe(2);
+      test('when trashed=only, then every listed story is deleted', async () => {
+        const response = await global.api.apiCall('GET', '/stories?trashed=only&limit=100');
+        expect(response.status).toBe(200);
+        expect(response.data.data.length).toBeGreaterThan(0);
+        response.data.data.forEach(story => expect(story.deleted_at).toEqual(expect.any(String)));
+      });
     });
   });
 

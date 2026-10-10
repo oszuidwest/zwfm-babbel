@@ -539,13 +539,13 @@ describe('Bulletins', () => {
     // Bulletins have no soft deletion, so nested bulletin lists neither declare
     // nor accept trashed.
     test.each([
-      ['/stations/{id}/bulletins', 'only', () => `/stations/${stationId}/bulletins`],
-      ['/stations/{id}/bulletins', 'with', () => `/stations/${stationId}/bulletins`],
-      ['/stories/{id}/bulletins', 'only', () => `/stories/${storyId}/bulletins`],
-      ['/stories/{id}/bulletins', 'with', () => `/stories/${storyId}/bulletins`]
-    ])('when listing %s with trashed=%s, then returns a trashed 422', async (template, value, path) => {
+      ['/stations/{id}/bulletins', 'only', () => stationId],
+      ['/stations/{id}/bulletins', 'with', () => stationId],
+      ['/stories/{id}/bulletins', 'only', () => storyId],
+      ['/stories/{id}/bulletins', 'with', () => storyId]
+    ])('when listing %s with trashed=%s, then returns a trashed 422', async (template, value, id) => {
       expect(declaresQueryParameter(template, 'trashed')).toBe(false);
-      const response = await global.api.apiCall('GET', `${path()}?trashed=${value}`);
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?trashed=${value}`);
       expect(response.status).toBe(422);
       expect(response.data.errors[0].field).toBe('trashed');
     });

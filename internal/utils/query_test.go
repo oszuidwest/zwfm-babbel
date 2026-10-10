@@ -186,7 +186,7 @@ func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 // as omitted everywhere.
 func TestParseListQuery_TrashedSupport(t *testing.T) {
 	t.Parallel()
-	const unsupported, invalid = "not supported on this endpoint", "expected only or with"
+	const unsupported, invalid = unsupportedOnEndpoint, "expected only or with"
 	tests := []struct {
 		name        string
 		parse       func(*gin.Context) (*QueryParams, bool)
@@ -220,12 +220,7 @@ func TestParseListQuery_TrashedSupport(t *testing.T) {
 			if ok || w.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("ok = %v, status = %d, want 422", ok, w.Code)
 			}
-			var body struct {
-				Errors []struct {
-					Field   string `json:"field"`
-					Message string `json:"message"`
-				} `json:"errors"`
-			}
+			var body problemResponse
 			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal: %v; body: %s", err, w.Body.String())
 			}

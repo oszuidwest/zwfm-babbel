@@ -13,9 +13,9 @@ The query parameter system provides:
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
 Most resource list endpoints support filtering, sorting, field selection and
-search; `trashed` is limited to stories and users. `/bulletins/{id}/stories`
-supports pagination only. These parameters return RFC 9457 validation errors on
-endpoints that do not support them instead of being silently ignored.
+search. `/bulletins/{id}/stories` supports pagination only. The parameters above
+return RFC 9457 validation errors on endpoints that do not support them instead
+of being silently ignored.
 
 ## Modern Query Parameter Formats
 

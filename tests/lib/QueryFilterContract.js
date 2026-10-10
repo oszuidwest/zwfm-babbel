@@ -12,9 +12,7 @@ const queryParameter = (endpoint, name) => document.paths[`/api/v1${endpoint}`].
   .map(resolve)
   .find(parameter => parameter.in === 'query' && parameter.name === name);
 
-function declaresQueryParameter(endpoint, name) {
-  return queryParameter(endpoint, name) !== undefined;
-}
+const declaresQueryParameter = (endpoint, name) => queryParameter(endpoint, name) !== undefined;
 
 function getFilterContracts(endpoint) {
   const filter = queryParameter(endpoint, 'filter');
