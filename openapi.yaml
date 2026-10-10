@@ -16,8 +16,8 @@ info:
 
     ## List queries
 
-    List endpoints take `filter[field]` and `filter[field][operator]`. Each
-    endpoint's `filter` parameter documents its fields and operators.
+    Most list endpoints take `filter[field]` and `filter[field][operator]`.
+    Each endpoint's `filter` parameter documents its fields and operators.
 
     ### Error labels
 
@@ -26,39 +26,53 @@ info:
       fails as `filter[status][eq]`.
     - The `not` alias reports as `ne`: `filter[status][not]=bad` fails as
       `filter[status][ne]`.
-    - An unknown filter or sort field reports as `filter` or `sort`, not as
-      `filter[unknown]`. An unknown operator reports the key as sent, for
-      example `filter[status][unknown]`.
+    - An unknown field reports only the parameter name: `filter[bogus]=1`
+      fails as `filter`, and `sort=bogus` fails as `sort`.
+    - Duplicate, malformed and unknown-operator keys report the key as sent,
+      for example `filter[status][xyz]`. Operators are checked before fields,
+      so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
+    - Validation stops at the first invalid filter, so `errors[]` names one
+      filter parameter even when several are invalid.
 
     ### NULL
 
-    - The string `null` is a value, not SQL NULL. Integer, number, boolean,
-      date, date-time, bitmask and enum fields reject it with 422, so
-      `filter[voice_id]=null` fails as `filter[voice_id][eq]`. String fields
-      match the literal text: `filter[title]=null` selects stories titled `null`.
-    - On fields that document the `null` operator, `filter[field][null]=true`
-      selects NULL and `filter[field][null]=false` selects non-NULL values.
-      The operator takes one boolean; there is no `not_null` operator.
+    - The string `null` is a value, not SQL NULL. Every non-string field
+      rejects it with 422, so `filter[voice_id]=null` fails as
+      `filter[voice_id][eq]`. String fields compare the text `null` under the
+      column collation: `filter[title]=null` selects stories titled `null`
+      (or `NULL`).
+    - On fields with a nullable filter schema (for example story `voice_id`
+      and `deleted_at`, user `email`), `filter[field][null]=true` selects NULL
+      and `filter[field][null]=false` selects non-NULL values. The operator
+      takes one boolean; there is no `not_null` operator.
 
     ### Soft deletion
 
     - Stories and users list active records by default. `trashed=only` lists
       only deleted records and `trashed=with` lists both. Other list
-      endpoints reject `trashed` with 422.
-    - The default scope already excludes deleted stories, so
-      `filter[deleted_at][null]=false` alone matches nothing. Combine it with
-      `trashed=only` or `trashed=with`.
+      endpoints reject a non-empty `trashed` with 422.
+    - On stories, the default scope already excludes deleted rows, so any
+      `deleted_at` condition other than `filter[deleted_at][null]=true`
+      matches nothing on its own, `filter[deleted_at][null]=false` included.
+      Add `trashed=only` or `trashed=with`.
 
     ### Dates and times
 
     - A date-time with an RFC 3339 offset, such as `2024-01-15T12:30:00Z` or
       `2024-01-15T13:30:00+01:00`, identifies an instant; both examples
-      select the same rows. A date-time without an offset, such as
-      `2024-01-15 13:30:00`, uses the server's local timezone, and a bare
-      date such as `2024-01-15` means local midnight.
+      select the same rows. Use an uppercase `T` and `Z` and a colon in the
+      offset.
+    - The space-separated form `2024-01-15 13:30:00` has no offset and uses
+      the server's local timezone. `2024-01-15T13:30:00` without an offset
+      fails with 422. A bare date such as `2024-01-15` means local midnight,
+      so select whole days with `gte` on the first day and `lt` on the day
+      after: `filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`.
+      Date fields such as `start_date` compare calendar dates without a
+      timezone.
     - URL-encode `+` as `%2B`, as in
       `filter[created_at][gte]=2024-01-15T13:30:00%2B01:00`. An unencoded `+`
-      decodes as a space, and the value fails with 422.
+      decodes as a space, and the value fails with 422. Inside `in` and
+      `between`, write fractions with a dot; a comma splits the list.
     - The server's local timezone is the `TZ` of the Babbel process, and the
       database driver binds times in that zone. The MySQL session timezone
       must match it; the Docker Compose files give both containers the same
@@ -66,12 +80,17 @@ info:
 
     ### Compatibility
 
-    Filters validate values against the field type. Values that MySQL used to
-    coerce, such as `filter[voice_id][ne]=null` or `filter[weekdays]=abc`,
-    now return 422 instead of 200 with unexpected rows. Use the `null`
-    operator for NULL checks. String fields still accept any text, including
-    `null`. An RFC 3339 `Z` suffix now means UTC; it used to be read as local
-    time.
+    Typed filter validation changed these behaviors:
+    - Values that MySQL used to coerce, such as `filter[voice_id][ne]=null`
+      or `filter[weekdays]=abc`, return 422 instead of 200 with unexpected
+      rows. String fields still accept `null` as text.
+    - Operators a field does not document, such as `filter[title][null]` or
+      `filter[voice_id][like]`, return 422.
+    - An RFC 3339 `Z` suffix means UTC; it used to be read as local time. A
+      date-time with `T` and no offset used to be read as local time and now
+      returns 422. A comma fraction is kept instead of truncated.
+    - `trashed` on list endpoints without soft deletion returns 422 instead
+      of being ignored.
 
     ## Authentication
 
@@ -2852,10 +2871,6 @@ components:
         - (omitted) - only non-deleted records (default)
         - `only` - only soft-deleted records
         - `with` - all records including deleted
-
-        Because the default excludes deleted records,
-        `filter[deleted_at][null]=false` needs `trashed=only` or
-        `trashed=with` to match.
     stationFilter:
       name: filter
       in: query
@@ -2892,7 +2907,11 @@ components:
       in: query
       style: deepObject
       explode: true
-      description: Typed story filters. Use `has_audio` to filter by audio presence.
+      description: |
+        Typed story filters. Use `has_audio` to filter by audio presence.
+        Because the default lists active stories only, `deleted_at`
+        conditions other than `[null]=true` need `trashed=only` or
+        `trashed=with` to match.
       schema:
         type: object
         additionalProperties: false
@@ -2985,7 +3004,7 @@ components:
         eq: { type: string }
         ne: { type: string }
         not: { type: string, description: Alias for `ne`. }
-        like: { type: string, description: Case-sensitive literal substring match. }
+        like: { type: string, description: Literal substring match; case sensitivity follows the column collation (case-insensitive by default). }
         in: { type: string, description: Comma-separated values. }
     NullableStringFilterOperators:
       type: object
@@ -2994,7 +3013,7 @@ components:
         eq: { type: string }
         ne: { type: string }
         not: { type: string, description: Alias for `ne`. }
-        like: { type: string, description: Case-sensitive literal substring match. }
+        like: { type: string, description: Literal substring match; case sensitivity follows the column collation (case-insensitive by default). }
         in: { type: string, description: Comma-separated values. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
     IntegerFilter:
@@ -3089,10 +3108,11 @@ components:
         between: { type: string, description: Two comma-separated inclusive date bounds. }
     DateTimeValue:
       description: |
-        RFC 3339 date-time, YYYY-MM-DD HH:MM:SS (optionally with fractional
-        seconds), or a bare YYYY-MM-DD date compared as midnight. An RFC 3339
-        offset identifies an instant; the other forms use the server's local
-        timezone. URL-encode `+` in offsets as `%2B`.
+        RFC 3339 date-time with an uppercase `T` and `Z`, YYYY-MM-DD HH:MM:SS
+        (optionally with fractional seconds), or a bare YYYY-MM-DD date
+        compared as midnight. An RFC 3339 offset identifies an instant; the
+        other forms use the server's local timezone. URL-encode `+` in offsets
+        as `%2B`.
       anyOf:
         - type: string
           format: date-time

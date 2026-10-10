@@ -190,7 +190,7 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 }
 
 // dateTimeLayouts are the accepted date-time filter formats. Keep in sync
-// with DateTimeValue in openapi.yaml.
+// with DateTimeValue and "Dates and times" in openapi.yaml.
 var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
 
 // comparisonSQL holds the WHERE fragments for the scalar operators that

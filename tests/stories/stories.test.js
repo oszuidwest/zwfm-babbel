@@ -241,7 +241,7 @@ describe('Stories', () => {
     });
   });
 
-  // Pins the error labels and NULL examples documented under "List queries" in openapi.yaml.
+  // Pins the 422 labels and accepted values of the examples under "List queries" in openapi.yaml.
   describe('Documented Query Semantics', () => {
     test.each([
       ['filter[status]=bad', 'filter[status][eq]'],
@@ -259,12 +259,30 @@ describe('Stories', () => {
       expect(response.data.errors.map(error => error.field)).toEqual([field]);
     });
 
-    test.each([
-      'filter[title]=null',
-      'filter[created_at][gte]=2024-01-15T13:30:00%2B01:00'
-    ])('when %s is sent, then accepted', async qs => {
-      const response = await global.api.apiCall('GET', `/stories?${qs}`);
+    test('when an offset is sent as %2B, then accepted', async () => {
+      const response = await global.api.apiCall('GET', '/stories?filter[created_at][gte]=2024-01-15T13:30:00%2B01:00');
       expect(response.status).toBe(200);
+    });
+
+    // String fields compare text under the column collation, which ignores
+    // case by default; the literal null is text, not SQL NULL.
+    describe('literal null title', () => {
+      let story;
+
+      beforeAll(async () => {
+        story = await createStoryWithDeps('null', 'Literal null title', 'NullTitleVoice', 'NullTitleStation');
+        expect(story).not.toBeNull();
+      });
+
+      test.each([
+        'filter[title]=null',
+        'filter[title]=NULL',
+        'filter[title][like]=UL'
+      ])('when %s is sent, then the story titled null matches', async qs => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${story.id}&${qs}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(1);
+      });
     });
   });
 
