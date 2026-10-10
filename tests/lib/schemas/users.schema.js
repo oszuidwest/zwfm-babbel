@@ -19,7 +19,6 @@ module.exports = {
     searchFields: ['username', 'full_name'],
     sortableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at'],
     filterableFields: ['id', 'username', 'role'],
-    numericFields: ['id'],
     selectableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at']
   },
 

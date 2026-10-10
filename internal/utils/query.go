@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -13,61 +12,27 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// QueryParamError describes a single invalid query parameter. Carrying the
-// field name separately from the message lets ParseListQuery surface a
-// structured RFC 9457 validation response that clients can parse
-// programmatically rather than a flat detail string.
+// QueryParamError identifies an invalid query parameter for validation responses.
 type QueryParamError struct {
 	Field   string
 	Message string
 }
 
-// Error formats the field-specific validation message for invalid query parameters.
+// Error returns the parameter name and validation message.
 func (e *QueryParamError) Error() string {
 	return fmt.Sprintf("invalid %s: %s", e.Field, e.Message)
 }
 
-// QueryParams holds parsed filtering, sorting, pagination, fieldset, and search options.
+// QueryParams holds parsed list options plus the sparse fieldset.
 type QueryParams struct {
-	// Pagination controls list bounds.
-	Limit  int `json:"limit"`
-	Offset int `json:"offset"`
-
-	// Sorting controls result ordering.
-	Sort []SortField `json:"sort"`
-
-	// Fields controls sparse fieldsets.
-	Fields []string `json:"fields"`
-
-	// Filters controls field-level predicates.
-	Filters []ParsedFilter `json:"filters"`
-
-	// Trashed controls soft-delete filtering: "" (default, active only), "only", or "with".
-	Trashed string `json:"trashed"`
-
-	// Search controls full-text search.
-	Search string `json:"search"`
+	repository.ListQuery
+	// Fields lists the JSON field names requested with ?fields=.
+	Fields []string
 }
 
-// SortField represents a single sort criterion.
-type SortField struct {
-	Field     string `json:"field"`
-	Direction string `json:"direction"` // "asc" or "desc"
-}
-
-// ParsedFilter represents a single parsed filter condition. It intentionally
-// carries the field alongside the operator so same-field filters such as
-// filter[created_at][gte] + filter[created_at][lte] cannot collapse into one
-// slice entry before reaching the repository layer. Operator values come from
-// repository.Filter* constants so handlers do not translate between vocabularies.
-type ParsedFilter struct {
-	Field    string                    `json:"field"`
-	Operator repository.FilterOperator `json:"operator"`
-	Value    any                       `json:"value"`
-	Values   []string                  `json:"values"` // For "in" and "between" operations
-}
-
-// ParseQueryParams extracts and validates modern query parameters from the request.
+// ParseQueryParams parses list options and validates query syntax, operator
+// names, duplicate keys, pagination, and trashed. The repository validates
+// field names, operator applicability, and values.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
@@ -100,14 +65,16 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
+	if params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
+		return nil, &QueryParamError{Field: "trashed", Message: "expected only or with"}
+	}
 
 	params.Search = c.Query("search")
 
 	return params, nil
 }
 
-// parseSorting parses the sort query parameter into sort fields.
-func parseSorting(c *gin.Context) ([]SortField, error) {
+func parseSorting(c *gin.Context) ([]repository.SortField, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
 	}
@@ -118,7 +85,7 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 	}
 
 	parts := strings.Split(sortParam, ",")
-	sortFields := make([]SortField, 0, len(parts))
+	sortFields := make([]repository.SortField, 0, len(parts))
 
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -126,20 +93,20 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 			continue
 		}
 
-		var field, direction string
+		var field string
+		direction := repository.SortAsc
 
 		switch {
 		case strings.HasPrefix(part, "-"):
 			field, _ = strings.CutPrefix(part, "-")
-			direction = "desc"
+			direction = repository.SortDesc
 		case strings.HasPrefix(part, "+"):
 			field, _ = strings.CutPrefix(part, "+")
-			direction = "asc"
 		case strings.Contains(part, ":"):
 			if before, after, found := strings.Cut(part, ":"); found {
 				field = strings.TrimSpace(before)
-				direction = strings.ToLower(strings.TrimSpace(after))
-				if direction != "asc" && direction != "desc" {
+				direction = repository.SortDirection(strings.ToLower(strings.TrimSpace(after)))
+				if direction != repository.SortAsc && direction != repository.SortDesc {
 					return nil, &QueryParamError{
 						Field:   "sort",
 						Message: fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field),
@@ -148,11 +115,10 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 			}
 		default:
 			field = part
-			direction = "asc"
 		}
 
 		if field != "" {
-			sortFields = append(sortFields, SortField{
+			sortFields = append(sortFields, repository.SortField{
 				Field:     field,
 				Direction: direction,
 			})
@@ -162,7 +128,6 @@ func parseSorting(c *gin.Context) ([]SortField, error) {
 	return sortFields, nil
 }
 
-// parseFields parses the fields query parameter for sparse fieldsets.
 func parseFields(c *gin.Context) []string {
 	if c == nil {
 		return nil
@@ -186,73 +151,25 @@ func parseFields(c *gin.Context) []string {
 	return fields
 }
 
-// simpleFilterOperators maps operator names whose raw value passes through
-// unchanged to their repository operator. Operators that need parsing or
-// validation (in, between, null, band) are handled in buildFilter.
-var simpleFilterOperators = map[string]repository.FilterOperator{
-	"":     repository.FilterEquals,
-	"eq":   repository.FilterEquals,
-	"ne":   repository.FilterNotEquals,
-	"not":  repository.FilterNotEquals,
-	"gt":   repository.FilterGreaterThan,
-	"gte":  repository.FilterGreaterOrEq,
-	"lt":   repository.FilterLessThan,
-	"lte":  repository.FilterLessOrEq,
-	"like": repository.FilterLike,
+// filterOperators maps query operator names to repository operators.
+var filterOperators = map[string]repository.FilterOperator{
+	"":        repository.FilterEquals,
+	"eq":      repository.FilterEquals,
+	"ne":      repository.FilterNotEquals,
+	"not":     repository.FilterNotEquals,
+	"gt":      repository.FilterGreaterThan,
+	"gte":     repository.FilterGreaterOrEq,
+	"lt":      repository.FilterLessThan,
+	"lte":     repository.FilterLessOrEq,
+	"like":    repository.FilterLike,
+	"band":    repository.FilterBitwiseAnd,
+	"null":    repository.FilterIsNull,
+	"in":      repository.FilterIn,
+	"between": repository.FilterBetween,
 }
 
-// buildFilter parses a raw operator value into a ParsedFilter. The Field on
-// the returned ParsedFilter is filled in by parseFilters. known is false when
-// the operator is not recognized.
-func buildFilter(operator, value string) (filter ParsedFilter, known bool, err error) {
-	if op, ok := simpleFilterOperators[operator]; ok {
-		return ParsedFilter{Operator: op, Value: value}, true, nil
-	}
-
-	switch operator {
-	case "in":
-		filterValues := strings.Split(value, ",")
-		for i, v := range filterValues {
-			filterValues[i] = strings.TrimSpace(v)
-		}
-		return ParsedFilter{Operator: repository.FilterIn, Values: filterValues}, true, nil
-	case "between":
-		betweenValues := strings.Split(value, ",")
-		if len(betweenValues) != 2 {
-			return ParsedFilter{}, true, errors.New("expected two comma-separated values")
-		}
-		lower := strings.TrimSpace(betweenValues[0])
-		upper := strings.TrimSpace(betweenValues[1])
-		if lower == "" || upper == "" {
-			return ParsedFilter{}, true, errors.New("expected two non-empty values")
-		}
-		return ParsedFilter{Operator: repository.FilterBetween, Values: []string{lower, upper}}, true, nil
-	case "null":
-		isNull, err := strconv.ParseBool(value)
-		if err != nil {
-			return ParsedFilter{}, true, errors.New("expected boolean")
-		}
-		if isNull {
-			return ParsedFilter{Operator: repository.FilterIsNull}, true, nil
-		}
-		return ParsedFilter{Operator: repository.FilterIsNotNull}, true, nil
-	case "band":
-		val, err := strconv.ParseUint(value, 10, 8)
-		if err != nil {
-			return ParsedFilter{}, true, errors.New("expected integer between 0 and 255")
-		}
-		return ParsedFilter{Operator: repository.FilterBitwiseAnd, Value: uint8(val)}, true, nil
-	default:
-		return ParsedFilter{}, false, nil
-	}
-}
-
-// rejectDuplicateSingleValueParams enforces that every non-filter query key
-// appears at most once. Gin's c.Query() silently returns values[0] on a
-// duplicate, which masks client bugs (e.g. ?limit=1&limit=2 used to slip
-// past the latest-shortcut guard because only the first value was checked).
-// filter[...] keys are excluded because parseFilters validates them with
-// richer per-operator context.
+// rejectDuplicateSingleValueParams rejects repeated non-filter keys before
+// c.Query can discard extra values. parseFilters checks duplicate filter keys.
 func rejectDuplicateSingleValueParams(c *gin.Context) error {
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return nil
@@ -271,9 +188,8 @@ func rejectDuplicateSingleValueParams(c *gin.Context) error {
 	return nil
 }
 
-// parseFilters parses the filter query parameters into filter conditions.
-func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
-	var filters []ParsedFilter
+func parseFilters(c *gin.Context) ([]repository.FilterCondition, error) {
+	var filters []repository.FilterCondition
 
 	if c == nil || c.Request == nil || c.Request.URL == nil {
 		return filters, nil
@@ -286,9 +202,7 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 			filterKeys = append(filterKeys, key)
 		}
 	}
-	// Go map iteration order is randomized, so sort the keys so that multiple
-	// operators on the same field (e.g. gte + lte) reach the repository in a
-	// deterministic order. Required for reproducible WHERE clauses and tests.
+	// Stable filter ordering produces reproducible WHERE clauses.
 	sort.Strings(filterKeys)
 
 	for _, key := range filterKeys {
@@ -312,28 +226,27 @@ func parseFilters(c *gin.Context) ([]ParsedFilter, error) {
 			}
 		}
 
-		filter, known, err := buildFilter(operator, values[0])
-		if !known {
+		op, ok := filterOperators[operator]
+		if !ok {
 			return nil, &QueryParamError{
 				Field:   key,
 				Message: fmt.Sprintf("unknown operator %q", operator),
 			}
 		}
-		if err != nil {
-			return nil, &QueryParamError{
-				Field:   filterKeyLabel(field, operator),
-				Message: err.Error(),
+
+		raw := []string{values[0]}
+		if op == repository.FilterIn || op == repository.FilterBetween {
+			raw = strings.Split(values[0], ",")
+			for i, v := range raw {
+				raw[i] = strings.TrimSpace(v)
 			}
 		}
-
-		filter.Field = field
-		filters = append(filters, filter)
+		filters = append(filters, repository.FilterCondition{Field: field, Operator: op, Values: raw})
 	}
 
 	return filters, nil
 }
 
-// parseFilterKey extracts field name and operator from a filter key.
 func parseFilterKey(key string) (field, operator string) {
 	content, found := strings.CutPrefix(key, "filter[")
 	if !found {
@@ -349,13 +262,6 @@ func parseFilterKey(key string) (field, operator string) {
 	}
 
 	return content, ""
-}
-
-func filterKeyLabel(field, operator string) string {
-	if operator == "" {
-		return fmt.Sprintf("filter[%s]", field)
-	}
-	return fmt.Sprintf("filter[%s][%s]", field, operator)
 }
 
 // FilterStructFields projects a struct or slice of structs to requested JSON
@@ -392,8 +298,6 @@ func FilterStructFields(data any, fields []string) any {
 	return structToFilteredMap(data, fields)
 }
 
-// structToFilteredMap converts a struct to a map containing only requested
-// JSON field names.
 func structToFilteredMap(data any, fields []string) map[string]any {
 	result := make(map[string]any)
 
@@ -432,9 +336,8 @@ func structToFilteredMap(data any, fields []string) map[string]any {
 	return result
 }
 
-// jsonFieldName returns the JSON key for a struct field: the name portion of
-// its json tag when present and non-empty, falling back to the Go field name.
-// visible is false for fields tagged json:"-".
+// jsonFieldName returns the JSON tag name or Go field name.
+// Fields tagged json:"-" are not visible.
 func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	tag := field.Tag.Get("json")
 	if tag == "-" {
@@ -449,90 +352,19 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// supportedFilterOperators is the set of repository.FilterOperator values that
-// ParsedFilter may carry. Keeping a single source of truth here lets us
-// validate Operator without re-translating between vocabularies.
-var supportedFilterOperators = map[repository.FilterOperator]bool{
-	repository.FilterEquals:      true,
-	repository.FilterNotEquals:   true,
-	repository.FilterGreaterThan: true,
-	repository.FilterGreaterOrEq: true,
-	repository.FilterLessThan:    true,
-	repository.FilterLessOrEq:    true,
-	repository.FilterLike:        true,
-	repository.FilterIn:          true,
-	repository.FilterBetween:     true,
-	repository.FilterBitwiseAnd:  true,
-	repository.FilterIsNull:      true,
-	repository.FilterIsNotNull:   true,
-}
-
-// QueryParamsToListQuery converts QueryParams to a repository.ListQuery.
-func QueryParamsToListQuery(params *QueryParams) (*repository.ListQuery, error) {
-	if params == nil {
-		return repository.NewListQuery(), nil
-	}
-
-	query := &repository.ListQuery{
-		Limit:   params.Limit,
-		Offset:  params.Offset,
-		Search:  params.Search,
-		Trashed: params.Trashed,
-	}
-
-	for _, sf := range params.Sort {
-		direction := repository.SortAsc
-		if strings.ToLower(sf.Direction) == "desc" {
-			direction = repository.SortDesc
-		}
-		query.Sort = append(query.Sort, repository.SortField{
-			Field:     sf.Field,
-			Direction: direction,
-		})
-	}
-
-	for _, filter := range params.Filters {
-		if !supportedFilterOperators[filter.Operator] {
-			return nil, &QueryParamError{
-				Field:   fmt.Sprintf("filter[%s]", filter.Field),
-				Message: fmt.Sprintf("unsupported operator %q", filter.Operator),
-			}
-		}
-		condition := repository.FilterCondition{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Value:    filter.Value,
-		}
-		if filter.Operator == repository.FilterIn || filter.Operator == repository.FilterBetween {
-			condition.Value = filter.Values
-		}
-		query.Filters = append(query.Filters, condition)
-	}
-
-	return query, nil
-}
-
-// ParseListQuery parses query parameters and converts them into a repository ListQuery.
-// On invalid input it emits an RFC 9457 problem response and returns ok=false.
-// QueryParamError instances are surfaced as a structured validation response so
-// clients can pinpoint the failing parameter.
-func ParseListQuery(c *gin.Context) (*QueryParams, *repository.ListQuery, bool) {
+// ParseListQuery parses list options. On parse errors it writes an RFC 9457
+// response and returns false. The embedded ListQuery is ready for the repository.
+func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
 	if err != nil {
 		emitQueryError(c, err)
-		return nil, nil, false
+		return nil, false
 	}
-	query, err := QueryParamsToListQuery(params)
-	if err != nil {
-		emitQueryError(c, err)
-		return nil, nil, false
-	}
-	return params, query, true
+	return params, true
 }
 
-// ParsePaginationOnly parses query parameters for an endpoint that only
-// supports limit and offset. Any of search/sort/filter/fields trigger a 422
-// so a typo on a pagination-only endpoint is not silently ignored.
+// ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
+// fields, and trashed options with a 422 response.
 func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 	params, err := ParseQueryParams(c)
 	if err != nil {
@@ -572,10 +404,8 @@ func emitQueryError(c *gin.Context, err error) {
 	ProblemBadRequest(c, err.Error())
 }
 
-// PaginatedListResponse writes a paginated response, applying sparse-fieldset
-// filtering when params.Fields is non-empty. Unknown field names in
-// params.Fields are rejected with a 422 so a client typo does not silently
-// produce a truncated response.
+// PaginatedListResponse writes a page with optional sparse fieldsets.
+// For struct types, unknown field names produce a 422 response.
 func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *repository.ListResult[T]) {
 	var data any = result.Data
 	if params != nil && len(params.Fields) > 0 {
@@ -599,10 +429,8 @@ func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *r
 	PaginatedResponse(c, data, result.Total, result.Limit, result.Offset)
 }
 
-// jsonFieldNames returns the set of JSON-visible field names for T. Pointer
-// types are dereferenced; fields tagged json:"-" are skipped. Returns nil when
-// T does not resolve to a struct so callers fall back to the legacy filtering
-// behavior rather than rejecting every request.
+// jsonFieldNames returns exported JSON field names, dereferencing pointer types.
+// It returns nil for non-struct types, disabling field-name validation.
 func jsonFieldNames[T any]() map[string]struct{} {
 	var zero T
 	typ := reflect.TypeOf(zero)

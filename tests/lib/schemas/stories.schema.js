@@ -9,7 +9,7 @@ module.exports = {
     title: `Test Story ${suffix || Date.now()}_${process.pid}`,
     text: 'This is test story content for automated testing.',
     status: 'active',
-    weekdays: 127, // All days (binary: 1111111)
+    weekdays: 127, // All days.
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   }),
@@ -24,8 +24,6 @@ module.exports = {
     searchFields: ['title', 'text'],
     sortableFields: ['id', 'title', 'status', 'start_date', 'end_date', 'created_at', 'updated_at'],
     filterableFields: ['id', 'title', 'status', 'voice_id', 'weekdays', 'is_breaking'],
-    numericFields: ['id', 'voice_id', 'weekdays'],
-    booleanFields: ['is_breaking'],
     selectableFields: ['id', 'title', 'text', 'status', 'voice_id', 'weekdays', 'is_breaking', 'start_date', 'end_date', 'created_at', 'updated_at']
   },
 

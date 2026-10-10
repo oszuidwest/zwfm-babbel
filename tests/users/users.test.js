@@ -10,6 +10,21 @@ describe('Users', () => {
   // === BUSINESS LOGIC TESTS ===
   // Tests specific to user behavior that can't be generated
 
+  describe('Query Validation', () => {
+    // The users repository once routed query errors through the MySQL error
+    // parser, which matched these field names as database failures.
+    test.each([
+      ['filter[no such table: x]', '1'],
+      ['filter[Duplicate entry]', '1'],
+      ['sort', 'Duplicate entry'],
+      ['sort', '-no such table: x']
+    ])('when %s=%s names an unknown field, then returns 422', async (key, value) => {
+      const response = await global.api.apiCall('GET', `/users?${new URLSearchParams({ [key]: value })}`);
+      expect(response.status).toBe(422);
+      expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+    });
+  });
+
   describe('User Suspension', () => {
     let userId;
 

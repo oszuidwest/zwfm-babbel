@@ -934,7 +934,7 @@ paths:
 
         ## Voice Filtering
         - `filter[voice_id]=5` - Stories with specific voice
-        - `filter[voice_id][ne]=null` - Stories with any voice assigned
+        - `filter[voice_id][null]=false` - Stories with any voice assigned
         - `filter[voice_id][null]=true` - Stories without voice
 
         ## Audio Filtering
@@ -950,7 +950,7 @@ paths:
         ## Examples
         - Active stories on June 15, 2024: `?filter[start_date][lte]=2024-06-15&filter[end_date][gte]=2024-06-15`
         - Stories that play on Monday: `?filter[weekdays][band]=2`
-        - Weekend stories with voice: `?filter[weekdays][band]=65&filter[voice_id][ne]=null`
+        - Weekend stories with voice: `?filter[weekdays][band]=65&filter[voice_id][null]=false`
         - Search with sorting: `?search=breaking&sort=-created_at`
       tags:
         - Stories
@@ -3022,10 +3022,12 @@ components:
         in: { type: string, description: Comma-separated dates. }
         between: { type: string, description: Two comma-separated inclusive date bounds. }
     DateTimeValue:
-      description: RFC 3339 date-time, or a bare date compared as midnight.
+      description: RFC 3339 date-time, YYYY-MM-DD HH:MM:SS (optionally with fractional seconds), or a bare YYYY-MM-DD date compared as midnight. Comma fractions are accepted only in scalar filters; use a decimal point in `in` and `between`, where commas separate values even when URL-encoded.
       anyOf:
         - type: string
           format: date-time
+        - type: string
+          pattern: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}([.,]\d+)?$'
         - type: string
           format: date
     DateTimeFilter:
@@ -3047,8 +3049,8 @@ components:
         gte: { $ref: '#/components/schemas/DateTimeValue' }
         lt: { $ref: '#/components/schemas/DateTimeValue' }
         lte: { $ref: '#/components/schemas/DateTimeValue' }
-        in: { type: string, description: Comma-separated date-time values. }
-        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        in: { type: string, description: Comma-separated date-time values. Fractional seconds must use a decimal point. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. Fractional seconds must use a decimal point. }
     NullableDateTimeFilterOperators:
       type: object
       additionalProperties: false
@@ -3060,8 +3062,8 @@ components:
         gte: { $ref: '#/components/schemas/DateTimeValue' }
         lt: { $ref: '#/components/schemas/DateTimeValue' }
         lte: { $ref: '#/components/schemas/DateTimeValue' }
-        in: { type: string, description: Comma-separated date-time values. }
-        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        in: { type: string, description: Comma-separated date-time values. Fractional seconds must use a decimal point. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. Fractional seconds must use a decimal point. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
     BooleanFilter:
       oneOf:

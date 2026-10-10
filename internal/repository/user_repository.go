@@ -10,23 +10,19 @@ import (
 )
 
 // UserUpdate contains optional fields for updating a user.
-// Use pointers for optional updates: nil = skip, non-nil = set value.
-// Use Clear* flags to explicitly set a field to NULL.
+// Nil pointers leave fields unchanged; Clear* flags override pointers with NULL.
 type UserUpdate struct {
-	// Regular fields (nil = skip, non-nil = set value)
 	Username            *string
 	FullName            *string
 	Email               *string
 	PasswordHash        *string
 	Role                *string
 	FailedLoginAttempts *int
-	// LockedUntil is never set directly but must exist so ClearLockedUntil
-	// resolves to the locked_until column in BuildUpdateMap.
+	// LockedUntil lets BuildUpdateMap resolve ClearLockedUntil to locked_until.
 	LockedUntil       *time.Time
 	PasswordChangedAt *time.Time
 	Metadata          *datatypes.JSONMap
 
-	// Explicit NULL setting flags (takes precedence over pointer values)
 	ClearEmail       bool
 	ClearLockedUntil bool
 }
@@ -132,18 +128,16 @@ func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error
 	return ParseDBError(err)
 }
 
-// userFieldMapping maps API field names to database columns for users.
 var userFieldMapping = FieldMapping{
-	"id":         "id",
-	"username":   "username",
-	"full_name":  "full_name",
-	"email":      "email",
-	"role":       "role",
-	"created_at": "created_at",
-	"updated_at": "updated_at",
+	"id":         {Column: "id", Type: filterInteger},
+	"username":   {Column: "username", Type: filterString},
+	"full_name":  {Column: "full_name", Type: filterString},
+	"email":      {Column: "email", Type: filterString, Nullable: true},
+	"role":       {Column: "role", Type: filterEnum, Enum: []string{string(models.RoleAdmin), string(models.RoleEditor), string(models.RoleViewer)}},
+	"created_at": {Column: "created_at", Type: filterDateTime},
+	"updated_at": {Column: "updated_at", Type: filterDateTime},
 }
 
-// userSearchFields defines which fields are searchable for users.
 var userSearchFields = []string{"username", "full_name"}
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.
@@ -156,10 +150,5 @@ func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResul
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 
 	defaultSort := []SortField{{Field: "username", Direction: SortAsc}}
-	result, err := ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, defaultSort)
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-
-	return result, nil
+	return ApplyListQuery[models.User](db, query, userFieldMapping, userSearchFields, defaultSort)
 }

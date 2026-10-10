@@ -112,22 +112,19 @@ func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 	return nil
 }
 
-// bulletinFieldMapping maps API field names to database columns for bulletins.
 var bulletinFieldMapping = FieldMapping{
-	"id":               "bulletins.id",
-	"station_id":       "bulletins.station_id",
-	"filename":         "bulletins.filename",
-	"duration_seconds": "bulletins.duration_seconds",
-	"file_size":        "bulletins.file_size",
-	"story_count":      "bulletins.story_count",
-	"file_purged_at":   "bulletins.file_purged_at",
-	"created_at":       "bulletins.created_at",
+	"id":               {Column: "bulletins.id", Type: filterInteger},
+	"station_id":       {Column: "bulletins.station_id", Type: filterInteger},
+	"filename":         {Column: "bulletins.filename", Type: filterString},
+	"duration_seconds": {Column: "bulletins.duration_seconds", Type: filterNumber},
+	"file_size":        {Column: "bulletins.file_size", Type: filterInteger},
+	"story_count":      {Column: "bulletins.story_count", Type: filterInteger},
+	"file_purged_at":   {Column: "bulletins.file_purged_at", Type: filterDateTime, Nullable: true},
+	"created_at":       {Column: "bulletins.created_at", Type: filterDateTime},
 }
 
-// bulletinSearchFields defines which fields are searchable for bulletins.
 var bulletinSearchFields = []string{"bulletins.filename"}
 
-// bulletinDefaultSort defines the default sort order for bulletin queries.
 var bulletinDefaultSort = []SortField{{Field: "created_at", Direction: SortDesc}}
 
 // List retrieves bulletins with pagination, filtering, and sorting.
