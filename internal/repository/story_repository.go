@@ -183,7 +183,7 @@ var storyFieldMapping = FieldMapping{
 	"text":             {Column: "text", Type: filterString},
 	"voice_id":         {Column: "voice_id", Type: filterInteger, Nullable: true},
 	"audio_url":        {Column: "audio_file", Type: filterString},
-	"has_audio":        {Column: "audio_file", Type: filterPresence},
+	"has_audio":        {Column: "(COALESCE(audio_file, '') != '')", Type: filterPresence},
 	"status":           {Column: "status", Type: filterEnum, Enum: []string{string(models.StoryStatusDraft), string(models.StoryStatusActive), string(models.StoryStatusExpired)}},
 	"start_date":       {Column: "start_date", Type: filterDate},
 	"end_date":         {Column: "end_date", Type: filterDate},

@@ -37,9 +37,8 @@ const (
 	filterBitmask filterType = "bitmask"
 	// filterEnum accepts only the field's Enum values.
 	filterEnum filterType = "enum"
-	// filterPresence tests for a non-empty column; NULL and "" mean absent.
-	// Only eq/ne apply, and applySorting rejects it because ordering the
-	// backing column (a file path) is meaningless.
+	// filterPresence is a boolean SQL expression that treats NULL and "" as
+	// absent. Only eq/ne apply, and applySorting rejects it.
 	filterPresence filterType = "presence"
 )
 
@@ -301,13 +300,6 @@ func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping Fiel
 	case FilterBitwiseAnd:
 		return db.Where("("+col+" & ?) != 0", args[0]), nil
 	}
-	if field.Type == filterPresence {
-		present := args[0].(bool)
-		if filter.Operator == FilterNotEquals {
-			present = !present
-		}
-		return applyPresenceFilter(db, col, present), nil
-	}
 	return db.Where(col+comparisonSQL[filter.Operator], args[0]), nil
 }
 
@@ -375,9 +367,8 @@ func (f FilterField) allowsOperator(op FilterOperator) bool {
 // bool because MySQL coerces non-numeric strings such as "true" to 0 in
 // numeric comparisons. Bitmasks bind as integers. Date-times bind as
 // time.Time because MySQL, with only a warning, reads an RFC 3339 "Z" suffix
-// as local time and truncates a comma fraction. Presence values only select
-// the SQL clause. Strings, integers, numbers, dates and enums bind the
-// validated string.
+// as local time and truncates a comma fraction. Strings, integers, numbers,
+// dates and enums bind the validated string.
 func (f FilterField) parseValue(raw string) (any, error) {
 	switch f.Type {
 	case filterBoolean, filterPresence:
@@ -442,12 +433,4 @@ func parseBool(raw string) (any, error) {
 		return value, nil
 	}
 	return nil, errors.New("expected boolean")
-}
-
-func applyPresenceFilter(db *gorm.DB, col string, present bool) *gorm.DB {
-	if present {
-		return db.Where(col+" != ?", "")
-	}
-	// NULL and empty strings both mean absent.
-	return db.Where("COALESCE("+col+", '') = ?", "")
 }

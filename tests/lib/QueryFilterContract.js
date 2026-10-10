@@ -22,7 +22,7 @@ function getFilterContracts(endpoint) {
 }
 
 // Returns valid literals; exclusion tests use the last value.
-function filterExamples({ value, operators }) {
+function filterExamples({ value }) {
   if (value.enum) return value.enum.map(String);
   if (value.format === 'date-time') return ['2024-01-01T00:00:00Z', '2024-12-31T23:59:59Z'];
   if (value.format === 'date') return ['2024-01-01', '2024-12-31'];

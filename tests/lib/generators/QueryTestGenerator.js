@@ -107,7 +107,6 @@ function generateQueryTests(schema, setupFn = null) {
         const firstField = query.filterableFields[0];
         test.each([
           ['when filtering with unknown operator, then returns 422', `filter[${firstField}][unknown]=1`],
-          ['when filtering null with invalid boolean, then returns 422', `filter[${firstField}][null]=not-bool`],
           ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
           ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
         ])('%s', async (_name, qs) => {

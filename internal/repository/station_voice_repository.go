@@ -118,7 +118,7 @@ var stationVoiceFieldMapping = FieldMapping{
 	"station_id": {Column: "station_voices.station_id", Type: filterInteger},
 	"voice_id":   {Column: "station_voices.voice_id", Type: filterInteger},
 	"audio_url":  {Column: "station_voices.audio_file", Type: filterString},
-	"has_audio":  {Column: "station_voices.audio_file", Type: filterPresence},
+	"has_audio":  {Column: "(COALESCE(station_voices.audio_file, '') != '')", Type: filterPresence},
 	"mix_point":  {Column: "station_voices.mix_point", Type: filterNumber},
 	"created_at": {Column: "station_voices.created_at", Type: filterDateTime},
 	"updated_at": {Column: "station_voices.updated_at", Type: filterDateTime},

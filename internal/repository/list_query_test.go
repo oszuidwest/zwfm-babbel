@@ -12,83 +12,51 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
+func TestApplyFilterCondition_Rejects(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{
-		"name":      {Column: "name", Type: filterString},
-		"id":        {Column: "id", Type: filterInteger},
-		"voice_id":  {Column: "voice_id", Type: filterInteger, Nullable: true},
-		"has_audio": {Column: "audio_file", Type: filterPresence},
+	// Invalid filters must fail before accessing the database.
+	var unknown *UnknownFieldError
+	_, err := applyFilterCondition(nil, FilterCondition{Field: "bogus", Operator: FilterEquals, Values: []string{"x"}}, storyFieldMapping)
+	if !errors.As(err, &unknown) || unknown.Kind != "filter" || unknown.Field != "bogus" {
+		t.Fatalf("unknown field: got %v, want UnknownFieldError filter/bogus", err)
 	}
 
 	tests := []struct {
 		name string
 		cond FilterCondition
 	}{
-		{name: "bitwise on non-band field", cond: FilterCondition{Field: "name", Operator: FilterBitwiseAnd, Values: []string{"1"}}},
+		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Values: []string{"x"}}},
 		{name: "eq without value", cond: FilterCondition{Field: "id", Operator: FilterEquals}},
 		{name: "eq two values", cond: FilterCondition{Field: "id", Operator: FilterEquals, Values: []string{"1", "2"}}},
 		{name: "in empty", cond: FilterCondition{Field: "id", Operator: FilterIn}},
 		{name: "between nil value", cond: FilterCondition{Field: "id", Operator: FilterBetween}},
 		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1"}}},
 		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1", "2", "3"}}},
+		{name: "null on required field", cond: FilterCondition{Field: "id", Operator: FilterIsNull, Values: []string{"true"}}},
 		{name: "null without value", cond: FilterCondition{Field: "voice_id", Operator: FilterIsNull}},
 		{name: "null requires boolean", cond: FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"maybe"}}},
-		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Values: []string{"x"}}},
 		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"yes"}}},
-	}
-
-	// Invalid filters must fail before accessing the database.
-	var unknown *UnknownFieldError
-	_, err := applyFilterCondition(nil, FilterCondition{Field: "bogus", Operator: FilterEquals, Values: []string{"x"}}, mapping)
-	if !errors.As(err, &unknown) || unknown.Kind != "filter" || unknown.Field != "bogus" {
-		t.Fatalf("unknown field: got %v, want UnknownFieldError filter/bogus", err)
+		{name: "integer like", cond: FilterCondition{Field: "id", Operator: FilterLike, Values: []string{"1"}}},
+		{name: "number like", cond: FilterCondition{Field: "duration_seconds", Operator: FilterLike, Values: []string{"1"}}},
+		{name: "date like", cond: FilterCondition{Field: "start_date", Operator: FilterLike, Values: []string{"2024-01-01"}}},
+		{name: "datetime like", cond: FilterCondition{Field: "created_at", Operator: FilterLike, Values: []string{"2024-01-01"}}},
+		{name: "string range", cond: FilterCondition{Field: "title", Operator: FilterGreaterThan, Values: []string{"news"}}},
+		{name: "string bitwise", cond: FilterCondition{Field: "title", Operator: FilterBitwiseAnd, Values: []string{"1"}}},
+		{name: "enum like", cond: FilterCondition{Field: "status", Operator: FilterLike, Values: []string{"active"}}},
+		{name: "enum range", cond: FilterCondition{Field: "status", Operator: FilterBetween, Values: []string{"active", "draft"}}},
+		{name: "boolean range", cond: FilterCondition{Field: "is_breaking", Operator: FilterGreaterThan, Values: []string{"true"}}},
+		{name: "bitmask in", cond: FilterCondition{Field: "weekdays", Operator: FilterIn, Values: []string{"1", "2"}}},
+		{name: "bitmask range", cond: FilterCondition{Field: "weekdays", Operator: FilterGreaterThan, Values: []string{"1"}}},
+		{name: "presence in", cond: FilterCondition{Field: "has_audio", Operator: FilterIn, Values: []string{"true", "false"}}},
+		{name: "presence range", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Values: []string{"true"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			var invalid *InvalidFilterError
-			_, err := applyFilterCondition(nil, tt.cond, mapping)
+			_, err := applyFilterCondition(nil, tt.cond, storyFieldMapping)
 			if !errors.As(err, &invalid) || invalid.Field != tt.cond.Field || invalid.Operator != tt.cond.Operator {
 				t.Fatalf("got %v, want InvalidFilterError with field and operator", err)
-			}
-		})
-	}
-}
-
-func TestApplyFilterCondition_HasAudio(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		operator FilterOperator
-		value    string
-		wantSQL  string
-	}{
-		{name: "has audio", operator: FilterEquals, value: "true", wantSQL: "audio_file != ?"},
-		{name: "has no audio", operator: FilterEquals, value: "false", wantSQL: "COALESCE(audio_file, '') = ?"},
-		{name: "not has audio", operator: FilterNotEquals, value: "true", wantSQL: "COALESCE(audio_file, '') = ?"},
-		{name: "not has no audio", operator: FilterNotEquals, value: "false", wantSQL: "audio_file != ?"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-				Field:    "has_audio",
-				Operator: tt.operator,
-				Values:   []string{tt.value},
-			}, FieldMapping{"has_audio": {Column: "audio_file", Type: filterPresence}})
-			if err != nil {
-				t.Fatalf("applyFilterCondition: %v", err)
-			}
-
-			stmt := out.Find(&[]struct{}{}).Statement
-			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
-				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
-			}
-			if got := stmt.Vars; len(got) != 1 || got[0] != "" {
-				t.Fatalf("bind vars = %#v, want [\"\"]", got)
 			}
 		})
 	}
@@ -112,6 +80,14 @@ func TestApplyFilterCondition_SQL(t *testing.T) {
 		{FilterCondition{Field: "weekdays", Operator: FilterBitwiseAnd, Values: []string{"62"}}, "(weekdays & ?) != 0", []any{uint64(62)}},
 		// LIKE wraps the value once and escapes wildcards with the declared escape character.
 		{FilterCondition{Field: "title", Operator: FilterLike, Values: []string{`50%_x`}}, `title LIKE ? ESCAPE '\\'`, []any{`%50\%\_x%`}},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"true"}}, "voice_id IS NULL", nil},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"false"}}, "voice_id IS NOT NULL", nil},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"0"}}, "voice_id IS NOT NULL", nil},
+		// NULL and "" both mean absent.
+		{FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"true"}}, "(COALESCE(audio_file, '') != '') = ?", []any{true}},
+		{FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"false"}}, "(COALESCE(audio_file, '') != '') = ?", []any{false}},
+		{FilterCondition{Field: "has_audio", Operator: FilterNotEquals, Values: []string{"true"}}, "(COALESCE(audio_file, '') != '') != ?", []any{true}},
+		{FilterCondition{Field: "has_audio", Operator: FilterNotEquals, Values: []string{"false"}}, "(COALESCE(audio_file, '') != '') != ?", []any{false}},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.cond.Operator), func(t *testing.T) {
@@ -128,32 +104,9 @@ func TestApplyFilterCondition_SQL(t *testing.T) {
 	}
 }
 
-func TestApplyFilterCondition_NullOperator(t *testing.T) {
-	t.Parallel()
-	for value, wantSQL := range map[string]string{"true": "voice_id IS NULL", "false": "voice_id IS NOT NULL", "0": "voice_id IS NOT NULL"} {
-		t.Run(value, func(t *testing.T) {
-			t.Parallel()
-			var invalid *InvalidFilterError
-			if _, err := applyFilterCondition(nil, FilterCondition{Field: "id", Operator: FilterIsNull, Values: []string{value}}, storyFieldMapping); !errors.As(err, &invalid) {
-				t.Fatalf("non-nullable id: got %v, want InvalidFilterError", err)
-			}
-			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{value}}, storyFieldMapping)
-			if err != nil {
-				t.Fatalf("nullable voice_id: %v", err)
-			}
-			stmt := out.Find(&[]struct{}{}).Statement
-			if len(stmt.Vars) != 0 || !strings.Contains(stmt.SQL.String(), wantSQL) {
-				t.Fatalf("SQL = %q, vars %v; want %q without vars", stmt.SQL.String(), stmt.Vars, wantSQL)
-			}
-		})
-	}
-}
-
 func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{"has_audio": {Column: "audio_file", Type: filterPresence}, "created_at": {Column: "created_at", Type: filterDateTime}}
-
-	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, mapping)
+	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, storyFieldMapping)
 	var e *UnknownFieldError
 	if !errors.As(err, &e) {
 		t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
@@ -407,38 +360,4 @@ func bindArgs(values []string, bind func(string) any) []any {
 		}
 	}
 	return args
-}
-
-func TestApplyFilterCondition_RejectsTypeOperators(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name    string
-		mapping FieldMapping
-		field   string
-		op      FilterOperator
-		values  []string
-	}{
-		{name: "integer like", mapping: storyFieldMapping, field: "id", op: FilterLike, values: []string{"1"}},
-		{name: "number like", mapping: stationFieldMapping, field: "pause_seconds", op: FilterLike, values: []string{"1"}},
-		{name: "date like", mapping: storyFieldMapping, field: "start_date", op: FilterLike, values: []string{"2024-01-01"}},
-		{name: "datetime like", mapping: storyFieldMapping, field: "created_at", op: FilterLike, values: []string{"2024-01-01"}},
-		{name: "string range", mapping: storyFieldMapping, field: "title", op: FilterGreaterThan, values: []string{"news"}},
-		{name: "status like", mapping: storyFieldMapping, field: "status", op: FilterLike, values: []string{"active"}},
-		{name: "role range", mapping: userFieldMapping, field: "role", op: FilterBetween, values: []string{"admin", "viewer"}},
-		{name: "boolean range", mapping: storyFieldMapping, field: "is_breaking", op: FilterGreaterThan, values: []string{"true"}},
-		{name: "bitmask in", mapping: storyFieldMapping, field: "weekdays", op: FilterIn, values: []string{"1", "2"}},
-		{name: "bitmask range", mapping: storyFieldMapping, field: "weekdays", op: FilterGreaterThan, values: []string{"1"}},
-		{name: "presence in", mapping: storyFieldMapping, field: "has_audio", op: FilterIn, values: []string{"true", "false"}},
-		{name: "presence range", mapping: storyFieldMapping, field: "has_audio", op: FilterGreaterThan, values: []string{"true"}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := applyFilterCondition(nil, FilterCondition{Field: tt.field, Operator: tt.op, Values: tt.values}, tt.mapping)
-			var invalid *InvalidFilterError
-			if !errors.As(err, &invalid) || invalid.Field != tt.field || invalid.Operator != tt.op {
-				t.Fatalf("got %v, want InvalidFilterError with field and operator", err)
-			}
-		})
-	}
 }

@@ -594,7 +594,7 @@ describe('Bulletins', () => {
       }
     });
 
-    test('when filtering by date range, then applies both bounds', async () => {
+    test('when filtering by date-time, then bounds and every spelling of an instant select the right rows', async () => {
       const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
       expect(station).not.toBeNull();
 
@@ -614,7 +614,7 @@ describe('Bulletins', () => {
           createdAt: '2024-01-21 12:00:00'
         }
       ];
-      const [beforeFilename, insideFilename, afterFilename] = rows.map(row => row.filename);
+      const [, insideFilename, afterFilename] = rows.map(row => row.filename);
       const filenameList = rows.map(row => sqlString(row.filename)).join(', ');
 
       const lowerBound = '2024-01-10 00:00:00';
@@ -623,6 +623,14 @@ describe('Bulletins', () => {
       const values = rows.map(row => (
         `(${stationId}, ${sqlString(row.filename)}, ${sqlString(row.filename)}, ${sqlString(row.createdAt)})`
       )).join(',');
+      const list = async filters => {
+        const response = await global.api.apiCall(
+          'GET',
+          `/bulletins?filter[station_id]=${stationId}&${filters}&sort=created_at&limit=10`
+        );
+        expect(response.status).toBe(200);
+        return response.data.data || [];
+      };
 
       try {
         mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
@@ -641,17 +649,19 @@ describe('Bulletins', () => {
           global.resources.track('bulletins', id);
         });
 
-        const response = await global.api.apiCall(
-          'GET',
-          `/bulletins?filter[station_id]=${stationId}&filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}&sort=created_at&limit=10`
-        );
+        const inside = await list(`filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}`);
+        expect(inside.map(b => b.filename)).toEqual([insideFilename]);
 
-        expect(response.status).toBe(200);
-        const filenames = new Set((response.data.data || []).map(b => b.filename));
+        // The inside row's instant as the API reports it, spelled in UTC, with
+        // an explicit offset, and as the server-local string it was inserted as.
+        // The stack runs in a non-UTC zone, so a misread offset misses the row.
+        const utc = new Date(inside[0].created_at).toISOString().replace('.000Z', 'Z');
+        for (const value of [utc, utc.replace('Z', '+00:00'), rows[1].createdAt]) {
+          expect((await list(`filter[created_at][eq]=${encodeURIComponent(value)}`)).map(b => b.filename)).toEqual([insideFilename]);
+        }
 
-        expect(filenames).toContain(insideFilename);
-        expect(filenames).not.toContain(beforeFilename);
-        expect(filenames).not.toContain(afterFilename);
+        // A comma fraction must not be truncated to the whole second.
+        expect((await list(`filter[created_at][gte]=${encodeURIComponent(`${rows[1].createdAt},5`)}`)).map(b => b.filename)).toEqual([afterFilename]);
       } finally {
         mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
       }
@@ -666,52 +676,6 @@ describe('Bulletins', () => {
       const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${encodeURIComponent(value)}`);
       expect(response.status).toBe(422);
       expect(response.data.errors[0].field).toBe('filter[created_at][gte]');
-    });
-
-    test('when filtering by date-time, then every spelling of an instant selects the same row', async () => {
-      const station = await global.helpers.createStation(global.resources, 'BulletinInstantStation');
-      expect(station).not.toBeNull();
-
-      const stationId = sqlInteger(station.id, 'station ID');
-      const suffix = `${Date.now()}_${process.pid}`;
-      // Server-local timestamps one hour apart; the stack runs in a non-UTC zone.
-      const rows = ['12:30:00', '13:30:00', '14:30:00'].map((time, index) => ({
-        filename: `instant_${index}_${suffix}.wav`,
-        createdAt: `2024-01-01 ${time}`
-      }));
-      const filenameList = rows.map(row => sqlString(row.filename)).join(', ');
-      const values = rows.map(row => (
-        `(${stationId}, ${sqlString(row.filename)}, ${sqlString(row.filename)}, ${sqlString(row.createdAt)})`
-      )).join(',');
-      const list = async filters => {
-        const response = await global.api.apiCall(
-          'GET',
-          `/bulletins?filter[station_id]=${stationId}&${filters}&sort=created_at&limit=10`
-        );
-        expect(response.status).toBe(200);
-        return (response.data.data || []).map(bulletin => bulletin.filename);
-      };
-
-      try {
-        mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
-        const inserted = await global.api.apiCall('GET', `/bulletins?filter[station_id]=${stationId}&sort=created_at&limit=10`);
-        expect(inserted.status).toBe(200);
-        const bulletins = inserted.data.data || [];
-        expect(bulletins.map(bulletin => bulletin.filename)).toEqual(rows.map(row => row.filename));
-        bulletins.forEach(bulletin => global.resources.track('bulletins', bulletin.id));
-
-        // The middle row's instant as the API reports it, spelled in UTC, with
-        // an explicit offset, and as the server-local string it was inserted as.
-        const utc = new Date(bulletins[1].created_at).toISOString().replace('.000Z', 'Z');
-        for (const value of [utc, utc.replace('Z', '+00:00'), rows[1].createdAt]) {
-          expect(await list(`filter[created_at][eq]=${encodeURIComponent(value)}`)).toEqual([rows[1].filename]);
-        }
-
-        // A comma fraction must not be truncated to the whole second.
-        expect(await list(`filter[created_at][gte]=${encodeURIComponent(`${rows[1].createdAt},5`)}`)).toEqual([rows[2].filename]);
-      } finally {
-        mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
-      }
     });
   });
 });

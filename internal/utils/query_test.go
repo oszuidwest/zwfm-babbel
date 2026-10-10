@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"slices"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -15,21 +15,33 @@ import (
 
 // The parser maps operator names and splits lists; values reach the
 // repository unchanged so it can validate them against the field type.
+// Filters come back sorted by query key.
 func TestParseQueryParams_PassesRawValues(t *testing.T) {
 	t.Parallel()
+	type cond = repository.FilterCondition
 	tests := []struct {
-		target   string
-		field    string
-		operator repository.FilterOperator
-		values   []string
+		target string
+		want   []cond
 	}{
-		{"/x?filter[id]=1", "id", repository.FilterEquals, []string{"1"}},
-		{"/x?filter[status][not]=draft", "status", repository.FilterNotEquals, []string{"draft"}},
-		{"/x?filter[title][like]=news", "title", repository.FilterLike, []string{"news"}},
-		{"/x?filter[voice_id][null]=not-bool", "voice_id", repository.FilterIsNull, []string{"not-bool"}},
-		{"/x?filter[weekdays][band]=300", "weekdays", repository.FilterBitwiseAnd, []string{"300"}},
-		{"/x?filter[id][between]=1,%2010", "id", repository.FilterBetween, []string{"1", "10"}},
-		{"/x?filter[id][in]=1,,2", "id", repository.FilterIn, []string{"1", "", "2"}},
+		{"/x?filter[id]=1", []cond{{Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}}}},
+		{"/x?filter[status][not]=draft", []cond{{Field: "status", Operator: repository.FilterNotEquals, Values: []string{"draft"}}}},
+		{"/x?filter[title][like]=news", []cond{{Field: "title", Operator: repository.FilterLike, Values: []string{"news"}}}},
+		{"/x?filter[voice_id][null]=not-bool", []cond{{Field: "voice_id", Operator: repository.FilterIsNull, Values: []string{"not-bool"}}}},
+		{"/x?filter[weekdays][band]=300", []cond{{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Values: []string{"300"}}}},
+		{"/x?filter[id][between]=1,%2010", []cond{{Field: "id", Operator: repository.FilterBetween, Values: []string{"1", "10"}}}},
+		{"/x?filter[id][in]=1,,2", []cond{{Field: "id", Operator: repository.FilterIn, Values: []string{"1", "", "2"}}}},
+		{"/x?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31", []cond{
+			{Field: "created_at", Operator: repository.FilterGreaterOrEq, Values: []string{"2024-01-01"}},
+			{Field: "created_at", Operator: repository.FilterLessOrEq, Values: []string{"2024-12-31"}},
+		}},
+		{"/x?filter[status][in]=active,draft&filter[status][ne]=archived", []cond{
+			{Field: "status", Operator: repository.FilterIn, Values: []string{"active", "draft"}},
+			{Field: "status", Operator: repository.FilterNotEquals, Values: []string{"archived"}},
+		}},
+		{"/x?filter[id]=1&filter[id][eq]=2", []cond{
+			{Field: "id", Operator: repository.FilterEquals, Values: []string{"1"}},
+			{Field: "id", Operator: repository.FilterEquals, Values: []string{"2"}},
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
@@ -38,8 +50,8 @@ func TestParseQueryParams_PassesRawValues(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if got := findFilter(t, params.Filters, tt.field, tt.operator); !slices.Equal(got.Values, tt.values) {
-				t.Fatalf("Values = %#v, want %#v", got.Values, tt.values)
+			if !reflect.DeepEqual(params.Filters, tt.want) {
+				t.Fatalf("Filters = %#v, want %#v", params.Filters, tt.want)
 			}
 		})
 	}
@@ -65,74 +77,6 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 			var qpe *QueryParamError
 			if !errors.As(err, &qpe) || qpe.Field != tt.wantField {
 				t.Fatalf("got %v, want QueryParamError for %q", err, tt.wantField)
-			}
-		})
-	}
-}
-
-func TestParseQueryParams_SameFieldMultiOperatorFilters(t *testing.T) {
-	t.Parallel()
-	type wantFilter struct {
-		field    string
-		operator repository.FilterOperator
-		values   []string
-	}
-
-	tests := []struct {
-		name   string
-		target string
-		want   []wantFilter
-	}{
-		{
-			name:   "gte and lte date bounds",
-			target: "/stories?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31",
-			want: []wantFilter{
-				{field: "created_at", operator: repository.FilterGreaterOrEq, values: []string{"2024-01-01"}},
-				{field: "created_at", operator: repository.FilterLessOrEq, values: []string{"2024-12-31"}},
-			},
-		},
-		{
-			name:   "gt and lt numeric bounds",
-			target: "/stories?filter[id][gt]=1&filter[id][lt]=10",
-			want: []wantFilter{
-				{field: "id", operator: repository.FilterGreaterThan, values: []string{"1"}},
-				{field: "id", operator: repository.FilterLessThan, values: []string{"10"}},
-			},
-		},
-		{
-			name:   "in and ne on same field",
-			target: "/stories?filter[status][in]=active,draft&filter[status][ne]=archived",
-			want: []wantFilter{
-				{field: "status", operator: repository.FilterIn, values: []string{"active", "draft"}},
-				{field: "status", operator: repository.FilterNotEquals, values: []string{"archived"}},
-			},
-		},
-		{
-			name:   "simple equality and explicit equality on same field",
-			target: "/stories?filter[id]=1&filter[id][eq]=2",
-			want: []wantFilter{
-				{field: "id", operator: repository.FilterEquals, values: []string{"1"}},
-				{field: "id", operator: repository.FilterEquals, values: []string{"2"}},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			params, err := ParseQueryParams(testQueryContext(t, tt.target))
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if len(params.Filters) != len(tt.want) {
-				t.Fatalf("len(Filters) = %d, want %d", len(params.Filters), len(tt.want))
-			}
-			for _, want := range tt.want {
-				if !slices.ContainsFunc(params.Filters, func(f repository.FilterCondition) bool {
-					return f.Field == want.field && f.Operator == want.operator && slices.Equal(f.Values, want.values)
-				}) {
-					t.Fatalf("missing filter %s/%s values=%#v in %#v", want.field, want.operator, want.values, params.Filters)
-				}
 			}
 		})
 	}
@@ -337,15 +281,4 @@ func testQueryContext(t *testing.T, target string) *gin.Context {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	return c
-}
-
-func findFilter(t *testing.T, filters []repository.FilterCondition, field string, operator repository.FilterOperator) repository.FilterCondition {
-	t.Helper()
-	for _, filter := range filters {
-		if filter.Field == field && filter.Operator == operator {
-			return filter
-		}
-	}
-	t.Fatalf("missing filter %s/%s in %#v", field, operator, filters)
-	return repository.FilterCondition{}
 }

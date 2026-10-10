@@ -168,23 +168,6 @@ var filterOperators = map[string]repository.FilterOperator{
 	"between": repository.FilterBetween,
 }
 
-// buildFilter maps an operator and raw value to a condition, leaving Field unset.
-// It returns known=false for unrecognized operators.
-func buildFilter(operator, value string) (filter repository.FilterCondition, known bool) {
-	op, ok := filterOperators[operator]
-	if !ok {
-		return repository.FilterCondition{}, false
-	}
-	values := []string{value}
-	if op == repository.FilterIn || op == repository.FilterBetween {
-		values = strings.Split(value, ",")
-		for i, v := range values {
-			values[i] = strings.TrimSpace(v)
-		}
-	}
-	return repository.FilterCondition{Operator: op, Values: values}, true
-}
-
 // rejectDuplicateSingleValueParams rejects repeated non-filter keys before
 // c.Query can discard extra values. parseFilters checks duplicate filter keys.
 func rejectDuplicateSingleValueParams(c *gin.Context) error {
@@ -243,16 +226,22 @@ func parseFilters(c *gin.Context) ([]repository.FilterCondition, error) {
 			}
 		}
 
-		filter, known := buildFilter(operator, values[0])
-		if !known {
+		op, ok := filterOperators[operator]
+		if !ok {
 			return nil, &QueryParamError{
 				Field:   key,
 				Message: fmt.Sprintf("unknown operator %q", operator),
 			}
 		}
 
-		filter.Field = field
-		filters = append(filters, filter)
+		raw := []string{values[0]}
+		if op == repository.FilterIn || op == repository.FilterBetween {
+			raw = strings.Split(values[0], ",")
+			for i, v := range raw {
+				raw[i] = strings.TrimSpace(v)
+			}
+		}
+		filters = append(filters, repository.FilterCondition{Field: field, Operator: op, Values: raw})
 	}
 
 	return filters, nil
