@@ -454,6 +454,16 @@ describe('openapi.yaml contract invariants', () => {
       expect(() => validate({ ...gone, code: 'story.not_found' })).toThrow('code');
       expect(() => validate({ ...gone, deleted_at: 'yesterday' })).toThrow('date-time');
     }
+    // deleted_at stays optional on unrelated problem responses.
+    expect(() => validator.validateResponse({
+      method: 'put',
+      operationPath: '/api/v1/stories/{id}',
+      response: {
+        status: 404,
+        headers: { 'content-type': 'application/problem+json' },
+        data: { ...withoutDeletedAt, title: 'Not Found', status: 404, code: 'story.not_found' }
+      }
+    })).not.toThrow();
     expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
   });
 

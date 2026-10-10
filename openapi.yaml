@@ -4491,6 +4491,8 @@ components:
                   code:
                     type: string
                     const: story.deleted
+                  deleted_at:
+                    $ref: '#/components/schemas/ProblemDetails/properties/deleted_at'
           example:
             type: "https://babbel.api/problems/story.deleted"
             title: "Gone"
