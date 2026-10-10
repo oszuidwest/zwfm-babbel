@@ -15,14 +15,18 @@ describe('validFilterCases', () => {
     }
   });
 
-  test.each(fields)('when %s takes a list or range, then the value has two parts', (_name, contract) => {
+  test.each(fields)('when %s takes a list or range, then the value has at least two parts', (_name, contract) => {
     for (const [operator, raw] of validFilterCases(contract)) {
       if (operator === 'in' || operator === 'between') expect(raw.split(',').length).toBeGreaterThanOrEqual(2);
     }
   });
 
-  test('when a field is a date-time, then a positive offset is among the values', () => {
-    const [, createdAt] = fields.find(([name]) => name === '/stations created_at');
-    expect(validFilterCases(createdAt)).toContainEqual(['eq', '2024-01-01T01:00:00+01:00']);
+  test.each([
+    ['/stations created_at', '2024-01-01T01:00:00+01:00'],
+    ['/stations pause_seconds', '1.5'],
+    ['/stories weekdays', '127']
+  ])('when %s has a stricter-mapping boundary, then eq sends %s', (name, value) => {
+    const [, contract] = fields.find(([field]) => field === name);
+    expect(validFilterCases(contract)).toContainEqual(['eq', value]);
   });
 });

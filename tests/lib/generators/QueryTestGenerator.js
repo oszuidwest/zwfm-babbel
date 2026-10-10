@@ -105,27 +105,6 @@ function generateQueryTests(schema, setupFn = null) {
           await expectStatus(qs, 422);
         });
 
-        // Validation needs no matching fixture, so test every documented field.
-        // Acceptance tests may validly match no rows; result checks use filterableFields.
-        for (const [field, contract] of Object.entries(filters)) {
-          test.each(validFilterCases(contract).map(([operator, value]) => [
-            operator ? `filter[${field}][${operator}]` : `filter[${field}]`,
-            value
-          ]))('when %s=%s is valid, then accepted', async (key, value) => {
-            const response = await expectStatus(`${key}=${encodeURIComponent(value)}`);
-            expect(Array.isArray(response.data.data)).toBe(true);
-          });
-          test.each(invalidFilterCases(contract))(
-            `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
-            async (operator, value) => {
-              const key = `filter[${field}][${operator}]`;
-              const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
-              expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
-              expect(response.data.errors[0].field).toBe(key);
-            }
-          );
-        }
-
         query.filterableFields
           .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
           .forEach(field => {
@@ -165,6 +144,30 @@ function generateQueryTests(schema, setupFn = null) {
           if (status === 422) expect(response.data.errors[0].field).toBe('trashed');
         }
       );
+    });
+
+    // Acceptance and rejection need no matching rows, so every documented field
+    // is tested; result checks stay on filterableFields.
+    describe('Filter contract', () => {
+      for (const [field, contract] of Object.entries(filters)) {
+        test.each(validFilterCases(contract).map(([operator, value]) => [
+          operator ? `filter[${field}][${operator}]` : `filter[${field}]`,
+          value
+        ]))('when %s=%s is valid, then accepted', async (key, value) => {
+          expect.hasAssertions();
+          const response = await expectStatus(`${key}=${encodeURIComponent(value)}`);
+          expect(Array.isArray(response.data.data)).toBe(true);
+        });
+        test.each(invalidFilterCases(contract))(
+          `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
+          async (operator, value) => {
+            const key = `filter[${field}][${operator}]`;
+            const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
+            expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+            expect(response.data.errors[0].field).toBe(key);
+          }
+        );
+      }
     });
 
     describe('Pagination', () => {

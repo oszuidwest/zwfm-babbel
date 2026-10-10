@@ -36,8 +36,9 @@ function filterExamples({ value }) {
   return ['1', '999999'];
 }
 
-// Other accepted DateTimeValue spellings. The positive offset only arrives
-// intact when the caller URL-encodes its plus sign.
+// Other accepted DateTimeValue spellings, sent with eq only: in and between
+// split on commas, which would cut the comma fraction. The positive offset
+// only arrives intact when the caller URL-encodes its plus sign.
 const dateTimeSpellings = [
   '2024-01-01T01:00:00+01:00',
   '2024-01-01T00:00:00.5Z',
@@ -47,8 +48,19 @@ const dateTimeSpellings = [
   '2024-01-01'
 ];
 
+// Values a mapping stricter than the documented type would reject: a
+// fraction for numbers, the maximum for bounded integers, and the other
+// date-time spellings.
+function boundaryValues({ value }) {
+  if (value.type === 'number') return ['1.5'];
+  if (value.maximum !== undefined) return [String(value.maximum)];
+  if (value.format === 'date-time') return dateTimeSpellings;
+  return [];
+}
+
 // Returns [operator, raw] pairs covering implicit equality ('') and every
-// documented operator, alias, and null value. Callers must URL-encode raw.
+// documented operator, alias, and null value, plus each boundary value with
+// eq. Callers must URL-encode raw.
 function validFilterCases(contract) {
   const examples = filterExamples(contract);
   const [first] = examples;
@@ -59,9 +71,7 @@ function validFilterCases(contract) {
     else if (operator === 'between') cases.push(['between', `${first},${examples.at(-1)}`]);
     else cases.push([operator, first]);
   }
-  if (contract.value.format === 'date-time') {
-    for (const spelling of dateTimeSpellings) cases.push(['eq', spelling]);
-  }
+  for (const value of boundaryValues(contract)) cases.push(['eq', value]);
   return cases;
 }
 
