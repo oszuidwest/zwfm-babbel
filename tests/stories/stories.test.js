@@ -241,9 +241,8 @@ describe('Stories', () => {
     });
   });
 
-  // Pins the story examples under "List queries" in openapi.yaml; the query
-  // test generator pins the unknown-field, unknown-operator and duplicate-key
-  // labels on every list endpoint, and an encoded offset is accepted there too.
+  // Pins story examples from "List queries" in openapi.yaml; the query test
+  // generator pins the remaining labels on every list endpoint.
   describe('Documented Query Semantics', () => {
     test.each([
       ['filter[status]=bad', 'filter[status][eq]'],
@@ -258,8 +257,7 @@ describe('Stories', () => {
       expect(response.data.errors.map(error => error.field)).toEqual([field]);
     });
 
-    // String fields compare text under the column collation, which ignores
-    // case by default; the literal null is text, not SQL NULL.
+    // The default collation ignores case; literal null is text, not SQL NULL.
     describe('literal null title', () => {
       let story;
 

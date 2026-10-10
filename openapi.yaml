@@ -31,16 +31,14 @@ info:
     - Duplicate, malformed and unknown-operator keys report the key as sent,
       for example `filter[status][xyz]`. Operators are checked before fields,
       so `filter[bogus][xyz]` reports as `filter[bogus][xyz]`.
-    - Validation stops at the first invalid filter, so `errors[]` names one
-      filter parameter even when several are invalid.
+    - Validation stops at the first invalid filter; `errors[]` names only that filter.
 
     ### NULL
 
-    - The string `null` is a value, not SQL NULL. Every non-string field
-      rejects it with 422, so `filter[voice_id]=null` fails as
-      `filter[voice_id][eq]`. String fields compare the text `null` under the
-      column collation: `filter[title]=null` selects stories titled `null`
-      (or `NULL`).
+    - The string `null` is not SQL NULL. Non-string fields reject it with 422:
+      `filter[voice_id]=null` fails as `filter[voice_id][eq]`. String fields
+      compare it as text under the column collation: `filter[title]=null`
+      selects stories titled `null` (or `NULL`).
     - On fields with a nullable filter schema (for example story `voice_id`
       and `deleted_at`, user `email`), `filter[field][null]=true` selects NULL
       and `filter[field][null]=false` selects non-NULL values. The operator
@@ -51,32 +49,28 @@ info:
     - Stories and users list active records by default. `trashed=only` lists
       only deleted records and `trashed=with` lists both. Other list
       endpoints reject a non-empty `trashed` with 422.
-    - On stories, the default scope already excludes deleted rows, so any
-      `deleted_at` condition other than `filter[deleted_at][null]=true`
-      matches nothing on its own, `filter[deleted_at][null]=false` included.
-      Add `trashed=only` or `trashed=with`.
+    - Story `deleted_at` conditions other than `filter[deleted_at][null]=true`
+      match nothing in the default scope, including `filter[deleted_at][null]=false`.
+      Add `trashed=only` or `trashed=with` to include deleted rows.
 
     ### Dates and times
 
-    - A date-time with an RFC 3339 offset, such as `2024-01-15T12:30:00Z` or
-      `2024-01-15T13:30:00+01:00`, identifies an instant; both examples
-      select the same rows. Use an uppercase `T` and `Z` and a colon in the
-      offset.
+    - RFC 3339 date-times identify instants: `2024-01-15T12:30:00Z` and
+      `2024-01-15T13:30:00+01:00` select the same rows. Use uppercase `T`
+      and `Z` and a colon in the offset.
     - The space-separated form `2024-01-15 13:30:00` has no offset and uses
       the server's local timezone. `2024-01-15T13:30:00` without an offset
       fails with 422. A bare date such as `2024-01-15` means local midnight,
       so select whole days with `gte` on the first day and `lt` on the day
       after: `filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`.
-      Date fields such as `start_date` compare calendar dates without a
-      timezone.
+      Date fields such as `start_date` compare calendar dates without timezones.
     - URL-encode `+` as `%2B`, as in
       `filter[created_at][gte]=2024-01-15T13:30:00%2B01:00`. An unencoded `+`
       decodes as a space, and the value fails with 422. Inside `in` and
       `between`, write fractions with a dot; a comma splits the list.
-    - The server's local timezone is the `TZ` of the Babbel process, and the
-      database driver binds times in that zone. The MySQL session timezone
-      must match it; the Docker Compose files give both containers the same
-      `TZ`.
+    - The server's local timezone is the Babbel process's `TZ`; the database
+      driver binds times in that zone. The MySQL session timezone must match;
+      the Docker Compose files set the same `TZ` for both containers.
 
     ### Compatibility
 
@@ -2909,9 +2903,8 @@ components:
       explode: true
       description: |
         Typed story filters. Use `has_audio` to filter by audio presence.
-        Because the default lists active stories only, `deleted_at`
-        conditions other than `[null]=true` need `trashed=only` or
-        `trashed=with` to match.
+        The default excludes deleted stories; `deleted_at` conditions other
+        than `[null]=true` need `trashed=only` or `trashed=with` to match.
       schema:
         type: object
         additionalProperties: false
@@ -4193,9 +4186,8 @@ components:
               field:
                 type: string
                 description: |
-                  Field name that failed validation. For query parameters, the
-                  parameter key, such as `filter[status][eq]` or `sort`; see
-                  "Error labels" under "List queries".
+                  Field or query parameter key that failed validation, such as
+                  `filter[status][eq]` or `sort`; see "Error labels" under "List queries".
                 example: "title"
               message:
                 type: string

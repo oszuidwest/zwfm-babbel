@@ -62,8 +62,7 @@ date-time semantics.
 
 #### Substring Matching (contains)
 ```http
-# "Contains" match; the value is matched literally, not as a pattern, and case
-# sensitivity follows the column collation (case-insensitive by default)
+# Case sensitivity follows the column collation (case-insensitive by default)
 GET /api/v1/stories?filter[title][like]=news
 ```
 
