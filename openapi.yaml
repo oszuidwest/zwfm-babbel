@@ -979,7 +979,7 @@ paths:
                         text: "This is an important news update."
                         voice_id: 1
                         voice_name: "Sarah Johnson"
-                        audio_file: "story_101.wav"
+                        audio_file: "story_101_voice_1_3f9a1c2e7b4d.wav"
                         audio_url: "/stories/101/audio"
                         duration_seconds: 12.5
                         status: "active"
@@ -1109,10 +1109,16 @@ paths:
       description: |
         Upload audio file for a story. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
         Audio duration is automatically calculated and stored.
+
+        The audio is attributed to the voice heard in the recording: `voice_id` when
+        given, otherwise the story's current voice. Stories without a voice are
+        rejected with 400 before the file is accepted. Uploading with a different
+        `voice_id` is the way to change the voice of a story that already has audio.
       tags:
         - Stories
       parameters:
         - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/audioVoiceId'
       requestBody:
         required: true
         content:
@@ -1146,6 +1152,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -1179,8 +1187,11 @@ paths:
         - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
         - The `tts_settings` singleton row must exist
         - Story must have non-empty `text`
-        - Story must have a `voice_id` assigned
-        - The assigned voice must have an `elevenlabs_voice_id` configured
+        - Story must have a `voice_id` assigned, or `voice_id` must be passed
+        - The voice used must have an `elevenlabs_voice_id` configured
+
+        Passing a `voice_id` that differs from the story's voice generates audio with
+        that voice and replaces the story's `voice_id` together with the audio.
 
         **Audio pipeline:** ElevenLabs returns Opus (`opus_48000_128`) → converted to 48kHz mono WAV → stored as story audio.
       tags:
@@ -1194,6 +1205,7 @@ paths:
             type: string
             enum: ["true"]
           description: Set to "true" to overwrite existing audio. Without this, the request fails if the story already has audio.
+        - $ref: '#/components/parameters/audioVoiceId'
       responses:
         '201':
           description: TTS audio generated successfully
@@ -1211,7 +1223,7 @@ paths:
           description: |
             Validation error. Possible causes:
             - Story has no text
-            - Story has no voice assigned
+            - Story has no voice assigned and no `voice_id` was passed
             - Voice has no ElevenLabs voice ID configured
             - Story already has audio (use ?force=true to overwrite)
             - ElevenLabs voice ID not found
@@ -1221,6 +1233,8 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -1422,6 +1436,10 @@ paths:
       description: |
         Update story with JSON body. All fields are optional - only provided fields will be updated.
         Audio file must be uploaded separately via POST /stories/{id}/audio.
+
+        `voice_id` cannot change while the story has audio (409 `story.voice_locked`);
+        upload or generate new audio with `voice_id` instead. Sending the current
+        `voice_id` is a no-op.
       tags:
         - Stories
       parameters:
@@ -1452,6 +1470,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -2688,6 +2708,17 @@ components:
       description: |
         Resource ID. Must be a positive integer; a malformed, zero, or negative
         ID is rejected with 400 Bad Request.
+    audioVoiceId:
+      name: voice_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+      description: |
+        Voice heard in the new audio. Defaults to the story's current voice; when it
+        differs, the story's `voice_id` is replaced together with the audio. A
+        malformed value is rejected with 422 Unprocessable Entity.
     rangeHeader:
       name: Range
       in: header
@@ -3517,7 +3548,9 @@ components:
           description: Name of the assigned voice (from JOIN query)
         audio_file:
           type: string
-          description: Filename of audio file (empty string if no audio uploaded)
+          description: |
+            Filename of audio file (empty string if no audio uploaded). New files are
+            named `story_{id}_voice_{voice_id}_{unique_id}.wav`; older files use `story_{id}.wav`.
         audio_url:
           type: string
           description: API URL to download the audio file (always present, may return 404 if no file exists)
@@ -3670,7 +3703,9 @@ components:
         voice_id:
           type: [integer, 'null']
           minimum: 1
-          description: Voice ID. Omit or set to null to keep current value unchanged
+          description: |
+            Voice ID. Omit or set to null to keep current value unchanged. Cannot change
+            while the story has audio (409); sending the current value is a no-op.
         status:
           type: [string, 'null']
           enum: [draft, active, expired, null]
@@ -4427,6 +4462,10 @@ components:
         - `{resource}.duplicate` - Duplicate resource (e.g., `station.duplicate` when a station name already exists)
         - `{resource}.has_dependencies` - Resource has dependencies that prevent deletion
         - `{resource}.conflict` - Other resource-state conflicts
+        - `story.voice_locked` - A story's `voice_id` cannot change while it has audio;
+          upload or generate new audio with `voice_id` instead
+        - `story.audio_changed` - The story's voice or audio changed while new audio
+          was being processed
       content:
         application/problem+json:
           schema:
@@ -4452,6 +4491,16 @@ components:
                 instance: "/api/v1/stations/1"
                 code: "station.has_dependencies"
                 hint: "Delete or reassign the associated related resources first"
+            story_voice_locked:
+              summary: Story voice is locked by existing audio
+              value:
+                type: "https://babbel.api/problems/story.voice_locked"
+                title: "Conflict"
+                status: 409
+                detail: "voice_id cannot change while the story has audio"
+                instance: "/api/v1/stories/1"
+                code: "story.voice_locked"
+                hint: "Upload or generate new audio with the voice_id query parameter to change the voice"
     PayloadTooLarge:
       description: Request body too large
       content:

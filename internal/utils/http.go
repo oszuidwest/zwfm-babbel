@@ -38,6 +38,22 @@ func IDParam(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
+// OptionalIDQuery parses an optional positive ID query parameter. It returns
+// nil when the parameter is absent and writes a 422 response when it is
+// malformed.
+func OptionalIDQuery(c *gin.Context, name string) (*int64, bool) {
+	raw, present := c.GetQuery(name)
+	if !present {
+		return nil, true
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		emitQueryError(c, &QueryParamError{Field: name, Message: fmt.Sprintf("expected positive integer, got %q", raw)})
+		return nil, false
+	}
+	return &id, true
+}
+
 const (
 	defaultPaginationLimit = 20
 	maxPaginationLimit     = 100

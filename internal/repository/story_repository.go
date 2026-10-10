@@ -109,7 +109,9 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 	return err
 }
 
-// Update applies non-nil story fields.
+// Update applies non-nil story fields. A voice change only applies while the
+// story has no audio or its audio already belongs to that voice; otherwise it
+// returns ErrStateConflict.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	if u == nil {
 		return nil
@@ -120,7 +122,62 @@ func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) 
 		return nil
 	}
 
-	return r.UpdateByID(ctx, id, updateMap)
+	if u.VoiceID == nil {
+		return r.UpdateByID(ctx, id, updateMap)
+	}
+
+	// The guard is part of the UPDATE so audio uploaded after the caller's
+	// read cannot end up paired with a different voice.
+	return r.guardedUpdate(ctx, id, updateMap,
+		"(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID)
+}
+
+// StoryAudioUpdate publishes processed audio together with the voice it was
+// produced for. The Expected fields hold the story state read before
+// processing started.
+type StoryAudioUpdate struct {
+	AudioFile         string
+	DurationSeconds   float64
+	VoiceID           int64
+	ExpectedVoiceID   *int64
+	ExpectedAudioFile string
+}
+
+// UpdateAudio stores new audio and its voice in one statement. It returns
+// ErrStateConflict when the story's voice or audio changed since processing
+// started.
+func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
+	return r.guardedUpdate(ctx, id, map[string]any{
+		"voice_id":         u.VoiceID,
+		"audio_file":       u.AudioFile,
+		"duration_seconds": u.DurationSeconds,
+	}, "COALESCE(audio_file, '') = ? AND voice_id <=> ?", u.ExpectedAudioFile, u.ExpectedVoiceID)
+}
+
+// guardedUpdate applies updates only when the guard condition holds. When no
+// row matches it returns ErrNotFound for a missing story and ErrStateConflict
+// otherwise.
+func (r *StoryRepository) guardedUpdate(ctx context.Context, id int64, updates map[string]any, guard string, args ...any) error {
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
+		Where("id = ?", id).
+		Where(guard, args...).
+		Updates(updates)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	exists, err := r.Exists(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return r.classifyWriteError(ctx, id, ErrNotFound)
+	}
+	return ErrStateConflict
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
@@ -145,14 +202,6 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
 		return ErrNotFound
 	}
 	return nil
-}
-
-// UpdateAudio updates the audio file and duration.
-func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	return r.UpdateByID(ctx, id, map[string]any{
-		"audio_file":       audioFile,
-		"duration_seconds": duration,
-	})
 }
 
 // UpdateStatus updates the story status.

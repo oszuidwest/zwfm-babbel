@@ -108,6 +108,12 @@ func (e *ConflictError) Error() string {
 // Unwrap exposes the captured conflict cause for errors.Is/As.
 func (e *ConflictError) Unwrap() error { return e.cause }
 
+// ConflictWithCause creates a ConflictError with a problem code, client-facing
+// detail and hint, and an underlying cause.
+func ConflictWithCause(resource, code, detail, hint string, cause error) *ConflictError {
+	return &ConflictError{Resource: resource, Code: code, Detail: detail, Hint: hint, cause: cause}
+}
+
 // ValidationError indicates validation failure on input data.
 type ValidationError struct {
 	Resource string `json:"-"`

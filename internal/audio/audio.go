@@ -320,7 +320,7 @@ func (s *Service) addStoryInputsWithPadding(
 	stories []repository.BulletinStoryData,
 ) ([]string, []string) {
 	for i, story := range stories {
-		storyPath := utils.StoryPath(s.config, story.ID)
+		storyPath := utils.StoryPath(s.config, story.AudioFile)
 		args = append(args, "-i", storyPath)
 
 		if station.PauseSeconds > 0 && i < len(stories)-1 {

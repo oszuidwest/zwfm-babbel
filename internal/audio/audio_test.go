@@ -153,8 +153,8 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 	station := &models.Station{ID: 1, PauseSeconds: 0.5}
 	voiceID := int64(1)
 	stories := []repository.BulletinStoryData{
-		{Story: models.Story{ID: 1}},
-		{Story: models.Story{ID: 2}},
+		{Story: models.Story{ID: 1, AudioFile: "story_1.wav"}},
+		{Story: models.Story{ID: 2, AudioFile: "story_2.wav"}},
 	}
 
 	tests := []struct {
@@ -173,7 +173,7 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 			svc.config.Audio.ProcessedPath = t.TempDir()
 
 			for _, story := range stories {
-				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
+				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.AudioFile))
 			}
 			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
 			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")

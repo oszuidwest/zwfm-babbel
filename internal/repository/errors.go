@@ -27,6 +27,10 @@ var (
 
 	// ErrSchemaUnavailable indicates a referenced table is missing.
 	ErrSchemaUnavailable = errors.New("schema unavailable")
+
+	// ErrStateConflict indicates a conditional update did not apply because
+	// the record's current state does not allow it.
+	ErrStateConflict = errors.New("record state conflict")
 )
 
 // StoryDeletedError indicates a write targeted a soft-deleted story.
