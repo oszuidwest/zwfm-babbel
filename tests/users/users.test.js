@@ -1,5 +1,5 @@
 const usersSchema = require('../lib/schemas/users.schema');
-const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
+const { generateCrudTests, generateQueryTests, generateTrashedTests, generateValidationTests } = require('../lib/generators');
 
 describe('Users', () => {
   // Generate standard CRUD, Query, and Validation tests
@@ -41,23 +41,8 @@ describe('Users', () => {
       expect(deleted.status).toBe(204);
     });
 
-    // The active admin and the deleted fixture user; flags are sorted deleted_at presence.
-    test.each([
-      ['omitted', '', [false]],
-      ['only', '&trashed=only', [true]],
-      ['with', '&trashed=with', [false, true]]
-    ])('when trashed is %s, then the listed users have deleted flags %j', async (_name, trashed, flags) => {
-      const response = await global.api.apiCall('GET', `/users?filter[username][in]=admin,${username}${trashed}`);
-      expect(response.status).toBe(200);
-      expect(response.data.data.map(user => user.deleted_at !== null).sort()).toEqual(flags);
-    });
-
-    test('when trashed=only, then every listed user is deleted', async () => {
-      const response = await global.api.apiCall('GET', '/users?trashed=only&limit=100');
-      expect(response.status).toBe(200);
-      expect(response.data.data.length).toBeGreaterThan(0);
-      response.data.data.forEach(user => expect(user.deleted_at).toEqual(expect.any(String)));
-    });
+    // The active admin and the deleted fixture user.
+    generateTrashedTests('/users', () => `filter[username][in]=admin,${username}`);
   });
 
   describe('User Suspension', () => {

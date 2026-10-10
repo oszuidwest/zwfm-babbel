@@ -263,4 +263,24 @@ function generateQueryTests(schema, setupFn = null) {
   });
 }
 
-module.exports = { generateQueryTests };
+function generateTrashedTests(endpoint, filter) {
+  // Flags are the sorted deleted_at presence of the listed records.
+  test.each([
+    ['omitted', '', [false]],
+    ['only', '&trashed=only', [true]],
+    ['with', '&trashed=with', [false, true]]
+  ])('when trashed is %s, then the listed records have deleted flags %j', async (_name, trashed, flags) => {
+    const response = await global.api.apiCall('GET', `${endpoint}?${filter()}${trashed}`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.map(record => record.deleted_at !== null).sort()).toEqual(flags);
+  });
+
+  test('when trashed=only, then every listed record is deleted', async () => {
+    const response = await global.api.apiCall('GET', `${endpoint}?trashed=only&limit=100`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.length).toBeGreaterThan(0);
+    response.data.data.forEach(record => expect(record.deleted_at).toEqual(expect.any(String)));
+  });
+}
+
+module.exports = { generateQueryTests, generateTrashedTests };

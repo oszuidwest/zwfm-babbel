@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
-const { generateQueryTests } = require('../lib/generators');
+const { generateQueryTests, generateTrashedTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 const NONEXISTENT_STORY_ID = 2147483647;
@@ -226,23 +226,7 @@ describe('Stories', () => {
         expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
       });
 
-      // Flags are the sorted deleted_at presence of the listed stories.
-      test.each([
-        ['omitted', '', [false]],
-        ['only', '&trashed=only', [true]],
-        ['with', '&trashed=with', [false, true]]
-      ])('when trashed is %s, then the listed stories have deleted flags %j', async (_name, trashed, flags) => {
-        const response = await global.api.apiCall('GET', `/stories?filter[id][in]=${deleted.id},${active.id}${trashed}`);
-        expect(response.status).toBe(200);
-        expect(response.data.data.map(story => story.deleted_at !== null).sort()).toEqual(flags);
-      });
-
-      test('when trashed=only, then every listed story is deleted', async () => {
-        const response = await global.api.apiCall('GET', '/stories?trashed=only&limit=100');
-        expect(response.status).toBe(200);
-        expect(response.data.data.length).toBeGreaterThan(0);
-        response.data.data.forEach(story => expect(story.deleted_at).toEqual(expect.any(String)));
-      });
+      generateTrashedTests('/stories', () => `filter[id][in]=${deleted.id},${active.id}`);
     });
   });
 
