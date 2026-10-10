@@ -36,25 +36,24 @@ function filterExamples({ value }) {
   return ['1', '999999'];
 }
 
-// Other accepted DateTimeValue spellings, sent with eq only: in and between
-// split on commas, which would cut the comma fraction. The positive offset
-// only arrives intact when the caller URL-encodes its plus sign.
-const dateTimeSpellings = [
-  '2024-01-01T01:00:00+01:00',
-  '2024-01-01T00:00:00.5Z',
-  '2024-01-01 00:00:00',
-  '2024-01-01 00:00:00.5',
-  '2024-01-01 00:00:00,5',
-  '2024-01-01'
-];
-
 // Values a mapping stricter than the documented type would reject: a
 // fraction for numbers, the maximum for bounded integers, and the other
-// date-time spellings.
+// DateTimeValue spellings. They go with eq only, because in and between split
+// on commas and would cut the comma fraction. The positive offset only
+// arrives intact when the caller URL-encodes its plus sign.
 function boundaryValues({ value }) {
   if (value.type === 'number') return ['1.5'];
   if (value.maximum !== undefined) return [String(value.maximum)];
-  if (value.format === 'date-time') return dateTimeSpellings;
+  if (value.format === 'date-time') {
+    return [
+      '2024-01-01T01:00:00+01:00',
+      '2024-01-01T00:00:00.5Z',
+      '2024-01-01 00:00:00',
+      '2024-01-01 00:00:00.5',
+      '2024-01-01 00:00:00,5',
+      '2024-01-01'
+    ];
+  }
   return [];
 }
 
