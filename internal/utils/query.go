@@ -31,8 +31,9 @@ type QueryParams struct {
 }
 
 // ParseQueryParams parses list options and validates query syntax, operator
-// names, duplicate keys, pagination, and trashed. The repository validates
-// field names, operator applicability, and values.
+// names, duplicate keys, and pagination. The repository validates field
+// names, operator applicability, and values. Callers decide on trashed:
+// [ParseListQueryWithTrashed] validates its value, the other parsers reject it.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
@@ -65,10 +66,6 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
-	if params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
-		return nil, &QueryParamError{Field: "trashed", Message: "expected only or with"}
-	}
-
 	params.Search = c.Query("search")
 
 	return params, nil
@@ -352,16 +349,37 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// ParseListQuery parses list options. On parse errors it writes an RFC 9457
-// response and returns false. The embedded ListQuery is ready for the repository.
+// ParseListQuery parses list options for resources without soft deletion and
+// rejects any non-empty trashed. On errors it writes an RFC 9457 response and
+// returns false. The embedded ListQuery is ready for the repository.
 func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" {
+		err = &QueryParamError{Field: "trashed", Message: unsupportedOnEndpoint}
+	}
 	if err != nil {
 		emitQueryError(c, err)
 		return nil, false
 	}
 	return params, true
 }
+
+// ParseListQueryWithTrashed is like [ParseListQuery] but accepts trashed=only
+// or trashed=with, for resources with soft deletion. An empty or omitted
+// trashed lists active records only.
+func ParseListQueryWithTrashed(c *gin.Context) (*QueryParams, bool) {
+	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
+		err = &QueryParamError{Field: "trashed", Message: "expected only or with"}
+	}
+	if err != nil {
+		emitQueryError(c, err)
+		return nil, false
+	}
+	return params, true
+}
+
+const unsupportedOnEndpoint = "not supported on this endpoint"
 
 // ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
 // fields, and trashed options with a 422 response.
@@ -373,19 +391,19 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 	}
 	var unsupported []apperrors.ValidationError
 	if params.Search != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: unsupportedOnEndpoint})
 	}
 	if params.Trashed != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: unsupportedOnEndpoint})
 	}
 	if len(unsupported) > 0 {
 		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)

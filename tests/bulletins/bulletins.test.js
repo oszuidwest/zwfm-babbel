@@ -2,6 +2,7 @@ const fs = require('fs');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelper');
+const { declaresQueryParameter } = require('../lib/QueryFilterContract');
 
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
@@ -490,7 +491,8 @@ describe('Bulletins', () => {
       ['when called with filter, then returns 422', 'filter[story_id]=1'],
       ['when called with sort, then returns 422', 'sort=story_order'],
       ['when called with fields, then returns 422', 'fields=id,story_id'],
-      ['when called with search, then returns 422', 'search=anything']
+      ['when called with search, then returns 422', 'search=anything'],
+      ['when called with trashed, then returns 422', 'trashed=only']
     ])('%s', async (_name, query) => {
       const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
       expect(response.status).toBe(422);
@@ -521,15 +523,31 @@ describe('Bulletins', () => {
 
   describe('Station Bulletin Endpoints', () => {
     let stationId;
+    let storyId;
 
     beforeAll(async () => {
-      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+      const { station, story } = await global.helpers.createBroadcastFixture(global.resources, {
         stationName: 'StationBulletinEndpoint',
         voiceName: 'StationBulletinVoice',
         storyTitle: 'StationBulletinStory',
         storyText: 'Station endpoint test story'
       });
       stationId = station.id;
+      storyId = story.id;
+    });
+
+    // Bulletins have no soft deletion, so nested bulletin lists neither declare
+    // nor accept trashed.
+    test.each([
+      ['/stations/{id}/bulletins', 'only', () => stationId],
+      ['/stations/{id}/bulletins', 'with', () => stationId],
+      ['/stories/{id}/bulletins', 'only', () => storyId],
+      ['/stories/{id}/bulletins', 'with', () => storyId]
+    ])('when listing %s with trashed=%s, then returns a trashed 422', async (template, value, id) => {
+      expect(declaresQueryParameter(template, 'trashed')).toBe(false);
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?trashed=${value}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('trashed');
     });
 
     test('when generating station bulletin, then succeeds', async () => {

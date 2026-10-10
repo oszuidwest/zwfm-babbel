@@ -9,12 +9,13 @@ The query parameter system provides:
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
 - **Search functionality**: `?search=keyword` for full-text search
-- **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records
+- **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
-Most resource list endpoints support the full set. A few relationship/history
-endpoints intentionally support pagination only; unsupported query parameters
-return RFC 9457 validation errors instead of being silently ignored.
+Most resource list endpoints support filtering, sorting, field selection and
+search. `/bulletins/{id}/stories` supports pagination only. The parameters above
+return RFC 9457 validation errors on endpoints that do not support them instead
+of being silently ignored.
 
 ## Modern Query Parameter Formats
 
@@ -87,7 +88,7 @@ GET /api/v1/station-voices?filter[has_audio]=true
 GET /api/v1/stories?filter[status]=active&filter[has_audio]=false&sort=-created_at
 ```
 
-`has_audio` is a virtual boolean field backed by the internal `audio_file` database column: it supports `eq` (the default), `ne`, and the `not` alias with a boolean value, and cannot be used for sorting. The legacy empty-string idiom on `audio_url` (`filter[audio_url]=` for absent, `filter[audio_url][ne]=` for present) still works but is deprecated — use `has_audio` instead. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
+`has_audio` is a virtual boolean field backed by the internal `audio_file` database column: it supports `eq` (the default), `ne`, and the `not` alias with a boolean value, and cannot be used for sorting. The legacy empty-string idiom on `audio_url` (`filter[audio_url]=` for absent, `filter[audio_url][ne]=` for present) still works but is deprecated; use `has_audio` instead. The `[not]` operator is a Babbel alias for `[ne]`; it does not implement PostgREST-style `IS NOT` semantics.
 
 > **Note:** The `ilike` operator is not implemented. Use `like` for case-sensitive substring (contains) matching.
 
@@ -146,6 +147,13 @@ GET /api/v1/stories?trashed=with        # All records including deleted
 
 GET /api/v1/users?trashed=with          # All users including deleted
 GET /api/v1/users?trashed=only          # Only deleted users
+```
+
+Only stories and users have soft deletion. Every other list endpoint rejects
+a non-empty `trashed` with 422 and an error for the `trashed` field:
+
+```http
+GET /api/v1/stations?trashed=only       # 422, errors[0].field = "trashed"
 ```
 
 To filter by the `status` field (e.g., draft/active/expired), use `filter[status]`:
@@ -342,7 +350,7 @@ Potential additions for future versions:
 
 ### For Developers
 
-1. **New Endpoints**: Use `ParseListQuery` and `PaginatedListResponse` for list endpoints that need modern query support
+1. **New Endpoints**: Use `ParseListQuery` (or `ParseListQueryWithTrashed` for resources with soft deletion) and `PaginatedListResponse` for list endpoints that need modern query support
 2. **Configuration**: Define search fields and field mappings in the repository layer
 3. **Testing**: Test modern parameter combinations
 4. **Documentation**: Update API documentation with examples

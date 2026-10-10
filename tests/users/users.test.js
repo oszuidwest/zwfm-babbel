@@ -1,5 +1,5 @@
 const usersSchema = require('../lib/schemas/users.schema');
-const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
+const { generateCrudTests, generateQueryTests, generateTrashedTests, generateValidationTests } = require('../lib/generators');
 
 describe('Users', () => {
   // Generate standard CRUD, Query, and Validation tests
@@ -23,6 +23,26 @@ describe('Users', () => {
       expect(response.status).toBe(422);
       expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
     });
+  });
+
+  describe('Soft-Deleted Users', () => {
+    let username;
+
+    beforeAll(async () => {
+      username = `trashedtest${Date.now()}${process.pid}`;
+      const created = await global.api.apiCall('POST', '/users', {
+        username,
+        full_name: 'Trashed Test User',
+        password: 'TestPassword123!',
+        role: 'viewer'
+      });
+      expect(created.status).toBe(201);
+      const deleted = await global.api.apiCall('DELETE', `/users/${created.data.id}`);
+      expect(deleted.status).toBe(204);
+    });
+
+    // The active admin and the deleted fixture user.
+    generateTrashedTests('/users', () => `filter[username][in]=admin,${username}`);
   });
 
   describe('User Suspension', () => {

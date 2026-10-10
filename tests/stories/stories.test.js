@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
-const { generateQueryTests } = require('../lib/generators');
+const { generateQueryTests, generateTrashedTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 const NONEXISTENT_STORY_ID = 2147483647;
@@ -213,28 +213,20 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
-    test('when trashed=only, then returns soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    describe('trashed', () => {
+      let deleted;
+      let active;
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=only');
+      beforeAll(async () => {
+        deleted = await createStoryWithDeps('Trashed', 'To be trashed', 'TrashVoice', 'TrashStation');
+        active = await global.helpers.createStory(global.resources, {
+          title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
+        }, [deleted.stationId]);
+        expect(active).not.toBeNull();
+        expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
+      });
 
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
-    });
-
-    test('when trashed=with, then includes soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
-
-      const response = await global.api.apiCall('GET', '/stories?trashed=with');
-
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      generateTrashedTests('/stories', () => `filter[id][in]=${deleted.id},${active.id}`);
     });
   });
 

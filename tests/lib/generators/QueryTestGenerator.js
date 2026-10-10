@@ -1,4 +1,4 @@
-const { getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -161,6 +161,19 @@ function generateQueryTests(schema, setupFn = null) {
       });
     }
 
+    // OpenAPI declares trashed only where the resource has soft deletion.
+    describe('Soft-delete scope', () => {
+      const supported = declaresQueryParameter(endpoint, 'trashed') ? 200 : 422;
+      test.each([['only', supported], ['with', supported], ['bogus', 422]])(
+        'when trashed=%s, then returns %i',
+        async (value, status) => {
+          expect.hasAssertions();
+          const response = await expectStatus(`trashed=${value}`, status);
+          if (status === 422) expect(response.data.errors[0].field).toBe('trashed');
+        }
+      );
+    });
+
     describe('Pagination', () => {
       test.each([
         ['when paginating with limit, then respects limit', 'limit=2', 200, response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
@@ -250,4 +263,24 @@ function generateQueryTests(schema, setupFn = null) {
   });
 }
 
-module.exports = { generateQueryTests };
+function generateTrashedTests(endpoint, filter) {
+  // Flags are the sorted deleted_at presence of the listed records.
+  test.each([
+    ['omitted', '', [false]],
+    ['only', '&trashed=only', [true]],
+    ['with', '&trashed=with', [false, true]]
+  ])('when trashed is %s, then the listed records have deleted flags %j', async (_name, trashed, flags) => {
+    const response = await global.api.apiCall('GET', `${endpoint}?${filter()}${trashed}`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.map(record => record.deleted_at !== null).sort()).toEqual(flags);
+  });
+
+  test('when trashed=only, then every listed record is deleted', async () => {
+    const response = await global.api.apiCall('GET', `${endpoint}?trashed=only&limit=100`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.length).toBeGreaterThan(0);
+    response.data.data.forEach(record => expect(record.deleted_at).toEqual(expect.any(String)));
+  });
+}
+
+module.exports = { generateQueryTests, generateTrashedTests };
