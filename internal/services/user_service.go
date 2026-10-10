@@ -20,6 +20,7 @@ import (
 // policy, role validity, and the last-admin guard.
 type UserService struct {
 	repo           *repository.UserRepository
+	txManager      repository.TxManager
 	passwordPolicy PasswordPolicy
 }
 
@@ -32,10 +33,11 @@ type PasswordPolicy struct {
 	RequireSpecialChar bool
 }
 
-// NewUserService returns a user service backed by repo and passwordPolicy.
-func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPolicy) *UserService {
+// NewUserService returns a user service backed by repo, txManager and passwordPolicy.
+func NewUserService(repo *repository.UserRepository, txManager repository.TxManager, passwordPolicy PasswordPolicy) *UserService {
 	return &UserService{
 		repo:           repo,
+		txManager:      txManager,
 		passwordPolicy: passwordPolicy,
 	}
 }
@@ -228,14 +230,6 @@ func (s *UserService) guardLastAdminUpdate(ctx context.Context, id int64, req *U
 	if !demote && !suspend {
 		return nil
 	}
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpQuery, err)
-	}
-	// A suspended admin is not active, so changing it cannot remove the last one.
-	if user.Role != models.RoleAdmin || user.SuspendedAt != nil {
-		return nil
-	}
 	action := "suspend"
 	if demote {
 		action = "demote"
@@ -256,10 +250,6 @@ func hashPassword(password string) (string, error) {
 // returns the refreshed user. It rejects demoting or suspending the last
 // active admin.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
-	if err := s.guardLastAdminUpdate(ctx, id, req); err != nil {
-		return nil, err
-	}
-
 	updates := &repository.UserUpdate{
 		FullName: req.FullName,
 		Role:     req.Role,
@@ -285,8 +275,17 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 		}
 	}
 
-	if err := s.repo.Update(ctx, id, updates); err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.guardLastAdminUpdate(txCtx, id, req); err != nil {
+			return err
+		}
+		if err := s.repo.Update(txCtx, id, updates); err != nil {
+			return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return s.GetByID(ctx, id)
@@ -305,34 +304,29 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 // SoftDelete permanently deletes a user and their sessions.
 // It rejects deletion of the last active admin.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
-	}
-
-	if user.Role == models.RoleAdmin {
-		if err := s.requireOtherActiveAdmin(ctx, id, "delete"); err != nil {
+	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.requireOtherActiveAdmin(txCtx, id, "delete"); err != nil {
 			return err
 		}
-	}
 
-	_ = s.repo.DeleteSessions(ctx, id)
+		_ = s.repo.DeleteSessions(txCtx, id)
 
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
-	}
-
-	return nil
+		if err := s.repo.Delete(txCtx, id); err != nil {
+			return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
+		}
+		return nil
+	})
 }
 
-// requireOtherActiveAdmin returns 409 user.last_admin when no active admin
-// other than id remains, so action on id would leave none.
+// requireOtherActiveAdmin returns 409 user.last_admin when id is the only
+// active admin, so action on id would leave none. It must run in the same
+// transaction as the write: the lock it takes is what serializes the check.
 func (s *UserService) requireOtherActiveAdmin(ctx context.Context, id int64, action string) error {
-	adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
+	adminIDs, err := s.repo.LockActiveAdminIDs(ctx)
 	if err != nil {
 		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
-	if adminCount == 0 {
+	if len(adminIDs) == 1 && adminIDs[0] == id {
 		return apperrors.Conflict("user.last_admin", "Cannot "+action+" the last admin user",
 			"Give another user the admin role first")
 	}
