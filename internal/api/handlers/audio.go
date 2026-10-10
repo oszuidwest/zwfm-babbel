@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -184,7 +186,17 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath); err != nil {
+	err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath)
+	switch {
+	case errors.Is(err, audio.ErrSilent):
+		// The audio service already logs the rejection at Warn.
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   "audio",
+			Code:    apperrors.CodeSilentAudio,
+			Message: "audio is silent or too quiet; check the recording level and input channel",
+		})
+		return
+	case err != nil:
 		handleServiceError(c, err, "Story")
 		return
 	}

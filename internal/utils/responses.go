@@ -74,7 +74,7 @@ func CreatedWithMessage(c *gin.Context, message string) {
 // RFC 9457 Problem Details compatible error response functions.
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
-func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.FieldError) {
+func ProblemValidationError(c *gin.Context, detail string, errors ...apperrors.FieldError) {
 	ProblemCustom(c, ProblemTypeValidationError, "Validation Error", http.StatusUnprocessableEntity, detail, errors...)
 }
 
@@ -96,7 +96,7 @@ func ProblemInternalServer(c *gin.Context, detail string) {
 }
 
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
-func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.FieldError) {
+func ProblemBadRequestValidationError(c *gin.Context, detail string, errors ...apperrors.FieldError) {
 	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 

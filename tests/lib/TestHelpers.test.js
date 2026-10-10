@@ -227,8 +227,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: true
-      }),
-      [10]
+      })
     );
     expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
       2,
@@ -240,8 +239,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: false
-      }),
-      [10]
+      })
     );
     expect(stories).toEqual([{ id: 1 }, { id: 2 }]);
   });
@@ -306,8 +304,7 @@ describe('TestHelpers', () => {
         weekdays: 127,
         status: 'active',
         is_breaking: true
-      }),
-      [10]
+      })
     );
     expect(fixture).toEqual({
       station: { id: 10, name: 'Station' },

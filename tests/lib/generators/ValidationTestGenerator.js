@@ -150,20 +150,6 @@ function generateValidationTests(schema, setupFn = null) {
       });
     }
 
-    const arrayFields = Object.entries(fields).filter(([_, rules]) => rules.type === 'array');
-    if (arrayFields.length > 0) {
-      describe('Array Field Validation', () => {
-        arrayFields.forEach(([fieldName, rules]) => {
-          if (rules.required) {
-            rejectCase(`when ${fieldName} empty array, then returns 422`, `empty-array-${fieldName}`, data => { data[fieldName] = []; },
-              { field: fieldName });
-          }
-          rejectCase(`when ${fieldName} not array, then returns 400`, `non-array-${fieldName}`, data => { data[fieldName] = 'not an array'; },
-            { field: fieldName, code: 'invalid_type', status: 400 });
-        });
-      });
-    }
-
     describe('Error Response Format', () => {
       test('when validation fails, then error follows RFC 9457', async () => {
         const response = await expectPostStatus({}, 422);

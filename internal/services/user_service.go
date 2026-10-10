@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -39,17 +40,14 @@ func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPoli
 	}
 }
 
-// maxPasswordBytes is the longest password bcrypt accepts.
-const maxPasswordBytes = 72
-
 // Validate checks whether password satisfies the configured policy and returns
 // a ValidationError for the password field.
 func (p PasswordPolicy) Validate(password string) error {
 	if utf8.RuneCountInString(password) < p.MinLength {
 		return apperrors.Invalid("password", apperrors.CodeTooShort, fmt.Sprintf("must be at least %d characters", p.MinLength))
 	}
-	if len(password) > maxPasswordBytes {
-		return apperrors.Invalid("password", apperrors.CodeTooLong, fmt.Sprintf("must be at most %d bytes", maxPasswordBytes))
+	if len(password) > config.MaxPasswordBytes {
+		return apperrors.Invalid("password", apperrors.CodeTooLong, fmt.Sprintf("must be at most %d bytes", config.MaxPasswordBytes))
 	}
 
 	var hasUpper, hasLower, hasNumber, hasSpecial bool

@@ -8,9 +8,6 @@ const ELEVENLABS_VOICE_ID = process.env.BABBEL_TEST_ELEVENLABS_VOICE_ID || null;
 const NONEXISTENT_STORY_ID = 2147483647;
 
 describe('TTS', () => {
-  // Shared test station (only created when TTS tests actually run)
-  let testStationId = null;
-
   // Helper to create a voice with optional ElevenLabs voice ID
   const createVoice = async (baseName, elevenLabsVoiceId = null) => {
     const payload = { name: global.helpers.uniqueName(baseName) };
@@ -52,15 +49,6 @@ describe('TTS', () => {
       global.helpers.cleanupTempFile(audioPath);
     }
   };
-
-  beforeAll(async () => {
-    // Only create test resources when TTS-dependent tests will actually run
-    if (TTS_ENABLED) {
-      const station = await global.helpers.createStation(global.resources, 'TTS Test Station');
-      expect(station).not.toBeNull();
-      testStationId = station.id;
-    }
-  });
 
   // Runs when TTS is disabled (default / CI)
   (TTS_ENABLED ? describe.skip : describe)('TTS Disabled', () => {

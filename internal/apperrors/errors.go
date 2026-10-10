@@ -156,9 +156,6 @@ func InvalidWithCause(field, code, message string, cause error) *ValidationError
 
 // InvalidFields creates a ValidationError from one or more field errors.
 func InvalidFields(errs []FieldError) *ValidationError {
-	if len(errs) == 0 {
-		panic("apperrors: InvalidFields requires at least one field error")
-	}
 	return &ValidationError{Errors: errs}
 }
 

@@ -98,7 +98,7 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 
 	maxAgeSeconds, fieldErr := parseMaxAge(c.Query("max_age"))
 	if fieldErr != nil {
-		utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.FieldError{*fieldErr})
+		utils.ProblemQueryValidation(c, "Invalid query parameter", *fieldErr)
 		return nil
 	}
 

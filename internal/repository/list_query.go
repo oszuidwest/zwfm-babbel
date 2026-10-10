@@ -59,7 +59,7 @@ type SortField struct {
 }
 
 // FilterOperator names a filter operator. Values equal the public query
-// operator names because InvalidFilterError echoes them in 422 field labels.
+// operator names.
 type FilterOperator string
 
 const (

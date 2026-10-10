@@ -366,7 +366,7 @@ func TestBindJSON_Paths(t *testing.T) {
 	t.Run("anonymous request struct", func(t *testing.T) {
 		t.Parallel()
 		bindCase[struct {
-			Status *string `json:"status" binding:"omitempty,story_status"`
+			Status *string `json:"status" binding:"omitempty,oneof=draft active expired"`
 		}](t, `{"status":"bogus"}`, bindExpect{status: 422, field: "status", code: "invalid_choice"})
 	})
 }

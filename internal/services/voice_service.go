@@ -102,7 +102,7 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 // Delete removes a voice only when no stories or station-voice relationships
 // depend on it.
 func (s *VoiceService) Delete(ctx context.Context, id int64) error {
-	if err := requireExists(ctx, s.repo.Exists, "Voice", "Voice", id); err != nil {
+	if err := requireExists(ctx, s.repo.Exists, "Voice", id); err != nil {
 		return err
 	}
 

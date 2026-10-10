@@ -307,7 +307,6 @@ class TestHelpers {
    * @returns {Promise<Array<{id: number}>|null>}
    */
   async createStationStoriesWithReadyAudio(resourceManager, stationId, voiceId, stories) {
-    const safeStationId = parseSafeInteger(stationId, 'station ID');
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
     const created = [];
 
@@ -317,7 +316,7 @@ class TestHelpers {
         weekdays: 127,
         status: 'active',
         ...story
-      }, [safeStationId]);
+      });
 
       if (!createdStory) {
         return null;
@@ -454,7 +453,7 @@ class TestHelpers {
       ...storyOverrides
     };
 
-    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData, [station.id]);
+    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData);
 
     return { station, voice, stationVoice, story };
   }

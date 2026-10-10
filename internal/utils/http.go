@@ -24,7 +24,6 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/datatypes"
 )
@@ -36,24 +35,18 @@ const maxJSONRequestBodyBytes int64 = 1 << 20
 func IDParam(c *gin.Context) (int64, bool) {
 	raw := c.Param("id")
 	id, err := strconv.ParseInt(raw, 10, 64)
-	switch {
-	case err != nil && errors.Is(err, strconv.ErrRange):
-		ProblemValidationError(c, "Invalid path parameter", []apperrors.FieldError{{
-			Field: "id", Code: apperrors.CodeOutOfRange, Message: "must be a positive 64-bit integer",
-		}})
-		return 0, false
-	case err != nil:
-		ProblemValidationError(c, "Invalid path parameter", []apperrors.FieldError{{
-			Field: "id", Code: apperrors.CodeInvalidFormat, Message: fmt.Sprintf("expected integer, got %q", raw),
-		}})
-		return 0, false
-	case id <= 0:
-		ProblemValidationError(c, "Invalid path parameter", []apperrors.FieldError{{
-			Field: "id", Code: apperrors.CodeOutOfRange, Message: "must be a positive integer",
-		}})
-		return 0, false
+	if err == nil && id > 0 {
+		return id, true
 	}
-	return id, true
+	fe := apperrors.FieldError{Field: "id", Code: apperrors.CodeOutOfRange, Message: "must be a positive integer"}
+	switch {
+	case errors.Is(err, strconv.ErrRange):
+		fe.Message = "must be a positive 64-bit integer"
+	case err != nil:
+		fe.Code, fe.Message = apperrors.CodeInvalidFormat, fmt.Sprintf("expected integer, got %q", raw)
+	}
+	ProblemValidationError(c, "Invalid path parameter", fe)
+	return 0, false
 }
 
 const maxAudioUploadBytes = 100 * 1024 * 1024
@@ -73,13 +66,13 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		case tooLarge:
 			ProblemPayloadTooLarge(c)
 		case errors.Is(err, http.ErrMissingFile):
-			ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+			ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 				Field: field, Code: apperrors.CodeRequired, Message: "file is required",
-			}})
+			})
 		default:
-			ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", []apperrors.FieldError{{
+			ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
 				Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidFormat, Message: err.Error(),
-			}})
+			})
 		}
 		return "", nil, false
 	}
@@ -97,11 +90,11 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 	}
 	if ext := strings.ToLower(filepath.Ext(header.Filename)); !slices.Contains(audioUploadExtensions, ext) {
 		closeFile()
-		ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeUnsupported,
 			Message: fmt.Sprintf("unsupported file type %q; use one of %s", ext, strings.Join(audioUploadExtensions, ", ")),
-		}})
+		})
 		return "", nil, false
 	}
 
@@ -221,7 +214,7 @@ type StoryCreateRequest struct {
 	Title     string `json:"title" binding:"required,notblank,max=500"`
 	Text      string `json:"text" binding:"required,notblank"`
 	VoiceID   *int64 `json:"voice_id" binding:"omitempty,min=1"`
-	Status    string `json:"status" binding:"omitempty,story_status"`
+	Status    string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate string `json:"start_date" binding:"required,dateformat"`
 	EndDate   string `json:"end_date" binding:"required,dateformat"`
 	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
@@ -243,7 +236,7 @@ type StoryUpdateRequest struct {
 	Title     *string `json:"title" binding:"omitempty,notblank,max=500"`
 	Text      *string `json:"text" binding:"omitempty,notblank"`
 	VoiceID   *int64  `json:"voice_id" binding:"omitempty,min=1"`
-	Status    *string `json:"status" binding:"omitempty,story_status"`
+	Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
 	StartDate *string `json:"start_date" binding:"omitempty,dateformat"`
 	EndDate   *string `json:"end_date" binding:"omitempty,dateformat"`
 	// Weekdays is a bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64.
@@ -299,11 +292,11 @@ func RequireAnyField[T comparable](c *gin.Context, req T) bool {
 	if req != zero {
 		return true
 	}
-	ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+	ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 		Field:   apperrors.FieldRequest,
 		Code:    apperrors.CodeEmptyUpdate,
 		Message: "At least one field must be provided",
-	}})
+	})
 	return false
 }
 
@@ -327,7 +320,7 @@ func bindJSON(c *gin.Context, req any, optional bool) bool {
 			ProblemPayloadTooLarge(c)
 			return false
 		}
-		problemInvalidJSON(c, apperrors.CodeInvalidJSON, apperrors.FieldRequest, "request body could not be read")
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidJSON, Message: "request body could not be read"})
 		return false
 	}
 
@@ -335,15 +328,14 @@ func bindJSON(c *gin.Context, req any, optional bool) bool {
 	switch {
 	case len(body) == 0 && optional:
 	case len(body) == 0:
-		problemInvalidJSON(c, apperrors.CodeRequired, apperrors.FieldRequest, "request body is required")
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeRequired, Message: "request body is required"})
 		return false
 	case body[0] != '{':
-		problemInvalidJSON(c, apperrors.CodeInvalidType, apperrors.FieldRequest, "request body must be a JSON object")
+		problemInvalidJSON(c, apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidType, Message: "request body must be a JSON object"})
 		return false
 	default:
 		if err := jsonv2.Unmarshal(body, req, jsonv2.RejectUnknownMembers(true)); err != nil {
-			fe := decodeFieldError(err)
-			problemInvalidJSON(c, fe.Code, fe.Field, fe.Message)
+			problemInvalidJSON(c, decodeFieldError(err))
 			return false
 		}
 	}
@@ -353,15 +345,14 @@ func bindJSON(c *gin.Context, req any, optional bool) bool {
 	}
 
 	if err := binding.Validator.ValidateStruct(req); err != nil {
-		ProblemValidationError(c, "The request contains invalid data", convertValidationErrors(err))
+		ProblemValidationError(c, "The request contains invalid data", convertValidationErrors(err)...)
 		return false
 	}
 	return true
 }
 
-func problemInvalidJSON(c *gin.Context, code, field, message string) {
-	ProblemBadRequestValidationError(c, "Request body is not valid JSON for this endpoint",
-		[]apperrors.FieldError{{Field: field, Code: code, Message: message}})
+func problemInvalidJSON(c *gin.Context, fe apperrors.FieldError) {
+	ProblemBadRequestValidationError(c, "Request body is not valid JSON for this endpoint", fe)
 }
 
 // decodeFieldError classifies a JSON decoding error at the JSON path where it
@@ -383,12 +374,8 @@ func decodeFieldError(err error) apperrors.FieldError {
 			Message: fmt.Sprintf("expected %s", expectedJSONType(goType)),
 		}
 	}
-	if syntactic, ok := errors.AsType[*jsontext.SyntacticError](err); ok {
-		field := jsonPath(syntactic.JSONPointer)
-		if errors.Is(err, jsontext.ErrDuplicateName) {
-			return apperrors.FieldError{Field: field, Code: apperrors.CodeDuplicate, Message: "duplicate field"}
-		}
-		return apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidJSON, Message: syntactic.Error()}
+	if syntactic, ok := errors.AsType[*jsontext.SyntacticError](err); ok && errors.Is(err, jsontext.ErrDuplicateName) {
+		return apperrors.FieldError{Field: jsonPath(syntactic.JSONPointer), Code: apperrors.CodeDuplicate, Message: "duplicate field"}
 	}
 	return apperrors.FieldError{Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidJSON, Message: err.Error()}
 }
@@ -491,9 +478,6 @@ func describeValidationError(e validator.FieldError) (code, message string) {
 		return apperrors.CodeOutOfRange, "must be at most " + param
 	case "oneof":
 		return apperrors.CodeInvalidChoice, "must be one of: " + strings.ReplaceAll(param, " ", ", ")
-	case "story_status":
-		return apperrors.CodeInvalidChoice, fmt.Sprintf("must be one of: %s, %s, %s",
-			models.StoryStatusDraft, models.StoryStatusActive, models.StoryStatusExpired)
 	case "email":
 		return apperrors.CodeInvalidFormat, "must be a valid email address"
 	case "alphanum":

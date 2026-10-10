@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -123,7 +122,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
 		logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, validation.Unwrap())
-		utils.ProblemValidationError(c, "The request contains invalid data", validation.Errors)
+		utils.ProblemValidationError(c, "The request contains invalid data", validation.Errors...)
 		return
 	}
 
@@ -179,16 +178,6 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
-	// Only uploaded story audio reaches here; TTS reports silence as an upstream failure.
-	if errors.Is(err, audio.ErrSilent) {
-		utils.ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
-			Field:   "audio",
-			Code:    apperrors.CodeSilentAudio,
-			Message: "audio is silent or too quiet; check the recording level and input channel",
-		}})
-		return true
-	}
-
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
@@ -261,7 +250,7 @@ func handleQueryShapeError(c *gin.Context, err error) bool {
 	} else {
 		return false
 	}
-	utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.FieldError{invalid})
+	utils.ProblemQueryValidation(c, "Invalid query parameter", invalid)
 	return true
 }
 

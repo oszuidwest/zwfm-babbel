@@ -145,15 +145,6 @@ const (
 	RoleViewer UserRole = "viewer"
 )
 
-// IsValid reports whether the role is valid.
-func (r UserRole) IsValid() bool {
-	switch r {
-	case RoleAdmin, RoleEditor, RoleViewer:
-		return true
-	}
-	return false
-}
-
 // Bulletin represents a completed audio bulletin generated from multiple stories.
 type Bulletin struct {
 	ID        int64  `gorm:"primaryKey;autoIncrement" json:"id"`

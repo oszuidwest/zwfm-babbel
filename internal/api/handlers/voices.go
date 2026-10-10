@@ -74,7 +74,7 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	updateReq := &services.UpdateVoiceRequest{
 		Name:                   req.Name,
 		ElevenLabsVoiceID:      req.ElevenLabsVoiceID.Value,
-		ClearElevenLabsVoiceID: req.ElevenLabsVoiceID.Set && req.ElevenLabsVoiceID.Value == nil,
+		ClearElevenLabsVoiceID: req.ElevenLabsVoiceID.IsClearing(),
 	}
 
 	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)

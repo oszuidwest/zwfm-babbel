@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
 // InitializeValidators registers the validation tags used by request structs
@@ -31,10 +30,6 @@ func InitializeValidators() {
 		panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
 	}
 
-	if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
-		panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
-	}
-
 	if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register dateformat validator: %v", err))
 	}
@@ -45,13 +40,6 @@ func InitializeValidators() {
 func notBlankValidator(fl validator.FieldLevel) bool {
 	value := fl.Field().String()
 	return strings.TrimSpace(value) != ""
-}
-
-// storyStatusValidator validates that a story status is one of the allowed values.
-// Ensures story status integrity by restricting to: draft, active, expired.
-func storyStatusValidator(fl validator.FieldLevel) bool {
-	status := models.StoryStatus(fl.Field().String())
-	return status.IsValid()
 }
 
 // dateFormatValidator validates date strings are in YYYY-MM-DD format. Absent

@@ -153,7 +153,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status    *string `json:"status" binding:"omitempty,story_status"`
+		Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
 		DeletedAt *string `json:"deleted_at"`
 	}
 	if !utils.BindJSON(c, &req) {
@@ -162,18 +162,18 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	switch {
 	case req.Status == nil && req.DeletedAt == nil:
-		utils.ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeEmptyUpdate,
 			Message: "Provide status or deleted_at",
-		}})
+		})
 		return
 	case req.Status != nil && req.DeletedAt != nil:
-		utils.ProblemValidationError(c, "The request contains invalid data", []apperrors.FieldError{{
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeUnsupported,
 			Message: "status and deleted_at cannot be combined",
-		}})
+		})
 		return
 	}
 
@@ -223,9 +223,9 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 	if raw, present := c.GetQuery("force"); present {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
-			utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.FieldError{{
+			utils.ProblemQueryValidation(c, "Invalid query parameter", apperrors.FieldError{
 				Field: "force", Code: apperrors.CodeInvalidFormat, Message: fmt.Sprintf("expected boolean, got %q", raw),
-			}})
+			})
 			return
 		}
 		force = parsed
