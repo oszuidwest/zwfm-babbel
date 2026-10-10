@@ -1,7 +1,9 @@
 package audio
 
 import (
+	"errors"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -90,8 +92,29 @@ func TestStoryNormalizationFilter(t *testing.T) {
 	if got := storyNormalizationFilter(short); got != monoDownmixFilter+","+loudnessNormalizationFilter {
 		t.Fatalf("storyNormalizationFilter(short clip) = %q, want normalization without measurements", got)
 	}
-	if got := storyNormalizationFilter(loudnormStats{TruePeak: math.Inf(-1)}); got != "" {
-		t.Fatalf("storyNormalizationFilter(silence) = %q, want no filter", got)
+}
+
+func TestLoudnormStatsTooQuiet(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		stats loudnormStats
+		want  bool
+	}{
+		{name: "silence", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: math.Inf(-1)}, want: true},
+		{name: "below floor", stats: loudnormStats{Integrated: -50.01, TruePeak: -30}, want: true},
+		{name: "at floor", stats: loudnormStats{Integrated: -50, TruePeak: -30}},
+		{name: "normal", stats: loudnormStats{Integrated: -19.76, TruePeak: -1}},
+		{name: "short clip without integrated loudness", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: -1}},
+		{name: "below loudness gate", stats: loudnormStats{Integrated: math.Inf(-1), TruePeak: -73}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tt.stats.tooQuiet(); got != tt.want {
+				t.Fatalf("tooQuiet(%+v) = %v, want %v", tt.stats, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -249,20 +272,43 @@ func TestService_ConvertStoryToWAVLimitsShortClip(t *testing.T) {
 	}
 }
 
-func TestService_ConvertStoryToWAVPassesSilenceThrough(t *testing.T) {
+func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
-
 	tempDir := t.TempDir()
-	inputPath := filepath.Join(tempDir, "silence.wav")
-	outputPath := filepath.Join(tempDir, "story-output.wav")
-	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=1", "-y", inputPath)
 
-	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); err != nil {
-		t.Fatalf("ConvertStoryToWAV error: %v", err)
+	// Clips shorter than 400 ms have no integrated loudness measurement.
+	silence := filepath.Join(tempDir, "silence.wav")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=0.1", "-y", silence)
+	assertRejectedAsSilent(t, svc, silence)
+
+	quietSine := func(volume string) string {
+		path := filepath.Join(tempDir, volume+".wav")
+		runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
+			"-af", "volume="+volume, "-c:a", "pcm_f32le", "-y", path)
+		return path
 	}
-	if !measureLoudness(t, ffmpegPath, outputPath).silent() {
-		t.Fatal("converted silence is not silent")
+
+	// About -52 LUFS, below the acceptance floor.
+	assertRejectedAsSilent(t, svc, quietSine("-31dB"))
+	// Below the -70 LUFS gate; rejection relies on true peak.
+	assertRejectedAsSilent(t, svc, quietSine("-70dB"))
+
+	// About -48 LUFS, above the acceptance floor.
+	outputPath := filepath.Join(tempDir, "output.wav")
+	if _, _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-27dB"), outputPath); err != nil {
+		t.Fatalf("ConvertStoryToWAV(above floor) error: %v", err)
+	}
+}
+
+func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
+	t.Helper()
+	outputPath := filepath.Join(t.TempDir(), "output.wav")
+	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); !errors.Is(err, ErrSilent) {
+		t.Fatalf("ConvertStoryToWAV(%s) error = %v, want ErrSilent", filepath.Base(inputPath), err)
+	}
+	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("output file stat error = %v, want no file", err)
 	}
 }
 

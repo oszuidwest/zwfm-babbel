@@ -113,16 +113,15 @@ func (r *StationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audi
 	return r.UpdateByID(ctx, id, map[string]any{"audio_file": audioFile})
 }
 
-// stationVoiceFieldMapping maps API field names to database columns for filtering/sorting.
 var stationVoiceFieldMapping = FieldMapping{
-	"id":         "station_voices.id",
-	"station_id": "station_voices.station_id",
-	"voice_id":   "station_voices.voice_id",
-	"audio_url":  "station_voices.audio_file", // Maps API field to DB column for filtering
-	"has_audio":  "station_voices.audio_file",
-	"mix_point":  "station_voices.mix_point",
-	"created_at": "station_voices.created_at",
-	"updated_at": "station_voices.updated_at",
+	"id":         {Column: "station_voices.id", Type: filterInteger},
+	"station_id": {Column: "station_voices.station_id", Type: filterInteger},
+	"voice_id":   {Column: "station_voices.voice_id", Type: filterInteger},
+	"audio_url":  {Column: "station_voices.audio_file", Type: filterString},
+	"has_audio":  {Column: "(COALESCE(station_voices.audio_file, '') != '')", Type: filterPresence},
+	"mix_point":  {Column: "station_voices.mix_point", Type: filterNumber},
+	"created_at": {Column: "station_voices.created_at", Type: filterDateTime},
+	"updated_at": {Column: "station_voices.updated_at", Type: filterDateTime},
 }
 
 // List retrieves a paginated list of station-voice relationships with their

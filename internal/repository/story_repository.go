@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -55,8 +56,8 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Text:       data.Text,
 		VoiceID:    data.VoiceID,
 		Status:     models.StoryStatus(data.Status),
-		StartDate:  data.StartDate,
-		EndDate:    data.EndDate,
+		StartDate:  models.Date(data.StartDate),
+		EndDate:    models.Date(data.EndDate),
 		Weekdays:   data.Weekdays,
 		IsBreaking: data.IsBreaking,
 		Metadata:   data.Metadata,
@@ -79,6 +80,33 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 // GetByID loads a story with its associated voice.
 func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
 	return r.GetByIDWithPreload(ctx, id, "Voice")
+}
+
+// GetByIDForWrite loads a story with its voice before a write, distinguishing deleted rows.
+func (r *StoryRepository) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
+	story, err := r.GetByID(ctx, id)
+	return story, r.classifyWriteError(ctx, id, err)
+}
+
+// UpdateByID reports writes to deleted stories as StoryDeletedError.
+func (r *StoryRepository) UpdateByID(ctx context.Context, id int64, updates any) error {
+	return r.classifyWriteError(ctx, id, r.GormRepository.UpdateByID(ctx, id, updates))
+}
+
+// classifyWriteError checks deletion only after a scoped operation misses.
+func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err error) error {
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	var story models.Story
+	db := DBFromContext(ctx, r.db)
+	if lookupErr := db.WithContext(ctx).Unscoped().Select("deleted_at").First(&story, id).Error; lookupErr != nil {
+		return ParseDBError(lookupErr)
+	}
+	if story.DeletedAt.Valid {
+		return &StoryDeletedError{ID: id, DeletedAt: story.DeletedAt.Time}
+	}
+	return err
 }
 
 // Update applies non-nil story fields. A voice change only applies while the
@@ -147,14 +175,18 @@ func (r *StoryRepository) guardedUpdate(ctx context.Context, id int64, updates m
 		return err
 	}
 	if !exists {
-		return ErrNotFound
+		return r.classifyWriteError(ctx, id, ErrNotFound)
 	}
 	return ErrStateConflict
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
 func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
-	return r.Delete(ctx, id)
+	err := r.classifyWriteError(ctx, id, r.Delete(ctx, id))
+	if _, ok := errors.AsType[*StoryDeletedError](err); ok {
+		return nil
+	}
+	return err
 }
 
 // Restore clears the deleted_at timestamp.
@@ -194,30 +226,28 @@ func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, 
 	return result.RowsAffected, nil
 }
 
-// storyFieldMapping maps API field names to database columns for stories.
 var storyFieldMapping = FieldMapping{
-	"id":               "id",
-	"title":            "title",
-	"text":             "text",
-	"voice_id":         "voice_id",
-	"audio_url":        "audio_file", // Maps API field to DB column for filtering
-	"has_audio":        "audio_file",
-	"status":           "status",
-	"start_date":       "start_date",
-	"end_date":         "end_date",
-	"duration_seconds": "duration_seconds",
-	"weekdays":         "weekdays",
-	"is_breaking":      "is_breaking",
-	"created_at":       "created_at",
-	"updated_at":       "updated_at",
-	"deleted_at":       "deleted_at",
+	"id":               {Column: "id", Type: filterInteger},
+	"title":            {Column: "title", Type: filterString},
+	"text":             {Column: "text", Type: filterString},
+	"voice_id":         {Column: "voice_id", Type: filterInteger, Nullable: true},
+	"audio_url":        {Column: "audio_file", Type: filterString},
+	"has_audio":        {Column: "(COALESCE(audio_file, '') != '')", Type: filterPresence},
+	"status":           {Column: "status", Type: filterEnum, Enum: []string{string(models.StoryStatusDraft), string(models.StoryStatusActive), string(models.StoryStatusExpired)}},
+	"start_date":       {Column: "start_date", Type: filterDate},
+	"end_date":         {Column: "end_date", Type: filterDate},
+	"duration_seconds": {Column: "duration_seconds", Type: filterNumber, Nullable: true},
+	"weekdays":         {Column: "weekdays", Type: filterBitmask},
+	"is_breaking":      {Column: "is_breaking", Type: filterBoolean},
+	"created_at":       {Column: "created_at", Type: filterDateTime},
+	"updated_at":       {Column: "updated_at", Type: filterDateTime},
+	"deleted_at":       {Column: "deleted_at", Type: filterDateTime, Nullable: true},
 }
 
-// storySearchFields defines which fields are searchable for stories.
 var storySearchFields = []string{"title", "text"}
 
 // List retrieves stories with filtering, sorting, and pagination.
-// Supports soft delete filtering via Trashed field: "", "only", or "with".
+// query.Trashed controls inclusion of soft-deleted stories.
 func (r *StoryRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.Story], error) {
 	if query == nil {
 		query = NewListQuery()
@@ -235,39 +265,27 @@ type BulletinStoryData struct {
 	MixPoint float64 `gorm:"column:mix_point"`
 }
 
-// GetStoriesForBulletin retrieves eligible stories for bulletin generation.
-// Returns stories with station-specific mix point data needed for audio processing.
+// GetStoriesForBulletin selects up to limit stories with station-specific mix points.
+// Eligible stories are active, have audio and a voice linked to the station,
+// and are scheduled for date and its weekday.
 //
-// Stories must meet ALL criteria to be eligible:
-//   - Status is 'active' (excludes 'draft' and 'expired')
-//   - Has audio file uploaded
-//   - Has voice assigned with station-voice relationship
-//   - Current date is within start_date and end_date range
-//   - Current weekday matches the story's weekday schedule
+// Breaking stories take priority, then unused stories, then least recently used.
+// Breaking and unused stories prefer newer start dates; remaining ties are random.
+// Usage is tracked per station from midnight in date's location.
 //
-// Selection priority (determines which stories fill available slots):
-//  1. Breaking news stories are selected first (newest by start_date preferred)
-//  2. Unused stories today get next priority (newest by start_date preferred)
-//  3. If all stories were used today, least-recently-used ones are selected
-//  4. RAND() as final tiebreaker for variety
-//
-// Breaking stories consume slots from the station's limit. Playback order is
-// randomized by the caller; this function only determines which stories are selected.
-// The rotation resets daily at local midnight and is isolated per station.
+// Breaking stories count toward limit. The caller determines playback order.
 func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID int64, date time.Time, limit int) ([]BulletinStoryData, error) {
 	var stories []BulletinStoryData
 
 	// time.Weekday is always in range [0,6], safe to convert to uint8.
 	weekdayBit := 1 << uint8(date.Weekday()) // #nosec G115
 
-	todayLocal := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	todayLocal := startOfDay(date)
 
-	// MySQL DATE comparisons should receive date strings, not instants that can
-	// be shifted by timezone conversion.
+	// A date string avoids timezone conversion in MySQL DATE comparisons.
 	dateStr := date.Format("2006-01-02")
 
-	// Subquery to find when each story was last used in a bulletin for this station today.
-	// Returns NULL if story hasn't been used today, otherwise the most recent usage timestamp.
+	// NULL marks stories unused by this station since local midnight.
 	lastUsedSubquery := `(
 		SELECT MAX(b.created_at)
 		FROM bulletin_stories bs
@@ -277,15 +295,6 @@ func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 		  AND b.created_at >= ?
 	)`
 
-	// Build the query with breaking news priority + fair rotation ordering:
-	// 1. is_breaking DESC                 → breaking stories selected first
-	// 2. CASE for breaking: start_date DESC → among breaking, newest preferred
-	// 3. last_used_today IS NULL DESC     → then unused stories
-	// 4. CASE for unused: start_date DESC → among unused, newest preferred
-	// 5. last_used_today ASC              → then least-recently-used stories
-	// 6. RAND()                           → variety within equal priority
-	//
-	// Breaking stories consume slots from the limit just like regular stories.
 	err := r.db.WithContext(ctx).
 		Model(&models.Story{}).
 		Select("stories.*, sv.mix_point, "+lastUsedSubquery+" as last_used_today", stationID, todayLocal).

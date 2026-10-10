@@ -4,12 +4,50 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
+
+func TestStoryService_VoiceAndAudioWritesPreserveDeletedError(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name  string
+		write func(*StoryService) error
+	}{
+		{name: "voice update", write: func(s *StoryService) error {
+			_, err := s.Update(t.Context(), 99, &UpdateStoryRequest{VoiceID: new(int64(9))})
+			return err
+		}},
+		{name: "upload preparation", write: func(s *StoryService) error {
+			_, err := s.PrepareAudio(t.Context(), 99, new(int64(9)))
+			return err
+		}},
+		{name: "tts override", write: func(s *StoryService) error {
+			return s.GenerateTTS(t.Context(), 99, new(int64(9)), true)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			deleted := &repository.StoryDeletedError{ID: 99, DeletedAt: time.Now()}
+			svc := &StoryService{storyRepo: &deletedStoryRepository{deleted: deleted}}
+			if err := tt.write(svc); !errors.Is(err, deleted) {
+				t.Fatalf("write error = %v, want deletion timestamp preserved", err)
+			}
+		})
+	}
+}
+
+type deletedStoryRepository struct {
+	storyRepository
+	deleted *repository.StoryDeletedError
+}
+
+func (r *deletedStoryRepository) GetByIDForWrite(context.Context, int64) (*models.Story, error) {
+	return nil, r.deleted
+}
 
 func TestStoryService_UpdateVoiceWithAudio(t *testing.T) {
 	newTitle := "Nieuwe titel"

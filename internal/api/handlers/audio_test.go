@@ -69,9 +69,7 @@ func TestValidateAudioRange_InvalidRange(t *testing.T) {
 			if recorder.Code != http.StatusRequestedRangeNotSatisfiable {
 				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusRequestedRangeNotSatisfiable)
 			}
-			if got := recorder.Header().Get("Content-Type"); got != "application/problem+json" {
-				t.Fatalf("Content-Type = %q, want %q", got, "application/problem+json")
-			}
+			decodeProblem(t, recorder)
 			if got := recorder.Header().Get("Content-Range"); got != tt.wantContentRange {
 				t.Fatalf("Content-Range = %q, want %q", got, tt.wantContentRange)
 			}

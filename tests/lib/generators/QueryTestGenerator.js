@@ -1,3 +1,5 @@
+const { getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
+
 /**
  * Generates list-query contract tests from a resource schema.
  * @param {Object} schema
@@ -6,6 +8,7 @@
 function generateQueryTests(schema, setupFn = null) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
+  const filters = getFilterContracts(endpoint);
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
   const expectStatus = async (qs, status = 200) => {
@@ -13,8 +16,7 @@ function generateQueryTests(schema, setupFn = null) {
     expect(response.status).toBe(status);
     return response;
   };
-  // Ignore nullish values in comparisons so sparse optional columns do not make
-  // resource-level query tests brittle.
+  // Optional fields may be absent from the fixtures.
   const valuesFor = (response, field) => (response.data.data || [])
     .map(item => item[field])
     .filter(value => value !== null && value !== undefined);
@@ -82,15 +84,15 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.filterableFields?.length > 0) {
       describe('Filtering', () => {
         query.filterableFields.forEach(field => {
-          // Boolean columns reject non-boolean filter values with 422, so
-          // they need boolean payloads. not=true excludes the TRUE rows and
-          // keeps matching the (default false) query fixtures.
-          const isBoolean = query.booleanFields?.includes(field);
-          const inValues = isBoolean ? 'true,false' : '1,2,3';
-          const notValue = isBoolean ? 'true' : '999999';
+          const contract = filters[field];
+          if (!contract) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
+          const examples = filterExamples(contract);
+          const [exactValue] = examples;
+          const notValue = examples.at(-1);
+          const inValues = examples.join(',');
           test.each([
-            [`when filtering ${field} exact, then matches`, `filter[${field}]=1`, null],
-            [`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null],
+            [`when filtering ${field} exact, then matches`, `filter[${field}]=${exactValue}`, null],
+            ...(contract.operators.in ? [[`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null]] : []),
             [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=${notValue}`, response => {
               expect(response.data.total).toBeGreaterThan(0);
               expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
@@ -105,7 +107,6 @@ function generateQueryTests(schema, setupFn = null) {
         const firstField = query.filterableFields[0];
         test.each([
           ['when filtering with unknown operator, then returns 422', `filter[${firstField}][unknown]=1`],
-          ['when filtering null with invalid boolean, then returns 422', `filter[${firstField}][null]=not-bool`],
           ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
           ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
         ])('%s', async (_name, qs) => {
@@ -113,15 +114,35 @@ function generateQueryTests(schema, setupFn = null) {
           await expectStatus(qs, 422);
         });
 
+        // Validation needs no matching fixture, so test every documented field.
+        for (const [field, contract] of Object.entries(filters)) {
+          if (contract.operators.null) {
+            test.each(['true', 'false'])(`when filtering ${field} with null=%s, then accepted`, async value => {
+              expect.hasAssertions();
+              await expectStatus(`filter[${field}][null]=${value}`);
+            });
+          }
+          test.each(invalidFilterCases(contract))(
+            `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
+            async (operator, value) => {
+              const key = `filter[${field}][${operator}]`;
+              const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
+              expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+              expect(response.data.errors[0].field).toBe(key);
+            }
+          );
+        }
+
         query.filterableFields
-          .filter(field => query.numericFields?.includes(field))
+          .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
           .forEach(field => {
+            const [low, high] = filterExamples(filters[field]).map(Number);
             test.each([
-              [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=1`, value => expect(value).toBeGreaterThanOrEqual(1)],
-              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=999999`, value => expect(value).toBeLessThanOrEqual(999999)],
-              [`when filtering ${field} with between, then filters range`, `filter[${field}][between]=1,999999`, value => {
-                expect(value).toBeGreaterThanOrEqual(1);
-                expect(value).toBeLessThanOrEqual(999999);
+              [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=${low}`, value => expect(value).toBeGreaterThanOrEqual(low)],
+              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=${high}`, value => expect(value).toBeLessThanOrEqual(high)],
+              [`when filtering ${field} with between, then filters range`, `filter[${field}][between]=${low},${high}`, value => {
+                expect(value).toBeGreaterThanOrEqual(low);
+                expect(value).toBeLessThanOrEqual(high);
               }]
             ])('%s', async (_name, qs, verifyValue) => {
               expect.hasAssertions();

@@ -6,8 +6,7 @@ const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelp
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
   const stationBulletinsEndpoint = stationId => `/stations/${stationId}/bulletins`;
-  const enqueueBulletin = (stationId, body = {}) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
-  const generateBulletin = (stationId, body = {}) => global.helpers.generateBulletin(stationId, body);
+  const enqueueBulletin = (stationId, body) => global.api.apiCall('POST', stationBulletinsEndpoint(stationId), body);
   const postBulletinHttp = (stationId, options = {}) => global.api.http({
     method: 'post',
     url: `${global.api.apiUrl}${stationBulletinsEndpoint(stationId)}`,
@@ -46,7 +45,7 @@ describe('Bulletins', () => {
       storyText: 'Query test story'
     });
 
-    const response = await generateBulletin(station.id);
+    const response = await global.helpers.generateBulletin(station.id);
     // A failed fixture must fail the suite; pre-seeded rows would otherwise
     // keep the generated query tests green without exercising this data.
     expect(response.status).toBe(200);
@@ -75,7 +74,7 @@ describe('Bulletins', () => {
     test('when generating bulletin, then returns complete data', async () => {
       // Uses station setup from beforeAll
 
-      const response = await generateBulletin(stationId);
+      const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
       expect(response.data).toHaveProperty('id');
@@ -85,12 +84,11 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('filename');
     });
 
-    test('when generating with specific date, then succeeds', async () => {
-      const today = new Date().toISOString().split('T')[0];
+    test('when generating with date, then returns 422', async () => {
+      const response = await enqueueBulletin(stationId, { date: '2026-10-07' });
 
-      const response = await generateBulletin(stationId, { date: today });
-
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([{ field: 'date', message: 'date is no longer supported' }]);
     });
 
     test.each([
@@ -121,10 +119,10 @@ describe('Bulletins', () => {
     });
 
     test('when stories use different voices, then jingle context is stable across multiple bulletins', async () => {
-      // Regression: jingle context (voice + mix point) must come from the
-      // highest-priority story BEFORE the playback order is shuffled.
+      // Jingle context (voice + mix point) must come from the
+      // highest-priority story before the playback order is shuffled.
       // A single run has a 50% chance of passing by luck with 2 stories,
-      // so we generate multiple bulletins and assert ALL are consistent.
+      // so we generate multiple bulletins and assert all are consistent.
       // With 5 runs the false-pass probability drops to ~3%.
 
       // Two voices with very different mix points
@@ -165,7 +163,7 @@ describe('Bulletins', () => {
       const runs = 5;
       const durations = [];
       for (let i = 0; i < runs; i++) {
-        const response = await generateBulletin(station.id);
+        const response = await global.helpers.generateBulletin(station.id);
         expect(response.status).toBe(200);
         expect(response.data.story_count).toBe(2);
         durations.push(response.data.duration_seconds);
@@ -199,7 +197,7 @@ describe('Bulletins', () => {
         ]
       );
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
 
@@ -240,7 +238,7 @@ describe('Bulletins', () => {
       // Generate 5 bulletins - fair rotation will vary the non-breaking stories
       const runs = 5;
       for (let i = 0; i < runs; i++) {
-        const bulletinResponse = await generateBulletin(station.id);
+        const bulletinResponse = await global.helpers.generateBulletin(station.id);
         expect(bulletinResponse.status).toBe(200);
         expect(bulletinResponse.data.story_count).toBe(3);
 
@@ -285,7 +283,7 @@ describe('Bulletins', () => {
           { title: `BreakingEligRegular_${Date.now()}`, text: 'Eligible regular story', is_breaking: false }
         ]);
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
 
@@ -333,7 +331,7 @@ describe('Bulletins', () => {
         ]
       );
 
-      const bulletinResponse = await generateBulletin(station.id);
+      const bulletinResponse = await global.helpers.generateBulletin(station.id);
 
       expect(bulletinResponse.status).toBe(200);
       expect(bulletinResponse.data.story_count).toBe(2);
@@ -476,7 +474,7 @@ describe('Bulletins', () => {
         storyText: 'Bulletin stories endpoint test'
       });
 
-      const response = await generateBulletin(station.id);
+      const response = await global.helpers.generateBulletin(station.id);
       expect(response.status).toBe(200);
       bulletinId = response.data.id;
     });
@@ -537,7 +535,7 @@ describe('Bulletins', () => {
     test('when generating station bulletin, then succeeds', async () => {
       // Uses station setup from beforeAll
 
-      const response = await generateBulletin(stationId);
+      const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
     });
@@ -596,7 +594,7 @@ describe('Bulletins', () => {
       }
     });
 
-    test('when filtering by date range, then applies both bounds', async () => {
+    test('when filtering by date-time, then bounds and every spelling of an instant select the right rows', async () => {
       const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
       expect(station).not.toBeNull();
 
@@ -616,7 +614,7 @@ describe('Bulletins', () => {
           createdAt: '2024-01-21 12:00:00'
         }
       ];
-      const [beforeFilename, insideFilename, afterFilename] = rows.map(row => row.filename);
+      const [, insideFilename, afterFilename] = rows.map(row => row.filename);
       const filenameList = rows.map(row => sqlString(row.filename)).join(', ');
 
       const lowerBound = '2024-01-10 00:00:00';
@@ -625,6 +623,14 @@ describe('Bulletins', () => {
       const values = rows.map(row => (
         `(${stationId}, ${sqlString(row.filename)}, ${sqlString(row.filename)}, ${sqlString(row.createdAt)})`
       )).join(',');
+      const list = async filters => {
+        const response = await global.api.apiCall(
+          'GET',
+          `/bulletins?filter[station_id]=${stationId}&${filters}&sort=created_at&limit=10`
+        );
+        expect(response.status).toBe(200);
+        return response.data.data || [];
+      };
 
       try {
         mysql.execSQL(`INSERT INTO bulletins (station_id, filename, audio_file, created_at) VALUES ${values}`);
@@ -643,20 +649,33 @@ describe('Bulletins', () => {
           global.resources.track('bulletins', id);
         });
 
-        const response = await global.api.apiCall(
-          'GET',
-          `/bulletins?filter[station_id]=${stationId}&filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}&sort=created_at&limit=10`
-        );
+        const inside = await list(`filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}`);
+        expect(inside.map(b => b.filename)).toEqual([insideFilename]);
 
-        expect(response.status).toBe(200);
-        const filenames = new Set((response.data.data || []).map(b => b.filename));
+        // The inside row's instant as the API reports it, spelled in UTC, with
+        // an explicit offset, and as the server-local string it was inserted as.
+        // The stack runs in a non-UTC zone, so a misread offset misses the row.
+        const utc = new Date(inside[0].created_at).toISOString().replace('.000Z', 'Z');
+        for (const value of [utc, utc.replace('Z', '+00:00'), rows[1].createdAt]) {
+          expect((await list(`filter[created_at][eq]=${encodeURIComponent(value)}`)).map(b => b.filename)).toEqual([insideFilename]);
+        }
 
-        expect(filenames).toContain(insideFilename);
-        expect(filenames).not.toContain(beforeFilename);
-        expect(filenames).not.toContain(afterFilename);
+        // A comma fraction must not be truncated to the whole second.
+        expect((await list(`filter[created_at][gte]=${encodeURIComponent(`${rows[1].createdAt},5`)}`)).map(b => b.filename)).toEqual([afterFilename]);
       } finally {
         mysql.execSQL(`DELETE FROM bulletins WHERE station_id = ${stationId} AND filename IN (${filenameList})`);
       }
+    });
+
+    // The driver binds times in the server zone (Europe/Amsterdam here), so the
+    // bindable year range 1 to 9999 is checked after conversion.
+    test.each([
+      ['0001-01-01T00:00:00+14:00'],
+      ['9999-12-31T23:30:00Z']
+    ])('when filter[created_at][gte]=%s leaves the bindable year range in server time, then returns 422', async value => {
+      const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${encodeURIComponent(value)}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('filter[created_at][gte]');
     });
   });
 });

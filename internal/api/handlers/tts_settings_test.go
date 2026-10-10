@@ -3,7 +3,6 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -72,6 +71,11 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			wantField: "model",
 		},
 		{
+			name:      "model ID read only",
+			body:      `{"model_id":"eleven_v4"}`,
+			wantField: "model_id",
+		},
+		{
 			name:      "speaker boost unknown",
 			body:      `{"use_speaker_boost":true}`,
 			wantField: "use_speaker_boost",
@@ -106,7 +110,7 @@ func TestUpdateTTSSettings_StrictBindingUnknownFields(t *testing.T) {
 			if recorder.Code != http.StatusBadRequest {
 				t.Fatalf("status = %d, want 400: %s", recorder.Code, recorder.Body.String())
 			}
-			assertTTSSettingsErrorField(t, recorder, tt.wantField)
+			assertValidationField(t, recorder, tt.wantField)
 		})
 	}
 }
@@ -129,24 +133,4 @@ func performTTSSettingsHandlerRequest(
 
 	router.ServeHTTP(recorder, request)
 	return recorder
-}
-
-func assertTTSSettingsErrorField(t *testing.T, recorder *httptest.ResponseRecorder, want string) {
-	t.Helper()
-
-	var body struct {
-		Errors []struct {
-			Field   string `json:"field"`
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response JSON: %v; body=%s", err, recorder.Body.String())
-	}
-	if len(body.Errors) == 0 {
-		t.Fatalf("errors = %#v, want field %q", body.Errors, want)
-	}
-	if body.Errors[0].Field != want {
-		t.Fatalf("first field = %q, want %q; body=%s", body.Errors[0].Field, want, recorder.Body.String())
-	}
 }

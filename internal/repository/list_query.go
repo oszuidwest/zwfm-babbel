@@ -1,15 +1,46 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 )
 
-// FieldMapping maps API field names to database column names for security.
-type FieldMapping map[string]string
+// FieldMapping maps API field names to trusted columns and filter types.
+type FieldMapping map[string]FilterField
+
+// FilterField defines a list field's database column and accepted filter values.
+type FilterField struct {
+	Column   string
+	Type     filterType
+	Nullable bool
+	Enum     []string // Accepted values for filterEnum.
+}
+
+// filterType selects how filter values are validated and bound.
+type filterType string
+
+const (
+	filterString   filterType = "string"
+	filterInteger  filterType = "integer"
+	filterNumber   filterType = "number"
+	filterDate     filterType = "date"
+	filterDateTime filterType = "date-time"
+	filterBoolean  filterType = "boolean"
+	// filterBitmask is a 7-bit weekday mask and the only type that allows band.
+	filterBitmask filterType = "bitmask"
+	// filterEnum accepts only the field's Enum values.
+	filterEnum filterType = "enum"
+	// filterPresence is a boolean SQL expression that treats NULL and "" as
+	// absent. Only eq/ne apply, and applySorting rejects it.
+	filterPresence filterType = "presence"
+)
 
 // SortDirection represents ascending or descending sort order.
 type SortDirection string
@@ -27,15 +58,14 @@ type SortField struct {
 	Direction SortDirection
 }
 
-// FilterOperator represents comparison operators for filtering.
+// FilterOperator names a filter operator. Values equal the public query
+// operator names because InvalidFilterError echoes them in 422 field labels.
 type FilterOperator string
 
 const (
 	// FilterEquals selects records whose field equals the supplied value.
 	FilterEquals FilterOperator = "eq"
 	// FilterNotEquals selects records whose field differs from the supplied value.
-	// The value must match the public `ne` syntax: it is rendered verbatim in
-	// 422 error field labels like filter[has_audio][ne].
 	FilterNotEquals FilterOperator = "ne"
 	// FilterGreaterThan selects records whose field is greater than the supplied value.
 	FilterGreaterThan FilterOperator = "gt"
@@ -45,50 +75,46 @@ const (
 	FilterLessThan FilterOperator = "lt"
 	// FilterLessOrEq selects records whose field is less than or equal to the supplied value.
 	FilterLessOrEq FilterOperator = "lte"
-	// FilterLike selects records whose field matches a SQL LIKE pattern.
+	// FilterLike selects records whose field contains the supplied literal substring.
 	FilterLike FilterOperator = "like"
 	// FilterIn selects records whose field is one of the supplied values.
 	FilterIn FilterOperator = "in"
-	// FilterBetween selects records whose field falls within the supplied range.
+	// FilterBetween selects records whose field falls within the inclusive range.
 	FilterBetween FilterOperator = "between"
 	// FilterBitwiseAnd selects records whose bitmask field overlaps the supplied mask.
 	FilterBitwiseAnd FilterOperator = "band"
-	// FilterIsNull selects records whose field is NULL.
+	// FilterIsNull selects NULL records for value "true" and non-NULL records for "false".
 	FilterIsNull FilterOperator = "null"
-	// FilterIsNotNull selects records whose field is not NULL.
-	FilterIsNotNull FilterOperator = "not_null"
 )
 
-// FilterCondition represents a single filter condition.
+// FilterCondition holds a field, operator, and raw query values.
 type FilterCondition struct {
 	Field    string
 	Operator FilterOperator
-	Value    any
+	// Values holds the raw query values: one for scalar operators, two for
+	// between, one or more for in. FilterField.bind enforces the count.
+	Values []string
 }
 
-// UnknownFieldError indicates a query referenced a field that is not in the
-// resource's FieldMapping. Surfaced through handleServiceError as a structured
-// 422 response so the handler does not silently drop the clause.
+// UnknownFieldError reports a field that is unavailable for filtering or sorting.
 type UnknownFieldError struct {
 	Kind  string // "filter" or "sort"
 	Field string
 }
 
-// Error formats the unknown-field message used by repository list queries.
+// Error returns the unknown field message.
 func (e *UnknownFieldError) Error() string {
 	return fmt.Sprintf("unknown %s field %q", e.Kind, e.Field)
 }
 
-// InvalidFilterError indicates a filter condition could not be applied because
-// the value shape does not match the operator (e.g. LIKE with a non-string
-// value, BETWEEN without two values, BAND on a non-allowlisted field).
+// InvalidFilterError reports an unsupported operator or invalid filter values.
 type InvalidFilterError struct {
 	Field    string
 	Operator FilterOperator
 	Reason   string
 }
 
-// Error formats the invalid-filter message returned for malformed filter clauses.
+// Error returns the invalid filter message.
 func (e *InvalidFilterError) Error() string {
 	return fmt.Sprintf("invalid filter[%s][%s]: %s", e.Field, e.Operator, e.Reason)
 }
@@ -112,21 +138,18 @@ type ListResult[T any] struct {
 	Offset int
 }
 
-// NewListQuery creates a ListQuery with sensible defaults.
+// NewListQuery returns a query limited to the first 20 results.
 func NewListQuery() *ListQuery {
 	return &ListQuery{
 		Limit:  20,
 		Offset: 0,
-		// Trashed defaults to empty string (show only active/non-deleted)
 	}
 }
 
-// ApplyListQuery applies pagination, filtering, sorting, and search to a GORM query.
-// Returns a ListResult with the data and pagination info.
-// The fieldMapping is used to validate and map field names to prevent SQL injection.
-// searchFields are the database columns to search in when query.Search is set.
-// defaultSort specifies the default sort order when no user-provided sort fields are given.
-// It uses the same SortField type as user sorts and is validated against fieldMapping.
+// ApplyListQuery returns a filtered, sorted page and the total matching count.
+// A nil query uses [NewListQuery]. Field names and filter values are validated
+// against fieldMapping; searchFields must contain trusted database columns.
+// defaultSort applies when query.Sort is empty, skipping unmapped fields.
 func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort []SortField) (*ListResult[T], error) {
 	if query == nil {
 		query = NewListQuery()
@@ -166,58 +189,33 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 	}, nil
 }
 
-// bitwiseAllowedFields restricts bitwise operators to specific fields for security.
-var bitwiseAllowedFields = map[string]bool{
-	"weekdays": true,
+// dateTimeLayouts are the accepted date-time filter formats. Keep in sync
+// with DateTimeValue in openapi.yaml.
+var dateTimeLayouts = []string{time.RFC3339, time.DateTime, time.DateOnly}
+
+// comparisonSQL holds the WHERE fragments for the scalar operators that
+// applyFilterCondition does not special-case. Every operator allowsOperator
+// admits must appear here or in that switch.
+var comparisonSQL = map[FilterOperator]string{
+	FilterEquals:      " = ?",
+	FilterNotEquals:   " != ?",
+	FilterGreaterThan: " > ?",
+	FilterGreaterOrEq: " >= ?",
+	FilterLessThan:    " < ?",
+	FilterLessOrEq:    " <= ?",
 }
 
-// presenceFilterFields are virtual boolean filter fields: true selects rows
-// whose mapped column is non-empty ("" means absent). They are filter-only —
-// applySorting rejects them because ordering by the backing column would be
-// a meaningless lexicographic sort on file paths.
-var presenceFilterFields = map[string]bool{
-	"has_audio": true,
-}
-
-// booleanFilterFields are filter fields backed by BOOLEAN (TINYINT) columns.
-// MySQL coerces non-numeric strings to 0 in numeric comparisons, so a raw
-// "true" would silently match FALSE rows; values must be normalized to
-// "1"/"0" before binding.
-var booleanFilterFields = map[string]bool{
-	"is_breaking": true,
-}
-
-// operatorFormats maps filter operators to their SQL format strings.
-var operatorFormats = map[FilterOperator]string{
-	FilterEquals:      "%s = ?",
-	FilterNotEquals:   "%s != ?",
-	FilterGreaterThan: "%s > ?",
-	FilterGreaterOrEq: "%s >= ?",
-	FilterLessThan:    "%s < ?",
-	FilterLessOrEq:    "%s <= ?",
-	FilterIn:          "%s IN ?",
-	FilterBitwiseAnd:  "(%s & ?) != 0",
-}
-
-// likePatternEscaper escapes the LIKE metacharacters so user input is matched
-// literally. MySQL's LIKE treats % and _ as wildcards and \ as the default
-// escape character, so all three must be escaped. Backslash is listed first so
-// the replacer never re-escapes the escapes it just inserted.
+// likePatternEscaper escapes MySQL's LIKE wildcards and escape character.
 var likePatternEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// escapeLikePattern escapes LIKE wildcards in user input so a search for
-// "50%" or "a_b" matches literally instead of being interpreted as a pattern.
 func escapeLikePattern(s string) string {
 	return likePatternEscaper.Replace(s)
 }
 
-// likeEscapeClause makes the backslash escape character explicit so LIKE
-// matching does not depend on the server's default ESCAPE setting. The doubled
-// backslash is a MySQL string literal that resolves to a single backslash,
-// matching the escape character inserted by escapeLikePattern.
+// likeEscapeClause names the escape character explicitly. In a MySQL string
+// literal '\\' is a single backslash, the character likePatternEscaper inserts.
 const likeEscapeClause = ` ESCAPE '\\'`
 
-// applySearch attaches a search WHERE clause across all search fields.
 func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 	if search == "" || len(searchFields) == 0 {
 		return db
@@ -232,9 +230,8 @@ func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 	return db.Where(strings.Join(conditions, " OR "), args...)
 }
 
-// applySorting applies user sort with whitelist validation, falling back to
-// defaultSort when no user sort was provided. Default sort comes from trusted
-// server code and may legally reference columns that the API does not expose.
+// applySorting validates user sort fields or applies defaultSort when none are
+// given. Unmapped default fields are skipped.
 func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping FieldMapping) (*gorm.DB, error) {
 	if len(userSort) == 0 {
 		for _, sf := range defaultSort {
@@ -242,16 +239,16 @@ func applySorting(db *gorm.DB, userSort, defaultSort []SortField, fieldMapping F
 			if !ok {
 				continue
 			}
-			db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+			db = db.Order(dbField.Column + " " + sortDirectionSQL(sf.Direction))
 		}
 		return db, nil
 	}
 	for _, sf := range userSort {
-		dbField, ok := fieldMapping[sf.Field]
-		if !ok || presenceFilterFields[sf.Field] {
+		field, ok := fieldMapping[sf.Field]
+		if !ok || field.Type == filterPresence {
 			return nil, &UnknownFieldError{Kind: "sort", Field: sf.Field}
 		}
-		db = db.Order(dbField + " " + sortDirectionSQL(sf.Direction))
+		db = db.Order(field.Column + " " + sortDirectionSQL(sf.Direction))
 	}
 	return db, nil
 }
@@ -267,7 +264,6 @@ func applyPagination(db *gorm.DB, limit, offset int) *gorm.DB {
 	return db
 }
 
-// sortDirectionSQL maps a SortDirection to its SQL token.
 func sortDirectionSQL(d SortDirection) string {
 	if d == SortDesc {
 		return "DESC"
@@ -275,151 +271,166 @@ func sortDirectionSQL(d SortDirection) string {
 	return "ASC"
 }
 
-// applyFilterCondition applies a single filter condition to the query.
-// Returns an *UnknownFieldError or *InvalidFilterError when the condition
-// cannot be applied, so the caller can surface a 422 instead of silently
-// dropping the clause and returning an unfiltered result set.
+// applyFilterCondition validates and applies a filter, returning
+// [UnknownFieldError] or [InvalidFilterError] for invalid input.
 func applyFilterCondition(db *gorm.DB, filter FilterCondition, fieldMapping FieldMapping) (*gorm.DB, error) {
-	// Map public field names through a whitelist because SQL identifiers cannot
-	// be parameterized.
-	dbField, ok := fieldMapping[filter.Field]
+	// SQL identifiers cannot be parameterized, so only mapped columns are allowed.
+	field, ok := fieldMapping[filter.Field]
 	if !ok {
 		return nil, &UnknownFieldError{Kind: "filter", Field: filter.Field}
 	}
-
-	if presenceFilterFields[filter.Field] {
-		return applyPresenceFilter(db, dbField, filter)
-	}
-
-	if booleanFilterFields[filter.Field] {
-		normalized, err := normalizeBooleanFilter(filter)
-		if err != nil {
-			return nil, err
-		}
-		filter = normalized
-	}
-
-	// Restrict bitwise operators to allowed fields only.
-	if filter.Operator == FilterBitwiseAnd && !bitwiseAllowedFields[filter.Field] {
-		return nil, &InvalidFilterError{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Reason:   "bitwise operator not allowed on this field",
-		}
-	}
-
-	// Special case for LIKE operator (needs pattern wrapping)
-	if filter.Operator == FilterLike {
-		s, ok := filter.Value.(string)
-		if !ok {
-			return nil, &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected string value",
-			}
-		}
-		return db.Where(dbField+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(s)+"%"), nil
-	}
-
-	if filter.Operator == FilterBetween {
-		values, ok := filter.Value.([]string)
-		if !ok || len(values) != 2 {
-			return nil, &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected two comma-separated values",
-			}
-		}
-		return db.Where(fmt.Sprintf("%s BETWEEN ? AND ?", dbField), values[0], values[1]), nil
-	}
-
-	// dbField comes from fieldMapping, so these identifier fragments remain whitelist-bound.
-	if filter.Operator == FilterIsNull {
-		return db.Where(dbField + " IS NULL"), nil
-	}
-
-	if filter.Operator == FilterIsNotNull {
-		return db.Where(dbField + " IS NOT NULL"), nil
-	}
-
-	if format, ok := operatorFormats[filter.Operator]; ok {
-		return db.Where(fmt.Sprintf(format, dbField), filter.Value), nil
-	}
-
-	return nil, &InvalidFilterError{
-		Field:    filter.Field,
-		Operator: filter.Operator,
-		Reason:   "unsupported operator",
-	}
-}
-
-// normalizeBooleanFilter implements the booleanFilterFields contract: every
-// string value (single or list) is parsed as a boolean and rewritten to
-// "1"/"0" so MySQL compares numerically. Non-string values (null operator's
-// nil, band's uint8) pass through untouched for the generic handling.
-func normalizeBooleanFilter(filter FilterCondition) (FilterCondition, error) {
-	toSQL := func(raw string) (string, error) {
-		b, err := strconv.ParseBool(raw)
-		if err != nil {
-			return "", &InvalidFilterError{
-				Field:    filter.Field,
-				Operator: filter.Operator,
-				Reason:   "expected a boolean value",
-			}
-		}
-		if b {
-			return "1", nil
-		}
-		return "0", nil
-	}
-
-	switch v := filter.Value.(type) {
-	case string:
-		normalized, err := toSQL(v)
-		if err != nil {
-			return filter, err
-		}
-		filter.Value = normalized
-	case []string:
-		normalized := make([]string, len(v))
-		for i, raw := range v {
-			value, err := toSQL(raw)
-			if err != nil {
-				return filter, err
-			}
-			normalized[i] = value
-		}
-		filter.Value = normalized
-	}
-	return filter, nil
-}
-
-// applyPresenceFilter implements the presenceFilterFields contract. Values
-// arrive from the query layer as strings; a non-string value fails ParseBool.
-func applyPresenceFilter(db *gorm.DB, dbField string, filter FilterCondition) (*gorm.DB, error) {
-	if filter.Operator != FilterEquals && filter.Operator != FilterNotEquals {
-		return nil, &InvalidFilterError{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Reason:   "operator must be eq or ne",
-		}
-	}
-	value, _ := filter.Value.(string)
-	present, err := strconv.ParseBool(value)
+	args, err := field.bind(filter)
 	if err != nil {
-		return nil, &InvalidFilterError{
-			Field:    filter.Field,
-			Operator: filter.Operator,
-			Reason:   "expected a boolean value",
+		return nil, err
+	}
+
+	col := field.Column
+	switch filter.Operator {
+	case FilterIsNull:
+		if args[0].(bool) {
+			return db.Where(col + " IS NULL"), nil
+		}
+		return db.Where(col + " IS NOT NULL"), nil
+	case FilterLike:
+		return db.Where(col+" LIKE ?"+likeEscapeClause, "%"+escapeLikePattern(filter.Values[0])+"%"), nil
+	case FilterIn:
+		return db.Where(col+" IN ?", args), nil
+	case FilterBetween:
+		return db.Where(col+" BETWEEN ? AND ?", args[0], args[1]), nil
+	case FilterBitwiseAnd:
+		return db.Where("("+col+" & ?) != 0", args[0]), nil
+	}
+	return db.Where(col+comparisonSQL[filter.Operator], args[0]), nil
+}
+
+// bind checks the operator and value count, then parses every value into its
+// bind argument.
+func (f FilterField) bind(filter FilterCondition) ([]any, error) {
+	invalid := func(reason string) error {
+		return &InvalidFilterError{Field: filter.Field, Operator: filter.Operator, Reason: reason}
+	}
+	if !f.allowsOperator(filter.Operator) {
+		return nil, invalid("operator not allowed on this field")
+	}
+	n := len(filter.Values)
+	switch filter.Operator {
+	case FilterIn:
+		if n == 0 {
+			return nil, invalid("expected comma-separated values")
+		}
+	case FilterBetween:
+		if n != 2 {
+			return nil, invalid("expected two comma-separated values")
+		}
+	default:
+		if n != 1 {
+			return nil, invalid("expected a single value")
 		}
 	}
-	if filter.Operator == FilterNotEquals {
-		present = !present
+	args := make([]any, n)
+	for i, raw := range filter.Values {
+		var err error
+		if filter.Operator == FilterIsNull {
+			args[i], err = parseBool(raw)
+		} else {
+			args[i], err = f.parseValue(raw)
+		}
+		if err != nil {
+			return nil, invalid(err.Error())
+		}
 	}
-	if present {
-		return db.Where(dbField+" != ?", ""), nil
+	return args, nil
+}
+
+func (f FilterField) allowsOperator(op FilterOperator) bool {
+	switch op {
+	case FilterEquals, FilterNotEquals:
+		return true
+	case FilterIsNull:
+		return f.Nullable
+	case FilterBitwiseAnd:
+		return f.Type == filterBitmask
+	case FilterLike:
+		return f.Type == filterString
+	case FilterIn:
+		return f.Type != filterBitmask && f.Type != filterPresence
+	case FilterGreaterThan, FilterGreaterOrEq, FilterLessThan, FilterLessOrEq, FilterBetween:
+		switch f.Type {
+		case filterInteger, filterNumber, filterDate, filterDateTime:
+			return true
+		}
 	}
-	// COALESCE: stories.audio_file is nullable, and a NULL row must land in
-	// the "absent" partition rather than escaping both.
-	return db.Where("COALESCE("+dbField+", '') = ?", ""), nil
+	return false
+}
+
+// parseValue validates raw and returns its bind argument. Booleans bind as
+// bool because MySQL coerces non-numeric strings such as "true" to 0 in
+// numeric comparisons. Bitmasks bind as integers. Date-times bind as
+// time.Time because MySQL, with only a warning, reads an RFC 3339 "Z" suffix
+// as local time and truncates a comma fraction. Strings, integers, numbers,
+// dates and enums bind the validated string.
+func (f FilterField) parseValue(raw string) (any, error) {
+	switch f.Type {
+	case filterBoolean, filterPresence:
+		return parseBool(raw)
+	case filterDateTime:
+		return parseDateTime(raw, time.Local)
+	case filterBitmask:
+		if mask, err := strconv.ParseUint(raw, 10, 7); err == nil {
+			return mask, nil
+		}
+		return nil, errors.New("expected integer between 0 and 127")
+	case filterEnum:
+		if slices.Contains(f.Enum, raw) {
+			return raw, nil
+		}
+		return nil, errors.New("expected one of " + strings.Join(f.Enum, ", "))
+	}
+	if !validLiteral(f.Type, raw) {
+		return nil, errors.New("expected " + string(f.Type))
+	}
+	return raw, nil
+}
+
+// validLiteral reports whether raw is a well-formed string, integer, number
+// or date literal. These types bind the raw string.
+func validLiteral(t filterType, raw string) bool {
+	switch t {
+	case filterString:
+		return true
+	case filterInteger:
+		_, err := strconv.ParseInt(raw, 10, 64)
+		return err == nil
+	case filterNumber:
+		value, err := strconv.ParseFloat(raw, 64)
+		// ParseFloat also accepts non-finite values and Go hex/underscore syntax.
+		return err == nil && !math.IsNaN(value) && !math.IsInf(value, 0) && !strings.ContainsAny(raw, "xX_")
+	case filterDate:
+		_, err := time.Parse(time.DateOnly, raw)
+		return err == nil
+	}
+	return false
+}
+
+// parseDateTime parses raw, reading layouts without a zone in loc, and returns
+// the time in loc. The MySQL driver binds that representation and cannot bind
+// years outside 1 to 9999.
+func parseDateTime(raw string, loc *time.Location) (any, error) {
+	for _, layout := range dateTimeLayouts {
+		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
+			t = t.In(loc)
+			if t.Year() < 1 || t.Year() > 9999 {
+				break
+			}
+			return t, nil
+		}
+	}
+	return nil, errors.New("expected date-time")
+}
+
+func parseBool(raw string) (any, error) {
+	if value, err := strconv.ParseBool(raw); err == nil {
+		return value, nil
+	}
+	return nil, errors.New("expected boolean")
 }

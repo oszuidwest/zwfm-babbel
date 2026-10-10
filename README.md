@@ -119,7 +119,7 @@ Babbel normalizes audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with 
 | Loudness Range | 11 LU |
 
 Babbel normalizes:
-- Story audio during upload or TTS. Two-pass `loudnorm` measures the mono downmix, then applies linear gain when possible to preserve dynamics while targeting -16 LUFS with a -1 dBTP ceiling. It uses dynamic mode when linear gain would breach that ceiling or its loudness-range constraints. Ungated non-silent clips use single-pass `loudnorm` and remain true-peak-limited; silence bypasses normalization.
+- Story audio during upload or TTS. Two-pass `loudnorm` measures the mono downmix, then applies linear gain when possible to preserve dynamics while targeting -16 LUFS with a -1 dBTP ceiling. It uses dynamic mode when linear gain would breach that ceiling or its loudness-range constraints. Ungated clips use single-pass `loudnorm` and remain true-peak-limited. Silent audio, or audio below -50 LUFS, is rejected with `422 audio.silent` and existing audio is kept.
 - The final bulletin mix, after Babbel adds the jingle. This also runs in two passes, measured on the stereo mix, so the balance between jingle and voice survives normalization.
 
 Babbel does not normalize uploaded jingles. It converts them to stereo 48 kHz 16-bit PCM WAV as-is, so the level balance between intro and bed survives until the bulletin mix.
@@ -147,7 +147,7 @@ GET /public/stations/{id}/bulletin.wav?key=YOUR_API_KEY&max_age=3600
 
 **Features:**
 - Session or cookie authentication is not necessary.
-- If the available bulletin is too old, Babbel makes a new bulletin.
+- If the available bulletin is too old or was created on a previous local day, Babbel makes a new bulletin.
 - If no key is set, the endpoint is not available and returns 404.
 
 ### Authenticated Endpoint
@@ -177,7 +177,7 @@ GET /api/v1/stations/{station_id}/bulletins/latest
 
 ### Database connection pool
 
-Babbel configures the Go SQL connection pool from environment variables. The default values are the same as the values that were in the code before. Set these variables only if the pool must be different.
+Use these environment variables to override the database connection pool defaults:
 
 | Env var | Default | Description |
 |---|---:|---|
@@ -198,7 +198,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 ### Asynchronous bulletin generation
 
-`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. Every request creates a generation job. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; sending a `date` field returns `422`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
 
 Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
 
@@ -220,6 +220,12 @@ The initial settings row has stability `0.80`, text normalization `auto`, no see
 Use `GET /api/v1/settings/tts` to see the settings. The admin, editor, and viewer roles can read them. Use `PATCH /api/v1/settings/tts` as an admin to change stability, text normalization, the seed, or `tts_style_prefix`. Babbel puts the prefix before the story text in the ElevenLabs request.
 
 Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA pronunciation rules. Admins and editors can save the rules. Viewers can read them. Babbel keeps the rules in its database. Babbel puts the rules in the text as `/ipa/` spans before the ElevenLabs request.
+
+### HTTP timeouts
+
+The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout covers the slowest synchronous route plus 2 minutes to stream audio to slow clients: `max(2 x BABBEL_AUTOMATION_TIMEOUT, BABBEL_ELEVENLABS_TIMEOUT) + 2m`, 360s by default. An automation request may wait one generation budget for the station lock (then it returns 504) and spend another generating. Reverse proxies must allow the same durations.
+
+If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
 
 ### Operational e-mail notifications
 
@@ -298,7 +304,7 @@ PUT    /api/v1/stations/{id}         # Update station
 
 # Story Management
 GET    /api/v1/stories               # List stories (with filters)
-POST   /api/v1/stories               # Create story (with audio)
+POST   /api/v1/stories               # Create story
 GET    /api/v1/stories/{id}/audio    # Download story audio
 POST   /api/v1/stories/{id}/tts     # Generate audio via ElevenLabs TTS
 
@@ -323,7 +329,7 @@ GET    /api/v1/bulletins/{id}/audio            # Download bulletin audio
 git clone https://github.com/oszuidwest/zwfm-babbel.git
 cd zwfm-babbel
 docker-compose up -d     # Start services
-make db-reset           # Initialize database
+make db-reset           # Recreate all tables (deletes data)
 make run                # Run development server
 ```
 
@@ -337,10 +343,10 @@ make docker             # Build Docker image
 
 # Code Quality
 make lint               # Run Go linters
-make quality            # Advanced static analysis
+make quality            # Tests and static analysis
 
 # Database
-make db-reset           # Reset database with migrations
+make db-reset           # Recreate all tables (deletes data)
 ```
 
 ### Project Structure

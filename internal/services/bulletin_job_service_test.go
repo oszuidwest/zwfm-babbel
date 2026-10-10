@@ -93,7 +93,7 @@ func TestGenerateConvertsPanicToError(t *testing.T) {
 	t.Parallel()
 
 	svc := newTestJobService(t)
-	svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+	svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 		panic("renderer exploded")
 	}
 
@@ -114,7 +114,7 @@ func TestRunAttemptStopsWaitingForStationLockOnCancel(t *testing.T) {
 			t.Fatalf("LockStation() error = %v", err)
 		}
 		defer release()
-		svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+		svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 			t.Fatal("generation must not run without the station lock")
 			return 0, nil
 		}
@@ -141,7 +141,7 @@ func TestRunAttemptGeneratesAfterLockIsFreed(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := newTestJobService(t)
 		var generations int
-		svc.generateBulletin = func(context.Context, int64, time.Time, func(context.Context, int64) error) (int64, error) {
+		svc.generateBulletin = func(context.Context, int64, func(context.Context, int64) error) (int64, error) {
 			generations++
 			return 42, nil
 		}

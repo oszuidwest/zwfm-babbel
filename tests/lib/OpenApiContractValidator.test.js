@@ -424,6 +424,39 @@ describe('OpenApiContractValidator', () => {
 describe('openapi.yaml contract invariants', () => {
   let document;
 
+  test('story responses use calendar dates and write endpoints document deletion', () => {
+    expect(document.components.schemas.Story.properties.start_date.format).toBe('date');
+    expect(document.components.schemas.Story.properties.end_date.format).toBe('date');
+    const validator = new OpenApiContractValidator(document);
+    const gone = {
+      type: 'https://babbel.api/problems/story.deleted',
+      title: 'Gone',
+      status: 410,
+      detail: 'Story with id 1 has been deleted',
+      code: 'story.deleted',
+      deleted_at: '2026-09-26T12:00:00Z'
+    };
+    const withoutDeletedAt = { ...gone };
+    delete withoutDeletedAt.deleted_at;
+    for (const [method, operationPath] of [
+      ['put', '/api/v1/stories/{id}'],
+      ['patch', '/api/v1/stories/{id}'],
+      ['post', '/api/v1/stories/{id}/audio'],
+      ['post', '/api/v1/stories/{id}/tts']
+    ]) {
+      const validate = (data) => validator.validateResponse({
+        method,
+        operationPath,
+        response: { status: 410, headers: { 'content-type': 'application/problem+json' }, data }
+      });
+      expect(() => validate(gone)).not.toThrow();
+      expect(() => validate(withoutDeletedAt)).toThrow('deleted_at');
+      expect(() => validate({ ...gone, code: 'story.not_found' })).toThrow('code');
+      expect(() => validate({ ...gone, deleted_at: 'yesterday' })).toThrow('date-time');
+    }
+    expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
+  });
+
   const LIST_OPERATIONS = [
     ['get', '/api/v1/stations'],
     ['get', '/api/v1/voices'],
@@ -479,7 +512,7 @@ describe('openapi.yaml contract invariants', () => {
     StationVoice: ['id', 'station_id', 'voice_id', 'audio_file', 'audio_url', 'mix_point', 'created_at', 'updated_at'],
     BulletinResponse: ['id', 'station_id', 'filename', 'duration_seconds', 'file_size', 'story_count', 'created_at'],
     BulletinJob: [
-      'id', 'station_id', 'target_date', 'status', 'attempt', 'bulletin_id',
+      'id', 'station_id', 'status', 'attempt', 'bulletin_id',
       'started_at', 'completed_at', 'created_at', 'updated_at'
     ]
   };
@@ -524,6 +557,12 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.created_at.oneOf[0].anyOf.map((s) => s.format).sort()).toEqual(['date', 'date-time']);
     // Weekdays is a 7-bit mask (Sun=1 ... Sat=64).
     expect(filter.schema.properties.weekdays.oneOf[0].maximum).toBe(127);
+    expect(filter.schema.properties.weekdays.oneOf[1].properties.band).toBeDefined();
+    expect(filter.schema.properties.weekdays.oneOf[1].properties.between).toBeUndefined();
+    // Generated null tests derive from the spec, so nullable columns must keep
+    // declaring the operator and required columns must not.
+    expect(filter.schema.properties.voice_id.oneOf[1].properties.null).toBeDefined();
+    expect(filter.schema.properties.id.oneOf[1].properties.null).toBeUndefined();
   });
 
   test('when an operation uses the shared id path parameter, then 400 is declared', () => {

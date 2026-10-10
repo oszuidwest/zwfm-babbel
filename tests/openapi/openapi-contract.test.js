@@ -286,6 +286,14 @@ describe('OpenAPI Contract', () => {
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
         }),
       apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
+      scenario('PUT', '/api/v1/stories/{id}', async () => {
+          const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'), [ctx.station.id]);
+          expect(story).not.toBeNull();
+          expect((await global.api.apiCall('DELETE', `/stories/${story.id}`)).status).toBe(204);
+          const response = await apiCall('PUT', '/api/v1/stories/{id}', `/stories/${story.id}`, { title: 'Changed' });
+          expect(response.status).toBe(410);
+          return response;
+        }, 'PUT /api/v1/stories/{id} deleted story'),
       sparseListScenario('GET', '/api/v1/stories/{id}/bulletins', () => `/stories/${ctx.story.id}/bulletins`, ['id', 'filename', 'created_at']),
       sparseListScenario('GET', '/api/v1/users', '/users', ['id', 'username', 'role']),
       trackedApiScenario('POST', '/api/v1/users', '/users', () => userBody('created'), 'users'),
@@ -324,8 +332,7 @@ describe('OpenAPI Contract', () => {
           const response = await apiCall(
             'POST',
             '/api/v1/stations/{id}/bulletins',
-            `/stations/${ctx.station.id}/bulletins`,
-            {}
+            `/stations/${ctx.station.id}/bulletins`
           );
           expect(response.status).toBe(202);
           expect(response.headers.location).toBe(`/api/v1/bulletin-jobs/${response.data.id}`);
@@ -340,7 +347,7 @@ describe('OpenAPI Contract', () => {
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
           expect(station).not.toBeNull();
-          const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`, {});
+          const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`);
           expect(response.status).toBe(202);
           await global.helpers.waitForBulletinJob(response.data.id);
           // apiCall validates the failed job against the OpenAPI schema.

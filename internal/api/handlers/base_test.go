@@ -8,17 +8,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
 type problemResponse struct {
-	Status int                         `json:"status"`
-	Code   string                      `json:"code"`
-	Hint   string                      `json:"hint"`
-	Detail string                      `json:"detail"`
-	Errors []apperrors.ValidationError `json:"errors"`
+	Type      string                      `json:"type"`
+	Status    int                         `json:"status"`
+	Code      string                      `json:"code"`
+	Hint      string                      `json:"hint"`
+	Detail    string                      `json:"detail"`
+	DeletedAt time.Time                   `json:"deleted_at"`
+	Errors    []apperrors.ValidationError `json:"errors"`
 }
 
 func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
@@ -30,13 +35,40 @@ func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) 
 	return c, rec
 }
 
+// decodeProblem requires a problem+json response and decodes its body.
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse {
 	t.Helper()
+	if got := rec.Header().Get("Content-Type"); got != "application/problem+json" {
+		t.Fatalf("Content-Type = %q, want application/problem+json", got)
+	}
 	var problem problemResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &problem); err != nil {
 		t.Fatalf("decode problem body: %v; body=%s", err, rec.Body.String())
 	}
 	return problem
+}
+
+// assertValidationField requires a problem+json body with exactly one error for field.
+func assertValidationField(t *testing.T, rec *httptest.ResponseRecorder, field string) {
+	t.Helper()
+	if errs := decodeProblem(t, rec).Errors; len(errs) != 1 || errs[0].Field != field {
+		t.Fatalf("errors = %+v, want exactly one %q error", errs, field)
+	}
+}
+
+func TestHandleServiceError_StoryDeletedReturnsGone(t *testing.T) {
+	c, rec := newProblemContext(t)
+	deletedAt := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	err := apperrors.TranslateRepoErrorWithID("Story", 1, apperrors.OpUpdate,
+		&repository.StoryDeletedError{ID: 1, DeletedAt: deletedAt})
+
+	handleServiceError(c, err, "Story")
+
+	problem := decodeProblem(t, rec)
+	if rec.Code != http.StatusGone || problem.Code != "story.deleted" ||
+		problem.Type != "https://babbel.api/problems/story.deleted" || !problem.DeletedAt.Equal(deletedAt) {
+		t.Fatalf("response = %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestHandleServiceError_RateLimitedSetsRetryAfter(t *testing.T) {
@@ -194,6 +226,28 @@ func TestHandleServiceError_NotInitializedUsesCustomCode(t *testing.T) {
 	}
 }
 
+func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantField string
+	}{
+		{name: "unknown filter field", err: &repository.UnknownFieldError{Kind: "filter", Field: "bogus"}, wantField: "filter"},
+		{name: "unknown sort field", err: &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}, wantField: "sort"},
+		{name: "invalid filter value", err: &repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}, wantField: "filter[weekdays][band]"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := newProblemContext(t)
+			handleServiceError(c, tt.err, "User")
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
+			}
+			assertValidationField(t, rec, tt.wantField)
+		})
+	}
+}
+
 func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
 	err := apperrors.NewValidationProblemError("tts_settings", "validation failed", []apperrors.ValidationError{
@@ -265,6 +319,44 @@ func TestHandleServiceError_DeadlineExceededReturnsGatewayTimeout(t *testing.T) 
 			}
 			if problem.Detail != "Bulletin operation timed out" {
 				t.Fatalf("detail = %q, want Bulletin operation timed out", problem.Detail)
+			}
+		})
+	}
+}
+
+func TestHandleServiceError_Audio(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+		wantHint   string
+	}{
+		{
+			name:       "wrapped silent audio",
+			err:        apperrors.Audio("Story", "convert", fmt.Errorf("convert: %w", audio.ErrSilent)),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "audio.silent",
+			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
+		},
+		{
+			name:       "processing failure",
+			err:        apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")),
+			wantStatus: http.StatusInternalServerError,
+			wantCode:   "audio.processing_failed",
+			wantHint:   "Check the audio file format and try again",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := newProblemContext(t)
+			handleServiceError(c, tt.err, "Story")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			problem := decodeProblem(t, rec)
+			if problem.Status != tt.wantStatus || problem.Code != tt.wantCode || problem.Hint != tt.wantHint {
+				t.Fatalf("problem = %+v, want status %d, code %q, hint %q", problem, tt.wantStatus, tt.wantCode, tt.wantHint)
 			}
 		})
 	}

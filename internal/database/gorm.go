@@ -13,7 +13,7 @@ import (
 )
 
 func mysqlDSN(cfg *config.Config) string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true",
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Host,

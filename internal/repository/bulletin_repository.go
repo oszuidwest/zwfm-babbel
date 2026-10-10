@@ -54,8 +54,9 @@ func (r *BulletinRepository) GetByID(ctx context.Context, id int64) (*models.Bul
 	return r.GetByIDWithJoins(ctx, id, "Station")
 }
 
-// GetLatest retrieves the most recent bulletin for a station.
-// If maxAge is provided, only returns bulletins created within that duration.
+// GetLatest retrieves the most recent unpurged bulletin for a station.
+// If maxAge is provided, only returns bulletins created on the current local
+// day within that duration.
 func (r *BulletinRepository) GetLatest(
 	ctx context.Context, stationID int64, maxAge *time.Duration,
 ) (*models.Bulletin, error) {
@@ -67,8 +68,9 @@ func (r *BulletinRepository) GetLatest(
 		Where("bulletins.file_purged_at IS NULL")
 
 	if maxAge != nil {
-		minTime := time.Now().Add(-*maxAge)
-		query = query.Where("bulletins.created_at >= ?", minTime)
+		now := time.Now()
+		query = query.Where("bulletins.created_at >= ?", now.Add(-*maxAge)).
+			Where("bulletins.created_at >= ?", startOfDay(now))
 	}
 
 	err := query.Order("bulletins.created_at DESC").
@@ -79,6 +81,12 @@ func (r *BulletinRepository) GetLatest(
 	}
 
 	return &bulletin, nil
+}
+
+// startOfDay returns midnight of t's day in t's location; bulletin reuse and
+// story rotation share this day boundary.
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 // LinkStories creates bulletin-story join rows preserving the provided order.
@@ -104,22 +112,19 @@ func (r *BulletinRepository) LinkStories(ctx context.Context, bulletinID int64, 
 	return nil
 }
 
-// bulletinFieldMapping maps API field names to database columns for bulletins.
 var bulletinFieldMapping = FieldMapping{
-	"id":               "bulletins.id",
-	"station_id":       "bulletins.station_id",
-	"filename":         "bulletins.filename",
-	"duration_seconds": "bulletins.duration_seconds",
-	"file_size":        "bulletins.file_size",
-	"story_count":      "bulletins.story_count",
-	"file_purged_at":   "bulletins.file_purged_at",
-	"created_at":       "bulletins.created_at",
+	"id":               {Column: "bulletins.id", Type: filterInteger},
+	"station_id":       {Column: "bulletins.station_id", Type: filterInteger},
+	"filename":         {Column: "bulletins.filename", Type: filterString},
+	"duration_seconds": {Column: "bulletins.duration_seconds", Type: filterNumber},
+	"file_size":        {Column: "bulletins.file_size", Type: filterInteger},
+	"story_count":      {Column: "bulletins.story_count", Type: filterInteger},
+	"file_purged_at":   {Column: "bulletins.file_purged_at", Type: filterDateTime, Nullable: true},
+	"created_at":       {Column: "bulletins.created_at", Type: filterDateTime},
 }
 
-// bulletinSearchFields defines which fields are searchable for bulletins.
 var bulletinSearchFields = []string{"bulletins.filename"}
 
-// bulletinDefaultSort defines the default sort order for bulletin queries.
 var bulletinDefaultSort = []SortField{{Field: "created_at", Direction: SortDesc}}
 
 // List retrieves bulletins with pagination, filtering, and sorting.

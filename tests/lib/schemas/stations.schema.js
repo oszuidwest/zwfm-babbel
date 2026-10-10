@@ -19,7 +19,6 @@ module.exports = {
     searchFields: ['name'],
     sortableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at'],
     filterableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds'],
-    numericFields: ['id', 'max_stories_per_block', 'pause_seconds'],
     selectableFields: ['id', 'name', 'max_stories_per_block', 'pause_seconds', 'created_at', 'updated_at']
   },
 

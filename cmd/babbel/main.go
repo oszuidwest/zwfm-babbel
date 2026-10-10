@@ -1,4 +1,4 @@
-// Package main is the entry point for the Babbel API server.
+// Babbel serves the news bulletin API.
 package main
 
 import (
@@ -26,7 +26,7 @@ import (
 const (
 	debugLogLevel            = 5
 	serverReadTimeout        = 15 * time.Second
-	serverWriteTimeout       = 15 * time.Second
+	audioTransferMargin      = 2 * time.Minute
 	serverIdleTimeout        = 60 * time.Second
 	shutdownTimeout          = 30 * time.Second
 	fatalNotificationTimeout = 30 * time.Second
@@ -142,7 +142,6 @@ func validateConfig(cfg *config.Config) error {
 	return nil
 }
 
-// initLogger configures structured logging for the selected environment.
 func initLogger(cfg *config.Config) error {
 	logLevel := "info"
 	if cfg.LogLevel >= debugLogLevel {
@@ -154,7 +153,6 @@ func initLogger(cfg *config.Config) error {
 	return nil
 }
 
-// closeDatabase closes the underlying SQL pool and reports shutdown failures.
 func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 	sqlDB, err := db.DB()
 	if err != nil {
@@ -170,11 +168,12 @@ func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 
 func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:         cfg.Server.Address,
-		Handler:      handler,
-		ReadTimeout:  serverReadTimeout,
-		WriteTimeout: serverWriteTimeout,
-		IdleTimeout:  serverIdleTimeout,
+		Addr:        cfg.Server.Address,
+		Handler:     handler,
+		ReadTimeout: serverReadTimeout,
+		IdleTimeout: serverIdleTimeout,
+		// Automation needs a timeout each for the station lock and generation.
+		WriteTimeout: max(2*cfg.Automation.GenerationTimeout, cfg.TTS.RequestTimeout) + audioTransferMargin,
 	}
 }
 
@@ -203,7 +202,6 @@ func waitForShutdown(serverErr <-chan error) error {
 	}
 }
 
-// shutdownServer drains active HTTP requests within the shutdown timeout.
 func shutdownServer(srv *http.Server) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()

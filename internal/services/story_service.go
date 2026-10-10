@@ -41,6 +41,7 @@ type StoryServiceDeps struct {
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
 	GetByID(context.Context, int64) (*models.Story, error)
+	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
 	SoftDelete(context.Context, int64) error
@@ -181,7 +182,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	oneDateChanged := (startDate != nil) != (endDate != nil)
 	var existing *models.Story
 	if oneDateChanged || req.VoiceID != nil {
-		existing, err = s.storyRepo.GetByID(ctx, id)
+		existing, err = s.storyRepo.GetByIDForWrite(ctx, id)
 		if err != nil {
 			return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
 		}
@@ -227,8 +228,8 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 // validateEffectiveDateRange checks the range formed by the changed bound and
 // the existing story's other bound.
 func validateEffectiveDateRange(existing *models.Story, startDate, endDate *time.Time) error {
-	effectiveStart := existing.StartDate
-	effectiveEnd := existing.EndDate
+	effectiveStart := time.Time(existing.StartDate)
+	effectiveEnd := time.Time(existing.EndDate)
 	if startDate != nil {
 		effectiveStart = *startDate
 	}
@@ -376,6 +377,15 @@ func (s *StoryService) GetByID(ctx context.Context, id int64) (*models.Story, er
 	return story, nil
 }
 
+// GetByIDForWrite loads a story before writing, reporting deleted stories separately.
+func (s *StoryService) GetByIDForWrite(ctx context.Context, id int64) (*models.Story, error) {
+	story, err := s.storyRepo.GetByIDForWrite(ctx, id)
+	if err != nil {
+		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
+	}
+	return story, nil
+}
+
 // Exists reports whether a story with the given ID exists.
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)
@@ -417,7 +427,7 @@ type AudioTarget struct {
 // when given, otherwise the story's current voice. Stories without a voice
 // are rejected, so audio is never stored without a known speaker.
 func (s *StoryService) PrepareAudio(ctx context.Context, storyID int64, voiceID *int64) (*AudioTarget, error) {
-	story, err := s.GetByID(ctx, storyID)
+	story, err := s.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return nil, err
 	}
@@ -446,9 +456,9 @@ func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, te
 	story := target.story
 	filename := utils.StoryFilename(story.ID, target.voice.ID, newAudioID())
 	finalPath := utils.StoryPath(s.config, filename)
-	published := false
+	keepAudio := false
 	defer func() {
-		if published {
+		if keepAudio {
 			return
 		}
 		if rmErr := os.Remove(finalPath); rmErr != nil && !os.IsNotExist(rmErr) {
@@ -478,9 +488,18 @@ func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, te
 		)
 	}
 	if err != nil {
+		// A connection error can arrive after the UPDATE committed. Preserve
+		// the new file whenever publication is uncertain, or the database may
+		// point at audio that cleanup just removed.
+		_, deleted := errors.AsType[*repository.StoryDeletedError](err)
+		if !deleted && !errors.Is(err, repository.ErrNotFound) {
+			keepAudio = true
+			logger.Warn("Preserving story audio after uncertain database write",
+				"story_id", story.ID, "filename", finalPath, "error", err)
+		}
 		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, err)
 	}
-	published = true
+	keepAudio = true
 
 	if story.AudioFile != "" {
 		oldPath := utils.StoryPath(s.config, story.AudioFile)
@@ -532,7 +551,7 @@ func (s *StoryService) List(
 // with voiceID, or with the story's current voice when voiceID is nil.
 // Existing audio is preserved unless force is true.
 func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *int64, force bool) error {
-	story, err := s.storyRepo.GetByID(ctx, storyID)
+	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
 	}

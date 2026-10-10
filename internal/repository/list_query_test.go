@@ -2,185 +2,111 @@ package repository
 
 import (
 	"errors"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
-// Most of these tests exercise the error branches of applyFilterCondition, which
-// return before touching the *gorm.DB, so a nil DB is safe input. The LIKE
-// wildcard wrapping is pinned with a DryRun statement below; broader happy-path
-// SQL generation is verified by the Jest integration suite under tests/ against a
-// real MySQL.
-
-// Typed constants make a typo a compile error rather than a silent test pass.
-type errKind string
-
-const (
-	errKindUnknown errKind = "unknown" // -> *UnknownFieldError
-	errKindInvalid errKind = "invalid" // -> *InvalidFilterError
-)
-
-// TestApplyFilterCondition_ErrorPaths covers the early-return branches of
-// applyFilterCondition. A nil *gorm.DB is safe because every case returns
-// before touching it. wantField "" skips both the field and operator checks
-// (they are linked - cases that pin the operator must also pin the field).
-func TestApplyFilterCondition_ErrorPaths(t *testing.T) {
+func TestApplyFilterCondition_Rejects(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{"name": "name", "id": "id", "has_audio": "audio_file", "is_breaking": "is_breaking"}
-
-	tests := []struct {
-		name      string
-		cond      FilterCondition
-		errKind   errKind
-		wantField string
-		wantOp    FilterOperator
-	}{
-		{name: "unknown field", cond: FilterCondition{Field: "bogus", Operator: FilterEquals, Value: "x"}, errKind: errKindUnknown, wantField: "bogus"},
-		{name: "bitwise on non-band field", cond: FilterCondition{Field: "name", Operator: FilterBitwiseAnd, Value: uint8(1)}, errKind: errKindInvalid, wantField: "name", wantOp: FilterBitwiseAnd},
-		{name: "like requires string", cond: FilterCondition{Field: "name", Operator: FilterLike, Value: 42}, errKind: errKindInvalid, wantField: "name", wantOp: FilterLike},
-		{name: "between nil value", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: nil}, errKind: errKindInvalid},
-		{name: "between wrong type", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: "1,2"}, errKind: errKindInvalid},
-		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1"}}, errKind: errKindInvalid},
-		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Value: []string{"1", "2", "3"}}, errKind: errKindInvalid},
-		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Value: "x"}, errKind: errKindInvalid},
-		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
-		{name: "is breaking requires boolean", cond: FilterCondition{Field: "is_breaking", Operator: FilterEquals, Value: "yes"}, errKind: errKindInvalid, wantField: "is_breaking", wantOp: FilterEquals},
-		{name: "is breaking in requires booleans", cond: FilterCondition{Field: "is_breaking", Operator: FilterIn, Value: []string{"true", "maybe"}}, errKind: errKindInvalid, wantField: "is_breaking", wantOp: FilterIn},
-		{name: "has audio requires string value", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Value: true}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterEquals},
-		{name: "has audio rejects ordering", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Value: "true"}, errKind: errKindInvalid, wantField: "has_audio", wantOp: FilterGreaterThan},
+	// Invalid filters must fail before accessing the database.
+	var unknown *UnknownFieldError
+	_, err := applyFilterCondition(nil, FilterCondition{Field: "bogus", Operator: FilterEquals, Values: []string{"x"}}, storyFieldMapping)
+	if !errors.As(err, &unknown) || unknown.Kind != "filter" || unknown.Field != "bogus" {
+		t.Fatalf("unknown field: got %v, want UnknownFieldError filter/bogus", err)
 	}
 
+	tests := []struct {
+		name string
+		cond FilterCondition
+	}{
+		{name: "unsupported operator", cond: FilterCondition{Field: "id", Operator: FilterOperator("unknown_op"), Values: []string{"x"}}},
+		{name: "eq without value", cond: FilterCondition{Field: "id", Operator: FilterEquals}},
+		{name: "eq two values", cond: FilterCondition{Field: "id", Operator: FilterEquals, Values: []string{"1", "2"}}},
+		{name: "in empty", cond: FilterCondition{Field: "id", Operator: FilterIn}},
+		{name: "between nil value", cond: FilterCondition{Field: "id", Operator: FilterBetween}},
+		{name: "between one element", cond: FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1"}}},
+		{name: "between three elements", cond: FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1", "2", "3"}}},
+		{name: "null on required field", cond: FilterCondition{Field: "id", Operator: FilterIsNull, Values: []string{"true"}}},
+		{name: "null without value", cond: FilterCondition{Field: "voice_id", Operator: FilterIsNull}},
+		{name: "null requires boolean", cond: FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"maybe"}}},
+		{name: "has audio requires boolean", cond: FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"yes"}}},
+		{name: "integer like", cond: FilterCondition{Field: "id", Operator: FilterLike, Values: []string{"1"}}},
+		{name: "number like", cond: FilterCondition{Field: "duration_seconds", Operator: FilterLike, Values: []string{"1"}}},
+		{name: "date like", cond: FilterCondition{Field: "start_date", Operator: FilterLike, Values: []string{"2024-01-01"}}},
+		{name: "datetime like", cond: FilterCondition{Field: "created_at", Operator: FilterLike, Values: []string{"2024-01-01"}}},
+		{name: "string range", cond: FilterCondition{Field: "title", Operator: FilterGreaterThan, Values: []string{"news"}}},
+		{name: "string bitwise", cond: FilterCondition{Field: "title", Operator: FilterBitwiseAnd, Values: []string{"1"}}},
+		{name: "enum like", cond: FilterCondition{Field: "status", Operator: FilterLike, Values: []string{"active"}}},
+		{name: "enum range", cond: FilterCondition{Field: "status", Operator: FilterBetween, Values: []string{"active", "draft"}}},
+		{name: "boolean range", cond: FilterCondition{Field: "is_breaking", Operator: FilterGreaterThan, Values: []string{"true"}}},
+		{name: "bitmask in", cond: FilterCondition{Field: "weekdays", Operator: FilterIn, Values: []string{"1", "2"}}},
+		{name: "bitmask range", cond: FilterCondition{Field: "weekdays", Operator: FilterGreaterThan, Values: []string{"1"}}},
+		{name: "presence in", cond: FilterCondition{Field: "has_audio", Operator: FilterIn, Values: []string{"true", "false"}}},
+		{name: "presence range", cond: FilterCondition{Field: "has_audio", Operator: FilterGreaterThan, Values: []string{"true"}}},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := applyFilterCondition(nil, tt.cond, mapping)
-			switch tt.errKind {
-			case errKindUnknown:
-				var e *UnknownFieldError
-				if !errors.As(err, &e) {
-					t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
-				}
-				if e.Kind != "filter" || (tt.wantField != "" && e.Field != tt.wantField) {
-					t.Fatalf("got %+v, want filter/%s", e, tt.wantField)
-				}
-			case errKindInvalid:
-				var e *InvalidFilterError
-				if !errors.As(err, &e) {
-					t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
-				}
-				if tt.wantField != "" && (e.Field != tt.wantField || e.Operator != tt.wantOp) {
-					t.Fatalf("got %+v, want %s/%s", e, tt.wantField, tt.wantOp)
-				}
-			default:
-				t.Fatalf("unknown errKind %q - add a case or fix the typo", tt.errKind)
+			var invalid *InvalidFilterError
+			_, err := applyFilterCondition(nil, tt.cond, storyFieldMapping)
+			if !errors.As(err, &invalid) || invalid.Field != tt.cond.Field || invalid.Operator != tt.cond.Operator {
+				t.Fatalf("got %v, want InvalidFilterError with field and operator", err)
 			}
 		})
 	}
 }
 
-func TestApplyFilterCondition_HasAudio(t *testing.T) {
+func TestApplyFilterCondition_SQL(t *testing.T) {
 	t.Parallel()
-
-	// Values are strings because that is what the query-parsing layer
-	// (internal/utils/query.go) hands the repository. The bind variable is
-	// always the empty string: presence is expressed as (non-)emptiness.
 	tests := []struct {
-		name     string
-		operator FilterOperator
-		value    string
-		wantSQL  string
-	}{
-		{name: "has audio", operator: FilterEquals, value: "true", wantSQL: "audio_file != ?"},
-		{name: "has no audio", operator: FilterEquals, value: "false", wantSQL: "COALESCE(audio_file, '') = ?"},
-		{name: "not has audio", operator: FilterNotEquals, value: "true", wantSQL: "COALESCE(audio_file, '') = ?"},
-		{name: "not has no audio", operator: FilterNotEquals, value: "false", wantSQL: "audio_file != ?"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-				Field:    "has_audio",
-				Operator: tt.operator,
-				Value:    tt.value,
-			}, FieldMapping{"has_audio": "audio_file"})
-			if err != nil {
-				t.Fatalf("applyFilterCondition: %v", err)
-			}
-
-			stmt := out.Find(&[]struct{}{}).Statement
-			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
-				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
-			}
-			if got := stmt.Vars; len(got) != 1 || got[0] != "" {
-				t.Fatalf("bind vars = %#v, want [\"\"]", got)
-			}
-		})
-	}
-}
-
-// TestApplyFilterCondition_BooleanFields pins the booleanFilterFields
-// contract: textual booleans are rewritten to "1"/"0" before binding, because
-// MySQL coerces "true"/"false" to 0 in numeric comparisons — an unnormalized
-// filter[is_breaking]=true would silently select the FALSE rows.
-func TestApplyFilterCondition_BooleanFields(t *testing.T) {
-	t.Parallel()
-	mapping := FieldMapping{"is_breaking": "is_breaking"}
-
-	tests := []struct {
-		name     string
-		operator FilterOperator
-		value    any
+		cond     FilterCondition
 		wantSQL  string
 		wantVars []any
 	}{
-		{name: "eq true", operator: FilterEquals, value: "true", wantSQL: "is_breaking = ?", wantVars: []any{"1"}},
-		{name: "eq false", operator: FilterEquals, value: "false", wantSQL: "is_breaking = ?", wantVars: []any{"0"}},
-		{name: "ne true", operator: FilterNotEquals, value: "true", wantSQL: "is_breaking != ?", wantVars: []any{"1"}},
-		{name: "numeric passthrough", operator: FilterEquals, value: "1", wantSQL: "is_breaking = ?", wantVars: []any{"1"}},
-		{name: "in normalizes list", operator: FilterIn, value: []string{"true", "false"}, wantSQL: "is_breaking IN", wantVars: []any{"1", "0"}},
+		{FilterCondition{Field: "id", Operator: FilterEquals, Values: []string{"1"}}, "id = ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterNotEquals, Values: []string{"1"}}, "id != ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterGreaterThan, Values: []string{"1"}}, "id > ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterGreaterOrEq, Values: []string{"1"}}, "id >= ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterLessThan, Values: []string{"1"}}, "id < ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterLessOrEq, Values: []string{"1"}}, "id <= ?", []any{"1"}},
+		{FilterCondition{Field: "id", Operator: FilterIn, Values: []string{"1", "2"}}, "id IN (?,?)", []any{"1", "2"}},
+		{FilterCondition{Field: "id", Operator: FilterBetween, Values: []string{"1", "2"}}, "id BETWEEN ? AND ?", []any{"1", "2"}},
+		{FilterCondition{Field: "weekdays", Operator: FilterBitwiseAnd, Values: []string{"62"}}, "(weekdays & ?) != 0", []any{uint64(62)}},
+		// LIKE wraps the value once and escapes wildcards with the declared escape character.
+		{FilterCondition{Field: "title", Operator: FilterLike, Values: []string{`50%_x`}}, `title LIKE ? ESCAPE '\\'`, []any{`%50\%\_x%`}},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"true"}}, "voice_id IS NULL", nil},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"false"}}, "voice_id IS NOT NULL", nil},
+		{FilterCondition{Field: "voice_id", Operator: FilterIsNull, Values: []string{"0"}}, "voice_id IS NOT NULL", nil},
+		// NULL and "" both mean absent.
+		{FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"true"}}, "(COALESCE(audio_file, '') != '') = ?", []any{true}},
+		{FilterCondition{Field: "has_audio", Operator: FilterEquals, Values: []string{"false"}}, "(COALESCE(audio_file, '') != '') = ?", []any{false}},
+		{FilterCondition{Field: "has_audio", Operator: FilterNotEquals, Values: []string{"true"}}, "(COALESCE(audio_file, '') != '') != ?", []any{true}},
+		{FilterCondition{Field: "has_audio", Operator: FilterNotEquals, Values: []string{"false"}}, "(COALESCE(audio_file, '') != '') != ?", []any{false}},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(string(tt.cond.Operator), func(t *testing.T) {
 			t.Parallel()
-			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-				Field:    "is_breaking",
-				Operator: tt.operator,
-				Value:    tt.value,
-			}, mapping)
+			out, err := applyFilterCondition(dryRunDB(t).Table("stories"), tt.cond, storyFieldMapping)
 			if err != nil {
 				t.Fatalf("applyFilterCondition: %v", err)
 			}
-
 			stmt := out.Find(&[]struct{}{}).Statement
-			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
-				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
-			}
-			if got := stmt.Vars; len(got) != len(tt.wantVars) {
-				t.Fatalf("bind vars = %#v, want %#v", got, tt.wantVars)
-			} else {
-				for i := range got {
-					if got[i] != tt.wantVars[i] {
-						t.Fatalf("bind vars = %#v, want %#v", got, tt.wantVars)
-					}
-				}
+			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) || !slices.Equal(stmt.Vars, tt.wantVars) {
+				t.Fatalf("SQL = %q, vars = %#v; want fragment %q with %#v", stmt.SQL.String(), stmt.Vars, tt.wantSQL, tt.wantVars)
 			}
 		})
 	}
 }
 
-// TestApplySorting_RejectsPresenceFields pins that a presence filter field in
-// the FieldMapping does not leak into the sort whitelist: sorting by the
-// backing audio_file column would be a meaningless lexicographic path sort.
 func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	t.Parallel()
-	mapping := FieldMapping{"has_audio": "audio_file", "created_at": "created_at"}
-
-	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, mapping)
+	_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{{Field: "has_audio", Direction: SortAsc}}, nil, storyFieldMapping)
 	var e *UnknownFieldError
 	if !errors.As(err, &e) {
 		t.Fatalf("expected *UnknownFieldError, got %T (%v)", err, err)
@@ -190,32 +116,7 @@ func TestApplySorting_RejectsPresenceFields(t *testing.T) {
 	}
 }
 
-// TestApplyFilterCondition_LikeWrapsValueOnce pins the single-wrap contract: the
-// handler layer passes the raw substring (internal/utils/query.go) and the
-// repository is the only layer that adds the % wildcards. A regression that drops
-// the wrap ("news") or double-wraps ("%%news%%") changes the bind variable and
-// fails here. DryRun builds the statement without opening a database connection.
-func TestApplyFilterCondition_LikeWrapsValueOnce(t *testing.T) {
-	t.Parallel()
-	out, err := applyFilterCondition(dryRunDB(t).Table("stories"), FilterCondition{
-		Field:    "title",
-		Operator: FilterLike,
-		Value:    "news",
-	}, FieldMapping{"title": "title"})
-	if err != nil {
-		t.Fatalf("applyFilterCondition: %v", err)
-	}
-
-	stmt := out.Find(&[]struct{}{}).Statement
-	if got := stmt.Vars; len(got) != 1 || got[0] != "%news%" {
-		t.Fatalf("LIKE bind vars = %#v, want [%q]", got, "%news%")
-	}
-}
-
-// dryRunDB returns a GORM DB on the MySQL dialector in DryRun mode. It builds SQL
-// and bind variables without connecting (SkipInitializeWithVersion skips the
-// version probe; DisableAutomaticPing skips the post-open ping), so it can assert
-// generated argument shapes against the real dialect without a live database.
+// dryRunDB builds MySQL statements without a database connection.
 func dryRunDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
@@ -265,4 +166,198 @@ func TestSortDirectionSQL(t *testing.T) {
 	if got := sortDirectionSQL(SortDirection("garbage")); got != "ASC" {
 		t.Fatalf("unknown direction -> %q, want ASC fallback", got)
 	}
+}
+
+func TestApplyFilterCondition_TypedValues(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		mapping FieldMapping
+		field   string
+		valid   []string
+		invalid []string
+		ranges  bool             // gt/gte/lt/lte/between allowed
+		noIn    bool             // in not allowed
+		bind    func(string) any // nil binds the raw string
+	}{
+		{
+			name: "integer", mapping: voiceFieldMapping, field: "id", ranges: true,
+			valid:   []string{"0", "-1", "42", "9223372036854775807", "-9223372036854775808"},
+			invalid: []string{"abc", "false", "null", "", "1.5", "1e2", "1abc", "9223372036854775808", "-9223372036854775809"},
+		},
+		{
+			name: "number", mapping: stationVoiceFieldMapping, field: "mix_point", ranges: true,
+			valid:   []string{"0", "-1.5", "1.25", "1e2"},
+			invalid: []string{"abc", "false", "null", "", "1.5abc", "NaN", "Inf", "-Inf", "1e999", "0x1p2", "1_000"},
+		},
+		{
+			name: "date", mapping: storyFieldMapping, field: "start_date", ranges: true,
+			valid:   []string{"2024-02-29", "2026-10-07"},
+			invalid: []string{"abc", "", "2025-02-29", "2024-13-01", "2024-04-31", "2024-01-01T00:00:00Z"},
+		},
+		{
+			// An unescaped + in a query decodes to a space, invalidating timezone offsets.
+			name: "date-time", mapping: bulletinFieldMapping, field: "created_at", ranges: true,
+			valid:   []string{"2024-02-29", "2024-01-01T12:30:00Z", "2024-01-01T12:30:00.123456+02:00", "2026-10-07T08:00:00+00:00", "2024-01-01 12:30:00", "2024-01-01 12:30:00.5", "2024-01-01 12:30:00,5"},
+			invalid: []string{"abc", "", "2025-02-29", "2024-01-01T25:00:00Z", "2024-01-01T12:30:00", "2024-02-30 12:30:00", "2024-01-01 25:00:00", "2026-10-07T08:00:00 00:00", "0000-01-01", "0000-01-01T00:00:00Z"},
+			bind:    func(raw string) any { value, _ := parseDateTime(raw, time.Local); return value },
+		},
+		{
+			name: "bitmask", mapping: storyFieldMapping, field: "weekdays", noIn: true,
+			valid:   []string{"0", "62", "127"},
+			invalid: []string{"128", "-1", "1.5", "false", "abc", ""},
+			bind:    func(raw string) any { mask, _ := strconv.ParseUint(raw, 10, 7); return mask },
+		},
+		{
+			name: "boolean", mapping: storyFieldMapping, field: "is_breaking",
+			valid:   []string{"true", "false", "1", "0"},
+			invalid: []string{"yes", "maybe", "", "2"},
+			bind:    func(raw string) any { value, _ := strconv.ParseBool(raw); return value },
+		},
+		{
+			name: "status", mapping: storyFieldMapping, field: "status",
+			valid: []string{"draft", "active", "expired"}, invalid: []string{"abc", "", "1", "ACTIVE"},
+		},
+		{
+			name: "role", mapping: userFieldMapping, field: "role",
+			valid: []string{"admin", "editor", "viewer"}, invalid: []string{"abc", "", "1", "ADMIN"},
+		},
+	}
+	db := dryRunDB(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			conditions := func(raw string) []FilterCondition {
+				conds := []FilterCondition{
+					{Field: tt.field, Operator: FilterEquals, Values: []string{raw}},
+					{Field: tt.field, Operator: FilterNotEquals, Values: []string{raw}},
+				}
+				if !tt.noIn {
+					conds = append(conds,
+						FilterCondition{Field: tt.field, Operator: FilterIn, Values: []string{raw, tt.valid[0]}},
+						FilterCondition{Field: tt.field, Operator: FilterIn, Values: []string{tt.valid[0], raw}},
+					)
+				}
+				if tt.mapping[tt.field].Type == filterBitmask {
+					conds = append(conds, FilterCondition{Field: tt.field, Operator: FilterBitwiseAnd, Values: []string{raw}})
+				}
+				if tt.ranges {
+					for _, op := range []FilterOperator{FilterGreaterThan, FilterGreaterOrEq, FilterLessThan, FilterLessOrEq} {
+						conds = append(conds, FilterCondition{Field: tt.field, Operator: op, Values: []string{raw}})
+					}
+					conds = append(conds,
+						FilterCondition{Field: tt.field, Operator: FilterBetween, Values: []string{raw, tt.valid[0]}},
+						FilterCondition{Field: tt.field, Operator: FilterBetween, Values: []string{tt.valid[0], raw}},
+					)
+				}
+				return conds
+			}
+			for _, raw := range tt.valid {
+				for _, cond := range conditions(raw) {
+					out, err := applyFilterCondition(db.Table("test"), cond, tt.mapping)
+					if err != nil {
+						t.Fatalf("%+v: %v", cond, err)
+					}
+					want := bindArgs(cond.Values, tt.bind)
+					if got := out.Find(&[]struct{}{}).Statement.Vars; !slices.EqualFunc(got, want, equalArg) {
+						t.Fatalf("%+v: bind vars = %#v, want %#v", cond, got, want)
+					}
+				}
+			}
+			for _, raw := range tt.invalid {
+				for _, cond := range conditions(raw) {
+					_, err := applyFilterCondition(nil, cond, tt.mapping)
+					var invalid *InvalidFilterError
+					if !errors.As(err, &invalid) || invalid.Field != tt.field || invalid.Operator != cond.Operator {
+						t.Fatalf("%+v: got %v, want InvalidFilterError with field and operator", cond, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+// equalArg compares bind arguments by instant for times, since parsing an
+// offset creates a distinct zone pointer each call.
+func equalArg(a, b any) bool {
+	if ta, ok := a.(time.Time); ok {
+		tb, ok := b.(time.Time)
+		return ok && ta.Equal(tb)
+	}
+	return a == b
+}
+
+func TestParseDateTime(t *testing.T) {
+	t.Parallel()
+	amsterdam, err := time.LoadLocation("Europe/Amsterdam")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parse := func(raw string) time.Time {
+		t.Helper()
+		value, err := parseDateTime(raw, amsterdam)
+		if err != nil {
+			t.Fatalf("%q: %v", raw, err)
+		}
+		return value.(time.Time)
+	}
+
+	// MySQL reads a Z suffix as local time, so Go must fix the instant before binding.
+	want := time.Date(2024, 1, 1, 12, 30, 0, 0, time.UTC)
+	for _, raw := range []string{"2024-01-01T12:30:00Z", "2024-01-01T12:30:00+00:00", "2024-01-01T14:30:00+02:00", "2024-01-01 13:30:00", "2024-01-01 13:30:00.0", "2024-01-01 13:30:00,0"} {
+		if got := parse(raw); !got.Equal(want) {
+			t.Errorf("%q = %s, want %s", raw, got.UTC().Format(time.RFC3339Nano), want.Format(time.RFC3339Nano))
+		}
+	}
+	if got := parse("2024-01-01 13:30:00,5"); !got.Equal(want.Add(500 * time.Millisecond)) {
+		t.Errorf("comma fraction = %s, want 500ms after %s", got.UTC().Format(time.RFC3339Nano), want.Format(time.RFC3339))
+	}
+	if got := parse("2024-07-01"); !got.Equal(time.Date(2024, 6, 30, 22, 0, 0, 0, time.UTC)) {
+		t.Errorf("bare date = %s, want local midnight 2024-06-30T22:00:00Z", got.UTC().Format(time.RFC3339))
+	}
+	// The driver binds the time in loc, so the year check applies after conversion.
+	for _, raw := range []string{"0000-01-01", "0000-01-01T00:00:00Z", "0001-01-01T00:00:00+14:00", "9999-12-31T23:30:00Z"} {
+		if _, err := parseDateTime(raw, amsterdam); err == nil {
+			t.Errorf("%q: expected error for a year the driver cannot bind", raw)
+		}
+	}
+	for _, raw := range []string{"0001-01-02T00:00:00Z", "9999-12-31T22:00:00Z"} {
+		if got := parse(raw); got.Location() != amsterdam {
+			t.Errorf("%q: location = %v, want loc so the driver binds the checked year", raw, got.Location())
+		}
+	}
+}
+
+func TestFieldMappingsAreWellFormed(t *testing.T) {
+	t.Parallel()
+	known := []filterType{filterString, filterInteger, filterNumber, filterDate, filterDateTime, filterBoolean, filterBitmask, filterEnum, filterPresence}
+	mappings := map[string]FieldMapping{
+		"bulletin": bulletinFieldMapping, "station": stationFieldMapping, "stationVoice": stationVoiceFieldMapping,
+		"story": storyFieldMapping, "user": userFieldMapping, "voice": voiceFieldMapping,
+	}
+	for name, mapping := range mappings {
+		for field, f := range mapping {
+			switch {
+			case f.Column == "", !slices.Contains(known, f.Type):
+				t.Errorf("%s.%s: missing column or unknown type %q", name, field, f.Type)
+			case (f.Type == filterEnum) != (len(f.Enum) > 0):
+				t.Errorf("%s.%s: Enum must be set exactly when Type is enum", name, field)
+			case f.Type == filterPresence && f.Nullable:
+				t.Errorf("%s.%s: presence fields handle NULL themselves", name, field)
+			}
+		}
+	}
+}
+
+// bindArgs returns the expected bind arguments for values; a nil bind keeps raw strings.
+func bindArgs(values []string, bind func(string) any) []any {
+	args := make([]any, len(values))
+	for i, v := range values {
+		if bind != nil {
+			args[i] = bind(v)
+		} else {
+			args[i] = v
+		}
+	}
+	return args
 }

@@ -13,12 +13,12 @@ import (
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
-	params, query, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQuery(c)
 	if !ok {
 		return
 	}
 
-	result, err := h.userSvc.List(c.Request.Context(), query)
+	result, err := h.userSvc.List(c.Request.Context(), &params.ListQuery)
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return

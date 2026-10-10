@@ -15,7 +15,6 @@ module.exports = {
     searchFields: ['name'],
     sortableFields: ['id', 'name', 'created_at', 'updated_at'],
     filterableFields: ['id', 'name'],
-    numericFields: ['id'],
     selectableFields: ['id', 'name', 'created_at', 'updated_at']
   },
 

@@ -8,33 +8,33 @@ When your frontend and backend API are on different subdomains:
 - Frontend: `https://babbel.zuidwest.cloud`
 - Backend API: `https://babbel-api.zuidwest.cloud`
 
-By default, cookies set by the API are not accessible to the frontend because they're scoped to the API subdomain only.
+Frontend requests must include credentials, and the API must allow the frontend origin through CORS. The cookie can remain scoped to the API host unless other subdomains also need it.
 
 ## Solution
 
-Configure cookies to be shared across all subdomains using the following environment variables:
+Configure CORS and cookies for your deployment:
 
-### Required Environment Variables
+### Environment Variables
 
 ```bash
-# Share cookies across all *.zuidwest.cloud subdomains
+# Optional: share cookies across subdomains
 BABBEL_COOKIE_DOMAIN=.zuidwest.cloud
 
-# Required for cross-origin requests between subdomains
+# Cross-site requests require none; same-site requests can use lax
 BABBEL_COOKIE_SAMESITE=none
 
-# Ensure HTTPS is used (required when SameSite=none)
+# Restrict cookies to HTTPS (required with SameSite=none)
 BABBEL_ENV=production
 
-# Allow frontend origin for CORS
+# CORS allowlist
 BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud
 ```
 
 ### Important Notes
 
-1. **Leading Dot**: The `.` before the domain (`.zuidwest.cloud`) is essential - it tells browsers to share the cookie with all subdomains.
+1. **Domain**: Leave unset for an API-host-only cookie. Setting `zuidwest.cloud` includes its subdomains; a leading dot is ignored.
 
-2. **SameSite=None**: Required for cookies to be sent in cross-site requests (different subdomains are considered cross-site).
+2. **SameSite**: HTTPS subdomains of the same registrable domain are same-site. Cross-site requests need `none`; browser third-party cookie restrictions still apply.
 
 3. **Secure Flag**: Automatically set when `BABBEL_ENV=production`. Required when using `SameSite=None`.
 
@@ -60,13 +60,11 @@ For local development where frontend and backend are on the same domain:
 # No cookie domain needed for localhost
 BABBEL_COOKIE_DOMAIN=
 
-# Can use lax for same-site
 BABBEL_COOKIE_SAMESITE=lax
 
-# Development mode (cookies not marked as Secure)
+# Allow cookies over HTTP
 BABBEL_ENV=development
 
-# Allow localhost origins
 BABBEL_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
@@ -104,31 +102,32 @@ After configuration, verify that:
 - Verify `BABBEL_ALLOWED_ORIGINS` includes your frontend URL
 
 ### Session not persisting
-- Verify cookie domain starts with `.` for cross-subdomain
-- Check that `SameSite` is set to `none`
+- Verify the cookie domain includes the API host
+- Check that `SameSite` matches your deployment
 - Ensure frontend includes credentials in API requests
 
 ### CORS errors
 - Add frontend URL to `BABBEL_ALLOWED_ORIGINS`
 - Ensure the URL matches exactly (including protocol and port)
 
-## OAuth Username Handling
+## OAuth Identity and Username Handling
 
-When users authenticate via OAuth/OIDC, their email address is automatically sanitized to create a valid username:
+OIDC accounts are identified by the token's issuer and subject (`sub`); a token
+without `sub` is rejected. Email is optional and never the identity key.
 
-- Email prefix (before @) is extracted
-- Invalid characters are replaced with underscores
-- Maximum 50 characters are kept
-- Numeric suffixes (_1, _2) are added if username already exists
+New users get the viewer role and a username derived from `preferred_username`,
+or the email prefix: invalid characters become underscores, at most 100
+characters, and a suffix when the name is taken.
 
-Examples:
-- `john.doe@example.com` → `john_doe`
-- `user+tag@example.com` → `user_tag`
-- `admin@example.com` (if exists) → `admin_1`
+An existing account without a local password and without an OIDC identity is
+linked by its non-empty email when exactly one account matches and
+`email_verified` is absent, `true`, or `"true"`. Accounts with a local password
+are never linked. Other `email_verified` values result in a new viewer account.
+Multiple matches or a suspended match require an administrator to resolve them.
 
 ## Security Considerations
 
-- **HttpOnly**: Always enabled to prevent XSS attacks
+- **HttpOnly**: Prevents JavaScript from reading the session cookie
 - **Secure**: Automatically enabled in production to ensure HTTPS-only transmission
 - **SameSite**: Use `strict` or `lax` when possible for better CSRF protection
 - **Domain Scope**: Be specific with cookie domain to limit exposure

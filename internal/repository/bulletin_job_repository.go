@@ -15,7 +15,7 @@ var ErrBulletinJobStateConflict = errors.New("bulletin job state conflict")
 
 // BulletinJobRepository stores durable bulletin generation jobs. A single
 // worker goroutine owns every claimed job from claim to finalization; status
-// transitions are still guarded (queued -> running -> succeeded/failed) so a
+// transitions are guarded (queued -> running -> succeeded/failed) so a
 // lost commit response or misconfigured second instance can never overwrite a
 // terminal job. The generic base is deliberately not embedded: unguarded
 // helpers such as UpdateByID and Delete would bypass the status lifecycle.
@@ -35,15 +35,10 @@ func (r *BulletinJobRepository) GetByID(ctx context.Context, id int64) (*models.
 }
 
 // Create queues a durable bulletin generation job.
-func (r *BulletinJobRepository) Create(
-	ctx context.Context,
-	stationID int64,
-	targetDate time.Time,
-) (*models.BulletinJob, error) {
+func (r *BulletinJobRepository) Create(ctx context.Context, stationID int64) (*models.BulletinJob, error) {
 	job := &models.BulletinJob{
-		StationID:  stationID,
-		TargetDate: targetDate,
-		Status:     models.BulletinJobQueued,
+		StationID: stationID,
+		Status:    models.BulletinJobQueued,
 	}
 	if err := DBFromContext(ctx, r.db).WithContext(ctx).Create(job).Error; err != nil {
 		return nil, ParseDBError(err)
@@ -85,9 +80,8 @@ func (r *BulletinJobRepository) ClaimNext(ctx context.Context, maxAttempts int) 
 	return &job, nil
 }
 
-// RequeueInterrupted returns jobs an unclean shutdown left running to the
-// queue. It must run before the worker claims, so recovered state can never
-// belong to a live attempt.
+// RequeueInterrupted requeues jobs left running after a shutdown or failed cycle.
+// It must run with no active attempts, before the worker claims another job.
 func (r *BulletinJobRepository) RequeueInterrupted(ctx context.Context) (int64, error) {
 	result := r.db.WithContext(ctx).Model(&models.BulletinJob{}).
 		Where("status = ?", models.BulletinJobRunning).

@@ -1,6 +1,5 @@
 -- Complete MySQL schema; fresh databases load only this file.
 
--- Drop existing tables (in reverse dependency order)
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS bulletin_jobs;
 DROP TABLE IF EXISTS user_sessions;
@@ -80,11 +79,9 @@ CREATE TABLE bulletin_stories (
     INDEX idx_bulletin_stories_story_id (story_id)
 );
 
--- Keep this definition aligned with 009_bulletin_jobs.sql.
 CREATE TABLE bulletin_jobs (
     id           BIGINT AUTO_INCREMENT PRIMARY KEY,
     station_id   INT NOT NULL,
-    target_date  DATE NOT NULL,
     status       VARCHAR(20) NOT NULL DEFAULT 'queued',
     attempt      INT NOT NULL DEFAULT 0,
     bulletin_id  INT NULL,
@@ -109,6 +106,9 @@ CREATE TABLE users (
     full_name VARCHAR(255),
     password_hash VARCHAR(255) NOT NULL,
     email VARCHAR(255),
+    oidc_issuer VARBINARY(512) NULL,
+    oidc_subject VARBINARY(255) NULL,
+    UNIQUE INDEX idx_users_oidc_identity (oidc_issuer, oidc_subject),
     role VARCHAR(50) DEFAULT 'editor',
     suspended_at TIMESTAMP NULL,
     deleted_at TIMESTAMP NULL,

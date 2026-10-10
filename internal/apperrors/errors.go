@@ -299,6 +299,7 @@ const (
 	CodeBulletinNoStories     = "bulletin.no_stories"
 	CodeTimeout               = "internal.timeout"
 	CodeAudioProcessingFailed = "audio.processing_failed"
+	CodeAudioSilent           = "audio.silent"
 	CodeGenerationFailed      = "internal.generation_failed"
 	CodeRetriesExhausted      = "internal.retries_exhausted"
 )

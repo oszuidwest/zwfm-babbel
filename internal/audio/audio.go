@@ -22,9 +22,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// commandError surfaces context cancellation hidden behind the process error:
-// exec returns the kill signal ("signal: killed"), not ctx.Err(), when the
-// context ends a run, and callers classify shutdown by matching ctx errors.
+// commandError preserves context errors so callers can recognize canceled commands.
 func commandError(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return errors.Join(ctxErr, err)
@@ -35,9 +33,14 @@ func commandError(ctx context.Context, err error) error {
 const (
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
 	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
+	// minStoryLoudnessLUFS is the minimum accepted story loudness.
+	minStoryLoudnessLUFS = -50
 	// monoDownmixFilter keeps both loudnorm passes on the same mono signal.
 	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
+
+// ErrSilent indicates story audio below the usable loudness floor.
+var ErrSilent = errors.New("audio is silent or too quiet")
 
 // loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
@@ -51,6 +54,16 @@ type loudnormStats struct {
 // silent reports whether loudnorm found no measurable peak.
 func (l loudnormStats) silent() bool {
 	return math.IsInf(l.TruePeak, -1)
+}
+
+// tooQuiet reports whether story audio is below the loudness floor.
+// Below 400 ms or the -70 LUFS gate, integrated loudness is unavailable;
+// the same threshold applies to true peak in dBTP.
+func (l loudnormStats) tooQuiet() bool {
+	if math.IsInf(l.Integrated, -1) {
+		return l.TruePeak < minStoryLoudnessLUFS
+	}
+	return l.Integrated < minStoryLoudnessLUFS
 }
 
 // JingleContext keeps the jingle and mix point stable across story shuffling.
@@ -71,20 +84,33 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 	return &Service{config: cfg, alerts: alerts}
 }
 
-// ConvertJingleToWAV converts a jingle to stereo WAV without normalizing it;
-// normalization happens after the jingle and stories are mixed.
+// ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
+// It returns the output path and duration in seconds.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV, targeting -16 LUFS with
-// a -1 dBTP ceiling. Two-pass loudnorm preserves dynamics when possible and
-// falls back to dynamic mode when linear gain would breach the ceiling or its
-// loudness-range constraints.
+// a -1 dBTP ceiling, preserving dynamics when possible.
+// It returns the output path and duration in seconds.
+//
+// It returns [ErrSilent] without writing outputPath when the input is silent
+// or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return "", 0, err
+	}
+
+	if stats.tooQuiet() {
+		logger.Warn("Rejected silent or near-silent story audio",
+			"path", inputPath,
+			"input_i", fmt.Sprintf("%.2f", stats.Integrated),
+			"input_tp", fmt.Sprintf("%.2f", stats.TruePeak),
+			"input_lra", fmt.Sprintf("%.2f", stats.LRA),
+			"input_thresh", fmt.Sprintf("%.2f", stats.Threshold),
+		)
+		return "", 0, ErrSilent
 	}
 
 	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
@@ -126,8 +152,7 @@ func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudno
 	)
 }
 
-// measureLoudnessWithArgs runs a loudnorm measurement over an FFmpeg command
-// assembled by the caller.
+// measureLoudnessWithArgs measures loudness using caller-supplied FFmpeg arguments.
 func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (loudnormStats, error) {
 	// #nosec G204 - FFmpegPath is from config and args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, append(args, "-f", "null", "-")...)
@@ -150,13 +175,8 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	return stats, nil
 }
 
-// storyNormalizationFilter builds the second pass. Silence bypasses loudnorm
-// to avoid NaNs on short clips; ungated non-silent clips omit unavailable
-// measurements and use loudnorm's dynamic mode.
+// storyNormalizationFilter uses dynamic mode when integrated loudness is unavailable.
 func storyNormalizationFilter(stats loudnormStats) string {
-	if stats.silent() {
-		return ""
-	}
 	filter := monoDownmixFilter + "," + loudnessNormalizationFilter
 	if math.IsInf(stats.Integrated, -1) {
 		return filter
@@ -166,9 +186,8 @@ func storyNormalizationFilter(stats loudnormStats) string {
 		stats.Integrated, stats.LRA, stats.TruePeak, stats.Threshold, stats.TargetOffset)
 }
 
-// bulletinNormalizationFilter builds the second pass for the stereo bulletin
-// mix. Silence bypasses loudnorm; an ungated non-silent mix still gets dynamic
-// normalization so its true peak remains limited.
+// bulletinNormalizationFilter normalizes the stereo mix, bypassing silence.
+// Without integrated loudness, dynamic mode limits true peak.
 func bulletinNormalizationFilter(stats loudnormStats) string {
 	if stats.silent() {
 		return "anull"
@@ -239,9 +258,8 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 	return duration, nil
 }
 
-// CreateBulletin mixes stories with the preselected jingle so story shuffling
-// cannot change the jingle or mix point. The completed stereo mix is measured
-// and normalized in two passes to preserve the balance between voice and bed.
+// CreateBulletin mixes stories with the selected jingle and returns the output path.
+// Two-pass normalization preserves the stereo mix's voice-to-bed balance.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
 	station *models.Station,
@@ -384,8 +402,7 @@ func (s *Service) addJingleMix(
 	return args, filters
 }
 
-// validateJingleFile ensures the path is a readable regular file before an
-// availability incident is resolved and FFmpeg receives it as an input.
+// validateJingleFile checks that path is a readable regular file.
 func validateJingleFile(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {

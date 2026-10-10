@@ -2,7 +2,9 @@ package repository
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -30,6 +32,17 @@ var (
 	// the record's current state does not allow it.
 	ErrStateConflict = errors.New("record state conflict")
 )
+
+// StoryDeletedError indicates a write targeted a soft-deleted story.
+type StoryDeletedError struct {
+	ID        int64
+	DeletedAt time.Time
+}
+
+// Error describes the deleted story.
+func (e *StoryDeletedError) Error() string {
+	return fmt.Sprintf("Story with id %d has been deleted", e.ID)
+}
 
 // ParseDBError converts database-specific errors to repository sentinel errors.
 // Returns nil if err is nil.

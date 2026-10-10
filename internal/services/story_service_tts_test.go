@@ -355,12 +355,16 @@ func (f *fakeStoryRepository) Update(_ context.Context, _ int64, u *repository.S
 	return f.updateErr
 }
 
-func (f *fakeStoryRepository) GetByID(context.Context, int64) (*models.Story, error) {
+func (f *fakeStoryRepository) GetByIDForWrite(context.Context, int64) (*models.Story, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.story, nil
+}
+
+func (f *fakeStoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
+	return f.GetByIDForWrite(ctx, id)
 }
 
 type fakeTTSSettingsGetter struct {
@@ -376,6 +380,7 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
+	data    []byte
 	ctx     context.Context
 	text    string
 	voiceID string
@@ -390,6 +395,9 @@ func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, voiceID 
 	f.voiceID = voiceID
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.data != nil {
+		return f.data, nil
 	}
 	return []byte("opus"), nil
 }
