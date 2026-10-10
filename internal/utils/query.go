@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,42 @@ func parseQueryParams(c *gin.Context) (*QueryParams, *apperrors.ValidationError)
 		},
 		Fields: parseFields(query.Get("fields")),
 	}, nil
+}
+
+const (
+	defaultPaginationLimit = 20
+	maxPaginationLimit     = 100
+)
+
+// parsePagination reads limit and offset, defaulting to 20 and 0. Malformed or
+// out-of-range values are errors rather than silently replaced by defaults.
+func parsePagination(query url.Values) (limit, offset int, err *apperrors.ValidationError) {
+	limit = defaultPaginationLimit
+	if raw := query.Get("limit"); raw != "" {
+		l, atoiErr := strconv.Atoi(raw)
+		switch {
+		case atoiErr != nil:
+			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: fmt.Sprintf("expected integer, got %q", raw)}
+		case l < 1:
+			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: "must be >= 1"}
+		case l > maxPaginationLimit:
+			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: fmt.Sprintf("must be <= %d", maxPaginationLimit)}
+		default:
+			limit = l
+		}
+	}
+	if raw := query.Get("offset"); raw != "" {
+		o, atoiErr := strconv.Atoi(raw)
+		switch {
+		case atoiErr != nil:
+			return 0, 0, &apperrors.ValidationError{Field: "offset", Message: fmt.Sprintf("expected integer, got %q", raw)}
+		case o < 0:
+			return 0, 0, &apperrors.ValidationError{Field: "offset", Message: "must be >= 0"}
+		default:
+			offset = o
+		}
+	}
+	return limit, offset, nil
 }
 
 func parseSorting(sortParam string) ([]repository.SortField, *apperrors.ValidationError) {
@@ -143,7 +180,7 @@ var filterOperators = map[string]repository.FilterOperator{
 }
 
 // rejectDuplicateSingleValueParams rejects repeated non-filter keys before
-// c.Query can discard extra values. parseFilters checks duplicate filter keys.
+// query.Get can discard extra values. parseFilters checks duplicate filter keys.
 func rejectDuplicateSingleValueParams(query url.Values) *apperrors.ValidationError {
 	for key, values := range query {
 		if strings.HasPrefix(key, "filter[") {
@@ -381,7 +418,7 @@ func ProblemQueryValidation(c *gin.Context, detail string, errs []apperrors.Vali
 // For struct types, unknown field names produce a 422 response.
 func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *repository.ListResult[T]) {
 	var data any = result.Data
-	if params != nil && len(params.Fields) > 0 {
+	if len(params.Fields) > 0 {
 		if valid := jsonFieldNames[T](); valid != nil {
 			var unknown []apperrors.ValidationError
 			for _, f := range params.Fields {

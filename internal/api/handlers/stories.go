@@ -93,19 +93,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	// dateformat guarantees YYYY-MM-DD, which sorts chronologically as text.
-	if req.StartDate != nil && req.EndDate != nil && *req.EndDate < *req.StartDate {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "end_date", Message: "End date cannot be before start date"},
-		})
-		return
-	}
-
-	if req == (utils.StoryUpdateRequest{}) {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 

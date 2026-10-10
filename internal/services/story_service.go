@@ -118,8 +118,10 @@ type UpdateStoryRequest struct {
 // Create validates local-date bounds and optional voice ownership before
 // persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
-	if err := s.requireVoice(ctx, req.VoiceID); err != nil {
-		return nil, err
+	if req.VoiceID != nil {
+		if err := requireExists(ctx, s.voiceRepo.Exists, "Story", "Voice", *req.VoiceID); err != nil {
+			return nil, err
+		}
 	}
 
 	startDate, err := parseStoryDate("start_date", req.StartDate)
@@ -132,8 +134,8 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 		return nil, err
 	}
 
-	if endDate.Before(startDate) {
-		return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
+	if err := checkDateRange(startDate, endDate); err != nil {
+		return nil, err
 	}
 
 	data := &repository.StoryCreateData{
@@ -164,30 +166,29 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		return nil, err
 	}
 
-	// Exactly one date changed, so the other bound must be loaded to validate
-	// the effective range.
-	if (startDate != nil) != (endDate != nil) {
-		existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
-		if err != nil {
-			return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
+	if startDate != nil || endDate != nil {
+		start, end := startDate, endDate
+		if start == nil || end == nil {
+			existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
+			if err != nil {
+				return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpQuery, err)
+			}
+			if start == nil {
+				start = (*time.Time)(&existing.StartDate)
+			}
+			if end == nil {
+				end = (*time.Time)(&existing.EndDate)
+			}
 		}
-
-		effectiveStart := time.Time(existing.StartDate)
-		effectiveEnd := time.Time(existing.EndDate)
-		if startDate != nil {
-			effectiveStart = *startDate
-		}
-		if endDate != nil {
-			effectiveEnd = *endDate
-		}
-
-		if effectiveEnd.Before(effectiveStart) {
-			return nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
+		if err := checkDateRange(*start, *end); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := s.requireVoice(ctx, req.VoiceID); err != nil {
-		return nil, err
+	if req.VoiceID != nil {
+		if err := requireExists(ctx, s.voiceRepo.Exists, "Story", "Voice", *req.VoiceID); err != nil {
+			return nil, err
+		}
 	}
 
 	updates := &repository.StoryUpdate{
@@ -209,19 +210,14 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	return s.GetByID(ctx, id)
 }
 
-// requireVoice returns NotFound when voiceID is set and the voice does not exist.
-func (s *StoryService) requireVoice(ctx context.Context, voiceID *int64) error {
-	if voiceID == nil {
+// checkDateRange rejects an end date before the start date with a 422.
+func checkDateRange(start, end time.Time) error {
+	if !end.Before(start) {
 		return nil
 	}
-	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
-	if err != nil {
-		return apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
-	}
-	if !exists {
-		return apperrors.NotFoundWithID("Voice", *voiceID)
-	}
-	return nil
+	return apperrors.NewValidationProblemError("Story", "Date validation failed", []apperrors.ValidationError{
+		{Field: "end_date", Message: "End date cannot be before start date"},
+	})
 }
 
 // parseStoryDate parses a YYYY-MM-DD date in the server's local timezone.
@@ -251,12 +247,6 @@ func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *t
 			return nil, nil, err
 		}
 		endDate = &parsed
-	}
-
-	if startDate != nil && endDate != nil {
-		if endDate.Before(*startDate) {
-			return nil, nil, apperrors.Validation("Story", "end_date", "cannot be before start date")
-		}
 	}
 
 	return startDate, endDate, nil

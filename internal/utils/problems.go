@@ -78,10 +78,6 @@ func NewProblemDetail(problemType, title string, status int, detail string) *Pro
 // SendProblem sends an RFC 9457 problem details response.
 func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	c.Header("Content-Type", "application/problem+json")
-
-	if problem.Instance == "" {
-		problem.Instance = c.Request.URL.Path
-	}
-
+	problem.Instance = c.Request.URL.Path
 	c.JSON(problem.Status, problem)
 }

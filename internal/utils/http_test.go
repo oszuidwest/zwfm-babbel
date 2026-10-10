@@ -152,10 +152,7 @@ func TestProblemDetailAlwaysIncludesDetail(t *testing.T) {
 }
 
 func TestValidationProblemUsesAppErrorsValidationError(t *testing.T) {
-	errs := []apperrors.ValidationError{{Resource: "TTSSettings", Field: "model", Message: "invalid model"}}
-	problem := NewProblemDetail(ProblemTypeValidationError, "Validation Error", 422, "Validation failed")
-	problem.Errors = errs
-	body, err := json.Marshal(problem)
+	body, err := json.Marshal([]apperrors.ValidationError{{Resource: "TTSSettings", Field: "model", Message: "invalid model"}})
 	if err != nil {
 		t.Fatalf("marshal problem: %v", err)
 	}

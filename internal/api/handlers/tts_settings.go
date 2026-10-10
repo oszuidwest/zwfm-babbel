@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
@@ -42,11 +41,7 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	}
 
 	serviceReq := toTTSSettingsServiceRequest(req)
-	if serviceReq.IsEmpty() {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field must be provided",
-		}})
+	if !utils.RequireAnyField(c, *serviceReq) {
 		return
 	}
 	if userID, ok := auth.UserID(c); ok {

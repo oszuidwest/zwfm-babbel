@@ -83,3 +83,34 @@ describe('Story Date Validation', () => {
     expect(response.status).toBe(422);
   });
 });
+
+describe('Empty Update Validation', () => {
+  const paths = {};
+
+  beforeAll(async () => {
+    const station = await global.helpers.createStation(global.resources, 'EmptyUpdateStation');
+    const voice = await global.helpers.createVoice(global.resources, 'EmptyUpdateVoice');
+    const story = await global.helpers.createStory(global.resources, {
+      title: 'Empty update', text: 'Test content', voice_id: voice.id
+    }, [station.id]);
+    const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id);
+    paths.voice = `/voices/${voice.id}`;
+    paths.story = `/stories/${story.id}`;
+    paths.stationVoice = `/station-voices/${stationVoice.id}`;
+    paths.ttsSettings = '/settings/tts';
+  });
+
+  test.each([
+    ['PUT', 'voice'],
+    ['PUT', 'story'],
+    ['PUT', 'stationVoice'],
+    ['PATCH', 'ttsSettings']
+  ])('when %s %s with an empty object, then 422 names request', async (method, resource) => {
+    const response = await global.api.apiCall(method, paths[resource], {});
+
+    expect(response.status).toBe(422);
+    expect(response.data.errors).toEqual([
+      { field: 'request', message: 'At least one field must be provided' }
+    ]);
+  });
+});

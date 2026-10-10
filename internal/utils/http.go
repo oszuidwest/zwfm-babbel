@@ -11,7 +11,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,44 +37,6 @@ func IDParam(c *gin.Context) (int64, bool) {
 		return 0, false
 	}
 	return id, true
-}
-
-const (
-	defaultPaginationLimit = 20
-	maxPaginationLimit     = 100
-)
-
-// parsePagination extracts pagination parameters from the query string. Absent
-// parameters fall back to defaults (limit=20, offset=0). Malformed or
-// out-of-range values return a *apperrors.ValidationError so the caller can surface a
-// structured 422 response instead of silently substituting defaults.
-func parsePagination(query url.Values) (limit, offset int, err *apperrors.ValidationError) {
-	limit = defaultPaginationLimit
-	if raw := query.Get("limit"); raw != "" {
-		l, atoiErr := strconv.Atoi(raw)
-		switch {
-		case atoiErr != nil:
-			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: fmt.Sprintf("expected integer, got %q", raw)}
-		case l < 1:
-			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: "must be >= 1"}
-		case l > maxPaginationLimit:
-			return 0, 0, &apperrors.ValidationError{Field: "limit", Message: fmt.Sprintf("must be <= %d", maxPaginationLimit)}
-		default:
-			limit = l
-		}
-	}
-	if raw := query.Get("offset"); raw != "" {
-		o, atoiErr := strconv.Atoi(raw)
-		switch {
-		case atoiErr != nil:
-			return 0, 0, &apperrors.ValidationError{Field: "offset", Message: fmt.Sprintf("expected integer, got %q", raw)}
-		case o < 0:
-			return 0, 0, &apperrors.ValidationError{Field: "offset", Message: "must be >= 0"}
-		default:
-			offset = o
-		}
-	}
-	return limit, offset, nil
 }
 
 // ValidateAndSaveAudioFile validates uploaded audio and stores it in a temp path.
@@ -292,6 +253,20 @@ func (r *StoryUpdateRequest) NormalizeText() {
 
 type textNormalizer interface {
 	NormalizeText()
+}
+
+// RequireAnyField responds with HTTP 422 and returns false when the partial
+// update request req sets no field.
+func RequireAnyField[T comparable](c *gin.Context, req T) bool {
+	var zero T
+	if req != zero {
+		return true
+	}
+	ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
+		Field:   "request",
+		Message: "At least one field must be provided",
+	}})
+	return false
 }
 
 // BindAndValidate decodes a JSON request, normalizes text fields, then validates.

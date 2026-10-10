@@ -324,25 +324,6 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Suspend prevents a user from logging in and returns the refreshed account.
-func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, true); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
-}
-
-// Unsuspend allows a suspended user to log in again and returns the refreshed
-// account.
-func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, false); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
-}
-
 // List retrieves a paginated list of users with filtering, sorting, and search support.
 func (s *UserService) List(
 	ctx context.Context, query *repository.ListQuery,

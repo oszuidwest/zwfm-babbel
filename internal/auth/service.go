@@ -170,7 +170,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		session := sessions.Default(c)
 
-		userID, ok := SessionUserID(session)
+		userID, ok := coerceInt64(session.Get(sessKeyUserID))
 		if !ok {
 			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
@@ -190,7 +190,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete(SessKeyUserID)
+			session.Delete(sessKeyUserID)
 			if saveErr := session.Save(); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
@@ -304,11 +304,11 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	state := rand.Text()
 
 	session := sessions.Default(c)
-	session.Set(SessKeyOAuthState, state)
+	session.Set(sessKeyOAuthState, state)
 
 	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
 		if s.isAllowedFrontendURL(frontendURL) {
-			session.Set(SessKeyFrontendURL, frontendURL)
+			session.Set(sessKeyFrontendURL, frontendURL)
 		} else {
 			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
 		}
@@ -327,7 +327,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session := sessions.Default(c)
 
 	state := c.Query("state")
-	savedState, ok := session.Get(SessKeyOAuthState).(string)
+	savedState, ok := session.Get(sessKeyOAuthState).(string)
 	if !ok || state != savedState {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key:     oauthInvalidStateAlertKey,
@@ -338,7 +338,9 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	session.Delete(SessKeyOAuthState)
+	// CreateSession's save persists these deletions on success.
+	session.Delete(sessKeyOAuthState)
+	session.Delete(sessKeyFrontendURL)
 
 	code := c.Query("code")
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -411,7 +413,7 @@ func (s *Service) Logout(c *gin.Context) error {
 // Middleware reads their role from the database on each request.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
 	session := sessions.Default(c)
-	session.Set(SessKeyUserID, userID)
+	session.Set(sessKeyUserID, userID)
 	return session.Save()
 }
 

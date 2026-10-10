@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -154,14 +153,8 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 		return
 	}
 
-	var updated *models.User
-	var err error
-	if req.Action == "suspend" {
-		updated, err = h.userSvc.Suspend(c.Request.Context(), id)
-	} else {
-		updated, err = h.userSvc.Unsuspend(c.Request.Context(), id)
-	}
-
+	suspend := req.Action == "suspend"
+	updated, err := h.userSvc.Update(c.Request.Context(), id, &services.UpdateUserRequest{Suspended: &suspend})
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return

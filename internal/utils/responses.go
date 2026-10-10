@@ -75,9 +75,7 @@ func CreatedWithMessage(c *gin.Context, message string) {
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
 func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	problem := NewProblemDetail(ProblemTypeValidationError, "Validation Error", http.StatusUnprocessableEntity, detail)
-	problem.Errors = errors
-	SendProblem(c, problem)
+	ProblemCustom(c, ProblemTypeValidationError, "Validation Error", http.StatusUnprocessableEntity, detail, errors...)
 }
 
 // ProblemNotFound responds with HTTP 404 Not Found.
@@ -104,9 +102,7 @@ func ProblemBadRequest(c *gin.Context, detail string) {
 
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
 func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	problem := NewProblemDetail(ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail)
-	problem.Errors = errors
-	SendProblem(c, problem)
+	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 
 // ProblemPayloadTooLarge responds with HTTP 413 for JSON request bodies above the size cap.
@@ -131,9 +127,11 @@ func ProblemNotAcceptable(c *gin.Context, detail string) {
 	)
 }
 
-// ProblemCustom responds with a custom problem type.
-func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
-	SendProblem(c, NewProblemDetail(problemType, title, status, detail))
+// ProblemCustom responds with a custom problem type and optional field errors.
+func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string, errors ...apperrors.ValidationError) {
+	problem := NewProblemDetail(problemType, title, status, detail)
+	problem.Errors = errors
+	SendProblem(c, problem)
 }
 
 // ProblemExtended responds with an RFC 9457 problem including code and hint fields.

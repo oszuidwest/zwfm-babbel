@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -75,11 +74,7 @@ func (h *Handlers) UpdateStationVoice(c *gin.Context) {
 		return
 	}
 
-	if req == (utils.StationVoiceUpdateRequest{}) {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
