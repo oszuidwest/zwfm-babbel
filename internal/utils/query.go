@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // QueryParamError identifies an invalid query parameter for validation responses.
@@ -406,7 +407,7 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: unsupportedOnEndpoint})
 	}
 	if len(unsupported) > 0 {
-		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)
+		ProblemQueryValidation(c, "Endpoint only supports limit and offset", unsupported)
 		return 0, 0, false
 	}
 	return params.Limit, params.Offset, true
@@ -414,12 +415,32 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 
 func emitQueryError(c *gin.Context, err error) {
 	if qpe, ok := errors.AsType[*QueryParamError](err); ok {
-		ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+		ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: qpe.Field, Message: qpe.Message},
 		})
 		return
 	}
 	ProblemBadRequest(c, err.Error())
+}
+
+// RouteKey returns a stable method-and-route key without request parameters.
+func RouteKey(c *gin.Context) string {
+	if route := c.FullPath(); route != "" {
+		return c.Request.Method + " " + route
+	}
+	return c.Request.Method + " unmatched"
+}
+
+// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// logs the field errors at Debug. These are expected client errors: the
+// response names each field and the access log records the status, so they
+// never log at Error or alert.
+func ProblemQueryValidation(c *gin.Context, detail string, errs []apperrors.ValidationError) {
+	logger.Debug("Invalid query parameters",
+		"error_type", "query_validation",
+		"route", RouteKey(c),
+		"errors", errs)
+	ProblemValidationError(c, detail, errs)
 }
 
 // PaginatedListResponse writes a page with optional sparse fieldsets.
@@ -438,7 +459,7 @@ func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *r
 				}
 			}
 			if len(unknown) > 0 {
-				ProblemValidationError(c, "Invalid query parameter", unknown)
+				ProblemQueryValidation(c, "Invalid query parameter", unknown)
 				return
 			}
 		}

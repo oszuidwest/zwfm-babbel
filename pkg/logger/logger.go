@@ -6,9 +6,9 @@ import (
 	"os"
 )
 
-var logger = slog.Default()
-
 // Initialize sets up the logging system with the specified level and mode.
+// It installs a new logger as the slog default; the other functions in this
+// package log through slog.Default.
 func Initialize(level string, development bool) error {
 	var handler slog.Handler
 	opts := &slog.HandlerOptions{
@@ -26,29 +26,28 @@ func Initialize(level string, development bool) error {
 		handler = slog.NewJSONHandler(os.Stdout, opts)
 	}
 
-	logger = slog.New(handler)
-	slog.SetDefault(logger)
+	slog.SetDefault(slog.New(handler))
 	return nil
 }
 
 // Info logs informational messages with slog key-value attributes.
 func Info(message string, args ...any) {
-	logger.Info(message, args...)
+	slog.Info(message, args...)
 }
 
 // Error logs error messages with slog key-value attributes.
 func Error(message string, args ...any) {
-	logger.Error(message, args...)
+	slog.Error(message, args...)
 }
 
 // Debug logs debug messages with slog key-value attributes.
 func Debug(message string, args ...any) {
-	logger.Debug(message, args...)
+	slog.Debug(message, args...)
 }
 
 // Warn logs warning messages with slog key-value attributes.
 func Warn(message string, args ...any) {
-	logger.Warn(message, args...)
+	slog.Warn(message, args...)
 }
 
 // Sync flushes any buffered log entries.
@@ -62,5 +61,5 @@ func WithFields(fields map[string]any) *slog.Logger {
 	for k, v := range fields {
 		args = append(args, k, v)
 	}
-	return logger.With(args...)
+	return slog.Default().With(args...)
 }

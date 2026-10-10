@@ -34,7 +34,7 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 	}
 
 	// Repository-level query-shape errors flow through to the handler unchanged
-	// so handleServiceError can surface them via ProblemValidationError (422),
+	// so handleServiceError can surface them via ProblemQueryValidation (422),
 	// keeping the response shape and status consistent with parse-time query
 	// failures from utils/query.go.
 	if _, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
