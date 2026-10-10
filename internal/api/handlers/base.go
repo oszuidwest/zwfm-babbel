@@ -85,7 +85,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if handleQueryShapeError(c, err, fallbackResource) {
+	if handleQueryShapeError(c, err) {
 		return
 	}
 
@@ -274,18 +274,16 @@ func routeKey(c *gin.Context) string {
 	return c.Request.Method + " unmatched"
 }
 
-func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
+func handleQueryShapeError(c *gin.Context, err error) bool {
 	if unknownField, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
-		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+		utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: unknownField.Kind, Message: unknownField.Error()},
 		})
 		return true
 	}
 
 	if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
-		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+		utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
 		})
 		return true

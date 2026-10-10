@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // QueryParamError identifies an invalid query parameter for validation responses.
@@ -406,7 +407,7 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: unsupportedOnEndpoint})
 	}
 	if len(unsupported) > 0 {
-		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)
+		ProblemQueryValidation(c, "Endpoint only supports limit and offset", unsupported)
 		return 0, 0, false
 	}
 	return params.Limit, params.Offset, true
@@ -414,12 +415,24 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 
 func emitQueryError(c *gin.Context, err error) {
 	if qpe, ok := errors.AsType[*QueryParamError](err); ok {
-		ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+		ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: qpe.Field, Message: qpe.Message},
 		})
 		return
 	}
 	ProblemBadRequest(c, err.Error())
+}
+
+// ProblemQueryValidation writes a 422 for invalid list query parameters,
+// whether the parser or the repository rejected them. These are expected
+// client errors: the response names each field and the access log records
+// the status, so the details log at Debug, without sampling, and never alert.
+func ProblemQueryValidation(c *gin.Context, detail string, errors []apperrors.ValidationError) {
+	logger.Debug("Invalid query parameters",
+		"error_type", "query_validation",
+		"route", c.FullPath(),
+		"errors", errors)
+	ProblemValidationError(c, detail, errors)
 }
 
 // PaginatedListResponse writes a page with optional sparse fieldsets.
@@ -438,7 +451,7 @@ func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *r
 				}
 			}
 			if len(unknown) > 0 {
-				ProblemValidationError(c, "Invalid query parameter", unknown)
+				ProblemQueryValidation(c, "Invalid query parameter", unknown)
 				return
 			}
 		}

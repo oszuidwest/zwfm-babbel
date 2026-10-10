@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +16,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 type problemResponse struct {
@@ -244,6 +247,99 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 				t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
 			}
 			assertValidationField(t, rec, tt.wantField)
+		})
+	}
+}
+
+// captureLogs sends the slog default to a JSON buffer for one test and
+// returns a function that decodes the records logged so far.
+func captureLogs(t *testing.T) func() []map[string]any {
+	t.Helper()
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return func() []map[string]any {
+		var records []map[string]any
+		for line := range bytes.Lines(buf.Bytes()) {
+			var record map[string]any
+			if err := json.Unmarshal(line, &record); err != nil {
+				t.Fatalf("decode log record %q: %v", line, err)
+			}
+			records = append(records, record)
+		}
+		return records
+	}
+}
+
+// Invalid list queries are expected client input, whether the parser or the
+// repository rejects them: one Debug record and no alert. A database failure
+// stays at Error and alerts.
+func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
+	tests := []struct {
+		name       string
+		respond    func(*gin.Context)
+		wantStatus int
+		wantLevel  string
+		wantAlerts int
+	}{
+		{
+			name:       "parser rejects unknown operator",
+			respond:    func(c *gin.Context) { utils.ParseListQuery(c) },
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
+			name: "repository rejects unknown sort field",
+			respond: func(c *gin.Context) {
+				handleServiceError(c, &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}, "Story")
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
+			name: "repository rejects filter value",
+			respond: func(c *gin.Context) {
+				handleServiceError(c, &repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}, "Story")
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+			wantLevel:  "DEBUG",
+		},
+		{
+			name: "database failure",
+			respond: func(c *gin.Context) {
+				handleServiceError(c, apperrors.Database("Story", "query", errors.New("connection lost")), "Story")
+			},
+			wantStatus: http.StatusInternalServerError,
+			wantLevel:  "ERROR",
+			wantAlerts: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			records := captureLogs(t)
+			c, rec := newProblemContext(t)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories?filter[id][unknown]=1", nil)
+			alerts := &automationAlertRecorder{}
+			c.Set(alertContextKey, alerts)
+
+			tt.respond(c)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			logged := records()
+			if len(logged) != 1 || logged[0]["level"] != tt.wantLevel {
+				t.Fatalf("records = %v, want one %s record", logged, tt.wantLevel)
+			}
+			if tt.wantLevel == "DEBUG" {
+				if errs, _ := logged[0]["errors"].([]any); logged[0]["error_type"] != "query_validation" || len(errs) != 1 {
+					t.Fatalf("record = %v, want error_type query_validation with one field error", logged[0])
+				}
+			}
+			if len(alerts.events) != tt.wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
+			}
 		})
 	}
 }

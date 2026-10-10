@@ -227,6 +227,14 @@ The server read timeout is 15s; authenticated audio uploads get 2 minutes to sen
 
 If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
 
+### Logging
+
+| Env var | Default | Description |
+|---|---|---|
+| `BABBEL_LOG_LEVEL` | `4` | The value 5 or higher enables debug logs. Lower values log at info level. |
+
+Babbel writes one access log line for each request, without the query string. Server failures, for example database errors, log at error level and can send an alert. Invalid list query parameters are client errors: the 422 response names each field. Babbel logs these errors at debug level, with the route and the field errors. Babbel does not sample these logs and does not send an alert for them.
+
 ### Operational e-mail notifications
 
 Babbel can send alert e-mails to administrators. Babbel sends the e-mails only through Microsoft Graph. Babbel uses the OAuth2 client-credentials flow. The tool `zwfm-aerontoolbox` uses the same flow.

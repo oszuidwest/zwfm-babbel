@@ -229,7 +229,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	if _, present := c.GetQuery("latest"); present {
-		utils.ProblemValidationError(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.ValidationError{
+		utils.ProblemQueryValidation(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.ValidationError{
 			{Field: "latest", Message: "parameter is no longer supported on the list endpoint"},
 		})
 		return
