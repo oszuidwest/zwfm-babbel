@@ -1,4 +1,5 @@
 const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -17,15 +18,29 @@ function generateQueryTests(schema, setupFn = null) {
     return response;
   };
   // Optional fields may be absent from the fixtures.
-  const valuesFor = (response, field) => (response.data.data || [])
-    .map(item => item[field])
-    .filter(value => value !== null && value !== undefined);
-  const expectValuesFor = (response, field) => {
-    const values = valuesFor(response, field);
-    expect(values.length).toBeGreaterThan(0);
-    return values;
+  const expectItemsWith = (response, field) => {
+    const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
+    expect(items.length).toBeGreaterThan(0);
+    return items;
   };
-  const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
+  const expectValuesFor = (response, field) => expectItemsWith(response, field).map(item => item[field]);
+  const mysql = createMySQLExecutor();
+  const table = endpoint.slice(1).replaceAll('-', '_');
+  // Returns numeric sort keys. Strings follow the column collation, which
+  // JavaScript cannot reproduce exactly, so MySQL ranks them; equal values
+  // share a rank and may come back in any order. Dates compare as instants.
+  // Assumes each field is a same-named column of the table named after the
+  // endpoint.
+  const sortKeys = (response, field) => {
+    const items = expectItemsWith(response, field);
+    const { value } = filters[field];
+    if (value.format === 'date' || value.format === 'date-time') return items.map(item => Date.parse(item[field]));
+    if (value.type === 'string') {
+      const ranks = mysql.rankByColumn(table, field, items.map(item => item.id));
+      return items.map(item => ranks.get(item.id));
+    }
+    return items.map(item => item[field]);
+  };
 
   describe(`${name} Query Parameters`, () => {
     beforeAll(async () => {
@@ -50,14 +65,17 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
+          if (!filters[field]) throw new Error(`${name} sortableFields: ${field} is not a documented filter for ${endpoint}`);
           test.each([
-            [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
-            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
-          ])('%s', async (_name, sort, compare) => {
+            [`when sorting asc by ${field}, then ordered correctly`, field, 1],
+            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, -1]
+          ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
             const response = await expectStatus(`sort=${sort}`);
-            const values = expectValuesFor(response, field);
-            if (values.length > 1) expect(isSorted(values, compare)).toBe(true);
+            const keys = sortKeys(response, field);
+            // A missing rank or unparsable date would sort to the end unnoticed.
+            expect(keys.every(Number.isFinite)).toBe(true);
+            expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
           });
         });
 
