@@ -348,13 +348,13 @@ func checkedFinalization(err error, job *models.BulletinJob) error {
 }
 
 func bulletinJobError(err error) (code, detail string) {
-	if _, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
+	if isNoStories(err) {
 		return apperrors.CodeBulletinNoStories, "No eligible stories are available for bulletin generation"
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return apperrors.CodeTimeout, "Bulletin generation exceeded the server-side time limit"
 	}
-	if _, ok := errors.AsType[*apperrors.AudioError](err); ok {
+	if isAudioFailure(err) {
 		return apperrors.CodeAudioProcessingFailed, "Audio processing failed during bulletin generation"
 	}
 	return apperrors.CodeGenerationFailed, jobDetailGenerationFailed

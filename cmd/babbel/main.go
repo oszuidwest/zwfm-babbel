@@ -60,7 +60,6 @@ func run() error {
 		notifyCritical(alerts, "startup:logger", "Babbel logger initialization failed", err)
 		return err
 	}
-	defer logger.Sync()
 	if alerts.IsConfigured() {
 		logger.Info("Microsoft Graph e-mail notifications configured")
 	} else {
@@ -106,15 +105,9 @@ func run() error {
 	cancelWorkers()
 	logger.Info("Server exited")
 
-	if serveErr != nil {
-		notifyCritical(alerts, "runtime:http-server", "Babbel HTTP server stopped unexpectedly", serveErr)
-	}
-	if shutdownErr != nil {
-		notifyCritical(alerts, "shutdown:http-server", "Babbel graceful shutdown failed", shutdownErr)
-	}
-	if workerShutdownErr != nil {
-		notifyCritical(alerts, "shutdown:bulletin-worker", "Bulletin worker shutdown failed", workerShutdownErr)
-	}
+	notifyCritical(alerts, "runtime:http-server", "Babbel HTTP server stopped unexpectedly", serveErr)
+	notifyCritical(alerts, "shutdown:http-server", "Babbel graceful shutdown failed", shutdownErr)
+	notifyCritical(alerts, "shutdown:bulletin-worker", "Bulletin worker shutdown failed", workerShutdownErr)
 	return errors.Join(serveErr, shutdownErr, workerShutdownErr)
 }
 
@@ -155,12 +148,10 @@ func initLogger(cfg *config.Config) error {
 
 func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 	sqlDB, err := db.DB()
-	if err != nil {
-		logger.Error("Failed to get underlying database connection", "error", err)
-		notifyCritical(alerts, "shutdown:database", "Babbel database shutdown failed", err)
-		return
+	if err == nil {
+		err = sqlDB.Close()
 	}
-	if err := sqlDB.Close(); err != nil {
+	if err != nil {
 		logger.Error("Failed to close database connection", "error", err)
 		notifyCritical(alerts, "shutdown:database", "Babbel database shutdown failed", err)
 	}
@@ -182,7 +173,7 @@ func startServer(srv *http.Server, cfg *config.Config) <-chan error {
 	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("Starting Babbel API server", "address", cfg.Server.Address, "version", version.Version, "commit", version.Commit)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
 	}()
@@ -191,11 +182,10 @@ func startServer(srv *http.Server, cfg *config.Config) <-chan error {
 
 // waitForShutdown blocks until an OS termination signal or server failure.
 func waitForShutdown(serverErr <-chan error) error {
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(quit)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	select {
-	case <-quit:
+	case <-ctx.Done():
 		return nil
 	case err := <-serverErr:
 		return err
@@ -213,6 +203,7 @@ func shutdownServer(srv *http.Server) error {
 }
 
 // notifyCritical synchronously reports a fatal lifecycle error before exit.
+// A nil err is a no-op.
 func notifyCritical(alerts *notify.Service, key, summary string, err error) {
 	if err == nil {
 		return

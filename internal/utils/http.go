@@ -3,6 +3,7 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -112,10 +113,7 @@ func ValidateAndSaveAudioFile(
 			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
 			errs = append(errs, err)
 		}
-		if len(errs) > 0 {
-			return errors.Join(errs...)
-		}
-		return nil
+		return errors.Join(errs...)
 	}
 
 	return tempPath, cleanup, nil
@@ -279,15 +277,6 @@ type TTSSettingsUpdateRequest struct {
 	TTSStylePrefix         *string         `json:"tts_style_prefix"`
 }
 
-// IsEmpty reports whether no update fields were provided.
-// Keep in sync with services.UpdateTTSSettingsRequest.IsEmpty.
-func (r *TTSSettingsUpdateRequest) IsEmpty() bool {
-	return r.Stability == nil &&
-		r.ApplyTextNormalization == nil &&
-		!r.Seed.Set &&
-		r.TTSStylePrefix == nil
-}
-
 // NormalizeText decodes HTML entities in text fields to plain Unicode.
 func (r *StoryUpdateRequest) NormalizeText() {
 	if r.Title != nil {
@@ -384,15 +373,6 @@ func handleStrictJSONDecodeError(c *gin.Context, err error) {
 		return
 	}
 
-	if _, ok := errors.AsType[*json.SyntaxError](err); ok {
-		ProblemBadRequestValidationError(
-			c,
-			"Request body contains invalid JSON",
-			[]apperrors.ValidationError{{Field: "request", Message: "invalid JSON: " + err.Error()}},
-		)
-		return
-	}
-
 	if typeErr, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
 		field := typeErr.Field
 		if field == "" {
@@ -482,7 +462,7 @@ func BindOptionalJSON(c *gin.Context, req any) bool {
 		return false
 	}
 
-	if strings.TrimSpace(string(body)) == "" {
+	if len(bytes.TrimSpace(body)) == 0 {
 		return true
 	}
 

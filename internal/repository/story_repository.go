@@ -111,16 +111,7 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 
 // Update applies non-nil story fields.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 // SoftDelete marks a story as deleted without removing it from the database.
@@ -234,7 +225,7 @@ func (r *StoryRepository) GetStoriesForBulletin(ctx context.Context, stationID i
 	todayLocal := startOfDay(date)
 
 	// A date string avoids timezone conversion in MySQL DATE comparisons.
-	dateStr := date.Format("2006-01-02")
+	dateStr := date.Format(time.DateOnly)
 
 	// NULL marks stories unused by this station since local midnight.
 	lastUsedSubquery := `(

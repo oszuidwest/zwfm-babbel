@@ -2,11 +2,11 @@
 package audio
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -80,26 +80,25 @@ type Service struct {
 
 // NewService returns an audio service using cfg.
 func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
-	alerts = notify.OrDiscard(alerts)
-	return &Service{config: cfg, alerts: alerts}
+	return &Service{config: cfg, alerts: notify.OrDiscard(alerts)}
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
-// It returns the output path and duration in seconds.
-func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
+// It returns the duration in seconds.
+func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
 // ConvertStoryToWAV converts story audio to mono WAV, targeting -16 LUFS with
 // a -1 dBTP ceiling, preserving dynamics when possible.
-// It returns the output path and duration in seconds.
+// It returns the duration in seconds.
 //
 // It returns [ErrSilent] without writing outputPath when the input is silent
 // or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
-func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (string, float64, error) {
+func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
-		return "", 0, err
+		return 0, err
 	}
 
 	if stats.tooQuiet() {
@@ -110,7 +109,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 			"input_lra", fmt.Sprintf("%.2f", stats.LRA),
 			"input_thresh", fmt.Sprintf("%.2f", stats.Threshold),
 		)
-		return "", 0, ErrSilent
+		return 0, ErrSilent
 	}
 
 	return s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats))
@@ -118,7 +117,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 
 func (s *Service) convertToWAV(
 	ctx context.Context, inputPath, outputPath string, channels ChannelCount, audioFilter string,
-) (string, float64, error) {
+) (float64, error) {
 	args := []string{"-i", inputPath}
 	if audioFilter != "" {
 		args = append(args, "-af", audioFilter)
@@ -134,15 +133,10 @@ func (s *Service) convertToWAV(
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	if err := cmd.Run(); err != nil {
-		return "", 0, fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
+		return 0, fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
 	}
 
-	duration, err := s.Duration(ctx, outputPath)
-	if err != nil {
-		return "", 0, err
-	}
-
-	return outputPath, duration, nil
+	return s.Duration(ctx, outputPath)
 }
 
 func (s *Service) measureLoudness(ctx context.Context, inputPath string) (loudnormStats, error) {
@@ -258,7 +252,7 @@ func (s *Service) Duration(ctx context.Context, filePath string) (float64, error
 	return duration, nil
 }
 
-// CreateBulletin mixes stories with the selected jingle and returns the output path.
+// CreateBulletin mixes stories with the selected jingle into outputPath.
 // Two-pass normalization preserves the stereo mix's voice-to-bed balance.
 func (s *Service) CreateBulletin(
 	ctx context.Context,
@@ -266,16 +260,16 @@ func (s *Service) CreateBulletin(
 	stories []repository.BulletinStoryData,
 	jingle JingleContext,
 	outputPath string,
-) (string, error) {
+) error {
 	if len(stories) == 0 {
-		return "", fmt.Errorf("no stories to create bulletin")
+		return fmt.Errorf("no stories to create bulletin")
 	}
 
 	inputs, filters := s.buildBulletinMix(ctx, station, stories, jingle)
 
 	stats, err := s.measureLoudnessWithArgs(ctx, bulletinArgs(inputs, filters, loudnessMeasurementFilter)...)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	args := append(bulletinArgs(inputs, filters, bulletinNormalizationFilter(stats)),
@@ -283,25 +277,38 @@ func (s *Service) CreateBulletin(
 		"-ar", "48000",
 		"-y", outputPath)
 
-	return s.executeFFmpegCommand(ctx, args, outputPath)
+	return s.executeFFmpegCommand(ctx, args)
 }
 
 // buildBulletinMix constructs the FFmpeg inputs and filter graph that produce
-// the unnormalized [mixed] stream.
+// the unnormalized [mixed] stream: stories in playback order with the
+// configured pauses, concatenated and delayed to a positive mix point.
 func (s *Service) buildBulletinMix(
 	ctx context.Context,
 	station *models.Station,
 	stories []repository.BulletinStoryData,
 	jingle JingleContext,
 ) ([]string, []string) {
-	inputs := []string{}
-	filters := []string{}
+	var inputs, filters []string
+	var concatInputs strings.Builder
+	for i, story := range stories {
+		inputs = append(inputs, "-i", utils.StoryPath(s.config, story.ID))
 
-	inputs, filters = s.addStoryInputsWithPadding(inputs, filters, station, stories)
+		if station.PauseSeconds > 0 && i < len(stories)-1 {
+			padMs := int(station.PauseSeconds * 1000)
+			filters = append(filters, fmt.Sprintf("[%d:a]apad=pad_dur=%dms[padded%d]", i, padMs, i))
+		} else {
+			filters = append(filters, fmt.Sprintf("[%d:a]anull[padded%d]", i, i))
+		}
+		fmt.Fprintf(&concatInputs, "[padded%d]", i)
+	}
+	filters = append(filters, fmt.Sprintf("%sconcat=n=%d:v=0:a=1[concat_messages]", concatInputs.String(), len(stories)))
 
-	filters = s.addStoryConcat(filters, stories)
-
-	filters = s.addMixPointDelay(filters, jingle.MixPoint)
+	if jingle.MixPoint > 0 {
+		filters = append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", int(jingle.MixPoint*1000)))
+	} else {
+		filters = append(filters, "[concat_messages]anull[messages]")
+	}
 
 	return s.addJingleMix(ctx, inputs, filters, station, jingle, len(stories))
 }
@@ -311,46 +318,6 @@ func (s *Service) buildBulletinMix(
 func bulletinArgs(inputs, filters []string, outFilter string) []string {
 	graph := strings.Join(filters, ";") + ";[mixed]" + outFilter + "[out]"
 	return slices.Concat(inputs, []string{"-filter_complex", graph, "-map", "[out]"})
-}
-
-// addStoryInputsWithPadding appends stories in playback order and applies the configured pauses.
-func (s *Service) addStoryInputsWithPadding(
-	args, filters []string,
-	station *models.Station,
-	stories []repository.BulletinStoryData,
-) ([]string, []string) {
-	for i, story := range stories {
-		storyPath := utils.StoryPath(s.config, story.ID)
-		args = append(args, "-i", storyPath)
-
-		if station.PauseSeconds > 0 && i < len(stories)-1 {
-			padMs := int(station.PauseSeconds * 1000)
-			filters = append(filters, fmt.Sprintf("[%d:a]apad=pad_dur=%dms[padded%d]", i, padMs, i))
-		} else {
-			filters = append(filters, fmt.Sprintf("[%d:a]anull[padded%d]", i, i))
-		}
-	}
-	return args, filters
-}
-
-// addStoryConcat joins the padded stories and labels the timeline for mix-point delay.
-func (s *Service) addStoryConcat(filters []string, stories []repository.BulletinStoryData) []string {
-	concatInputs := []string{}
-	for i := range stories {
-		concatInputs = append(concatInputs, fmt.Sprintf("[padded%d]", i))
-	}
-	concatFilter := fmt.Sprintf("%sconcat=n=%d:v=0:a=1[concat_messages]",
-		strings.Join(concatInputs, ""), len(stories))
-	return append(filters, concatFilter)
-}
-
-// addMixPointDelay labels the story timeline, delaying it for a positive mix point.
-func (s *Service) addMixPointDelay(filters []string, mixPoint float64) []string {
-	if mixPoint > 0 {
-		delayMs := int(mixPoint * 1000)
-		return append(filters, fmt.Sprintf("[concat_messages]adelay=%d[messages]", delayMs))
-	}
-	return append(filters, "[concat_messages]anull[messages]")
 }
 
 // addJingleMix adds the optional bed, reports availability, and labels the
@@ -377,10 +344,10 @@ func (s *Service) addJingleMix(
 	jinglePath := utils.JinglePath(s.config, station.ID, *jingle.VoiceID)
 
 	if err := validateJingleFile(jinglePath); err != nil {
-		if !os.IsNotExist(err) {
-			logger.Warn("Jingle file is not usable", "path", jinglePath, "error", err)
-		} else {
+		if os.IsNotExist(err) {
 			logger.Debug("Jingle file not found, generating bulletin without bed", "path", jinglePath)
+		} else {
+			logger.Warn("Jingle file is not usable", "path", jinglePath, "error", err)
 		}
 		s.alerts.Alert(ctx, notify.Event{
 			Key:     alertKey,
@@ -392,11 +359,10 @@ func (s *Service) addJingleMix(
 		s.alerts.Resolve(ctx, alertKey, fmt.Sprintf("Jingle available again for station %d", station.ID),
 			fmt.Sprintf("The jingle for voice %d is readable again.", *jingle.VoiceID))
 		args = append(args, "-i", jinglePath)
-		jingleIndex := storyCount
 		// Upmix only the stories to preserve the jingle's stereo image.
-		filters = append(filters, "[messages]aformat=channel_layouts=stereo[messages_stereo]")
 		filters = append(filters,
-			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", jingleIndex))
+			"[messages]aformat=channel_layouts=stereo[messages_stereo]",
+			fmt.Sprintf("[messages_stereo][%d:a]amix=inputs=2:duration=first:dropout_transition=0[mixed]", storyCount))
 	}
 
 	return args, filters
@@ -431,35 +397,22 @@ func validateJingleFile(path string) error {
 }
 
 // executeFFmpegCommand captures stderr so failures retain FFmpeg diagnostics.
-func (s *Service) executeFFmpegCommand(ctx context.Context, args []string, outputPath string) (string, error) {
+func (s *Service) executeFFmpegCommand(ctx context.Context, args []string) error {
 	// #nosec G204 - FFmpegPath is from config, args are constructed internally
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	logger.Debug("Executing FFmpeg command", "binary", s.config.Audio.FFmpegPath, "args", strings.Join(args, " "))
 
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
-	}
-
 	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start ffmpeg: %w", err)
-	}
-
-	stderrBytes, readErr := io.ReadAll(stderr)
-	if readErr != nil {
-		// Wait still reports the process result when stderr capture fails.
-		logger.Warn("Failed to read FFmpeg stderr", "error", readErr)
+		return fmt.Errorf("failed to start ffmpeg: %w", err)
 	}
 
 	if err := cmd.Wait(); err != nil {
-		logger.Debug("FFmpeg stderr output", "stderr", string(stderrBytes))
-		stderrStr := string(stderrBytes)
-		if readErr != nil {
-			stderrStr = fmt.Sprintf("(stderr read failed: %v)", readErr)
-		}
-		return "", fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", commandError(ctx, err), stderrStr)
+		logger.Debug("FFmpeg stderr output", "stderr", stderr.String())
+		return fmt.Errorf("ffmpeg bulletin failed: %w. stderr: %s", commandError(ctx, err), stderr.String())
 	}
 
-	return outputPath, nil
+	return nil
 }

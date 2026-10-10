@@ -116,7 +116,6 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 
 	h := handlers.NewHandlers(handlers.HandlersDeps{
 		AudioRepo:             audioRepo,
-		AudioSvc:              audioSvc,
 		Config:                cfg,
 		BulletinSvc:           bulletinSvc,
 		BulletinJobSvc:        bulletinJobSvc,
@@ -388,34 +387,19 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	originChecker := config.NewOriginChecker(cfg.Server.AllowedOrigins)
 
 	return func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-
-		// An empty allowlist disables cross-origin access.
-		if cfg.Server.AllowedOrigins == "" {
-			if c.Request.Method == "OPTIONS" {
-				c.AbortWithStatus(204)
-				return
-			}
-			c.Next()
-			return
-		}
-
-		if originChecker.Allowed(origin) {
-			c.Writer.Header().Del("Access-Control-Allow-Origin")
-			c.Writer.Header().Del("Access-Control-Allow-Credentials")
-			c.Writer.Header().Del("Access-Control-Allow-Headers")
-			c.Writer.Header().Del("Access-Control-Allow-Methods")
-
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-			c.Writer.Header().Set("Access-Control-Allow-Headers",
+		// An empty allowlist matches no origin, disabling cross-origin access.
+		if origin := c.Request.Header.Get("Origin"); originChecker.Allowed(origin) {
+			header := c.Writer.Header()
+			header.Set("Access-Control-Allow-Origin", origin)
+			header.Set("Access-Control-Allow-Credentials", "true")
+			header.Set("Access-Control-Allow-Headers",
 				"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, "+
 					"Authorization, accept, origin, Cache-Control, X-Requested-With")
-			c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+			header.Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		}
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 

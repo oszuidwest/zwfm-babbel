@@ -30,7 +30,7 @@ func TestGraphClientSendMail(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &GraphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
+	client := &graphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
 	if err := client.SendMail(t.Context(), []string{"one@example.com", "two@example.com"}, "subject", "body"); err != nil {
 		t.Fatalf("SendMail: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestGraphClientRetryStopsOnCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := &GraphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
+	client := &graphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
 	err := client.SendMail(ctx, []string{"admin@example.com"}, "subject", "body")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("SendMail error = %v, want context cancellation", err)
@@ -63,7 +63,7 @@ func TestGraphClientRetryStopsOnCancellation(t *testing.T) {
 }
 
 func TestGraphClientRejectsEmptyRecipients(t *testing.T) {
-	client := &GraphClient{}
+	client := &graphClient{}
 	err := client.SendMail(t.Context(), nil, "subject", "body")
 	if err == nil || !strings.Contains(err.Error(), "no recipients") {
 		t.Fatalf("SendMail error = %v, want no recipients", err)
@@ -84,7 +84,7 @@ func TestGraphClientRetryAfterIsCapped(t *testing.T) {
 	defer server.Close()
 
 	var waits []time.Duration
-	client := &GraphClient{
+	client := &graphClient{
 		fromAddress: "sender@example.com",
 		baseURL:     server.URL,
 		httpClient:  server.Client(),
@@ -113,7 +113,7 @@ func TestGraphClientServerErrorsExhaustRetries(t *testing.T) {
 	defer server.Close()
 
 	var waits []time.Duration
-	client := &GraphClient{
+	client := &graphClient{
 		fromAddress: "sender@example.com",
 		baseURL:     server.URL,
 		httpClient:  server.Client(),

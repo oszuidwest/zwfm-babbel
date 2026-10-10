@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
+	"golang.org/x/oauth2/microsoft"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
@@ -22,35 +23,34 @@ import (
 const (
 	graphBaseURL     = "https://graph.microsoft.com/v1.0"
 	graphScope       = "https://graph.microsoft.com/.default"
-	tokenURLTemplate = "https://login.microsoftonline.com/%s/oauth2/v2.0/token" //nolint:gosec // URL template, not a credential
 	graphHTTPTimeout = 30 * time.Second
 	maxRetries       = 3
 	initialRetryWait = time.Second
 	maxRetryWait     = 30 * time.Second
 )
 
-// GraphClient sends plain-text mail through Microsoft Graph.
-type GraphClient struct {
+// graphClient sends plain-text mail through Microsoft Graph.
+type graphClient struct {
 	fromAddress string
 	baseURL     string
 	httpClient  *http.Client
 	wait        func(context.Context, time.Duration) error
 }
 
-// NewGraphClient returns a Microsoft Graph mail client using OAuth2 client
+// newGraphClient returns a Microsoft Graph mail client using OAuth2 client
 // credentials. The caller must pass a complete configuration; startup
 // validation in the config package enforces this.
-func NewGraphClient(cfg *config.GraphConfig) *GraphClient {
+func newGraphClient(cfg *config.GraphConfig) *graphClient {
 	credentials := &clientcredentials.Config{
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
-		TokenURL:     fmt.Sprintf(tokenURLTemplate, cfg.TenantID),
+		TokenURL:     microsoft.AzureADEndpoint(cfg.TenantID).TokenURL,
 		Scopes:       []string{graphScope},
 	}
 	baseClient := &http.Client{Timeout: graphHTTPTimeout}
 	oauthCtx := context.WithValue(context.Background(), oauth2.HTTPClient, baseClient)
 
-	return &GraphClient{
+	return &graphClient{
 		fromAddress: cfg.FromAddress,
 		baseURL:     graphBaseURL,
 		httpClient:  credentials.Client(oauthCtx),
@@ -82,7 +82,7 @@ type graphEmailAddress struct {
 
 // SendMail sends one plain-text message to already-validated recipient
 // addresses. Context cancellation also stops retries.
-func (c *GraphClient) SendMail(ctx context.Context, recipients []string, subject, body string) error {
+func (c *graphClient) SendMail(ctx context.Context, recipients []string, subject, body string) error {
 	if len(recipients) == 0 {
 		return fmt.Errorf("no recipients specified")
 	}
@@ -104,7 +104,7 @@ func (c *GraphClient) SendMail(ctx context.Context, recipients []string, subject
 
 // doWithRetry retries transient Graph failures and returns the last failure
 // after the configured attempt limit.
-func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
+func (c *graphClient) doWithRetry(ctx context.Context, payload []byte) error {
 	endpoint := fmt.Sprintf("%s/users/%s/sendMail", c.baseURL, url.PathEscape(c.fromAddress))
 	var lastErr error
 	var retryWait time.Duration
@@ -137,7 +137,7 @@ func (c *GraphClient) doWithRetry(ctx context.Context, payload []byte) error {
 
 // sendAttempt performs one Graph request and reports whether its failure is
 // transient. A positive delay overrides exponential backoff for the next try.
-func (c *GraphClient) sendAttempt(ctx context.Context, endpoint string, payload []byte) (time.Duration, bool, error) {
+func (c *graphClient) sendAttempt(ctx context.Context, endpoint string, payload []byte) (time.Duration, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return 0, false, fmt.Errorf("create graph mail request: %w", err)
@@ -190,7 +190,7 @@ func backoffDelay(attempt int) time.Duration {
 
 // waitForRetry waits for the next attempt while respecting cancellation. Tests
 // can replace the wait function to verify retry timing without sleeping.
-func (c *GraphClient) waitForRetry(ctx context.Context, delay time.Duration) error {
+func (c *graphClient) waitForRetry(ctx context.Context, delay time.Duration) error {
 	if c.wait != nil {
 		return c.wait(ctx, delay)
 	}

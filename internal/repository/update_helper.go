@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"reflect"
 	"strings"
 
@@ -34,6 +35,17 @@ func BuildUpdateMap(update any) map[string]any {
 	}
 
 	return result
+}
+
+// updateFields applies a partial update through updateByID, so repositories
+// that override UpdateByID keep their write classification. A nil or empty
+// update is a no-op.
+func updateFields(ctx context.Context, id int64, update any, updateByID func(context.Context, int64, any) error) error {
+	updateMap := BuildUpdateMap(update)
+	if len(updateMap) == 0 {
+		return nil
+	}
+	return updateByID(ctx, id, updateMap)
 }
 
 // collectClearFields returns the targets of enabled Clear* fields.

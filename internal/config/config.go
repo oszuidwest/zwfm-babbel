@@ -115,7 +115,6 @@ type DatabaseConfig struct {
 	User            string        `env:"USER" envDefault:"babbel"`
 	Password        string        `env:"PASSWORD" envDefault:"babbel"`
 	Database        string        `env:"NAME" envDefault:"babbel"`
-	MigrationsPath  string        `env:"-"`
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
 	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
@@ -162,8 +161,6 @@ type AudioConfig struct {
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
 	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
 	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	// AppRoot resolves application-relative assets.
-	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
 	// BulletinRetention controls when bulletin audio files and finished job
 	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
@@ -177,9 +174,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-
-	cfg.Database.MigrationsPath = "migrations"
-
 	return &cfg, nil
 }
 

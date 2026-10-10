@@ -21,13 +21,7 @@ func NewGormRepository[T any](db *gorm.DB) *GormRepository[T] {
 
 // GetByID retrieves a record by its primary key.
 func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
-	var result T
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).First(&result, id).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-	return &result, nil
+	return r.GetByIDWithPreload(ctx, id)
 }
 
 // Exists reports whether a record with the given ID exists.

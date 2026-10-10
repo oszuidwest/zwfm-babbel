@@ -126,16 +126,15 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, err
 	}
 
+	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
+		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
+	}
+
 	updates := &repository.StationVoiceUpdate{
 		StationID: req.StationID,
 		VoiceID:   req.VoiceID,
 		MixPoint:  req.MixPoint,
 	}
-
-	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
-		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
-	}
-
 	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 	}
@@ -260,24 +259,22 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 
 // ProcessJingle converts an uploaded audio file and associates it with the
 // already-loaded station-voice relationship. The database stores the
-// canonical filename, not the absolute path returned by the audio converter.
+// canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	filename, _, err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath)
-	if err != nil {
+	if _, err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
 	filenameOnly := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
-	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly)
-	if err != nil {
+	if err := s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly); err != nil {
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
 		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
 
-	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", filename)
+	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)
 	return nil
 }
 

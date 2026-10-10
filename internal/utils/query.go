@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
 	"sort"
 	"strings"
@@ -40,7 +41,12 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 		return nil, errors.New("missing request context")
 	}
 
-	if err := rejectDuplicateSingleValueParams(c); err != nil {
+	var query url.Values
+	if c.Request != nil && c.Request.URL != nil {
+		query = c.Request.URL.Query()
+	}
+
+	if err := rejectDuplicateSingleValueParams(query); err != nil {
 		return nil, err
 	}
 
@@ -60,7 +66,7 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 
 	params.Fields = parseFields(c)
 
-	filters, err := parseFilters(c)
+	filters, err := parseFilters(query)
 	if err != nil {
 		return nil, err
 	}
@@ -73,10 +79,6 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 }
 
 func parseSorting(c *gin.Context) ([]repository.SortField, error) {
-	if c == nil {
-		return nil, errors.New("missing request context")
-	}
-
 	sortParam := c.Query("sort")
 	if sortParam == "" {
 		return nil, nil
@@ -101,14 +103,13 @@ func parseSorting(c *gin.Context) ([]repository.SortField, error) {
 		case strings.HasPrefix(part, "+"):
 			field, _ = strings.CutPrefix(part, "+")
 		case strings.Contains(part, ":"):
-			if before, after, found := strings.Cut(part, ":"); found {
-				field = strings.TrimSpace(before)
-				direction = repository.SortDirection(strings.ToLower(strings.TrimSpace(after)))
-				if direction != repository.SortAsc && direction != repository.SortDesc {
-					return nil, &QueryParamError{
-						Field:   "sort",
-						Message: fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field),
-					}
+			before, after, _ := strings.Cut(part, ":")
+			field = strings.TrimSpace(before)
+			direction = repository.SortDirection(strings.ToLower(strings.TrimSpace(after)))
+			if direction != repository.SortAsc && direction != repository.SortDesc {
+				return nil, &QueryParamError{
+					Field:   "sort",
+					Message: fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field),
 				}
 			}
 		default:
@@ -127,10 +128,6 @@ func parseSorting(c *gin.Context) ([]repository.SortField, error) {
 }
 
 func parseFields(c *gin.Context) []string {
-	if c == nil {
-		return nil
-	}
-
 	fieldsParam := c.Query("fields")
 	if fieldsParam == "" {
 		return nil
@@ -168,11 +165,8 @@ var filterOperators = map[string]repository.FilterOperator{
 
 // rejectDuplicateSingleValueParams rejects repeated non-filter keys before
 // c.Query can discard extra values. parseFilters checks duplicate filter keys.
-func rejectDuplicateSingleValueParams(c *gin.Context) error {
-	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return nil
-	}
-	for key, values := range c.Request.URL.Query() {
+func rejectDuplicateSingleValueParams(query url.Values) error {
+	for key, values := range query {
 		if strings.HasPrefix(key, "filter[") {
 			continue
 		}
@@ -186,14 +180,9 @@ func rejectDuplicateSingleValueParams(c *gin.Context) error {
 	return nil
 }
 
-func parseFilters(c *gin.Context) ([]repository.FilterCondition, error) {
+func parseFilters(queryValues url.Values) ([]repository.FilterCondition, error) {
 	var filters []repository.FilterCondition
 
-	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return filters, nil
-	}
-
-	queryValues := c.Request.URL.Query()
 	filterKeys := make([]string, 0, len(queryValues))
 	for key := range queryValues {
 		if strings.HasPrefix(key, "filter[") {
@@ -205,10 +194,6 @@ func parseFilters(c *gin.Context) ([]repository.FilterCondition, error) {
 
 	for _, key := range filterKeys {
 		values := queryValues[key]
-		if len(values) == 0 {
-			continue
-		}
-
 		if len(values) > 1 {
 			return nil, &QueryParamError{
 				Field:   key,
@@ -269,64 +254,40 @@ func FilterStructFields(data any, fields []string) any {
 		return data
 	}
 
-	value := reflect.ValueOf(data)
+	value := reflect.Indirect(reflect.ValueOf(data))
 	if !value.IsValid() {
 		return data
 	}
 
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return data
-		}
-		value = value.Elem()
-	}
-
-	if !value.IsValid() {
-		return data
+	fieldSet := make(map[string]bool, len(fields))
+	for _, field := range fields {
+		fieldSet[field] = true
 	}
 
 	if value.Kind() == reflect.Slice {
 		result := make([]map[string]any, value.Len())
 		for i := range value.Len() {
-			result[i] = structToFilteredMap(value.Index(i).Interface(), fields)
+			result[i] = structToFilteredMap(value.Index(i), fieldSet)
 		}
 		return result
 	}
 
-	return structToFilteredMap(data, fields)
+	return structToFilteredMap(reflect.ValueOf(data), fieldSet)
 }
 
-func structToFilteredMap(data any, fields []string) map[string]any {
+func structToFilteredMap(value reflect.Value, fieldSet map[string]bool) map[string]any {
 	result := make(map[string]any)
 
-	value := reflect.ValueOf(data)
-	if !value.IsValid() {
-		return result
-	}
-
-	if value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return result
-		}
+	if value.Kind() == reflect.Interface {
 		value = value.Elem()
 	}
-
-	if !value.IsValid() || value.Kind() != reflect.Struct {
+	value = reflect.Indirect(value)
+	if value.Kind() != reflect.Struct {
 		return result
-	}
-
-	fieldSet := make(map[string]bool)
-	for _, field := range fields {
-		fieldSet[field] = true
 	}
 
 	for field, fieldVal := range value.Fields() {
-		fieldName, visible := jsonFieldName(field)
-		if !visible {
-			continue
-		}
-
-		if fieldSet[fieldName] {
+		if fieldName, visible := jsonFieldName(field); visible && fieldSet[fieldName] {
 			result[fieldName] = fieldVal.Interface()
 		}
 	}

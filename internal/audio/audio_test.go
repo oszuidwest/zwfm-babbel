@@ -178,7 +178,7 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
 			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")
 
-			if _, err := svc.CreateBulletin(t.Context(), station, stories, tt.jingle, outputPath); err != nil {
+			if err := svc.CreateBulletin(t.Context(), station, stories, tt.jingle, outputPath); err != nil {
 				t.Fatalf("CreateBulletin error: %v", err)
 			}
 
@@ -223,7 +223,7 @@ func TestService_ConvertStoryToWAVPreservesDynamics(t *testing.T) {
 	}
 	inputRange := levelRange(t, ffmpegPath, inputPath)
 
-	_, duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
+	duration, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath)
 	if err != nil {
 		t.Fatalf("ConvertStoryToWAV error: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestService_ConvertStoryToWAVLimitsShortClip(t *testing.T) {
 	if !math.IsInf(inputStats.Integrated, -1) || inputStats.TruePeak <= -1 {
 		t.Fatalf("test input stats = %+v, want unavailable loudness and a true peak above -1 dBTP", inputStats)
 	}
-	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); err != nil {
+	if _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertStoryToWAV error: %v", err)
 	}
 	if truePeak := measureLoudness(t, ffmpegPath, outputPath).TruePeak; truePeak > -1+0.2 {
@@ -296,7 +296,7 @@ func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 
 	// About -48 LUFS, above the acceptance floor.
 	outputPath := filepath.Join(tempDir, "output.wav")
-	if _, _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-27dB"), outputPath); err != nil {
+	if _, err := svc.ConvertStoryToWAV(t.Context(), quietSine("-27dB"), outputPath); err != nil {
 		t.Fatalf("ConvertStoryToWAV(above floor) error: %v", err)
 	}
 }
@@ -304,7 +304,7 @@ func TestService_ConvertStoryToWAVLoudnessFloor(t *testing.T) {
 func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
 	t.Helper()
 	outputPath := filepath.Join(t.TempDir(), "output.wav")
-	if _, _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); !errors.Is(err, ErrSilent) {
+	if _, err := svc.ConvertStoryToWAV(t.Context(), inputPath, outputPath); !errors.Is(err, ErrSilent) {
 		t.Fatalf("ConvertStoryToWAV(%s) error = %v, want ErrSilent", filepath.Base(inputPath), err)
 	}
 	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
@@ -331,7 +331,7 @@ func TestService_ConvertJingleToWAVPreservesLevels(t *testing.T) {
 		"-y", inputPath,
 	)
 
-	if _, _, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
+	if _, err := svc.ConvertJingleToWAV(t.Context(), inputPath, outputPath); err != nil {
 		t.Fatalf("ConvertJingleToWAV error: %v", err)
 	}
 

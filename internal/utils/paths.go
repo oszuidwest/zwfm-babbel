@@ -25,7 +25,7 @@ func BulletinFilename(stationID int64, timestamp time.Time) string {
 
 // GenerateBulletinPaths returns the absolute write path for a bulletin.
 func GenerateBulletinPaths(config *config.Config, stationID int64, timestamp time.Time) string {
-	return filepath.Join(config.Audio.OutputPath, BulletinFilename(stationID, timestamp))
+	return BulletinPath(config, BulletinFilename(stationID, timestamp))
 }
 
 // StoryPath returns the absolute filesystem path for a processed story file.

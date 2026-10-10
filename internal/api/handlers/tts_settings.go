@@ -41,15 +41,14 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 		return
 	}
 
-	if req.IsEmpty() {
+	serviceReq := toTTSSettingsServiceRequest(req)
+	if serviceReq.IsEmpty() {
 		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
 			Field:   "request",
 			Message: "At least one field must be provided",
 		}})
 		return
 	}
-
-	serviceReq := toTTSSettingsServiceRequest(req)
 	if userID, ok := auth.UserID(c); ok {
 		serviceReq.ActorUserID = &userID
 	}
