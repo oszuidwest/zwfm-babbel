@@ -1,7 +1,6 @@
 const { getFilterContracts, validFilterCases } = require('./QueryFilterContract');
 
-const endpoints = Object.values(require('./schemas')).map(({ endpoint }) => endpoint);
-const fields = endpoints.flatMap(endpoint => Object.entries(getFilterContracts(endpoint))
+const fields = Object.values(require('./schemas')).flatMap(({ endpoint }) => Object.entries(getFilterContracts(endpoint))
   .map(([field, contract]) => [`${endpoint} ${field}`, contract]));
 
 describe('validFilterCases', () => {

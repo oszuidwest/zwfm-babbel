@@ -44,16 +44,14 @@ function filterExamples({ value }) {
 function boundaryValues({ value }) {
   if (value.type === 'number') return ['1.5'];
   if (value.maximum !== undefined) return [String(value.maximum)];
-  if (value.format === 'date-time') {
-    return [
-      '2024-01-01T01:00:00+01:00',
-      '2024-01-01T00:00:00.5Z',
-      '2024-01-01 00:00:00',
-      '2024-01-01 00:00:00.5',
-      '2024-01-01 00:00:00,5',
-      '2024-01-01'
-    ];
-  }
+  if (value.format === 'date-time') return [
+    '2024-01-01T01:00:00+01:00',
+    '2024-01-01T00:00:00.5Z',
+    '2024-01-01 00:00:00',
+    '2024-01-01 00:00:00.5',
+    '2024-01-01 00:00:00,5',
+    '2024-01-01'
+  ];
   return [];
 }
 
