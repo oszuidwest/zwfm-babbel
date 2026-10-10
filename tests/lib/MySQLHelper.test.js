@@ -122,12 +122,9 @@ describe('MySQLHelper', () => {
   });
 
   test('when ranking by a column, then the SQL ranks by it and the output maps ids to ranks', () => {
-    execFileSync.mockImplementation((bin, args) => {
-      if (bin === 'docker' && args[0] === 'ps') {
-        return 'babbel-mysql\n';
-      }
-      return '3\t1\n1\t2\n2\t2\n';
-    });
+    execFileSync
+      .mockReturnValueOnce('babbel-mysql\n')
+      .mockReturnValueOnce('3\t1\n1\t2\n2\t2\n');
 
     const ranks = createMySQLExecutor().rankByColumn('voices', 'name', [1, 2, 3]);
 

@@ -42,10 +42,8 @@ describe('Users', () => {
       for (const [index, suffix] of ['cherry', 'Banana', '\u00e9cho', 'apple', 'delta', 'Delta', 'echo'].entries()) {
         const fullName = `${prefix} ${suffix}`;
         const response = await global.api.apiCall('POST', '/users', {
-          username: `sortcollation${stamp}${index}`,
-          full_name: fullName,
-          password: 'TestPassword123!',
-          role: 'viewer'
+          ...usersSchema.createValidData(`sortcollation${stamp}${index}`),
+          full_name: fullName
         });
         expect(response.status).toBe(201);
         global.resources.track('users', response.data.id);
