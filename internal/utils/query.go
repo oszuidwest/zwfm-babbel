@@ -423,6 +423,14 @@ func emitQueryError(c *gin.Context, err error) {
 	ProblemBadRequest(c, err.Error())
 }
 
+// RouteKey returns a stable method-and-route key without request parameters.
+func RouteKey(c *gin.Context) string {
+	if route := c.FullPath(); route != "" {
+		return c.Request.Method + " " + route
+	}
+	return c.Request.Method + " unmatched"
+}
+
 // ProblemQueryValidation writes a 422 for invalid list query parameters and
 // logs the field errors at Debug. These are expected client errors: the
 // response names each field and the access log records the status, so they
@@ -430,7 +438,7 @@ func emitQueryError(c *gin.Context, err error) {
 func ProblemQueryValidation(c *gin.Context, detail string, errs []apperrors.ValidationError) {
 	logger.Debug("Invalid query parameters",
 		"error_type", "query_validation",
-		"route", c.Request.Method+" "+c.FullPath(),
+		"route", RouteKey(c),
 		"errors", errs)
 	ProblemValidationError(c, detail, errs)
 }
