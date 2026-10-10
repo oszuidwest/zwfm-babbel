@@ -159,7 +159,7 @@ Most resource list endpoints support advanced querying:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| ` + "`trashed`" + ` | string | Soft-delete filter: ` + "`only`" + ` (deleted only), ` + "`with`" + ` (include deleted) |
+| ` + "`trashed`" + ` | string | Soft-delete filter on stories and users only: ` + "`only`" + ` (deleted only), ` + "`with`" + ` (include deleted) |
 | ` + "`include_suspended`" + ` | boolean | Include suspended users |
 | ` + "`download`" + ` | boolean | Force file download with appropriate headers |
 | ` + "`force`" + ` | boolean | Force regeneration of cached resources |

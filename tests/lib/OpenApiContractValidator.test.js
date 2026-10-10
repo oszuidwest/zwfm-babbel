@@ -457,6 +457,24 @@ describe('openapi.yaml contract invariants', () => {
     expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
   });
 
+  test('unrelated problem responses keep deleted_at optional', () => {
+    expect(() => new OpenApiContractValidator(document).validateResponse({
+      method: 'put',
+      operationPath: '/api/v1/stories/{id}',
+      response: {
+        status: 404,
+        headers: { 'content-type': 'application/problem+json' },
+        data: {
+          type: 'https://babbel.api/problems/story.not_found',
+          title: 'Not Found',
+          status: 404,
+          detail: 'Story with id 1 not found',
+          code: 'story.not_found'
+        }
+      }
+    })).not.toThrow();
+  });
+
   const LIST_OPERATIONS = [
     ['get', '/api/v1/stations'],
     ['get', '/api/v1/voices'],

@@ -2,6 +2,7 @@ const fs = require('fs');
 const bulletinsSchema = require('../lib/schemas/bulletins.schema');
 const { generateQueryTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger, sqlString } = require('../lib/MySQLHelper');
+const { declaresQueryParameter } = require('../lib/QueryFilterContract');
 
 describe('Bulletins', () => {
   const mysql = createMySQLExecutor();
@@ -490,7 +491,8 @@ describe('Bulletins', () => {
       ['when called with filter, then returns 422', 'filter[story_id]=1'],
       ['when called with sort, then returns 422', 'sort=story_order'],
       ['when called with fields, then returns 422', 'fields=id,story_id'],
-      ['when called with search, then returns 422', 'search=anything']
+      ['when called with search, then returns 422', 'search=anything'],
+      ['when called with trashed, then returns 422', 'trashed=only']
     ])('%s', async (_name, query) => {
       const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
       expect(response.status).toBe(422);
@@ -521,15 +523,31 @@ describe('Bulletins', () => {
 
   describe('Station Bulletin Endpoints', () => {
     let stationId;
+    let storyId;
 
     beforeAll(async () => {
-      const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+      const { station, story } = await global.helpers.createBroadcastFixture(global.resources, {
         stationName: 'StationBulletinEndpoint',
         voiceName: 'StationBulletinVoice',
         storyTitle: 'StationBulletinStory',
         storyText: 'Station endpoint test story'
       });
       stationId = station.id;
+      storyId = story.id;
+    });
+
+    // Bulletins have no soft deletion, so nested bulletin lists neither declare
+    // nor accept trashed.
+    test.each([
+      ['/stations/{id}/bulletins', 'only', () => stationId],
+      ['/stations/{id}/bulletins', 'with', () => stationId],
+      ['/stories/{id}/bulletins', 'only', () => storyId],
+      ['/stories/{id}/bulletins', 'with', () => storyId]
+    ])('when listing %s with trashed=%s, then returns a trashed 422', async (template, value, id) => {
+      expect(declaresQueryParameter(template, 'trashed')).toBe(false);
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?trashed=${value}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors[0].field).toBe('trashed');
     });
 
     test('when generating station bulletin, then succeeds', async () => {
@@ -652,11 +670,11 @@ describe('Bulletins', () => {
         const inside = await list(`filter[created_at][gte]=${encodeURIComponent(lowerBound)}&filter[created_at][lte]=${encodeURIComponent(upperBound)}`);
         expect(inside.map(b => b.filename)).toEqual([insideFilename]);
 
-        // The inside row's instant as the API reports it, spelled in UTC, with
-        // an explicit offset, and as the server-local string it was inserted as.
-        // The stack runs in a non-UTC zone, so a misread offset misses the row.
+        // Spell the API instant with Z, zero and positive offsets, and local time.
+        // The stack's non-UTC zone makes a misread offset miss the row.
         const utc = new Date(inside[0].created_at).toISOString().replace('.000Z', 'Z');
-        for (const value of [utc, utc.replace('Z', '+00:00'), rows[1].createdAt]) {
+        const plusOne = new Date(Date.parse(utc) + 3600 * 1000).toISOString().replace('.000Z', '+01:00');
+        for (const value of [utc, utc.replace('Z', '+00:00'), plusOne, rows[1].createdAt]) {
           expect((await list(`filter[created_at][eq]=${encodeURIComponent(value)}`)).map(b => b.filename)).toEqual([insideFilename]);
         }
 

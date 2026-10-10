@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
-const { generateQueryTests } = require('../lib/generators');
+const { generateQueryTests, generateTrashedTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 const NONEXISTENT_STORY_ID = 2147483647;
@@ -213,28 +213,68 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
-    test('when trashed=only, then returns soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    describe('trashed', () => {
+      let deleted;
+      let active;
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=only');
+      beforeAll(async () => {
+        deleted = await createStoryWithDeps('Trashed', 'To be trashed', 'TrashVoice', 'TrashStation');
+        active = await global.helpers.createStory(global.resources, {
+          title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
+        }, [deleted.stationId]);
+        expect(active).not.toBeNull();
+        expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
+      });
 
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      generateTrashedTests('/stories', () => `filter[id][in]=${deleted.id},${active.id}`);
+
+      // The default scope already excludes deleted stories (documented in openapi.yaml).
+      test.each([
+        ['', 0],
+        ['&trashed=only', 1],
+        ['&trashed=with', 1]
+      ])('when deleted_at null=false is combined with "%s", then matches %i', async (trashed, total) => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${deleted.id}&filter[deleted_at][null]=false${trashed}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(total);
+      });
+    });
+  });
+
+  // Pins story examples from "List queries" in openapi.yaml; the query test
+  // generator pins the remaining labels on every list endpoint.
+  describe('Documented Query Semantics', () => {
+    test.each([
+      ['filter[status]=bad', 'filter[status][eq]'],
+      ['filter[status][not]=bad', 'filter[status][ne]'],
+      ['filter[voice_id]=null', 'filter[voice_id][eq]'],
+      ['filter[weekdays]=abc', 'filter[weekdays][eq]'],
+      // An unencoded plus sign decodes as a space.
+      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]']
+    ])('when %s is invalid, then the 422 names %s', async (qs, field) => {
+      const response = await global.api.apiCall('GET', `/stories?${qs}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => error.field)).toEqual([field]);
     });
 
-    test('when trashed=with, then includes soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    // The default collation ignores case; literal null is text, not SQL NULL.
+    describe('literal null title', () => {
+      let story;
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=with');
+      beforeAll(async () => {
+        story = await createStoryWithDeps('null', 'Literal null title', 'NullTitleVoice', 'NullTitleStation');
+        expect(story).not.toBeNull();
+      });
 
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      test.each([
+        'filter[title]=null',
+        'filter[title]=NULL',
+        'filter[title][like]=UL'
+      ])('when %s is sent, then the story titled null matches', async qs => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${story.id}&${qs}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(1);
+      });
     });
   });
 

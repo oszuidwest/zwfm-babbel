@@ -82,7 +82,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if handleQueryShapeError(c, err, fallbackResource) {
+	if handleQueryShapeError(c, err) {
 		return
 	}
 
@@ -162,7 +162,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
 		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), dbError.Resource, dbError.Unwrap())))
+			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -173,9 +173,9 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	alertRequestFailure(c, notify.Event{
-		Key:               internalAlertKeyPrefix + routeKey(c),
+		Key:               internalAlertKeyPrefix + utils.RouteKey(c),
 		Summary:           "Unhandled API errors repeatedly occur",
-		Details:           fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
+		Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), fallbackResource, err),
 		RequiresThreshold: true,
 	})
 	utils.ProblemExtended(c, http.StatusInternalServerError,
@@ -221,7 +221,7 @@ const (
 // requests; NotificationMiddleware resolves it on the route's next success.
 func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 	return notify.Event{
-		Key:               databaseAlertKeyPrefix + routeKey(c),
+		Key:               databaseAlertKeyPrefix + utils.RouteKey(c),
 		Summary:           "Database requests repeatedly fail",
 		Details:           details,
 		RequiresThreshold: true,
@@ -238,7 +238,7 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 		if c.Writer.Status() >= http.StatusBadRequest {
 			return
 		}
-		route := routeKey(c)
+		route := utils.RouteKey(c)
 		alerts.Resolve(c.Request.Context(), databaseAlertKeyPrefix+route,
 			"Database request path recovered", "Requests to "+route+" succeed again.")
 		alerts.Resolve(c.Request.Context(), internalAlertKeyPrefix+route,
@@ -259,32 +259,17 @@ func alertRequestFailure(c *gin.Context, event notify.Event) {
 	}
 }
 
-// routeKey returns a stable method-and-route key without request parameters.
-func routeKey(c *gin.Context) string {
-	if route := c.FullPath(); route != "" {
-		return c.Request.Method + " " + route
-	}
-	return c.Request.Method + " unmatched"
-}
-
-func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
+func handleQueryShapeError(c *gin.Context, err error) bool {
+	var invalid apperrors.ValidationError
 	if unknownField, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
-		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
-			{Field: unknownField.Kind, Message: unknownField.Error()},
-		})
-		return true
+		invalid = apperrors.ValidationError{Field: unknownField.Kind, Message: unknownField.Error()}
+	} else if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
+		invalid = apperrors.ValidationError{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason}
+	} else {
+		return false
 	}
-
-	if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
-		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
-			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
-		})
-		return true
-	}
-
-	return false
+	utils.ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{invalid})
+	return true
 }
 
 func handleAvailabilityError(c *gin.Context, err error) bool {

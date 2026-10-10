@@ -1,4 +1,5 @@
-const { getFilterContracts, filterExamples, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -17,15 +18,29 @@ function generateQueryTests(schema, setupFn = null) {
     return response;
   };
   // Optional fields may be absent from the fixtures.
-  const valuesFor = (response, field) => (response.data.data || [])
-    .map(item => item[field])
-    .filter(value => value !== null && value !== undefined);
-  const expectValuesFor = (response, field) => {
-    const values = valuesFor(response, field);
-    expect(values.length).toBeGreaterThan(0);
-    return values;
+  const expectItemsWith = (response, field) => {
+    const items = (response.data.data || []).filter(item => item[field] !== null && item[field] !== undefined);
+    expect(items.length).toBeGreaterThan(0);
+    return items;
   };
-  const isSorted = (values, compare) => values.every((value, index) => index === 0 || compare(value, values[index - 1]));
+  const expectValuesFor = (response, field) => expectItemsWith(response, field).map(item => item[field]);
+  const mysql = createMySQLExecutor();
+  const table = endpoint.slice(1).replaceAll('-', '_');
+  // Returns numeric sort keys. Strings follow the column collation, which
+  // JavaScript cannot reproduce exactly, so MySQL ranks them; equal values
+  // share a rank and may come back in any order. Dates compare as instants.
+  // Assumes each field is a same-named column of the table named after the
+  // endpoint.
+  const sortKeys = (response, field) => {
+    const items = expectItemsWith(response, field);
+    const { value } = filters[field];
+    if (value.format === 'date' || value.format === 'date-time') return items.map(item => Date.parse(item[field]));
+    if (value.type === 'string') {
+      const ranks = mysql.rankByColumn(table, field, items.map(item => item.id));
+      return items.map(item => ranks.get(item.id));
+    }
+    return items.map(item => item[field]);
+  };
 
   describe(`${name} Query Parameters`, () => {
     beforeAll(async () => {
@@ -50,23 +65,27 @@ function generateQueryTests(schema, setupFn = null) {
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
         query.sortableFields.forEach(field => {
+          if (!filters[field]) throw new Error(`${name} sortableFields: ${field} is not a documented filter for ${endpoint}`);
           test.each([
-            [`when sorting asc by ${field}, then ordered correctly`, field, (curr, prev) => curr >= prev],
-            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, (curr, prev) => curr <= prev]
-          ])('%s', async (_name, sort, compare) => {
+            [`when sorting asc by ${field}, then ordered correctly`, field, 1],
+            [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, -1]
+          ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
             const response = await expectStatus(`sort=${sort}`);
-            const values = expectValuesFor(response, field);
-            if (values.length > 1) expect(isSorted(values, compare)).toBe(true);
+            const keys = sortKeys(response, field);
+            // A missing rank or unparsable date would sort to the end unnoticed.
+            expect(keys.every(Number.isFinite)).toBe(true);
+            expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
           });
         });
 
         test.each([
-          ['when sorting unknown field, then returns 422', 'sort=__bogus__'],
-          ['when sort direction is invalid, then returns 422', `sort=${query.sortableFields[0]}:sideways`]
+          ['when sorting unknown field, then returns a sort 422', 'sort=__bogus__'],
+          ['when sort direction is invalid, then returns a sort 422', `sort=${query.sortableFields[0]}:sideways`]
         ])('%s', async (_name, qs) => {
           expect.hasAssertions();
-          await expectStatus(qs, 422);
+          const response = await expectStatus(qs, 422);
+          expect(response.data.errors.map(error => error.field)).toEqual(['sort']);
         });
 
         if (query.sortableFields.length >= 2) {
@@ -86,52 +105,26 @@ function generateQueryTests(schema, setupFn = null) {
         query.filterableFields.forEach(field => {
           const contract = filters[field];
           if (!contract) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
-          const examples = filterExamples(contract);
-          const [exactValue] = examples;
-          const notValue = examples.at(-1);
-          const inValues = examples.join(',');
-          test.each([
-            [`when filtering ${field} exact, then matches`, `filter[${field}]=${exactValue}`, null],
-            ...(contract.operators.in ? [[`when filtering ${field} with in, then matches`, `filter[${field}][in]=${inValues}`, null]] : []),
-            [`when filtering ${field} with not, then excludes`, `filter[${field}][not]=${notValue}`, response => {
-              expect(response.data.total).toBeGreaterThan(0);
-              expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
-            }]
-          ])('%s', async (_name, qs, verify) => {
+          const notValue = filterExamples(contract).at(-1);
+          test(`when filtering ${field} with not, then excludes`, async () => {
             expect.hasAssertions();
-            const response = await expectStatus(qs);
-            if (verify) verify(response);
+            const response = await expectStatus(`filter[${field}][not]=${notValue}`);
+            expect(response.data.total).toBeGreaterThan(0);
+            expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
           });
         });
 
+        // Labels documented under "Error labels" in openapi.yaml.
         const firstField = query.filterableFields[0];
         test.each([
-          ['when filtering with unknown operator, then returns 422', `filter[${firstField}][unknown]=1`],
-          ['when filtering unknown field, then returns 422', 'filter[__bogus__]=1'],
-          ['when filter receives duplicate values, then returns 422', `filter[${firstField}]=1&filter[${firstField}]=2`]
-        ])('%s', async (_name, qs) => {
+          ['when filtering with unknown operator, then the 422 names the key', `filter[${firstField}][unknown]=1`, `filter[${firstField}][unknown]`],
+          ['when filtering unknown field, then the 422 names filter', 'filter[__bogus__]=1', 'filter'],
+          ['when filter receives duplicate values, then the 422 names the key', `filter[${firstField}]=1&filter[${firstField}]=2`, `filter[${firstField}]`]
+        ])('%s', async (_name, qs, field) => {
           expect.hasAssertions();
-          await expectStatus(qs, 422);
+          const response = await expectStatus(qs, 422);
+          expect(response.data.errors.map(error => error.field)).toEqual([field]);
         });
-
-        // Validation needs no matching fixture, so test every documented field.
-        for (const [field, contract] of Object.entries(filters)) {
-          if (contract.operators.null) {
-            test.each(['true', 'false'])(`when filtering ${field} with null=%s, then accepted`, async value => {
-              expect.hasAssertions();
-              await expectStatus(`filter[${field}][null]=${value}`);
-            });
-          }
-          test.each(invalidFilterCases(contract))(
-            `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
-            async (operator, value) => {
-              const key = `filter[${field}][${operator}]`;
-              const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
-              expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
-              expect(response.data.errors[0].field).toBe(key);
-            }
-          );
-        }
 
         query.filterableFields
           .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
@@ -160,6 +153,43 @@ function generateQueryTests(schema, setupFn = null) {
         }
       });
     }
+
+    // OpenAPI declares trashed only where the resource has soft deletion.
+    describe('Soft-delete scope', () => {
+      const supported = declaresQueryParameter(endpoint, 'trashed') ? 200 : 422;
+      test.each([['only', supported], ['with', supported], ['bogus', 422]])(
+        'when trashed=%s, then returns %i',
+        async (value, status) => {
+          expect.hasAssertions();
+          const response = await expectStatus(`trashed=${value}`, status);
+          if (status === 422) expect(response.data.errors[0].field).toBe('trashed');
+        }
+      );
+    });
+
+    // Acceptance and rejection need no matching rows, so every documented field
+    // is tested; result checks stay on filterableFields.
+    describe('Filter contract', () => {
+      for (const [field, contract] of Object.entries(filters)) {
+        test.each(validFilterCases(contract).map(([operator, value]) => [
+          operator ? `filter[${field}][${operator}]` : `filter[${field}]`,
+          value
+        ]))('when %s=%s is valid, then accepted', async (key, value) => {
+          expect.hasAssertions();
+          const response = await expectStatus(`${key}=${encodeURIComponent(value)}`);
+          expect(Array.isArray(response.data.data)).toBe(true);
+        });
+        test.each(invalidFilterCases(contract))(
+          `when filter[${field}][%s]=%s is invalid, then returns a field-specific 422`,
+          async (operator, value) => {
+            const key = `filter[${field}][${operator}]`;
+            const response = await expectStatus(`${key}=${encodeURIComponent(value)}`, 422);
+            expect(response.headers['content-type']).toMatch(/application\/problem\+json/);
+            expect(response.data.errors[0].field).toBe(key);
+          }
+        );
+      }
+    });
 
     describe('Pagination', () => {
       test.each([
@@ -250,4 +280,24 @@ function generateQueryTests(schema, setupFn = null) {
   });
 }
 
-module.exports = { generateQueryTests };
+function generateTrashedTests(endpoint, filter) {
+  // Flags are the sorted deleted_at presence of the listed records.
+  test.each([
+    ['omitted', '', [false]],
+    ['only', '&trashed=only', [true]],
+    ['with', '&trashed=with', [false, true]]
+  ])('when trashed is %s, then the listed records have deleted flags %j', async (_name, trashed, flags) => {
+    const response = await global.api.apiCall('GET', `${endpoint}?${filter()}${trashed}`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.map(record => record.deleted_at !== null).sort()).toEqual(flags);
+  });
+
+  test('when trashed=only, then every listed record is deleted', async () => {
+    const response = await global.api.apiCall('GET', `${endpoint}?trashed=only&limit=100`);
+    expect(response.status).toBe(200);
+    expect(response.data.data.length).toBeGreaterThan(0);
+    response.data.data.forEach(record => expect(record.deleted_at).toEqual(expect.any(String)));
+  });
+}
+
+module.exports = { generateQueryTests, generateTrashedTests };

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // QueryParamError identifies an invalid query parameter for validation responses.
@@ -32,8 +33,9 @@ type QueryParams struct {
 }
 
 // ParseQueryParams parses list options and validates query syntax, operator
-// names, duplicate keys, pagination, and trashed. The repository validates
-// field names, operator applicability, and values.
+// names, duplicate keys, and pagination. The repository validates field
+// names, operator applicability, and values. Callers decide on trashed:
+// [ParseListQueryWithTrashed] validates its value, the other parsers reject it.
 func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if c == nil {
 		return nil, errors.New("missing request context")
@@ -71,10 +73,6 @@ func ParseQueryParams(c *gin.Context) (*QueryParams, error) {
 	params.Filters = filters
 
 	params.Trashed = c.Query("trashed")
-	if params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
-		return nil, &QueryParamError{Field: "trashed", Message: "expected only or with"}
-	}
-
 	params.Search = c.Query("search")
 
 	return params, nil
@@ -313,16 +311,37 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 	return name, true
 }
 
-// ParseListQuery parses list options. On parse errors it writes an RFC 9457
-// response and returns false. The embedded ListQuery is ready for the repository.
+// ParseListQuery parses list options for resources without soft deletion and
+// rejects any non-empty trashed. On errors it writes an RFC 9457 response and
+// returns false. The embedded ListQuery is ready for the repository.
 func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
 	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" {
+		err = &QueryParamError{Field: "trashed", Message: unsupportedOnEndpoint}
+	}
 	if err != nil {
 		emitQueryError(c, err)
 		return nil, false
 	}
 	return params, true
 }
+
+// ParseListQueryWithTrashed is like [ParseListQuery] but accepts trashed=only
+// or trashed=with, for resources with soft deletion. An empty or omitted
+// trashed lists active records only.
+func ParseListQueryWithTrashed(c *gin.Context) (*QueryParams, bool) {
+	params, err := ParseQueryParams(c)
+	if err == nil && params.Trashed != "" && params.Trashed != "only" && params.Trashed != "with" {
+		err = &QueryParamError{Field: "trashed", Message: "expected only or with"}
+	}
+	if err != nil {
+		emitQueryError(c, err)
+		return nil, false
+	}
+	return params, true
+}
+
+const unsupportedOnEndpoint = "not supported on this endpoint"
 
 // ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
 // fields, and trashed options with a 422 response.
@@ -334,22 +353,22 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 	}
 	var unsupported []apperrors.ValidationError
 	if params.Search != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "search", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Sort) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "sort", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Filters) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "filter", Message: unsupportedOnEndpoint})
 	}
 	if len(params.Fields) > 0 {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "fields", Message: unsupportedOnEndpoint})
 	}
 	if params.Trashed != "" {
-		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: "not supported on this endpoint"})
+		unsupported = append(unsupported, apperrors.ValidationError{Field: "trashed", Message: unsupportedOnEndpoint})
 	}
 	if len(unsupported) > 0 {
-		ProblemValidationError(c, "Endpoint only supports limit and offset", unsupported)
+		ProblemQueryValidation(c, "Endpoint only supports limit and offset", unsupported)
 		return 0, 0, false
 	}
 	return params.Limit, params.Offset, true
@@ -357,12 +376,32 @@ func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
 
 func emitQueryError(c *gin.Context, err error) {
 	if qpe, ok := errors.AsType[*QueryParamError](err); ok {
-		ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
+		ProblemQueryValidation(c, "Invalid query parameter", []apperrors.ValidationError{
 			{Field: qpe.Field, Message: qpe.Message},
 		})
 		return
 	}
 	ProblemBadRequest(c, err.Error())
+}
+
+// RouteKey returns a stable method-and-route key without request parameters.
+func RouteKey(c *gin.Context) string {
+	if route := c.FullPath(); route != "" {
+		return c.Request.Method + " " + route
+	}
+	return c.Request.Method + " unmatched"
+}
+
+// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// logs the field errors at Debug. These are expected client errors: the
+// response names each field and the access log records the status, so they
+// never log at Error or alert.
+func ProblemQueryValidation(c *gin.Context, detail string, errs []apperrors.ValidationError) {
+	logger.Debug("Invalid query parameters",
+		"error_type", "query_validation",
+		"route", RouteKey(c),
+		"errors", errs)
+	ProblemValidationError(c, detail, errs)
 }
 
 // PaginatedListResponse writes a page with optional sparse fieldsets.
@@ -381,7 +420,7 @@ func PaginatedListResponse[T any](c *gin.Context, params *QueryParams, result *r
 				}
 			}
 			if len(unknown) > 0 {
-				ProblemValidationError(c, "Invalid query parameter", unknown)
+				ProblemQueryValidation(c, "Invalid query parameter", unknown)
 				return
 			}
 		}

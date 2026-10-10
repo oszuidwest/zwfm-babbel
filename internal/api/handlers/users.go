@@ -13,7 +13,7 @@ import (
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
-	params, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
 		return
 	}
