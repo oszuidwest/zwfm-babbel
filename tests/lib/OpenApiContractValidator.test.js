@@ -583,15 +583,15 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.id.oneOf[1].properties.null).toBeUndefined();
   });
 
-  test('when an operation uses the shared id path parameter, then 400 is declared', () => {
+  test('when an operation takes an id path parameter, then 422 is declared', () => {
     for (const [operationPath, pathItem] of Object.entries(document.paths)) {
-      if (!operationPath.includes('{id}') || operationPath.startsWith('/public/')) {
+      if (!operationPath.includes('{id}')) {
         continue;
       }
       for (const [method, operation] of Object.entries(pathItem)) {
         const statuses = Object.keys(operation.responses || {});
-        expect({ method, operationPath, has400: statuses.includes('400') })
-          .toEqual({ method, operationPath, has400: true });
+        expect({ method, operationPath, has422: statuses.includes('422') })
+          .toEqual({ method, operationPath, has422: true });
       }
     }
   });

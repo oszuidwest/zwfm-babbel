@@ -165,7 +165,8 @@ Only stories and users have soft deletion. Every other list endpoint rejects
 a non-empty `trashed` with 422 and an error for the `trashed` field:
 
 ```http
-GET /api/v1/stations?trashed=only       # 422, errors[0].field = "trashed"
+GET /api/v1/stations?trashed=only       # 422, errors[0].field = "trashed", code "unsupported"
+GET /api/v1/stories?trashed=bogus       # 422, errors[0].field = "trashed", code "invalid_choice"
 ```
 
 To filter by the `status` field (e.g., draft/active/expired), use `filter[status]`:
@@ -311,9 +312,10 @@ FieldMapping: map[string]string{
 
 ## Error Handling
 
-The system provides RFC 9457 Problem Details responses for invalid parameters.
-"Error labels" under "List queries" in `openapi.yaml` describes how
-`errors[].field` names each parameter:
+An invalid query parameter returns 422 with RFC 9457 Problem Details. Every
+item in `errors[]` has `field`, `code` and `message`. `field` is the query
+key exactly as sent, and `code` comes from the closed list in the
+"Validation errors" section of `openapi.yaml`:
 
 ```json
 {
@@ -326,11 +328,40 @@ The system provides RFC 9457 Problem Details responses for invalid parameters.
   "errors": [
     {
       "field": "sort",
+      "code": "unknown_field",
       "message": "unknown sort field \"invalid_field\""
     }
   ]
 }
 ```
+
+How `errors[].field` and `errors[].code` name each problem ("Error labels"
+under "List queries" in `openapi.yaml`):
+
+| Request | `field` | `code` |
+| --- | --- | --- |
+| `limit=abc` | `limit` | `invalid_format` |
+| `limit=0` or `limit=101` | `limit` | `out_of_range` |
+| `limit=10&limit=20` | `limit` | `duplicate` |
+| `sort=bogus` | `sort` | `unknown_field` |
+| `sort=title:up` | `sort` | `invalid_choice` |
+| `fields=bogus` | `fields` | `unknown_field` |
+| `filter[status]=bad` | `filter[status]` | `invalid_choice` |
+| `filter[status][not]=bad` | `filter[status][not]` | `invalid_choice` |
+| `filter[voice_id]=null` | `filter[voice_id]` | `invalid_format` |
+| `filter[bogus]=1` | `filter[bogus]` | `unknown_field` |
+| `filter[status][xyz]=1` | `filter[status][xyz]` | `invalid_choice` |
+| `filter[title][null]=true` | `filter[title][null]` | `unsupported` |
+| `filter[status` (malformed key) | `filter[status` | `invalid_format` |
+
+Operators are checked before fields, so `filter[bogus][xyz]` reports as
+`filter[bogus][xyz]`. Validation stops at the first invalid filter.
+`/bulletins/{id}/stories` supports only `limit` and `offset`; it reports
+every other key as sent, filter keys included, with code `unsupported`.
+
+Earlier versions reported `filter[status]=bad` as `filter[status][eq]`,
+`filter[status][not]=bad` as `filter[status][ne]`, and `filter[bogus]=1` as
+`filter`.
 
 ## Performance Considerations
 
