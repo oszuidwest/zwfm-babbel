@@ -274,6 +274,9 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 // them: one Debug record and no alert, even when a query error arrives
 // wrapped. A database failure logs at Error and alerts.
 func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
+	serviceError := func(err error) func(*gin.Context) {
+		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
+	}
 	tests := []struct {
 		name       string
 		respond    func(*gin.Context)
@@ -297,31 +300,23 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			name: "repository rejects unknown sort field",
-			respond: func(c *gin.Context) {
-				handleServiceError(c, &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}, "Story")
-			},
+			name:       "repository rejects unknown sort field",
+			respond:    serviceError(&repository.UnknownFieldError{Kind: "sort", Field: "bogus"}),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			name: "repository rejects filter value",
-			respond: func(c *gin.Context) {
-				handleServiceError(c, &repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}, "Story")
-			},
+			name:       "repository rejects filter value",
+			respond:    serviceError(&repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			name: "query error wrapped as a database error",
-			respond: func(c *gin.Context) {
-				handleServiceError(c, apperrors.Database("Story", "query", &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}), "Story")
-			},
+			name:       "query error wrapped as a database error",
+			respond:    serviceError(apperrors.Database("Story", "query", &repository.UnknownFieldError{Kind: "sort", Field: "bogus"})),
 			wantStatus: http.StatusUnprocessableEntity,
 		},
 		{
-			name: "database failure",
-			respond: func(c *gin.Context) {
-				handleServiceError(c, apperrors.Database("Story", "query", errors.New("connection lost")), "Story")
-			},
+			name:       "database failure",
+			respond:    serviceError(apperrors.Database("Story", "query", errors.New("connection lost"))),
 			wantStatus: http.StatusInternalServerError,
 		},
 	}
