@@ -108,9 +108,9 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 // Update applies relationship changes while preserving the uniqueness of the
 // final station/voice pair.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
-	current, err := s.stationVoiceRepo.GetByID(ctx, id)
+	current, err := s.GetByID(ctx, id)
 	if err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
+		return nil, err
 	}
 
 	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
@@ -126,11 +126,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 	}
 
-	updated, err := s.stationVoiceRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
-	}
-	return updated, nil
+	return s.GetByID(ctx, id)
 }
 
 // validateUpdateRequest checks that changed parents exist and that the final

@@ -18,8 +18,7 @@ import (
 
 func TestUserService_ConcurrentDemotionsKeepAnActiveAdmin(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
-	activeAdmins := db.Model(&models.User{}).Where("role = ? AND suspended_at IS NULL", models.RoleAdmin)
-	ids := onlyTwoActiveAdmins(t, db, activeAdmins)
+	ids := onlyTwoActiveAdmins(t, db)
 
 	service := NewUserService(repository.NewUserRepository(db), repository.NewTxManager(db), PasswordPolicy{})
 	editor := string(models.RoleEditor)
@@ -42,7 +41,7 @@ func TestUserService_ConcurrentDemotionsKeepAnActiveAdmin(t *testing.T) {
 		wg.Wait()
 
 		var active int64
-		if err := activeAdmins.Session(&gorm.Session{}).Count(&active).Error; err != nil {
+		if err := activeAdmins(db).Count(&active).Error; err != nil {
 			t.Fatal(err)
 		}
 		rejected := 0
@@ -61,10 +60,10 @@ func TestUserService_ConcurrentDemotionsKeepAnActiveAdmin(t *testing.T) {
 
 // onlyTwoActiveAdmins suspends the existing admins and creates two active
 // ones, restoring the original state on cleanup.
-func onlyTwoActiveAdmins(t *testing.T, db, activeAdmins *gorm.DB) []int64 {
+func onlyTwoActiveAdmins(t *testing.T, db *gorm.DB) []int64 {
 	t.Helper()
 	var existing []int64
-	if err := activeAdmins.Session(&gorm.Session{}).Pluck("id", &existing).Error; err != nil {
+	if err := activeAdmins(db).Pluck("id", &existing).Error; err != nil {
 		t.Fatal(err)
 	}
 	if len(existing) > 0 {
@@ -92,4 +91,8 @@ func onlyTwoActiveAdmins(t *testing.T, db, activeAdmins *gorm.DB) []int64 {
 		})
 	}
 	return ids
+}
+
+func activeAdmins(db *gorm.DB) *gorm.DB {
+	return db.Model(&models.User{}).Where("role = ? AND suspended_at IS NULL", models.RoleAdmin)
 }

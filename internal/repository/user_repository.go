@@ -88,8 +88,8 @@ func (r *UserRepository) IsEmailTaken(ctx context.Context, email string, exclude
 
 // LockActiveAdminIDs returns the IDs of non-suspended admins and locks their
 // rows until the surrounding transaction ends, so concurrent last-admin checks
-// run one after another instead of both passing. Every caller runs the same
-// query without excluding its target, so all lock the same rows in the same order.
+// run one after another instead of both passing. The query does not exclude the
+// caller's target, so every caller scans the same rows and waits on the first.
 func (r *UserRepository) LockActiveAdminIDs(ctx context.Context) ([]int64, error) {
 	var ids []int64
 	db := DBFromContext(ctx, r.db)
