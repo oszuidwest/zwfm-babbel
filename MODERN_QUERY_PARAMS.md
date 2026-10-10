@@ -381,8 +381,8 @@ GET /api/v1/stories?search=breaking&filter[created_at][gte]=2024-01-01&trashed=w
 
 ### Data Export
 ```http
-# Bulk export of 2024 (gte the first day, lt the day after)
-GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01&limit=1000&fields=id,filename,created_at,station_name
+# First export page of 2024 (gte the first day, lt the day after)
+GET /api/v1/bulletins?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01&limit=100&fields=id,filename,created_at,station_name
 ```
 
 ### Integration Testing

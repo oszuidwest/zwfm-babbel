@@ -3112,7 +3112,9 @@ components:
         (optionally with fractional seconds), or a bare YYYY-MM-DD date
         compared as midnight. An RFC 3339 offset identifies an instant; the
         other forms use the server's local timezone. URL-encode `+` in offsets
-        as `%2B`.
+        as `%2B`. Comma fractions are accepted only in scalar filters; use a
+        decimal point in `in` and `between`, where commas separate values
+        even when URL-encoded.
       anyOf:
         - type: string
           format: date-time
@@ -3139,8 +3141,8 @@ components:
         gte: { $ref: '#/components/schemas/DateTimeValue' }
         lt: { $ref: '#/components/schemas/DateTimeValue' }
         lte: { $ref: '#/components/schemas/DateTimeValue' }
-        in: { type: string, description: Comma-separated date-time values. }
-        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        in: { type: string, description: Comma-separated date-time values. Fractional seconds must use a decimal point. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. Fractional seconds must use a decimal point. }
     NullableDateTimeFilterOperators:
       type: object
       additionalProperties: false
@@ -3152,8 +3154,8 @@ components:
         gte: { $ref: '#/components/schemas/DateTimeValue' }
         lt: { $ref: '#/components/schemas/DateTimeValue' }
         lte: { $ref: '#/components/schemas/DateTimeValue' }
-        in: { type: string, description: Comma-separated date-time values. }
-        between: { type: string, description: Two comma-separated inclusive date-time bounds. }
+        in: { type: string, description: Comma-separated date-time values. Fractional seconds must use a decimal point. }
+        between: { type: string, description: Two comma-separated inclusive date-time bounds. Fractional seconds must use a decimal point. }
         'null': { type: boolean, description: True selects null values; false selects non-null values. }
     BooleanFilter:
       oneOf:
