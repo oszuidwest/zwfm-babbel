@@ -14,6 +14,65 @@ info:
     - Jingle upload: Use separate endpoint `POST /station-voices/{id}/audio` with binary audio data
     - Metadata: Returned as a JSON object
 
+    ## List queries
+
+    List endpoints take `filter[field]` and `filter[field][operator]`. Each
+    endpoint's `filter` parameter documents its fields and operators.
+
+    ### Error labels
+
+    A 422 response names the rejected parameter in `errors[].field`:
+    - Implicit equality reports the canonical operator: `filter[status]=bad`
+      fails as `filter[status][eq]`.
+    - The `not` alias reports as `ne`: `filter[status][not]=bad` fails as
+      `filter[status][ne]`.
+    - An unknown filter or sort field reports as `filter` or `sort`, not as
+      `filter[unknown]`. An unknown operator reports the key as sent, for
+      example `filter[status][unknown]`.
+
+    ### NULL
+
+    - The string `null` is a value, not SQL NULL. Integer, number, boolean,
+      date, date-time, bitmask and enum fields reject it with 422, so
+      `filter[voice_id]=null` fails as `filter[voice_id][eq]`. String fields
+      match the literal text: `filter[title]=null` selects stories titled `null`.
+    - On fields that document the `null` operator, `filter[field][null]=true`
+      selects NULL and `filter[field][null]=false` selects non-NULL values.
+      The operator takes one boolean; there is no `not_null` operator.
+
+    ### Soft deletion
+
+    - Stories and users list active records by default. `trashed=only` lists
+      only deleted records and `trashed=with` lists both. Other list
+      endpoints reject `trashed` with 422.
+    - The default scope already excludes deleted stories, so
+      `filter[deleted_at][null]=false` alone matches nothing. Combine it with
+      `trashed=only` or `trashed=with`.
+
+    ### Dates and times
+
+    - A date-time with an RFC 3339 offset, such as `2024-01-15T12:30:00Z` or
+      `2024-01-15T13:30:00+01:00`, identifies an instant; both examples
+      select the same rows. A date-time without an offset, such as
+      `2024-01-15 13:30:00`, uses the server's local timezone, and a bare
+      date such as `2024-01-15` means local midnight.
+    - URL-encode `+` as `%2B`, as in
+      `filter[created_at][gte]=2024-01-15T13:30:00%2B01:00`. An unencoded `+`
+      decodes as a space, and the value fails with 422.
+    - The server's local timezone is the `TZ` of the Babbel process, and the
+      database driver binds times in that zone. The MySQL session timezone
+      must match it; the Docker Compose files give both containers the same
+      `TZ`.
+
+    ### Compatibility
+
+    Filters validate values against the field type. Values that MySQL used to
+    coerce, such as `filter[voice_id][ne]=null` or `filter[weekdays]=abc`,
+    now return 422 instead of 200 with unexpected rows. Use the `null`
+    operator for NULL checks. String fields still accept any text, including
+    `null`. An RFC 3339 `Z` suffix now means UTC; it used to be read as local
+    time.
+
     ## Authentication
 
     - **Local**: Username/password with session cookies
@@ -1469,7 +1528,8 @@ paths:
       summary: Delete story (soft delete)
       description: |
         Performs a soft delete by setting deleted_at timestamp.
-        The story will no longer appear in listings unless trashed=with is specified.
+        The story no longer appears in default listings. List it with
+        `trashed=only` (deleted stories only) or `trashed=with` (all stories).
         Story data and audio files are preserved for potential restoration.
       tags:
         - Stories
@@ -1782,6 +1842,8 @@ paths:
       summary: Delete user
       description: |
         Soft-deletes a user account. All active sessions for the user will be terminated.
+        The user no longer appears in default listings. List it with
+        `trashed=only` or `trashed=with`.
         Cannot delete the last admin user.
       tags:
         - Users
@@ -2790,6 +2852,10 @@ components:
         - (omitted) - only non-deleted records (default)
         - `only` - only soft-deleted records
         - `with` - all records including deleted
+
+        Because the default excludes deleted records,
+        `filter[deleted_at][null]=false` needs `trashed=only` or
+        `trashed=with` to match.
     stationFilter:
       name: filter
       in: query
@@ -3022,7 +3088,11 @@ components:
         in: { type: string, description: Comma-separated dates. }
         between: { type: string, description: Two comma-separated inclusive date bounds. }
     DateTimeValue:
-      description: RFC 3339 date-time, YYYY-MM-DD HH:MM:SS (optionally with fractional seconds), or a bare YYYY-MM-DD date compared as midnight.
+      description: |
+        RFC 3339 date-time, YYYY-MM-DD HH:MM:SS (optionally with fractional
+        seconds), or a bare YYYY-MM-DD date compared as midnight. An RFC 3339
+        offset identifies an instant; the other forms use the server's local
+        timezone. URL-encode `+` in offsets as `%2B`.
       anyOf:
         - type: string
           format: date-time

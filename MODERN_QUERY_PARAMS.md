@@ -48,6 +48,18 @@ GET /api/v1/stories?filter[status][in]=active,draft
 GET /api/v1/stories?filter[voice_id][in]=1,2,3
 ```
 
+#### NULL Checks
+```http
+# NULL and non-NULL, on fields that document the null operator
+GET /api/v1/stories?filter[voice_id][null]=true
+GET /api/v1/stories?filter[voice_id][null]=false
+```
+
+The string `null` is a value, not SQL NULL: typed fields reject
+`filter[voice_id]=null` with 422, and string fields match the literal text.
+The "List queries" section of `openapi.yaml` describes NULL, soft-delete and
+date-time semantics in full.
+
 #### Substring Matching (contains)
 ```http
 # Case-sensitive "contains" match; the value is matched literally, not as a pattern
@@ -303,7 +315,10 @@ FieldMapping: map[string]string{
 
 ## Error Handling
 
-The system provides RFC 9457 Problem Details responses for invalid parameters:
+The system provides RFC 9457 Problem Details responses for invalid parameters.
+`errors[].field` uses the canonical operator (`filter[status]=bad` reports as
+`filter[status][eq]`, `[not]` as `[ne]`), and unknown filter or sort fields
+report as `filter` or `sort`:
 
 ```json
 {

@@ -227,6 +227,44 @@ describe('Stories', () => {
       });
 
       generateTrashedTests('/stories', () => `filter[id][in]=${deleted.id},${active.id}`);
+
+      // The default scope already excludes deleted stories (documented in openapi.yaml).
+      test.each([
+        ['', 0],
+        ['&trashed=only', 1],
+        ['&trashed=with', 1]
+      ])('when deleted_at null=false is combined with "%s", then matches %i', async (trashed, total) => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${deleted.id}&filter[deleted_at][null]=false${trashed}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(total);
+      });
+    });
+  });
+
+  // Pins the error labels and NULL examples documented under "List queries" in openapi.yaml.
+  describe('Documented Query Semantics', () => {
+    test.each([
+      ['filter[status]=bad', 'filter[status][eq]'],
+      ['filter[status][not]=bad', 'filter[status][ne]'],
+      ['filter[status][unknown]=active', 'filter[status][unknown]'],
+      ['filter[bogus]=1', 'filter'],
+      ['sort=bogus', 'sort'],
+      ['filter[voice_id]=null', 'filter[voice_id][eq]'],
+      ['filter[weekdays]=abc', 'filter[weekdays][eq]'],
+      // An unencoded plus sign decodes as a space.
+      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]']
+    ])('when %s is invalid, then the 422 names %s', async (qs, field) => {
+      const response = await global.api.apiCall('GET', `/stories?${qs}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => error.field)).toEqual([field]);
+    });
+
+    test.each([
+      'filter[title]=null',
+      'filter[created_at][gte]=2024-01-15T13:30:00%2B01:00'
+    ])('when %s is sent, then accepted', async qs => {
+      const response = await global.api.apiCall('GET', `/stories?${qs}`);
+      expect(response.status).toBe(200);
     });
   });
 
