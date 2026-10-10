@@ -331,25 +331,23 @@ func (f FilterField) bind(filter FilterCondition) ([]any, error) {
 			args[i], err = f.parseValue(raw)
 		}
 		if err != nil {
-			return nil, invalid(f.valueErrorCode(filter.Operator), err.Error())
+			code := "invalid_format"
+			if valueErr, ok := errors.AsType[*filterValueError](err); ok {
+				code = valueErr.code
+			}
+			return nil, invalid(code, err.Error())
 		}
 	}
 	return args, nil
 }
 
-// valueErrorCode classifies an unparsable filter value: a value outside a
-// bitmask range or enum is a choice or range error, anything else a format error.
-func (f FilterField) valueErrorCode(op FilterOperator) string {
-	switch {
-	case op == FilterIsNull:
-		return "invalid_format"
-	case f.Type == filterBitmask:
-		return "out_of_range"
-	case f.Type == filterEnum:
-		return "invalid_choice"
-	}
-	return "invalid_format"
+// filterValueError is a well-formed filter value outside the allowed values;
+// code is the API field-error code. Other value errors are format errors.
+type filterValueError struct {
+	code, message string
 }
+
+func (e *filterValueError) Error() string { return e.message }
 
 func (f FilterField) allowsOperator(op FilterOperator) bool {
 	switch op {
@@ -385,15 +383,19 @@ func (f FilterField) parseValue(raw string) (any, error) {
 	case filterDateTime:
 		return parseDateTime(raw, time.Local)
 	case filterBitmask:
-		if mask, err := strconv.ParseUint(raw, 10, 7); err == nil {
-			return mask, nil
+		mask, err := strconv.ParseUint(raw, 10, 64)
+		switch {
+		case err != nil && !errors.Is(err, strconv.ErrRange):
+			return nil, errors.New("expected integer between 0 and 127")
+		case err != nil || mask > 127:
+			return nil, &filterValueError{code: "out_of_range", message: "expected integer between 0 and 127"}
 		}
-		return nil, errors.New("expected integer between 0 and 127")
+		return mask, nil
 	case filterEnum:
 		if slices.Contains(f.Enum, raw) {
 			return raw, nil
 		}
-		return nil, errors.New("expected one of " + strings.Join(f.Enum, ", "))
+		return nil, &filterValueError{code: "invalid_choice", message: "expected one of " + strings.Join(f.Enum, ", ")}
 	}
 	if !validLiteral(f.Type, raw) {
 		return nil, errors.New("expected " + string(f.Type))

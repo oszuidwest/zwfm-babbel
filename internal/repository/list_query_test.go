@@ -277,6 +277,34 @@ func TestApplyFilterCondition_TypedValues(t *testing.T) {
 	}
 }
 
+// The API reports each rejected filter by its literal key with a field-error code.
+func TestFilterErrorCodes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		cond FilterCondition
+		want string
+	}{
+		{"bitmask above range", FilterCondition{Field: "weekdays", Operator: FilterEquals, Values: []string{"128"}}, "out_of_range"},
+		{"bitmask not a number", FilterCondition{Field: "weekdays", Operator: FilterEquals, Values: []string{"abc"}}, "invalid_format"},
+		{"enum value", FilterCondition{Field: "status", Operator: FilterEquals, Values: []string{"bogus"}}, "invalid_choice"},
+		{"boolean value", FilterCondition{Field: "is_breaking", Operator: FilterEquals, Values: []string{"yes"}}, "invalid_format"},
+		{"operator on field", FilterCondition{Field: "is_breaking", Operator: FilterLike, Values: []string{"x"}}, "unsupported"},
+		{"value count", FilterCondition{Field: "start_date", Operator: FilterBetween, Values: []string{"2024-01-01"}}, "invalid_format"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.cond.Key = "filter[" + tt.cond.Field + "]"
+			_, err := applyFilterCondition(nil, tt.cond, storyFieldMapping)
+			invalid, ok := errors.AsType[*InvalidFilterError](err)
+			if !ok || invalid.Code != tt.want || invalid.Key != tt.cond.Key {
+				t.Fatalf("got %#v, want code %q for key %q", err, tt.want, tt.cond.Key)
+			}
+		})
+	}
+}
+
 // equalArg compares bind arguments by instant for times, since parsing an
 // offset creates a distinct zone pointer each call.
 func equalArg(a, b any) bool {

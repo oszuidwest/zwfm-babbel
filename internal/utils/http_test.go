@@ -377,13 +377,17 @@ func TestBindJSON_StationRequests(t *testing.T) {
 	t.Run("valid non-normalizer type", func(t *testing.T) {
 		t.Parallel()
 		req := bindCase[StationRequest](t, `{"name":"Test Station","max_stories_per_block":5,"pause_seconds":1.5}`, bindExpect{ok: true})
-		if req.Name != "Test Station" || req.MaxStoriesPerBlock != 5 {
-			t.Errorf("got Name=%q MaxStoriesPerBlock=%d", req.Name, req.MaxStoriesPerBlock)
+		if req.Name != "Test Station" || req.MaxStoriesPerBlock == nil || *req.MaxStoriesPerBlock != 5 {
+			t.Errorf("got Name=%q MaxStoriesPerBlock=%v", req.Name, req.MaxStoriesPerBlock)
 		}
 	})
 	t.Run("type mismatch", func(t *testing.T) {
 		t.Parallel()
 		bindCase[StationRequest](t, `{"name":"Test","max_stories_per_block":"five"}`, bindExpect{status: 400, field: "max_stories_per_block", code: "invalid_type"})
+	})
+	t.Run("missing max stories per block", func(t *testing.T) {
+		t.Parallel()
+		bindCase[StationRequest](t, `{"name":"Test"}`, bindExpect{status: 422, field: "max_stories_per_block", code: "required"})
 	})
 	t.Run("missing station id", func(t *testing.T) {
 		t.Parallel()

@@ -155,11 +155,12 @@ func saveFileToPath(file multipart.File, dst string) error {
 }
 
 // StationRequest is the JSON body for creating or replacing radio station
-// settings. PauseSeconds is a pointer so an omitted field can fall back to the
-// default pause without conflating it with an explicit 0.
+// settings. Pointers distinguish omitted fields from explicit zeros: a missing
+// MaxStoriesPerBlock is required, a missing PauseSeconds falls back to the
+// default pause.
 type StationRequest struct {
 	Name               string   `json:"name" binding:"required,notblank,max=255"`
-	MaxStoriesPerBlock int      `json:"max_stories_per_block" binding:"gte=1,lte=50"`
+	MaxStoriesPerBlock *int     `json:"max_stories_per_block" binding:"required,gte=1,lte=50"`
 	PauseSeconds       *float64 `json:"pause_seconds" binding:"omitempty,gte=0,lte=60"`
 }
 
