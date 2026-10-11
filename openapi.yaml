@@ -1961,6 +1961,7 @@ paths:
         (`request`, `empty_update`). A present empty string is validated like
         any other value: `full_name: ""` fails as `blank`, `role: ""` as
         `invalid_choice` and `password: ""` as `too_short`.
+        Demoting or suspending the last active admin fails with 409 `user.last_admin`.
       tags:
         - Users
       parameters:
@@ -2028,6 +2029,7 @@ paths:
         Update user state (suspend/restore) without requiring full user data. 
         This is an alternative to using PUT /users/{id} with the suspended field.
         Use this endpoint when you only want to change suspension status without providing other user fields.
+        Suspending the last active admin fails with 409 `user.last_admin`.
       tags:
         - Users
       parameters:
@@ -2059,6 +2061,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '413':
@@ -4313,7 +4317,7 @@ components:
         - `{resource}.duplicate` - 409 unique constraint violation
         - `{resource}.has_dependencies` - 409 cannot delete, has dependent resources
         - `{resource}.reference_missing` - 409 a referenced resource was deleted while the request ran
-        - `user.last_admin` - 409 cannot delete the last admin user
+        - `user.last_admin` - 409 cannot delete, demote or suspend the last active admin user
         - `bulletin.no_stories` - 409 no active stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
@@ -4838,7 +4842,7 @@ components:
         - `{resource}.duplicate` - Duplicate resource (e.g., `station.duplicate` when a station name already exists)
         - `{resource}.has_dependencies` - Resource has dependencies that prevent deletion
         - `{resource}.reference_missing` - A referenced resource was deleted while the request ran; reload and retry
-        - `user.last_admin` - The last admin user cannot be deleted
+        - `user.last_admin` - The last active admin user cannot be deleted, demoted or suspended
         - `bulletin.no_stories` - No eligible stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS

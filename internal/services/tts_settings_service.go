@@ -57,7 +57,7 @@ type UpdateTTSSettingsRequest struct {
 func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, error) {
 	settings, err := s.repo.Get(ctx)
 	if err != nil {
-		return nil, translateTTSSettingsRepoError(err)
+		return nil, translateTTSSettingsRepoError(apperrors.OpQuery, err)
 	}
 	return settings, nil
 }
@@ -87,7 +87,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 	}
 
 	if err := s.repo.Update(ctx, update); err != nil {
-		return nil, translateTTSSettingsRepoError(err)
+		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
 	}
 
 	updated, err := s.Get(ctx)
@@ -108,7 +108,7 @@ func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 		r.TTSStylePrefix == nil
 }
 
-func translateTTSSettingsRepoError(err error) error {
+func translateTTSSettingsRepoError(op apperrors.Operation, err error) error {
 	if errors.Is(err, repository.ErrSchemaUnavailable) {
 		return apperrors.NotInitialized("tts_settings", "apply migrations/001_complete_schema.sql", err)
 	}
@@ -121,7 +121,7 @@ func translateTTSSettingsRepoError(err error) error {
 			err,
 		)
 	}
-	return apperrors.TranslateRepoError("TTSSettings", apperrors.OpQuery, err)
+	return apperrors.TranslateRepoError("TTSSettings", op, err)
 }
 
 func seedUpdateValue(seed *int64) *uint32 {

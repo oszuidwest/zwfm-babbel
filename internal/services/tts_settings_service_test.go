@@ -155,7 +155,7 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := translateTTSSettingsRepoError(tt.err)
+			got := translateTTSSettingsRepoError(apperrors.OpQuery, tt.err)
 
 			var notInitialized *apperrors.NotInitializedError
 			if !errors.As(got, &notInitialized) {
@@ -174,6 +174,18 @@ func TestTranslateTTSSettingsRepoError(t *testing.T) {
 				t.Fatalf("hint = %q, want %q", notInitialized.Hint, tt.wantHint)
 			}
 		})
+	}
+}
+
+func TestTranslateTTSSettingsRepoError_ReportsOperation(t *testing.T) {
+	got := translateTTSSettingsRepoError(apperrors.OpUpdate, errors.New("invalid connection"))
+
+	var dbErr *apperrors.DatabaseError
+	if !errors.As(got, &dbErr) {
+		t.Fatalf("error type = %T, want *apperrors.DatabaseError", got)
+	}
+	if dbErr.Operation != "update" {
+		t.Fatalf("operation = %q, want update", dbErr.Operation)
 	}
 }
 

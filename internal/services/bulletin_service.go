@@ -269,7 +269,7 @@ func (s *BulletinService) saveBulletinToDatabase(
 	})
 
 	if err != nil {
-		return 0, apperrors.Database("Bulletin", "create", err)
+		return 0, apperrors.TranslateRepoError("Bulletin", apperrors.OpCreate, err)
 	}
 
 	return bulletinID, nil
