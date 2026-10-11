@@ -15,15 +15,7 @@ import (
 
 func TestBulletinService_SaveWithDeletedStoryIsConflict(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
-	station := models.Station{Name: t.Name(), MaxStoriesPerBlock: 5}
-	if err := db.Create(&station).Error; err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := db.Delete(&station).Error; err != nil {
-			t.Errorf("delete station: %v", err)
-		}
-	})
+	station := createTestStation(t, db)
 	service := &BulletinService{
 		txManager:    repository.NewTxManager(db),
 		bulletinRepo: repository.NewBulletinRepository(db),

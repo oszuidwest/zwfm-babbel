@@ -167,7 +167,7 @@ describe('Users', () => {
 
     test('when another active admin exists, then an admin can be suspended and demoted', async () => {
       const created = await global.api.apiCall('POST', '/users', {
-        ...usersSchema.createValidData(`secondadmin${Date.now()}${process.pid}`),
+        ...usersSchema.createValidData(`secondadmin${Date.now()}`),
         role: 'admin'
       });
       expect(created.status).toBe(201);

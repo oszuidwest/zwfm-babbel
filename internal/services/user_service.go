@@ -223,20 +223,6 @@ func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, passwo
 	return nil
 }
 
-// guardLastAdminUpdate rejects demoting or suspending the last active admin.
-func (s *UserService) guardLastAdminUpdate(ctx context.Context, id int64, req *UpdateUserRequest) error {
-	demote := req.Role != nil && *req.Role != string(models.RoleAdmin)
-	suspend := req.Suspended != nil && *req.Suspended
-	if !demote && !suspend {
-		return nil
-	}
-	action := "suspend"
-	if demote {
-		action = "demote"
-	}
-	return s.requireOtherActiveAdmin(ctx, id, action)
-}
-
 // hashPassword returns the bcrypt hash stored for password.
 func hashPassword(password string) (string, error) {
 	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -318,6 +304,17 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 	}
 
 	_ = s.repo.DeleteSessions(ctx, id)
+	return nil
+}
+
+// guardLastAdminUpdate rejects demoting or suspending the last active admin.
+func (s *UserService) guardLastAdminUpdate(ctx context.Context, id int64, req *UpdateUserRequest) error {
+	switch {
+	case req.Role != nil && *req.Role != string(models.RoleAdmin):
+		return s.requireOtherActiveAdmin(ctx, id, "demote")
+	case req.Suspended != nil && *req.Suspended:
+		return s.requireOtherActiveAdmin(ctx, id, "suspend")
+	}
 	return nil
 }
 
