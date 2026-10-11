@@ -179,6 +179,7 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 	}
 }
 
+// nonFlushingWriter hides Flush so serveAudioFile sees http.ErrNotSupported.
 type nonFlushingWriter struct{ http.ResponseWriter }
 
 // audioFileChangingWriter changes the file after Content-Length is set, before copying.
@@ -187,6 +188,7 @@ type audioFileChangingWriter struct {
 	change func()
 }
 
+// Unwrap mirrors gin's writer so serveAudioFile flushes the underlying writer.
 func (w audioFileChangingWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
 }
@@ -270,8 +272,9 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 			} else if len(alerts.events) != 0 {
 				t.Errorf("unexpected alerts: %+v", alerts.events)
 			}
-			if got := slices.Contains(alerts.resolved, "bulletin:delivery:station:7"); got != (!failed && !tt.noFlush) {
-				t.Errorf("resolved = %v", alerts.resolved)
+			wantResolved := !failed && !tt.noFlush
+			if got := slices.Contains(alerts.resolved, "bulletin:delivery:station:7"); got != wantResolved {
+				t.Errorf("resolved = %v, want delivery resolved = %v", alerts.resolved, wantResolved)
 			}
 			if !failed && strconv.Itoa(recorder.Body.Len()) != recorder.Header().Get("Content-Length") {
 				t.Errorf("body length = %d, declared = %s", recorder.Body.Len(), recorder.Header().Get("Content-Length"))

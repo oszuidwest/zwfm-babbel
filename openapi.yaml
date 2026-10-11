@@ -36,6 +36,8 @@ info:
       that is not ready for TTS, or the last admin. The `code` member names
       the conflict and `hint` suggests a fix. There is no `errors[]`.
     - **404 Not Found**: only the resource in the URL path does not exist.
+    - **408 Request Timeout**: an upload did not complete within the time
+      limit.
     - **413 Payload Too Large**: the body is above the limit (1 MB for JSON
       bodies, 100 MB for an uploaded audio file).
 
@@ -4310,6 +4312,7 @@ components:
         - `https://babbel.api/problems/validation-error` - 422 rejected body, path or query values; has `errors[]`
         - `https://babbel.api/problems/resource-not-found` - 404 resource not found (generic)
         - `https://babbel.api/problems/bad-request` - 400 body is not valid JSON (or multipart form data) for the endpoint; has `errors[]`
+        - `https://babbel.api/problems/request-timeout` - 408 upload did not complete within the time limit
         - `https://babbel.api/problems/payload-too-large` - 413 request body exceeds the API limit
         - `https://babbel.api/problems/authentication-required` - 401 authentication required
         - `https://babbel.api/problems/insufficient-permissions` - 403 insufficient permissions

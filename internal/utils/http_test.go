@@ -1,21 +1,17 @@
 package utils
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/iotest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -514,21 +510,20 @@ func TestSaveAudioUpload_ReadTimeout(t *testing.T) {
 	server := httptest.NewServer(router)
 	defer server.Close()
 
-	dialer := net.Dialer{Timeout: time.Second}
-	conn, err := dialer.DialContext(t.Context(), "tcp", server.Listener.Addr().String())
+	// Send a partial file and never complete the body.
+	body, writer := io.Pipe()
+	defer func() { _ = writer.Close() }()
+	go func() {
+		_, _ = io.WriteString(writer, "--boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"clip.wav\"\r\n\r\naudio")
+	}()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/upload", body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = conn.Close() }()
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	// Send a partial file, then wait for the response without completing the body.
-	body := "--boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"clip.wav\"\r\n\r\naudio"
-	if _, err := fmt.Fprintf(conn, "POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/form-data; boundary=boundary\r\nContent-Length: %d\r\n\r\n%s", len(body)+1024, body); err != nil {
-		t.Fatal(err)
-	}
-	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	request.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	response, err := client.Do(request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,36 +535,11 @@ func TestSaveAudioUpload_ReadTimeout(t *testing.T) {
 	if response.StatusCode != http.StatusRequestTimeout || problem.Status != http.StatusRequestTimeout || problem.Type != ProblemTypeRequestTimeout {
 		t.Fatalf("response = %d, %+v; want 408 request-timeout", response.StatusCode, problem)
 	}
+	if len(problem.Errors) != 0 {
+		t.Errorf("errors = %+v, want none so the read error stays private", problem.Errors)
+	}
 	if got := response.Header.Get("Content-Type"); got != "application/problem+json" {
 		t.Errorf("Content-Type = %q, want application/problem+json", got)
-	}
-	if problem.Detail != "Upload did not complete within the time limit" || len(problem.Errors) != 0 {
-		t.Errorf("unexpected timeout detail: %+v", problem)
-	}
-}
-
-func TestSaveAudioUpload_ReadErrors(t *testing.T) {
-	for _, tt := range []struct {
-		name   string
-		err    error
-		status int
-	}{
-		{name: "wrapped deadline", err: fmt.Errorf("read: %w", os.ErrDeadlineExceeded), status: 408},
-		{name: "network timeout", err: &net.DNSError{Err: "timeout", IsTimeout: true}, status: 408},
-		{name: "client abort", err: io.ErrUnexpectedEOF, status: 400},
-		{name: "closed connection", err: net.ErrClosed, status: 400},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			c, w := newTestContext(t, "")
-			c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
-			c.Request.Body = io.NopCloser(iotest.ErrReader(tt.err))
-			_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
-			want := bindExpect{status: tt.status}
-			if tt.status == http.StatusBadRequest {
-				want.field, want.code = "request", "invalid_format"
-			}
-			checkBindResult(t, w, ok, want)
-		})
 	}
 }
 

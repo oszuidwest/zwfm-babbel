@@ -144,7 +144,7 @@ var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
 
 // serveAudioFile serves a download with range and conditional request support.
 // It handles the response and returns file access or delivery errors, including
-// errUnverifiedDelivery when the writer cannot report flush errors.
+// errUnverifiedDelivery when the writer does not support flushing.
 func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -169,7 +169,9 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 		raw = u.Unwrap()
 	}
 	flushErr := http.NewResponseController(raw).Flush()
-	if flushErr != nil && !errors.Is(flushErr, http.ErrNotSupported) {
+	if errors.Is(flushErr, http.ErrNotSupported) {
+		flushErr = errUnverifiedDelivery // An incomplete read below takes precedence.
+	} else if flushErr != nil {
 		return flushErr
 	}
 	// Detect incomplete reads hidden by ServeContent.
@@ -178,10 +180,7 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 			return io.ErrUnexpectedEOF
 		}
 	}
-	if errors.Is(flushErr, http.ErrNotSupported) {
-		return errUnverifiedDelivery
-	}
-	return nil
+	return flushErr
 }
 
 // GetBulletinStories returns a paginated list of stories in a bulletin.

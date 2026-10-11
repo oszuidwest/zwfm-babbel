@@ -13,7 +13,6 @@ import (
 	"io"
 	"io/fs"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -58,24 +57,21 @@ var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".f
 // SaveAudioUpload stores the multipart file in field at a temporary path. On
 // failure it writes the response and returns false: 413 above 100 MB, 400 for
 // a body that is not multipart form data, 422 for a missing file or an
-// unsupported extension, 408 for a read timeout, and 500 when the file cannot
-// be stored.
+// unsupported extension, 408 when the body exceeds the read deadline, and 500
+// when the file cannot be stored.
 func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
 	// Allow form overhead around a file at the size limit.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
 	file, header, err := c.Request.FormFile(field)
 	if err != nil {
 		_, storageFailure := errors.AsType[*fs.PathError](err)
-		netErr, networkFailure := errors.AsType[net.Error](err)
 		switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
 		case tooLarge:
 			ProblemPayloadTooLarge(c)
-		case errors.Is(err, os.ErrDeadlineExceeded) || (networkFailure && netErr.Timeout()):
-			attrs := []any{"route", c.FullPath(), "remote_addr", c.Request.RemoteAddr}
-			if userID, ok := c.Get("user_id"); ok {
-				attrs = append(attrs, "user_id", userID)
-			}
-			logger.Warn("Audio upload timed out", attrs...)
+		case errors.Is(err, os.ErrDeadlineExceeded):
+			// Mirrors auth.ctxKeyUserID: auth imports utils, so auth.UserID is unavailable here.
+			userID, _ := c.Get("user_id")
+			logger.Warn("Audio upload timed out", "route", RouteKey(c), "user_id", userID)
 			ProblemRequestTimeout(c)
 		case errors.Is(err, http.ErrMissingFile):
 			ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
