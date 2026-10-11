@@ -140,8 +140,11 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
+var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
+
 // serveAudioFile serves a download with range and conditional request support.
-// It handles the response and returns file access or delivery errors.
+// It handles the response and returns file access or delivery errors, including
+// errUnverifiedDelivery when the writer does not support flushing.
 func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -165,8 +168,11 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
 		raw = u.Unwrap()
 	}
-	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
-		return err
+	flushErr := http.NewResponseController(raw).Flush()
+	if errors.Is(flushErr, http.ErrNotSupported) {
+		flushErr = errUnverifiedDelivery // An incomplete read below takes precedence.
+	} else if flushErr != nil {
+		return flushErr
 	}
 	// Detect incomplete reads hidden by ServeContent.
 	if c.Request.Method != http.MethodHead {
@@ -174,7 +180,7 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 			return io.ErrUnexpectedEOF
 		}
 	}
-	return nil
+	return flushErr
 }
 
 // GetBulletinStories returns a paginated list of stories in a bulletin.

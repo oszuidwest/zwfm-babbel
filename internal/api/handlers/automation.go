@@ -231,6 +231,10 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	c.Header("Cache-Control", "no-store")
 	deliveryKey := "bulletin:delivery:station:" + station
 	if err := serveAudioFile(c, file, audioFile, bulletinID, cached); err != nil {
+		if errors.Is(err, errUnverifiedDelivery) {
+			logger.Warn("Automation: bulletin audio delivery could not be verified", "station_id", stationID, "bulletin_id", bulletinID)
+			return
+		}
 		logger.Error("Automation: failed to deliver bulletin audio", "station_id", stationID, "bulletin_id", bulletinID, "error", err)
 		h.alerts.Alert(context.WithoutCancel(c.Request.Context()), notify.Event{
 			Key: deliveryKey, Summary: "Radio automation bulletin delivery failed",

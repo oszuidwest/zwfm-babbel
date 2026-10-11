@@ -36,6 +36,8 @@ info:
       that is not ready for TTS, or the last admin. The `code` member names
       the conflict and `hint` suggests a fix. There is no `errors[]`.
     - **404 Not Found**: only the resource in the URL path does not exist.
+    - **408 Request Timeout**: an upload did not complete within the time
+      limit.
     - **413 Payload Too Large**: the body is above the limit (1 MB for JSON
       bodies, 100 MB for an uploaded audio file).
 
@@ -1291,6 +1293,7 @@ paths:
 
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
+        - 408: the upload did not complete within the time limit.
         - 413: the file is larger than 100 MB.
         - 422: the `audio` file is missing (`required`), has an unsupported
           extension (`unsupported`), or is silent or below -50 LUFS
@@ -1333,6 +1336,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '413':
@@ -2723,6 +2728,7 @@ paths:
 
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
+        - 408: the upload did not complete within the time limit.
         - 413: the file is larger than 100 MB.
         - 422: the `jingle` file is missing (`required`) or has an unsupported
           extension (`unsupported`).
@@ -2764,6 +2770,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '408':
+          $ref: '#/components/responses/RequestTimeout'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
@@ -4304,6 +4312,7 @@ components:
         - `https://babbel.api/problems/validation-error` - 422 rejected body, path or query values; has `errors[]`
         - `https://babbel.api/problems/resource-not-found` - 404 resource not found (generic)
         - `https://babbel.api/problems/bad-request` - 400 body is not valid JSON (or multipart form data) for the endpoint; has `errors[]`
+        - `https://babbel.api/problems/request-timeout` - 408 upload did not complete within the time limit
         - `https://babbel.api/problems/payload-too-large` - 413 request body exceeds the API limit
         - `https://babbel.api/problems/authentication-required` - 401 authentication required
         - `https://babbel.api/problems/insufficient-permissions` - 403 insufficient permissions
@@ -4901,6 +4910,12 @@ components:
                 instance: "/public/stations/1/bulletin.wav"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+    RequestTimeout:
+      description: Upload did not complete within the time limit
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
     PayloadTooLarge:
       description: Request body too large (above 1 MB for JSON, or an uploaded file above 100 MB)
       content:

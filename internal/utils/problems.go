@@ -55,6 +55,8 @@ const (
 	ProblemTypeInternalServerError = "https://babbel.api/problems/internal-server-error"
 	// ProblemTypeBadRequest identifies a malformed request.
 	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
+	// ProblemTypeRequestTimeout identifies a request body that did not arrive within the time limit.
+	ProblemTypeRequestTimeout = "https://babbel.api/problems/request-timeout"
 	// ProblemTypePayloadTooLarge identifies a request body that exceeds the API limit.
 	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
 	// ProblemTypeNotAcceptable identifies an Accept header that excludes the response media type.
