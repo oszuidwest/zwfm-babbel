@@ -100,6 +100,17 @@ func ProblemBadRequestValidationError(c *gin.Context, detail string, errors ...a
 	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 
+// ProblemRequestTimeout responds with HTTP 408 for uploads that exceed the read deadline.
+func ProblemRequestTimeout(c *gin.Context) {
+	ProblemCustom(
+		c,
+		ProblemTypeRequestTimeout,
+		"Request Timeout",
+		http.StatusRequestTimeout,
+		"Upload did not complete within the time limit",
+	)
+}
+
 // ProblemPayloadTooLarge responds with HTTP 413 for request bodies above their size cap.
 func ProblemPayloadTooLarge(c *gin.Context) {
 	ProblemCustom(

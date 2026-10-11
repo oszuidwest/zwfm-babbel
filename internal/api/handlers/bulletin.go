@@ -140,8 +140,11 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
+var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
+
 // serveAudioFile serves a download with range and conditional request support.
-// It handles the response and returns file access or delivery errors.
+// It handles the response and returns file access or delivery errors, including
+// errUnverifiedDelivery when the writer cannot report flush errors.
 func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -165,14 +168,18 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
 		raw = u.Unwrap()
 	}
-	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
-		return err
+	flushErr := http.NewResponseController(raw).Flush()
+	if flushErr != nil && !errors.Is(flushErr, http.ErrNotSupported) {
+		return flushErr
 	}
 	// Detect incomplete reads hidden by ServeContent.
 	if c.Request.Method != http.MethodHead {
 		if length, err := strconv.ParseInt(c.Writer.Header().Get("Content-Length"), 10, 64); err == nil && int64(c.Writer.Size()) != length {
 			return io.ErrUnexpectedEOF
 		}
+	}
+	if errors.Is(flushErr, http.ErrNotSupported) {
+		return errUnverifiedDelivery
 	}
 	return nil
 }
