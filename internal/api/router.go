@@ -104,7 +104,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
-	userSvc := services.NewUserService(userRepo, buildPasswordPolicy(cfg))
+	userSvc := services.NewUserService(userRepo, txManager, buildPasswordPolicy(cfg))
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		TxManager:        txManager,
 		StationVoiceRepo: stationVoiceRepo,
