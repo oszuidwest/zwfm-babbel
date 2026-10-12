@@ -34,6 +34,7 @@ type StoryServiceDeps struct {
 	PronunciationInjector *PronunciationInjector
 	Config                *config.Config
 	Alerts                notify.Alerter
+	TxManager             repository.TxManager
 }
 
 type storyRepository interface {
@@ -68,6 +69,7 @@ type StoryService struct {
 	pronunciationInjector *PronunciationInjector
 	config                *config.Config
 	alerts                notify.Alerter
+	txManager             repository.TxManager
 }
 
 // NewStoryService wires story business logic to its dependencies.
@@ -84,6 +86,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		pronunciationInjector: deps.PronunciationInjector,
 		config:                deps.Config,
 		alerts:                notify.OrDiscard(deps.Alerts),
+		txManager:             deps.TxManager,
 	}
 }
 
@@ -292,14 +295,26 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// Restore reactivates a soft-deleted story.
-func (s *StoryService) Restore(ctx context.Context, id int64) error {
-	err := s.storyRepo.Restore(ctx, id)
+// Restore reactivates a soft-deleted story and returns it. A non-empty update
+// applies in the same transaction, so no reader, such as bulletin selection,
+// sees the restored story with its old fields; when the update fails, the
+// story stays deleted.
+func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.storyRepo.Restore(txCtx, id); err != nil {
+			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
+		}
+		if update == nil || *update == (UpdateStoryRequest{}) {
+			return nil
+		}
+		_, err := s.Update(txCtx, id, update)
+		return err
+	})
 	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
+		return nil, err
 	}
 
-	return nil
+	return s.GetByID(ctx, id)
 }
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.

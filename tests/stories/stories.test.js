@@ -214,6 +214,48 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
+    describe('restore with fields', () => {
+      const today = new Date();
+      const day = (offset) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + offset);
+        return d.toISOString().slice(0, 10);
+      };
+
+      test('when restoring with story fields, then the story comes back with them', async () => {
+        const story = await createStoryWithDeps('RestoreFields', 'Comes back with a new window', 'RestoreFieldsVoice');
+        expect(story).not.toBeNull();
+        const path = `/stories/${story.id}`;
+        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+
+        const restore = await global.api.apiCall('PATCH', path, {
+          deleted_at: '', title: 'Restored with fields', status: 'active',
+          start_date: day(10), end_date: day(12), weekdays: 62
+        });
+
+        expect(restore.status).toBe(200);
+        expect(restore.data).toMatchObject({
+          deleted_at: null, title: 'Restored with fields', status: 'active',
+          start_date: day(10), end_date: day(12), weekdays: 62
+        });
+      });
+
+      test('when the fields of a restore are rejected, then the story stays deleted', async () => {
+        const story = await createStoryWithDeps('RestoreRejected', 'Stays deleted', 'RestoreRejectedVoice');
+        expect(story).not.toBeNull();
+        const path = `/stories/${story.id}`;
+        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+
+        // Both dates are valid on their own, but the end lies before the start.
+        const restore = await global.api.apiCall('PATCH', path, { deleted_at: '', start_date: day(12), end_date: day(10) });
+
+        expect(restore.status).toBe(422);
+        expect(restore.data.errors).toEqual([expect.objectContaining({ field: 'end_date', code: 'date_order' })]);
+        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${story.id}`);
+        expect(trashed.data.data[0].deleted_at).toEqual(expect.any(String));
+      });
+    });
+
     describe('trashed', () => {
       let deleted;
       let active;

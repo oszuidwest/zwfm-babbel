@@ -100,13 +100,24 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
+	updated, err := h.storySvc.Update(c.Request.Context(), id, storyUpdate(req))
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	utils.Success(c, updated)
+}
+
+// storyUpdate converts a validated update request to the service request.
+func storyUpdate(req utils.StoryUpdateRequest) *services.UpdateStoryRequest {
 	var weekdays *models.Weekdays
 	if req.Weekdays != nil {
 		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
 		weekdays = &w
 	}
 
-	svcReq := &services.UpdateStoryRequest{
+	return &services.UpdateStoryRequest{
 		Title:      req.Title,
 		Text:       req.Text,
 		VoiceID:    req.VoiceID,
@@ -117,14 +128,6 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		IsBreaking: req.IsBreaking,
 		Metadata:   req.Metadata,
 	}
-
-	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
-	if err != nil {
-		handleServiceError(c, err, "Story")
-		return
-	}
-
-	utils.Success(c, updated)
 }
 
 // DeleteStory soft deletes a story.
@@ -142,10 +145,12 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus changes workflow state or toggles soft deletion; a request
-// sets exactly one of status and deleted_at. An empty deleted_at string
-// restores the story; any non-empty deleted_at value is treated as a
-// soft-delete request for compatibility with the legacy API.
+// UpdateStoryStatus changes workflow state or toggles soft deletion. Without
+// deleted_at, a request sets only status. An empty deleted_at string restores
+// the story and may carry any field PUT accepts: those apply in the same
+// transaction, so the story never comes back with its old fields. Any other
+// deleted_at value is treated as a soft-delete request for compatibility with
+// the legacy API and takes no other field.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -153,37 +158,42 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
+		utils.StoryUpdateRequest
 		DeletedAt *string `json:"deleted_at"`
 	}
 	if !utils.BindJSON(c, &req) {
 		return
 	}
 
+	fields := req.StoryUpdateRequest
+	hasFields := fields != utils.StoryUpdateRequest{}
 	switch {
-	case req.Status == nil && req.DeletedAt == nil:
+	case req.DeletedAt == nil && !hasFields:
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeEmptyUpdate,
 			Message: "Provide status or deleted_at",
 		})
 		return
-	case req.Status != nil && req.DeletedAt != nil:
+	case req.DeletedAt == nil && fields != (utils.StoryUpdateRequest{Status: fields.Status}):
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeUnsupported,
-			Message: "status and deleted_at cannot be combined",
+			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
+		})
+		return
+	case req.DeletedAt != nil && *req.DeletedAt != "" && hasFields:
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "A soft delete cannot be combined with other fields",
 		})
 		return
 	}
 
 	if req.DeletedAt != nil {
 		if *req.DeletedAt == "" {
-			if err := h.storySvc.Restore(c.Request.Context(), id); err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			restored, err := h.storySvc.GetByID(c.Request.Context(), id)
+			restored, err := h.storySvc.Restore(c.Request.Context(), id, storyUpdate(fields))
 			if err != nil {
 				handleServiceError(c, err, "Story")
 				return
@@ -199,7 +209,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
+	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return

@@ -47,8 +47,13 @@ describe('Validation Error Contract', () => {
     expect(response.data.errors).toEqual([expect.objectContaining({ field, code })]);
   };
 
-  test('when PATCH story combines status and deleted_at, then 422 names request', async () => {
-    const response = await global.api.apiCall('PATCH', storyPath, { status: 'draft', deleted_at: '' });
+  test.each([
+    ['a soft delete with status', { status: 'draft', deleted_at: '2026-09-26T12:00:00Z' }],
+    ['a soft delete with a story field', { title: 'Changed', deleted_at: '2026-09-26T12:00:00Z' }],
+    ['a story field other than status without a restore', { title: 'Changed' }],
+    ['status with another story field without a restore', { status: 'draft', weekdays: 0 }]
+  ])('when PATCH story sends %s, then 422 names request', async (name, body) => {
+    const response = await global.api.apiCall('PATCH', storyPath, body);
     expectFieldError(response, 422, 'request', 'unsupported');
   });
 
