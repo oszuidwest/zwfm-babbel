@@ -38,6 +38,7 @@ type StoryServiceDeps struct {
 
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
+	GetIDByIdempotencyKey(context.Context, string) (int64, error)
 	GetByID(context.Context, int64) (*models.Story, error)
 	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
@@ -99,6 +100,8 @@ type CreateStoryRequest struct {
 	Weekdays   models.Weekdays
 	IsBreaking bool
 	Metadata   *datatypes.JSONMap
+	// IdempotencyKey makes a repeated create return the story the first one made.
+	IdempotencyKey *string
 }
 
 // UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
@@ -116,46 +119,65 @@ type UpdateStoryRequest struct {
 }
 
 // Create validates local-date bounds and optional voice ownership before
-// persisting a story.
-func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
+// persisting a story, and returns its ID. A request with an idempotency key
+// that an earlier create already used returns that story's ID instead, even
+// when the story was deleted since, so a client can safely repeat a create
+// whose answer it lost.
+func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int64, error) {
+	if req.IdempotencyKey != nil {
+		if id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey); !errors.Is(err, repository.ErrNotFound) {
+			if err != nil {
+				return 0, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+			}
+			return id, nil
+		}
+	}
+
 	startDate, err := parseStoryDate("start_date", req.StartDate)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	endDate, err := parseStoryDate("end_date", req.EndDate)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if err := checkDateRange(startDate, endDate, "end_date"); err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if req.VoiceID != nil {
 		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *req.VoiceID); err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
 
 	data := &repository.StoryCreateData{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  startDate,
-		EndDate:    endDate,
-		Weekdays:   req.Weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		Title:          req.Title,
+		Text:           req.Text,
+		VoiceID:        req.VoiceID,
+		Status:         req.Status,
+		StartDate:      startDate,
+		EndDate:        endDate,
+		Weekdays:       req.Weekdays,
+		IsBreaking:     req.IsBreaking,
+		Metadata:       req.Metadata,
+		IdempotencyKey: req.IdempotencyKey,
 	}
 
 	story, err := s.storyRepo.Create(ctx, data)
+	if errors.Is(err, repository.ErrDuplicateKey) && req.IdempotencyKey != nil {
+		// A concurrent create with the same key won; its story is the answer.
+		if id, lookupErr := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey); lookupErr == nil {
+			return id, nil
+		}
+	}
 	if err != nil {
-		return nil, apperrors.TranslateRepoError("Story", apperrors.OpCreate, err)
+		return 0, apperrors.TranslateRepoError("Story", apperrors.OpCreate, err)
 	}
 
-	return story, nil
+	return story.ID, nil
 }
 
 // Update applies a partial story update and validates the effective date range,

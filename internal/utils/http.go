@@ -225,6 +225,8 @@ type StoryCreateRequest struct {
 	// IsBreaking prioritizes the story for bulletin inclusion.
 	IsBreaking bool               `json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
+	// IdempotencyKey makes a repeated create with the same key return the story the first one made.
+	IdempotencyKey *string `json:"idempotency_key" binding:"omitempty,notblank,max=100"`
 }
 
 // NormalizeText decodes HTML entities in text fields to plain Unicode.

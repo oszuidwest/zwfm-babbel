@@ -72,15 +72,18 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		Weekdays:   weekdays,
 		IsBreaking: req.IsBreaking,
 		Metadata:   req.Metadata,
+
+		IdempotencyKey: req.IdempotencyKey,
 	}
 
-	story, err := h.storySvc.Create(c.Request.Context(), svcReq)
+	// A repeated create with the same idempotency key gets the same answer as the first.
+	id, err := h.storySvc.Create(c.Request.Context(), svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
-	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
+	utils.CreatedWithLocation(c, id, "/api/v1/stories", "Story created successfully")
 }
 
 // UpdateStory applies a JSON partial update to an existing story.

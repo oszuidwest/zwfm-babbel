@@ -1191,6 +1191,12 @@ paths:
         Create a new story with JSON body. Audio file must be uploaded separately via POST /stories/{id}/audio.
         A `voice_id` that does not exist fails with 422 (`voice_id`, `not_found`).
         An `end_date` before `start_date` fails with 422 (`end_date`, `date_order`).
+
+        With `idempotency_key`, a client can safely repeat a create whose answer
+        it lost: a create with a key an earlier create already used answers 201
+        with that story's ID, without validating or storing the new body, also
+        when that story was deleted since. Concurrent creates with the same key
+        make one story.
       tags:
         - Stories
       requestBody:
@@ -3894,6 +3900,15 @@ components:
             priority: "high"
             category: "breaking"
             source: "AP"
+        idempotency_key:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '\S'
+          description: |
+            Optional client key for this create. Repeating a create with the
+            same key returns the story the first one made instead of a new one.
+          example: "6f0c1a52-3f0e-4c38-9b3e-2f1f1d3b2a41"
 
     StoryUpdate:
       type: object

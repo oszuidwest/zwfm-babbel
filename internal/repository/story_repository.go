@@ -35,6 +35,8 @@ type StoryCreateData struct {
 	Weekdays   models.Weekdays
 	IsBreaking bool
 	Metadata   *datatypes.JSONMap
+	// IdempotencyKey, when set, must not belong to another story.
+	IdempotencyKey *string
 }
 
 // StoryRepository provides story data access using GORM.
@@ -61,6 +63,8 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Weekdays:   data.Weekdays,
 		IsBreaking: data.IsBreaking,
 		Metadata:   data.Metadata,
+
+		IdempotencyKey: data.IdempotencyKey,
 	}
 
 	db := DBFromContext(ctx, r.db)
@@ -75,6 +79,17 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	}
 
 	return story, nil
+}
+
+// GetIDByIdempotencyKey returns the ID of the story created with key, deleted
+// stories included, or ErrNotFound.
+func (r *StoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
+	var story models.Story
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Unscoped().Select("id").Where("idempotency_key = ?", key).First(&story).Error; err != nil {
+		return 0, ParseDBError(err)
+	}
+	return story.ID, nil
 }
 
 // GetByID loads a story with its associated voice.
