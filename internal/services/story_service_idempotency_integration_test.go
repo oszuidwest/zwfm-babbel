@@ -4,12 +4,14 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
@@ -77,30 +79,38 @@ func TestStoryService_CreateComparesIdempotencyKeysExactly(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	service := newIdempotencyTestService(db)
 	key := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
-	other := strings.ToUpper(key)
-	t.Cleanup(func() { db.Unscoped().Where("idempotency_key IN ?", []string{key, other}).Delete(&models.Story{}) })
+	others := []string{strings.ToUpper(key), key + " "}
+	t.Cleanup(func() {
+		db.Unscoped().Where("idempotency_key IN ?", append([]string{key}, others...)).Delete(&models.Story{})
+	})
 
-	first, err := service.Create(t.Context(), idempotentCreate("Lower", key))
+	first, err := service.Create(t.Context(), idempotentCreate("Original", key))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.Create(t.Context(), idempotentCreate("Upper", other))
-	if err != nil || second == first {
-		t.Fatalf("Create() with a key differing in case = %d, %v; want a new story", second, err)
+	for _, other := range others {
+		id, err := service.Create(t.Context(), idempotentCreate("Other", other))
+		if err != nil || id == first {
+			t.Fatalf("Create() with key %q = %d, %v; want a new story", other, id, err)
+		}
 	}
 }
 
 // raceStoryRepository hides the first lookup of a key, as when a concurrent create commits right
-// after it.
+// after it, and can fail the lookup after that.
 type raceStoryRepository struct {
 	*repository.StoryRepository
-	lookups int
+	lookups   int
+	secondErr error
 }
 
 func (r *raceStoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
 	r.lookups++
 	if r.lookups == 1 {
 		return 0, repository.ErrNotFound
+	}
+	if r.secondErr != nil {
+		return 0, r.secondErr
 	}
 	return r.StoryRepository.GetIDByIdempotencyKey(ctx, key)
 }
@@ -121,6 +131,15 @@ func TestStoryService_CreateRecoversFromAConcurrentCreateWithTheSameKey(t *testi
 		t.Fatalf("Create() = %d, %v after %d lookups; want %d after the duplicate key", id, err, repo.lookups, winner)
 	}
 	assertOneStoryWithKey(t, db, key)
+
+	// A failed lookup after the duplicate key is reported as such, not as a conflict.
+	databaseDown := errors.New("database down")
+	failing := &raceStoryRepository{StoryRepository: repository.NewStoryRepository(db), secondErr: databaseDown}
+	service = &StoryService{storyRepo: failing, voiceRepo: repository.NewVoiceRepository(db)}
+	_, err = service.Create(t.Context(), idempotentCreate("Loser", key))
+	if _, database := errors.AsType[*apperrors.DatabaseError](err); !database || !errors.Is(err, databaseDown) {
+		t.Fatalf("Create() with a failing lookup error = %v, want the lookup's database error", err)
+	}
 }
 
 func newIdempotencyTestService(db *gorm.DB) *StoryService {

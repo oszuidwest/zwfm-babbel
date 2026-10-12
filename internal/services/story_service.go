@@ -169,8 +169,12 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int
 	story, err := s.storyRepo.Create(ctx, data)
 	if errors.Is(err, repository.ErrDuplicateKey) && req.IdempotencyKey != nil {
 		// A concurrent create with the same key won; its story is the answer.
-		if id, lookupErr := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey); lookupErr == nil {
+		id, lookupErr := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey)
+		if lookupErr == nil {
 			return id, nil
+		}
+		if !errors.Is(lookupErr, repository.ErrNotFound) {
+			return 0, apperrors.TranslateRepoError("Story", apperrors.OpQuery, lookupErr)
 		}
 	}
 	if err != nil {

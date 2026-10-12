@@ -3903,7 +3903,7 @@ components:
             category: "breaking"
             source: "AP"
         idempotency_key:
-          type: string
+          type: [string, 'null']
           minLength: 1
           maxLength: 100
           pattern: '\S'
