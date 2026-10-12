@@ -31,7 +31,7 @@ func TestStoryService_CreateWithIdempotencyKeyReturnsTheFirstStory(t *testing.T)
 	if err != nil || again != first {
 		t.Fatalf("repeated Create() = %d, %v; want %d", again, err, first)
 	}
-	assertStoriesWithKey(t, db, key, 1)
+	assertOneStoryWithKey(t, db, key)
 	var stored models.Story
 	if err := db.First(&stored, first).Error; err != nil || stored.Title != "First" {
 		t.Fatalf("stored story = %q, %v; want the first body", stored.Title, err)
@@ -45,7 +45,7 @@ func TestStoryService_CreateWithIdempotencyKeyReturnsTheFirstStory(t *testing.T)
 	if err != nil || afterDelete != first {
 		t.Fatalf("Create() after deletion = %d, %v; want %d", afterDelete, err, first)
 	}
-	assertStoriesWithKey(t, db, key, 1)
+	assertOneStoryWithKey(t, db, key)
 }
 
 func TestStoryService_ConcurrentCreatesWithOneKeyMakeOneStory(t *testing.T) {
@@ -70,7 +70,7 @@ func TestStoryService_ConcurrentCreatesWithOneKeyMakeOneStory(t *testing.T) {
 			t.Fatalf("create %d = %d, %v; want %d", i, ids[i], errs[i], ids[0])
 		}
 	}
-	assertStoriesWithKey(t, db, key, 1)
+	assertOneStoryWithKey(t, db, key)
 }
 
 func TestStoryService_CreateComparesIdempotencyKeysExactly(t *testing.T) {
@@ -120,7 +120,7 @@ func TestStoryService_CreateRecoversFromAConcurrentCreateWithTheSameKey(t *testi
 	if err != nil || id != winner || repo.lookups != 2 {
 		t.Fatalf("Create() = %d, %v after %d lookups; want %d after the duplicate key", id, err, repo.lookups, winner)
 	}
-	assertStoriesWithKey(t, db, key, 1)
+	assertOneStoryWithKey(t, db, key)
 }
 
 func newIdempotencyTestService(db *gorm.DB) *StoryService {
@@ -138,13 +138,13 @@ func idempotentCreate(title, key string) *CreateStoryRequest {
 	}
 }
 
-func assertStoriesWithKey(t *testing.T, db *gorm.DB, key string, want int64) {
+func assertOneStoryWithKey(t *testing.T, db *gorm.DB, key string) {
 	t.Helper()
 	var count int64
 	if err := db.Unscoped().Model(&models.Story{}).Where("idempotency_key = ?", key).Count(&count).Error; err != nil {
 		t.Fatal(err)
 	}
-	if count != want {
-		t.Fatalf("%d stories with key %q, want %d", count, key, want)
+	if count != 1 {
+		t.Fatalf("%d stories with key %q, want 1", count, key)
 	}
 }
