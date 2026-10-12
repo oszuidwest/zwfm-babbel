@@ -120,9 +120,9 @@ type UpdateStoryRequest struct {
 
 // Create validates local-date bounds and optional voice ownership before
 // persisting a story, and returns its ID. A request with an idempotency key
-// that an earlier create already used returns that story's ID instead, even
-// when the story was deleted since, so a client can safely repeat a create
-// whose answer it lost.
+// that an earlier create already used returns that story's ID instead, without
+// these checks and even when the story was deleted since, so a client can
+// safely repeat a create whose answer it lost.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int64, error) {
 	if req.IdempotencyKey != nil {
 		if id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey); !errors.Is(err, repository.ErrNotFound) {

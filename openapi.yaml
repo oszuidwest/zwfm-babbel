@@ -1194,9 +1194,11 @@ paths:
 
         With `idempotency_key`, a client can safely repeat a create whose answer
         it lost: a create with a key an earlier create already used answers 201
-        with that story's ID, without validating or storing the new body, also
-        when that story was deleted since. Concurrent creates with the same key
-        make one story.
+        with that story's ID, also when that story was deleted since. The body
+        must still be a valid create request, but it is not stored, and the
+        checks on `voice_id` and the date order are skipped. Keys are compared
+        exactly, including case. Concurrent creates with the same key make one
+        story.
       tags:
         - Stories
       requestBody:
@@ -3906,8 +3908,9 @@ components:
           maxLength: 100
           pattern: '\S'
           description: |
-            Optional client key for this create. Repeating a create with the
-            same key returns the story the first one made instead of a new one.
+            Optional client key for this create, compared exactly. Repeating a
+            create with the same key returns the story the first one made
+            instead of a new one. Null is treated as omitted.
           example: "6f0c1a52-3f0e-4c38-9b3e-2f1f1d3b2a41"
 
     StoryUpdate:

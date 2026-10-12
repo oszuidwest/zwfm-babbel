@@ -3,7 +3,9 @@
 package services
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -67,6 +69,56 @@ func TestStoryService_ConcurrentCreatesWithOneKeyMakeOneStory(t *testing.T) {
 		if errs[i] != nil || ids[i] != ids[0] {
 			t.Fatalf("create %d = %d, %v; want %d", i, ids[i], errs[i], ids[0])
 		}
+	}
+	assertStoriesWithKey(t, db, key, 1)
+}
+
+func TestStoryService_CreateComparesIdempotencyKeysExactly(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newIdempotencyTestService(db)
+	key := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
+	other := strings.ToUpper(key)
+	t.Cleanup(func() { db.Unscoped().Where("idempotency_key IN ?", []string{key, other}).Delete(&models.Story{}) })
+
+	first, err := service.Create(t.Context(), idempotentCreate("Lower", key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.Create(t.Context(), idempotentCreate("Upper", other))
+	if err != nil || second == first {
+		t.Fatalf("Create() with a key differing in case = %d, %v; want a new story", second, err)
+	}
+}
+
+// raceStoryRepository hides the first lookup of a key, as when a concurrent create commits right
+// after it.
+type raceStoryRepository struct {
+	*repository.StoryRepository
+	lookups int
+}
+
+func (r *raceStoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
+	r.lookups++
+	if r.lookups == 1 {
+		return 0, repository.ErrNotFound
+	}
+	return r.StoryRepository.GetIDByIdempotencyKey(ctx, key)
+}
+
+func TestStoryService_CreateRecoversFromAConcurrentCreateWithTheSameKey(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	key := fmt.Sprintf("%s-%d", t.Name(), time.Now().UnixNano())
+	t.Cleanup(func() { db.Unscoped().Where("idempotency_key = ?", key).Delete(&models.Story{}) })
+	winner, err := newIdempotencyTestService(db).Create(t.Context(), idempotentCreate("Winner", key))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repo := &raceStoryRepository{StoryRepository: repository.NewStoryRepository(db)}
+	service := &StoryService{storyRepo: repo, voiceRepo: repository.NewVoiceRepository(db)}
+	id, err := service.Create(t.Context(), idempotentCreate("Loser", key))
+	if err != nil || id != winner || repo.lookups != 2 {
+		t.Fatalf("Create() = %d, %v after %d lookups; want %d after the duplicate key", id, err, repo.lookups, winner)
 	}
 	assertStoriesWithKey(t, db, key, 1)
 }
