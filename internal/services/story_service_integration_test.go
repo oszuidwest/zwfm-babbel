@@ -5,6 +5,7 @@ package services
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -32,7 +33,8 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	station, story := createSelectableDeletedStory(t, db)
 	today := time.Now()
-	start := today.AddDate(0, 0, 10).Format(time.DateOnly)
+	later := today.AddDate(0, 0, 10)
+	start := later.Format(time.DateOnly)
 	weekdays := models.WeekdaysAll
 
 	// Bulletin selection runs outside the restore's transaction, on another connection.
@@ -63,7 +65,7 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	if restored.DeletedAt.Valid || time.Time(restored.StartDate).Format(time.DateOnly) != start {
 		t.Fatalf("Restore() = deleted %v, start %v; want live from %s", restored.DeletedAt.Valid, restored.StartDate, start)
 	}
-	for _, day := range []time.Time{today, today.AddDate(0, 0, 10)} {
+	for _, day := range []time.Time{today, later} {
 		selected, err := reader.GetStoriesForBulletin(t.Context(), station.ID, day, 5)
 		if err != nil {
 			t.Fatal(err)
@@ -147,10 +149,5 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 }
 
 func containsStory(stories []repository.BulletinStoryData, id int64) bool {
-	for _, s := range stories {
-		if s.ID == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(stories, func(s repository.BulletinStoryData) bool { return s.ID == id })
 }
