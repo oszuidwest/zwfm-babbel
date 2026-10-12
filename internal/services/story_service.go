@@ -125,11 +125,8 @@ type UpdateStoryRequest struct {
 // safely repeat a create whose answer it lost.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int64, error) {
 	if req.IdempotencyKey != nil {
-		if id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey); !errors.Is(err, repository.ErrNotFound) {
-			if err != nil {
-				return 0, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
-			}
-			return id, nil
+		if id, found, err := s.storyIDForKey(ctx, *req.IdempotencyKey); found || err != nil {
+			return id, err
 		}
 	}
 
@@ -169,12 +166,8 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int
 	story, err := s.storyRepo.Create(ctx, data)
 	if errors.Is(err, repository.ErrDuplicateKey) && req.IdempotencyKey != nil {
 		// A concurrent create with the same key won; its story is the answer.
-		id, lookupErr := s.storyRepo.GetIDByIdempotencyKey(ctx, *req.IdempotencyKey)
-		if lookupErr == nil {
-			return id, nil
-		}
-		if !errors.Is(lookupErr, repository.ErrNotFound) {
-			return 0, apperrors.TranslateRepoError("Story", apperrors.OpQuery, lookupErr)
+		if id, found, lookupErr := s.storyIDForKey(ctx, *req.IdempotencyKey); found || lookupErr != nil {
+			return id, lookupErr
 		}
 	}
 	if err != nil {
@@ -182,6 +175,19 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int
 	}
 
 	return story.ID, nil
+}
+
+// storyIDForKey returns the ID of the story an earlier create made with
+// idempotency key, and whether there is one.
+func (s *StoryService) storyIDForKey(ctx context.Context, key string) (int64, bool, error) {
+	id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, key)
+	if errors.Is(err, repository.ErrNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+	}
+	return id, true, nil
 }
 
 // Update applies a partial story update and validates the effective date range,

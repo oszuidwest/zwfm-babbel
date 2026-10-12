@@ -76,7 +76,6 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		IdempotencyKey: req.IdempotencyKey,
 	}
 
-	// A repeated create with the same idempotency key gets the same answer as the first.
 	id, err := h.storySvc.Create(c.Request.Context(), svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
