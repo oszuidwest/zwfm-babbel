@@ -191,8 +191,10 @@ describe('Stories', () => {
     test('when creating without idempotency_key, then every create makes a story', async () => {
       const body = storiesSchema.createValidData('NonIdempotentCreate');
       const first = await global.api.apiCall('POST', '/stories', body);
-      const second = await global.api.apiCall('POST', '/stories', body);
+      expect(first.status).toBe(201);
       global.resources.track('stories', first.data.id);
+      const second = await global.api.apiCall('POST', '/stories', body);
+      expect(second.status).toBe(201);
       global.resources.track('stories', second.data.id);
       expect(second.data.id).not.toBe(first.data.id);
     });

@@ -1198,7 +1198,8 @@ paths:
         must still be a valid create request, but it is not stored, and the
         checks on `voice_id` and the date order are skipped. Keys are compared
         exactly, including case. Concurrent creates with the same key make one
-        story.
+        story. A blank key, or one longer than 100 characters, fails with 422
+        (`idempotency_key`).
       tags:
         - Stories
       requestBody:
