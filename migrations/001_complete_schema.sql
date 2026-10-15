@@ -201,7 +201,6 @@ CREATE TABLE pronunciation_rules (
 CREATE TABLE audit_events (
     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
     occurred_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    actor_type  VARCHAR(20)  NOT NULL,
     user_id     BIGINT       NULL,
     entity_type VARCHAR(50)  NOT NULL,
     entity_id   BIGINT       NOT NULL,

@@ -1107,7 +1107,7 @@ paths:
         null. The `user_id` remains visible.
 
         The default order is `-occurred_at,-id`. Filter and sort fields are `id`,
-        `occurred_at`, `actor_type`, `user_id`, `entity_type`, `entity_id`, and `action`.
+        `occurred_at`, `user_id`, `entity_type`, `entity_id`, and `action`.
         For example: `?filter[entity_type]=story&filter[entity_id]=1991&filter[action]=delete`.
         Date ranges use `filter[occurred_at][gte]` and `filter[occurred_at][lte]`.
         `filter[user_id][null]=true` selects system events.
@@ -3148,7 +3148,6 @@ components:
         properties:
           id: { $ref: '#/components/schemas/IntegerFilter' }
           occurred_at: { $ref: '#/components/schemas/DateTimeFilter' }
-          actor_type: { $ref: '#/components/schemas/AuditActorTypeFilter' }
           user_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
           entity_type: { $ref: '#/components/schemas/AuditEntityTypeFilter' }
           entity_id: { $ref: '#/components/schemas/IntegerFilter' }
@@ -3238,7 +3237,7 @@ components:
   schemas:
     AuditEvent:
       type: object
-      required: [id, occurred_at, actor_type, user_id, username, full_name, entity_type, entity_id, action, changes]
+      required: [id, occurred_at, user_id, username, full_name, entity_type, entity_id, action, changes]
       properties:
         id:
           type: integer
@@ -3246,12 +3245,10 @@ components:
         occurred_at:
           type: string
           format: date-time
-        actor_type:
-          type: string
-          enum: [user, system]
         user_id:
           type: [integer, 'null']
           format: int64
+          description: Acting user; null for system jobs such as story expiration.
         username:
           type: [string, 'null']
           description: Current username, including soft-deleted users; null without users:read or for system or missing users.
@@ -3526,17 +3523,6 @@ components:
             ne: { type: string, enum: [admin, editor, viewer] }
             not: { type: string, enum: [admin, editor, viewer], description: Alias for `ne`. }
             in: { type: string, description: Comma-separated role values. }
-    AuditActorTypeFilter:
-      oneOf:
-        - type: string
-          enum: [user, system]
-        - type: object
-          additionalProperties: false
-          properties:
-            eq: { type: string, enum: [user, system] }
-            ne: { type: string, enum: [user, system] }
-            not: { type: string, enum: [user, system], description: Alias for `ne`. }
-            in: { type: string, description: Comma-separated actor type values. }
     AuditEntityTypeFilter:
       oneOf:
         - type: string

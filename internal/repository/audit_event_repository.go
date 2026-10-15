@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -54,26 +55,25 @@ func auditChanges(before, after map[string]any) (datatypes.JSON, error) {
 	return json.Marshal(changes)
 }
 
-// insertAuditEvents stores events in one INSERT inside the caller's transaction.
+// auditInsertBatchSize keeps each INSERT far below MySQL's 65,535 placeholders,
+// so a large expiration backlog can still be recorded.
+const auditInsertBatchSize = 1000
+
+// insertAuditEvents stores events inside the caller's transaction.
 func insertAuditEvents(ctx context.Context, events []models.AuditEvent) error {
 	db := TxFromContext(ctx)
 	if db == nil {
 		return errNoAuditTransaction
 	}
-	for i := range events {
-		events[i].ActorType = models.AuditActorSystem
-		if events[i].UserID != nil {
-			events[i].ActorType = models.AuditActorUser
-		}
-	}
-	return auditDBError(db.WithContext(ctx).Create(&events).Error)
+	return auditDBError(db.WithContext(ctx).CreateInBatches(&events, auditInsertBatchSize).Error)
 }
 
 // auditDBError reports a missing audit_events table with its own sentinel so
 // callers do not blame (and suggest recreating) the table they were writing.
+// It matches the driver code, not the message: list errors can echo
+// user-supplied filter and sort names.
 func auditDBError(err error) error {
-	err = ParseDBError(err)
-	if errors.Is(err, ErrSchemaUnavailable) {
+	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok && mysqlErr.Number == 1146 { // ER_NO_SUCH_TABLE
 		return ErrAuditSchemaUnavailable
 	}
 	return err
@@ -92,7 +92,6 @@ func NewAuditEventRepository(db *gorm.DB) *AuditEventRepository {
 var auditEventFieldMapping = FieldMapping{
 	"id":          {Column: "audit_events.id", Type: filterInteger},
 	"occurred_at": {Column: "audit_events.occurred_at", Type: filterDateTime},
-	"actor_type":  {Column: "audit_events.actor_type", Type: filterEnum, Enum: []string{string(models.AuditActorUser), string(models.AuditActorSystem)}},
 	"user_id":     {Column: "audit_events.user_id", Type: filterInteger, Nullable: true},
 	"entity_type": {Column: "audit_events.entity_type", Type: filterEnum, Enum: []string{string(models.AuditEntityStory), string(models.AuditEntityTTSSettings), string(models.AuditEntityPronunciationRules)}},
 	"entity_id":   {Column: "audit_events.entity_id", Type: filterInteger},

@@ -59,7 +59,7 @@ describe('Audit events', () => {
     expect(history.data.map(event => event.id)).toEqual(history.data.map(event => event.id).sort((a, b) => b - a));
     for (const event of history.data) {
       expect(event).toEqual(expect.objectContaining({
-        actor_type: 'user', user_id: admin.id, username: admin.username, full_name: admin.full_name
+        user_id: admin.id, username: admin.username, full_name: admin.full_name
       }));
       expect(event.occurred_at).toEqual(expect.any(String));
     }

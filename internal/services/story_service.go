@@ -333,6 +333,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	}
 
 	var renameErr error
+	published := false
 	err = s.storyRepo.UpdateAudio(ctx, storyID, repository.StoryAudioUpdate{
 		ActorUserID:     actorUserID,
 		Action:          action,
@@ -340,6 +341,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		DurationSeconds: duration,
 		Publish: func() error {
 			renameErr = os.Rename(convertedPath, finalPath)
+			published = renameErr == nil
 			return renameErr
 		},
 	})
@@ -347,6 +349,10 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "finalize", renameErr)
 	}
 	if err != nil {
+		if published {
+			// The handler logs and alerts on the cause; name the live file there.
+			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
+		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
 

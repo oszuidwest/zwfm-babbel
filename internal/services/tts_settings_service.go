@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -192,60 +193,31 @@ func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.T
 }
 
 func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) map[string]any {
-	changed := changedTTSSettingsFields(req, before, after)
+	oldValues, newValues := ttsSettingsAuditValues(before), ttsSettingsAuditValues(after)
+	fields := map[string]any{}
+	changed := []string{}
+	// Scalar values compare with ==; floats come from the same DECIMAL(3,2)
+	// column on both sides, with no arithmetic between reads.
+	for _, field := range slices.Sorted(maps.Keys(newValues)) {
+		if oldValues[field] != newValues[field] {
+			changed = append(changed, field)
+			fields["old_"+field] = oldValues[field]
+			fields["new_"+field] = newValues[field]
+		}
+	}
 	if len(changed) == 0 {
 		return nil
 	}
-
-	fields := map[string]any{
-		"changed_fields": changed,
-	}
+	fields["changed_fields"] = changed
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
-	}
-	oldValues, newValues := ttsSettingsAuditValues(before), ttsSettingsAuditValues(after)
-	for _, field := range changed {
-		fields["old_"+field] = oldValues[field]
-		fields["new_"+field] = newValues[field]
 	}
 	return fields
 }
 
-func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) []string {
-	changed := []string{}
-	appendIfChanged := func(set bool, field string, equal bool) {
-		if set && !equal {
-			changed = append(changed, field)
-		}
-	}
-
-	// Float equality is intentional: both sides are read from the same DECIMAL(3,2)
-	// database columns around the update, with no arithmetic between reads.
-	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
-	appendIfChanged(
-		req.ApplyTextNormalization != nil,
-		"apply_text_normalization",
-		before.ApplyTextNormalization == after.ApplyTextNormalization,
-	)
-	appendIfChanged(req.Seed != nil || req.ClearSeed, "seed", seedEqual(before.Seed, after.Seed))
-	appendIfChanged(req.TTSStylePrefix != nil, "tts_style_prefix", before.TTSStylePrefix == after.TTSStylePrefix)
-
-	return changed
-}
-
-func seedEqual(a, b *uint32) bool {
-	switch {
-	case a == nil && b == nil:
-		return true
-	case a == nil || b == nil:
-		return false
-	default:
-		return *a == *b
-	}
-}
-
 // ttsSettingsAuditValues returns every audited setting by API field name;
-// RecordAudit and the update log keep only the ones that changed.
+// RecordAudit and the update log keep only the ones that changed. Seed is
+// unwrapped so the log compares and prints its value, not a pointer.
 func ttsSettingsAuditValues(settings *models.TTSSettings) map[string]any {
 	var seed any
 	if settings.Seed != nil {

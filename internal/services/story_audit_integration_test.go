@@ -111,8 +111,8 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.AudioFile != published.AudioFile {
-		t.Fatal("failed publication changed audio_file")
+	if *after.DurationSeconds != *published.DurationSeconds {
+		t.Fatalf("failed publication changed duration_seconds to %v", *after.DurationSeconds)
 	}
 	files, err := os.ReadDir(dir)
 	if err != nil {

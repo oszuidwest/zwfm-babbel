@@ -30,20 +30,10 @@ const (
 	AuditActionExpire  AuditAction = "expire"
 )
 
-// AuditActorType distinguishes changes made by a user from system jobs.
-type AuditActorType string
-
-// Audit actor types.
-const (
-	AuditActorUser   AuditActorType = "user"
-	AuditActorSystem AuditActorType = "system"
-)
-
 // AuditEvent records a committed change and its actor.
 type AuditEvent struct {
 	ID         int64           `gorm:"primaryKey;autoIncrement" json:"id"`
 	OccurredAt time.Time       `gorm:"default:CURRENT_TIMESTAMP(3)" json:"occurred_at"`
-	ActorType  AuditActorType  `json:"actor_type"`
 	UserID     *int64          `json:"user_id"`
 	EntityType AuditEntityType `json:"entity_type"`
 	EntityID   int64           `json:"entity_id"`

@@ -95,7 +95,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 		t.Fatalf("repeated TTS changes = %s", regenerated.Changes)
 	}
 	for _, event := range storyAuditEvents(t, db, story.ID) {
-		if event.ActorType != "user" || event.UserID == nil || *event.UserID != actor || event.OccurredAt.IsZero() {
+		if event.UserID == nil || *event.UserID != actor || event.OccurredAt.IsZero() {
 			t.Fatalf("actor/time = %+v", event)
 		}
 	}
@@ -413,7 +413,7 @@ func TestStoryAuditExpiration(t *testing.T) {
 	}
 	for _, id := range expiredIDs {
 		events := storyAuditEvents(t, db, id)
-		if len(events) != 1 || events[0].Action != "expire" || events[0].ActorType != "system" || events[0].UserID != nil {
+		if len(events) != 1 || events[0].Action != "expire" || events[0].UserID != nil {
 			t.Fatalf("expiration events = %+v", events)
 		}
 		assertAuditChange(t, events[0], "status", "active", "expired")
@@ -506,16 +506,19 @@ func TestAuditActorNamesRequirePermission(t *testing.T) {
 	if err := db.Delete(&user).Error; err != nil {
 		t.Fatal(err)
 	}
-	event := models.AuditEvent{
-		ActorType: "user", UserID: &user.ID, EntityType: "story", EntityID: 1, Action: "update",
-		Changes: datatypes.JSON(`{"title":{"old":"before","new":"after"}}`),
+	// The system event guards the LEFT JOIN: an inner join would drop it.
+	events := []models.AuditEvent{
+		{UserID: &user.ID, EntityType: "story", EntityID: 1, Action: "update", Changes: datatypes.JSON(`{"title":{"old":"before","new":"after"}}`)},
+		{EntityType: "story", EntityID: 1, Action: "expire", Changes: datatypes.JSON(`{"status":{"old":"active","new":"expired"}}`)},
 	}
-	if err := db.Create(&event).Error; err != nil {
+	if err := db.Create(&events).Error; err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Delete(&models.AuditEvent{}, event.ID) })
-	query := &ListQuery{Limit: 20}
-	query.Filters = []FilterCondition{{Field: "id", Operator: FilterEquals, Values: []string{strconv.FormatInt(event.ID, 10)}}}
+	t.Cleanup(func() { db.Delete(&models.AuditEvent{}, []int64{events[0].ID, events[1].ID}) })
+	query := &ListQuery{Limit: 20, Sort: []SortField{{Field: "id", Direction: SortAsc}}}
+	query.Filters = []FilterCondition{{Field: "id", Operator: FilterIn, Values: []string{
+		strconv.FormatInt(events[0].ID, 10), strconv.FormatInt(events[1].ID, 10),
+	}}}
 	for _, tt := range []struct {
 		name         string
 		includeNames bool
@@ -528,12 +531,15 @@ func TestAuditActorNamesRequirePermission(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Data) != 1 {
-				t.Fatalf("events = %+v", result.Data)
+			if result.Total != 2 || len(result.Data) != 2 {
+				t.Fatalf("result = %+v", result)
 			}
-			got := result.Data[0]
+			got, system := result.Data[0], result.Data[1]
 			if got.UserID == nil || *got.UserID != user.ID {
 				t.Fatalf("user_id = %v", got.UserID)
+			}
+			if system.UserID != nil || system.Username != nil || system.FullName != nil {
+				t.Fatalf("system event = %+v", system)
 			}
 			if !tt.includeNames {
 				if got.Username != nil || got.FullName != nil {
@@ -551,8 +557,8 @@ func TestAuditActorNamesRequirePermission(t *testing.T) {
 func TestAuditEntityScopeCannotBeBroadenedByFilters(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	events := []models.AuditEvent{
-		{ActorType: "system", EntityType: "story", EntityID: 1, Action: "update"},
-		{ActorType: "system", EntityType: "pronunciation_rules", EntityID: 1, Action: "update"},
+		{EntityType: "story", EntityID: 1, Action: "update"},
+		{EntityType: "pronunciation_rules", EntityID: 1, Action: "update"},
 	}
 	if err := db.Create(&events).Error; err != nil {
 		t.Fatal(err)
@@ -588,5 +594,22 @@ func TestAuditEntityScopeCannotBeBroadenedByFilters(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLargeAuditBatchStaysUnderPlaceholderLimit(t *testing.T) {
+	tx := testutil.OpenIntegrationDB(t).Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { tx.Rollback() })
+	// One INSERT of this many rows would exceed MySQL's 65,535 placeholders.
+	changes := datatypes.JSON(`{"status":{"old":"active","new":"expired"}}`)
+	events := make([]models.AuditEvent, 20000)
+	for i := range events {
+		events[i] = models.AuditEvent{EntityType: models.AuditEntityStory, EntityID: int64(i + 1), Action: models.AuditActionExpire, Changes: changes}
+	}
+	if err := insertAuditEvents(ContextWithTx(t.Context(), tx), events); err != nil {
+		t.Fatal(err)
 	}
 }
