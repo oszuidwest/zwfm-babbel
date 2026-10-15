@@ -215,43 +215,41 @@ describe('Stories', () => {
     });
 
     describe('restore with fields', () => {
-      const today = new Date();
-      const day = (offset) => {
-        const d = new Date(today);
-        d.setDate(d.getDate() + offset);
-        return d.toISOString().slice(0, 10);
-      };
+      const start = dateFromToday(10);
+      const end = dateFromToday(12);
 
-      test('when restoring with story fields, then the story comes back with them', async () => {
-        const story = await createStoryWithDeps('RestoreFields', 'Comes back with a new window', 'RestoreFieldsVoice');
+      const deletedStory = async (name) => {
+        const story = await createStoryWithDeps(name, 'Restore with fields', `${name}Voice`);
         expect(story).not.toBeNull();
         const path = `/stories/${story.id}`;
         expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+        return { id: story.id, path };
+      };
+
+      test('when restoring with story fields, then the story comes back with them', async () => {
+        const { path } = await deletedStory('RestoreFields');
 
         const restore = await global.api.apiCall('PATCH', path, {
           deleted_at: '', title: 'Restored with fields', status: 'active',
-          start_date: day(10), end_date: day(12), weekdays: 62
+          start_date: start, end_date: end, weekdays: 62
         });
 
         expect(restore.status).toBe(200);
         expect(restore.data).toMatchObject({
           deleted_at: null, title: 'Restored with fields', status: 'active',
-          start_date: day(10), end_date: day(12), weekdays: 62
+          start_date: start, end_date: end, weekdays: 62
         });
       });
 
       test('when the fields of a restore are rejected, then the story stays deleted', async () => {
-        const story = await createStoryWithDeps('RestoreRejected', 'Stays deleted', 'RestoreRejectedVoice');
-        expect(story).not.toBeNull();
-        const path = `/stories/${story.id}`;
-        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+        const { id, path } = await deletedStory('RestoreRejected');
 
         // Both dates are valid on their own, but the end lies before the start.
-        const restore = await global.api.apiCall('PATCH', path, { deleted_at: '', start_date: day(12), end_date: day(10) });
+        const restore = await global.api.apiCall('PATCH', path, { deleted_at: '', start_date: end, end_date: start });
 
         expect(restore.status).toBe(422);
         expect(restore.data.errors).toEqual([expect.objectContaining({ field: 'end_date', code: 'date_order' })]);
-        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${story.id}`);
+        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${id}`);
         expect(trashed.data.data[0].deleted_at).toEqual(expect.any(String));
       });
     });

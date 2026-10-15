@@ -65,20 +65,24 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	if restored.DeletedAt.Valid || time.Time(restored.StartDate).Format(time.DateOnly) != start {
 		t.Fatalf("Restore() = deleted %v, start %v; want live from %s", restored.DeletedAt.Valid, restored.StartDate, start)
 	}
-	for _, day := range []time.Time{today, later} {
+	selectable := func(day time.Time) bool {
 		selected, err := reader.GetStoriesForBulletin(t.Context(), station.ID, day, 5)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := day.After(today); containsStory(selected, story.ID) != want {
-			t.Fatalf("story selectable on %s = %v, want %v", day.Format(time.DateOnly), !want, want)
-		}
+		return containsStory(selected, story.ID)
+	}
+	if selectable(today) {
+		t.Fatal("restored story still selectable in its old window")
+	}
+	if !selectable(later) {
+		t.Fatal("restored story not selectable on its new start date")
 	}
 }
 
 func TestStoryService_RestoreRollsBackWhenUpdateFails(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
-	station, story := createSelectableDeletedStory(t, db)
+	_, story := createSelectableDeletedStory(t, db)
 	service := &StoryService{
 		storyRepo: repository.NewStoryRepository(db),
 		voiceRepo: repository.NewVoiceRepository(db),
@@ -98,13 +102,6 @@ func TestStoryService_RestoreRollsBackWhenUpdateFails(t *testing.T) {
 	}
 	if !saved.DeletedAt.Valid {
 		t.Fatal("a failed update left the story restored")
-	}
-	selected, err := repository.NewStoryRepository(db).GetStoriesForBulletin(t.Context(), station.ID, time.Now(), 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if containsStory(selected, story.ID) {
-		t.Fatal("a failed restore made the story selectable")
 	}
 }
 

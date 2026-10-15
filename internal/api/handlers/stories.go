@@ -100,7 +100,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.storySvc.Update(c.Request.Context(), id, storyUpdate(req))
+	updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(req))
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
@@ -109,8 +109,8 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-// storyUpdate converts a validated update request to the service request.
-func storyUpdate(req utils.StoryUpdateRequest) *services.UpdateStoryRequest {
+// toStoryUpdateServiceRequest converts a validated update request to the service request.
+func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest) *services.UpdateStoryRequest {
 	var weekdays *models.Weekdays
 	if req.Weekdays != nil {
 		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
@@ -147,10 +147,9 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 
 // UpdateStoryStatus changes workflow state or toggles soft deletion. Without
 // deleted_at, a request sets only status. An empty deleted_at string restores
-// the story and may carry any field PUT accepts: those apply in the same
-// transaction, so the story never comes back with its old fields. Any other
-// deleted_at value is treated as a soft-delete request for compatibility with
-// the legacy API and takes no other field.
+// the story, atomically with any field PUT accepts (see StoryService.Restore).
+// Any other deleted_at value is treated as a soft-delete request for
+// compatibility with the legacy API and takes no other field.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -165,56 +164,45 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	fields := req.StoryUpdateRequest
-	hasFields := fields != utils.StoryUpdateRequest{}
-	switch {
-	case req.DeletedAt == nil && !hasFields:
-		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-			Field:   apperrors.FieldRequest,
-			Code:    apperrors.CodeEmptyUpdate,
-			Message: "Provide status or deleted_at",
-		})
+	if !utils.RequireAnyField(c, req) {
 		return
+	}
+
+	fields := req.StoryUpdateRequest
+	switch {
 	case req.DeletedAt == nil && fields != (utils.StoryUpdateRequest{Status: fields.Status}):
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeUnsupported,
 			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
 		})
-		return
-	case req.DeletedAt != nil && *req.DeletedAt != "" && hasFields:
+	case req.DeletedAt == nil:
+		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status)
+		if err != nil {
+			handleServiceError(c, err, "Story")
+			return
+		}
+		utils.Success(c, updated)
+	case *req.DeletedAt == "":
+		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields))
+		if err != nil {
+			handleServiceError(c, err, "Story")
+			return
+		}
+		utils.Success(c, restored)
+	case fields != utils.StoryUpdateRequest{}:
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeUnsupported,
 			Message: "A soft delete cannot be combined with other fields",
 		})
-		return
-	}
-
-	if req.DeletedAt != nil {
-		if *req.DeletedAt == "" {
-			restored, err := h.storySvc.Restore(c.Request.Context(), id, storyUpdate(fields))
-			if err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			utils.Success(c, restored)
-			return
-		}
+	default:
 		if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
 		utils.NoContent(c)
-		return
 	}
-
-	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status)
-	if err != nil {
-		handleServiceError(c, err, "Story")
-		return
-	}
-	utils.Success(c, updated)
 }
 
 // GenerateStoryTTS generates audio for a story using text-to-speech.

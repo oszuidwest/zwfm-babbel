@@ -18,6 +18,7 @@ describe('Empty Update Validation', () => {
   test.each([
     ['PUT', 'voice'],
     ['PUT', 'story'],
+    ['PATCH', 'story'],
     ['PUT', 'stationVoice'],
     ['PUT', 'user']
   ])('when %s %s with an empty object, then 422 names request', async (method, resource) => {
