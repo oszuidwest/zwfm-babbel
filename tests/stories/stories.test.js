@@ -188,6 +188,20 @@ describe('Stories', () => {
       expect(afterDelete.data.id).toBe(first.data.id);
     });
 
+    test('when repeating a create with the same idempotency_key, then the voice and date checks are skipped', async () => {
+      const key = global.helpers.uniqueName('jest-idempotent-replay');
+      const body = storiesSchema.createValidData('IdempotentReplay');
+      const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
+      expect(first.status).toBe(201);
+      global.resources.track('stories', first.data.id);
+
+      const again = await global.api.apiCall('POST', '/stories', {
+        ...body, idempotency_key: key, voice_id: 2147483647, start_date: '2026-12-31', end_date: '2026-01-01'
+      });
+      expect(again.status).toBe(201);
+      expect(again.data.id).toBe(first.data.id);
+    });
+
     test('when creating without idempotency_key, then every create makes a story', async () => {
       const body = storiesSchema.createValidData('NonIdempotentCreate');
       const first = await global.api.apiCall('POST', '/stories', body);
@@ -199,10 +213,14 @@ describe('Stories', () => {
       expect(second.data.id).not.toBe(first.data.id);
     });
 
-    test('when idempotency_key is blank, then 422 names it', async () => {
-      const response = await global.api.apiCall('POST', '/stories', { ...storiesSchema.createValidData('BlankKey'), idempotency_key: ' ' });
+    test.each([
+      ['empty', '', 'blank'],
+      ['blank', ' ', 'blank'],
+      ['101 characters', 'x'.repeat(101), 'too_long']
+    ])('when idempotency_key is %s, then 422 names it', async (_, key, code) => {
+      const response = await global.api.apiCall('POST', '/stories', { ...storiesSchema.createValidData('InvalidKey'), idempotency_key: key });
       expect(response.status).toBe(422);
-      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'idempotency_key' })]);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'idempotency_key', code })]);
     });
   });
 
