@@ -41,3 +41,15 @@ func OpenIntegrationDB(t *testing.T) *gorm.DB {
 	})
 	return db
 }
+
+// RejectAuditWrites fails every audit_events insert on db with the current err().
+func RejectAuditWrites(t *testing.T, db *gorm.DB, err func() error) {
+	t.Helper()
+	if regErr := db.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(tx *gorm.DB) {
+		if tx.Statement.Table == "audit_events" {
+			_ = tx.AddError(err())
+		}
+	}); regErr != nil {
+		t.Fatal(regErr)
+	}
+}

@@ -42,10 +42,9 @@ type storyRepository interface {
 	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
-	SoftDelete(context.Context, int64) error
-	Restore(context.Context, int64) error
-	UpdateAudio(context.Context, int64, string, float64) error
-	UpdateStatus(context.Context, int64, string) error
+	SoftDelete(context.Context, int64, *int64) error
+	Restore(context.Context, int64, *int64) error
+	UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
 }
 
@@ -90,6 +89,8 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 // CreateStoryRequest carries the required fields for a scheduled story.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
+	ActorUserID *int64
+
 	Title      string
 	Text       string
 	VoiceID    *int64
@@ -104,6 +105,8 @@ type CreateStoryRequest struct {
 // UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type UpdateStoryRequest struct {
+	ActorUserID *int64
+
 	Title      *string
 	Text       *string
 	VoiceID    *int64
@@ -139,15 +142,16 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*mo
 	}
 
 	data := &repository.StoryCreateData{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  startDate,
-		EndDate:    endDate,
-		Weekdays:   req.Weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID: req.ActorUserID,
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		Weekdays:    req.Weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
 	}
 
 	story, err := s.storyRepo.Create(ctx, data)
@@ -196,15 +200,16 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	}
 
 	updates := &repository.StoryUpdate{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  startDate,
-		EndDate:    endDate,
-		Weekdays:   req.Weekdays,
-		Metadata:   req.Metadata,
-		IsBreaking: req.IsBreaking,
+		ActorUserID: req.ActorUserID,
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   startDate,
+		EndDate:     endDate,
+		Weekdays:    req.Weekdays,
+		Metadata:    req.Metadata,
+		IsBreaking:  req.IsBreaking,
 	}
 
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
@@ -283,8 +288,8 @@ func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 }
 
 // SoftDelete hides a story without removing its row.
-func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
-	err := s.storyRepo.SoftDelete(ctx, id)
+func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *int64) error {
+	err := s.storyRepo.SoftDelete(ctx, id, actorUserID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpDelete, err)
 	}
@@ -293,8 +298,8 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64) error {
 }
 
 // Restore reactivates a soft-deleted story.
-func (s *StoryService) Restore(ctx context.Context, id int64) error {
-	err := s.storyRepo.Restore(ctx, id)
+func (s *StoryService) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+	err := s.storyRepo.Restore(ctx, id, actorUserID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
@@ -303,10 +308,17 @@ func (s *StoryService) Restore(ctx context.Context, id int64) error {
 }
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
-func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string) error {
-	// Convert beside the final file for atomic rename. Updating the database first
-	// preserves existing audio on failure and avoids stale paths after concurrent deletion.
-	// The .wav suffix makes FFmpeg select the WAV muxer.
+func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
+	return s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+}
+
+// publishAudio converts audio at tempPath and publishes it, recording action
+// in the story's history.
+func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
+	// Convert beside the final file for atomic rename and WAV muxer selection.
+	// Publish after the row and audit writes; their failure preserves old audio.
+	// A failed rename rolls back both writes. A later commit failure leaves the
+	// new file published and may leave the database outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
 	defer func() {
@@ -320,13 +332,28 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	filenameOnly := utils.StoryFilename(storyID)
-	if err := s.storyRepo.UpdateAudio(ctx, storyID, filenameOnly, duration); err != nil {
-		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
+	var renameErr error
+	published := false
+	err = s.storyRepo.UpdateAudio(ctx, storyID, repository.StoryAudioUpdate{
+		ActorUserID:     actorUserID,
+		Action:          action,
+		AudioFile:       utils.StoryFilename(storyID),
+		DurationSeconds: duration,
+		Publish: func() error {
+			renameErr = os.Rename(convertedPath, finalPath)
+			published = renameErr == nil
+			return renameErr
+		},
+	})
+	if renameErr != nil {
+		return apperrors.Audio("Story", "finalize", renameErr)
 	}
-
-	if err := os.Rename(convertedPath, finalPath); err != nil {
-		return apperrors.Audio("Story", "finalize", err)
+	if err != nil {
+		if published {
+			// The handler logs and alerts on the cause; name the live file there.
+			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
+		}
+		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
@@ -335,8 +362,8 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 
 // UpdateStatus changes a story's workflow state to draft, active, or expired.
 // Request binding validates status.
-func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string) (*models.Story, error) {
-	err := s.storyRepo.UpdateStatus(ctx, id, status)
+func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) (*models.Story, error) {
+	err := s.storyRepo.Update(ctx, id, &repository.StoryUpdate{ActorUserID: actorUserID, Status: &status})
 	if err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
@@ -358,7 +385,7 @@ func (s *StoryService) List(
 
 // GenerateTTS creates story audio through the configured text-to-speech service.
 // Existing audio is preserved unless force is true.
-func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool) error {
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool, actorUserID *int64) error {
 	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
@@ -405,7 +432,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		}
 	}()
 
-	if err := s.ProcessAudio(ctx, storyID, tempPath); err != nil {
+	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
 		if errors.Is(err, audio.ErrSilent) {
 			s.alertTTSError(ctx, storyID, err)
 			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
