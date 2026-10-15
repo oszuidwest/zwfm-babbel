@@ -11,7 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStories returns a paginated list of stories with modern query parameter support.
+// ListStories returns a filtered, sorted page of stories.
 func (h *Handlers) ListStories(c *gin.Context) {
 	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
@@ -27,8 +27,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// GetStory returns a story by ID with computed fields populated by the model
-// hooks used by the repository layer.
+// GetStory returns a story with its voice and computed audio URL.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -146,10 +145,9 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus sets status, or toggles soft deletion: an empty deleted_at
-// restores the story together with any field PUT accepts (see
-// StoryService.Restore); any other value soft-deletes it alone, for
-// compatibility with the legacy API.
+// UpdateStoryStatus changes status or soft deletion. Empty deleted_at restores
+// atomically with optional story fields; any other value soft-deletes the story
+// and accepts no other fields.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {

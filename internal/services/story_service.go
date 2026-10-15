@@ -121,7 +121,7 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create validates local-date bounds and optional voice ownership before
+// Create validates local-date bounds and the optional voice reference before
 // persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
 	startDate, err := parseStoryDate("start_date", req.StartDate)
@@ -222,7 +222,6 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	return s.GetByID(ctx, id)
 }
 
-// checkDateRange rejects an end date before the start date, labeling field.
 func checkDateRange(start, end time.Time, field string) error {
 	if !end.Before(start) {
 		return nil
@@ -239,7 +238,6 @@ func parseStoryDate(field, value string) (time.Time, error) {
 	return parsed, nil
 }
 
-// parseDateUpdates parses changed date fields in the server's local timezone.
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
 	var startDate, endDate *time.Time
 
@@ -300,10 +298,8 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 	return nil
 }
 
-// Restore reactivates a soft-deleted story and applies update in the same
-// transaction, so bulletin selection never sees the old fields and a failed
-// update leaves the story deleted. update must be non-nil; an empty update
-// only restores. Both writes are attributed to update.ActorUserID.
+// Restore restores and updates a story atomically, including its audit events.
+// update must be non-nil; an empty update only restores.
 func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
 	var story *models.Story
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {

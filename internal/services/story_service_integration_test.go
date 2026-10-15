@@ -16,8 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// probingStoryRepository runs probe right after the restore, while its
-// transaction is still open.
+// probingStoryRepository probes between the restore and update.
 type probingStoryRepository struct {
 	*repository.StoryRepository
 	probe func()
@@ -56,8 +55,26 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 		txManager: repository.NewTxManager(db),
 	}
 
-	if _, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{StartDate: &start, EndDate: &start}); err != nil {
+	actor := int64(307)
+	restored, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{ActorUserID: &actor, StartDate: &start, EndDate: &start})
+	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
+	}
+	if restored.DeletedAt.Valid || time.Time(restored.StartDate).Format(time.DateOnly) != start {
+		t.Fatalf("Restore() returned stale state: %+v", restored)
+	}
+	var events []models.AuditEvent
+	if err := db.Where("entity_type = ? AND entity_id = ? AND action IN ?", models.AuditEntityStory, story.ID,
+		[]models.AuditAction{models.AuditActionRestore, models.AuditActionUpdate}).Order("id").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Action != models.AuditActionRestore || events[1].Action != models.AuditActionUpdate {
+		t.Fatalf("restore audit events = %+v", events)
+	}
+	for _, event := range events {
+		if event.UserID == nil || *event.UserID != actor {
+			t.Fatalf("restore audit actor = %v, want %d", event.UserID, actor)
+		}
 	}
 	if !probed {
 		t.Fatal("probe did not run during the restore")
@@ -97,11 +114,18 @@ func TestStoryService_RestoreRollsBackWhenUpdateFails(t *testing.T) {
 	if !saved.DeletedAt.Valid {
 		t.Fatal("a failed update left the story restored")
 	}
+	var restoreEvents int64
+	if err := db.Model(&models.AuditEvent{}).
+		Where("entity_type = ? AND entity_id = ? AND action = ?", models.AuditEntityStory, story.ID, models.AuditActionRestore).
+		Count(&restoreEvents).Error; err != nil {
+		t.Fatal(err)
+	}
+	if restoreEvents != 0 {
+		t.Fatal("a failed update left a restore audit event")
+	}
 }
 
-// createSelectableDeletedStory creates a soft-deleted story that bulletin
-// selection would pick today once restored: active, with audio, a voice on the
-// station, and a window covering today on every weekday.
+// createSelectableDeletedStory creates a deleted story eligible for today's bulletin.
 func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, models.Story) {
 	t.Helper()
 	station := createTestStation(t, db)
