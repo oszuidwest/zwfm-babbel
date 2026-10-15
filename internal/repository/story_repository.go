@@ -26,16 +26,15 @@ type StoryUpdate struct {
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
-	Title      string
-	Text       string
-	VoiceID    *int64
-	Status     string
-	StartDate  time.Time
-	EndDate    time.Time
-	Weekdays   models.Weekdays
-	IsBreaking bool
-	Metadata   *datatypes.JSONMap
-	// IdempotencyKey, when set, must not belong to another story.
+	Title          string
+	Text           string
+	VoiceID        *int64
+	Status         string
+	StartDate      time.Time
+	EndDate        time.Time
+	Weekdays       models.Weekdays
+	IsBreaking     bool
+	Metadata       *datatypes.JSONMap
 	IdempotencyKey *string
 }
 
@@ -51,7 +50,7 @@ func NewStoryRepository(db *gorm.DB) *StoryRepository {
 	}
 }
 
-// Create inserts a story.
+// Create inserts a story; an idempotency key already in use fails with ErrDuplicateKey.
 func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
 		Title:          data.Title,
@@ -78,7 +77,7 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 func (r *StoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
 	var story models.Story
 	db := DBFromContext(ctx, r.db)
-	if err := db.WithContext(ctx).Unscoped().Select("id").Where("idempotency_key = ?", key).First(&story).Error; err != nil {
+	if err := db.WithContext(ctx).Unscoped().Select("id").Where("idempotency_key = ?", key).Take(&story).Error; err != nil {
 		return 0, ParseDBError(err)
 	}
 	return story.ID, nil

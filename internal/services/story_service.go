@@ -117,8 +117,8 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create validates local-date bounds and optional voice ownership before
-// persisting a story, and returns its ID. A request with an idempotency key
+// Create checks the date format and order and that an optional voice exists
+// before persisting a story, and returns its ID. A request with an idempotency key
 // that an earlier create already used returns that story's ID instead, without
 // these checks and even when the story was deleted since, so a client can
 // safely repeat a create whose answer it lost.
