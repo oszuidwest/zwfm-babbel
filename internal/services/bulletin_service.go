@@ -156,10 +156,8 @@ func (s *BulletinService) create(
 	}, finalize)
 }
 
-// prepareStoriesForPlayback captures jingle settings from the highest-priority
-// story before randomizing the on-air order. Breaking priority and fair
-// rotation determine which stories are selected; shuffling gives breaking
-// stories varied positions during playback.
+// prepareStoriesForPlayback keeps the highest-priority story's jingle while
+// shuffling playback, so breaking stories have no fixed on-air position.
 func prepareStoriesForPlayback(stories []repository.BulletinStoryData, shuffle func(int, func(int, int))) audio.JingleContext {
 	jingle := audio.JingleContext{
 		VoiceID:  stories[0].VoiceID,
@@ -289,10 +287,6 @@ func (s *BulletinService) GetLatest(
 	return bulletin, nil
 }
 
-// selectStories loads today's eligible stories for a bulletin.
-// Stories must be active, have audio, match the station's voice configuration,
-// and be scheduled for the weekday.
-// Breaking news stories are prioritized for selection; remaining slots use fair rotation.
 func (s *BulletinService) selectStories(
 	ctx context.Context, stationID int64, limit int,
 ) ([]repository.BulletinStoryData, error) {
@@ -301,10 +295,6 @@ func (s *BulletinService) selectStories(
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
 	}
 
-	// The eligibility query only checks the DB audio_file column; the physical file can still be
-	// absent (manual deletion, failed processing, storage issue). Including such a story would make
-	// FFmpeg fail the entire bulletin with a 500, so drop it here. If none remain, Create returns
-	// NoStories (422) instead of leaking an internal error.
 	stories = s.filterStoriesWithMissingAudio(ctx, stories, stationID)
 
 	if len(stories) > 0 && len(stories) == limit {
@@ -331,9 +321,9 @@ func (s *BulletinService) selectStories(
 	return stories, nil
 }
 
-// filterStoriesWithMissingAudio drops stories whose processed audio file is absent on disk.
-// Generation reads each story file directly via FFmpeg, so a missing file would abort the whole
-// bulletin; skipping the story keeps generation resilient to storage inconsistencies.
+// filterStoriesWithMissingAudio skips unavailable files that would abort the
+// entire FFmpeg mix. Database eligibility alone does not guarantee a file exists.
+// If none remain, generation returns NoStories.
 func (s *BulletinService) filterStoriesWithMissingAudio(
 	ctx context.Context, stories []repository.BulletinStoryData, stationID int64,
 ) []repository.BulletinStoryData {

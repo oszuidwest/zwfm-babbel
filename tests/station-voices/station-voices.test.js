@@ -2,7 +2,6 @@ const stationVoicesSchema = require('../lib/schemas/station-voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
 describe('Station-Voices', () => {
-  // Setup function creates dependencies and returns data to merge with createValidData
   const createDependencies = async () => {
     const station = await global.helpers.createStation(global.resources, `SVDep_${Date.now()}`);
     const voice = await global.helpers.createVoice(global.resources, `SVDep_${Date.now()}`);
@@ -12,7 +11,6 @@ describe('Station-Voices', () => {
     };
   };
 
-  // Setup function for query tests - creates multiple station-voices for testing
   const setupQueryTestData = async () => {
     const testData = [
       { station: 'QueryStation1', voice: 'QueryVoice1', mix: 1.0 },
@@ -38,17 +36,12 @@ describe('Station-Voices', () => {
     return ids;
   };
 
-  // Generate standard tests using generators
   generateCrudTests(stationVoicesSchema, createDependencies);
   generateQueryTests(stationVoicesSchema, setupQueryTestData);
   generateValidationTests(stationVoicesSchema, createDependencies);
 
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to station-voice behavior that can't be generated
-
   describe('Duplicate Detection', () => {
     test('when creating duplicate station-voice pair, then returns 409', async () => {
-      // Create a station-voice
       const station = await global.helpers.createStation(global.resources, 'DupStation');
       const voice = await global.helpers.createVoice(global.resources, 'DupVoice');
       const data = {
@@ -61,7 +54,6 @@ describe('Station-Voices', () => {
       expect(first.status).toBe(201);
       global.resources.track('stationVoices', first.data.id);
 
-      // Try to create duplicate
       const duplicate = await global.api.apiCall('POST', '/station-voices', data);
 
       expect(duplicate.status).toBe(409);
@@ -151,7 +143,6 @@ describe('Station-Voices', () => {
       );
       expect(uploadResponse.status).toBe(201);
 
-      // Has_audio partitions the station's pairs
       const withResponse = await global.api.apiCall(
         'GET',
         `/station-voices?filter[station_id]=${station.id}&filter[has_audio]=true`

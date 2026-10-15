@@ -8,16 +8,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// TxManager defines the transaction management interface.
+// TxManager supplies a transaction context shared by repositories.
 type TxManager interface {
-	// WithTransaction executes a function within a transaction.
-	// If the function returns an error, the transaction is rolled back.
-	// If the function panics, the transaction is rolled back and the panic is re-raised.
-	// If the function succeeds, the transaction is committed.
+	// WithTransaction commits on success and rolls back on error or panic.
+	// Panics propagate after rollback.
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// txManager implements TxManager using GORM.
 type txManager struct {
 	db *gorm.DB
 }
@@ -27,9 +24,6 @@ func NewTxManager(db *gorm.DB) TxManager {
 	return &txManager{db: db}
 }
 
-// WithTransaction executes fn within a GORM transaction.
-// The transaction is automatically stored in the context and can be retrieved
-// by repositories using TxFromContext.
 func (m *txManager) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
 	return m.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// GORM rolls the transaction back on panic; this defer adds observability

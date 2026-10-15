@@ -54,10 +54,7 @@ describe('Bulletins', () => {
     return [response.data.id];
   };
 
-  // Generate query parameter tests
   generateQueryTests(bulletinsSchema, setupQueryTestData);
-
-  // === BUSINESS LOGIC TESTS ===
 
   describe('Bulletin Generation', () => {
     let stationId;
@@ -73,8 +70,6 @@ describe('Bulletins', () => {
     });
 
     test('when generating bulletin, then returns complete data', async () => {
-      // Uses station setup from beforeAll
-
       const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
@@ -166,10 +161,8 @@ describe('Bulletins', () => {
 
         const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
-        // Breaking story is in every single bulletin
         expect(includedStoryIds).toContain(breakingStory.id);
 
-        // Remaining 2 slots are filled by non-breaking stories
         const nonBreakingIncluded = includedStoryIds.filter(id => id !== breakingStory.id);
         expect(nonBreakingIncluded).toHaveLength(2);
         nonBreakingIncluded.forEach(id => {
@@ -211,12 +204,10 @@ describe('Bulletins', () => {
 
       const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
-      // None of the ineligible breaking stories should be included
       expect(includedStoryIds).not.toContain(draftBreaking.id);
       expect(includedStoryIds).not.toContain(expiredBreaking.id);
       expect(includedStoryIds).not.toContain(wrongDayBreaking.id);
 
-      // The eligible regular story should be included
       expect(includedStoryIds).toContain(eligibleStory.id);
     });
 
@@ -261,7 +252,6 @@ describe('Bulletins', () => {
 
       const { ids: includedStoryIds } = await getBulletinStoryIds(bulletinResponse.data.id);
 
-      // Newest two breaking stories should be selected
       expect(includedStoryIds).toContain(newBreaking.id);
       expect(includedStoryIds).toContain(midBreaking.id);
       expect(includedStoryIds).not.toContain(oldBreaking.id);
@@ -459,16 +449,12 @@ describe('Bulletins', () => {
     });
 
     test('when generating station bulletin, then succeeds', async () => {
-      // Uses station setup from beforeAll
-
       const response = await global.helpers.generateBulletin(stationId);
 
       expect(response.status).toBe(200);
     });
 
     test('when listing station bulletins, then returns data', async () => {
-      // Uses station setup from beforeAll
-
       const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins`);
 
       expect(response.status).toBe(200);
