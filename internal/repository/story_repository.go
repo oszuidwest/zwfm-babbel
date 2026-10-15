@@ -173,14 +173,14 @@ type StoryAudioUpdate struct {
 
 	AudioFile       string
 	DurationSeconds float64
-	// Publish moves the file into place once the row and its history are
-	// written, right before commit, so a failed publish or audit leaves the
-	// row, its history and the existing file unchanged.
+	// Publish runs after the row and audit writes, before commit. A publish
+	// failure rolls them back; a commit failure cannot undo publication.
 	Publish func() error
 }
 
-// UpdateAudio stores the audio file and duration, publishes the file, and
-// records the change in one transaction.
+// UpdateAudio updates the row and audit event in one database transaction.
+// Publication precedes commit; if commit fails, the new file remains and
+// the database outcome may be unknown.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
 	return r.inTx(ctx, func(ctx context.Context) error {
 		if err := r.auditedWrite(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {

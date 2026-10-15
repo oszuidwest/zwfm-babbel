@@ -315,10 +315,10 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 // publishAudio converts audio at tempPath and publishes it, recording action
 // in the story's history.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
-	// Convert beside the final file for atomic rename. The rename runs after the
-	// row update and before commit: a deleted story or failed update keeps the
-	// existing audio, and a failed rename rolls back the row and its history.
-	// The .wav suffix makes FFmpeg select the WAV muxer.
+	// Convert beside the final file for atomic rename and WAV muxer selection.
+	// Publish after the row and audit writes; their failure preserves old audio.
+	// A failed rename rolls back both writes. A later commit failure leaves the
+	// new file published and may leave the database outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
 	defer func() {
