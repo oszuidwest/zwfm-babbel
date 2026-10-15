@@ -389,6 +389,7 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 		err       error
 		op        apperrors.Operation
 		wantError any
+		wantHint  string
 	}{
 		{name: "nil", err: nil, op: apperrors.OpQuery, wantError: nil},
 		{
@@ -396,6 +397,20 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 			err:       repository.ErrSchemaUnavailable,
 			op:        apperrors.OpQuery,
 			wantError: &apperrors.NotInitializedError{},
+		},
+		{
+			name:      "tts settings row missing",
+			err:       repository.ErrNotFound,
+			op:        apperrors.OpUpdate,
+			wantError: &apperrors.NotInitializedError{},
+			wantHint:  "restore the id=1 row from migrations/001_complete_schema.sql seed data",
+		},
+		{
+			name:      "audit table missing",
+			err:       fmt.Errorf("transaction failed: %w", repository.ErrAuditSchemaUnavailable),
+			op:        apperrors.OpUpdate,
+			wantError: &apperrors.NotInitializedError{},
+			wantHint:  "apply migrations/013_audit_events.sql",
 		},
 		{
 			name:      "data too long",
@@ -421,6 +436,10 @@ func TestTranslatePronunciationRulesRepoError(t *testing.T) {
 				return
 			}
 			assertErrorAs(t, err, tt.wantError)
+			var notInitialized *apperrors.NotInitializedError
+			if tt.wantHint != "" && (!errors.As(err, &notInitialized) || notInitialized.Hint != tt.wantHint) {
+				t.Fatalf("error = %#v, want hint %q", err, tt.wantHint)
+			}
 		})
 	}
 }
@@ -483,7 +502,7 @@ func (f *fakePronunciationRuleRepo) List(context.Context) ([]models.Pronunciatio
 	return rules, nil
 }
 
-func (f *fakePronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule) error {
+func (f *fakePronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule, _ *int64) error {
 	f.replaceCalls++
 	if f.replaceErr != nil {
 		return f.replaceErr

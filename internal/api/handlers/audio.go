@@ -186,7 +186,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath)
+	err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath, actorUserID(c))
 	switch {
 	case errors.Is(err, audio.ErrSilent):
 		// The audio service already logs the rejection at Warn.

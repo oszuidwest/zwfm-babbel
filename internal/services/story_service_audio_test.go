@@ -41,10 +41,10 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 		run  func(ctx context.Context, s *StoryService, storyID int64) error
 	}{
 		{"upload", func(ctx context.Context, s *StoryService, storyID int64) error {
-			return s.ProcessAudio(ctx, storyID, inputPath)
+			return s.ProcessAudio(ctx, storyID, inputPath, nil)
 		}},
 		{"forced TTS", func(ctx context.Context, s *StoryService, storyID int64) error {
-			return s.GenerateTTS(ctx, storyID, true)
+			return s.GenerateTTS(ctx, storyID, true, nil)
 		}},
 	}
 	for _, tt := range tests {

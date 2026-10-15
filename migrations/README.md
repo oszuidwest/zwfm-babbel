@@ -29,6 +29,10 @@ Stop Babbel, apply `012_drop_bulletin_job_target_date.sql`, then deploy; it
 fails on databases created from the current `001` snapshot. Queued jobs
 generate for the local day the worker runs them.
 
-Apply `013_story_idempotency_key.sql` once, before deploying a Babbel version
+Apply `013_audit_events.sql` before deploying persistent audit history. Audit
+history is retained indefinitely; there are no foreign keys to users or entities
+and no cleanup job.
+
+Apply `014_story_idempotency_key.sql` once, before deploying a Babbel version
 that accepts `idempotency_key` on `POST /stories`; it fails on databases
 created from the current `001` snapshot.

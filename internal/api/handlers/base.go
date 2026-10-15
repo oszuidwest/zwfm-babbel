@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -359,4 +360,12 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 			logger.Error("Failed to cleanup resource", "type", resourceType, "error", err)
 		}
 	}
+}
+
+// actorUserID returns the authenticated user to attribute a change to, or nil.
+func actorUserID(c *gin.Context) *int64 {
+	if id, ok := auth.UserID(c); ok {
+		return &id
+	}
+	return nil
 }

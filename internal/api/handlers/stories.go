@@ -63,6 +63,7 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.CreateStoryRequest{
+		ActorUserID:    actorUserID(c),
 		Title:          req.Title,
 		Text:           req.Text,
 		VoiceID:        req.VoiceID,
@@ -108,15 +109,16 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.UpdateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID: actorUserID(c),
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   req.StartDate,
+		EndDate:     req.EndDate,
+		Weekdays:    weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
 	}
 
 	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
@@ -135,7 +137,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 		return
 	}
 
-	if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
+	if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
@@ -180,7 +182,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	if req.DeletedAt != nil {
 		if *req.DeletedAt == "" {
-			if err := h.storySvc.Restore(c.Request.Context(), id); err != nil {
+			if err := h.storySvc.Restore(c.Request.Context(), id, actorUserID(c)); err != nil {
 				handleServiceError(c, err, "Story")
 				return
 			}
@@ -192,7 +194,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			utils.Success(c, restored)
 			return
 		}
-		if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
+		if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
@@ -200,7 +202,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
+	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status, actorUserID(c))
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
@@ -232,7 +234,7 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 		force = parsed
 	}
 
-	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force); err != nil {
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}

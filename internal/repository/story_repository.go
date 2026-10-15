@@ -8,11 +8,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // StoryUpdate contains optional fields for updating a story.
 // Nil pointer fields are not updated.
 type StoryUpdate struct {
+	ActorUserID *int64 `gorm:"-"`
+
 	Title      *string            `gorm:"column:title"`
 	Text       *string            `gorm:"column:text"`
 	VoiceID    *int64             `gorm:"column:voice_id"`
@@ -26,6 +29,8 @@ type StoryUpdate struct {
 
 // StoryCreateData contains the data for creating a story.
 type StoryCreateData struct {
+	ActorUserID *int64
+
 	Title          string
 	Text           string
 	VoiceID        *int64
@@ -65,9 +70,21 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		IdempotencyKey: data.IdempotencyKey,
 	}
 
-	db := DBFromContext(ctx, r.db)
-	if err := db.WithContext(ctx).Create(story).Error; err != nil {
-		return nil, ParseDBError(err)
+	err := r.inTx(ctx, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db).WithContext(ctx)
+		if err := db.Create(story).Error; err != nil {
+			return ParseDBError(err)
+		}
+		values, err := storyAuditValues(db, story.ID)
+		if err != nil {
+			return err
+		}
+		return RecordAudit(ctx, models.AuditEvent{
+			UserID: data.ActorUserID, EntityType: models.AuditEntityStory, EntityID: story.ID, Action: models.AuditActionCreate,
+		}, nil, values)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return story, nil
 }
@@ -117,61 +134,113 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 
 // Update applies non-nil story fields.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
-	return updateFields(ctx, id, u, r.UpdateByID)
-}
-
-// SoftDelete marks a story as deleted without removing it from the database.
-func (r *StoryRepository) SoftDelete(ctx context.Context, id int64) error {
-	err := r.classifyWriteError(ctx, id, r.Delete(ctx, id))
-	if _, ok := errors.AsType[*StoryDeletedError](err); ok {
+	updateMap := BuildUpdateMap(u)
+	if len(updateMap) == 0 {
 		return nil
 	}
-	return err
-}
-
-// Restore clears the deleted_at timestamp.
-func (r *StoryRepository) Restore(ctx context.Context, id int64) error {
-	db := DBFromContext(ctx, r.db)
-	result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
-		Where("id = ?", id).
-		Update("deleted_at", nil)
-	if result.Error != nil {
-		return ParseDBError(result.Error)
-	}
-	if result.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// UpdateAudio updates the audio file and duration.
-func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, audioFile string, duration float64) error {
-	return r.UpdateByID(ctx, id, map[string]any{
-		"audio_file":       audioFile,
-		"duration_seconds": duration,
+	return r.withAudit(ctx, id, models.AuditActionUpdate, u.ActorUserID, func(ctx context.Context) error {
+		return r.UpdateByID(ctx, id, updateMap)
 	})
 }
 
-// UpdateStatus updates the story status.
-func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string) error {
-	return r.UpdateByID(ctx, id, map[string]any{"status": status})
+// SoftDelete marks a story as deleted without removing it from the database.
+func (r *StoryRepository) SoftDelete(ctx context.Context, id int64, actorUserID *int64) error {
+	return r.withAudit(ctx, id, models.AuditActionDelete, actorUserID, func(ctx context.Context) error {
+		err := r.classifyWriteError(ctx, id, r.Delete(ctx, id))
+		if _, ok := errors.AsType[*StoryDeletedError](err); ok {
+			return nil
+		}
+		return err
+	})
+}
+
+// Restore clears the deleted_at timestamp.
+func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+	return r.withAudit(ctx, id, models.AuditActionRestore, actorUserID, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db)
+		result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
+			Where("id = ?", id).
+			Update("deleted_at", nil)
+		if result.Error != nil {
+			return ParseDBError(result.Error)
+		}
+		if result.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+// StoryAudioUpdate describes newly processed story audio. Action records
+// whether it was uploaded or generated.
+type StoryAudioUpdate struct {
+	ActorUserID *int64
+	Action      models.AuditAction
+
+	AudioFile       string
+	DurationSeconds float64
+	// Publish runs after the row and audit writes, before commit. A publish
+	// failure rolls them back; a commit failure cannot undo publication.
+	Publish func() error
+}
+
+// UpdateAudio updates the row and audit event in one database transaction.
+// Publication precedes commit; if commit fails, the new file remains and
+// the database outcome may be unknown.
+func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
+	return r.inTx(ctx, func(ctx context.Context) error {
+		if err := r.auditedWrite(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
+			return r.UpdateByID(ctx, id, map[string]any{
+				"audio_file":       u.AudioFile,
+				"duration_seconds": u.DurationSeconds,
+			})
+		}); err != nil {
+			return err
+		}
+		return u.Publish()
+	})
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as
 // expired and returns the number of stories updated.
 // GORM automatically excludes soft-deleted records (deleted_at IS NULL).
 func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, error) {
-	result := r.db.WithContext(ctx).
-		Model(&models.Story{}).
-		Where("status = ?", models.StoryStatusActive).
-		Where("end_date < CURDATE()").
-		Update("status", models.StoryStatusExpired)
-
-	if result.Error != nil {
-		return 0, ParseDBError(result.Error)
+	var count int64
+	err := r.inTx(ctx, func(ctx context.Context) error {
+		db := DBFromContext(ctx, r.db).WithContext(ctx)
+		var ids []int64
+		if err := db.Model(&models.Story{}).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+			Where("status = ?", models.StoryStatusActive).Where("end_date < CURDATE()").
+			Order("id").Pluck("id", &ids).Error; err != nil {
+			return ParseDBError(err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := db.Model(&models.Story{}).Where("id IN ?", ids).Update("status", models.StoryStatusExpired).Error; err != nil {
+			return ParseDBError(err)
+		}
+		changes, err := auditChanges(map[string]any{"status": models.StoryStatusActive},
+			map[string]any{"status": models.StoryStatusExpired})
+		if err != nil {
+			return err
+		}
+		events := make([]models.AuditEvent, len(ids))
+		for i, id := range ids {
+			events[i] = models.AuditEvent{
+				EntityType: models.AuditEntityStory, EntityID: id, Action: models.AuditActionExpire, Changes: changes,
+			}
+		}
+		if err := insertAuditEvents(ctx, events); err != nil {
+			return err
+		}
+		count = int64(len(ids))
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-
-	return result.RowsAffected, nil
+	return count, nil
 }
 
 var storyFieldMapping = FieldMapping{
