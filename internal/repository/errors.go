@@ -27,6 +27,11 @@ var (
 
 	// ErrSchemaUnavailable indicates a referenced table is missing.
 	ErrSchemaUnavailable = errors.New("schema unavailable")
+
+	// ErrAuditSchemaUnavailable indicates the audit_events table is missing.
+	// It deliberately does not wrap ErrSchemaUnavailable, so callers whose
+	// recovery hint names their own table do not misreport it.
+	ErrAuditSchemaUnavailable = errors.New("audit_events table unavailable")
 )
 
 // StoryDeletedError indicates a write targeted a soft-deleted story.

@@ -178,6 +178,8 @@ servers:
     description: Relative server root
 
 tags:
+  - name: Audit
+    description: Persistent change history
   - name: System
     description: System health and status endpoints
   - name: Authentication
@@ -1089,6 +1091,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/v1/audit-events:
+    get:
+      operationId: getAuditEvents
+      summary: List audit events
+      description: |
+        Returns committed story, TTS settings, and pronunciation rule-set changes.
+        History is retained indefinitely, including events for deleted stories and users.
+        Only entities the caller may read are included, in both data and total:
+        `story` requires `stories:read`, `tts_settings` requires `settings:tts:read`,
+        and `pronunciation_rules` requires `pronunciation_rules:read`.
+        Filters cannot broaden these permissions; an inaccessible entity filter returns
+        an empty list. A caller with none of these permissions receives 403.
+        Actor `username` and `full_name` require `users:read`; otherwise both are
+        null. The `user_id` remains visible.
+
+        The default order is `-occurred_at,-id`. Filter and sort fields are `id`,
+        `occurred_at`, `actor_type`, `user_id`, `entity_type`, `entity_id`, and `action`.
+        For example: `?filter[entity_type]=story&filter[entity_id]=1991&filter[action]=delete`.
+        Date ranges use `filter[occurred_at][gte]` and `filter[occurred_at][lte]`.
+        `filter[user_id][null]=true` selects system events.
+      tags:
+        - Audit
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/fields'
+        - $ref: '#/components/parameters/auditEventFilter'
+      responses:
+        '200':
+          description: Audit events visible to the caller
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventsListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/stories:
     get:
       operationId: getStories
@@ -1241,6 +1289,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/stories/{id}/audio:
     get:
@@ -1350,6 +1400,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /api/v1/stories/{id}/tts:
     post:
@@ -1675,6 +1727,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
       operationId: deleteStoriesId
       summary: Delete story (soft delete)
@@ -1700,6 +1754,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     patch:
       operationId: patchStoriesId
       summary: Update story state
@@ -1766,6 +1822,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/stories/{id}/bulletins:
     get:
       operationId: getStoriesIdBulletins
@@ -3078,6 +3136,23 @@ components:
           elevenlabs_voice_id: { $ref: '#/components/schemas/NullableStringFilter' }
           created_at: { $ref: '#/components/schemas/DateTimeFilter' }
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
+    auditEventFilter:
+      name: filter
+      in: query
+      style: deepObject
+      explode: true
+      description: Audit filters using `filter[field]` or `filter[field][operator]`.
+      schema:
+        type: object
+        additionalProperties: false
+        properties:
+          id: { $ref: '#/components/schemas/IntegerFilter' }
+          occurred_at: { $ref: '#/components/schemas/DateTimeFilter' }
+          actor_type: { $ref: '#/components/schemas/AuditActorTypeFilter' }
+          user_id: { $ref: '#/components/schemas/NullableIntegerFilter' }
+          entity_type: { $ref: '#/components/schemas/AuditEntityTypeFilter' }
+          entity_id: { $ref: '#/components/schemas/IntegerFilter' }
+          action: { $ref: '#/components/schemas/AuditActionFilter' }
     storyFilter:
       name: filter
       in: query
@@ -3161,6 +3236,72 @@ components:
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
 
   schemas:
+    AuditEvent:
+      type: object
+      required: [id, occurred_at, actor_type, user_id, username, full_name, entity_type, entity_id, action, changes]
+      properties:
+        id:
+          type: integer
+          format: int64
+        occurred_at:
+          type: string
+          format: date-time
+        actor_type:
+          type: string
+          enum: [user, system]
+        user_id:
+          type: [integer, 'null']
+          format: int64
+        username:
+          type: [string, 'null']
+          description: Current username, including soft-deleted users; null without users:read or for system or missing users.
+        full_name:
+          type: [string, 'null']
+          description: Current full name, including soft-deleted users; null without users:read or for system or missing users.
+        entity_type:
+          type: string
+          enum: [story, tts_settings, pronunciation_rules]
+        entity_id:
+          type: integer
+          format: int64
+          description: Story ID, or 1 for the TTS settings or pronunciation rule-set singleton.
+        action:
+          type: string
+          enum: [create, update, delete, restore, audio, tts, expire]
+        changes:
+          type: object
+          description: |
+            Only changed values, keyed by field name. Creation uses null old values.
+            Story timestamps maintained automatically are omitted; deleted_at is included.
+            Audio changes contain filenames and durations, never audio bytes.
+            For pronunciation_rules, keys are string_to_replace; values are rule objects
+            containing ipa, case_sensitive, and word_boundaries, or null for additions/removals.
+            Identical writes produce no audit event. Audio and TTS publications are
+            always recorded because they overwrite the story's audio file; their
+            changes are empty when the filename and duration stay the same.
+          additionalProperties:
+            type: object
+            required: [old, new]
+            properties:
+              old: {}
+              new: {}
+
+    AuditEventsListResponse:
+      type: object
+      required: [data, total, limit, offset]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total:
+          type: integer
+          description: Total visible events matching the query.
+        limit:
+          type: integer
+        offset:
+          type: integer
+
     # Nullable variants repeat operators because allOf conflicts with
     # additionalProperties: false and unevaluatedProperties lacks broad support.
     # Keep each base and nullable operator list aligned.
@@ -3385,6 +3526,39 @@ components:
             ne: { type: string, enum: [admin, editor, viewer] }
             not: { type: string, enum: [admin, editor, viewer], description: Alias for `ne`. }
             in: { type: string, description: Comma-separated role values. }
+    AuditActorTypeFilter:
+      oneOf:
+        - type: string
+          enum: [user, system]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [user, system] }
+            ne: { type: string, enum: [user, system] }
+            not: { type: string, enum: [user, system], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated actor type values. }
+    AuditEntityTypeFilter:
+      oneOf:
+        - type: string
+          enum: [story, tts_settings, pronunciation_rules]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [story, tts_settings, pronunciation_rules] }
+            ne: { type: string, enum: [story, tts_settings, pronunciation_rules] }
+            not: { type: string, enum: [story, tts_settings, pronunciation_rules], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated entity type values. }
+    AuditActionFilter:
+      oneOf:
+        - type: string
+          enum: [create, update, delete, restore, audio, tts, expire]
+        - type: object
+          additionalProperties: false
+          properties:
+            eq: { type: string, enum: [create, update, delete, restore, audio, tts, expire] }
+            ne: { type: string, enum: [create, update, delete, restore, audio, tts, expire] }
+            not: { type: string, enum: [create, update, delete, restore, audio, tts, expire], description: Alias for `ne`. }
+            in: { type: string, description: Comma-separated action values. }
     IDMessageResponse:
       type: object
       description: Identifier and confirmation message returned when a resource is created

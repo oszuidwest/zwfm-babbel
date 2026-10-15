@@ -35,12 +35,13 @@ var allowedTextNormalizations = []string{
 
 // TTSSettingsService manages the singleton ElevenLabs request settings.
 type TTSSettingsService struct {
-	repo *repository.TTSSettingsRepository
+	repo      *repository.TTSSettingsRepository
+	txManager repository.TxManager
 }
 
 // NewTTSSettingsService binds settings validation and persistence to repo.
-func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsService {
-	return &TTSSettingsService{repo: repo}
+func NewTTSSettingsService(repo *repository.TTSSettingsRepository, txManager repository.TxManager) *TTSSettingsService {
+	return &TTSSettingsService{repo: repo, txManager: txManager}
 }
 
 // UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
@@ -65,13 +66,8 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 // Update validates and persists settings with last-writer-wins semantics.
 // Audit entries include changed values and the actor when available.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
-	current, err := s.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	if req == nil || req.IsEmpty() {
-		return current, nil
+		return s.Get(ctx)
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
@@ -86,13 +82,26 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		ClearSeed:              req.ClearSeed,
 	}
 
-	if err := s.repo.Update(ctx, update); err != nil {
-		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
-	}
-
-	updated, err := s.Get(ctx)
+	var current, updated *models.TTSSettings
+	err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
+		var err error
+		current, err = s.repo.GetForUpdate(ctx)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Update(ctx, update); err != nil {
+			return err
+		}
+		updated, err = s.repo.Get(ctx)
+		if err != nil {
+			return err
+		}
+		return repository.RecordAudit(ctx, models.AuditEvent{
+			UserID: req.ActorUserID, EntityType: models.AuditEntityTTSSettings, EntityID: 1, Action: models.AuditActionUpdate,
+		}, ttsSettingsAuditValues(current), ttsSettingsAuditValues(updated))
+	})
 	if err != nil {
-		return nil, err
+		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
 	}
 
 	logTTSSettingsUpdate(req, current, updated)
@@ -233,6 +242,16 @@ func seedEqual(a, b *uint32) bool {
 	default:
 		return *a == *b
 	}
+}
+
+// ttsSettingsAuditValues returns every audited setting; RecordAudit keeps only
+// the ones that changed.
+func ttsSettingsAuditValues(settings *models.TTSSettings) map[string]any {
+	values := make(map[string]any, 4)
+	for _, field := range []string{"stability", "apply_text_normalization", "seed", "tts_style_prefix"} {
+		values[field] = ttsSettingsFieldValue(settings, field)
+	}
+	return values
 }
 
 func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
