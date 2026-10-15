@@ -23,6 +23,9 @@ run:
 test:
 	go test ./... -v
 
+# Packages share one database, so -p 1 runs them one at a time: a test that
+# counts global rows, like the last-admin guard, must not see another package's
+# fixtures.
 test-integration:
 	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }
 	docker compose up -d mysql
@@ -35,7 +38,7 @@ test-integration:
 	done
 	$(MAKE) db-reset
 	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true' \
-		go test -tags=integration ./internal/...
+		go test -p 1 -tags=integration ./internal/...
 
 # Quality
 lint:
