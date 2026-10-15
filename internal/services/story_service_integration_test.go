@@ -23,8 +23,8 @@ type probingStoryRepository struct {
 	probe func()
 }
 
-func (r probingStoryRepository) Restore(ctx context.Context, id int64) error {
-	err := r.StoryRepository.Restore(ctx, id)
+func (r probingStoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+	err := r.StoryRepository.Restore(ctx, id, actorUserID)
 	r.probe()
 	return err
 }
@@ -133,13 +133,16 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 			}
 		}
 	})
-	if err := repo.UpdateAudio(t.Context(), story.ID, "restore.wav", 10); err != nil {
+	if err := repo.UpdateAudio(t.Context(), story.ID, repository.StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "restore.wav", DurationSeconds: 10,
+		Publish: func() error { return nil },
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if selected, err := repo.GetStoriesForBulletin(t.Context(), station.ID, today, 5); err != nil || !containsStory(selected, story.ID) {
 		t.Fatalf("precondition: live story not selectable today (err %v)", err)
 	}
-	if err := repo.SoftDelete(t.Context(), story.ID); err != nil {
+	if err := repo.SoftDelete(t.Context(), story.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	return station, *story

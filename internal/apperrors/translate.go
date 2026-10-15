@@ -74,6 +74,9 @@ func TranslateRepoError(resource string, op Operation, err error) error {
 		validation.cause = err
 		return validation
 
+	case errors.Is(err, repository.ErrAuditSchemaUnavailable):
+		return NotInitialized("audit_events", "apply migrations/013_audit_events.sql", err)
+
 	default:
 		return Database(resource, op.String(), err)
 	}

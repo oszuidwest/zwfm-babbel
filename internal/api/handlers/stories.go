@@ -63,15 +63,16 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.CreateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID: actorUserID(c),
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   req.StartDate,
+		EndDate:     req.EndDate,
+		Weekdays:    weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
 	}
 
 	story, err := h.storySvc.Create(c.Request.Context(), svcReq)
@@ -100,7 +101,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
-	updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(req))
+	updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(req, actorUserID(c)))
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
@@ -109,7 +110,7 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest) *services.UpdateStoryRequest {
+func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest, actorUserID *int64) *services.UpdateStoryRequest {
 	var weekdays *models.Weekdays
 	if req.Weekdays != nil {
 		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
@@ -117,15 +118,16 @@ func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest) *services.UpdateS
 	}
 
 	return &services.UpdateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID: actorUserID,
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   req.StartDate,
+		EndDate:     req.EndDate,
+		Weekdays:    weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
 	}
 }
 
@@ -136,7 +138,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 		return
 	}
 
-	if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
+	if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
@@ -176,14 +178,14 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
 		})
 	case req.DeletedAt == nil:
-		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status)
+		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status, actorUserID(c))
 		if err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
 		utils.Success(c, updated)
 	case *req.DeletedAt == "":
-		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields))
+		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
 		if err != nil {
 			handleServiceError(c, err, "Story")
 			return
@@ -196,7 +198,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 			Message: "A soft delete cannot be combined with other fields",
 		})
 	default:
-		if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
+		if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
@@ -228,7 +230,7 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 		force = parsed
 	}
 
-	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force); err != nil {
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, force, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}

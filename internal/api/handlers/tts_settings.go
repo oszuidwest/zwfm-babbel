@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
@@ -44,9 +43,7 @@ func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	if !utils.RequireAnyField(c, *serviceReq) {
 		return
 	}
-	if userID, ok := auth.UserID(c); ok {
-		serviceReq.ActorUserID = &userID
-	}
+	serviceReq.ActorUserID = actorUserID(c)
 
 	updated, err := h.ttsSettingsSvc.Update(c.Request.Context(), serviceReq)
 	if err != nil {

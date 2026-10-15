@@ -22,11 +22,12 @@ import (
 )
 
 type routerDeps struct {
-	handlers          *handlers.Handlers
-	automationHandler *handlers.AutomationHandler
-	authHandlers      *AuthHandlers
-	authService       *auth.Service
-	bulletinJobSvc    *services.BulletinJobService
+	handlers           *handlers.Handlers
+	auditEventsHandler *handlers.AuditEventsHandler
+	automationHandler  *handlers.AutomationHandler
+	authHandlers       *AuthHandlers
+	authService        *auth.Service
+	bulletinJobSvc     *services.BulletinJobService
 }
 
 // SetupRouter configures routes and returns a bulletin worker for the caller to start.
@@ -73,7 +74,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 
 	audioSvc := audio.NewService(cfg, alerts)
 	ttsSvc := tts.NewService(&cfg.TTS)
-	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
+	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo, txManager)
 	pronunciationInjector := services.NewPronunciationInjector(pronunciationRuleRepo)
 	pronunciationRulesSvc := services.NewPronunciationRulesService(pronunciationRuleRepo, txManager)
 
@@ -136,11 +137,12 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 	return &routerDeps{
-		handlers:          h,
-		automationHandler: automationHandler,
-		authHandlers:      NewAuthHandlers(authService, cfg.FrontendURL, h),
-		authService:       authService,
-		bulletinJobSvc:    bulletinJobSvc,
+		handlers:           h,
+		auditEventsHandler: handlers.NewAuditEventsHandler(repository.NewAuditEventRepository(db), authService.EffectivePermissions),
+		automationHandler:  automationHandler,
+		authHandlers:       NewAuthHandlers(authService, cfg.FrontendURL, h),
+		authService:        authService,
+		bulletinJobSvc:     bulletinJobSvc,
 	}, nil
 }
 
@@ -212,6 +214,7 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 
 	protected := v1.Group("")
 	protected.Use(deps.authService.Middleware())
+	protected.GET("/audit-events", deps.auditEventsHandler.List)
 
 	registerSessionRoutes(protected, deps)
 	registerStationRoutes(protected, deps)

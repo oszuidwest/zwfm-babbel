@@ -28,13 +28,17 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.UpdateAudio(t.Context(), story.ID, "original.wav", 12); err != nil {
+	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "original.wav", DurationSeconds: 12, Publish: noPublish,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SoftDelete(t.Context(), story.ID); err != nil {
+	if err := repo.SoftDelete(t.Context(), story.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	err = repo.UpdateAudio(t.Context(), story.ID, "replacement.wav", 20)
+	err = repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
+	})
 	deleted, ok := errors.AsType[*StoryDeletedError](err)
 	if !ok || deleted.ID != story.ID || deleted.DeletedAt.IsZero() {
 		t.Fatalf("UpdateAudio after deletion = %v, want deletion timestamp", err)
@@ -46,7 +50,9 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if saved.AudioFile != "original.wav" || saved.DurationSeconds == nil || *saved.DurationSeconds != 12 {
 		t.Fatalf("deleted story audio changed: %+v", saved)
 	}
-	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, "replacement.wav", 20); !errors.Is(err, ErrNotFound) {
+	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
+	}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UpdateAudio missing = %v, want ErrNotFound", err)
 	}
 }
@@ -77,7 +83,9 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.UpdateAudio(t.Context(), story.ID, "calendar.wav", 10); err != nil {
+	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "calendar.wav", DurationSeconds: 10, Publish: noPublish,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct {

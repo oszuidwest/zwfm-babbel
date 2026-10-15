@@ -3,7 +3,7 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -35,12 +35,13 @@ var allowedTextNormalizations = []string{
 
 // TTSSettingsService manages the singleton ElevenLabs request settings.
 type TTSSettingsService struct {
-	repo *repository.TTSSettingsRepository
+	repo      *repository.TTSSettingsRepository
+	txManager repository.TxManager
 }
 
 // NewTTSSettingsService binds settings validation and persistence to repo.
-func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsService {
-	return &TTSSettingsService{repo: repo}
+func NewTTSSettingsService(repo *repository.TTSSettingsRepository, txManager repository.TxManager) *TTSSettingsService {
+	return &TTSSettingsService{repo: repo, txManager: txManager}
 }
 
 // UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
@@ -65,13 +66,8 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 // Update validates and persists settings with last-writer-wins semantics.
 // Audit entries include changed values and the actor when available.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
-	current, err := s.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	if req == nil || req.IsEmpty() {
-		return current, nil
+		return s.Get(ctx)
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
@@ -86,13 +82,26 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		ClearSeed:              req.ClearSeed,
 	}
 
-	if err := s.repo.Update(ctx, update); err != nil {
-		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
-	}
-
-	updated, err := s.Get(ctx)
+	var current, updated *models.TTSSettings
+	err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
+		var err error
+		current, err = s.repo.GetForUpdate(ctx)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Update(ctx, update); err != nil {
+			return err
+		}
+		updated, err = s.repo.Get(ctx)
+		if err != nil {
+			return err
+		}
+		return repository.RecordAudit(ctx, models.AuditEvent{
+			UserID: req.ActorUserID, EntityType: models.AuditEntityTTSSettings, EntityID: repository.TTSSettingsSingletonID, Action: models.AuditActionUpdate,
+		}, ttsSettingsAuditValues(current), ttsSettingsAuditValues(updated))
+	})
 	if err != nil {
-		return nil, err
+		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
 	}
 
 	logTTSSettingsUpdate(req, current, updated)
@@ -184,71 +193,40 @@ func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.T
 }
 
 func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) map[string]any {
-	changed := changedTTSSettingsFields(req, before, after)
+	oldValues, newValues := ttsSettingsAuditValues(before), ttsSettingsAuditValues(after)
+	fields := map[string]any{}
+	changed := []string{}
+	// Scalar values compare with ==; floats come from the same DECIMAL(3,2)
+	// column on both sides, with no arithmetic between reads.
+	for _, field := range slices.Sorted(maps.Keys(newValues)) {
+		if oldValues[field] != newValues[field] {
+			changed = append(changed, field)
+			fields["old_"+field] = oldValues[field]
+			fields["new_"+field] = newValues[field]
+		}
+	}
 	if len(changed) == 0 {
 		return nil
 	}
-
-	fields := map[string]any{
-		"changed_fields": changed,
-	}
+	fields["changed_fields"] = changed
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
-	}
-	for _, field := range changed {
-		fields["old_"+field] = ttsSettingsFieldValue(before, field)
-		fields["new_"+field] = ttsSettingsFieldValue(after, field)
 	}
 	return fields
 }
 
-func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) []string {
-	changed := []string{}
-	appendIfChanged := func(set bool, field string, equal bool) {
-		if set && !equal {
-			changed = append(changed, field)
-		}
+// ttsSettingsAuditValues returns every audited setting by API field name;
+// RecordAudit and the update log keep only the ones that changed. Seed is
+// unwrapped so the log compares and prints its value, not a pointer.
+func ttsSettingsAuditValues(settings *models.TTSSettings) map[string]any {
+	var seed any
+	if settings.Seed != nil {
+		seed = *settings.Seed
 	}
-
-	// Float equality is intentional: both sides are read from the same DECIMAL(3,2)
-	// database columns around the update, with no arithmetic between reads.
-	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
-	appendIfChanged(
-		req.ApplyTextNormalization != nil,
-		"apply_text_normalization",
-		before.ApplyTextNormalization == after.ApplyTextNormalization,
-	)
-	appendIfChanged(req.Seed != nil || req.ClearSeed, "seed", seedEqual(before.Seed, after.Seed))
-	appendIfChanged(req.TTSStylePrefix != nil, "tts_style_prefix", before.TTSStylePrefix == after.TTSStylePrefix)
-
-	return changed
-}
-
-func seedEqual(a, b *uint32) bool {
-	switch {
-	case a == nil && b == nil:
-		return true
-	case a == nil || b == nil:
-		return false
-	default:
-		return *a == *b
-	}
-}
-
-func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
-	switch field {
-	case "stability":
-		return settings.Stability
-	case "apply_text_normalization":
-		return settings.ApplyTextNormalization
-	case "seed":
-		if settings.Seed == nil {
-			return nil
-		}
-		return *settings.Seed
-	case "tts_style_prefix":
-		return settings.TTSStylePrefix
-	default:
-		return fmt.Sprintf("<unknown field %s>", field)
+	return map[string]any{
+		"stability":                settings.Stability,
+		"apply_text_normalization": settings.ApplyTextNormalization,
+		"seed":                     seed,
+		"tts_style_prefix":         settings.TTSStylePrefix,
 	}
 }
