@@ -51,19 +51,18 @@ func NewStoryRepository(db *gorm.DB) *StoryRepository {
 	}
 }
 
-// Create inserts a story and reloads voice data when a voice is assigned.
+// Create inserts a story.
 func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
-		Title:      data.Title,
-		Text:       data.Text,
-		VoiceID:    data.VoiceID,
-		Status:     models.StoryStatus(data.Status),
-		StartDate:  models.Date(data.StartDate),
-		EndDate:    models.Date(data.EndDate),
-		Weekdays:   data.Weekdays,
-		IsBreaking: data.IsBreaking,
-		Metadata:   data.Metadata,
-
+		Title:          data.Title,
+		Text:           data.Text,
+		VoiceID:        data.VoiceID,
+		Status:         models.StoryStatus(data.Status),
+		StartDate:      models.Date(data.StartDate),
+		EndDate:        models.Date(data.EndDate),
+		Weekdays:       data.Weekdays,
+		IsBreaking:     data.IsBreaking,
+		Metadata:       data.Metadata,
 		IdempotencyKey: data.IdempotencyKey,
 	}
 
@@ -71,13 +70,6 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 	if err := db.WithContext(ctx).Create(story).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
-
-	if story.VoiceID != nil {
-		if err := db.WithContext(ctx).Preload("Voice").First(story, story.ID).Error; err != nil {
-			return nil, ParseDBError(err)
-		}
-	}
-
 	return story, nil
 }
 

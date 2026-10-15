@@ -91,16 +91,15 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 // CreateStoryRequest carries the required fields for a scheduled story.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
-	Title      string
-	Text       string
-	VoiceID    *int64
-	Status     string
-	StartDate  string
-	EndDate    string
-	Weekdays   models.Weekdays
-	IsBreaking bool
-	Metadata   *datatypes.JSONMap
-	// IdempotencyKey makes a repeated create return the story the first one made.
+	Title          string
+	Text           string
+	VoiceID        *int64
+	Status         string
+	StartDate      string
+	EndDate        string
+	Weekdays       models.Weekdays
+	IsBreaking     bool
+	Metadata       *datatypes.JSONMap
 	IdempotencyKey *string
 }
 

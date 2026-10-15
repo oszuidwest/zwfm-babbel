@@ -63,16 +63,15 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.CreateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
-
+		Title:          req.Title,
+		Text:           req.Text,
+		VoiceID:        req.VoiceID,
+		Status:         req.Status,
+		StartDate:      req.StartDate,
+		EndDate:        req.EndDate,
+		Weekdays:       weekdays,
+		IsBreaking:     req.IsBreaking,
+		Metadata:       req.Metadata,
 		IdempotencyKey: req.IdempotencyKey,
 	}
 

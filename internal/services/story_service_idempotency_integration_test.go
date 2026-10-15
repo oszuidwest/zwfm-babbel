@@ -120,8 +120,7 @@ func TestStoryService_CreateRecoversFromAConcurrentCreateWithTheSameKey(t *testi
 	}
 
 	repo := &raceStoryRepository{StoryRepository: repository.NewStoryRepository(db)}
-	service := newIdempotencyTestService(db)
-	service.storyRepo = repo
+	service := &StoryService{storyRepo: repo}
 	id, err := service.Create(t.Context(), idempotentCreate("Loser", key))
 	if err != nil || id != winner || repo.lookups != 2 {
 		t.Fatalf("Create() = %d, %v after %d lookups; want %d after the duplicate key", id, err, repo.lookups, winner)
@@ -138,10 +137,7 @@ func TestStoryService_CreateRecoversFromAConcurrentCreateWithTheSameKey(t *testi
 }
 
 func newIdempotencyTestService(db *gorm.DB) *StoryService {
-	return &StoryService{
-		storyRepo: repository.NewStoryRepository(db),
-		voiceRepo: repository.NewVoiceRepository(db),
-	}
+	return &StoryService{storyRepo: repository.NewStoryRepository(db)}
 }
 
 // newIdempotencyKey returns a key unique to this test run and deletes the stories made with it

@@ -168,7 +168,7 @@ describe('Stories', () => {
 
   describe('Idempotent Create', () => {
     test('when repeating a create with the same idempotency_key, then the first story answers', async () => {
-      const key = `jest-idempotent-${Date.now()}`;
+      const key = global.helpers.uniqueName('jest-idempotent');
       const body = storiesSchema.createValidData('IdempotentCreate');
       const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
       expect(first.status).toBe(201);
