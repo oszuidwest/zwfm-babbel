@@ -31,11 +31,8 @@ func TestStoryAuditLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { deleteIntegrationStory(t, db, story.ID) })
-	events := storyAuditEvents(t, db, story.ID)
-	if len(events) != 1 || events[0].Action != "create" {
-		t.Fatalf("create events = %+v", events)
-	}
-	assertAuditChange(t, events[0], "title", nil, "First &amp; title")
+	created := lastStoryAuditEvent(t, db, story.ID, 1, models.AuditActionCreate)
+	assertAuditChange(t, created, "title", nil, "First &amp; title")
 
 	title, text, status := "Second title", "Second text", "active"
 	start, end := time.Now().AddDate(0, 0, -1), time.Now().AddDate(0, 0, 1)
@@ -47,61 +44,46 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 2 {
-		t.Fatalf("update event count = %d", len(events))
-	}
-	assertAuditChange(t, events[1], "title", "First &amp; title", title)
-	assertAuditChange(t, events[1], "text", "First text", text)
-	assertAuditChange(t, events[1], "status", "draft", "active")
-	assertAuditChange(t, events[1], "is_breaking", false, true)
-	assertAuditChange(t, events[1], "weekdays", 127, 2)
-	assertAuditChange(t, events[1], "metadata", nil, metadata)
-	assertAuditChange(t, events[1], "start_date", time.Time(story.StartDate).Format("2006-01-02"), start.Format("2006-01-02"))
-	assertAuditChange(t, events[1], "end_date", time.Time(story.EndDate).Format("2006-01-02"), end.Format("2006-01-02"))
+	updated := lastStoryAuditEvent(t, db, story.ID, 2, models.AuditActionUpdate)
+	assertAuditChange(t, updated, "title", "First &amp; title", title)
+	assertAuditChange(t, updated, "text", "First text", text)
+	assertAuditChange(t, updated, "status", "draft", "active")
+	assertAuditChange(t, updated, "is_breaking", false, true)
+	assertAuditChange(t, updated, "weekdays", 127, 2)
+	assertAuditChange(t, updated, "metadata", nil, metadata)
+	assertAuditChange(t, updated, "start_date", time.Time(story.StartDate).Format("2006-01-02"), start.Format("2006-01-02"))
+	assertAuditChange(t, updated, "end_date", time.Time(story.EndDate).Format("2006-01-02"), end.Format("2006-01-02"))
 
 	if err := repo.SoftDelete(t.Context(), story.ID, &actor); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 3 || events[2].Action != "delete" {
-		t.Fatalf("delete events = %+v", events)
-	}
+	deleteEvent := lastStoryAuditEvent(t, db, story.ID, 3, models.AuditActionDelete)
 	var deleted models.Story
 	if err := db.Unscoped().First(&deleted, story.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	assertAuditChange(t, events[2], "deleted_at", nil, deleted.DeletedAt.Time)
+	assertAuditChange(t, deleteEvent, "deleted_at", nil, deleted.DeletedAt.Time)
 	if err := repo.Restore(t.Context(), story.ID, &actor); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 4 || events[3].Action != "restore" {
-		t.Fatalf("restore events = %+v", events)
-	}
-	assertAuditChange(t, events[3], "deleted_at", deleted.DeletedAt.Time, nil)
+	restored := lastStoryAuditEvent(t, db, story.ID, 4, models.AuditActionRestore)
+	assertAuditChange(t, restored, "deleted_at", deleted.DeletedAt.Time, nil)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
 		ActorUserID: &actor, Action: models.AuditActionAudio, AudioFile: "new.wav", DurationSeconds: 1.236, Publish: noPublish,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 5 || events[4].Action != models.AuditActionAudio {
-		t.Fatalf("audio events = %+v", events)
-	}
-	assertAuditChange(t, events[4], "audio_file", "", "new.wav")
-	assertAuditChange(t, events[4], "duration_seconds", nil, 1.24)
+	uploaded := lastStoryAuditEvent(t, db, story.ID, 5, models.AuditActionAudio)
+	assertAuditChange(t, uploaded, "audio_file", "", "new.wav")
+	assertAuditChange(t, uploaded, "duration_seconds", nil, 1.24)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
 		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, Publish: noPublish,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 6 || events[5].Action != models.AuditActionTTS {
-		t.Fatalf("TTS events = %+v", events)
-	}
+	lastStoryAuditEvent(t, db, story.ID, 6, models.AuditActionTTS)
 
 	// Regenerating overwrites the same file; it is history even when no column changes.
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
@@ -109,11 +91,10 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events = storyAuditEvents(t, db, story.ID)
-	if len(events) != 7 || events[6].Action != models.AuditActionTTS || string(events[6].Changes) != "{}" {
-		t.Fatalf("repeated TTS events = %+v", events)
+	if regenerated := lastStoryAuditEvent(t, db, story.ID, 7, models.AuditActionTTS); string(regenerated.Changes) != "{}" {
+		t.Fatalf("repeated TTS changes = %s", regenerated.Changes)
 	}
-	for _, event := range events {
+	for _, event := range storyAuditEvents(t, db, story.ID) {
 		if event.ActorType != "user" || event.UserID == nil || *event.UserID != actor || event.OccurredAt.IsZero() {
 			t.Fatalf("actor/time = %+v", event)
 		}
@@ -169,7 +150,7 @@ func TestStoryAudioNotPublishedWhenAuditFails(t *testing.T) {
 	repo := NewStoryRepository(db)
 	id := createIntegrationStory(t, db)
 	sentinel := errors.New("audit unavailable")
-	rejectAuditWrites(t, db, sentinel)
+	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
 	published := false
 	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
 		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3,
@@ -222,7 +203,7 @@ func TestStoryAuditRollback(t *testing.T) {
 		t.Fatalf("rollback events = %+v", got)
 	}
 
-	rejectAuditWrites(t, db, sentinel)
+	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
 	if err := repo.SoftDelete(t.Context(), id, nil); !errors.Is(err, sentinel) {
 		t.Fatalf("audit failure = %v", err)
 	}
@@ -245,7 +226,7 @@ func TestAuditFailureRollsBackWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	sentinel := errors.New("audit unavailable")
-	rejectAuditWrites(t, db, sentinel)
+	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
 
 	title := fmt.Sprintf("Rolled back create %d", time.Now().UnixNano())
 	if _, err := stories.Create(t.Context(), &StoryCreateData{
@@ -280,7 +261,7 @@ func TestAuditFailureRollsBackWrites(t *testing.T) {
 func TestMissingAuditTableHasItsOwnError(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	missing := &mysql.MySQLError{Number: 1146, Message: "Table 'babbel.audit_events' doesn't exist"}
-	rejectAuditWrites(t, db, missing)
+	testutil.RejectAuditWrites(t, db, func() error { return missing })
 	if err := db.Callback().Query().Before("gorm:query").Register("test:missing_audit_query", func(tx *gorm.DB) {
 		if tx.Statement.Table == "audit_events" {
 			_ = tx.AddError(missing)
@@ -366,17 +347,6 @@ func TestPronunciationRulesAudit(t *testing.T) {
 	}
 	if rules, err := repo.List(t.Context()); err != nil || len(rules) != 2 {
 		t.Fatalf("ReplaceAll without a transaction changed rules: %+v err=%v", rules, err)
-	}
-}
-
-func rejectAuditWrites(t *testing.T, db *gorm.DB, err error) {
-	t.Helper()
-	if err := db.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(tx *gorm.DB) {
-		if tx.Statement.Table == "audit_events" {
-			_ = tx.AddError(err)
-		}
-	}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -488,6 +458,17 @@ func storyAuditEvents(t *testing.T, db *gorm.DB, id int64) []models.AuditEvent {
 		t.Fatal(err)
 	}
 	return events
+}
+
+// lastStoryAuditEvent requires count story events and returns the last, which
+// must record action.
+func lastStoryAuditEvent(t *testing.T, db *gorm.DB, id int64, count int, action models.AuditAction) models.AuditEvent {
+	t.Helper()
+	events := storyAuditEvents(t, db, id)
+	if len(events) != count || events[count-1].Action != action {
+		t.Fatalf("story %d events = %+v; want %d ending in %q", id, events, count, action)
+	}
+	return events[count-1]
 }
 
 func assertAuditChange(t *testing.T, event models.AuditEvent, field string, oldValue, newValue any) {

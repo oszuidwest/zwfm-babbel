@@ -2,7 +2,6 @@ const { createUser, switchToUser, restoreAdmin } = require('../lib/RoleHelpers')
 
 describe('Audit events', () => {
   let admin;
-  let station;
   let originalSettings;
   let originalPronunciations;
   const roles = {};
@@ -12,8 +11,6 @@ describe('Audit events', () => {
     await restoreAdmin();
     admin = await global.api.getCurrentSession();
     expect(admin).not.toBeNull();
-    station = await global.helpers.createStation(global.resources, 'Audit station');
-    expect(station).not.toBeNull();
 
     const settings = await global.api.apiCall('GET', '/settings/tts');
     expect(settings.status).toBe(200);
@@ -161,7 +158,7 @@ describe('Audit events', () => {
   });
 
   async function createStory(title) {
-    const story = await global.helpers.createStory(global.resources, { title, status: 'draft' }, [station.id]);
+    const story = await global.helpers.createStory(global.resources, { title, status: 'draft' });
     expect(story).not.toBeNull();
     return story;
   }

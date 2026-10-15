@@ -8,7 +8,8 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const ttsSettingsSingletonID int64 = 1
+// TTSSettingsSingletonID is the id of the only tts_settings row.
+const TTSSettingsSingletonID int64 = 1
 
 // TTSSettingsUpdate uses nil for unchanged fields and ClearSeed for an explicit NULL.
 type TTSSettingsUpdate struct {
@@ -42,7 +43,7 @@ func (r *TTSSettingsRepository) GetForUpdate(ctx context.Context) (*models.TTSSe
 
 func firstTTSSettings(db *gorm.DB) (*models.TTSSettings, error) {
 	var settings models.TTSSettings
-	if err := db.Where("id = ?", ttsSettingsSingletonID).First(&settings).Error; err != nil {
+	if err := db.Where("id = ?", TTSSettingsSingletonID).First(&settings).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 	return &settings, nil
@@ -59,7 +60,7 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).
 		Model(&models.TTSSettings{}).
-		Where("id = ?", ttsSettingsSingletonID).
+		Where("id = ?", TTSSettingsSingletonID).
 		Updates(updateMap)
 	if result.Error != nil {
 		return ParseDBError(result.Error)

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -97,7 +96,7 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 			return err
 		}
 		return repository.RecordAudit(ctx, models.AuditEvent{
-			UserID: req.ActorUserID, EntityType: models.AuditEntityTTSSettings, EntityID: 1, Action: models.AuditActionUpdate,
+			UserID: req.ActorUserID, EntityType: models.AuditEntityTTSSettings, EntityID: repository.TTSSettingsSingletonID, Action: models.AuditActionUpdate,
 		}, ttsSettingsAuditValues(current), ttsSettingsAuditValues(updated))
 	})
 	if err != nil {
@@ -204,9 +203,10 @@ func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *m
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
 	}
+	oldValues, newValues := ttsSettingsAuditValues(before), ttsSettingsAuditValues(after)
 	for _, field := range changed {
-		fields["old_"+field] = ttsSettingsFieldValue(before, field)
-		fields["new_"+field] = ttsSettingsFieldValue(after, field)
+		fields["old_"+field] = oldValues[field]
+		fields["new_"+field] = newValues[field]
 	}
 	return fields
 }
@@ -244,30 +244,17 @@ func seedEqual(a, b *uint32) bool {
 	}
 }
 
-// ttsSettingsAuditValues returns every audited setting; RecordAudit keeps only
-// the ones that changed.
+// ttsSettingsAuditValues returns every audited setting by API field name;
+// RecordAudit and the update log keep only the ones that changed.
 func ttsSettingsAuditValues(settings *models.TTSSettings) map[string]any {
-	values := make(map[string]any, 4)
-	for _, field := range []string{"stability", "apply_text_normalization", "seed", "tts_style_prefix"} {
-		values[field] = ttsSettingsFieldValue(settings, field)
+	var seed any
+	if settings.Seed != nil {
+		seed = *settings.Seed
 	}
-	return values
-}
-
-func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
-	switch field {
-	case "stability":
-		return settings.Stability
-	case "apply_text_normalization":
-		return settings.ApplyTextNormalization
-	case "seed":
-		if settings.Seed == nil {
-			return nil
-		}
-		return *settings.Seed
-	case "tts_style_prefix":
-		return settings.TTSStylePrefix
-	default:
-		return fmt.Sprintf("<unknown field %s>", field)
+	return map[string]any{
+		"stability":                settings.Stability,
+		"apply_text_normalization": settings.ApplyTextNormalization,
+		"seed":                     seed,
+		"tts_style_prefix":         settings.TTSStylePrefix,
 	}
 }

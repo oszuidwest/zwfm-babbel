@@ -102,7 +102,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	sentinel := errors.New("audit unavailable")
-	rejectAuditWrites(t, tx, func() error { return sentinel })
+	testutil.RejectAuditWrites(t, tx, func() error { return sentinel })
 	speechGenerator.data = speech("sine=frequency=880:duration=2")
 	if err := service.GenerateTTS(t.Context(), story.ID, true, &actor); !errors.Is(err, sentinel) {
 		t.Fatalf("failed TTS = %v", err)
@@ -138,7 +138,7 @@ func TestTTSSettingsUpdateAuditFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var auditErr error
-	rejectAuditWrites(t, tx, func() error { return auditErr })
+	testutil.RejectAuditWrites(t, tx, func() error { return auditErr })
 	prefix := before.TTSStylePrefix + " changed"
 	update := func() error {
 		_, err := service.Update(t.Context(), &UpdateTTSSettingsRequest{TTSStylePrefix: &prefix, ActorUserID: new(int64(307))})
@@ -164,17 +164,5 @@ func TestTTSSettingsUpdateAuditFailure(t *testing.T) {
 	if err := update(); !errors.As(err, &notInitialized) ||
 		notInitialized.Resource != "audit_events" || notInitialized.Hint != "apply migrations/013_audit_events.sql" {
 		t.Fatalf("missing audit table = %#v", err)
-	}
-}
-
-// rejectAuditWrites fails every audit_events insert with the current err().
-func rejectAuditWrites(t *testing.T, tx *gorm.DB, err func() error) {
-	t.Helper()
-	if regErr := tx.Callback().Create().Before("gorm:create").Register("test:reject_audit", func(db *gorm.DB) {
-		if db.Statement.Table == "audit_events" {
-			_ = db.AddError(err())
-		}
-	}); regErr != nil {
-		t.Fatal(regErr)
 	}
 }

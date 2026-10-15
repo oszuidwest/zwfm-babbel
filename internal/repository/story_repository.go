@@ -128,9 +128,6 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 
 // Update applies non-nil story fields.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
-	if u == nil {
-		return nil
-	}
 	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
@@ -196,11 +193,6 @@ func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudi
 		}
 		return u.Publish()
 	})
-}
-
-// UpdateStatus updates the story status.
-func (r *StoryRepository) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) error {
-	return r.Update(ctx, id, &StoryUpdate{Status: &status, ActorUserID: actorUserID})
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as

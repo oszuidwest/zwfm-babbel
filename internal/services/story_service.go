@@ -45,7 +45,6 @@ type storyRepository interface {
 	SoftDelete(context.Context, int64, *int64) error
 	Restore(context.Context, int64, *int64) error
 	UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error
-	UpdateStatus(context.Context, int64, string, *int64) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
 }
 
@@ -358,7 +357,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 // UpdateStatus changes a story's workflow state to draft, active, or expired.
 // Request binding validates status.
 func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) (*models.Story, error) {
-	err := s.storyRepo.UpdateStatus(ctx, id, status, actorUserID)
+	err := s.storyRepo.Update(ctx, id, &repository.StoryUpdate{ActorUserID: actorUserID, Status: &status})
 	if err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
