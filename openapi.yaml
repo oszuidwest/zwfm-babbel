@@ -1708,7 +1708,6 @@ paths:
         This endpoint can be used to:
         - Change story status (draft, active, expired)
         - Restore a soft-deleted story by setting deleted_at to empty string
-        - Restore a story and update it in one step
 
         Without `deleted_at`, send only `status`. A restore (`deleted_at: ""`)
         may carry any field that `PUT /stories/{id}` accepts. The restore and
@@ -1718,7 +1717,7 @@ paths:
         not deleted only applies the fields. Any other `deleted_at` value
         soft-deletes the story and takes no other field.
 
-        No field fails with 422 (`request`, `empty_update`). A story field
+        No non-null field fails with 422 (`request`, `empty_update`). A story field
         other than `status` without a restore, or a soft delete with another
         field, fails with 422 (`request`, `unsupported`). An unknown status
         fails with 422 (`status`, `invalid_choice`); other field errors match
@@ -1785,6 +1784,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -4840,7 +4841,7 @@ components:
                 detail: "You do not have permission to perform this action"
                 instance: "/api/v1/users"
     StoryDeleted:
-      description: Story is soft-deleted. Restore it with PATCH {"deleted_at":""} before updating it, or restore and update it in one PATCH that adds the fields.
+      description: Story is soft-deleted. Restore it with PATCH {"deleted_at":""}, optionally with the fields to update.
       content:
         application/problem+json:
           schema:

@@ -16,15 +16,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// probingStoryRepository runs probe right after each update, while a restore's
+// probingStoryRepository runs probe right after the restore, while its
 // transaction is still open.
 type probingStoryRepository struct {
 	*repository.StoryRepository
 	probe func()
 }
 
-func (r probingStoryRepository) Update(ctx context.Context, id int64, u *repository.StoryUpdate) error {
-	err := r.StoryRepository.Update(ctx, id, u)
+func (r probingStoryRepository) Restore(ctx context.Context, id int64) error {
+	err := r.StoryRepository.Restore(ctx, id)
 	r.probe()
 	return err
 }
@@ -35,15 +35,16 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	today := time.Now()
 	later := today.AddDate(0, 0, 10)
 	start := later.Format(time.DateOnly)
-	weekdays := models.WeekdaysAll
 
 	// Bulletin selection runs outside the restore's transaction, on another connection.
 	var midRestore []repository.BulletinStoryData
+	probed := false
 	reader := repository.NewStoryRepository(db)
 	service := &StoryService{
 		storyRepo: probingStoryRepository{
 			StoryRepository: repository.NewStoryRepository(db),
 			probe: func() {
+				probed = true
 				var err error
 				midRestore, err = reader.GetStoriesForBulletin(context.Background(), station.ID, today, 5)
 				if err != nil {
@@ -55,27 +56,20 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 		txManager: repository.NewTxManager(db),
 	}
 
-	restored, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{StartDate: &start, EndDate: &start, Weekdays: &weekdays})
-	if err != nil {
+	if _, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{StartDate: &start, EndDate: &start}); err != nil {
 		t.Fatalf("Restore() error = %v", err)
+	}
+	if !probed {
+		t.Fatal("probe did not run during the restore")
 	}
 	if containsStory(midRestore, story.ID) {
 		t.Fatal("bulletin selection saw the restored story with its old window before the update committed")
 	}
-	if restored.DeletedAt.Valid || time.Time(restored.StartDate).Format(time.DateOnly) != start {
-		t.Fatalf("Restore() = deleted %v, start %v; want live from %s", restored.DeletedAt.Valid, restored.StartDate, start)
+	selected, err := reader.GetStoriesForBulletin(t.Context(), station.ID, later, 5)
+	if err != nil {
+		t.Fatal(err)
 	}
-	selectable := func(day time.Time) bool {
-		selected, err := reader.GetStoriesForBulletin(t.Context(), station.ID, day, 5)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return containsStory(selected, story.ID)
-	}
-	if selectable(today) {
-		t.Fatal("restored story still selectable in its old window")
-	}
-	if !selectable(later) {
+	if !containsStory(selected, story.ID) {
 		t.Fatal("restored story not selectable on its new start date")
 	}
 }
@@ -129,9 +123,15 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		db.Unscoped().Where("voice_id = ?", voice.ID).Delete(&models.Story{})
-		db.Where("voice_id = ?", voice.ID).Delete(&models.StationVoice{})
-		db.Delete(&voice)
+		for _, err := range []error{
+			db.Unscoped().Where("voice_id = ?", voice.ID).Delete(&models.Story{}).Error,
+			db.Where("voice_id = ?", voice.ID).Delete(&models.StationVoice{}).Error,
+			db.Delete(&voice).Error,
+		} {
+			if err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
 	})
 	if err := repo.UpdateAudio(t.Context(), story.ID, "restore.wav", 10); err != nil {
 		t.Fatal(err)

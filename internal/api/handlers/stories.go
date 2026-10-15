@@ -109,7 +109,6 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	utils.Success(c, updated)
 }
 
-// toStoryUpdateServiceRequest converts a validated update request to the service request.
 func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest) *services.UpdateStoryRequest {
 	var weekdays *models.Weekdays
 	if req.Weekdays != nil {

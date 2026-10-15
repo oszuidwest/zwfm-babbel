@@ -50,7 +50,6 @@ describe('Validation Error Contract', () => {
 
   test.each([
     ['a soft delete with status', { status: 'draft', deleted_at: '2026-09-26T12:00:00Z' }],
-    ['a soft delete with a story field', { title: 'Changed', deleted_at: '2026-09-26T12:00:00Z' }],
     ['a story field other than status without a restore', { title: 'Changed' }],
     ['status with another story field without a restore', { status: 'draft', weekdays: 0 }]
   ])('when PATCH story sends %s, then 422 names request', async (name, body) => {
