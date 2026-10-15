@@ -1760,10 +1760,7 @@ paths:
       operationId: patchStoriesId
       summary: Update story state
       description: |
-        Update story status or restore soft-deleted stories.
-        This endpoint can be used to:
-        - Change story status (draft, active, expired)
-        - Restore a soft-deleted story by setting deleted_at to empty string
+        Change story status, soft-delete a story, or restore it.
 
         Without `deleted_at`, send only `status`. A restore (`deleted_at: ""`)
         may carry any field that `PUT /stories/{id}` accepts. The restore and
@@ -1773,11 +1770,11 @@ paths:
         not deleted only applies the fields. Any other `deleted_at` value
         soft-deletes the story and takes no other field.
 
-        No non-null field fails with 422 (`request`, `empty_update`). A story field
-        other than `status` without a restore, or a soft delete with another
-        field, fails with 422 (`request`, `unsupported`). An unknown status
-        fails with 422 (`status`, `invalid_choice`); other field errors match
-        `PUT /stories/{id}`.
+        A body that sets no field fails with 422 (`request`, `empty_update`). A
+        story field other than `status` without a restore, or a soft delete
+        with another field, fails with 422 (`request`, `unsupported`). An
+        unknown status fails with 422 (`status`, `invalid_choice`); other
+        field errors match `PUT /stories/{id}`.
       tags:
         - Stories
       parameters:

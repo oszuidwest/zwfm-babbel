@@ -300,11 +300,10 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 	return nil
 }
 
-// Restore reactivates a soft-deleted story, applies update in the same
-// transaction, and returns the story. No reader, such as bulletin selection,
-// sees the restored story with its old fields; when the update fails, the
-// story stays deleted. update must be non-nil; an empty update only restores.
-// Both the restore and the update are attributed to update.ActorUserID.
+// Restore reactivates a soft-deleted story and applies update in the same
+// transaction, so bulletin selection never sees the old fields and a failed
+// update leaves the story deleted. update must be non-nil; an empty update
+// only restores. Both writes are attributed to update.ActorUserID.
 func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
 	var story *models.Story
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
@@ -373,17 +372,6 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil
-}
-
-// UpdateStatus changes a story's workflow state to draft, active, or expired.
-// Request binding validates status.
-func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) (*models.Story, error) {
-	err := s.storyRepo.Update(ctx, id, &repository.StoryUpdate{ActorUserID: actorUserID, Status: &status})
-	if err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.

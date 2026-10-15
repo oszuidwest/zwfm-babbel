@@ -42,7 +42,7 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	reader := repository.NewStoryRepository(db)
 	service := &StoryService{
 		storyRepo: probingStoryRepository{
-			StoryRepository: repository.NewStoryRepository(db),
+			StoryRepository: reader,
 			probe: func() {
 				probed = true
 				var err error
@@ -125,6 +125,7 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 	t.Cleanup(func() {
 		for _, err := range []error{
 			db.Unscoped().Where("voice_id = ?", voice.ID).Delete(&models.Story{}).Error,
+			db.Where("entity_type = ? AND entity_id = ?", models.AuditEntityStory, story.ID).Delete(&models.AuditEvent{}).Error,
 			db.Where("voice_id = ?", voice.ID).Delete(&models.StationVoice{}).Error,
 			db.Delete(&voice).Error,
 		} {

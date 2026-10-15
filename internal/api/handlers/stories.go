@@ -146,11 +146,10 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus changes workflow state or toggles soft deletion. Without
-// deleted_at, a request sets only status. An empty deleted_at string restores
-// the story, atomically with any field PUT accepts (see StoryService.Restore).
-// Any other deleted_at value is treated as a soft-delete request for
-// compatibility with the legacy API and takes no other field.
+// UpdateStoryStatus sets status, or toggles soft deletion: an empty deleted_at
+// restores the story together with any field PUT accepts (see
+// StoryService.Restore); any other value soft-deletes it alone, for
+// compatibility with the legacy API.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -170,15 +169,16 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	fields := req.StoryUpdateRequest
+	statusOnly := fields == utils.StoryUpdateRequest{Status: fields.Status}
 	switch {
-	case req.DeletedAt == nil && fields != (utils.StoryUpdateRequest{Status: fields.Status}):
+	case req.DeletedAt == nil && !statusOnly:
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   apperrors.FieldRequest,
 			Code:    apperrors.CodeUnsupported,
 			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
 		})
 	case req.DeletedAt == nil:
-		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *fields.Status, actorUserID(c))
+		updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
 		if err != nil {
 			handleServiceError(c, err, "Story")
 			return
