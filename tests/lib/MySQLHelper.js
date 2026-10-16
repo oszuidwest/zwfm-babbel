@@ -139,8 +139,10 @@ function createMySQLExecutor(options = {}) {
 
     // TIMESTAMP columns store whole seconds, so rows created together tie.
     // rows is a list of [id, {column: seconds}]; each column becomes a base
-    // one minute ago plus that many seconds. All rows share the base, so the
-    // offsets alone order them.
+    // one minute ago plus that many seconds; offsets under 60 stay in the
+    // past. All rows share the base, so the offsets alone order them. The
+    // session runs in UTC, where no DST gap can fold the offsets into one
+    // instant. Columns left out keep their ON UPDATE behavior.
     setTimestamps(table, rows) {
       const tableName = sqlIdentifier(table, 'table');
       const updates = rows.map(([id, columns]) => {
@@ -149,7 +151,7 @@ function createMySQLExecutor(options = {}) {
         );
         return `UPDATE ${tableName} SET ${assignments.join(', ')} WHERE id = ${sqlInteger(id, 'id')}`;
       });
-      this.execSQL(['SET @base = NOW() - INTERVAL 1 MINUTE', ...updates].join('; '));
+      this.execSQL(["SET time_zone = '+00:00'", 'SET @base = NOW() - INTERVAL 1 MINUTE', ...updates].join('; '));
     },
 
     execSQLScript(input, execOptions = {}) {
