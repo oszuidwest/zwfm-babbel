@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,7 +28,10 @@ type jingleAudioRepository struct {
 	audioFile string
 }
 
-func (r *jingleAudioRepository) UpdateAudio(_ context.Context, id int64, filename string) error {
+func (r *jingleAudioRepository) UpdateAudio(ctx context.Context, id int64, filename string) error {
+	if ctx.Value(jingleTxKey{}) == nil {
+		return errors.New("UpdateAudio ran outside the transaction")
+	}
 	if r.update != nil {
 		r.update()
 	}
@@ -36,6 +40,17 @@ func (r *jingleAudioRepository) UpdateAudio(_ context.Context, id int64, filenam
 	}
 	r.id, r.audioFile = id, filename
 	return nil
+}
+
+type jingleTxKey struct{}
+
+// jingleTxManager marks the transaction context and records rollbacks.
+type jingleTxManager struct{ rolledBack bool }
+
+func (m *jingleTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	err := fn(context.WithValue(ctx, jingleTxKey{}, true))
+	m.rolledBack = m.rolledBack || err != nil
+	return err
 }
 
 func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
@@ -74,20 +89,21 @@ func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatal("timed out waiting for FFmpeg to write output")
 		case <-ticker.C:
-			entries, err := os.ReadDir(service.config.Audio.ProcessedPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, entry := range entries {
+			err := filepath.WalkDir(service.config.Audio.ProcessedPath, func(_ string, entry fs.DirEntry, err error) error {
+				if err != nil || !entry.Type().IsRegular() {
+					return err
+				}
 				info, err := entry.Info()
 				if err != nil {
-					t.Fatal(err)
+					return err
 				}
 				// More bytes than the old jingle proves FFmpeg has written
 				// output, including when testing the old direct-to-live code.
-				if info.Size() > int64(len(existing)) {
-					written = true
-				}
+				written = written || info.Size() > int64(len(existing))
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
 			}
 		}
 	}
@@ -96,7 +112,7 @@ func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
 		t.Fatalf("ProcessJingle() = %v, want context.Canceled", err)
 	}
 	assertJingleContent(t, service, stationVoice, existing)
-	assertNoProcessingJingles(t, service)
+	assertNoProcessingJingles(t, service, stationVoice)
 }
 
 func TestStationVoiceService_JingleDatabaseFailureKeepsExistingAudio(t *testing.T) {
@@ -117,7 +133,7 @@ func TestStationVoiceService_JingleDatabaseFailureKeepsExistingAudio(t *testing.
 		t.Fatal("conversion failed before the database update")
 	}
 	assertJingleContent(t, service, stationVoice, existing)
-	assertNoProcessingJingles(t, service)
+	assertNoProcessingJingles(t, service, stationVoice)
 }
 
 func TestStationVoiceService_ConcurrentJingleRequestsPublishOwnFiles(t *testing.T) {
@@ -178,10 +194,19 @@ func TestStationVoiceService_ConcurrentJingleRequestsPublishOwnFiles(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode := info.Mode().Perm(); mode != 0o644 {
-				t.Fatalf("published mode = %v, want 0644", mode)
+			// os.Create applies the umask the same way FFmpeg does.
+			ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
+			if err != nil {
+				t.Fatal(err)
 			}
-			assertNoProcessingJingles(t, service)
+			refInfo, err := ref.Stat()
+			if err := errors.Join(err, ref.Close()); err != nil {
+				t.Fatal(err)
+			}
+			if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
+				t.Fatalf("published mode = %v, want %v from the umask", mode, want)
+			}
+			assertNoProcessingJingles(t, service, stationVoice)
 		})
 	}
 }
@@ -206,7 +231,7 @@ func TestStationVoiceService_JingleRenameFailure(t *testing.T) {
 				existing = seedJingle(t, service, stationVoice)
 			}
 			repo.update = func() {
-				paths, err := filepath.Glob(filepath.Join(service.config.Audio.ProcessedPath, "*.processing.wav"))
+				paths, err := filepath.Glob(filepath.Join(service.config.Audio.ProcessedPath, "*.processing", "*"))
 				if err != nil || len(paths) != 1 {
 					t.Fatalf("conversion files = %v, %v; want one", paths, err)
 				}
@@ -218,16 +243,16 @@ func TestStationVoiceService_JingleRenameFailure(t *testing.T) {
 			if audioErr, ok := errors.AsType[*apperrors.AudioError](err); !ok || audioErr.Operation != "finalize" {
 				t.Fatalf("ProcessJingle() = %v, want finalize error", err)
 			}
-			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
-			if repo.audioFile != filepath.Base(path) {
-				t.Fatalf("row filename = %q, want %q", repo.audioFile, filepath.Base(path))
+			if !service.txManager.(*jingleTxManager).rolledBack {
+				t.Fatal("row update was not rolled back")
 			}
+			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
 			if tt.hasJingle {
 				assertJingleContent(t, service, stationVoice, existing)
 			} else if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("first upload after rename failure: %v, want missing file", err)
+				t.Fatalf("first upload after rename failure: %v, want no jingle", err)
 			}
-			assertNoProcessingJingles(t, service)
+			assertNoProcessingJingles(t, service, stationVoice)
 		})
 	}
 }
@@ -239,7 +264,13 @@ func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVo
 		t.Skip("ffmpeg not available")
 	}
 	cfg := &config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir()}}
-	return &StationVoiceService{stationVoiceRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg},
+	service := &StationVoiceService{
+		txManager:        &jingleTxManager{},
+		stationVoiceRepo: repo,
+		audioSvc:         audio.NewService(cfg, nil),
+		config:           cfg,
+	}
+	return service,
 		&models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
 }
 
@@ -267,10 +298,16 @@ func assertJingleContent(t *testing.T, service *StationVoiceService, stationVoic
 	}
 }
 
-func assertNoProcessingJingles(t *testing.T, service *StationVoiceService) {
+// assertNoProcessingJingles fails when anything but the live jingle remains.
+func assertNoProcessingJingles(t *testing.T, service *StationVoiceService, stationVoice *models.StationVoice) {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(service.config.Audio.ProcessedPath, "*.processing.wav"))
-	if err != nil || len(paths) != 0 {
-		t.Fatalf("conversion files = %v, %v; want none", paths, err)
+	entries, err := os.ReadDir(service.config.Audio.ProcessedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || entry.Name() != utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID) {
+			t.Fatalf("leftover %q, want only the live jingle", entry.Name())
+		}
 	}
 }
