@@ -359,12 +359,12 @@ func errorLevel(errorType string) slog.Level {
 	switch errorType {
 	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted":
 		// Client errors: the response tells the client what to fix and the
-		// access log records the status, as for invalid list queries.
+		// access log records the status.
 		return slog.LevelDebug
 	case "rate_limited", "upstream_failed", "no_stories":
-		// Operational signals: ElevenLabs quota or failures and stations
-		// without stories. An operator may need to act, but Babbel did not
-		// fail, and the services that return these errors send the alerts.
+		// Operational signals: ElevenLabs quota, credentials or failures, and
+		// stations without stories. An operator may need to act, and the
+		// services that return these errors send the alerts.
 		return slog.LevelWarn
 	default:
 		// Server failures (database_error, audio_failed, and not_initialized

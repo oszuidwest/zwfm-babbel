@@ -272,9 +272,10 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 
 // Each error class logs one record at its own level: client errors at Debug
 // (invalid list queries from every check, also when wrapped), operational
-// signals at Warn and server failures at Error. The record keeps its
-// error_type, resource and cause, and only database and unhandled errors
-// alert from here; the services alert for operational signals.
+// signals at Warn and server failures at Error. Mapped records carry their
+// error_type, resource and any cause; query records carry the route and field
+// errors. Only database and unhandled errors alert from here; the services
+// alert for operational signals.
 func TestErrorLogLevelsByClass(t *testing.T) {
 	serviceError := func(err error) func(*gin.Context) {
 		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
