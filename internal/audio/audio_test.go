@@ -153,8 +153,8 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 	station := &models.Station{ID: 1, PauseSeconds: 0.5}
 	voiceID := int64(1)
 	stories := []repository.BulletinStoryData{
-		{Story: models.Story{ID: 1, AudioFile: "story_1.wav"}},
-		{Story: models.Story{ID: 2, AudioFile: "story_2.wav"}},
+		{Story: models.Story{ID: 1, AudioFile: "story_1_voice_1_aaaaaaaaaaaa.wav"}},
+		{Story: models.Story{ID: 2, AudioFile: "story_2_voice_1_bbbbbbbbbbbb.wav"}},
 	}
 
 	tests := []struct {

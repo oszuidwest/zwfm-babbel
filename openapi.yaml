@@ -4575,6 +4575,9 @@ components:
         - `bulletin.no_stories` - 409 no active stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
+          (`story.no_voice` also blocks audio uploads)
+        - `story.voice_locked` - 409 `voice_id` cannot change while the story has audio
+        - `story.audio_changed` - 409 the story's voice or audio changed while new audio was processed
         - `tts.upstream_failed` - 502 ElevenLabs failed, rejected the request or returned silent audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error

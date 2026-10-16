@@ -495,6 +495,38 @@ func TestIDParam(t *testing.T) {
 	}
 }
 
+func TestOptionalIDQuery(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		query    string
+		wantID   *int64
+		wantCode string
+	}{
+		{name: "absent", query: ""},
+		{name: "positive integer", query: "?voice_id=42", wantID: new(int64(42))},
+		{name: "empty", query: "?voice_id=", wantCode: "invalid_format"},
+		{name: "non-integer", query: "?voice_id=abc", wantCode: "invalid_format"},
+		{name: "zero", query: "?voice_id=0", wantCode: "out_of_range"},
+		{name: "overflow", query: "?voice_id=9223372036854775808", wantCode: "out_of_range"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, w := newTestContext(t, "")
+			c.Request.URL.RawQuery = strings.TrimPrefix(tt.query, "?")
+			got, ok := OptionalIDQuery(c, "voice_id")
+			if wantOK := tt.wantCode == ""; ok != wantOK || (got == nil) != (tt.wantID == nil) || (got != nil && *got != *tt.wantID) {
+				t.Fatalf("OptionalIDQuery(%q) = %v, %v; want %v, %v", tt.query, got, ok, tt.wantID, wantOK)
+			}
+			if !ok {
+				checkBindResult(t, w, false, bindExpect{status: 422, field: "voice_id", code: tt.wantCode})
+			}
+		})
+	}
+}
+
 func TestSaveAudioUpload_ReadTimeout(t *testing.T) {
 	router := gin.New()
 	router.POST("/upload", func(c *gin.Context) {
