@@ -93,30 +93,52 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 }
 
-// gatedAudioRepository models UpdateAudio's transaction: the row lock
-// serializes publication, and the row changes only when Publish succeeds.
-// The first call waits for release before it writes.
+// gatedAudioRepository models the story row and the transactions around it,
+// as both repository and TxManager. UpdateAudio locks the row until the
+// transaction ends, and its write commits only if the whole transaction
+// succeeds. The first UpdateAudio waits for release before it locks.
 type gatedAudioRepository struct {
 	storyRepository
 	reached, release chan struct{}
 	gated            atomic.Bool
 
-	mu              sync.Mutex
+	rowLock         sync.Mutex
 	audioFile       string
 	durationSeconds float64
 }
 
-func (r *gatedAudioRepository) UpdateAudio(_ context.Context, _ int64, u repository.StoryAudioUpdate) error {
+type gatedAudioTxKey struct{}
+
+// gatedAudioTx holds a transaction's uncommitted row write.
+type gatedAudioTx struct {
+	update *repository.StoryAudioUpdate
+}
+
+func (r *gatedAudioRepository) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	tx := &gatedAudioTx{}
+	err := fn(context.WithValue(ctx, gatedAudioTxKey{}, tx))
+	if tx.update == nil {
+		return err
+	}
+	defer r.rowLock.Unlock()
+	if err != nil {
+		return err
+	}
+	r.audioFile, r.durationSeconds = tx.update.AudioFile, tx.update.DurationSeconds
+	return nil
+}
+
+func (r *gatedAudioRepository) UpdateAudio(ctx context.Context, _ int64, u repository.StoryAudioUpdate) error {
+	tx, ok := ctx.Value(gatedAudioTxKey{}).(*gatedAudioTx)
+	if !ok {
+		return errors.New("UpdateAudio outside a transaction")
+	}
 	if r.gated.CompareAndSwap(false, true) {
 		close(r.reached)
 		<-r.release
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if err := u.Publish(); err != nil {
-		return err
-	}
-	r.audioFile, r.durationSeconds = u.AudioFile, u.DurationSeconds
+	r.rowLock.Lock()
+	tx.update = &u
 	return nil
 }
 
@@ -156,7 +178,7 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
 			repo := &gatedAudioRepository{reached: make(chan struct{}), release: make(chan struct{})}
-			service := &StoryService{storyRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
+			service := &StoryService{storyRepo: repo, txManager: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
 			const storyID = 99
 
 			// Hold the first request between its conversion and publication.
