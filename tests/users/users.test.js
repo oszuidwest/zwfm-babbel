@@ -3,24 +3,35 @@ const { generateCrudTests, generateQueryTests, generateTrashedTests, generateVal
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
-  // Every sortable field rises with the fixture index (the two viewers tie on
-  // role) except username, the default sort key, which lists the fixtures as
-  // 1, 0, 2. No admin: the last admin tests expect a single one.
+  // Every sortable field lists the fixtures in its own order, so a field
+  // mapped to another field's column fails a sort test. username, the default
+  // sort key, lists them as 1, 0, 3, 2; id rises with the fixture index.
+  // Roles tie, but every other field sorts some editor after some viewer. No
+  // admin: the last admin tests expect a single one.
   const setupQueryTestData = async () => {
     const stamp = `${Date.now()}${process.pid}`;
+    const fixtures = [
+      // [username, full_name, role, created_at, updated_at]
+      ['b', 'B', 'viewer', 3, 4],
+      ['a', 'C', 'editor', 2, 6],
+      ['d', 'D', 'viewer', 1, 7],
+      ['c', 'A', 'editor', 0, 5]
+    ];
     const ids = [];
-    for (const [index, [letter, role]] of [['b', 'editor'], ['a', 'viewer'], ['c', 'viewer']].entries()) {
+    for (const [letter, fullName, role] of fixtures) {
       const response = await global.api.apiCall('POST', '/users', {
         ...usersSchema.createValidData(),
         username: `querysort${letter}${stamp}`,
-        full_name: `Query Sort ${index}`,
+        full_name: `Query Sort ${fullName}`,
         role
       });
       expect(response.status).toBe(201);
       global.resources.track('users', response.data.id);
       ids.push(response.data.id);
     }
-    createMySQLExecutor().setTimestamps('users', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    createMySQLExecutor().setTimestamps('users', fixtures.map(([, , , createdAt, updatedAt], index) =>
+      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
+    ));
     return ids;
   };
 

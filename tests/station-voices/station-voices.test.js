@@ -12,24 +12,34 @@ describe('Station-Voices', () => {
     };
   };
 
-  // Every sortable field rises with the fixture index except id, the default
-  // sort key: the links are created as 1, 0, 2.
+  // Every sortable field lists the fixtures in its own order, so a field
+  // mapped to another field's column fails a sort test. id, the default sort
+  // key, rises with the fixture index; station and voice ids rise with their
+  // index in the lists below.
   const setupQueryTestData = async () => {
-    const fixtures = [];
-    for (const [index, mix] of [1.0, 2.5, 3.0].entries()) {
-      const station = await global.helpers.createStation(global.resources, `QueryStation${index + 1}`);
-      const voice = await global.helpers.createVoice(global.resources, `QueryVoice${index + 1}`);
-      fixtures.push({ station, voice, mix });
+    const stations = [];
+    const voices = [];
+    for (let n = 1; n <= 4; n++) {
+      stations.push(await global.helpers.createStation(global.resources, `QueryStation${n}`));
+      voices.push(await global.helpers.createVoice(global.resources, `QueryVoice${n}`));
     }
 
+    const fixtures = [
+      // [station, voice, mix_point, created_at, updated_at]
+      [2, 1, 2.5, 1, 4],
+      [0, 3, 3.0, 0, 6],
+      [3, 0, 1.0, 3, 7],
+      [1, 2, 2.0, 2, 5]
+    ];
     const ids = [];
-    for (const index of [1, 0, 2]) {
-      const { station, voice, mix } = fixtures[index];
-      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, mix);
+    for (const [station, voice, mix] of fixtures) {
+      const stationVoice = await global.helpers.createStationVoice(global.resources, stations[station].id, voices[voice].id, mix);
       expect(stationVoice).not.toBeNull();
-      ids[index] = stationVoice.id;
+      ids.push(stationVoice.id);
     }
-    createMySQLExecutor().setTimestamps('station_voices', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    createMySQLExecutor().setTimestamps('station_voices', fixtures.map(([, , , createdAt, updatedAt], index) =>
+      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
+    ));
     return ids;
   };
 
