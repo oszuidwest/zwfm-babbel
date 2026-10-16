@@ -1768,15 +1768,21 @@ paths:
       operationId: patchStoriesId
       summary: Update story state
       description: |
-        Update story status or restore soft-deleted stories.
-        This endpoint can be used to:
-        - Change story status (draft, active, expired)
-        - Restore a soft-deleted story by setting deleted_at to empty string
+        Change story status, soft-delete a story, or restore it.
 
-        Send exactly one of `status` and `deleted_at`. Neither fails with 422
-        (`request`, `empty_update`); both fail with 422 (`request`,
-        `unsupported`). An unknown status fails with 422 (`status`,
-        `invalid_choice`).
+        Without `deleted_at`, send only `status`. A restore (`deleted_at: ""`)
+        may carry any field that `PUT /stories/{id}` accepts. The restore and
+        those fields apply in one transaction: no reader, including bulletin
+        selection, sees the restored story with its old fields, and when a
+        field is rejected the story stays deleted. Restoring a story that is
+        not deleted only applies the fields. Any other `deleted_at` value
+        soft-deletes the story and takes no other field.
+
+        A body that sets no field fails with 422 (`request`, `empty_update`). A
+        story field other than `status` without a restore, or a soft delete
+        with another field, fails with 422 (`request`, `unsupported`). An
+        unknown status fails with 422 (`status`, `invalid_choice`); other
+        field errors match `PUT /stories/{id}`.
       tags:
         - Stories
       parameters:
@@ -1790,12 +1796,26 @@ paths:
               additionalProperties: false
               properties:
                 status:
-                  type: string
-                  enum: [draft, active, expired]
-                  description: Story status
+                  $ref: '#/components/schemas/StoryUpdate/properties/status'
                 deleted_at:
                   type: string
                   description: Set to empty string ("") to restore a soft-deleted story, or any other value to soft-delete
+                title:
+                  $ref: '#/components/schemas/StoryUpdate/properties/title'
+                text:
+                  $ref: '#/components/schemas/StoryUpdate/properties/text'
+                voice_id:
+                  $ref: '#/components/schemas/StoryUpdate/properties/voice_id'
+                start_date:
+                  $ref: '#/components/schemas/StoryUpdate/properties/start_date'
+                end_date:
+                  $ref: '#/components/schemas/StoryUpdate/properties/end_date'
+                weekdays:
+                  $ref: '#/components/schemas/StoryUpdate/properties/weekdays'
+                is_breaking:
+                  $ref: '#/components/schemas/StoryUpdate/properties/is_breaking'
+                metadata:
+                  $ref: '#/components/schemas/StoryUpdate/properties/metadata'
             examples:
               updateStatus:
                 summary: Update story status
@@ -1805,6 +1825,13 @@ paths:
                 summary: Restore a soft-deleted story
                 value:
                   deleted_at: ""
+              restoreAndUpdateStory:
+                summary: Restore a soft-deleted story with a new window, atomically
+                value:
+                  deleted_at: ""
+                  start_date: "2026-10-22"
+                  end_date: "2026-10-24"
+                  weekdays: 127
       responses:
         '200':
           description: Story state updated successfully (status change or restore). Returns the updated story.
@@ -1818,6 +1845,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '422':
@@ -4619,8 +4648,9 @@ components:
               key, or a duplicate or conflicting pronunciation rule (422)
             - `unsupported` - a query feature the endpoint does not support,
               an operator the filter field does not support, an unsupported
-              upload file extension, or `status` combined with `deleted_at`
-              in `PATCH /stories/{id}`
+              upload file extension, or in `PATCH /stories/{id}` a story field
+              other than `status` without a restore, or a soft delete with
+              another field
             - `silent_audio` - uploaded story audio is silent or below -50 LUFS; `field` is `audio`
           enum:
             - required
@@ -4987,7 +5017,7 @@ components:
                 detail: "You do not have permission to perform this action"
                 instance: "/api/v1/users"
     StoryDeleted:
-      description: Story is soft-deleted. Restore it with PATCH {"deleted_at":""} before updating it.
+      description: Story is soft-deleted. Restore it with PATCH {"deleted_at":""}, optionally with the fields to update.
       content:
         application/problem+json:
           schema:

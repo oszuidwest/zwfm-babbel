@@ -2,16 +2,8 @@ package models
 
 import "time"
 
-// Weekdays represents a bitmask for scheduling stories on specific days of the week.
-// The bitmask uses Go's time.Weekday values where Sunday=0, Monday=1, etc.
-// Each day is represented by 2^weekday: Sunday=1, Monday=2, Tuesday=4, Wednesday=8,
-// Thursday=16, Friday=32, Saturday=64.
-//
-// Common values:
-//   - 127 = All days (1+2+4+8+16+32+64).
-//   - 62  = Weekdays Mon-Fri (2+4+8+16+32).
-//   - 65  = Weekend Sat+Sun (1+64).
-//   - 0   = No days.
+// Weekdays selects days with 1 << time.Weekday: Sunday=1 through Saturday=64.
+// Common masks are 127 (all), 62 (Mon–Fri), 65 (weekend), and 0 (none).
 type Weekdays uint8
 
 const (

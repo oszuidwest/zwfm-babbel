@@ -77,8 +77,6 @@ describe('Automation', () => {
     });
 
     test('when requesting bulletin, then returns audio', async () => {
-      // Uses station setup from beforeAll
-
       const response = await global.helpers.publicBulletinRequest(stationId, {
         key: automationKey,
         max_age: '0'
@@ -128,7 +126,6 @@ describe('Automation', () => {
     let stationId, voiceId;
 
     beforeAll(async () => {
-      // Create station and voice
       const station = await global.helpers.createStation(global.resources, 'Timezone Test Station');
       const voice = await global.helpers.createVoice(global.resources, 'Timezone Test Voice');
       stationId = station.id;
@@ -139,7 +136,6 @@ describe('Automation', () => {
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
-      // Use today only
       const today = new Date();
       const year = today.getFullYear();
       const month = String(today.getMonth() + 1).padStart(2, '0');
@@ -158,7 +154,6 @@ describe('Automation', () => {
         max_age: '0'
       });
 
-      // Story should not be incorrectly marked as expired
       expect(response.status).toBe(200);
     });
   });

@@ -3,13 +3,9 @@ const { generateCrudTests, generateQueryTests, generateTrashedTests, generateVal
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
-  // Generate standard CRUD, Query, and Validation tests
   generateCrudTests(usersSchema);
   generateQueryTests(usersSchema);
   generateValidationTests(usersSchema);
-
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to user behavior that can't be generated
 
   describe('Query Validation', () => {
     // The users repository once routed query errors through the MySQL error
@@ -97,7 +93,6 @@ describe('Users', () => {
     let userId;
 
     beforeAll(async () => {
-      // Create user to test suspension
       const response = await global.api.apiCall('POST', '/users', {
         username: `suspendtest${Date.now()}${process.pid}`,
         full_name: 'Suspend Test User',
@@ -110,8 +105,6 @@ describe('Users', () => {
     });
 
     test('when suspending user, then suspended_at set', async () => {
-      // Uses userId from beforeAll
-
       const response = await global.api.apiCall('PUT', `/users/${userId}`, { suspended: true });
 
       expect(response.status).toBe(200);
@@ -122,7 +115,6 @@ describe('Users', () => {
     });
 
     test('when restoring suspended user, then suspended_at cleared', async () => {
-      // Ensure user is suspended
       await global.api.apiCall('PUT', `/users/${userId}`, { suspended: true });
 
       const response = await global.api.apiCall('PUT', `/users/${userId}`, { suspended: false });
@@ -186,7 +178,6 @@ describe('Users', () => {
     let userId;
 
     beforeAll(async () => {
-      // Create user to test password security
       const response = await global.api.apiCall('POST', '/users', {
         username: `passwordtest${Date.now()}${process.pid}`,
         full_name: 'Password Test User',
@@ -232,10 +223,8 @@ describe('Users', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       global.resources.track('users', response.data.id);
 
-      // Verify metadata
       const getResponse = await global.api.apiCall('GET', `/users/${response.data.id}`);
       expect(getResponse.status).toBe(200);
       expect(getResponse.data.metadata).toBeDefined();

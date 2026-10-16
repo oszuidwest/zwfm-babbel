@@ -7,14 +7,7 @@ import "encoding/json/v2"
 //   - Null:    Set=true,  Value=nil  (field explicitly set to null)
 //   - Present: Set=true,  Value=&v   (field set to a value)
 //
-// This solves the fundamental Go JSON limitation where *T cannot distinguish
-// "field absent" from "field is null" - both unmarshal to nil. Use this type
-// in update request structs for nullable database columns that support clearing.
-//
-// Integrates with the repository layer's Clear* flag convention:
-//
-//	if opt.IsClearing() { updates.ClearField = true }
-//	updates.Field = opt.Value
+// Map IsClearing() to the update's Clear* flag and Value to its field.
 type Optional[T any] struct {
 	Set   bool
 	Value *T

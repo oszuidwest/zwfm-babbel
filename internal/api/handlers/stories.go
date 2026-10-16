@@ -11,7 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStories returns a paginated list of stories with modern query parameter support.
+// ListStories returns a filtered, sorted page of stories.
 func (h *Handlers) ListStories(c *gin.Context) {
 	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
@@ -27,8 +27,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// GetStory returns a story by ID with computed fields populated by the model
-// hooks used by the repository layer.
+// GetStory returns a story with its voice and computed audio URL.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -102,14 +101,24 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		return
 	}
 
+	updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(req, actorUserID(c)))
+	if err != nil {
+		handleServiceError(c, err, "Story")
+		return
+	}
+
+	utils.Success(c, updated)
+}
+
+func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest, actorUserID *int64) *services.UpdateStoryRequest {
 	var weekdays *models.Weekdays
 	if req.Weekdays != nil {
 		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
 		weekdays = &w
 	}
 
-	svcReq := &services.UpdateStoryRequest{
-		ActorUserID: actorUserID(c),
+	return &services.UpdateStoryRequest{
+		ActorUserID: actorUserID,
 		Title:       req.Title,
 		Text:        req.Text,
 		VoiceID:     req.VoiceID,
@@ -120,14 +129,6 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 		IsBreaking:  req.IsBreaking,
 		Metadata:    req.Metadata,
 	}
-
-	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
-	if err != nil {
-		handleServiceError(c, err, "Story")
-		return
-	}
-
-	utils.Success(c, updated)
 }
 
 // DeleteStory soft deletes a story.
@@ -145,10 +146,9 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus changes workflow state or toggles soft deletion; a request
-// sets exactly one of status and deleted_at. An empty deleted_at string
-// restores the story; any non-empty deleted_at value is treated as a
-// soft-delete request for compatibility with the legacy API.
+// UpdateStoryStatus changes status or soft deletion. Empty deleted_at restores
+// atomically with optional story fields; any other value soft-deletes the story
+// and accepts no other fields.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -156,58 +156,53 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status    *string `json:"status" binding:"omitempty,oneof=draft active expired"`
+		utils.StoryUpdateRequest
 		DeletedAt *string `json:"deleted_at"`
 	}
 	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	switch {
-	case req.Status == nil && req.DeletedAt == nil:
-		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-			Field:   apperrors.FieldRequest,
-			Code:    apperrors.CodeEmptyUpdate,
-			Message: "Provide status or deleted_at",
-		})
-		return
-	case req.Status != nil && req.DeletedAt != nil:
-		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-			Field:   apperrors.FieldRequest,
-			Code:    apperrors.CodeUnsupported,
-			Message: "status and deleted_at cannot be combined",
-		})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
-	if req.DeletedAt != nil {
-		if *req.DeletedAt == "" {
-			if err := h.storySvc.Restore(c.Request.Context(), id, actorUserID(c)); err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			restored, err := h.storySvc.GetByID(c.Request.Context(), id)
-			if err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			utils.Success(c, restored)
+	fields := req.StoryUpdateRequest
+	statusOnly := fields == utils.StoryUpdateRequest{Status: fields.Status}
+	switch {
+	case req.DeletedAt == nil && !statusOnly:
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
+		})
+	case req.DeletedAt == nil:
+		updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
+		if err != nil {
+			handleServiceError(c, err, "Story")
 			return
 		}
+		utils.Success(c, updated)
+	case *req.DeletedAt == "":
+		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
+		if err != nil {
+			handleServiceError(c, err, "Story")
+			return
+		}
+		utils.Success(c, restored)
+	case fields != utils.StoryUpdateRequest{}:
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "A soft delete cannot be combined with other fields",
+		})
+	default:
 		if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
 		utils.NoContent(c)
-		return
 	}
-
-	updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status, actorUserID(c))
-	if err != nil {
-		handleServiceError(c, err, "Story")
-		return
-	}
-	utils.Success(c, updated)
 }
 
 // GenerateStoryTTS generates audio for a story using text-to-speech.

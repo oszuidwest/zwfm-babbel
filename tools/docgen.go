@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -329,8 +330,6 @@ func resolveParameters(params []Parameter, componentParams map[string]Parameter)
 	resolvedParams := make([]Parameter, 0, len(params))
 	for _, param := range params {
 		if param.Ref != "" {
-			// Extract the parameter name from the $ref path.
-			// Format: #/components/parameters/paramName.
 			parts := strings.Split(param.Ref, "/")
 			if len(parts) == 4 && parts[0] == "#" && parts[1] == "components" && parts[2] == "parameters" {
 				paramName := parts[3]
@@ -345,14 +344,11 @@ func resolveParameters(params []Parameter, componentParams map[string]Parameter)
 	return resolvedParams
 }
 
-// collectEndpointsByTag collects and organizes endpoints grouped by tag.
 func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	endpointsByTag := make(map[string][]EndpointInfo)
 
-	// Collect all endpoints by their first OpenAPI tag.
 	for path, methods := range spec.Paths {
 		for method, op := range methods {
-			// Resolve parameter references before rendering.
 			op.Parameters = resolveParameters(op.Parameters, spec.Components.Parameters)
 
 			endpoint := EndpointInfo{
@@ -380,14 +376,10 @@ func collectEndpointsByTag(spec OpenAPISpec) map[string][]EndpointInfo {
 	return endpointsByTag
 }
 
-// toKebabCase converts a string to kebab-case by lowercasing it and replacing
-// spaces with hyphens.
 func toKebabCase(s string) string {
 	return strings.ReplaceAll(strings.ToLower(s), " ", "-")
 }
 
-// getParameterType extracts the type from a parameter's schema, defaulting to
-// "string" if not found.
 func getParameterType(param Parameter) string {
 	if param.Schema != nil {
 		if t, ok := param.Schema["type"].(string); ok {
@@ -397,8 +389,6 @@ func getParameterType(param Parameter) string {
 	return "string"
 }
 
-// formatRequestBodyInfo extracts and formats request body information including
-// content type and description.
 func formatRequestBodyInfo(rb map[string]any) string {
 	if content, ok := rb["content"].(map[string]any); ok {
 		contentTypes := slices.Collect(maps.Keys(content))
@@ -415,14 +405,11 @@ func formatRequestBodyInfo(rb map[string]any) string {
 	return "Required"
 }
 
-// isSuccessCode determines if the given HTTP status code is a success code
-// (200, 201, or 204).
 func isSuccessCode(code string) bool {
-	return code == "200" || code == "201" || code == "204"
+	status, err := strconv.Atoi(code)
+	return code == "2XX" || (err == nil && status >= 200 && status < 300)
 }
 
-// checkHasSuccessResponse determines if the responses map contains any success
-// status codes (200, 201, 204).
 func checkHasSuccessResponse(responses map[string]any) bool {
 	for code := range responses {
 		if isSuccessCode(code) {
@@ -432,12 +419,10 @@ func checkHasSuccessResponse(responses map[string]any) bool {
 	return false
 }
 
-// extractSuccessResponse finds and formats the first success response
-// (200, 201, or 204) from the responses map.
 func extractSuccessResponse(responses map[string]any) string {
-	codes := []string{"200", "201", "204"}
-	for _, code := range codes {
-		if resp, ok := responses[code]; ok {
+	for _, code := range slices.Sorted(maps.Keys(responses)) {
+		if isSuccessCode(code) {
+			resp := responses[code]
 			if respMap, ok := resp.(map[string]any); ok {
 				if desc, ok := respMap["description"].(string); ok {
 					return fmt.Sprintf("`%s` - %s", code, desc)
@@ -449,7 +434,6 @@ func extractSuccessResponse(responses map[string]any) string {
 	return ""
 }
 
-// checkHasErrorResponses determines if the responses map contains any error status codes (non-2xx).
 func checkHasErrorResponses(responses map[string]any) bool {
 	for code := range responses {
 		if isHTTPErrorCode(code) {
@@ -459,14 +443,10 @@ func checkHasErrorResponses(responses map[string]any) bool {
 	return false
 }
 
-// isHTTPErrorCode determines if the given HTTP status code represents an error
-// (not 200, 201, or 204).
 func isHTTPErrorCode(code string) bool {
 	return !isSuccessCode(code)
 }
 
-// extractResponseDescription retrieves the description field from a response
-// object, defaulting to "Error".
 func extractResponseDescription(response any) string {
 	if respMap, ok := response.(map[string]any); ok {
 		if desc, ok := respMap["description"].(string); ok {
@@ -476,7 +456,6 @@ func extractResponseDescription(response any) string {
 	return "Error"
 }
 
-// createTemplateFuncMap creates the template function map for markdown generation.
 func createTemplateFuncMap() template.FuncMap {
 	return template.FuncMap{
 		"upper":                  strings.ToUpper,

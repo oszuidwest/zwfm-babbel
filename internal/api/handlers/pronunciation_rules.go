@@ -10,10 +10,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// pronunciationRulesService is the subset of PronunciationRulesService the
-// handler depends on. Narrowing to an interface lets tests substitute a
-// request-capturing fake to assert that the authenticated user propagates to
-// the service audit trail.
 type pronunciationRulesService interface {
 	Get(ctx context.Context) (*services.PronunciationRulesResponse, error)
 	Update(ctx context.Context, req *services.UpdatePronunciationRulesRequest) (*services.PronunciationRulesResponse, error)

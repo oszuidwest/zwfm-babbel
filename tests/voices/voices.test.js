@@ -2,13 +2,9 @@ const voicesSchema = require('../lib/schemas/voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
 describe('Voices', () => {
-  // Generate standard CRUD, Query, and Validation tests
   generateCrudTests(voicesSchema);
   generateQueryTests(voicesSchema);
   generateValidationTests(voicesSchema);
-
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to voice behavior that can't be generated
 
   describe('Voice with Associated Stories', () => {
     let voiceId;
@@ -20,7 +16,6 @@ describe('Voices', () => {
     });
 
     test('when deleting voice with stories, then returns dependency conflict', async () => {
-      // Create story with voice dependency
       const storyData = {
         title: 'Voice Association Test Story',
         text: 'Test content for voice association.',

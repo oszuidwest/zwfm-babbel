@@ -64,7 +64,6 @@ describe('Stories', () => {
     ...overrides
   });
 
-  // Registers each fixture and its dependencies for suite-wide cleanup.
   const createStoryWithDeps = async (title, text, voiceName, weekdays = 127, status = 'active') => {
     const voice = await global.helpers.createVoice(global.resources, voiceName);
 
@@ -92,7 +91,6 @@ describe('Stories', () => {
     return ids;
   };
 
-  // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
   describe('Story CRUD', () => {
@@ -270,6 +268,52 @@ describe('Stories', () => {
       const restore = await global.api.apiCall('PATCH', path, { deleted_at: '' });
       expect(restore.status).toBe(200);
       expect(restore.data.deleted_at).toBeNull();
+    });
+
+    describe('restore with fields', () => {
+      const start = dateFromToday(10);
+      const end = dateFromToday(12);
+
+      const deletedStory = async (name) => {
+        const story = await global.helpers.createStory(global.resources, {
+          title: name, text: 'Restore with fields', status: 'draft', is_breaking: true
+        });
+        expect(story).not.toBeNull();
+        const path = `/stories/${story.id}`;
+        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+        return { id: story.id, path };
+      };
+
+      test('when restoring with story fields, then the story comes back with them', async () => {
+        const { path } = await deletedStory('RestoreFields');
+        const voice = await global.helpers.createVoice(global.resources, 'RestoredVoice');
+        expect(voice).not.toBeNull();
+
+        const restore = await global.api.apiCall('PATCH', path, {
+          deleted_at: '', title: 'Restored &amp; updated', text: 'News &amp; context',
+          voice_id: voice.id, status: 'active', start_date: start, end_date: end,
+          weekdays: 0, is_breaking: false, metadata: { source: 'restore' }
+        });
+
+        expect(restore.status).toBe(200);
+        expect(restore.data).toMatchObject({
+          deleted_at: null, title: 'Restored & updated', text: 'News & context',
+          voice_id: voice.id, status: 'active', start_date: start, end_date: end,
+          weekdays: 0, is_breaking: false, metadata: { source: 'restore' }
+        });
+      });
+
+      test('when the fields of a restore are rejected, then the story stays deleted', async () => {
+        const { id, path } = await deletedStory('RestoreRejected');
+
+        // Both dates are valid on their own, but the end lies before the start.
+        const restore = await global.api.apiCall('PATCH', path, { deleted_at: '', start_date: end, end_date: start });
+
+        expect(restore.status).toBe(422);
+        expect(restore.data.errors).toEqual([expect.objectContaining({ field: 'end_date', code: 'date_order' })]);
+        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${id}`);
+        expect(trashed.data.data[0].deleted_at).toEqual(expect.any(String));
+      });
     });
 
     describe('trashed', () => {

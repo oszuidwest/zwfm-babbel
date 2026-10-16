@@ -102,6 +102,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		PronunciationInjector: pronunciationInjector,
 		Config:                cfg,
 		Alerts:                alerts,
+		TxManager:             txManager,
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)

@@ -15,8 +15,6 @@ class TestHelpers {
     this._ffmpegAvailable = null;
   }
 
-  // General utilities
-
   /** @param {number} ms */
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -81,8 +79,6 @@ class TestHelpers {
     return this.api.apiCall('GET', `/bulletins/${job.data.bulletin_id}`);
   }
 
-  // FFmpeg
-
   /** @returns {boolean} Cached FFmpeg availability. */
   isFFmpegAvailable() {
     if (this._ffmpegAvailable === null) {
@@ -145,8 +141,6 @@ class TestHelpers {
       }
     }
   }
-
-  // Resource creation
 
   /**
    * @param {string} baseName
@@ -455,8 +449,6 @@ class TestHelpers {
 
     return { station, voice, stationVoice, story };
   }
-
-  // Public endpoints
 
   /**
    * @param {string|number} stationId
