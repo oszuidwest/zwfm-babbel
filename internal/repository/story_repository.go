@@ -181,8 +181,9 @@ type StoryAudioUpdate struct {
 	DurationSeconds float64
 }
 
-// UpdateAudio updates the row and records the audit event atomically. Callers
-// that publish the file do so in their own transaction, before it commits.
+// UpdateAudio updates the row and records the audit event atomically. Inside
+// a caller's transaction the row stays locked until that transaction commits,
+// so the caller can publish the file before commit in row-lock order.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
 	return r.withAudit(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
 		return r.UpdateByID(ctx, id, map[string]any{

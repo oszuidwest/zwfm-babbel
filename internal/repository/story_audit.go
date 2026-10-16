@@ -12,7 +12,7 @@ import (
 
 // withAudit runs write in a transaction with the story row locked and records
 // the before/after difference as one story audit event. Writes that change
-// nothing are not recorded, except audio publications.
+// nothing are not recorded, except audio and TTS writes.
 func (r *StoryRepository) withAudit(ctx context.Context, id int64, action models.AuditAction, actorUserID *int64, write func(context.Context) error) error {
 	return r.inTx(ctx, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db).WithContext(ctx)

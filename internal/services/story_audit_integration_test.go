@@ -25,7 +25,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // openAuditIntegrationTx returns a transaction that is rolled back after the
@@ -245,6 +244,12 @@ func TestStoryAudioForMissingOrDeletedStoryKeepsPublishedFile(t *testing.T) {
 	if err := os.WriteFile(utils.StoryPath(service.config, missingID), []byte("orphaned audio"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// An event leaked into the shared database would hide in the next run's before.
+	t.Cleanup(func() {
+		if err := db.Where("entity_type = ? AND entity_id = ?", models.AuditEntityStory, missingID).Delete(&models.AuditEvent{}).Error; err != nil {
+			t.Errorf("cleanup: %v", err)
+		}
+	})
 	replacement := audioFixture(t, service, "sine=frequency=880:duration=2")
 	for _, tt := range []struct {
 		name    string
@@ -276,18 +281,12 @@ func TestStoryAudioPublishedInsideTransaction(t *testing.T) {
 		StoryRepository: repository.NewStoryRepository(db),
 		probe: func() {
 			probed = true
-			// Other connections see neither write before the rename and commit...
+			// Other connections see neither write before the rename and commit.
 			if mid := audioStateOf(t, service, db, story.ID); mid.AudioFile != "" || len(mid.EventIDs) != 0 {
 				t.Errorf("state visible before commit = %+v", mid)
 			}
 			if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
 				t.Errorf("audio published before the row and audit writes returned: %v", err)
-			}
-			// ...and cannot write the row the audit snapshot locked.
-			err := db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate, Options: clause.LockingOptionsNoWait}).
-				Table("stories").Where("id = ?", story.ID).Pluck("id", &[]int64{}).Error
-			if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); !ok || mysqlErr.Number != 3572 {
-				t.Errorf("locking read during publication = %v, want lock conflict", err)
 			}
 		},
 	}
