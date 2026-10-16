@@ -47,7 +47,27 @@ function generateQueryTests(schema, setupFn = null) {
       if (setupFn) await setupFn();
     });
 
+    // OpenAPI declares search only where the resource has search fields. An
+    // empty search counts as omitted everywhere.
+    const searchable = declaresQueryParameter(endpoint, 'search');
+    describe('Search scope', () => {
+      test(`when search=x, then returns ${searchable ? 200 : 'a search 422'}`, async () => {
+        expect.hasAssertions();
+        const response = await expectStatus('search=x', searchable ? 200 : 422);
+        if (searchable) expect(Array.isArray(response.data.data)).toBe(true);
+        else expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
+      });
+
+      test('when search empty, then returns all', async () => {
+        expect.hasAssertions();
+        const unfiltered = await expectStatus('limit=1');
+        const emptySearch = await expectStatus('search=&limit=1');
+        expect(emptySearch.data.total).toBe(unfiltered.data.total);
+      });
+    });
+
     if (query.searchFields?.length > 0) {
+      if (!searchable) throw new Error(`${name} searchFields: ${endpoint} does not declare search`);
       describe('Search', () => {
         test('when searching, then returns 200', async () => {
           expect.hasAssertions();
@@ -56,13 +76,6 @@ function generateQueryTests(schema, setupFn = null) {
           for (const item of response.data.data) {
             expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes('test'))).toBe(true);
           }
-        });
-
-        test('when search empty, then returns all', async () => {
-          expect.hasAssertions();
-          const unfiltered = await expectStatus('limit=1');
-          const emptySearch = await expectStatus('search=&limit=1');
-          expect(emptySearch.data.total).toBe(unfiltered.data.total);
         });
       });
     }

@@ -110,7 +110,8 @@ func (e *UnknownFieldError) Error() string {
 	return fmt.Sprintf("unknown %s field %q", e.Kind, e.Field)
 }
 
-// InvalidFilterError reports an unsupported operator or invalid filter values.
+// InvalidFilterError reports an unsupported operator, invalid filter values,
+// or a search on a resource without search fields.
 type InvalidFilterError struct {
 	Key      string // literal query key
 	Field    string
@@ -147,10 +148,14 @@ type ListResult[T any] struct {
 
 // ApplyListQuery returns a filtered, sorted page and the total matching count.
 // Field names and filter values are validated against fieldMapping;
-// searchFields must contain trusted database columns.
-// defaultSort applies when query.Sort is empty, skipping unmapped fields.
+// searchFields must contain trusted database columns; with none, a non-empty
+// search fails. defaultSort applies when query.Sort is empty, skipping
+// unmapped fields.
 func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapping, searchFields []string, defaultSort []SortField) (*ListResult[T], error) {
-	db = applySearch(db, query.Search, searchFields)
+	db, err := applySearch(db, query.Search, searchFields)
+	if err != nil {
+		return nil, err
+	}
 
 	for _, filter := range query.Filters {
 		next, err := applyFilterCondition(db, filter, fieldMapping)
@@ -211,9 +216,15 @@ func escapeLikePattern(s string) string {
 // literal '\\' is a single backslash, the character likePatternEscaper inserts.
 const likeEscapeClause = ` ESCAPE '\\'`
 
-func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
-	if search == "" || len(searchFields) == 0 {
-		return db
+// applySearch matches search as a literal substring of any searchFields
+// column. Without search fields a non-empty search fails as unsupported, so
+// it cannot silently list every row.
+func applySearch(db *gorm.DB, search string, searchFields []string) (*gorm.DB, error) {
+	if search == "" {
+		return db, nil
+	}
+	if len(searchFields) == 0 {
+		return nil, &InvalidFilterError{Key: "search", Code: "unsupported", Reason: "not supported on this endpoint"}
 	}
 	searchPattern := "%" + escapeLikePattern(search) + "%"
 	conditions := make([]string, len(searchFields))
@@ -222,7 +233,7 @@ func applySearch(db *gorm.DB, search string, searchFields []string) *gorm.DB {
 		conditions[i] = field + " LIKE ?" + likeEscapeClause
 		args[i] = searchPattern
 	}
-	return db.Where(strings.Join(conditions, " OR "), args...)
+	return db.Where(strings.Join(conditions, " OR "), args...), nil
 }
 
 // applySorting validates user sort fields or applies defaultSort when none are

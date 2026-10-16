@@ -1,4 +1,5 @@
 const { createUser, switchToUser, restoreAdmin } = require('../lib/RoleHelpers');
+const { declaresQueryParameter } = require('../lib/QueryFilterContract');
 
 describe('Audit events', () => {
   let admin;
@@ -155,6 +156,18 @@ describe('Audit events', () => {
     expect(history.data[0]).toEqual(expect.objectContaining({
       user_id: admin.id, username: admin.username, full_name: admin.full_name
     }));
+  });
+
+  // Audit events have no search fields, so OpenAPI does not declare search
+  // and a non-empty search is rejected instead of ignored.
+  test.each([
+    ['x', 422],
+    ['', 200]
+  ])('when search=%s, then returns %i', async (value, status) => {
+    expect(declaresQueryParameter('/audit-events', 'search')).toBe(false);
+    const response = await global.api.apiCall('GET', `/audit-events?search=${value}`);
+    expect(response.status).toBe(status);
+    if (status === 422) expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
   });
 
   async function createStory(title) {

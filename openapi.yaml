@@ -93,6 +93,12 @@ info:
       and `filter[field][null]=false` selects non-NULL values. The operator
       takes one boolean; there is no `not_null` operator.
 
+    ### Search
+
+    - Only endpoints that declare `search` support it. Other list
+      endpoints, such as `/station-voices` and `/audit-events`, reject a
+      non-empty `search` with 422. An empty `search=` counts as omitted.
+
     ### Soft deletion
 
     - Stories and users list active records by default. `trashed=only` lists
@@ -133,6 +139,8 @@ info:
       date-time with `T` and no offset used to be read as local time and now
       returns 422. A comma fraction is kept instead of truncated.
     - `trashed` on list endpoints without soft deletion returns 422 instead
+      of being ignored.
+    - `search` on list endpoints without search fields returns 422 instead
       of being ignored.
     - `errors[].field` is the query key as sent. `filter[status]=bad` used
       to fail as `filter[status][eq]`, `filter[status][not]=bad` as

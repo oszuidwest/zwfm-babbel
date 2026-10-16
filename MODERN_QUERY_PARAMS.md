@@ -8,12 +8,13 @@ The query parameter system provides:
 - **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
-- **Search functionality**: `?search=keyword` for full-text search
+- **Search functionality**: `?search=keyword` for full-text search on stations, voices, stories, users and bulletins
 - **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
 Most resource list endpoints support filtering, sorting, field selection and
-search. `/bulletins/{id}/stories` supports pagination only. The parameters above
+search; `/station-voices` and `/audit-events` have no search.
+`/bulletins/{id}/stories` supports pagination only. The parameters above
 return RFC 9457 validation errors on endpoints that do not support them instead
 of being silently ignored.
 
@@ -145,6 +146,14 @@ GET /api/v1/users?fields=id,username,role
 GET /api/v1/stories?search=breaking news
 GET /api/v1/users?search=john.doe@example.com
 GET /api/v1/stations?search=radio
+```
+
+Station-voice relationships and audit events have no searchable fields. Their
+list endpoints reject a non-empty `search` with 422 and an error for the
+`search` field; an empty `search=` is ignored:
+
+```http
+GET /api/v1/station-voices?search=radio # 422, errors[0].field = "search", code "unsupported"
 ```
 
 ### 5. Soft-Delete Filtering
@@ -297,6 +306,10 @@ Each endpoint defines searchable fields:
 ```go
 SearchFields: []string{"s.title", "s.text", "v.name"}
 ```
+
+A resource without searchable fields passes `nil`; `ApplyListQuery` then
+rejects a non-empty `search`, and the endpoint's OpenAPI operation must not
+declare the `search` parameter.
 
 ### Field Mapping
 
