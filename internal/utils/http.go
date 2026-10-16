@@ -98,7 +98,8 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		ProblemPayloadTooLarge(c)
 		return "", nil, false
 	}
-	if ext := strings.ToLower(filepath.Ext(header.Filename)); !slices.Contains(audioUploadExtensions, ext) {
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !slices.Contains(audioUploadExtensions, ext) {
 		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeUnsupported,
@@ -107,9 +108,11 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		return "", nil, false
 	}
 
-	tempPath = filepath.Join(os.TempDir(), fmt.Sprintf("%s_%s", prefix, SanitizeFilename(header.Filename)))
-	if err := saveFileToPath(file, tempPath); err != nil {
-		logger.Error("Failed to store uploaded audio", "path", tempPath, "error", err)
+	// A unique file per request keeps concurrent uploads of the same filename
+	// apart; the extension is FFmpeg's format hint.
+	tempPath, err = saveTempFile(file, prefix+"_*"+ext)
+	if err != nil {
+		logger.Error("Failed to store uploaded audio", "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
 		return "", nil, false
 	}
@@ -125,29 +128,21 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 	return tempPath, cleanup, true
 }
 
-// SanitizeFilename removes path components and replaces spaces for storage
-// paths derived from user-provided filenames.
-func SanitizeFilename(filename string) string {
-	filename = filepath.Base(filename)
-	filename = strings.ReplaceAll(filename, " ", "_")
-	return filename
-}
-
-// saveFileToPath saves an uploaded multipart file to the specified path.
-func saveFileToPath(file multipart.File, dst string) error {
-	// #nosec G304 - dst is sanitized temp path from SaveAudioUpload
-	out, err := os.Create(dst)
+// saveTempFile copies an uploaded file to a new temp file named by pattern and
+// removes partial output on failure.
+func saveTempFile(file multipart.File, pattern string) (string, error) {
+	out, err := os.CreateTemp("", pattern)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer func() {
-		if err := out.Close(); err != nil {
-			logger.Error("Failed to close output file", "error", err)
-		}
-	}()
-
 	_, err = io.Copy(out, file)
-	return err
+	if err = errors.Join(err, out.Close()); err != nil {
+		if rmErr := os.Remove(out.Name()); rmErr != nil {
+			logger.Warn("Failed to remove partial upload", "path", out.Name(), "error", rmErr)
+		}
+		return "", err
+	}
+	return out.Name(), nil
 }
 
 // StationRequest is the JSON body for creating or replacing radio station

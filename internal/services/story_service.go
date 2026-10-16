@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -330,12 +331,23 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	// A failed rename rolls back both writes. A later commit failure leaves the
 	// new file published and may leave the database outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+	// A file per request keeps concurrent requests for this story from
+	// overwriting or removing each other's output.
+	converted, err := os.CreateTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing.wav", storyID))
+	if err != nil {
+		return apperrors.Audio("Story", "convert", err)
+	}
+	convertedPath := converted.Name()
 	defer func() {
 		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
 		}
 	}()
+	// FFmpeg keeps the mode of the file it overwrites; keep published audio
+	// readable like the files FFmpeg creates, not CreateTemp's 0600.
+	if err := errors.Join(converted.Chmod(0o644), converted.Close()); err != nil {
+		return apperrors.Audio("Story", "convert", err)
+	}
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
