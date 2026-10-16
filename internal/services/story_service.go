@@ -2,11 +2,13 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -358,12 +360,19 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	// A failed rename rolls back both writes. A later commit failure leaves the
 	// new file published and may leave the database outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+	// A directory per request keeps concurrent requests for this story from
+	// overwriting or removing each other's output. FFmpeg creates the file in
+	// it, so the published mode follows the umask.
+	convertedDir, err := os.MkdirTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing", storyID))
+	if err != nil {
+		return apperrors.Audio("Story", "convert", err)
+	}
 	defer func() {
-		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
+		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
+			logger.Error("Failed to remove temporary audio directory", "path", convertedDir, "error", rmErr)
 		}
 	}()
+	convertedPath := filepath.Join(convertedDir, utils.StoryFilename(storyID))
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
@@ -449,7 +458,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return translateTTSError(storyID, err)
 	}
 
-	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
+	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
@@ -585,27 +594,4 @@ func translateTTSError(storyID int64, err error) error {
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)
-}
-
-// writeTempFile writes data to an OS temp file and removes partial output on
-// write or close failure.
-func writeTempFile(data []byte, pattern string) (string, error) {
-	f, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", err
-	}
-
-	path := f.Name()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	return path, nil
 }
