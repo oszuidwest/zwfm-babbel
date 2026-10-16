@@ -1240,13 +1240,14 @@ paths:
         A `voice_id` that does not exist fails with 422 (`voice_id`, `not_found`).
         An `end_date` before `start_date` fails with 422 (`end_date`, `date_order`).
 
-        With `idempotency_key`, a client can safely repeat a create whose answer
-        it lost: a create with a key an earlier create already used answers 201
-        with that story's ID, also when that story was deleted since. The body
-        must still be a valid create request, but it is not stored, and the
-        checks on `voice_id` and the date order are skipped. Concurrent creates
-        with the same key make one story. A blank key, or one longer than 100
-        characters, fails with 422 (`idempotency_key`, `blank` or `too_long`).
+        With `idempotency_key`, a client can retry a create whose response it
+        lost: a create that reuses a key answers 201 with the ID of the story
+        first made with it, even if that story has since been deleted. The
+        repeated body must still be a valid create request but is otherwise
+        ignored, so a different body still returns the original story's ID; the
+        `voice_id` and date order checks are skipped. Concurrent creates with
+        one key make one story. A blank key, or one longer than 100 characters,
+        fails with 422 (`idempotency_key`, `blank` or `too_long`).
       tags:
         - Stories
       requestBody:
@@ -4097,10 +4098,8 @@ components:
           maxLength: 100
           pattern: '\S'
           description: |
-            Optional client key for this create, compared exactly, including
-            case. Repeating a create with the same key returns the ID of the
-            story the first one made instead of a new one. Null is treated as
-            omitted.
+            Optional retry key, compared exactly (case and whitespace count);
+            see POST /stories. Null is treated as omitted.
           example: "6f0c1a52-3f0e-4c38-9b3e-2f1f1d3b2a41"
 
     StoryUpdate:

@@ -34,5 +34,6 @@ history is retained indefinitely; there are no foreign keys to users or entities
 and no cleanup job.
 
 Apply `014_story_idempotency_key.sql` once, before deploying a Babbel version
-that accepts `idempotency_key` on `POST /stories`; it fails on databases
-created from the current `001` snapshot.
+that accepts `idempotency_key` on `POST /stories`; without the column every
+story create fails, also without a key. It fails on databases created from the
+current `001` snapshot, which already has the column.

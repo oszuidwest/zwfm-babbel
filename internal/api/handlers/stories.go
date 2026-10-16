@@ -43,7 +43,8 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory accepts a JSON story payload and persists a scheduled story.
+// CreateStory accepts a JSON story payload and persists a scheduled story, or
+// returns the existing one for a repeated idempotency key.
 // Missing status defaults to draft and missing weekdays default to every day.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest

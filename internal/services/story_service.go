@@ -90,7 +90,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 	}
 }
 
-// CreateStoryRequest carries the required fields for a scheduled story.
+// CreateStoryRequest carries the fields for creating a scheduled story.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
 	ActorUserID *int64
@@ -123,11 +123,9 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create checks the date format and order and that an optional voice exists
-// before persisting a story, and returns its ID. A request with an idempotency key
-// that an earlier create already used returns that story's ID instead, without
-// these checks and even when the story was deleted since, so a client can
-// safely repeat a create whose answer it lost.
+// Create checks the dates and optional voice, persists a story, and returns its
+// ID. If an earlier create used the same idempotency key, it returns that
+// story's ID instead, unchecked, even if the story has since been deleted.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int64, error) {
 	if req.IdempotencyKey != nil {
 		if id, found, err := s.storyIDForKey(ctx, *req.IdempotencyKey); found || err != nil {
@@ -183,8 +181,7 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int
 	return story.ID, nil
 }
 
-// storyIDForKey returns the ID of the story an earlier create made with
-// idempotency key, and whether there is one.
+// storyIDForKey returns the ID of the story created with key and whether one exists.
 func (s *StoryService) storyIDForKey(ctx context.Context, key string) (int64, bool, error) {
 	id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, key)
 	if errors.Is(err, repository.ErrNotFound) {
