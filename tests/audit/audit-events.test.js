@@ -157,6 +157,12 @@ describe('Audit events', () => {
     }));
   });
 
+  test('when listing with an unknown key, then the 422 names it', async () => {
+    const response = await global.api.apiCall('GET', '/audit-events?entity_type=story');
+    expect(response.status).toBe(422);
+    expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['entity_type', 'unknown_field']]);
+  });
+
   async function createStory(title) {
     const story = await global.helpers.createStory(global.resources, { title, status: 'draft' });
     expect(story).not.toBeNull();

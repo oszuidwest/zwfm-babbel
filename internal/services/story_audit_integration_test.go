@@ -4,7 +4,9 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"gorm.io/gorm"
 )
 
@@ -36,6 +39,115 @@ func openAuditIntegrationTx(t *testing.T) *gorm.DB {
 		}
 	})
 	return tx
+}
+
+// interleavingRepository runs the other request before the first starts its database transaction.
+type interleavingRepository struct {
+	storyRepository
+	during func()
+}
+
+func (r *interleavingRepository) UpdateAudio(ctx context.Context, id int64, u repository.StoryAudioUpdate) error {
+	if during := r.during; during != nil {
+		r.during = nil
+		during()
+	}
+	return r.storyRepository.UpdateAudio(ctx, id, u)
+}
+
+func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	firstInput := lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
+
+	tests := []struct {
+		name    string
+		source  string
+		wantErr error
+	}{
+		{name: "other request fails", source: "anullsrc=r=48000:cl=mono:d=1", wantErr: audio.ErrSilent},
+		{name: "other request succeeds", source: "sine=frequency=880:duration=2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := testutil.OpenIntegrationDB(t)
+			otherInput := lavfiFixture(t, ffmpegPath, tt.source)
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+			}}
+			repo := &interleavingRepository{storyRepository: repository.NewStoryRepository(db)}
+			service := &StoryService{storyRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
+			storyID, err := service.Create(t.Context(), idempotentCreate(t.Name(), newIdempotencyKey(t, db)))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			repo.during = func() {
+				if err := service.ProcessAudio(t.Context(), storyID, otherInput, nil); !errors.Is(err, tt.wantErr) {
+					t.Fatalf("other request = %v, want %v", err, tt.wantErr)
+				}
+			}
+			if err := service.ProcessAudio(t.Context(), storyID, firstInput, nil); err != nil {
+				t.Fatalf("first request = %v, want success", err)
+			}
+
+			finalPath := utils.StoryPath(cfg, storyID)
+			duration, err := service.audioSvc.Duration(t.Context(), finalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if math.Abs(duration-1) > 0.1 {
+				t.Fatalf("published %.3f s, want the first request's 1 s audio", duration)
+			}
+			saved, err := repo.GetByID(t.Context(), storyID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.AudioFile != filepath.Base(finalPath) || saved.DurationSeconds == nil {
+				t.Fatalf("persisted audio = %q, duration = %v; want %q and a duration",
+					saved.AudioFile, saved.DurationSeconds, filepath.Base(finalPath))
+			}
+			// duration_seconds is DECIMAL(8,2), rounded to hundredths by MySQL.
+			if math.Abs(*saved.DurationSeconds-duration) > 0.005 {
+				t.Fatalf("persisted %.3f s, published %.3f s", *saved.DurationSeconds, duration)
+			}
+			assertUmaskMode(t, finalPath)
+			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("processed files = %v, want only the published audio", entries)
+			}
+		})
+	}
+}
+
+// assertUmaskMode fails unless path has the mode the umask gives a new file.
+func assertUmaskMode(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// os.Create applies the umask the same way FFmpeg does.
+	ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refInfo, err := ref.Stat()
+	if err := errors.Join(err, ref.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
+		t.Fatalf("published file mode = %v, want %v from the umask", mode, want)
+	}
 }
 
 func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
@@ -57,12 +169,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	speech := func(source string) []byte {
-		input := filepath.Join(t.TempDir(), "input.wav")
-		// #nosec G204 - local FFmpeg and test-controlled arguments.
-		if output, err := exec.CommandContext(t.Context(), ffmpeg, "-f", "lavfi", "-i", source, "-y", input).CombinedOutput(); err != nil {
-			t.Fatalf("generate speech fixture: %v: %s", err, output)
-		}
-		data, err := os.ReadFile(input) // #nosec G304 - test temp file.
+		data, err := os.ReadFile(lavfiFixture(t, ffmpeg, source)) // #nosec G304 - test temp file.
 		if err != nil {
 			t.Fatal(err)
 		}

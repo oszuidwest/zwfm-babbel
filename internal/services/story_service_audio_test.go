@@ -23,13 +23,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
-	inputPath := filepath.Join(t.TempDir(), "silent.wav")
-	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
-	cmd := exec.CommandContext(t.Context(), ffmpegPath,
-		"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=1", "-y", inputPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("create silent audio: %v; output: %s", err, output)
-	}
+	inputPath := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=1")
 	// #nosec G304 - fixture generated inside t.TempDir
 	silentAudio, err := os.ReadFile(inputPath)
 	if err != nil {
@@ -87,6 +81,19 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lavfiFixture renders an FFmpeg lavfi source to a WAV file in a test temp
+// directory and returns its path.
+func lavfiFixture(t *testing.T, ffmpegPath, source string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "input.wav")
+	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
+	cmd := exec.CommandContext(t.Context(), ffmpegPath, "-f", "lavfi", "-i", source, "-y", path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create audio fixture: %v; output: %s", err, output)
+	}
+	return path
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
