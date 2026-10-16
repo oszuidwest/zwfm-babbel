@@ -399,12 +399,11 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	if err != nil {
 		// A failed rename is already an audio error. Anything else failed in
 		// the database: begin, the row and audit writes, or commit.
-		if _, ok := errors.AsType[*apperrors.AudioError](err); ok {
-			return err
+		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
+			return audioErr
 		}
 		if published {
-			// Only the commit runs after publication. The handler logs and
-			// alerts on the cause; name the live file there.
+			// The handler logs and alerts on the cause; name the live file there.
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)

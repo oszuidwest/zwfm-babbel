@@ -214,22 +214,16 @@ func TestStoryAudioRenameFailureRollsBack(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	service := newAudioIntegrationService(t, db)
 	story := createAudioIntegrationStory(t, db, nil)
-	if err := service.ProcessAudio(t.Context(), story.ID, audioFixture(t, service, "sine=frequency=440:duration=1"), nil); err != nil {
-		t.Fatal(err)
-	}
 	// A directory in place of the published file makes the rename fail.
-	finalPath := utils.StoryPath(service.config, story.ID)
-	if err := os.Remove(finalPath); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(finalPath, 0o750); err != nil {
+	if err := os.Mkdir(utils.StoryPath(service.config, story.ID), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	before := audioStateOf(t, service, db, story.ID)
 
 	err := service.ProcessAudio(t.Context(), story.ID, audioFixture(t, service, "sine=frequency=880:duration=2"), nil)
-	if audioErr, ok := errors.AsType[*apperrors.AudioError](err); !ok || audioErr.Operation != "finalize" {
-		t.Fatalf("ProcessAudio = %v, want finalize audio error", err)
+	_, isDatabaseErr := errors.AsType[*apperrors.DatabaseError](err)
+	if audioErr, ok := errors.AsType[*apperrors.AudioError](err); !ok || audioErr.Operation != "finalize" || isDatabaseErr {
+		t.Fatalf("ProcessAudio = %v, want only a finalize audio error", err)
 	}
 	if after := audioStateOf(t, service, db, story.ID); !reflect.DeepEqual(after, before) {
 		t.Fatalf("failed rename changed state to %+v, want %+v", after, before)
