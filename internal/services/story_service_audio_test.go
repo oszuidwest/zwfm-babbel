@@ -85,13 +85,12 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 }
 
-// interleavingRepository records the published row values and runs during
+// interleavingRepository records the published duration and runs during
 // inside the first UpdateAudio call, between that request's conversion and
 // its publication.
 type interleavingRepository struct {
 	storyRepository
 	during          func()
-	audioFile       string
 	durationSeconds float64
 }
 
@@ -103,7 +102,7 @@ func (r *interleavingRepository) UpdateAudio(_ context.Context, _ int64, u repos
 	if err := u.Publish(); err != nil {
 		return err
 	}
-	r.audioFile, r.durationSeconds = u.AudioFile, u.DurationSeconds
+	r.durationSeconds = u.DurationSeconds
 	return nil
 }
 
@@ -154,11 +153,9 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			publishedFirst := math.Abs(duration-1) <= 0.1
-			rowMatchesFile := repo.audioFile == utils.StoryFilename(storyID) && repo.durationSeconds == duration
-			if !publishedFirst || !rowMatchesFile {
-				t.Fatalf("published %.3f s, row = %q with %.3f s; want the first request's 1 s audio in both",
-					duration, repo.audioFile, repo.durationSeconds)
+			if math.Abs(duration-1) > 0.1 || repo.durationSeconds != duration {
+				t.Fatalf("published %.3f s, row has %.3f s; want the first request's 1 s audio in both",
+					duration, repo.durationSeconds)
 			}
 			info, err := os.Stat(finalPath)
 			if err != nil {

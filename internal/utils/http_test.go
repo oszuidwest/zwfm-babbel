@@ -657,8 +657,7 @@ func TestSaveAudioUpload_SameFilenameGetsOwnFile(t *testing.T) {
 
 	// Both requests hold their input before either finishes.
 	firstPath, firstCleanup := save("first upload")
-	secondPath, secondCleanup := save("second upload")
-	t.Cleanup(func() { _ = secondCleanup() })
+	secondPath, _ := save("second upload")
 	if firstPath == secondPath {
 		t.Fatalf("both uploads stored at %s", firstPath)
 	}
