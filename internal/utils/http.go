@@ -63,12 +63,9 @@ var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".f
 func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
 	// Allow form overhead around a file at the size limit.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
-	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
-	if err == nil && mediaType != "multipart/form-data" {
-		err = http.ErrNotMultipart
-	}
-	if err != nil {
-		problemAudioUpload(c, field, err)
+	// MultipartReader also accepts multipart/mixed, which FormFile rejected.
+	if mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type")); err != nil || mediaType != "multipart/form-data" {
+		problemAudioUpload(c, field, http.ErrNotMultipart)
 		return "", nil, false
 	}
 	reader, err := c.Request.MultipartReader()

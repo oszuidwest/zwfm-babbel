@@ -729,6 +729,7 @@ func TestSaveAudioUpload_InvalidMultipart(t *testing.T) {
 		name, contentType, body string
 	}{
 		{name: "wrong content type", contentType: "application/json", body: "{}"},
+		{name: "malformed content type", contentType: "multipart/form-data; boundary", body: "{}"},
 		{name: "multipart mixed", contentType: "multipart/mixed; boundary=boundary", body: "--boundary--\r\n"},
 		{name: "missing boundary", contentType: "multipart/form-data"},
 		{name: "empty body", contentType: "multipart/form-data; boundary=boundary"},
