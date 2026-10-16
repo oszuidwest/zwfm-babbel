@@ -28,6 +28,7 @@ func (r probingStoryRepository) Restore(ctx context.Context, id int64, actorUser
 	return err
 }
 
+//nolint:gocyclo // Keep the cross-connection restore and audit assertions in one scenario.
 func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	station, story := createSelectableDeletedStory(t, db)

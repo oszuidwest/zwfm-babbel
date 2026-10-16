@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -26,11 +28,22 @@ type StationVoiceServiceDeps struct {
 	Config           *config.Config
 }
 
+type stationVoiceRepository interface {
+	Create(context.Context, int64, int64, float64) (*models.StationVoice, error)
+	GetByID(context.Context, int64) (*models.StationVoice, error)
+	Update(context.Context, int64, *repository.StationVoiceUpdate) error
+	IsCombinationTaken(context.Context, int64, int64, *int64) (bool, error)
+	GetStationVoiceIDs(context.Context, int64) (int64, int64, string, error)
+	Delete(context.Context, int64) error
+	UpdateAudio(context.Context, int64, string) error
+	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.StationVoice], error)
+}
+
 // StationVoiceService manages station-voice relationships and their jingle
 // files as one domain boundary.
 type StationVoiceService struct {
 	txManager        repository.TxManager
-	stationVoiceRepo *repository.StationVoiceRepository
+	stationVoiceRepo stationVoiceRepository
 	stationRepo      *repository.StationRepository
 	voiceRepo        *repository.VoiceRepository
 	audioSvc         *audio.Service
@@ -204,16 +217,36 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
+	// Each request converts beside the live file, so publication is atomic
+	// and failed requests only remove their own output.
+	pattern := strings.TrimSuffix(filepath.Base(outputPath), ".wav") + "_*.processing.wav"
+	converted, err := os.CreateTemp(filepath.Dir(outputPath), pattern)
+	if err != nil {
+		return apperrors.Audio("StationVoice", "convert", err)
+	}
+	convertedPath := converted.Name()
+	defer func() {
+		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Error("Failed to remove temporary jingle file", "path", convertedPath, "error", rmErr)
+		}
+	}()
+	// FFmpeg keeps the mode of the file it overwrites; publish world-readable
+	// audio (0644), not CreateTemp's 0600.
+	if err := errors.Join(converted.Chmod(0o644), converted.Close()); err != nil {
+		return apperrors.Audio("StationVoice", "convert", err)
+	}
+	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, convertedPath); err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
 	filenameOnly := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
 	if err := s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly); err != nil {
-		if rmErr := os.Remove(outputPath); rmErr != nil {
-			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
-		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
+	}
+	// A failed rename preserves an existing jingle at the same canonical
+	// filename. On a first upload the row can point at a missing file until retry.
+	if err := os.Rename(convertedPath, outputPath); err != nil {
+		return apperrors.Audio("StationVoice", "finalize", err)
 	}
 
 	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)

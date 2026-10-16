@@ -496,6 +496,7 @@ func assertAuditChange(t *testing.T, event models.AuditEvent, field string, oldV
 	}
 }
 
+//nolint:gocyclo // Keep the permission matrix and its shared audit fixtures together.
 func TestAuditActorNamesRequirePermission(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	user := models.User{Username: fmt.Sprintf("audit-actor-%d", time.Now().UnixNano()), FullName: "Audit Actor", Role: models.RoleViewer}
