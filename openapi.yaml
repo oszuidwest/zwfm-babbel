@@ -2945,6 +2945,10 @@ paths:
         (`errors[].code` is `not_found`); 404 means only that the station-voice
         in the path does not exist.
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
+
+        `station_id` and `voice_id` cannot change while the station-voice has a
+        jingle (409 `stationvoice.jingle_locked`); delete it and create one for
+        the new station and voice instead. Sending the current values is a no-op.
       tags:
         - Station-Voices
       parameters:
@@ -3970,11 +3974,15 @@ components:
         station_id:
           type: [integer, 'null']
           minimum: 1
-          description: New station ID (optional)
+          description: |
+            New station ID (optional). Cannot change while the station-voice has a
+            jingle (409); sending the current value is a no-op.
         voice_id:
           type: [integer, 'null']
           minimum: 1
-          description: New voice ID (optional)
+          description: |
+            New voice ID (optional). Cannot change while the station-voice has a
+            jingle (409); sending the current value is a no-op.
         mix_point:
           type: [number, 'null']
           format: float
@@ -4574,6 +4582,7 @@ components:
         - `bulletin.no_stories` - 409 no active stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
+        - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
         - `tts.upstream_failed` - 502 ElevenLabs failed, rejected the request or returned silent audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
@@ -5102,6 +5111,8 @@ components:
         - `bulletin.no_stories` - No eligible stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
+        - `stationvoice.jingle_locked` - A station-voice's `station_id` or `voice_id` cannot change
+          while it has a jingle; delete it and create one for the new station and voice
       content:
         application/problem+json:
           schema:
@@ -5157,6 +5168,16 @@ components:
                 instance: "/public/stations/1/bulletin.wav"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+            jingle_locked:
+              summary: Station-voice pair is locked by its jingle
+              value:
+                type: "https://babbel.api/problems/stationvoice.jingle_locked"
+                title: "Conflict"
+                status: 409
+                detail: "Station-voice station and voice cannot change while it has a jingle"
+                instance: "/api/v1/station-voices/1"
+                code: "stationvoice.jingle_locked"
+                hint: "Delete the station-voice and create one for the new station and voice"
     RequestTimeout:
       description: Upload did not complete within the time limit
       content:

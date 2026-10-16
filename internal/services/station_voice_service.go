@@ -106,7 +106,8 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 }
 
 // Update applies relationship changes while preserving the uniqueness of the
-// final station/voice pair.
+// final station/voice pair. The jingle file is named after the pair, so the
+// station and voice cannot change once a jingle exists.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
 	current, err := s.GetByID(ctx, id)
 	if err != nil {
@@ -122,8 +123,29 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		VoiceID:   req.VoiceID,
 		MixPoint:  req.MixPoint,
 	}
-	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
+	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.stationVoiceRepo.Update(txCtx, id, updates); err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
+		}
+		if req.StationID == nil && req.VoiceID == nil {
+			return nil
+		}
+		// The update holds the row lock, so this read also sees a jingle
+		// uploaded after current was loaded. Rolling back keeps the row at
+		// the pair its jingle file is named after.
+		updated, err := s.GetByID(txCtx, id)
+		if err != nil {
+			return err
+		}
+		if updated.AudioFile != "" && updated.AudioFile != utils.JingleFilename(updated.StationID, updated.VoiceID) {
+			return apperrors.Conflict("stationvoice.jingle_locked",
+				"Station-voice station and voice cannot change while it has a jingle",
+				"Delete the station-voice and create one for the new station and voice")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return s.GetByID(ctx, id)
