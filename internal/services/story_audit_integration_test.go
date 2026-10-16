@@ -117,22 +117,7 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 			if math.Abs(*saved.DurationSeconds-duration) > 0.005 {
 				t.Fatalf("persisted %.3f s, published %.3f s", *saved.DurationSeconds, duration)
 			}
-			info, err := os.Stat(finalPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// os.Create applies the umask the same way FFmpeg does.
-			ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			refInfo, err := ref.Stat()
-			if err := errors.Join(err, ref.Close()); err != nil {
-				t.Fatal(err)
-			}
-			if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
-				t.Fatalf("published file mode = %v, want %v from the umask", mode, want)
-			}
+			assertUmaskMode(t, finalPath)
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
 				t.Fatal(err)
@@ -141,6 +126,27 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 				t.Fatalf("processed files = %v, want only the published audio", entries)
 			}
 		})
+	}
+}
+
+// assertUmaskMode fails unless path has the mode the umask gives a new file.
+func assertUmaskMode(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// os.Create applies the umask the same way FFmpeg does.
+	ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refInfo, err := ref.Stat()
+	if err := errors.Join(err, ref.Close()); err != nil {
+		t.Fatal(err)
+	}
+	if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
+		t.Fatalf("published file mode = %v, want %v from the umask", mode, want)
 	}
 }
 
