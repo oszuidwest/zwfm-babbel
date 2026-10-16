@@ -1,11 +1,9 @@
 describe('Authentication', () => {
   beforeAll(async () => {
-    // Start with clean session state
     await global.api.apiLogout();
   });
 
   afterAll(async () => {
-    // Restore admin session for subsequent tests
     await global.api.apiLogin('admin', 'admin');
   });
 

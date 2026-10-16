@@ -9,10 +9,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// elevenLabsVoiceIDPattern matches the alphanumeric voice IDs ElevenLabs issues
-// (e.g. 21m00Tcm4TlvDq8ikWAM). Hyphen and underscore are allowed for
-// forward-compatibility, but path-altering characters are rejected so the value
-// can never reshape the upstream URL.
+// Restrict voice IDs to one upstream URL path segment.
 var elevenLabsVoiceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
 func validateElevenLabsVoiceID(id *string) error {

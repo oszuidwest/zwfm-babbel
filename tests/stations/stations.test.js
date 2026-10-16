@@ -2,20 +2,15 @@ const stationsSchema = require('../lib/schemas/stations.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
 describe('Stations', () => {
-  // Generate standard CRUD, Query, and Validation tests
   generateCrudTests(stationsSchema);
   generateQueryTests(stationsSchema);
   generateValidationTests(stationsSchema);
-
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to station behavior that can't be generated
 
   describe('Station Dependencies', () => {
     let stationId;
     let voiceId;
 
     beforeAll(async () => {
-      // Create station and voice for dependency testing
       const station = await global.helpers.createStation(
         global.resources,
         'DependencyTestStation',
@@ -31,7 +26,6 @@ describe('Stations', () => {
     });
 
     test('when deleting station with station-voices, then returns dependency conflict', async () => {
-      // Create station-voice relationship
       const svResponse = await global.api.apiCall('POST', '/station-voices', {
         station_id: stationId,
         voice_id: voiceId,
@@ -60,7 +54,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }
@@ -77,7 +70,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }
@@ -94,7 +86,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }

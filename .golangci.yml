@@ -22,7 +22,6 @@ linters:
     - unconvert
     - unparam
     - whitespace
-    # Added linters
     - godot
     - godoclint
     - dupword

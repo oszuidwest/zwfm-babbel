@@ -6,9 +6,7 @@ import (
 	"os"
 )
 
-// Initialize sets up the logging system with the specified level and mode.
-// It installs a new logger as the slog default; the other functions in this
-// package log through slog.Default.
+// Initialize installs the slog default used by this package's logging helpers.
 func Initialize(level string, development bool) error {
 	var handler slog.Handler
 	opts := &slog.HandlerOptions{
@@ -50,8 +48,7 @@ func Warn(message string, args ...any) {
 	slog.Warn(message, args...)
 }
 
-// WithFields returns a new logger with the given fields added to its context.
-// The returned logger can be used for structured logging with additional context.
+// WithFields returns a logger with the given structured attributes.
 func WithFields(fields map[string]any) *slog.Logger {
 	args := make([]any, 0, len(fields)*2)
 	for k, v := range fields {

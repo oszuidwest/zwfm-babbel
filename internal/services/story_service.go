@@ -34,6 +34,7 @@ type StoryServiceDeps struct {
 	PronunciationInjector *PronunciationInjector
 	Config                *config.Config
 	Alerts                notify.Alerter
+	TxManager             repository.TxManager
 }
 
 type storyRepository interface {
@@ -67,12 +68,13 @@ type StoryService struct {
 	pronunciationInjector *PronunciationInjector
 	config                *config.Config
 	alerts                notify.Alerter
+	txManager             repository.TxManager
 }
 
 // NewStoryService wires story business logic to its dependencies.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
-	if deps.PronunciationInjector == nil {
-		panic("services: NewStoryService requires a non-nil pronunciation injector")
+	if deps.PronunciationInjector == nil || deps.TxManager == nil {
+		panic("services: NewStoryService requires a non-nil pronunciation injector and transaction manager")
 	}
 	return &StoryService{
 		storyRepo:             deps.StoryRepo,
@@ -83,6 +85,7 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 		pronunciationInjector: deps.PronunciationInjector,
 		config:                deps.Config,
 		alerts:                notify.OrDiscard(deps.Alerts),
+		txManager:             deps.TxManager,
 	}
 }
 
@@ -118,7 +121,7 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create validates local-date bounds and optional voice ownership before
+// Create validates local-date bounds and the optional voice reference before
 // persisting a story.
 func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
 	startDate, err := parseStoryDate("start_date", req.StartDate)
@@ -219,7 +222,6 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	return s.GetByID(ctx, id)
 }
 
-// checkDateRange rejects an end date before the start date, labeling field.
 func checkDateRange(start, end time.Time, field string) error {
 	if !end.Before(start) {
 		return nil
@@ -236,7 +238,6 @@ func parseStoryDate(field, value string) (time.Time, error) {
 	return parsed, nil
 }
 
-// parseDateUpdates parses changed date fields in the server's local timezone.
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
 	var startDate, endDate *time.Time
 
@@ -297,14 +298,23 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 	return nil
 }
 
-// Restore reactivates a soft-deleted story.
-func (s *StoryService) Restore(ctx context.Context, id int64, actorUserID *int64) error {
-	err := s.storyRepo.Restore(ctx, id, actorUserID)
+// Restore restores and updates a story atomically, including its audit events.
+// update must be non-nil; an empty update only restores.
+func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
+	var story *models.Story
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID); err != nil {
+			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
+		}
+		var err error
+		story, err = s.Update(txCtx, id, update)
+		return err
+	})
 	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
+		return nil, err
 	}
 
-	return nil
+	return story, nil
 }
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
@@ -358,17 +368,6 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil
-}
-
-// UpdateStatus changes a story's workflow state to draft, active, or expired.
-// Request binding validates status.
-func (s *StoryService) UpdateStatus(ctx context.Context, id int64, status string, actorUserID *int64) (*models.Story, error) {
-	err := s.storyRepo.Update(ctx, id, &repository.StoryUpdate{ActorUserID: actorUserID, Status: &status})
-	if err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
-	}
-
-	return s.GetByID(ctx, id)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.

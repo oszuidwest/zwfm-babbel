@@ -12,10 +12,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// StoryExpirationService handles automatic expiration of stories past their end date.
-// Runs as a background service that periodically checks for stories that should be expired
-// and updates their status from 'active' to 'expired'. This keeps bulletins
-// limited to current content.
+// StoryExpirationService expires active stories past their end date.
 type StoryExpirationService struct {
 	repo   *repository.StoryRepository
 	runner *runner
