@@ -112,8 +112,8 @@ func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefi
 			return "", nil, false
 		}
 
-		// A unique file per request keeps concurrent uploads of the same
-		// filename apart; only the extension is used as FFmpeg's format hint.
+		// CreateTemp gives each upload its own file; the extension helps FFmpeg
+		// detect the format.
 		limited := &io.LimitedReader{R: part, N: maxAudioUploadBytes + 1}
 		storedPath, err = WriteTempFile(limited, prefix+"_*"+ext)
 		if err != nil {
@@ -161,7 +161,7 @@ func problemAudioUpload(c *gin.Context, field string, err error) {
 			Field: field, Code: apperrors.CodeRequired, Message: "file is required",
 		})
 	case storageFailure:
-		logger.Error("Failed to store uploaded audio", "error", err)
+		logger.Error("Failed to store uploaded audio", "route", RouteKey(c), "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
 	default:
 		ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
