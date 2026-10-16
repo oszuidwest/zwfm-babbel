@@ -107,11 +107,11 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		return "", nil, false
 	}
 
-	// A unique file per request keeps concurrent uploads of the same filename
-	// apart; the extension is FFmpeg's format hint.
+	// CreateTemp gives each upload its own file; the extension helps FFmpeg
+	// detect the format.
 	tempPath, err = WriteTempFile(file, prefix+"_*"+ext)
 	if err != nil {
-		logger.Error("Failed to store uploaded audio", "error", err)
+		logger.Error("Failed to store uploaded audio", "route", RouteKey(c), "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
 		return "", nil, false
 	}
