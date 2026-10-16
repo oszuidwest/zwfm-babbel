@@ -13,18 +13,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// newScriptService returns a Service whose FFmpeg binary is a shell script
-// with the given body.
-func newScriptService(t *testing.T, body string) *Service {
+// newShellService uses an existing executable to avoid ETXTBSY races when
+// parallel tests write and execute scripts (golang/go#22315).
+func newShellService(t *testing.T) *Service {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell scripts are not executable on windows")
 	}
-	path := filepath.Join(t.TempDir(), "ffmpeg")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o700); err != nil { //nolint:gosec // Test executable.
-		t.Fatal(err)
-	}
-	return NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: path}}, nil)
+	return NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: "/bin/sh"}}, nil)
 }
 
 func TestExecuteFFmpegCommandMissingExecutable(t *testing.T) {
@@ -44,9 +40,9 @@ func TestExecuteFFmpegCommandMissingExecutable(t *testing.T) {
 
 func TestExecuteFFmpegCommandFailureKeepsStderr(t *testing.T) {
 	t.Parallel()
-	svc := newScriptService(t, "echo 'Invalid filter graph' >&2\nexit 3")
+	svc := newShellService(t)
 
-	err := svc.executeFFmpegCommand(t.Context(), nil)
+	err := svc.executeFFmpegCommand(t.Context(), []string{"-c", "echo 'Invalid filter graph' >&2; exit 3"})
 	if err == nil || !strings.Contains(err.Error(), "stderr: Invalid filter graph") {
 		t.Fatalf("error = %v, want FFmpeg stderr diagnostics", err)
 	}
@@ -58,13 +54,13 @@ func TestExecuteFFmpegCommandFailureKeepsStderr(t *testing.T) {
 func TestExecuteFFmpegCommandCanceledContext(t *testing.T) {
 	t.Parallel()
 	// exec replaces the shell so killing the process closes stderr.
-	svc := newScriptService(t, "exec sleep 30")
+	svc := newShellService(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	timer := time.AfterFunc(100*time.Millisecond, cancel)
 	defer timer.Stop()
 
-	err := svc.executeFFmpegCommand(ctx, nil)
+	err := svc.executeFFmpegCommand(ctx, []string{"-c", "exec sleep 30"})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
