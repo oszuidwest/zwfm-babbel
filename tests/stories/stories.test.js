@@ -134,6 +134,17 @@ describe('Stories', () => {
 
       expect(response.status).toBe(404);
     });
+
+    // Single-resource endpoints read no query keys, list options included.
+    test.each([
+      ['', 'trashed=with'],
+      ['/audio', 'download=1']
+    ])('when GET /stories/{id}%s has %s, then the 422 names the key', async (suffix, qs) => {
+      const response = await global.api.apiCall('GET', `/stories/${storyId}${suffix}?${qs}`);
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[qs.split('=')[0], 'unknown_field']]);
+    });
   });
 
   describe('Idempotent Updates', () => {

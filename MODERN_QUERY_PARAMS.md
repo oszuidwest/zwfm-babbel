@@ -29,6 +29,15 @@ GET /api/v1/stations?Trashed=only       # 422, field "Trashed"
 GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "per_page"
 ```
 
+Single-resource endpoints, such as `/stations/{id}`,
+`/stations/{id}/bulletins/latest` and the audio downloads, read no query keys
+and reject every key the same way, list options included:
+
+```http
+GET /api/v1/stations/1?fields=name      # 422, errors[0].field = "fields", code "unknown_field"
+GET /api/v1/stories/1?trashed=with      # 422, field "trashed"
+```
+
 Malformed URL encoding or an unescaped semicolon returns 422 with field `query`
 and code `invalid_format` before checking keys. Unknown keys are then checked,
 whatever their value, and one response names each of them in sorted order;
