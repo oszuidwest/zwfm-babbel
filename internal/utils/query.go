@@ -42,15 +42,20 @@ func unknownQueryParams(query url.Values) []apperrors.FieldError {
 	return errs
 }
 
-// parseKnownQueryParams rejects unknown keys before [parseQueryParams] runs,
-// so a repeated unknown key reports as unknown rather than duplicate. On
-// errors it writes an RFC 9457 response and returns false.
+// parseKnownQueryParams rejects malformed encoding and unknown keys before
+// [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
+// than duplicate. On errors it writes an RFC 9457 response and returns false.
 func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
-	if errs := unknownQueryParams(c.Request.URL.Query()); len(errs) > 0 {
+	query, parseErr := url.ParseQuery(c.Request.URL.RawQuery)
+	if parseErr != nil {
+		emitQueryError(c, queryError("query", apperrors.CodeInvalidFormat, parseErr.Error()))
+		return nil, false
+	}
+	if errs := unknownQueryParams(query); len(errs) > 0 {
 		ProblemQueryValidation(c, "Invalid query parameter", errs...)
 		return nil, false
 	}
-	params, err := parseQueryParams(c)
+	params, err := parseQueryParams(query)
 	if err != nil {
 		emitQueryError(c, err)
 		return nil, false
@@ -62,9 +67,7 @@ func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
 // names, duplicate keys, and pagination. The repository validates field
 // names, operator applicability, and values. Callers decide on trashed:
 // [ParseListQueryWithTrashed] validates its value, the other parsers reject it.
-func parseQueryParams(c *gin.Context) (*QueryParams, *apperrors.FieldError) {
-	query := c.Request.URL.Query()
-
+func parseQueryParams(query url.Values) (*QueryParams, *apperrors.FieldError) {
 	if err := rejectDuplicateSingleValueParams(query); err != nil {
 		return nil, err
 	}
@@ -172,16 +175,16 @@ func parseSorting(sortParam string) ([]repository.SortField, *apperrors.FieldErr
 			before, after, _ := strings.Cut(part, ":")
 			field = strings.TrimSpace(before)
 			direction = repository.SortDirection(strings.ToLower(strings.TrimSpace(after)))
-			if direction != repository.SortAsc && direction != repository.SortDesc {
-				return nil, queryError("sort", apperrors.CodeInvalidChoice,
-					fmt.Sprintf("invalid direction %q for field %q; use asc or desc", after, field))
-			}
 		default:
 			field = part
 		}
 
 		if field == "" {
 			return nil, queryError("sort", apperrors.CodeInvalidFormat, fmt.Sprintf("item %q has no field name", part))
+		}
+		if direction != repository.SortAsc && direction != repository.SortDesc {
+			return nil, queryError("sort", apperrors.CodeInvalidChoice,
+				fmt.Sprintf("invalid direction %q for field %q; use asc or desc", direction, field))
 		}
 		sortFields = append(sortFields, repository.SortField{
 			Field:     field,

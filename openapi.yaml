@@ -49,7 +49,7 @@ info:
       `rules[0].ipa`. For a query parameter it is the key as sent: `limit`,
       `sort`, `filter[status][not]`. The path parameter is `id`. An uploaded
       file uses the multipart field name: `audio` or `jingle`. `request`
-      means the body as a whole.
+      means the body as a whole; `query` means a query string that cannot be decoded.
     - `code` is one of `required`, `blank`, `too_short`, `too_long`,
       `out_of_range`, `invalid_format`, `invalid_choice`, `invalid_type`,
       `invalid_json`, `unknown_field`, `not_found`, `date_order`,
@@ -70,7 +70,9 @@ info:
       `errors[].field`: `page=2` fails as `page` and `status=deleted` as
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
-    - Unknown keys are checked first, whatever their value, and one
+    - Malformed URL encoding or an unescaped semicolon fails with 422
+      `invalid_format` and field `query` before checking keys.
+    - Unknown keys are then checked, whatever their value, and one
       response names each of them in sorted order. A repeated unknown key
       fails as `unknown_field`, not `duplicate`.
     - `GET /stations/{id}/bulletins` answers the removed `latest` key with
@@ -4643,6 +4645,7 @@ components:
             - the multipart field name of an uploaded file: `audio` (story
               audio) or `jingle` (station-voice audio)
             - `request` for the body as a whole
+            - `query` for a query string that cannot be decoded
           example: "title"
         code:
           type: string
@@ -4658,7 +4661,7 @@ components:
               an ElevenLabs voice ID, a non-integer path ID or query number,
               a non-boolean query flag, a malformed filter key or filter
               value, an empty `sort` or `fields` item, or malformed
-              multipart form data
+              multipart form data or query encoding
             - `invalid_choice` - a value is not in the allowed set, such as a
               status, a role, a sort direction, a filter operator,
               `apply_text_normalization` or `trashed`

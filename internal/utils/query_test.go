@@ -44,7 +44,7 @@ func TestParseQueryParams_PassesRawValues(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
 			t.Parallel()
-			params, err := parseQueryParams(testQueryContext(t, tt.target))
+			params, err := parseQueryParams(testQueryContext(t, tt.target).Request.URL.Query())
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -75,6 +75,9 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 		{name: "sort bare minus", target: "/x?sort=-", wantField: "sort", wantCode: "invalid_format"},
 		{name: "sort bare plus", target: "/x?sort=%2B", wantField: "sort", wantCode: "invalid_format"},
 		{name: "sort bare direction", target: "/x?sort=:desc", wantField: "sort", wantCode: "invalid_format"},
+		{name: "sort missing field with invalid direction", target: "/x?sort=:sideways", wantField: "sort", wantCode: "invalid_format"},
+		{name: "sort whitespace field with invalid direction", target: "/x?sort=%20:sideways", wantField: "sort", wantCode: "invalid_format"},
+		{name: "sort missing field and direction", target: "/x?sort=:", wantField: "sort", wantCode: "invalid_format"},
 		{name: "sort bare minus after a field", target: "/x?sort=title,-", wantField: "sort", wantCode: "invalid_format"},
 		{name: "fields only a comma", target: "/x?fields=,", wantField: "fields", wantCode: "invalid_format"},
 		{name: "fields double comma", target: "/x?fields=id,,title", wantField: "fields", wantCode: "invalid_format"},
@@ -85,7 +88,7 @@ func TestParseQueryParams_RejectsMalformedOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := parseQueryParams(testQueryContext(t, tt.target))
+			_, err := parseQueryParams(testQueryContext(t, tt.target).Request.URL.Query())
 			if err == nil || err.Field != tt.wantField || err.Code != tt.wantCode {
 				t.Fatalf("got %+v, want %s/%s", err, tt.wantField, tt.wantCode)
 			}
@@ -157,7 +160,7 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := parseQueryParams(testQueryContext(t, tt.target))
+			_, err := parseQueryParams(testQueryContext(t, tt.target).Request.URL.Query())
 			if err == nil {
 				t.Fatal("expected error")
 			}
@@ -170,7 +173,8 @@ func TestParseQueryParams_RejectsDuplicateSingleValueParams(t *testing.T) {
 
 func TestParseQueryParams_AcceptsSingleValueParams(t *testing.T) {
 	t.Parallel()
-	params, err := parseQueryParams(testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with"))
+	c := testQueryContext(t, "/x?limit=5&offset=10&sort=name&fields=id&search=x&trashed=with")
+	params, err := parseQueryParams(c.Request.URL.Query())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -206,7 +210,7 @@ func TestParseQueryParams_SortAndFieldsLists(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
 			t.Parallel()
-			params, err := parseQueryParams(testQueryContext(t, tt.target))
+			params, err := parseQueryParams(testQueryContext(t, tt.target).Request.URL.Query())
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -220,10 +224,9 @@ func TestParseQueryParams_SortAndFieldsLists(t *testing.T) {
 	}
 }
 
-// Every list parser rejects keys it does not read before any other check, in
-// one 422 that names each key as sent, sorted. Matching is case-sensitive.
-// Known keys an endpoint does not support keep their specific errors.
-func TestListParsers_RejectUnknownKeys(t *testing.T) {
+// Every list parser rejects malformed encoding before checking unknown keys.
+// Unknown keys are reported together, sorted, before validating known keys.
+func TestListParsers_RejectInvalidQueries(t *testing.T) {
 	t.Parallel()
 	parsers := map[string]func(*gin.Context) bool{
 		"ParseListQuery":            func(c *gin.Context) bool { _, ok := ParseListQuery(c); return ok },
@@ -234,6 +237,7 @@ func TestListParsers_RejectUnknownKeys(t *testing.T) {
 		name       string
 		target     string
 		wantFields []string
+		wantCode   string
 	}{
 		{name: "page", target: "/x?page=2", wantFields: []string{"page"}},
 		{name: "former trashed name", target: "/x?status=deleted", wantFields: []string{"status"}},
@@ -247,6 +251,10 @@ func TestListParsers_RejectUnknownKeys(t *testing.T) {
 		{name: "removed latest parameter", target: "/x?latest=true&latest=false", wantFields: []string{"latest"}},
 		{name: "unknown key before invalid known key", target: "/x?limit=abc&page=2", wantFields: []string{"page"}},
 		{name: "unknown key before unsupported key", target: "/x?trashed=bogus&sort=id&page=2", wantFields: []string{"page"}},
+		{name: "unescaped semicolon", target: "/x?limit=5&page=2;foo=1", wantFields: []string{"query"}, wantCode: "invalid_format"},
+		{name: "invalid escape in key", target: "/x?limit=5&pa%ZZge=2", wantFields: []string{"query"}, wantCode: "invalid_format"},
+		{name: "invalid escape in value", target: "/x?limit=5&search=%ZZ", wantFields: []string{"query"}, wantCode: "invalid_format"},
+		{name: "malformed encoding before unknown key", target: "/x?page=2&search=%ZZ", wantFields: []string{"query"}, wantCode: "invalid_format"},
 	}
 	for parserName, parse := range parsers {
 		for _, tt := range tests {
@@ -266,9 +274,13 @@ func TestListParsers_RejectUnknownKeys(t *testing.T) {
 				if len(body.Errors) != len(tt.wantFields) {
 					t.Fatalf("errors = %+v, want fields %v", body.Errors, tt.wantFields)
 				}
+				code := tt.wantCode
+				if code == "" {
+					code = "unknown_field"
+				}
 				for i, field := range tt.wantFields {
-					if body.Errors[i].Field != field || body.Errors[i].Code != "unknown_field" || body.Errors[i].Message == "" {
-						t.Fatalf("errors[%d] = %+v, want %s/unknown_field with a message", i, body.Errors[i], field)
+					if body.Errors[i].Field != field || body.Errors[i].Code != code || body.Errors[i].Message == "" {
+						t.Fatalf("errors[%d] = %+v, want %s/%s with a message", i, body.Errors[i], field, code)
 					}
 				}
 			})
@@ -293,6 +305,11 @@ func TestListParsers_AcceptKnownKeys(t *testing.T) {
 			name:   "ParseListQueryWithTrashed",
 			parse:  func(c *gin.Context) bool { _, ok := ParseListQueryWithTrashed(c); return ok },
 			target: "/x?limit=5&offset=1&sort=-id&fields=id&search=x&trashed=with&filter[id]=1&filter[status][not]=draft",
+		},
+		{
+			name:   "encoded semicolon and percent",
+			parse:  func(c *gin.Context) bool { _, ok := ParseListQuery(c); return ok },
+			target: "/x?limit=5&search=a%3Bb%25&filter[title]=a%3Bb%25",
 		},
 		{
 			name:   "ParsePaginationOnly",
@@ -366,7 +383,7 @@ func TestParseListQuery_TrashedSupport(t *testing.T) {
 func TestParseFilters_RejectsDuplicateValues(t *testing.T) {
 	t.Parallel()
 	c := testQueryContext(t, "/x?filter[name]=a&filter[name]=b")
-	_, err := parseQueryParams(c)
+	_, err := parseQueryParams(c.Request.URL.Query())
 	if err == nil {
 		t.Fatal("expected error for duplicate filter values")
 	}
