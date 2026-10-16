@@ -12,7 +12,115 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"gorm.io/gorm"
 )
+
+func TestStoryRepositoryIntegration_UpdateVoiceGuard(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	repo := NewStoryRepository(db)
+	voiceA, voiceB := createIntegrationVoice(t, db), createIntegrationVoice(t, db)
+
+	withAudio := createVoicedIntegrationStory(t, db, &voiceA, "story_audio.wav")
+	if err := repo.Update(t.Context(), withAudio, &StoryUpdate{VoiceID: &voiceB}); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("Update() voice change with audio error = %v, want ErrStateConflict", err)
+	}
+	title := "Updated"
+	if err := repo.Update(t.Context(), withAudio, &StoryUpdate{VoiceID: &voiceA, Title: &title}); err != nil {
+		t.Fatalf("Update() with current voice error = %v", err)
+	}
+	if err := repo.Update(t.Context(), withAudio, &StoryUpdate{VoiceID: &voiceA, Title: &title}); err != nil {
+		t.Fatalf("Update() repeated guarded write error = %v", err)
+	}
+	if err := repo.SoftDelete(t.Context(), withAudio, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Update(t.Context(), withAudio, &StoryUpdate{VoiceID: &voiceB}); err == nil {
+		t.Fatal("Update() deleted story succeeded")
+	} else if _, ok := errors.AsType[*StoryDeletedError](err); !ok {
+		t.Fatalf("Update() deleted story error = %v, want StoryDeletedError", err)
+	}
+
+	withoutAudio := createVoicedIntegrationStory(t, db, &voiceA, "")
+	if err := repo.Update(t.Context(), withoutAudio, &StoryUpdate{VoiceID: &voiceB}); err != nil {
+		t.Fatalf("Update() voice change without audio error = %v", err)
+	}
+	assertIntegrationStoryVoice(t, repo, withoutAudio, voiceB, "")
+
+	if err := repo.Update(t.Context(), 1<<40, &StoryUpdate{VoiceID: &voiceB}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update() missing story error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestStoryRepositoryIntegration_UpdateAudioGuard(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	repo := NewStoryRepository(db)
+	voiceA, voiceB := createIntegrationVoice(t, db), createIntegrationVoice(t, db)
+
+	noVoice := createVoicedIntegrationStory(t, db, nil, "")
+	err := repo.UpdateAudio(t.Context(), noVoice, StoryAudioUpdate{
+		AudioFile: "story_new.wav", DurationSeconds: 3, VoiceID: voiceB,
+	})
+	if err != nil {
+		t.Fatalf("UpdateAudio() for story without voice error = %v", err)
+	}
+	assertIntegrationStoryVoice(t, repo, noVoice, voiceB, "story_new.wav")
+
+	story := createVoicedIntegrationStory(t, db, &voiceA, "story_old.wav")
+	stale := StoryAudioUpdate{
+		AudioFile: "story_next.wav", DurationSeconds: 3, VoiceID: voiceA,
+		ExpectedVoiceID: &voiceB, ExpectedAudioFile: "story_old.wav",
+	}
+	if err := repo.UpdateAudio(t.Context(), story, stale); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("UpdateAudio() with stale voice error = %v, want ErrStateConflict", err)
+	}
+	stale.ExpectedVoiceID, stale.ExpectedAudioFile = &voiceA, "story_other.wav"
+	if err := repo.UpdateAudio(t.Context(), story, stale); !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("UpdateAudio() with stale audio error = %v, want ErrStateConflict", err)
+	}
+
+	err = repo.UpdateAudio(t.Context(), story, StoryAudioUpdate{
+		AudioFile: "story_next.wav", DurationSeconds: 3, VoiceID: voiceB,
+		ExpectedVoiceID: &voiceA, ExpectedAudioFile: "story_old.wav",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAudio() replacing voice and audio error = %v", err)
+	}
+	assertIntegrationStoryVoice(t, repo, story, voiceB, "story_next.wav")
+}
+
+func createIntegrationVoice(t *testing.T, db *gorm.DB) int64 {
+	t.Helper()
+	voice := &models.Voice{Name: fmt.Sprintf("integration-voice-%d", time.Now().UnixNano())}
+	if err := db.Create(voice).Error; err != nil {
+		t.Fatalf("create voice: %v", err)
+	}
+	t.Cleanup(func() { db.Delete(&models.Voice{}, voice.ID) })
+	return voice.ID
+}
+
+func createVoicedIntegrationStory(t *testing.T, db *gorm.DB, voiceID *int64, audioFile string) int64 {
+	t.Helper()
+	id := createIntegrationStory(t, db)
+	if err := db.Model(&models.Story{}).Where("id = ?", id).
+		Updates(map[string]any{"voice_id": voiceID, "audio_file": audioFile}).Error; err != nil {
+		t.Fatalf("set story voice and audio: %v", err)
+	}
+	return id
+}
+
+func assertIntegrationStoryVoice(t *testing.T, repo *StoryRepository, id, wantVoice int64, wantAudio string) {
+	t.Helper()
+	story, err := repo.GetByID(t.Context(), id)
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if story.VoiceID == nil || *story.VoiceID != wantVoice {
+		t.Fatalf("voice_id = %v, want %d", story.VoiceID, wantVoice)
+	}
+	if story.AudioFile != wantAudio {
+		t.Fatalf("audio_file = %q, want %q", story.AudioFile, wantAudio)
+	}
+}
 
 func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t).Begin()
@@ -22,23 +130,26 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	defer db.Rollback()
 	repo := NewStoryRepository(db)
 	date := time.Date(2026, 9, 26, 0, 0, 0, 0, time.Local)
+	voice := createIntegrationVoice(t, db)
 	story, err := repo.Create(t.Context(), &StoryCreateData{
-		Title: "Audio write", Text: "News", Status: "active", StartDate: date, EndDate: date, Weekdays: models.WeekdaysAll,
+		Title: "Audio write", Text: "News", VoiceID: &voice, Status: "active", StartDate: date, EndDate: date, Weekdays: models.WeekdaysAll,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "original.wav", DurationSeconds: 12, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "original.wav", DurationSeconds: 12, VoiceID: voice, ExpectedVoiceID: &voice,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := repo.SoftDelete(t.Context(), story.ID, nil); err != nil {
 		t.Fatal(err)
 	}
-	err = repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
-	})
+	replacement := StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, VoiceID: voice,
+		ExpectedVoiceID: &voice, ExpectedAudioFile: "original.wav",
+	}
+	err = repo.UpdateAudio(t.Context(), story.ID, replacement)
 	deleted, ok := errors.AsType[*StoryDeletedError](err)
 	if !ok || deleted.ID != story.ID || deleted.DeletedAt.IsZero() {
 		t.Fatalf("UpdateAudio after deletion = %v, want deletion timestamp", err)
@@ -50,9 +161,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if saved.AudioFile != "original.wav" || saved.DurationSeconds == nil || *saved.DurationSeconds != 12 {
 		t.Fatalf("deleted story audio changed: %+v", saved)
 	}
-	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
-	}); !errors.Is(err, ErrNotFound) {
+	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, replacement); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UpdateAudio missing = %v, want ErrNotFound", err)
 	}
 }
@@ -84,7 +193,7 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 		t.Fatal(err)
 	}
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "calendar.wav", DurationSeconds: 10, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "calendar.wav", DurationSeconds: 10, VoiceID: voice.ID, ExpectedVoiceID: &voice.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}

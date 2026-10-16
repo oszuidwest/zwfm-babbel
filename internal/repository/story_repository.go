@@ -132,14 +132,22 @@ func (r *StoryRepository) classifyWriteError(ctx context.Context, id int64, err 
 	return err
 }
 
-// Update applies non-nil story fields.
+// Update applies non-nil story fields and records the change. A voice change
+// only applies while the story has no audio or its audio already belongs to
+// that voice; otherwise it returns ErrStateConflict.
 func (r *StoryRepository) Update(ctx context.Context, id int64, u *StoryUpdate) error {
 	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
 	}
 	return r.withAudit(ctx, id, models.AuditActionUpdate, u.ActorUserID, func(ctx context.Context) error {
-		return r.UpdateByID(ctx, id, updateMap)
+		if u.VoiceID == nil {
+			return r.UpdateByID(ctx, id, updateMap)
+		}
+		// The guard is part of the UPDATE so audio uploaded after the caller's
+		// read cannot end up paired with a different voice.
+		return r.guardedUpdate(ctx, id, updateMap,
+			"(COALESCE(audio_file, '') = '' OR voice_id = ?)", *u.VoiceID)
 	})
 }
 
@@ -171,34 +179,57 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *in
 	})
 }
 
-// StoryAudioUpdate describes newly processed story audio. Action records
-// whether it was uploaded or generated.
+// StoryAudioUpdate publishes processed audio together with the voice it was
+// produced for. Action records whether it was uploaded or generated. The
+// Expected fields hold the story state read before processing started.
 type StoryAudioUpdate struct {
 	ActorUserID *int64
 	Action      models.AuditAction
 
-	AudioFile       string
-	DurationSeconds float64
-	// Publish runs after the row and audit writes, before commit. A publish
-	// failure rolls them back; a commit failure cannot undo publication.
-	Publish func() error
+	AudioFile         string
+	DurationSeconds   float64
+	VoiceID           int64
+	ExpectedVoiceID   *int64
+	ExpectedAudioFile string
 }
 
-// UpdateAudio updates the row and audit event in one database transaction.
-// Publication precedes commit; if commit fails, the new file remains and
-// the database outcome may be unknown.
+// UpdateAudio stores new audio, its voice and the audit event in one
+// transaction. It returns ErrStateConflict when the story's voice or audio
+// changed since processing started.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
-	return r.inTx(ctx, func(ctx context.Context) error {
-		if err := r.auditedWrite(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
-			return r.UpdateByID(ctx, id, map[string]any{
-				"audio_file":       u.AudioFile,
-				"duration_seconds": u.DurationSeconds,
-			})
-		}); err != nil {
-			return err
-		}
-		return u.Publish()
+	return r.withAudit(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
+		return r.guardedUpdate(ctx, id, map[string]any{
+			"voice_id":         u.VoiceID,
+			"audio_file":       u.AudioFile,
+			"duration_seconds": u.DurationSeconds,
+		}, "COALESCE(audio_file, '') = ? AND voice_id <=> ?", u.ExpectedAudioFile, u.ExpectedVoiceID)
 	})
+}
+
+// guardedUpdate applies updates only when the guard condition holds. When no
+// row matches it returns ErrNotFound or StoryDeletedError for a missing or
+// deleted story and ErrStateConflict otherwise.
+func (r *StoryRepository) guardedUpdate(ctx context.Context, id int64, updates map[string]any, guard string, args ...any) error {
+	db := DBFromContext(ctx, r.db)
+	result := db.WithContext(ctx).Model(&models.Story{}).
+		Where("id = ?", id).
+		Where(guard, args...).
+		Updates(updates)
+	if result.Error != nil {
+		return ParseDBError(result.Error)
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+
+	exists, err := r.Exists(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return r.classifyWriteError(ctx, id, ErrNotFound)
+	}
+	return ErrStateConflict
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as

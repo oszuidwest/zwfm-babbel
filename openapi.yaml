@@ -1210,7 +1210,7 @@ paths:
                         text: "This is an important news update."
                         voice_id: 1
                         voice_name: "Sarah Johnson"
-                        audio_file: "story_101.wav"
+                        audio_file: "story_101_voice_1_3f9a1c2e7b4d.wav"
                         audio_url: "/stories/101/audio"
                         duration_seconds: 12.5
                         status: "active"
@@ -1350,18 +1350,27 @@ paths:
         Upload audio file for a story. Accepts WAV, MP3, M4A, AAC, OGG, FLAC, and Opus files.
         Audio duration is automatically calculated and stored.
 
+        The audio is attributed to the voice heard in the recording: `voice_id` when
+        given, otherwise the story's current voice. Uploading with a different
+        `voice_id` is the way to change the voice of a story that already has audio.
+
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
         - 408: the upload did not complete within the time limit.
+        - 409: the story has no voice and no `voice_id` was passed (`story.no_voice`,
+          checked before the file is accepted), or the story's voice or audio changed
+          while the file was processed (`story.audio_changed`).
         - 413: the file is larger than 100 MB.
         - 422: the `audio` file is missing (`required`), has an unsupported
           extension (`unsupported`), or is silent or below -50 LUFS
-          (`silent_audio`). Existing audio is kept.
+          (`silent_audio`). Existing audio is kept. Also for a `voice_id` that is
+          malformed or names no voice (`errors[].field` is `voice_id`).
         - 500: the server could not store or process the file.
       tags:
         - Stories
       parameters:
         - $ref: '#/components/parameters/id'
+        - $ref: '#/components/parameters/audioVoiceId'
       requestBody:
         required: true
         content:
@@ -1397,6 +1406,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '408':
           $ref: '#/components/responses/RequestTimeout'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '413':
@@ -1434,8 +1445,11 @@ paths:
         - TTS must be enabled (BABBEL_ELEVENLABS_API_KEY configured)
         - The `tts_settings` singleton row must exist
         - Story must have non-empty `text`
-        - Story must have a `voice_id` assigned
-        - The assigned voice must have an `elevenlabs_voice_id` configured
+        - Story must have a `voice_id` assigned, or `voice_id` must be passed
+        - The voice used must have an `elevenlabs_voice_id` configured
+
+        Passing a `voice_id` that differs from the story's voice generates audio with
+        that voice and replaces the story's `voice_id` together with the audio.
 
         **Audio pipeline:** ElevenLabs returns Opus (`opus_48000_128`) → converted to 48kHz mono WAV → stored as story audio.
       tags:
@@ -1453,6 +1467,7 @@ paths:
             already has audio fails with 409 `story.audio_exists`. A value that
             is not a boolean fails with 422 (`errors[].field` is `force`, code
             `invalid_format`).
+        - $ref: '#/components/parameters/audioVoiceId'
       responses:
         '201':
           description: TTS audio generated successfully
@@ -1470,13 +1485,15 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           description: |
-            The story or its voice is not ready for TTS. `code` is one of:
+            The story or its voice is not ready for TTS, or it changed during
+            generation. `code` is one of:
             - `story.audio_exists` - the story already has audio; retry with `?force=true` to overwrite it
             - `story.no_text` - the story has no text
-            - `story.no_voice` - the story has no voice assigned
+            - `story.no_voice` - the story has no voice assigned and no `voice_id` was passed
             - `voice.no_elevenlabs_id` - the voice has no ElevenLabs voice ID configured
             - `voice.elevenlabs_not_found` - ElevenLabs does not know the configured voice ID
             - `story.tts_text_too_long` - the story text with the style prefix is over the ElevenLabs limit
+            - `story.audio_changed` - the story's voice or audio changed while the audio was generated
           content:
             application/problem+json:
               schema:
@@ -1692,6 +1709,10 @@ paths:
         Audio file must be uploaded separately via POST /stories/{id}/audio.
         A body that sets no field fails with 422 (`request`, `empty_update`);
         a `voice_id` that does not exist fails with 422 (`voice_id`, `not_found`).
+
+        `voice_id` cannot change while the story has audio (409 `story.voice_locked`);
+        upload or generate new audio with `voice_id` instead. Sending the current
+        `voice_id` is a no-op.
       tags:
         - Stories
       parameters:
@@ -3034,6 +3055,19 @@ components:
         with 422 Unprocessable Entity (`errors[].field` is `id`, code
         `invalid_format`); a zero, negative or too large ID with code
         `out_of_range`.
+    audioVoiceId:
+      name: voice_id
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+      description: |
+        Voice heard in the new audio. Defaults to the story's current voice; when it
+        differs, the story's `voice_id` is replaced together with the audio. A
+        malformed value fails with 422 (`errors[].field` is `voice_id`, code
+        `invalid_format` or `out_of_range`); a voice that does not exist with
+        code `not_found`.
     rangeHeader:
       name: Range
       in: header
@@ -3985,7 +4019,9 @@ components:
           description: Name of the assigned voice (from JOIN query)
         audio_file:
           type: string
-          description: Filename of audio file (empty string if no audio uploaded)
+          description: |
+            Filename of audio file (empty string if no audio uploaded). New files are
+            named `story_{id}_voice_{voice_id}_{unique_id}.wav`; older files use `story_{id}.wav`.
         audio_url:
           type: string
           description: API URL to download the audio file (always present, may return 404 if no file exists)
@@ -4149,7 +4185,9 @@ components:
         voice_id:
           type: [integer, 'null']
           minimum: 1
-          description: Voice ID. Omit or set to null to keep current value unchanged
+          description: |
+            Voice ID. Omit or set to null to keep current value unchanged. Cannot change
+            while the story has audio (409); sending the current value is a no-op.
         status:
           type: [string, 'null']
           enum: [draft, active, expired, null]
@@ -4537,6 +4575,9 @@ components:
         - `bulletin.no_stories` - 409 no active stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
+          (`story.no_voice` also blocks audio uploads)
+        - `story.voice_locked` - 409 `voice_id` cannot change while the story has audio
+        - `story.audio_changed` - 409 the story's voice or audio changed while new audio was processed
         - `tts.upstream_failed` - 502 ElevenLabs failed, rejected the request or returned silent audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
@@ -5061,8 +5102,13 @@ components:
         - `{resource}.reference_missing` - A referenced resource was deleted while the request ran; reload and retry
         - `user.last_admin` - The last active admin user cannot be deleted, demoted or suspended
         - `bulletin.no_stories` - No eligible stories for bulletin generation
-        - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
+        - `story.audio_exists`, `story.no_text`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
+        - `story.no_voice` - Audio cannot be uploaded or generated until the story has a voice or `voice_id` is passed
+        - `story.voice_locked` - A story's `voice_id` cannot change while it has audio;
+          upload or generate new audio with `voice_id` instead
+        - `story.audio_changed` - The story's voice or audio changed while new audio
+          was being processed
       content:
         application/problem+json:
           schema:
@@ -5118,6 +5164,16 @@ components:
                 instance: "/public/stations/1/bulletin.wav"
                 code: "bulletin.no_stories"
                 hint: "Add active stories with audio before generating a bulletin"
+            story_voice_locked:
+              summary: Story voice is locked by existing audio
+              value:
+                type: "https://babbel.api/problems/story.voice_locked"
+                title: "Conflict"
+                status: 409
+                detail: "Story voice cannot change while the story has audio"
+                instance: "/api/v1/stories/1"
+                code: "story.voice_locked"
+                hint: "Upload or generate new audio with the voice_id query parameter to change the voice"
     RequestTimeout:
       description: Upload did not complete within the time limit
       content:

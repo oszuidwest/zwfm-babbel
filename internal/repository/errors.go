@@ -32,6 +32,10 @@ var (
 	// It deliberately does not wrap ErrSchemaUnavailable, so callers whose
 	// recovery hint names their own table do not misreport it.
 	ErrAuditSchemaUnavailable = errors.New("audit_events table unavailable")
+
+	// ErrStateConflict indicates a conditional update did not apply because
+	// the record's current state does not allow it.
+	ErrStateConflict = errors.New("record state conflict")
 )
 
 // StoryDeletedError indicates a write targeted a soft-deleted story.

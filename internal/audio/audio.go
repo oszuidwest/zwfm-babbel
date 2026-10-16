@@ -293,7 +293,7 @@ func (s *Service) buildBulletinMix(
 	var inputs, filters []string
 	var concatInputs strings.Builder
 	for i, story := range stories {
-		inputs = append(inputs, "-i", utils.StoryPath(s.config, story.ID))
+		inputs = append(inputs, "-i", utils.StoryPath(s.config, story.AudioFile))
 
 		if station.PauseSeconds > 0 && i < len(stories)-1 {
 			padMs := int(station.PauseSeconds * 1000)

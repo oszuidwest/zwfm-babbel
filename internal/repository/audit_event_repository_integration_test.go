@@ -23,6 +23,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	repo := NewStoryRepository(db)
 	actor := int64(307)
+	voice := createIntegrationVoice(t, db)
 	story, err := repo.Create(t.Context(), &StoryCreateData{
 		ActorUserID: &actor, Title: "First &amp; title", Text: "First text",
 		Status: "draft", StartDate: time.Now(), EndDate: time.Now(), Weekdays: models.WeekdaysAll,
@@ -70,24 +71,27 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	assertAuditChange(t, restored, "deleted_at", deleted.DeletedAt.Time, nil)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionAudio, AudioFile: "new.wav", DurationSeconds: 1.236, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionAudio, AudioFile: "new.wav", DurationSeconds: 1.236, VoiceID: voice,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	uploaded := lastStoryAuditEvent(t, db, story.ID, 5, models.AuditActionAudio)
 	assertAuditChange(t, uploaded, "audio_file", "", "new.wav")
 	assertAuditChange(t, uploaded, "duration_seconds", nil, 1.24)
+	assertAuditChange(t, uploaded, "voice_id", nil, voice)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, VoiceID: voice,
+		ExpectedVoiceID: &voice, ExpectedAudioFile: "new.wav",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	lastStoryAuditEvent(t, db, story.ID, 6, models.AuditActionTTS)
 
-	// Regenerating overwrites the same file; it is history even when no column changes.
+	// A publication is history even when no column changes.
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, VoiceID: voice,
+		ExpectedVoiceID: &voice, ExpectedAudioFile: "tts.wav",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,45 +123,48 @@ func TestStoryAuditNoOp(t *testing.T) {
 	}
 }
 
-func noPublish() error { return nil }
-
-func TestStoryAudioPublishFailureRollsBack(t *testing.T) {
+func TestStoryAudioConflictRollsBack(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	repo := NewStoryRepository(db)
+	voice := createIntegrationVoice(t, db)
 	id := createIntegrationStory(t, db)
-	sentinel := errors.New("rename failed")
 	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3,
-		Publish: func() error { return sentinel },
+		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3, VoiceID: voice,
+		ExpectedAudioFile: "stale.wav",
+	})
+	if !errors.Is(err, ErrStateConflict) {
+		t.Fatalf("UpdateAudio = %v, want ErrStateConflict", err)
+	}
+	assertStoryAudioUnchanged(t, repo, db, id)
+}
+
+func TestStoryAudioNotStoredWhenAuditFails(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	repo := NewStoryRepository(db)
+	voice := createIntegrationVoice(t, db)
+	id := createIntegrationStory(t, db)
+	sentinel := errors.New("audit unavailable")
+	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
+	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
+		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3, VoiceID: voice,
 	})
 	if !errors.Is(err, sentinel) {
-		t.Fatalf("UpdateAudio = %v, want publish error", err)
+		t.Fatalf("UpdateAudio = %v, want audit error", err)
 	}
+	assertStoryAudioUnchanged(t, repo, db, id)
+}
+
+func assertStoryAudioUnchanged(t *testing.T, repo *StoryRepository, db *gorm.DB, id int64) {
+	t.Helper()
 	story, err := repo.GetByID(t.Context(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if story.AudioFile != "" || story.DurationSeconds != nil {
-		t.Fatalf("failed publish changed audio: %+v", story)
+	if story.AudioFile != "" || story.DurationSeconds != nil || story.VoiceID != nil {
+		t.Fatalf("failed audio write changed the story: %+v", story)
 	}
 	if got := storyAuditEvents(t, db, id); len(got) != 0 {
-		t.Fatalf("failed publish events = %+v", got)
-	}
-}
-
-func TestStoryAudioNotPublishedWhenAuditFails(t *testing.T) {
-	db := testutil.OpenIntegrationDB(t)
-	repo := NewStoryRepository(db)
-	id := createIntegrationStory(t, db)
-	sentinel := errors.New("audit unavailable")
-	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
-	published := false
-	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3,
-		Publish: func() error { published = true; return nil },
-	})
-	if !errors.Is(err, sentinel) || published {
-		t.Fatalf("UpdateAudio = %v, published = %v; want audit error before publishing", err, published)
+		t.Fatalf("failed audio write events = %+v", got)
 	}
 }
 

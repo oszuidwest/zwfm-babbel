@@ -39,15 +39,36 @@ func IDParam(c *gin.Context) (int64, bool) {
 	if err == nil && id > 0 {
 		return id, true
 	}
-	fe := apperrors.FieldError{Field: "id", Code: apperrors.CodeOutOfRange, Message: "must be a positive integer"}
+	ProblemValidationError(c, "Invalid path parameter", positiveIDError("id", raw, err))
+	return 0, false
+}
+
+// OptionalIDQuery parses an optional positive integer query parameter. It
+// returns nil when the parameter is absent. On a malformed value it writes a
+// 422 naming the parameter and returns false.
+func OptionalIDQuery(c *gin.Context, name string) (*int64, bool) {
+	raw, present := c.GetQuery(name)
+	if !present {
+		return nil, true
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err == nil && id > 0 {
+		return &id, true
+	}
+	ProblemQueryValidation(c, "Invalid query parameter", positiveIDError(name, raw, err))
+	return nil, false
+}
+
+// positiveIDError describes why raw, parsed with err, is not a positive ID.
+func positiveIDError(field, raw string, err error) apperrors.FieldError {
+	fe := apperrors.FieldError{Field: field, Code: apperrors.CodeOutOfRange, Message: "must be a positive integer"}
 	switch {
 	case errors.Is(err, strconv.ErrRange):
 		fe.Message = "must be a positive 64-bit integer"
 	case err != nil:
 		fe.Code, fe.Message = apperrors.CodeInvalidFormat, fmt.Sprintf("expected integer, got %q", raw)
 	}
-	ProblemValidationError(c, "Invalid path parameter", fe)
-	return 0, false
+	return fe
 }
 
 const maxAudioUploadBytes = 100 * 1024 * 1024

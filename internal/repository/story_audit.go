@@ -43,8 +43,7 @@ func (r *StoryRepository) auditedWrite(ctx context.Context, id int64, action mod
 		return err
 	}
 	if changes == nil {
-		// New audio overwrites story_{id}.wav, so a publish with the same
-		// duration changes no column but still replaces what listeners hear.
+		// An audio publication is history even when it changes no column.
 		if action != models.AuditActionAudio && action != models.AuditActionTTS {
 			return nil
 		}

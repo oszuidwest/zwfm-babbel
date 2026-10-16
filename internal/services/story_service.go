@@ -3,6 +3,8 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -50,6 +52,11 @@ type storyRepository interface {
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
 }
 
+type voiceRepository interface {
+	Exists(context.Context, int64) (bool, error)
+	GetByID(context.Context, int64) (*models.Voice, error)
+}
+
 type speechGenerator interface {
 	GenerateSpeech(context.Context, string, string, tts.Options) ([]byte, error)
 }
@@ -62,7 +69,7 @@ type ttsSettingsGetter interface {
 // text-to-speech generation.
 type StoryService struct {
 	storyRepo             storyRepository
-	voiceRepo             *repository.VoiceRepository
+	voiceRepo             voiceRepository
 	audioSvc              *audio.Service
 	ttsSvc                speechGenerator
 	ttsSettingsSvc        ttsSettingsGetter
@@ -194,7 +201,9 @@ func (s *StoryService) storyIDForKey(ctx context.Context, key string) (int64, bo
 }
 
 // Update applies a partial story update and validates the effective date range,
-// including the existing date when only one side of the range changes.
+// including the existing date when only one side of the range changes. The
+// voice cannot change while the story has audio; resending the current voice
+// is a no-op.
 func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryRequest) (*models.Story, error) {
 	existing, err := s.storyRepo.GetByIDForWrite(ctx, id)
 	if err != nil {
@@ -224,8 +233,12 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		}
 	}
 
-	if req.VoiceID != nil {
-		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *req.VoiceID); err != nil {
+	voiceID, err := effectiveVoiceUpdate(existing, req.VoiceID)
+	if err != nil {
+		return nil, err
+	}
+	if voiceID != nil {
+		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *voiceID); err != nil {
 			return nil, err
 		}
 	}
@@ -234,7 +247,7 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 		ActorUserID: req.ActorUserID,
 		Title:       req.Title,
 		Text:        req.Text,
-		VoiceID:     req.VoiceID,
+		VoiceID:     voiceID,
 		Status:      req.Status,
 		StartDate:   startDate,
 		EndDate:     endDate,
@@ -244,6 +257,9 @@ func (s *StoryService) Update(ctx context.Context, id int64, req *UpdateStoryReq
 	}
 
 	if err := s.storyRepo.Update(ctx, id, updates); err != nil {
+		if errors.Is(err, repository.ErrStateConflict) {
+			return nil, errStoryVoiceLocked(err)
+		}
 		return nil, apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 	}
 
@@ -264,6 +280,30 @@ func parseStoryDate(field, value string) (time.Time, error) {
 		return time.Time{}, apperrors.Invalid(field, apperrors.CodeInvalidFormat, "must be in YYYY-MM-DD format")
 	}
 	return parsed, nil
+}
+
+// effectiveVoiceUpdate returns the voice to write: nil when none was requested
+// or it is unchanged. A different voice is rejected while the story has audio.
+func effectiveVoiceUpdate(existing *models.Story, voiceID *int64) (*int64, error) {
+	if !changesVoice(existing, voiceID) {
+		return nil, nil
+	}
+	if existing.AudioFile != "" {
+		return nil, errStoryVoiceLocked(nil)
+	}
+	return voiceID, nil
+}
+
+// changesVoice reports whether voiceID names a voice other than the story's.
+func changesVoice(story *models.Story, voiceID *int64) bool {
+	return voiceID != nil && (story.VoiceID == nil || *story.VoiceID != *voiceID)
+}
+
+// errStoryVoiceLocked reports an attempt to change the voice of a story whose
+// audio was recorded or generated for another voice.
+func errStoryVoiceLocked(cause error) error {
+	return apperrors.ConflictWithCause("story.voice_locked", "Story voice cannot change while the story has audio",
+		"Upload or generate new audio with the voice_id query parameter to change the voice", cause)
 }
 
 func (s *StoryService) parseDateUpdates(req *UpdateStoryRequest) (*time.Time, *time.Time, error) {
@@ -345,57 +385,121 @@ func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStor
 	return story, nil
 }
 
-// ProcessAudio converts uploaded audio and atomically replaces the published file.
-func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
-	return s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+// AudioTarget is a validated destination for new story audio: the story as it
+// was read and the voice heard in the audio. Publishing is conditional on the
+// story still being in that state.
+type AudioTarget struct {
+	story *models.Story
+	voice *models.Voice
 }
 
-// publishAudio converts audio at tempPath and publishes it, recording action
-// in the story's history.
-func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
-	// Convert beside the final file for atomic rename and WAV muxer selection.
-	// Publish after the row and audit writes; their failure preserves old audio.
-	// A failed rename rolls back both writes. A later commit failure leaves the
-	// new file published and may leave the database outcome unknown.
-	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+// PrepareAudio loads a story and resolves the voice for new audio: voiceID
+// when given, otherwise the story's current voice. Stories without a voice
+// are rejected, so audio is never stored without a known speaker.
+func (s *StoryService) PrepareAudio(ctx context.Context, storyID int64, voiceID *int64) (*AudioTarget, error) {
+	story, err := s.GetByIDForWrite(ctx, storyID)
+	if err != nil {
+		return nil, err
+	}
+	return s.audioTarget(ctx, story, voiceID)
+}
+
+// audioTarget resolves the voice heard in new audio for story; see PrepareAudio.
+func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voiceID *int64) (*AudioTarget, error) {
+	if !changesVoice(story, voiceID) {
+		if story.Voice == nil {
+			return nil, apperrors.Conflict("story.no_voice", "Story has no voice assigned",
+				"Assign the voice heard in the audio to the story, or pass voice_id")
+		}
+		return &AudioTarget{story: story, voice: story.Voice}, nil
+	}
+
+	voice, err := s.voiceRepo.GetByID(ctx, *voiceID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil, errMissingReference("voice_id", *voiceID)
+	}
+	if err != nil {
+		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+	}
+	return &AudioTarget{story: story, voice: voice}, nil
+}
+
+// ProcessAudio converts uploaded audio and publishes it with the target's voice.
+func (s *StoryService) ProcessAudio(ctx context.Context, target *AudioTarget, tempPath string, actorUserID *int64) error {
+	return s.publishAudio(ctx, target, tempPath, models.AuditActionAudio, actorUserID)
+}
+
+// publishAudio converts audio at tempPath to a new file and points the story
+// at it with the target's voice, recording action in the story's history. The
+// previous file is removed once the database points at the new one.
+func (s *StoryService) publishAudio(ctx context.Context, target *AudioTarget, tempPath string, action models.AuditAction, actorUserID *int64) error {
+	story := target.story
+	filename := utils.StoryFilename(story.ID, target.voice.ID, newAudioID())
+	finalPath := utils.StoryPath(s.config, filename)
+	keepAudio := false
 	defer func() {
-		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
+		if keepAudio {
+			return
+		}
+		if rmErr := os.Remove(finalPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Error("Failed to remove unpublished audio file", "path", finalPath, "error", rmErr)
 		}
 	}()
 
-	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
+	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, finalPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	var renameErr error
-	published := false
-	err = s.storyRepo.UpdateAudio(ctx, storyID, repository.StoryAudioUpdate{
-		ActorUserID:     actorUserID,
-		Action:          action,
-		AudioFile:       utils.StoryFilename(storyID),
-		DurationSeconds: duration,
-		Publish: func() error {
-			renameErr = os.Rename(convertedPath, finalPath)
-			published = renameErr == nil
-			return renameErr
-		},
+	// writeErr is set when the write failed inside the transaction, which then
+	// rolled back. Any other failure, such as at commit, may have applied it.
+	var writeErr error
+	err = s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
+		writeErr = s.storyRepo.UpdateAudio(ctx, story.ID, repository.StoryAudioUpdate{
+			ActorUserID:       actorUserID,
+			Action:            action,
+			AudioFile:         filename,
+			DurationSeconds:   duration,
+			VoiceID:           target.voice.ID,
+			ExpectedVoiceID:   story.VoiceID,
+			ExpectedAudioFile: story.AudioFile,
+		})
+		return writeErr
 	})
-	if renameErr != nil {
-		return apperrors.Audio("Story", "finalize", renameErr)
+	if errors.Is(writeErr, repository.ErrStateConflict) {
+		return apperrors.ConflictWithCause("story.audio_changed",
+			"Story voice or audio changed while the audio was being processed",
+			"Reload the story and try again", writeErr)
+	}
+	if writeErr != nil {
+		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, writeErr)
 	}
 	if err != nil {
-		if published {
-			// The handler logs and alerts on the cause; name the live file there.
-			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
+		// Keep the new file: the story may reference it once the commit lands.
+		keepAudio = true
+		// The handler logs and alerts on the cause; name the kept file there.
+		err = fmt.Errorf("story %d audio kept at %s after uncertain commit: %w", story.ID, finalPath, err)
+		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, err)
+	}
+	keepAudio = true
+
+	if story.AudioFile != "" {
+		oldPath := utils.StoryPath(s.config, story.AudioFile)
+		if rmErr := os.Remove(oldPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Warn("Failed to remove replaced story audio", "path", oldPath, "error", rmErr)
 		}
-		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
 
-	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
+	logger.Info("Processed audio for story",
+		"story_id", story.ID, "voice_id", target.voice.ID, "filename", finalPath, "duration_s", duration)
 	return nil
+}
+
+// newAudioID returns a short random ID that keeps story audio filenames unique.
+func newAudioID() string {
+	b := make([]byte, 6)
+	_, _ = rand.Read(b) // crypto/rand.Read never returns an error.
+	return hex.EncodeToString(b)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.
@@ -410,9 +514,10 @@ func (s *StoryService) List(
 	return result, nil
 }
 
-// GenerateTTS creates story audio through the configured text-to-speech service.
+// GenerateTTS creates story audio through the configured text-to-speech service
+// with voiceID, or with the story's current voice when voiceID is nil.
 // Existing audio is preserved unless force is true.
-func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force bool, actorUserID *int64) error {
+func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, voiceID *int64, force bool, actorUserID *int64) error {
 	story, err := s.storyRepo.GetByIDForWrite(ctx, storyID)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpQuery, err)
@@ -420,6 +525,15 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 	if err := validateStoryTTSPrerequisites(story, force); err != nil {
 		return err
+	}
+
+	target, err := s.audioTarget(ctx, story, voiceID)
+	if err != nil {
+		return err
+	}
+	if target.voice.ElevenLabsVoiceID == nil || *target.voice.ElevenLabsVoiceID == "" {
+		return apperrors.Conflict("voice.no_elevenlabs_id", "Voice has no ElevenLabs voice ID configured",
+			"Set elevenlabs_voice_id on the voice first")
 	}
 
 	settings, err := s.ttsSettingsSvc.Get(ctx)
@@ -441,7 +555,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	audioData, err := s.ttsSvc.GenerateSpeech(
 		tts.ContextWithStoryID(ctx, storyID),
 		finalText,
-		*story.Voice.ElevenLabsVoiceID,
+		*target.voice.ElevenLabsVoiceID,
 		options,
 	)
 	if err != nil {
@@ -459,7 +573,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		}
 	}()
 
-	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
+	if err := s.publishAudio(ctx, target, tempPath, models.AuditActionTTS, actorUserID); err != nil {
 		if errors.Is(err, audio.ErrSilent) {
 			s.alertTTSError(ctx, storyID, err)
 			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
@@ -511,14 +625,6 @@ func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 		return apperrors.Conflict("story.no_text", "Story has no text for TTS generation",
 			"Add text to the story first")
 	}
-	if story.VoiceID == nil {
-		return apperrors.Conflict("story.no_voice", "Story has no voice assigned for TTS generation",
-			"Assign a voice to the story first")
-	}
-	if story.Voice == nil || story.Voice.ElevenLabsVoiceID == nil || *story.Voice.ElevenLabsVoiceID == "" {
-		return apperrors.Conflict("voice.no_elevenlabs_id", "Voice has no ElevenLabs voice ID configured",
-			"Set elevenlabs_voice_id on the voice first")
-	}
 	return nil
 }
 
@@ -563,7 +669,7 @@ func translateTTSError(storyID int64, err error) error {
 			)
 		case http.StatusNotFound:
 			return apperrors.ConflictWithCause("voice.elevenlabs_not_found", "ElevenLabs does not know the configured voice ID",
-				"Check elevenlabs_voice_id on the story's voice", apiErr)
+				"Check elevenlabs_voice_id on the voice used for TTS", apiErr)
 		case http.StatusTooManyRequests:
 			return apperrors.RateLimited("TTS", apiErr.RetryAfter, apiErr)
 		case http.StatusUnprocessableEntity:

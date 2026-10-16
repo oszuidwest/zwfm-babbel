@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -41,10 +43,14 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 		run  func(ctx context.Context, s *StoryService, storyID int64) error
 	}{
 		{"upload", func(ctx context.Context, s *StoryService, storyID int64) error {
-			return s.ProcessAudio(ctx, storyID, inputPath, nil)
+			target, err := s.PrepareAudio(ctx, storyID, nil)
+			if err != nil {
+				return err
+			}
+			return s.ProcessAudio(ctx, target, inputPath, nil)
 		}},
 		{"forced TTS", func(ctx context.Context, s *StoryService, storyID int64) error {
-			return s.GenerateTTS(ctx, storyID, true, nil)
+			return s.GenerateTTS(ctx, storyID, nil, true, nil)
 		}},
 	}
 	for _, tt := range tests {
@@ -54,8 +60,8 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
 			}}
 			story := storyForTTSTest("News bulletin")
-			story.AudioFile = utils.StoryFilename(story.ID)
-			finalPath := utils.StoryPath(cfg, story.ID)
+			story.AudioFile = "story_99.wav"
+			finalPath := utils.StoryPath(cfg, story.AudioFile)
 			existingAudio := []byte("existing audio must stay intact")
 			if err := os.WriteFile(finalPath, existingAudio, 0600); err != nil {
 				t.Fatal(err)
@@ -87,6 +93,102 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
+	t.Parallel()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	inputPath := filepath.Join(t.TempDir(), "input.wav")
+	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
+	cmd := exec.CommandContext(t.Context(), ffmpegPath,
+		"-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-y", inputPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create audio: %v; output: %s", err, output)
+	}
+	for _, tt := range []struct {
+		name      string
+		writeErr  error
+		commitErr error
+		wantFiles int
+	}{
+		{name: "commit outcome unknown", commitErr: errors.New("connection lost"), wantFiles: 2},
+		{name: "write rolled back", writeErr: errors.New("audit unavailable"), wantFiles: 1},
+		{name: "concurrent change", writeErr: repository.ErrStateConflict, wantFiles: 1},
+		{name: "deleted during conversion", writeErr: &repository.StoryDeletedError{ID: 99}, wantFiles: 1},
+		{name: "missing during conversion", writeErr: repository.ErrNotFound, wantFiles: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+			}}
+			story := storyForTTSTest("News")
+			story.AudioFile = "story_99.wav"
+			oldPath := utils.StoryPath(cfg, story.AudioFile)
+			if err := os.WriteFile(oldPath, []byte("old audio"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			repo := &uncertainAudioRepository{err: tt.writeErr, audioFile: story.AudioFile}
+			svc := &StoryService{
+				storyRepo: repo, txManager: fakeCommitTxManager{err: tt.commitErr},
+				audioSvc: audio.NewService(cfg, nil), config: cfg,
+			}
+			err := svc.ProcessAudio(t.Context(), &AudioTarget{story: story, voice: story.Voice}, inputPath, nil)
+			wantErr := tt.writeErr
+			if wantErr == nil {
+				wantErr = tt.commitErr
+			}
+			if errors.Is(wantErr, repository.ErrNotFound) {
+				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
+					t.Fatalf("ProcessAudio error = %v, want NotFoundError", err)
+				}
+			} else if !errors.Is(err, wantErr) {
+				t.Fatalf("ProcessAudio error = %v, want %v", err, wantErr)
+			}
+			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
+			if err != nil || len(entries) != tt.wantFiles {
+				t.Fatalf("files = %v, error = %v, want %d files", entries, err, tt.wantFiles)
+			}
+			if _, err := os.Stat(oldPath); err != nil {
+				t.Fatalf("previous audio removed: %v", err)
+			}
+			if _, err := os.Stat(utils.StoryPath(cfg, repo.audioFile)); err != nil {
+				t.Fatalf("database references missing audio: %v", err)
+			}
+		})
+	}
+}
+
+// uncertainAudioRepository fails the write with err, or records the new audio
+// as if the write applied.
+type uncertainAudioRepository struct {
+	storyRepository
+	err       error
+	audioFile string
+}
+
+func (r *uncertainAudioRepository) UpdateAudio(_ context.Context, _ int64, update repository.StoryAudioUpdate) error {
+	if r.err == nil {
+		r.audioFile = update.AudioFile
+	}
+	return r.err
+}
+
+// fakeCommitTxManager runs fn and then reports err as the commit result.
+type fakeCommitTxManager struct{ err error }
+
+func (f fakeCommitTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if err := fn(ctx); err != nil {
+		return fmt.Errorf("transaction failed: %w", err)
+	}
+	return f.err
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {

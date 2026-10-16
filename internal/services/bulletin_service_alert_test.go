@@ -1,23 +1,27 @@
 package services
 
 import (
+	"os"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 func TestBulletinServiceAlertsForMissingStoryAudio(t *testing.T) {
 	alerts := &capturingAlerter{}
-	service := &BulletinService{
-		config: &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir()}},
-		alerts: alerts,
+	cfg := &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir()}}
+	service := &BulletinService{config: cfg, alerts: alerts}
+	present := repository.BulletinStoryData{ID: 41, AudioFile: "story_41_voice_1_abc.wav"}
+	if err := os.WriteFile(utils.StoryPath(cfg, present.AudioFile), []byte("audio"), 0600); err != nil {
+		t.Fatal(err)
 	}
 
-	stories := []repository.BulletinStoryData{{ID: 42}}
+	stories := []repository.BulletinStoryData{present, {ID: 42, AudioFile: "story_42_voice_1_abc.wav"}}
 	got := service.filterStoriesWithMissingAudio(t.Context(), stories, 7)
-	if len(got) != 0 {
-		t.Fatalf("kept stories = %d, want 0", len(got))
+	if len(got) != 1 || got[0].ID != present.ID {
+		t.Fatalf("kept stories = %+v, want only story %d", got, present.ID)
 	}
 	if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:missing-story-audio:station:7:story:42" {
 		t.Fatalf("events = %+v", alerts.events)

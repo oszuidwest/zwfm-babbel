@@ -160,7 +160,7 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 	})
 	if err := repo.UpdateAudio(t.Context(), story.ID, repository.StoryAudioUpdate{
 		Action: models.AuditActionAudio, AudioFile: "restore.wav", DurationSeconds: 10,
-		Publish: func() error { return nil },
+		VoiceID: voice.ID, ExpectedVoiceID: &voice.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}

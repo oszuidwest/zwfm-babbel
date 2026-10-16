@@ -10,6 +10,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
@@ -95,29 +96,6 @@ func TestValidateStoryTTSPrerequisites(t *testing.T) {
 			force: true,
 		},
 		{name: "text required", story: storyForTTSTest(""), wantCode: "story.no_text"},
-		{
-			name:     "voice assignment required",
-			story:    &models.Story{Text: "news"},
-			wantCode: "story.no_voice",
-		},
-		{
-			name: "loaded voice required",
-			story: func() *models.Story {
-				story := storyForTTSTest("news")
-				story.Voice = nil
-				return story
-			}(),
-			wantCode: "voice.no_elevenlabs_id",
-		},
-		{
-			name: "ElevenLabs id required",
-			story: func() *models.Story {
-				story := storyForTTSTest("news")
-				story.Voice.ElevenLabsVoiceID = nil
-				return story
-			}(),
-			wantCode: "voice.no_elevenlabs_id",
-		},
 		{name: "all prerequisites satisfied", story: valid},
 	}
 
@@ -150,7 +128,7 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 	)
 
 	ctx := context.WithValue(context.Background(), generateTTSTestContextKey{}, "preserved")
-	err := service.GenerateTTS(ctx, 99, false, nil)
+	err := service.GenerateTTS(ctx, 99, nil, false, nil)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -184,7 +162,7 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(context.Background(), 99, false, nil)
+	err := service.GenerateTTS(context.Background(), 99, nil, false, nil)
 	assertConflict(t, err, "story.tts_text_too_long")
 	if ttsSvc.calls != 0 {
 		t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)
@@ -397,9 +375,16 @@ func storyForTTSTest(text string) *models.Story {
 
 type fakeStoryRepository struct {
 	storyRepository
-	story *models.Story
-	err   error
-	calls int
+	story     *models.Story
+	err       error
+	calls     int
+	updates   []*repository.StoryUpdate
+	updateErr error
+}
+
+func (f *fakeStoryRepository) Update(_ context.Context, _ int64, u *repository.StoryUpdate) error {
+	f.updates = append(f.updates, u)
+	return f.updateErr
 }
 
 func (f *fakeStoryRepository) GetByIDForWrite(context.Context, int64) (*models.Story, error) {
@@ -408,6 +393,10 @@ func (f *fakeStoryRepository) GetByIDForWrite(context.Context, int64) (*models.S
 		return nil, f.err
 	}
 	return f.story, nil
+}
+
+func (f *fakeStoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
+	return f.GetByIDForWrite(ctx, id)
 }
 
 type fakeTTSSettingsGetter struct {
@@ -423,17 +412,19 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
-	data  []byte
-	ctx   context.Context
-	text  string
-	err   error
-	calls int
+	data    []byte
+	ctx     context.Context
+	text    string
+	voiceID string
+	err     error
+	calls   int
 }
 
-func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string, _ tts.Options) ([]byte, error) {
+func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, voiceID string, _ tts.Options) ([]byte, error) {
 	f.calls++
 	f.ctx = ctx
 	f.text = text
+	f.voiceID = voiceID
 	if f.err != nil {
 		return nil, f.err
 	}

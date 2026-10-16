@@ -28,7 +28,12 @@ func requireReference(ctx context.Context, exists func(context.Context, int64) (
 		return apperrors.TranslateRepoError(owner, apperrors.OpQuery, err)
 	}
 	if !ok {
-		return apperrors.Invalid(field, apperrors.CodeNotFound, fmt.Sprintf("no resource with id %d", id))
+		return errMissingReference(field, id)
 	}
 	return nil
+}
+
+// errMissingReference reports a request field that references a missing id.
+func errMissingReference(field string, id int64) error {
+	return apperrors.Invalid(field, apperrors.CodeNotFound, fmt.Sprintf("no resource with id %d", id))
 }

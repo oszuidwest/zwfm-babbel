@@ -76,9 +76,10 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		storyRepo: repo, voiceRepo: repository.NewVoiceRepository(tx), audioSvc: audio.NewService(cfg, nil),
 		ttsSvc: speechGenerator, ttsSettingsSvc: &fakeTTSSettingsGetter{settings: &models.TTSSettings{}},
 		pronunciationInjector: NewPronunciationInjector(&fakePronunciationRuleLister{}), config: cfg, alerts: notify.Discard,
+		txManager: repository.NewTxManager(tx),
 	}
 	actor := int64(307)
-	if err := service.GenerateTTS(t.Context(), story.ID, false, &actor); err != nil {
+	if err := service.GenerateTTS(t.Context(), story.ID, nil, false, &actor); err != nil {
 		t.Fatal(err)
 	}
 	auditEvents := func() []models.AuditEvent {
@@ -104,7 +105,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	sentinel := errors.New("audit unavailable")
 	testutil.RejectAuditWrites(t, tx, func() error { return sentinel })
 	speechGenerator.data = speech("sine=frequency=880:duration=2")
-	if err := service.GenerateTTS(t.Context(), story.ID, true, &actor); !errors.Is(err, sentinel) {
+	if err := service.GenerateTTS(t.Context(), story.ID, nil, true, &actor); !errors.Is(err, sentinel) {
 		t.Fatalf("failed TTS = %v", err)
 	}
 	after, err := repo.GetByID(t.Context(), story.ID)
@@ -121,7 +122,6 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if len(files) != 1 || files[0].Name() != published.AudioFile {
 		t.Fatalf("failed publication removed old audio or left new audio: %v", files)
 	}
-	// The filename never changes, so only the contents show a premature publish.
 	if current, err := os.ReadFile(publishedPath); err != nil || !bytes.Equal(current, publishedAudio) { // #nosec G304 - test temp file.
 		t.Fatalf("failed publication replaced the published audio (err=%v)", err)
 	}
