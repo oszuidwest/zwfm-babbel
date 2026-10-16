@@ -25,15 +25,9 @@ describe('Station-Voices', () => {
     const ids = [];
     for (const index of [1, 0, 2]) {
       const { station, voice, mix } = fixtures[index];
-      const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: station.id,
-        voice_id: voice.id,
-        mix_point: mix
-      });
-
-      expect(response.status).toBe(201);
-      global.resources.track('stationVoices', response.data.id);
-      ids[index] = response.data.id;
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, mix);
+      expect(stationVoice).not.toBeNull();
+      ids[index] = stationVoice.id;
     }
     createMySQLExecutor().setTimestamps('station_voices', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
     return ids;

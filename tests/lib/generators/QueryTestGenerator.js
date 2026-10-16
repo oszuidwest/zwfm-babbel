@@ -9,12 +9,12 @@ const { createMySQLExecutor } = require('../MySQLHelper');
  * reversed sort would pass. An ignored sort returns the default order, so it
  * fails both directions of every field that this order leaves unsorted.
  * @param {Object} schema
- * @param {Function|null} [setupFn] Creates the fixtures and resolves to their ids.
+ * @param {Function} setupFn Creates the fixtures and resolves to their ids.
  */
-function generateQueryTests(schema, setupFn = null) {
+function generateQueryTests(schema, setupFn) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
-  if (query.sortableFields?.length > 0 && !setupFn) throw new Error(`${name} sort tests need a setupFn that returns fixture ids`);
+  if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
@@ -47,12 +47,13 @@ function generateQueryTests(schema, setupFn = null) {
     }
     return items.map(item => item[field]);
   };
+  const sorted = (keys, direction) => [...keys].sort((a, b) => direction * (a - b));
 
   describe(`${name} Query Parameters`, () => {
-    let fixtureIds = [];
+    let fixtureIds;
 
     beforeAll(async () => {
-      if (setupFn) fixtureIds = await setupFn();
+      fixtureIds = await setupFn();
     });
 
     if (query.searchFields?.length > 0) {
@@ -86,17 +87,31 @@ function generateQueryTests(schema, setupFn = null) {
             expect.hasAssertions();
             // Rows from other tests could fill the page with equal keys.
             const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}&sort=${sort}`);
-            // The fixture orders only hold when the page lists every fixture.
+            // The fixture orders only hold when the page lists every fixture,
+            // each with a key.
             expect(response.data.data).toHaveLength(fixtureIds.length);
             const keys = sortKeys(response, field);
+            expect(keys).toHaveLength(fixtureIds.length);
             // A missing rank or unparsable date would sort to the end unnoticed.
             expect(keys.every(Number.isFinite)).toBe(true);
             // Equal keys are in order both ways and cannot catch an ignored or
             // reversed sort. Collation-equal strings share a rank, so the Set
             // counts keys the way the comparison below does.
             expect(new Set(keys).size).toBeGreaterThan(1);
-            expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
+            expect(keys).toEqual(sorted(keys, direction));
           });
+        });
+
+        // Every other field the default order happens to sort would let an
+        // ignored sort pass one direction of it.
+        test('when sort is omitted, then at most one sortable field lists the fixtures in order', async () => {
+          expect.hasAssertions();
+          const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}`);
+          const ordered = query.sortableFields.filter(field => {
+            const keys = sortKeys(response, field);
+            return [1, -1].some(direction => sorted(keys, direction).every((key, index) => key === keys[index]));
+          });
+          expect(ordered.length).toBeLessThanOrEqual(1);
         });
 
         test.each([
