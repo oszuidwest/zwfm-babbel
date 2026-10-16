@@ -290,6 +290,7 @@ These conditions cause an immediate alert:
 - Bulletin generation fails, and the cause is not a timeout.
 - Babbel cannot read the bulletin output directory.
 - The ElevenLabs credentials are not valid.
+- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, so they cannot reach the failure threshold. The cooldown limits the alerts for a failure that continues.
 - A scheduler job stops because of a panic.
 - Babbel locks a user account after too many bad login attempts.
 - The OAuth state or the OAuth token data is not valid.
@@ -299,7 +300,6 @@ These conditions cause a thresholded alert:
 - ElevenLabs sends error 429 or an upstream error, or does not reply in time.
 - Bulletin generation stops because of a timeout.
 - A database request or the database connection fails.
-- The bulletin cleanup job or the story expiration job fails.
 - Babbel cannot parse the FFmpeg loudnorm output.
 - Requests to the public bulletin endpoint use a bad automation key.
 

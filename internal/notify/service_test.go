@@ -205,6 +205,30 @@ func TestServiceImmediateAlertsAreIsolatedByKey(t *testing.T) {
 	mailer.waitForCount(t, 2)
 }
 
+func TestServiceImmediateAlertSendsFirstOccurrenceAndRespectsCooldown(t *testing.T) {
+	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
+	svc, mailer := newTestService(&now)
+	defer svc.Close()
+	event := Event{Key: "scheduler:bulletin cleanup service", Summary: "Scheduler job failed"}
+
+	svc.Alert(t.Context(), event)
+	mailer.waitForCount(t, 1)
+	svc.work.Wait()
+
+	now = now.Add(30 * time.Minute)
+	svc.Alert(t.Context(), event)
+	svc.work.Wait()
+	if got := mailer.count(); got != 1 {
+		t.Fatalf("messages during cooldown = %d, want 1", got)
+	}
+
+	// The next daily run is past both the cooldown and the failure window,
+	// so it alerts again on its own occurrence.
+	now = now.Add(24 * time.Hour)
+	svc.Alert(t.Context(), event)
+	mailer.waitForCount(t, 2)
+}
+
 func TestServiceFailedDeliveryDoesNotStartCooldown(t *testing.T) {
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	svc, recorder := newTestService(&now)

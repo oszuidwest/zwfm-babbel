@@ -49,20 +49,22 @@ func TestRunnerRecoversPanicAndAlerts(t *testing.T) {
 	}
 }
 
-func TestRunnerAlertsOnErrorAndResolvesOnSuccess(t *testing.T) {
+func TestRunnerAlertsOnFirstErrorAndResolvesOnSuccess(t *testing.T) {
 	alerts := &schedulerAlertRecorder{}
 	jobErr := errors.New("job failed")
-	runner := newRunner("test job", time.Hour, time.Second, func(context.Context) error {
+	runner := newRunner("test job", 24*time.Hour, time.Second, func(context.Context) error {
 		return jobErr
 	}, alerts)
 
+	// A daily job fails at most once per failure window, so its first failure
+	// must not wait for the request-failure threshold.
 	runner.runOnce()
 	if len(alerts.events) != 1 {
 		t.Fatalf("event count = %d, want 1", len(alerts.events))
 	}
 	event := alerts.events[0]
-	if event.Key != "scheduler:test job" || !event.RequiresThreshold {
-		t.Fatalf("event = %+v", event)
+	if event.Key != "scheduler:test job" || event.RequiresThreshold || event.Details != jobErr.Error() {
+		t.Fatalf("event = %+v, want immediate scheduler alert", event)
 	}
 
 	runner.fn = func(context.Context) error { return nil }
