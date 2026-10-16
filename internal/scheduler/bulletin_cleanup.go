@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -18,7 +19,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// BulletinCleanupService purges expired audio and terminal job state while retaining bulletins.
+// processingFileMinAge leaves a full day for conversion, well beyond the
+// default six-minute HTTP write timeout. FFmpeg uses the request context but
+// has no separate deadline, so the write timeout is not a conversion limit.
+const processingFileMinAge = 24 * time.Hour
+
+// BulletinCleanupService purges expired audio, abandoned conversions and terminal job state while retaining bulletins.
 type BulletinCleanupService struct {
 	repo   *repository.BulletinRepository
 	jobs   *repository.BulletinJobRepository
@@ -56,11 +62,12 @@ func (s *BulletinCleanupService) Stop() {
 func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
+	processingErr := s.cleanProcessingFiles(time.Now())
 	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
 		logger.Error("Failed to query expired bulletins", "error", err)
-		return err
+		return errors.Join(processingErr, err)
 	}
 	stats, purgeErr := s.purgeExpiredBulletins(ctx, bulletins)
 	orphansRemoved, orphanBytes, orphanErr := s.cleanOrphanedFiles(ctx)
@@ -76,7 +83,43 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 			"orphans_removed", orphansRemoved, "orphan_mb_freed", float64(orphanBytes)/1024/1024,
 			"job_records_deleted", jobsDeleted)
 	}
-	return errors.Join(purgeErr, orphanErr, jobsErr)
+	return errors.Join(processingErr, purgeErr, orphanErr, jobsErr)
+}
+
+// cleanProcessingFiles removes only old regular conversion files directly in
+// ProcessedPath. DirEntry.Info does not follow symlinks.
+func (s *BulletinCleanupService) cleanProcessingFiles(now time.Time) error {
+	dir := s.config.Audio.ProcessedPath
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		logger.Error("Failed to read processed audio directory", "path", dir, "error", err)
+		return fmt.Errorf("read processed audio directory: %w", err)
+	}
+
+	cutoff := now.Add(-processingFileMinAge)
+	var cleanupErr error
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".processing.wav") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			logger.Error("Failed to stat processing audio file", "path", path, "error", err)
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat processing audio %s: %w", path, err))
+			continue
+		}
+		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			logger.Error("Failed to remove processing audio file", "path", path, "error", err)
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove processing audio %s: %w", path, err))
+			continue
+		}
+		logger.Info("Removed abandoned processing audio file", "path", path)
+	}
+	return cleanupErr
 }
 
 type purgeStats struct {

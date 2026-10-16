@@ -196,6 +196,8 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
 
+The daily bulletin cleanup also removes abandoned conversion files from `BABBEL_PROCESSED_PATH` at startup and every 24 hours, even if the bulletin database query fails. Only regular files directly in that directory ending in `.processing.wav` and last modified more than 24 hours ago qualify; published stories, jingles, symlinks and subdirectories are left alone. Each removal or failure is logged, and a failed removal does not stop the sweep. The fixed age gives conversions a full day, well beyond the default six-minute HTTP write timeout. FFmpeg follows the request context but has no separate deadline, and the HTTP write timeout does not cancel conversion; the age is a conservative abandonment heuristic, not a hard runtime limit.
+
 ### Asynchronous bulletin generation
 
 `POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; only an empty body or `{}` is accepted, and any member, including `date`, returns `400` with code `unknown_field`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
