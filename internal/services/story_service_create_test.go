@@ -14,7 +14,7 @@ import (
 func TestStoryService_CreateReportsAFailedLookupAfterADuplicateKey(t *testing.T) {
 	t.Parallel()
 	databaseDown := errors.New("database down")
-	service := &StoryService{storyRepo: &raceStoryRepository{storyRepository: &fakeStoryRepository{err: databaseDown}}}
+	service := &StoryService{storyRepo: &raceStoryRepository{storyRepository: &duplicateKeyRepository{lookupErr: databaseDown}}}
 
 	_, err := service.Create(t.Context(), idempotentCreate("Loser", "key"))
 	if _, database := errors.AsType[*apperrors.DatabaseError](err); !database || !errors.Is(err, databaseDown) {
@@ -37,17 +37,18 @@ func (r *raceStoryRepository) GetIDByIdempotencyKey(ctx context.Context, key str
 	return r.storyRepository.GetIDByIdempotencyKey(ctx, key)
 }
 
-// Create always loses to a concurrent create with the same idempotency key.
-func (f *fakeStoryRepository) Create(context.Context, *repository.StoryCreateData) (*models.Story, error) {
+// duplicateKeyRepository always loses a create to a concurrent one with the same idempotency key.
+type duplicateKeyRepository struct {
+	storyRepository
+	lookupErr error
+}
+
+func (r *duplicateKeyRepository) Create(context.Context, *repository.StoryCreateData) (*models.Story, error) {
 	return nil, repository.ErrDuplicateKey
 }
 
-func (f *fakeStoryRepository) GetIDByIdempotencyKey(context.Context, string) (int64, error) {
-	f.calls++
-	if f.err != nil {
-		return 0, f.err
-	}
-	return f.story.ID, nil
+func (r *duplicateKeyRepository) GetIDByIdempotencyKey(context.Context, string) (int64, error) {
+	return 0, r.lookupErr
 }
 
 func idempotentCreate(title, key string) *CreateStoryRequest {

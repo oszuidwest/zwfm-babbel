@@ -89,8 +89,21 @@ func newIdempotencyKey(t *testing.T, db *gorm.DB) string {
 
 func deleteStoriesWithKeys(t *testing.T, db *gorm.DB, keys ...string) {
 	t.Helper()
-	if err := db.Unscoped().Where("idempotency_key IN ?", keys).Delete(&models.Story{}).Error; err != nil {
-		t.Errorf("delete stories with keys %q: %v", keys, err)
+	var ids []int64
+	if err := db.Unscoped().Model(&models.Story{}).Where("idempotency_key IN ?", keys).Pluck("id", &ids).Error; err != nil {
+		t.Errorf("find stories with keys %q: %v", keys, err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	for _, err := range []error{
+		db.Where("entity_type = ? AND entity_id IN ?", models.AuditEntityStory, ids).Delete(&models.AuditEvent{}).Error,
+		db.Unscoped().Delete(&models.Story{}, ids).Error,
+	} {
+		if err != nil {
+			t.Errorf("delete stories with keys %q: %v", keys, err)
+		}
 	}
 }
 

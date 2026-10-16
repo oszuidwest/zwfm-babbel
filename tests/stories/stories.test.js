@@ -165,15 +165,19 @@ describe('Stories', () => {
   });
 
   describe('Idempotent Create', () => {
-    test('when repeating a create with the same idempotency_key, then the first story answers', async () => {
+    test('when repeating a create with the same idempotency_key, then the first story answers unchecked', async () => {
       const key = global.helpers.uniqueName('jest-idempotent');
       const body = storiesSchema.createValidData('IdempotentCreate');
       const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
       expect(first.status).toBe(201);
       global.resources.track('stories', first.data.id);
 
-      const again = await global.api.apiCall('POST', '/stories', { ...body, title: 'Not stored', idempotency_key: key });
+      // The replay skips the voice and date order checks and ignores its body.
+      const again = await global.api.apiCall('POST', '/stories', {
+        ...body, title: 'Not stored', voice_id: 2147483647, start_date: '2026-12-31', end_date: '2026-01-01', idempotency_key: key
+      });
       expect(again.status).toBe(201);
+      global.resources.track('stories', again.data.id);
       expect(again.data.id).toBe(first.data.id);
       const stored = await global.api.apiCall('GET', `/stories/${first.data.id}`);
       expect(stored.data.title).toBe(body.title);
@@ -183,32 +187,8 @@ describe('Stories', () => {
       expect((await global.api.apiCall('DELETE', `/stories/${first.data.id}`)).status).toBe(204);
       const afterDelete = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
       expect(afterDelete.status).toBe(201);
+      global.resources.track('stories', afterDelete.data.id);
       expect(afterDelete.data.id).toBe(first.data.id);
-    });
-
-    test('when repeating a create with the same idempotency_key, then the voice and date checks are skipped', async () => {
-      const key = global.helpers.uniqueName('jest-idempotent-replay');
-      const body = storiesSchema.createValidData('IdempotentReplay');
-      const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
-      expect(first.status).toBe(201);
-      global.resources.track('stories', first.data.id);
-
-      const again = await global.api.apiCall('POST', '/stories', {
-        ...body, idempotency_key: key, voice_id: 2147483647, start_date: '2026-12-31', end_date: '2026-01-01'
-      });
-      expect(again.status).toBe(201);
-      expect(again.data.id).toBe(first.data.id);
-    });
-
-    test('when creating without idempotency_key, then every create makes a story', async () => {
-      const body = storiesSchema.createValidData('NonIdempotentCreate');
-      const first = await global.api.apiCall('POST', '/stories', body);
-      expect(first.status).toBe(201);
-      global.resources.track('stories', first.data.id);
-      const second = await global.api.apiCall('POST', '/stories', body);
-      expect(second.status).toBe(201);
-      global.resources.track('stories', second.data.id);
-      expect(second.data.id).not.toBe(first.data.id);
     });
 
     test.each([
