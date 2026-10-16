@@ -302,6 +302,32 @@ func TestStoryAudioPublishedInsideTransaction(t *testing.T) {
 	}
 }
 
+func TestStoryAudioCommitsAfterRequestCancel(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newAudioIntegrationService(t, db)
+	story := createAudioIntegrationStory(t, db, nil)
+	finalPath := utils.StoryPath(service.config, story.ID)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	service.txManager = cancelAfterPublish{TxManager: service.txManager, cancel: func() {
+		if _, err := os.Stat(finalPath); err != nil {
+			t.Errorf("request cancelled before the rename: %v", err)
+		}
+		cancel()
+	}}
+
+	if err := service.ProcessAudio(ctx, story.ID, audioFixture(t, service, "sine=frequency=440:duration=1"), nil); err != nil {
+		t.Fatalf("ProcessAudio = %v, want success after the request was cancelled", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("request was not cancelled during the publication")
+	}
+	if after := audioStateOf(t, service, db, story.ID); after.AudioFile != utils.StoryFilename(story.ID) ||
+		after.Duration <= 0 || len(after.EventIDs) != 1 || after.Files[utils.StoryFilename(story.ID)] == "" {
+		t.Fatalf("published state = %+v, want the row, its audit event and the file", after)
+	}
+}
+
 // newAudioIntegrationService returns a story service that writes through db
 // and publishes into a temporary directory.
 func newAudioIntegrationService(t *testing.T, db *gorm.DB) *StoryService {

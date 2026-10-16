@@ -3,7 +3,9 @@ package services
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -15,6 +17,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -146,9 +149,10 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
 			cause := errors.New("connection refused")
+			alerts := &capturingAlerter{}
 			service := &StoryService{
 				storyRepo: acceptingAudioRepository{}, txManager: failingTxManager{beginFails: tt.beginFails, err: cause},
-				audioSvc: audio.NewService(cfg, nil), config: cfg,
+				audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: alerts,
 			}
 			const storyID = 99
 
@@ -164,8 +168,136 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 			if tt.wantPublished && !strings.Contains(errors.Unwrap(err).Error(), finalPath) {
 				t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), finalPath)
 			}
+			if wantAlerts := map[bool]int{false: 0, true: 1}[tt.wantPublished]; len(alerts.events) != wantAlerts {
+				t.Fatalf("alerts = %+v, want %d", alerts.events, wantAlerts)
+			}
 		})
 	}
+}
+
+// A publication that times out after the rename still names the live file:
+// the handler's timeout branch logs only the DatabaseError, without its cause.
+func TestStoryService_PublishAudioTimeoutAfterRenameReportsLiveFile(t *testing.T) {
+	service, input := newPublishAudioTestService(t)
+	cause := fmt.Errorf("commit: %w", context.DeadlineExceeded)
+	service.txManager = failingTxManager{err: cause}
+	alerts := &capturingAlerter{}
+	service.alerts = alerts
+	logs := captureLogs(t)
+	const storyID = 99
+	finalPath := utils.StoryPath(service.config, storyID)
+
+	if err := service.ProcessAudio(t.Context(), storyID, input, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ProcessAudio = %v, want a deadline error", err)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "story:unrecorded-audio:99" ||
+		alerts.events[0].RequiresThreshold || !strings.Contains(alerts.events[0].Details, finalPath) {
+		t.Fatalf("alerts = %+v, want one immediate alert naming %s", alerts.events, finalPath)
+	}
+	for line := range bytes.Lines(logs.Bytes()) {
+		var record map[string]any
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["level"] == "ERROR" && record["path"] == finalPath &&
+			strings.Contains(fmt.Sprint(record["error"]), context.DeadlineExceeded.Error()) {
+			return
+		}
+	}
+	t.Fatalf("logs = %s, want an ERROR record naming %s and the timeout", logs, finalPath)
+}
+
+// cancelAfterPublish cancels the request inside the transaction, after fn
+// renamed the audio onto the live path and before the commit.
+type cancelAfterPublish struct {
+	repository.TxManager
+	cancel func()
+}
+
+func (m cancelAfterPublish) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return m.TxManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		err := fn(txCtx)
+		m.cancel()
+		return err
+	})
+}
+
+// contextTxManager commits only while its context is live, as database/sql
+// rolls back a transaction whose context is done.
+type contextTxManager struct{ committed bool }
+
+func (m *contextTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.committed = true
+	return nil
+}
+
+// recordingAudioRepository records the audio update, which writes the row
+// and its audit event.
+type recordingAudioRepository struct {
+	storyRepository
+	updates []repository.StoryAudioUpdate
+}
+
+func (r *recordingAudioRepository) UpdateAudio(_ context.Context, _ int64, u repository.StoryAudioUpdate) error {
+	r.updates = append(r.updates, u)
+	return nil
+}
+
+func TestStoryService_PublishAudioCommitsAfterRequestCancel(t *testing.T) {
+	t.Parallel()
+	service, input := newPublishAudioTestService(t)
+	repo := &recordingAudioRepository{}
+	tx := &contextTxManager{}
+	const storyID = 99
+	finalPath := utils.StoryPath(service.config, storyID)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	service.storyRepo = repo
+	service.txManager = cancelAfterPublish{TxManager: tx, cancel: func() {
+		if _, err := os.Stat(finalPath); err != nil {
+			t.Errorf("request cancelled before the rename: %v", err)
+		}
+		cancel()
+	}}
+	actor := int64(307)
+
+	if err := service.ProcessAudio(ctx, storyID, input, &actor); err != nil {
+		t.Fatalf("ProcessAudio = %v, want success after the request was cancelled", err)
+	}
+	if ctx.Err() == nil || !tx.committed {
+		t.Fatalf("request error = %v, committed = %v; want a cancelled request and a commit", ctx.Err(), tx.committed)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].AudioFile != utils.StoryFilename(storyID) ||
+		repo.updates[0].Action != models.AuditActionAudio || repo.updates[0].ActorUserID != &actor ||
+		repo.updates[0].DurationSeconds <= 0 {
+		t.Fatalf("audio updates = %+v", repo.updates)
+	}
+}
+
+// newPublishAudioTestService returns a story service that publishes into a
+// temporary directory, and a one-second tone to publish.
+func newPublishAudioTestService(t *testing.T) (*StoryService, string) {
+	t.Helper()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	cfg := &config.Config{Audio: config.AudioConfig{
+		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+	}}
+	return &StoryService{
+		storyRepo: acceptingAudioRepository{}, audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: notify.Discard,
+	}, lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {

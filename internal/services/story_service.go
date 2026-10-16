@@ -39,6 +39,10 @@ type StoryServiceDeps struct {
 	TxManager             repository.TxManager
 }
 
+// storyAudioPublishTimeout bounds the publication transaction, which no longer
+// ends when the request does.
+const storyAudioPublishTimeout = 10 * time.Second
+
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
 	GetIDByIdempotencyKey(context.Context, string) (int64, error)
@@ -380,8 +384,12 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "convert", err)
 	}
 
+	// A client disconnect after the rename must not roll back the row and
+	// audit event behind the live file.
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)
+	defer cancel()
 	published := false
-	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
 		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{
 			ActorUserID:     actorUserID,
 			Action:          action,
@@ -403,14 +411,29 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 			return audioErr
 		}
 		if published {
-			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
+			// The handler's timeout log omits this cause, and its database
+			// alert waits for a threshold, so report the live file here.
+			logger.Error("Story audio published without its database record",
+				"story_id", storyID, "path", finalPath, "error", err)
+			s.alerts.Alert(ctx, notify.Event{
+				Key:     unrecordedStoryAudioKey(storyID),
+				Summary: fmt.Sprintf("Story %d audio published without its database record", storyID),
+				Details: err.Error(),
+			})
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
+	s.alerts.Resolve(ctx, unrecordedStoryAudioKey(storyID),
+		fmt.Sprintf("Story %d audio recorded again", storyID),
+		"A later publication saved the story's audio file and history.")
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil
+}
+
+func unrecordedStoryAudioKey(storyID int64) string {
+	return fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.
