@@ -12,7 +12,6 @@ import (
 	"html"
 	"io"
 	"io/fs"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -108,11 +107,11 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		return "", nil, false
 	}
 
-	// A unique file per request keeps concurrent uploads of the same filename
-	// apart; the extension is FFmpeg's format hint.
-	tempPath, err = saveTempFile(file, prefix+"_*"+ext)
+	// CreateTemp gives each upload its own file; the extension helps FFmpeg
+	// detect the format.
+	tempPath, err = WriteTempFile(file, prefix+"_*"+ext)
 	if err != nil {
-		logger.Error("Failed to store uploaded audio", "error", err)
+		logger.Error("Failed to store uploaded audio", "route", RouteKey(c), "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
 		return "", nil, false
 	}
@@ -128,17 +127,17 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 	return tempPath, cleanup, true
 }
 
-// saveTempFile copies an uploaded file to a new temp file named by pattern and
-// removes partial output on failure.
-func saveTempFile(file multipart.File, pattern string) (string, error) {
+// WriteTempFile copies r to a new OS temp file named by pattern and removes
+// partial output on failure.
+func WriteTempFile(r io.Reader, pattern string) (string, error) {
 	out, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return "", err
 	}
-	_, err = io.Copy(out, file)
+	_, err = io.Copy(out, r)
 	if err = errors.Join(err, out.Close()); err != nil {
 		if rmErr := os.Remove(out.Name()); rmErr != nil {
-			logger.Warn("Failed to remove partial upload", "path", out.Name(), "error", rmErr)
+			logger.Warn("Failed to remove partial temp file", "path", out.Name(), "error", rmErr)
 		}
 		return "", err
 	}
@@ -218,8 +217,9 @@ type StoryCreateRequest struct {
 	// Weekdays is a models.Weekdays bitmask; 0 or omitted is stored as 127 (every day).
 	Weekdays int `json:"weekdays" binding:"gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
-	IsBreaking bool               `json:"is_breaking"`
-	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
+	IsBreaking     bool               `json:"is_breaking"`
+	Metadata       *datatypes.JSONMap `json:"metadata,omitempty"`
+	IdempotencyKey *string            `json:"idempotency_key" binding:"omitempty,notblank,max=100"`
 }
 
 // NormalizeText decodes HTML entities in text fields to plain Unicode.

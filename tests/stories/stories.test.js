@@ -164,6 +164,44 @@ describe('Stories', () => {
     });
   });
 
+  describe('Idempotent Create', () => {
+    test('when repeating a create with the same idempotency_key, then the first story answers unchecked', async () => {
+      const key = global.helpers.uniqueName('jest-idempotent');
+      const body = storiesSchema.createValidData('IdempotentCreate');
+      const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
+      expect(first.status).toBe(201);
+      global.resources.track('stories', first.data.id);
+
+      // The replay skips the voice and date order checks and ignores its body.
+      const again = await global.api.apiCall('POST', '/stories', {
+        ...body, title: 'Not stored', voice_id: 2147483647, start_date: '2026-12-31', end_date: '2026-01-01', idempotency_key: key
+      });
+      expect(again.status).toBe(201);
+      global.resources.track('stories', again.data.id);
+      expect(again.data.id).toBe(first.data.id);
+      const stored = await global.api.apiCall('GET', `/stories/${first.data.id}`);
+      expect(stored.data.title).toBe(body.title);
+      expect(stored.data).not.toHaveProperty('idempotency_key');
+
+      // The key still belongs to the story after it was deleted.
+      expect((await global.api.apiCall('DELETE', `/stories/${first.data.id}`)).status).toBe(204);
+      const afterDelete = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
+      expect(afterDelete.status).toBe(201);
+      global.resources.track('stories', afterDelete.data.id);
+      expect(afterDelete.data.id).toBe(first.data.id);
+    });
+
+    test.each([
+      ['empty', '', 'blank'],
+      ['blank', ' ', 'blank'],
+      ['101 characters', 'x'.repeat(101), 'too_long']
+    ])('when idempotency_key is %s, then 422 names it', async (_, key, code) => {
+      const response = await global.api.apiCall('POST', '/stories', { ...storiesSchema.createValidData('InvalidKey'), idempotency_key: key });
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'idempotency_key', code })]);
+    });
+  });
+
   describe('Story Soft Delete', () => {
     test.each([
       ['PUT title', 'PUT', '', { title: 'Changed' }],
