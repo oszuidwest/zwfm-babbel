@@ -177,7 +177,7 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 // Delete removes a relationship before deleting its jingle file.
 // File cleanup failure is logged but does not resurrect the deleted database row.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
+	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
@@ -187,13 +187,14 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
 	}
 
-	if audioFile != "" {
-		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
-		if err := os.Remove(jinglePath); err != nil {
-			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
-		} else {
-			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
-		}
+	// Remove the canonical path even when the read above saw no jingle: a
+	// first upload may have committed since. An upload that updates the row
+	// after the delete fails and removes its own file.
+	jinglePath := utils.JinglePath(s.config, stationID, voiceID)
+	if err := os.Remove(jinglePath); err == nil {
+		logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
 	}
 
 	return nil
