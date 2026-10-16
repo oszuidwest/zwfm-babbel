@@ -3,9 +3,9 @@ const { generateCrudTests, generateQueryTests, generateTrashedTests, generateVal
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
-  // Every sortable field rises with the fixture index except username, the
-  // default sort key, which lists the fixtures as 1, 0, 2. No admin: the
-  // last admin tests expect a single one.
+  // Every sortable field rises with the fixture index (the two viewers tie on
+  // role) except username, the default sort key, which lists the fixtures as
+  // 1, 0, 2. No admin: the last admin tests expect a single one.
   const setupQueryTestData = async () => {
     const stamp = `${Date.now()}${process.pid}`;
     const ids = [];
