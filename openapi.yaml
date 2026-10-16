@@ -668,8 +668,8 @@ paths:
         Returns a paginated list of radio stations with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
-        - `s.name` - Station name
+        Substring search across:
+        - `name` - Station name
         
         ## Filter Fields
         Available filter fields:
@@ -887,7 +887,7 @@ paths:
         Returns a paginated list of newsreader voices with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `name` - Voice name
         
         ## Filter Fields
@@ -1174,7 +1174,12 @@ paths:
       summary: List all stories
       description: |
         List stories with modern query parameter support.
-        
+
+        ## Search Fields
+        Substring search across:
+        - `title` - Story title
+        - `text` - Story text
+
         ## Date Filtering
         Use date range filters to find stories active on specific dates:
         - `filter[start_date][lte]=2024-06-15` - Start date before or on date
@@ -1902,7 +1907,7 @@ paths:
         Ordered by bulletin creation time descending by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
         
         ## Filter Fields
@@ -1992,6 +1997,13 @@ paths:
     get:
       operationId: getUsers
       summary: List all users
+      description: |
+        Returns a paginated list of users with modern query parameter support.
+
+        ## Search Fields
+        Substring search across:
+        - `username` - Username
+        - `full_name` - Full name
       tags:
         - Users
       parameters:
@@ -2213,7 +2225,7 @@ paths:
         Returns a paginated list of generated bulletins with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -2351,7 +2363,7 @@ paths:
         Ordered by most recent first by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -3166,8 +3178,10 @@ components:
       schema:
         type: string
       description: |
-        Search term for full-text search across relevant fields.
-        Searches in names, titles, text content depending on resource.
+        Substring search term. Returns records where any of the
+        operation's search fields contains the term literally (`%` and `_`
+        are not wildcards). Each operation lists its fields under
+        "Search Fields".
       example: "news update"
     trashed:
       name: trashed
