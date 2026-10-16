@@ -8,7 +8,7 @@ The query parameter system provides:
 - **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
-- **Search functionality**: `?search=keyword` for full-text search
+- **Search functionality**: `?search=keyword` for full-text search on stations, voices, stories, users and bulletins
 - **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
@@ -181,6 +181,14 @@ GET /api/v1/users?search=john.doe@example.com
 GET /api/v1/stations?search=radio
 ```
 
+Station-voice relationships and audit events have no searchable fields. Their
+list endpoints reject a non-empty `search` with 422 and an error for the
+`search` field; an empty `search=` is ignored:
+
+```http
+GET /api/v1/station-voices?search=radio # 422, errors[0].field = "search", code "unsupported"
+```
+
 ### 5. Soft-Delete Filtering
 
 The `trashed` parameter controls visibility of soft-deleted records:
@@ -326,11 +334,15 @@ GET /api/v1/stories?fields=id,title,created_at
 
 ### Search Configuration
 
-Each endpoint defines searchable fields:
+Each repository passes its searchable columns to `ApplyListQuery`:
 
 ```go
-SearchFields: []string{"s.title", "s.text", "v.name"}
+var storySearchFields = []string{"title", "text"}
 ```
+
+A resource without searchable fields passes `nil`; `ApplyListQuery` then
+rejects a non-empty `search`, and the endpoint's OpenAPI operation must not
+declare the `search` parameter.
 
 ### Field Mapping
 

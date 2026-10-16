@@ -24,8 +24,8 @@ type QueryParams struct {
 }
 
 // listQueryKeys are the keys besides filter[...] that the list parsers read.
-// A parser that does not support one of them rejects it as unsupported. No
-// list endpoint accepts other keys; one that answers a key with a specific
+// A list endpoint that does not support one of them rejects it as unsupported.
+// No list endpoint accepts other keys; one that answers a key with a specific
 // error, such as latest on station bulletins, checks it before parsing.
 var listQueryKeys = []string{"limit", "offset", "sort", "fields", "search", "trashed"}
 

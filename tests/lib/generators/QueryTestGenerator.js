@@ -47,7 +47,20 @@ function generateQueryTests(schema, setupFn = null) {
       if (setupFn) await setupFn();
     });
 
+    // OpenAPI declares search only where the repository has search fields;
+    // query.searchFields may still be empty (bulletins).
+    const searchable = declaresQueryParameter(endpoint, 'search');
+    describe('Search scope', () => {
+      test(`when search=x, then returns ${searchable ? 200 : 'a search 422'}`, async () => {
+        expect.hasAssertions();
+        const response = await expectStatus('search=x', searchable ? 200 : 422);
+        if (searchable) expect(Array.isArray(response.data.data)).toBe(true);
+        else expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
+      });
+    });
+
     if (query.searchFields?.length > 0) {
+      if (!searchable) throw new Error(`${name} searchFields: ${endpoint} does not declare search`);
       describe('Search', () => {
         test('when searching, then returns 200', async () => {
           expect.hasAssertions();
@@ -56,13 +69,6 @@ function generateQueryTests(schema, setupFn = null) {
           for (const item of response.data.data) {
             expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes('test'))).toBe(true);
           }
-        });
-
-        test('when search empty, then returns all', async () => {
-          expect.hasAssertions();
-          const unfiltered = await expectStatus('limit=1');
-          const emptySearch = await expectStatus('search=&limit=1');
-          expect(emptySearch.data.total).toBe(unfiltered.data.total);
         });
       });
     }
@@ -228,10 +234,10 @@ function generateQueryTests(schema, setupFn = null) {
         expect(response.data.errors.map(error => [error.field, error.code])).toEqual(errors);
       });
 
-      test('when sort and fields are empty, then they count as omitted', async () => {
+      test('when sort, fields and search are empty, then they count as omitted', async () => {
         expect.hasAssertions();
         const omitted = await expectStatus('limit=1');
-        const empty = await expectStatus('sort=&fields=&limit=1');
+        const empty = await expectStatus('sort=&fields=&search=&limit=1');
         expect(empty.data.total).toBe(omitted.data.total);
       });
     });
