@@ -152,6 +152,7 @@ describe('MySQLHelper', () => {
     expect(execFileSync).toHaveBeenLastCalledWith(
       'docker',
       expect.arrayContaining(['-e', [
+        "SET time_zone = '+00:00'",
         'SET @base = NOW() - INTERVAL 1 MINUTE',
         'UPDATE stories SET created_at = @base + INTERVAL 1 SECOND, updated_at = @base + INTERVAL 3 SECOND WHERE id = 4',
         'UPDATE stories SET created_at = @base + INTERVAL 0 SECOND WHERE id = 5'
