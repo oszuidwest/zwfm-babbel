@@ -29,8 +29,9 @@ info:
       well-formed, but the API rejects a value. This covers field rules,
       cross-field rules such as date order, body references to resources
       that do not exist (such as `voice_id` or `station_id`), an update that
-      sets no field, an invalid path `id`, invalid query parameters, and a
-      missing, unsupported or silent uploaded file.
+      sets no field, an invalid path `id`, unknown or invalid query
+      parameters on list endpoints, and a missing, unsupported or silent
+      uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
@@ -48,7 +49,7 @@ info:
       `rules[0].ipa`. For a query parameter it is the key as sent: `limit`,
       `sort`, `filter[status][not]`. The path parameter is `id`. An uploaded
       file uses the multipart field name: `audio` or `jingle`. `request`
-      means the body as a whole.
+      means the body as a whole; `query` means a query string that cannot be decoded.
     - `code` is one of `required`, `blank`, `too_short`, `too_long`,
       `out_of_range`, `invalid_format`, `invalid_choice`, `invalid_type`,
       `invalid_json`, `unknown_field`, `not_found`, `date_order`,
@@ -60,6 +61,28 @@ info:
 
     Most list endpoints take `filter[field]` and `filter[field][operator]`.
     Each endpoint's `filter` parameter documents its fields and operators.
+
+    ### Unknown keys and empty values
+
+    - List endpoints read only `limit`, `offset`, `sort`, `fields`,
+      `search`, `trashed` and `filter[...]` keys. Any other key fails with
+      422 and code `unknown_field`, with the key as sent in
+      `errors[].field`: `page=2` fails as `page` and `status=deleted` as
+      `status`. Keys are case-sensitive, so `Trashed=only` fails as
+      `Trashed`.
+    - Malformed URL encoding or an unescaped semicolon fails with 422
+      `invalid_format` and field `query` before checking keys.
+    - Unknown keys are then checked, whatever their value, and one
+      response names each of them in sorted order. A repeated unknown key
+      fails as `unknown_field`, not `duplicate`.
+    - `GET /stations/{id}/bulletins` answers the removed `latest` key with
+      `unsupported` and a `detail` that points to
+      `/stations/{id}/bulletins/latest`.
+    - An empty non-filter option, such as `sort=` or `fields=`, counts as
+      omitted. An empty item in `sort` or `fields`, or a `sort` item without
+      a field name, fails with `invalid_format`: `sort=,`, `sort=title,`,
+      `sort=-`, `sort=:desc`, `fields=,` and `fields=id,,title`. An item of
+      only spaces counts as empty.
 
     ### Error labels
 
@@ -76,11 +99,11 @@ info:
     - Validation stops at the first invalid filter; `errors[]` names only that filter.
     - Endpoints that support only `limit` and `offset` report non-empty
       `search`, parsed `sort`/`fields`, `trashed`, and well-formed filters
-      with known operators as `unsupported`, using each key as sent. Shared
-      parsing runs first: duplicate keys produce `duplicate`, malformed filter
-      keys `invalid_format`, and unknown filter operators or invalid sort
-      directions `invalid_choice`. Other unknown keys are ignored unless
-      repeated; empty non-filter options are ignored.
+      with known operators as `unsupported`, using each key as sent. Unknown
+      keys and shared parsing run first: duplicate keys produce `duplicate`,
+      malformed filter keys and empty `sort` or `fields` items
+      `invalid_format`, and unknown filter operators or invalid sort
+      directions `invalid_choice`. Empty non-filter options are ignored.
 
     ### NULL
 
@@ -3097,6 +3120,10 @@ components:
         - `name:desc` or `-name` - descending
         - `created_at:desc,name:asc` - multiple fields
 
+        An empty value means the default order. An empty item (`sort=,`,
+        `sort=name,`) or an item without a field name (`sort=-`,
+        `sort=:desc`) fails with 422 `invalid_format`.
+
         Text fields sort by the database column collation, not by code point.
         With MySQL's default collation `utf8mb4_0900_ai_ci` (8.0 and later),
         case and accents do not count: `apple` sorts before `Banana`, and
@@ -3126,7 +3153,9 @@ components:
         is used, response objects contain only the requested fields; all
         other documented fields (including required ones) are omitted, so a
         sparse response is a subset projection that intentionally does not
-        conform to the full resource schema.
+        conform to the full resource schema. An empty value returns all
+        fields; an empty item (`fields=,`, `fields=id,,name`) fails with 422
+        `invalid_format`.
       examples:
         basic:
           value: "id,name,created_at"
@@ -4624,6 +4653,7 @@ components:
             - the multipart field name of an uploaded file: `audio` (story
               audio) or `jingle` (station-voice audio)
             - `request` for the body as a whole
+            - `query` for a query string that cannot be decoded
           example: "title"
         code:
           type: string
@@ -4638,14 +4668,15 @@ components:
               non-alphanumeric username, missing password character classes,
               an ElevenLabs voice ID, a non-integer path ID or query number,
               a non-boolean query flag, a malformed filter key or filter
-              value, or malformed multipart form data
+              value, an empty `sort` or `fields` item, or malformed
+              multipart form data or query encoding
             - `invalid_choice` - a value is not in the allowed set, such as a
               status, a role, a sort direction, a filter operator,
               `apply_text_normalization` or `trashed`
             - `invalid_type` - a body value has the wrong JSON type (400)
             - `invalid_json` - the body is malformed JSON or has trailing content (400)
             - `unknown_field` - an unknown body member (400), or an unknown
-              filter, sort or fields name (422)
+              list query key or filter, sort or fields name (422)
             - `not_found` - a body reference, such as `voice_id` or
               `station_id`, names a resource that does not exist
             - `date_order` - `end_date` is before `start_date`; `field` is
@@ -5307,6 +5338,21 @@ components:
                   - field: "filter[status]"
                     code: "invalid_choice"
                     message: "expected one of draft, active, expired"
+            unknown_query_key:
+              summary: Unknown list query keys
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "Invalid query parameter"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "page"
+                    code: "unknown_field"
+                    message: "unknown query parameter"
+                  - field: "per_page"
+                    code: "unknown_field"
+                    message: "unknown query parameter"
             silent_audio:
               summary: Uploaded story audio is silent or below -50 LUFS; existing audio is preserved
               value:
