@@ -6,8 +6,8 @@ const { createMySQLExecutor } = require('../MySQLHelper');
  *
  * Sort tests list only the fixtures whose ids setupFn resolves to. Every
  * sortable field needs two distinct values among them, or an ignored or
- * reversed sort would pass. When no other field sorts the fixtures in their
- * default order, in either direction, an ignored sort fails both ways.
+ * reversed sort would pass. An ignored sort returns the default order, so it
+ * fails both directions of every field that this order leaves unsorted.
  * @param {Object} schema
  * @param {Function|null} [setupFn] Creates the fixtures and resolves to their ids.
  */
