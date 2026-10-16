@@ -145,6 +145,46 @@ func TestApplySorting_SQL(t *testing.T) {
 	}
 }
 
+func TestApplySearch_SQL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		search   string
+		fields   []string
+		wantSQL  string
+		wantVars []any
+	}{
+		{name: "any field matches", search: `50%`, fields: []string{"title", "text"}, wantSQL: `WHERE title LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\'`, wantVars: []any{`%50\%%`, `%50\%%`}},
+		{name: "empty search", fields: []string{"title"}, wantSQL: "FROM `stories`"},
+		{name: "empty search without fields", wantSQL: "FROM `stories`"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out, err := applySearch(dryRunDB(t).Table("stories"), tt.search, tt.fields)
+			if err != nil {
+				t.Fatalf("applySearch: %v", err)
+			}
+			stmt := out.Find(&[]struct{}{}).Statement
+			if !strings.HasSuffix(stmt.SQL.String(), tt.wantSQL) || !slices.Equal(stmt.Vars, tt.wantVars) {
+				t.Fatalf("SQL = %q, vars = %#v; want suffix %q with %#v", stmt.SQL.String(), stmt.Vars, tt.wantSQL, tt.wantVars)
+			}
+		})
+	}
+}
+
+// Without search fields a non-empty search fails instead of listing every row.
+func TestApplyListQuery_RejectsSearchWithoutSearchFields(t *testing.T) {
+	t.Parallel()
+	for _, search := range []string{"x", " "} {
+		_, err := ApplyListQuery[struct{}](dryRunDB(t).Table("stories"), &ListQuery{Search: search}, storyFieldMapping, nil, nil)
+		invalid, ok := errors.AsType[*InvalidFilterError](err)
+		if !ok || invalid.Key != "search" || invalid.Code != "unsupported" {
+			t.Fatalf("search %q: got %v, want an unsupported search error", search, err)
+		}
+	}
+}
+
 // dryRunDB builds MySQL statements without a database connection.
 func dryRunDB(t *testing.T) *gorm.DB {
 	t.Helper()
