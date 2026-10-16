@@ -251,6 +251,8 @@ An operational signal is usually not a fault of the client or of Babbel, but it 
 
 A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel also logs each failed ElevenLabs response, at error level for a 401, 403 or 5xx status. A status that Babbel does not map to a specific response, for example 400, writes a separate log at error level.
 
+An OIDC login that the user cancels at the identity provider, or that Babbel rejects, logs at warn level. The provider's `error` and `error_description` values are in the log line, not in the message to the user. A failed token exchange with the identity provider logs at error level.
+
 ### Operational e-mail notifications
 
 Babbel can send alert e-mails to administrators. Babbel sends the e-mails only through Microsoft Graph. Babbel uses the OAuth2 client-credentials flow. The tool `zwfm-aerontoolbox` uses the same flow.

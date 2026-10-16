@@ -343,7 +343,19 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session.Delete(sessKeyOAuthState)
 	session.Delete(sessKeyFrontendURL)
 
+	// A cancelled or failed login at the provider is a user action, not a server
+	// fault. The provider's error values are not part of the user-facing message.
+	if providerErr := c.Query("error"); providerErr != "" {
+		if providerErr == "access_denied" {
+			return fmt.Errorf("%w: login was cancelled", ErrLoginRejected)
+		}
+		return fmt.Errorf("%w: identity provider did not complete the login", ErrLoginRejected)
+	}
 	code := c.Query("code")
+	if code == "" {
+		return fmt.Errorf("%w: missing authorization code", ErrLoginRejected)
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 

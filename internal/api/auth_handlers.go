@@ -64,7 +64,12 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		// Only login rejections are safe to show to the user.
 		message := "Login failed; try again or contact an administrator"
 		if errors.Is(err, auth.ErrLoginRejected) {
-			logger.Warn("OIDC login rejected", "error", err)
+			attrs := []any{"error", err}
+			if providerErr := c.Query("error"); providerErr != "" {
+				attrs = append(attrs, "provider_error", providerErr,
+					"provider_error_description", c.Query("error_description"))
+			}
+			logger.Warn("OIDC login rejected", attrs...)
 			message = err.Error()
 		} else {
 			logger.Error("OIDC login failed", "error", err)
