@@ -11,48 +11,42 @@ import (
 )
 
 // withAudit runs write in a transaction with the story row locked and records
-// the before/after difference as one story audit event.
+// the before/after difference as one story audit event. Writes that change
+// nothing are not recorded, except audio publications.
 func (r *StoryRepository) withAudit(ctx context.Context, id int64, action models.AuditAction, actorUserID *int64, write func(context.Context) error) error {
 	return r.inTx(ctx, func(ctx context.Context) error {
-		return r.auditedWrite(ctx, id, action, actorUserID, write)
+		db := DBFromContext(ctx, r.db).WithContext(ctx)
+		before, err := storyAuditValues(db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), id)
+		if err != nil {
+			return err
+		}
+		if err := write(ctx); err != nil {
+			return err
+		}
+		after, err := storyAuditValues(db, id)
+		if err != nil {
+			return err
+		}
+		changes, err := auditChanges(before, after)
+		if err != nil {
+			return err
+		}
+		if changes == nil {
+			// New audio overwrites story_{id}.wav, so a publish with the same
+			// duration changes no column but still replaces what listeners hear.
+			if action != models.AuditActionAudio && action != models.AuditActionTTS {
+				return nil
+			}
+			changes = datatypes.JSON("{}")
+		}
+		return insertAuditEvents(ctx, []models.AuditEvent{{
+			UserID: actorUserID, EntityType: models.AuditEntityStory, EntityID: id, Action: action, Changes: changes,
+		}})
 	})
 }
 
 func (r *StoryRepository) inTx(ctx context.Context, fn func(context.Context) error) error {
 	return NewTxManager(DBFromContext(ctx, r.db)).WithTransaction(ctx, fn)
-}
-
-// auditedWrite locks the story row, runs write, and records what changed. It
-// must run inside a transaction. Writes that change nothing are not recorded,
-// except audio publications.
-func (r *StoryRepository) auditedWrite(ctx context.Context, id int64, action models.AuditAction, actorUserID *int64, write func(context.Context) error) error {
-	db := DBFromContext(ctx, r.db).WithContext(ctx)
-	before, err := storyAuditValues(db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), id)
-	if err != nil {
-		return err
-	}
-	if err := write(ctx); err != nil {
-		return err
-	}
-	after, err := storyAuditValues(db, id)
-	if err != nil {
-		return err
-	}
-	changes, err := auditChanges(before, after)
-	if err != nil {
-		return err
-	}
-	if changes == nil {
-		// New audio overwrites story_{id}.wav, so a publish with the same
-		// duration changes no column but still replaces what listeners hear.
-		if action != models.AuditActionAudio && action != models.AuditActionTTS {
-			return nil
-		}
-		changes = datatypes.JSON("{}")
-	}
-	return insertAuditEvents(ctx, []models.AuditEvent{{
-		UserID: actorUserID, EntityType: models.AuditEntityStory, EntityID: id, Action: action, Changes: changes,
-	}})
 }
 
 // storyAuditValues reads stored values without Story.AfterFind's HTML decoding
