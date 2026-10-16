@@ -460,6 +460,17 @@ describe('Bulletins', () => {
       expect(response.data.errors[0].field).toBe('trashed');
     });
 
+    // Nested bulletin lists search bulletin filenames, so they declare and
+    // accept search.
+    test.each([
+      ['/stations/{id}/bulletins', () => stationId],
+      ['/stories/{id}/bulletins', () => storyId]
+    ])('when listing %s with search, then returns 200', async (template, id) => {
+      expect(declaresQueryParameter(template, 'search')).toBe(true);
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?search=x`);
+      expect(response.status).toBe(200);
+    });
+
     test.each([
       ['/stations/{id}/bulletins', () => stationId],
       ['/stories/{id}/bulletins', () => storyId]
