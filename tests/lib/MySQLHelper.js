@@ -134,6 +134,22 @@ function createMySQLExecutor(options = {}) {
       return new Map(output.trim().split('\n').filter(Boolean).map(line => line.split('\t').map(Number)));
     },
 
+    // TIMESTAMP columns store whole seconds, so rows created together tie.
+    // rows is a list of [id, {column: seconds}]; each column becomes a base
+    // one minute ago plus that many seconds. All rows share the base, so the
+    // offsets alone order them.
+    setTimestamps(table, rows) {
+      if (!/^\w+$/.test(table)) throw new Error(`Invalid table: ${table}`);
+      const updates = rows.map(([id, columns]) => {
+        const assignments = Object.entries(columns).map(([column, seconds]) => {
+          if (!/^\w+$/.test(column)) throw new Error(`Invalid column: ${column}`);
+          return `${column} = @base + INTERVAL ${sqlInteger(seconds, 'seconds')} SECOND`;
+        });
+        return `UPDATE ${table} SET ${assignments.join(', ')} WHERE id = ${sqlInteger(id, 'id')}`;
+      });
+      this.execSQL(['SET @base = NOW() - INTERVAL 1 MINUTE', ...updates].join('; '));
+    },
+
     execSQLScript(input, execOptions = {}) {
       const target = resolveTarget();
       try {

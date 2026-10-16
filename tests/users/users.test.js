@@ -3,8 +3,29 @@ const { generateCrudTests, generateQueryTests, generateTrashedTests, generateVal
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
+  // Every sortable field rises with the fixture index except username, the
+  // default sort key, which lists the fixtures as 1, 0, 2. No admin: the
+  // last admin tests expect a single one.
+  const setupQueryTestData = async () => {
+    const stamp = `${Date.now()}${process.pid}`;
+    const ids = [];
+    for (const [index, [letter, role]] of [['b', 'editor'], ['a', 'viewer'], ['c', 'viewer']].entries()) {
+      const response = await global.api.apiCall('POST', '/users', {
+        ...usersSchema.createValidData(),
+        username: `querysort${letter}${stamp}`,
+        full_name: `Query Sort ${index}`,
+        role
+      });
+      expect(response.status).toBe(201);
+      global.resources.track('users', response.data.id);
+      ids.push(response.data.id);
+    }
+    createMySQLExecutor().setTimestamps('users', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    return ids;
+  };
+
   generateCrudTests(usersSchema);
-  generateQueryTests(usersSchema);
+  generateQueryTests(usersSchema, setupQueryTestData);
   generateValidationTests(usersSchema);
 
   describe('Query Validation', () => {
