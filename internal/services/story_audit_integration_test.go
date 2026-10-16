@@ -89,7 +89,9 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		return events
 	}
 	events := auditEvents()
-	assertTTSAuditActor(t, events, actor)
+	if len(events) != 1 || events[0].Action != "tts" || events[0].UserID == nil || *events[0].UserID != actor {
+		t.Fatalf("TTS events = %+v", events)
+	}
 	published, err := repo.GetByID(t.Context(), story.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -105,25 +107,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if err := service.GenerateTTS(t.Context(), story.ID, true, &actor); !errors.Is(err, sentinel) {
 		t.Fatalf("failed TTS = %v", err)
 	}
-	assertTTSPublicationUnchanged(t, repo, published, dir, publishedAudio)
-	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
-		t.Fatalf("failed publication changed audit rows: %+v", got)
-	}
-}
-
-func assertTTSAuditActor(t *testing.T, events []models.AuditEvent, actor int64) {
-	t.Helper()
-	if len(events) != 1 || events[0].Action != "tts" || events[0].UserID == nil || *events[0].UserID != actor {
-		t.Fatalf("TTS events = %+v", events)
-	}
-}
-
-func assertTTSPublicationUnchanged(
-	t *testing.T, repo *repository.StoryRepository, published *models.Story, dir string, publishedAudio []byte,
-) {
-	t.Helper()
-	publishedPath := filepath.Join(dir, published.AudioFile)
-	after, err := repo.GetByID(t.Context(), published.ID)
+	after, err := repo.GetByID(t.Context(), story.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +124,9 @@ func assertTTSPublicationUnchanged(
 	// The filename never changes, so only the contents show a premature publish.
 	if current, err := os.ReadFile(publishedPath); err != nil || !bytes.Equal(current, publishedAudio) { // #nosec G304 - test temp file.
 		t.Fatalf("failed publication replaced the published audio (err=%v)", err)
+	}
+	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
+		t.Fatalf("failed publication changed audit rows: %+v", got)
 	}
 }
 
