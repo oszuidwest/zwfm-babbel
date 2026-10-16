@@ -1,12 +1,10 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -253,23 +252,6 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 	}
 }
 
-// captureLogs sends the slog default to a JSON buffer for one test. It swaps
-// process-wide loggers, so do not use it in parallel tests.
-func captureLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-	return &buf
-}
-
 // Invalid list queries are expected client input, whichever check rejects
 // them: one Debug record and no alert, even when a query error arrives
 // wrapped. A database failure logs at Error and alerts.
@@ -322,7 +304,7 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logs := captureLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelDebug)
 			c, rec := newProblemContext(t)
 			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories?trashed=only", nil)
 			alerts := &automationAlertRecorder{}

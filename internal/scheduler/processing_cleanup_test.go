@@ -1,9 +1,7 @@
 package scheduler
 
 import (
-	"bytes"
 	"errors"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestCleanProcessingLeftovers(t *testing.T) {
@@ -24,7 +23,7 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 	old := now.Add(-48 * time.Hour)
 	dir := t.TempDir()
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 
 	tests := []struct {
 		name    string
@@ -102,7 +101,7 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 func TestCleanProcessingLeftoversDirectoryErrors(t *testing.T) {
 	for _, name := range []string{"missing", "not a directory", "unreadable"} {
 		t.Run(name, func(t *testing.T) {
-			logs := captureCleanupLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelInfo)
 			dir := filepath.Join(t.TempDir(), "processed")
 			wantErr := os.ErrNotExist
 			switch name {
@@ -137,7 +136,7 @@ func TestCleanProcessingLeftoversDirectoryErrors(t *testing.T) {
 }
 
 func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	dir := t.TempDir()
 	now := time.Now()
 	writeCleanupDir(t, filepath.Join(dir, "a.processing"), now.Add(-25*time.Hour))
@@ -205,21 +204,6 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleanup = %v, want both storage and database failures", err)
 	}
-}
-
-func captureCleanupLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var logs bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-	return &logs
 }
 
 func writeCleanupFile(t *testing.T, path string, mtime time.Time) {
