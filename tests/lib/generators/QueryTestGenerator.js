@@ -92,6 +92,8 @@ function generateQueryTests(schema, setupFn = null) {
             expect.hasAssertions();
             // Rows from other tests could fill the page with equal keys.
             const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}&sort=${sort}`);
+            // The fixture orders only hold when the page lists every fixture.
+            expect(response.data.data).toHaveLength(fixtureIds.length);
             const keys = sortKeys(response, field);
             // A missing rank or unparsable date would sort to the end unnoticed.
             expect(keys.every(Number.isFinite)).toBe(true);
