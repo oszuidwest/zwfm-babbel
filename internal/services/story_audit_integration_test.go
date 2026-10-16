@@ -38,7 +38,6 @@ func openAuditIntegrationTx(t *testing.T) *gorm.DB {
 	return tx
 }
 
-//nolint:gocyclo // Keep the TTS publication lifecycle and rollback assertions in one scenario.
 func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	tx := openAuditIntegrationTx(t)
 	ffmpeg, err := exec.LookPath("ffmpeg")
