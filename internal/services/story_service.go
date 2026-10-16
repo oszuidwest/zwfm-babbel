@@ -332,7 +332,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 // update must be non-nil; an empty update only restores.
 func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
 	var story *models.Story
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "Story", apperrors.OpUpdate, func(txCtx context.Context) error {
 		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID); err != nil {
 			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 		}
