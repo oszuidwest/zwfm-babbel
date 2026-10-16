@@ -57,7 +57,11 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	speech := func(source string) []byte {
-		input := lavfiFixture(t, ffmpeg, source)
+		input := filepath.Join(t.TempDir(), "input.wav")
+		// #nosec G204 - local FFmpeg and test-controlled arguments.
+		if output, err := exec.CommandContext(t.Context(), ffmpeg, "-f", "lavfi", "-i", source, "-y", input).CombinedOutput(); err != nil {
+			t.Fatalf("generate speech fixture: %v: %s", err, output)
+		}
 		data, err := os.ReadFile(input) // #nosec G304 - test temp file.
 		if err != nil {
 			t.Fatal(err)
@@ -85,7 +89,9 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		return events
 	}
 	events := auditEvents()
-	assertTTSAuditEvent(t, events, actor)
+	if len(events) != 1 || events[0].Action != "tts" || events[0].UserID == nil || *events[0].UserID != actor {
+		t.Fatalf("TTS events = %+v", events)
+	}
 	published, err := repo.GetByID(t.Context(), story.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -108,32 +114,19 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	if *after.DurationSeconds != *published.DurationSeconds {
 		t.Fatalf("failed publication changed duration_seconds to %v", *after.DurationSeconds)
 	}
-	assertPublishedAudioUnchanged(t, dir, published.AudioFile, publishedAudio)
-	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
-		t.Fatalf("failed publication changed audit rows: %+v", got)
-	}
-}
-
-func assertTTSAuditEvent(t *testing.T, events []models.AuditEvent, actor int64) {
-	t.Helper()
-	if len(events) != 1 || events[0].Action != "tts" || events[0].UserID == nil || *events[0].UserID != actor {
-		t.Fatalf("TTS events = %+v", events)
-	}
-}
-
-func assertPublishedAudioUnchanged(t *testing.T, dir, filename string, publishedAudio []byte) {
-	t.Helper()
-	publishedPath := filepath.Join(dir, filename)
 	files, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 1 || files[0].Name() != filename {
+	if len(files) != 1 || files[0].Name() != published.AudioFile {
 		t.Fatalf("failed publication removed old audio or left new audio: %v", files)
 	}
 	// The filename never changes, so only the contents show a premature publish.
 	if current, err := os.ReadFile(publishedPath); err != nil || !bytes.Equal(current, publishedAudio) { // #nosec G304 - test temp file.
 		t.Fatalf("failed publication replaced the published audio (err=%v)", err)
+	}
+	if got := auditEvents(); len(got) != 1 || got[0].ID != events[0].ID {
+		t.Fatalf("failed publication changed audit rows: %+v", got)
 	}
 }
 
