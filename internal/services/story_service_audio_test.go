@@ -85,9 +85,9 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 }
 
-// interleavingRepository records the published duration and runs during
-// inside the first UpdateAudio call, between that request's conversion and
-// its publication.
+// interleavingRepository records the published duration. Its first
+// UpdateAudio call runs the during hook once before publishing, between that
+// request's conversion and its publication.
 type interleavingRepository struct {
 	storyRepository
 	during          func()
@@ -161,8 +161,17 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if mode := info.Mode().Perm(); mode != 0o644 {
-				t.Fatalf("published file mode = %v, want 0644", mode)
+			// os.Create applies the umask the same way FFmpeg does.
+			ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			refInfo, err := ref.Stat()
+			if err := errors.Join(err, ref.Close()); err != nil {
+				t.Fatal(err)
+			}
+			if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
+				t.Fatalf("published file mode = %v, want %v from the umask", mode, want)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
