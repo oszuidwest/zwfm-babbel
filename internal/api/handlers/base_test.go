@@ -433,6 +433,59 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 	}
 }
 
+// A client that went away logs at Debug and sends no alert. The same error on
+// a live request context, for example from a server shutdown, is still a
+// database failure.
+func TestHandleServiceError_ClientCanceled(t *testing.T) {
+	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
+		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
+	tests := []struct {
+		name          string
+		cancelRequest bool
+		wantStatus    int
+		wantLevel     string
+		wantType      string
+		wantAlerts    int
+	}{
+		{
+			name:          "canceled request",
+			cancelRequest: true,
+			wantStatus:    statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+		},
+		{
+			name:       "live request",
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantAlerts: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			c, rec := newProblemContext(t)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tt.cancelRequest {
+				cancel()
+			}
+			c.Request = c.Request.WithContext(ctx)
+			alerts := &automationAlertRecorder{}
+			c.Set(alertContextKey, alerts)
+
+			handleServiceError(c, canceledQuery, "Story")
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != tt.wantLevel || record["error_type"] != tt.wantType {
+				t.Fatalf("logs = %s, want one %s %s record", logs, tt.wantLevel, tt.wantType)
+			}
+			if len(alerts.events) != tt.wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
+			}
+		})
+	}
+}
+
 func TestHandleServiceError_ValidationReturns422(t *testing.T) {
 	c, rec := newProblemContext(t)
 	err := &apperrors.ValidationError{Errors: []apperrors.FieldError{
