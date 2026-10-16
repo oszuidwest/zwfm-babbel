@@ -3,12 +3,9 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -35,10 +32,9 @@ func TestBulletinJobService_EnqueueAfterStationDeletion(t *testing.T) {
 	}
 }
 
-// A failed job logs once: at Warn for a station without stories, as on the
-// HTTP path, because generation already alerted; at Error otherwise. Claiming
-// from the global queue needs a reset database, as `make test-integration`
-// provides.
+// A failed job logs once: at Warn for a station without stories, at Error
+// otherwise. Claiming from the global queue needs a reset database without a
+// running Babbel instance, as `make test-integration` provides.
 func TestBulletinJobService_FailureLogLevel(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	tests := []struct {
@@ -68,15 +64,7 @@ func TestBulletinJobService_FailureLogLevel(t *testing.T) {
 				t.Fatalf("ClaimNext() = %#v, %v; want job %d", job, err, queued.ID)
 			}
 
-			var logs bytes.Buffer
-			previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
-			// SetDefault also redirects the log package.
-			t.Cleanup(func() {
-				slog.SetDefault(previous)
-				log.SetOutput(previousWriter)
-				log.SetFlags(previousFlags)
-			})
+			logs := captureLogs(t)
 
 			if err := service.processJob(t.Context(), job); err != nil {
 				t.Fatalf("processJob() error = %v", err)
