@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -361,19 +360,11 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	// commit failure leaves the new file published and may leave the database
 	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	// A directory per request keeps concurrent requests for this story from
-	// overwriting or removing each other's output. FFmpeg creates the file in
-	// it, so the published mode follows the umask.
-	convertedDir, err := os.MkdirTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing", storyID))
+	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
-			logger.Error("Failed to remove temporary audio directory", "path", convertedDir, "error", rmErr)
-		}
-	}()
-	convertedPath := filepath.Join(convertedDir, utils.StoryFilename(storyID))
+	defer cleanup()
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
