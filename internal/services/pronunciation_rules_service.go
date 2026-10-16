@@ -28,7 +28,7 @@ type pronunciationRuleLister interface {
 
 type pronunciationRuleRepo interface {
 	pronunciationRuleLister
-	ReplaceAll(ctx context.Context, rules []models.PronunciationRule) error
+	ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error
 	MaxUpdatedAt(ctx context.Context) (*time.Time, error)
 }
 
@@ -100,7 +100,7 @@ func (s *PronunciationRulesService) Update(
 	var persistedRules []models.PronunciationRule
 	var updatedAt *time.Time
 	if err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
-		if err := s.repo.ReplaceAll(ctx, rules); err != nil {
+		if err := s.repo.ReplaceAll(ctx, rules, req.ActorUserID); err != nil {
 			return err
 		}
 		var err error
@@ -127,9 +127,9 @@ func (s *PronunciationRulesService) Update(
 func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]models.PronunciationRule, error) {
 	input := req.Rules
 
-	var errs []apperrors.ValidationError
+	var errs []apperrors.FieldError
 	if len(input) > MaxPronunciationRules {
-		errs = append(errs, fieldError("rules", fmt.Sprintf("must contain at most %d rules", MaxPronunciationRules)))
+		errs = append(errs, fieldError("rules", apperrors.CodeTooLong, fmt.Sprintf("must contain at most %d rules", MaxPronunciationRules)))
 	}
 
 	rules := make([]models.PronunciationRule, 0, len(input))
@@ -164,11 +164,7 @@ func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]mode
 
 	errs = append(errs, validatePronunciationRuleConflicts(rules)...)
 	if len(errs) > 0 {
-		return nil, apperrors.NewValidationProblemError(
-			"pronunciation_rules",
-			"One or more fields failed validation",
-			errs,
-		)
+		return nil, &apperrors.ValidationError{Errors: errs}
 	}
 	return rules, nil
 }
@@ -179,33 +175,31 @@ func sortPronunciationRules(rules []models.PronunciationRule) {
 	})
 }
 
-func validatePronunciationTextField(field, value string, disallowSlash bool) []apperrors.ValidationError {
-	var errs []apperrors.ValidationError
+func validatePronunciationTextField(field, value string, disallowSlash bool) []apperrors.FieldError {
+	var errs []apperrors.FieldError
 	if value == "" {
-		errs = append(errs, fieldError(field, "cannot be empty or whitespace only"))
+		errs = append(errs, fieldError(field, apperrors.CodeBlank, "cannot be empty or whitespace only"))
 	}
 	if utf8.RuneCountInString(value) > maxPronunciationFieldRunes {
-		errs = append(errs, fieldError(field, "must be at most 255 characters"))
+		errs = append(errs, fieldError(field, apperrors.CodeTooLong, "must be at most 255 characters"))
 	}
 	if disallowSlash && strings.Contains(value, "/") {
-		errs = append(errs, fieldError(field, "cannot contain forward slash"))
+		errs = append(errs, fieldError(field, apperrors.CodeInvalidFormat, "cannot contain forward slash"))
 	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			errs = append(errs, fieldError(field, "cannot contain control characters"))
-			break
-		}
+	if strings.ContainsFunc(value, unicode.IsControl) {
+		errs = append(errs, fieldError(field, apperrors.CodeInvalidFormat, "cannot contain control characters"))
 	}
 	return errs
 }
 
-func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []apperrors.ValidationError {
-	var errs []apperrors.ValidationError
+func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []apperrors.FieldError {
+	var errs []apperrors.FieldError
 	exact := make(map[string]int, len(rules))
 	for i, rule := range rules {
 		if previous, exists := exact[rule.StringToReplace]; exists {
 			errs = append(errs, fieldError(
 				fmt.Sprintf("rules[%d].string_to_replace", i),
+				apperrors.CodeDuplicate,
 				fmt.Sprintf("duplicates rules[%d]", previous),
 			))
 			continue
@@ -227,6 +221,7 @@ func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []appe
 		if !rule.CaseSensitive {
 			errs = append(errs, fieldError(
 				fmt.Sprintf("rules[%d].string_to_replace", i),
+				apperrors.CodeDuplicate,
 				fmt.Sprintf("conflicts with rules[%d] under case-insensitive matching", previous),
 			))
 			continue
@@ -234,6 +229,7 @@ func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []appe
 		if !rules[previous].CaseSensitive {
 			errs = append(errs, fieldError(
 				fmt.Sprintf("rules[%d].string_to_replace", previous),
+				apperrors.CodeDuplicate,
 				fmt.Sprintf("conflicts with rules[%d] under case-insensitive matching", i),
 			))
 		}
@@ -242,15 +238,17 @@ func validatePronunciationRuleConflicts(rules []models.PronunciationRule) []appe
 }
 
 func translatePronunciationRulesRepoError(op apperrors.Operation, err error) error {
-	if err == nil {
-		return nil
-	}
 	if errors.Is(err, repository.ErrSchemaUnavailable) {
 		return apperrors.NotInitialized(
 			"pronunciation_rules",
 			"apply migrations/001_complete_schema.sql or migrations/007_pronunciation_rules.sql",
 			err,
 		)
+	}
+	// Only ReplaceAll's tts_settings singleton lock can report ErrNotFound;
+	// the rule set itself has no ID that could be missing.
+	if errors.Is(err, repository.ErrNotFound) {
+		return translateTTSSettingsRepoError(op, err)
 	}
 	return apperrors.TranslateRepoError("PronunciationRules", op, err)
 }

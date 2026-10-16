@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -38,8 +37,8 @@ type ProblemDetail struct {
 	// DeletedAt is the deletion time for story.deleted responses.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	// Errors contains field-level errors for validation and strict parsing responses.
-	Errors []apperrors.ValidationError `json:"errors,omitempty"`
+	// Errors contains field-level errors for validation and request parsing responses.
+	Errors []apperrors.FieldError `json:"errors,omitempty"`
 }
 
 // Problem type URIs for common error types.
@@ -48,8 +47,6 @@ const (
 	ProblemTypeValidationError = "https://babbel.api/problems/validation-error"
 	// ProblemTypeResourceNotFound identifies a missing resource.
 	ProblemTypeResourceNotFound = "https://babbel.api/problems/resource-not-found"
-	// ProblemTypeDuplicateResource identifies a uniqueness conflict.
-	ProblemTypeDuplicateResource = "https://babbel.api/problems/duplicate-resource"
 	// ProblemTypeAuthenticationRequired identifies missing or invalid credentials.
 	ProblemTypeAuthenticationRequired = "https://babbel.api/problems/authentication-required"
 	// ProblemTypeInsufficientPermissions identifies an authorization failure.
@@ -58,6 +55,8 @@ const (
 	ProblemTypeInternalServerError = "https://babbel.api/problems/internal-server-error"
 	// ProblemTypeBadRequest identifies a malformed request.
 	ProblemTypeBadRequest = "https://babbel.api/problems/bad-request"
+	// ProblemTypeRequestTimeout identifies a request body that did not arrive within the time limit.
+	ProblemTypeRequestTimeout = "https://babbel.api/problems/request-timeout"
 	// ProblemTypePayloadTooLarge identifies a request body that exceeds the API limit.
 	ProblemTypePayloadTooLarge = "https://babbel.api/problems/payload-too-large"
 	// ProblemTypeNotAcceptable identifies an Accept header that excludes the response media type.
@@ -67,94 +66,20 @@ const (
 )
 
 // NewProblemDetail builds an RFC 9457 response with a UTC timestamp.
-func NewProblemDetail(problemType, title string, status int, detail, instance string) *ProblemDetail {
+// SendProblem fills Instance with the request path.
+func NewProblemDetail(problemType, title string, status int, detail string) *ProblemDetail {
 	return &ProblemDetail{
 		Type:      problemType,
 		Title:     title,
 		Status:    status,
 		Detail:    detail,
-		Instance:  instance,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
-}
-
-// NewValidationProblem creates a 422 response for validation errors.
-func NewValidationProblem(detail, instance string, errors []apperrors.ValidationError) *ProblemDetail {
-	problem := NewProblemDetail(
-		ProblemTypeValidationError,
-		"Validation Error",
-		422,
-		detail,
-		instance,
-	)
-	problem.Errors = errors
-	return problem
-}
-
-// NewBadRequestValidationProblem creates a 400 response with field-level parse errors.
-func NewBadRequestValidationProblem(detail string, errors []apperrors.ValidationError, instance string) *ProblemDetail {
-	problem := NewProblemDetail(
-		ProblemTypeBadRequest,
-		"Bad Request",
-		400,
-		detail,
-		instance,
-	)
-	problem.Errors = errors
-	return problem
-}
-
-// NewNotFoundProblem creates a 404 response for missing resources.
-func NewNotFoundProblem(resource, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeResourceNotFound,
-		"Resource Not Found",
-		404,
-		fmt.Sprintf("%s not found", resource),
-		instance,
-	)
-}
-
-// NewAuthenticationProblem creates a 401 response for authentication failures.
-func NewAuthenticationProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeAuthenticationRequired,
-		"Authentication Required",
-		401,
-		detail,
-		instance,
-	)
-}
-
-// NewInternalServerProblem creates a 500 response for server-side errors.
-func NewInternalServerProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeInternalServerError,
-		"Internal Server Error",
-		500,
-		detail,
-		instance,
-	)
-}
-
-// NewBadRequestProblem creates a 400 response for malformed requests.
-func NewBadRequestProblem(detail, instance string) *ProblemDetail {
-	return NewProblemDetail(
-		ProblemTypeBadRequest,
-		"Bad Request",
-		400,
-		detail,
-		instance,
-	)
 }
 
 // SendProblem sends an RFC 9457 problem details response.
 func SendProblem(c *gin.Context, problem *ProblemDetail) {
 	c.Header("Content-Type", "application/problem+json")
-
-	if problem.Instance == "" {
-		problem.Instance = c.Request.URL.Path
-	}
-
+	problem.Instance = c.Request.URL.Path
 	c.JSON(problem.Status, problem)
 }

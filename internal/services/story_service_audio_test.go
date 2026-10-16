@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,10 +46,10 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			return s.ProcessAudio(ctx, target, inputPath)
+			return s.ProcessAudio(ctx, target, inputPath, nil)
 		}},
 		{"forced TTS", func(ctx context.Context, s *StoryService, storyID int64) error {
-			return s.GenerateTTS(ctx, storyID, nil, true)
+			return s.GenerateTTS(ctx, storyID, nil, true, nil)
 		}},
 	}
 	for _, tt := range tests {
@@ -68,9 +69,15 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: silentAudio})
 			service.config = cfg
 			service.audioSvc = audio.NewService(cfg, nil)
+			alerts := &capturingAlerter{}
+			service.alerts = alerts
 
-			if err := tt.run(t.Context(), service, story.ID); !errors.Is(err, audio.ErrSilent) {
+			err := tt.run(t.Context(), service, story.ID)
+			if !errors.Is(err, audio.ErrSilent) {
 				t.Fatalf("error = %v, want audio.ErrSilent", err)
+			}
+			if tt.name == "forced TTS" {
+				assertSilentTTSFailure(t, err, alerts)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
@@ -108,10 +115,12 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 		name      string
 		err       error
 		committed bool
+		readErr   error
 		wantFiles int
 	}{
 		{name: "response lost after commit", err: errors.New("connection lost"), committed: true, wantFiles: 2},
-		{name: "connection lost before commit", err: errors.New("connection lost"), wantFiles: 2},
+		{name: "outcome unknown", err: errors.New("connection lost"), readErr: errors.New("connection lost"), wantFiles: 2},
+		{name: "write rolled back", err: errors.New("audit unavailable"), wantFiles: 1},
 		{name: "concurrent change", err: repository.ErrStateConflict, wantFiles: 1},
 		{name: "deleted during conversion", err: &repository.StoryDeletedError{ID: 99}, wantFiles: 1},
 		{name: "missing during conversion", err: repository.ErrNotFound, wantFiles: 1},
@@ -127,9 +136,9 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 			if err := os.WriteFile(oldPath, []byte("old audio"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			repo := &uncertainAudioRepository{err: tt.err, committed: tt.committed}
+			repo := &uncertainAudioRepository{story: *story, err: tt.err, committed: tt.committed, readErr: tt.readErr}
 			svc := &StoryService{storyRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
-			err := svc.ProcessAudio(t.Context(), &AudioTarget{story: story, voice: story.Voice}, inputPath)
+			err := svc.ProcessAudio(t.Context(), &AudioTarget{story: story, voice: story.Voice}, inputPath, nil)
 			if errors.Is(tt.err, repository.ErrNotFound) {
 				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
 					t.Fatalf("ProcessAudio error = %v, want NotFoundError", err)
@@ -144,10 +153,8 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 			if _, err := os.Stat(oldPath); err != nil {
 				t.Fatalf("previous audio removed: %v", err)
 			}
-			if repo.published != "" {
-				if _, err := os.Stat(utils.StoryPath(cfg, repo.published)); err != nil {
-					t.Fatalf("database references missing audio: %v", err)
-				}
+			if _, err := os.Stat(utils.StoryPath(cfg, repo.story.AudioFile)); err != nil {
+				t.Fatalf("database references missing audio: %v", err)
 			}
 		})
 	}
@@ -155,14 +162,36 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 
 type uncertainAudioRepository struct {
 	storyRepository
+	story     models.Story
 	err       error
 	committed bool
-	published string
+	readErr   error
 }
 
 func (r *uncertainAudioRepository) UpdateAudio(_ context.Context, _ int64, update repository.StoryAudioUpdate) error {
 	if r.committed {
-		r.published = update.AudioFile
+		r.story.AudioFile = update.AudioFile
 	}
 	return r.err
+}
+
+func (r *uncertainAudioRepository) GetByID(context.Context, int64) (*models.Story, error) {
+	if r.readErr != nil {
+		return nil, r.readErr
+	}
+	return &r.story, nil
+}
+
+func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
+	t.Helper()
+	upstream, ok := errors.AsType[*apperrors.UpstreamError](err)
+	if !ok || upstream.Status != http.StatusBadGateway {
+		t.Fatalf("error = %v, want UpstreamError with status 502", err)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold {
+		t.Fatalf("alerts = %+v, want tts:upstream requiring a threshold", alerts.events)
+	}
+	if len(alerts.resolved) != 0 {
+		t.Fatalf("resolved alerts = %v, want none for silent audio", alerts.resolved)
+	}
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -65,21 +64,53 @@ func TestValidateTTSTextLength(t *testing.T) {
 		t.Fatal("validateTTSTextLength over limit returned nil")
 	}
 
-	var validationErr *apperrors.ValidationProblemError
-	if !errors.As(err, &validationErr) {
-		t.Fatalf("error type = %T, want *apperrors.ValidationProblemError", err)
-	}
-	if validationErr.Resource != "story" || len(validationErr.Errors) != 1 || validationErr.Errors[0].Field != "text" {
-		t.Fatalf("validation error = %#v, want one story.text error", validationErr)
-	}
-	if validationErr.Detail != "Text exceeds ElevenLabs input limit" {
-		t.Fatalf("detail = %q, want ElevenLabs limit detail", validationErr.Detail)
+	assertConflict(t, err, "story.tts_text_too_long")
+}
+
+func TestValidateStoryTTSPrerequisites(t *testing.T) {
+	t.Parallel()
+
+	valid := storyForTTSTest("news")
+	tests := []struct {
+		name     string
+		story    *models.Story
+		force    bool
+		wantCode string
+	}{
+		{
+			name: "existing audio requires force",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.AudioFile = "story.wav"
+				return story
+			}(),
+			wantCode: "story.audio_exists",
+		},
+		{
+			name: "force permits existing audio",
+			story: func() *models.Story {
+				story := storyForTTSTest("news")
+				story.AudioFile = "story.wav"
+				return story
+			}(),
+			force: true,
+		},
+		{name: "text required", story: storyForTTSTest(""), wantCode: "story.no_text"},
+		{name: "all prerequisites satisfied", story: valid},
 	}
 
-	wantMessage := "rune count " + strconv.Itoa(tts.MaxInputChars+1) +
-		" exceeds ElevenLabs input limit of " + strconv.Itoa(tts.MaxInputChars)
-	if !strings.Contains(validationErr.Errors[0].Message, wantMessage) {
-		t.Fatalf("message = %q, want %q", validationErr.Errors[0].Message, wantMessage)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateStoryTTSPrerequisites(tt.story, tt.force)
+			if tt.wantCode == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			assertConflict(t, err, tt.wantCode)
+		})
 	}
 }
 
@@ -97,7 +128,7 @@ func TestStoryService_GenerateTTSAppliesPronunciationBeforePrefix(t *testing.T) 
 	)
 
 	ctx := context.WithValue(context.Background(), generateTTSTestContextKey{}, "preserved")
-	err := service.GenerateTTS(ctx, 99, nil, false)
+	err := service.GenerateTTS(ctx, 99, nil, false, nil)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -131,10 +162,8 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 		ttsSvc,
 	)
 
-	err := service.GenerateTTS(context.Background(), 99, nil, false)
-	if _, ok := errors.AsType[*apperrors.ValidationProblemError](err); !ok {
-		t.Fatalf("GenerateTTS() error = %T, want *apperrors.ValidationProblemError", err)
-	}
+	err := service.GenerateTTS(context.Background(), 99, nil, false, nil)
+	assertConflict(t, err, "story.tts_text_too_long")
 	if ttsSvc.calls != 0 {
 		t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)
 	}
@@ -183,11 +212,11 @@ func TestTranslateTTSError(t *testing.T) {
 			},
 		},
 		{
-			name: "voice not found maps to voice validation",
+			name: "voice not found maps to a voice conflict",
 			err:  &tts.APIError{StatusCode: http.StatusNotFound, Body: "voice missing"},
 			assert: func(t *testing.T, got error) {
 				t.Helper()
-				assertValidationError(t, got, "Voice", "elevenlabs_voice_id")
+				assertConflict(t, got, "voice.elevenlabs_not_found")
 			},
 		},
 		{
@@ -205,11 +234,11 @@ func TestTranslateTTSError(t *testing.T) {
 			},
 		},
 		{
-			name: "unprocessable maps to request validation",
+			name: "unprocessable maps to upstream bad gateway",
 			err:  &tts.APIError{StatusCode: http.StatusUnprocessableEntity, Body: "invalid request"},
 			assert: func(t *testing.T, got error) {
 				t.Helper()
-				assertValidationError(t, got, "TTS", "request")
+				assertUpstreamError(t, got, http.StatusBadGateway)
 			},
 		},
 		{
@@ -269,7 +298,10 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 		},
 		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
-		{name: "invalid request is user error", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity}},
+		{
+			name: "upstream rejects request", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity},
+			wantKey: "tts:upstream", wantRequiresThreshold: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -414,14 +446,14 @@ func assertUpstreamError(t *testing.T, got error, wantStatus int) {
 	}
 }
 
-func assertValidationError(t *testing.T, got error, wantResource, wantField string) {
+func assertConflict(t *testing.T, got error, wantCode string) {
 	t.Helper()
 
-	var validation *apperrors.ValidationError
-	if !errors.As(got, &validation) {
-		t.Fatalf("error type = %T, want *apperrors.ValidationError", got)
+	conflict, ok := errors.AsType[*apperrors.ConflictError](got)
+	if !ok {
+		t.Fatalf("error type = %T, want *apperrors.ConflictError", got)
 	}
-	if validation.Resource != wantResource || validation.Field != wantField {
-		t.Fatalf("validation = %#v, want %s.%s", validation, wantResource, wantField)
+	if conflict.Code != wantCode {
+		t.Fatalf("conflict code = %q, want %q", conflict.Code, wantCode)
 	}
 }

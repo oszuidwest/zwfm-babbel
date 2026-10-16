@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"golang.org/x/crypto/bcrypt"
@@ -19,6 +20,7 @@ import (
 // policy, role validity, and the last-admin guard.
 type UserService struct {
 	repo           *repository.UserRepository
+	txManager      repository.TxManager
 	passwordPolicy PasswordPolicy
 }
 
@@ -31,18 +33,23 @@ type PasswordPolicy struct {
 	RequireSpecialChar bool
 }
 
-// NewUserService returns a user service backed by repo and passwordPolicy.
-func NewUserService(repo *repository.UserRepository, passwordPolicy PasswordPolicy) *UserService {
+// NewUserService returns a user service backed by repo, txManager and passwordPolicy.
+func NewUserService(repo *repository.UserRepository, txManager repository.TxManager, passwordPolicy PasswordPolicy) *UserService {
 	return &UserService{
 		repo:           repo,
+		txManager:      txManager,
 		passwordPolicy: passwordPolicy,
 	}
 }
 
-// Validate checks whether password satisfies the configured policy.
+// Validate checks whether password satisfies the configured policy and returns
+// a ValidationError for the password field.
 func (p PasswordPolicy) Validate(password string) error {
 	if utf8.RuneCountInString(password) < p.MinLength {
-		return fmt.Errorf("must be at least %d characters", p.MinLength)
+		return apperrors.Invalid("password", apperrors.CodeTooShort, fmt.Sprintf("must be at least %d characters", p.MinLength))
+	}
+	if len(password) > config.MaxPasswordBytes {
+		return apperrors.Invalid("password", apperrors.CodeTooLong, fmt.Sprintf("must be at most %d bytes", config.MaxPasswordBytes))
 	}
 
 	var hasUpper, hasLower, hasNumber, hasSpecial bool
@@ -59,21 +66,24 @@ func (p PasswordPolicy) Validate(password string) error {
 		}
 	}
 
-	return p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial)
-}
-
-func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) error {
-	switch {
-	case p.RequireUppercase && !hasUpper:
-		return errors.New("must contain an uppercase letter")
-	case p.RequireLowercase && !hasLower:
-		return errors.New("must contain a lowercase letter")
-	case p.RequireNumber && !hasNumber:
-		return errors.New("must contain a number")
-	case p.RequireSpecialChar && !hasSpecial:
-		return errors.New("must contain a special character")
+	if message := p.firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial); message != "" {
+		return apperrors.Invalid("password", apperrors.CodeInvalidFormat, message)
 	}
 	return nil
+}
+
+func (p PasswordPolicy) firstUnmetRequirement(hasUpper, hasLower, hasNumber, hasSpecial bool) string {
+	switch {
+	case p.RequireUppercase && !hasUpper:
+		return "must contain an uppercase letter"
+	case p.RequireLowercase && !hasLower:
+		return "must contain a lowercase letter"
+	case p.RequireNumber && !hasNumber:
+		return "must contain a number"
+	case p.RequireSpecialChar && !hasSpecial:
+		return "must contain a special character"
+	}
+	return ""
 }
 
 // CreateUserRequest carries the required fields for a local user account.
@@ -86,27 +96,23 @@ type CreateUserRequest struct {
 	Metadata *datatypes.JSONMap
 }
 
-// UpdateUserRequest carries PATCH-style account fields.
-// Email uses nil to skip updates and an empty string to clear the stored email.
+// UpdateUserRequest carries PATCH-style account fields. Nil fields are left
+// unchanged; an empty Email clears the stored email.
 type UpdateUserRequest struct {
-	Username  string
-	FullName  string
+	Username  *string
+	FullName  *string
 	Email     *string
-	Password  string
-	Role      string
+	Password  *string
+	Role      *string
 	Metadata  *datatypes.JSONMap
 	Suspended *bool
 }
 
-// Create validates role, password policy, and uniqueness before storing a
-// bcrypt password hash.
+// Create validates the password policy and uniqueness before storing a bcrypt
+// password hash. Request binding validates the role.
 func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*models.User, error) {
-	if !models.UserRole(req.Role).IsValid() {
-		return nil, apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", req.Role))
-	}
-
 	if err := s.passwordPolicy.Validate(req.Password); err != nil {
-		return nil, apperrors.Validation("User", "password", err.Error())
+		return nil, err
 	}
 
 	taken, err := s.repo.IsUsernameTaken(ctx, req.Username, nil)
@@ -127,9 +133,9 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		}
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	hashedPassword, err := hashPassword(req.Password)
 	if err != nil {
-		return nil, apperrors.Database("User", "hash", err)
+		return nil, err
 	}
 
 	var emailValue *string
@@ -141,7 +147,7 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 		Username:     req.Username,
 		FullName:     req.FullName,
 		Email:        emailValue,
-		PasswordHash: string(hashedPassword),
+		PasswordHash: hashedPassword,
 		Role:         req.Role,
 		Metadata:     req.Metadata,
 	})
@@ -157,19 +163,19 @@ func (s *UserService) Create(ctx context.Context, req CreateUserRequest) (*model
 
 // applyUsernameUpdate validates and applies username update.
 func (s *UserService) applyUsernameUpdate(
-	ctx context.Context, updates *repository.UserUpdate, username string, excludeID int64,
+	ctx context.Context, updates *repository.UserUpdate, username *string, excludeID int64,
 ) error {
-	if username == "" {
+	if username == nil {
 		return nil
 	}
-	taken, err := s.repo.IsUsernameTaken(ctx, username, &excludeID)
+	taken, err := s.repo.IsUsernameTaken(ctx, *username, &excludeID)
 	if err != nil {
 		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
 	if taken {
-		return apperrors.Duplicate("User", "username", username)
+		return apperrors.Duplicate("User", "username", *username)
 	}
-	updates.Username = &username
+	updates.Username = username
 	return nil
 }
 
@@ -197,84 +203,44 @@ func (s *UserService) applyEmailUpdate(
 }
 
 // applyPasswordUpdate hashes and applies password update.
-func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password string) error {
-	if password == "" {
+func (s *UserService) applyPasswordUpdate(updates *repository.UserUpdate, password *string) error {
+	if password == nil {
 		return nil
 	}
-	if err := s.passwordPolicy.Validate(password); err != nil {
-		return apperrors.Validation("User", "password", err.Error())
+	if err := s.passwordPolicy.Validate(*password); err != nil {
+		return err
 	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hashedPassword, err := hashPassword(*password)
 	if err != nil {
-		return apperrors.Database("User", "hash", err)
+		return err
 	}
-	hashedStr := string(hashedPassword)
 	now := time.Now()
 	zero := 0
-	updates.PasswordHash = &hashedStr
+	updates.PasswordHash = &hashedPassword
 	updates.PasswordChangedAt = &now
 	updates.FailedLoginAttempts = &zero
 	updates.ClearLockedUntil = true
 	return nil
 }
 
-// applyRoleUpdate validates and applies role update.
-func (s *UserService) applyRoleUpdate(updates *repository.UserUpdate, role string) error {
-	if role == "" {
-		return nil
+// hashPassword returns the bcrypt hash stored for password.
+func hashPassword(password string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", apperrors.Database("User", "hash", err)
 	}
-	if !models.UserRole(role).IsValid() {
-		return apperrors.Validation("User", "role", fmt.Sprintf("invalid role '%s'", role))
-	}
-	updates.Role = &role
-	return nil
+	return string(hashed), nil
 }
 
-// applyFullNameUpdate applies full name update.
-func (s *UserService) applyFullNameUpdate(updates *repository.UserUpdate, fullName string) {
-	if fullName != "" {
-		updates.FullName = &fullName
-	}
-}
-
-// applyMetadataUpdate applies metadata update.
-func (s *UserService) applyMetadataUpdate(u *repository.UserUpdate, metadata *datatypes.JSONMap) {
-	if metadata != nil {
-		u.Metadata = metadata
-	}
-}
-
-// handleSuspendedUpdate handles the suspended state update.
-func (s *UserService) handleSuspendedUpdate(ctx context.Context, id int64, suspended *bool) error {
-	if suspended == nil {
-		return nil
-	}
-	if err := s.repo.SetSuspended(ctx, id, *suspended); err != nil {
-		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
-	}
-	return nil
-}
-
-// hasFieldUpdates reports whether any field updates are present.
-func hasFieldUpdates(u *repository.UserUpdate) bool {
-	return u.Username != nil || u.FullName != nil ||
-		u.Email != nil || u.ClearEmail || u.PasswordHash != nil ||
-		u.Role != nil || u.Metadata != nil
-}
-
-// executeFieldUpdates applies field updates to the repository.
-func (s *UserService) executeFieldUpdates(ctx context.Context, id int64, updates *repository.UserUpdate) error {
-	if err := s.repo.Update(ctx, id, updates); err != nil {
-		return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
-	}
-	return nil
-}
-
-// Update applies account changes and returns the refreshed user.
-// Suspended is updated separately so callers can suspend an account without
-// sending any other changed fields.
+// Update applies account changes, including suspension, in one write and
+// returns the refreshed user. It rejects demoting or suspending the last
+// active admin.
 func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserRequest) (*models.User, error) {
-	updates := &repository.UserUpdate{}
+	updates := &repository.UserUpdate{
+		FullName: req.FullName,
+		Role:     req.Role,
+		Metadata: req.Metadata,
+	}
 
 	if err := s.applyUsernameUpdate(ctx, updates, req.Username, id); err != nil {
 		return nil, err
@@ -285,25 +251,27 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 	if err := s.applyPasswordUpdate(updates, req.Password); err != nil {
 		return nil, err
 	}
-	if err := s.applyRoleUpdate(updates, req.Role); err != nil {
-		return nil, err
-	}
-	s.applyFullNameUpdate(updates, req.FullName)
-	s.applyMetadataUpdate(updates, req.Metadata)
 
-	if err := s.handleSuspendedUpdate(ctx, id, req.Suspended); err != nil {
-		return nil, err
-	}
-
-	hasUpdates := hasFieldUpdates(updates)
-	if !hasUpdates && req.Suspended == nil {
-		return nil, apperrors.Validation("User", "", "no fields to update")
-	}
-
-	if hasUpdates {
-		if err := s.executeFieldUpdates(ctx, id, updates); err != nil {
-			return nil, err
+	if req.Suspended != nil {
+		if *req.Suspended {
+			now := time.Now()
+			updates.SuspendedAt = &now
+		} else {
+			updates.ClearSuspendedAt = true
 		}
+	}
+
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.guardLastAdminUpdate(txCtx, id, req); err != nil {
+			return err
+		}
+		if err := s.repo.Update(txCtx, id, updates); err != nil {
+			return apperrors.TranslateRepoErrorWithID("User", id, apperrors.OpUpdate, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return s.GetByID(ctx, id)
@@ -322,48 +290,47 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 // SoftDelete permanently deletes a user and their sessions.
 // It rejects deletion of the last active admin.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
-	user, err := s.repo.GetByID(ctx, id)
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.requireOtherActiveAdmin(txCtx, id, "delete"); err != nil {
+			return err
+		}
+		if err := s.repo.Delete(txCtx, id); err != nil {
+			return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
+		}
+		return nil
+	})
 	if err != nil {
-		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
-	}
-
-	if user.Role == models.RoleAdmin {
-		adminCount, err := s.repo.CountActiveAdminsExcluding(ctx, id)
-		if err != nil {
-			return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
-		}
-
-		if adminCount == 0 {
-			return apperrors.Validation("User", "", "cannot delete last admin")
-		}
+		return err
 	}
 
 	_ = s.repo.DeleteSessions(ctx, id)
-
-	if err := s.repo.Delete(ctx, id); err != nil {
-		return apperrors.TranslateRepoError("User", apperrors.OpDelete, err)
-	}
-
 	return nil
 }
 
-// Suspend prevents a user from logging in and returns the refreshed account.
-func (s *UserService) Suspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, true); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
+// guardLastAdminUpdate rejects demoting or suspending the last active admin.
+func (s *UserService) guardLastAdminUpdate(ctx context.Context, id int64, req *UpdateUserRequest) error {
+	switch {
+	case req.Role != nil && *req.Role != string(models.RoleAdmin):
+		return s.requireOtherActiveAdmin(ctx, id, "demote")
+	case req.Suspended != nil && *req.Suspended:
+		return s.requireOtherActiveAdmin(ctx, id, "suspend")
 	}
-
-	return s.GetByID(ctx, id)
+	return nil
 }
 
-// Unsuspend allows a suspended user to log in again and returns the refreshed
-// account.
-func (s *UserService) Unsuspend(ctx context.Context, id int64) (*models.User, error) {
-	if err := s.repo.SetSuspended(ctx, id, false); err != nil {
-		return nil, apperrors.TranslateRepoError("User", apperrors.OpUpdate, err)
+// requireOtherActiveAdmin returns 409 user.last_admin when id is the only
+// active admin, so action on id would leave none. It must run in the same
+// transaction as the write: the lock it takes is what serializes the check.
+func (s *UserService) requireOtherActiveAdmin(ctx context.Context, id int64, action string) error {
+	adminIDs, err := s.repo.LockActiveAdminIDs(ctx)
+	if err != nil {
+		return apperrors.TranslateRepoError("User", apperrors.OpQuery, err)
 	}
-
-	return s.GetByID(ctx, id)
+	if len(adminIDs) == 1 && adminIDs[0] == id {
+		return apperrors.Conflict("user.last_admin", "Cannot "+action+" the last admin user",
+			"Give another user the admin role first")
+	}
+	return nil
 }
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.

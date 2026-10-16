@@ -7,6 +7,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // UserUpdate contains optional fields for updating a user.
@@ -21,10 +22,12 @@ type UserUpdate struct {
 	// LockedUntil lets BuildUpdateMap resolve ClearLockedUntil to locked_until.
 	LockedUntil       *time.Time
 	PasswordChangedAt *time.Time
+	SuspendedAt       *time.Time
 	Metadata          *datatypes.JSONMap
 
 	ClearEmail       bool
 	ClearLockedUntil bool
+	ClearSuspendedAt bool
 }
 
 // CreateUserParams holds the parameters for creating a new user.
@@ -70,16 +73,7 @@ func (r *UserRepository) Create(ctx context.Context, params CreateUserParams) (*
 
 // Update updates a user. Nil pointer fields are skipped; Clear* flags set fields to NULL.
 func (r *UserRepository) Update(ctx context.Context, id int64, u *UserUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 // IsUsernameTaken reports whether the username is already in use.
@@ -92,33 +86,24 @@ func (r *UserRepository) IsEmailTaken(ctx context.Context, email string, exclude
 	return r.IsFieldValueTaken(ctx, "email", email, excludeID)
 }
 
-// CountActiveAdminsExcluding counts non-suspended admins excluding the given ID.
-func (r *UserRepository) CountActiveAdminsExcluding(ctx context.Context, excludeID int64) (int, error) {
-	var count int64
+// LockActiveAdminIDs returns the IDs of non-suspended admins and locks their
+// rows until the surrounding transaction ends, so concurrent last-admin checks
+// run one after another instead of both passing. The query does not exclude the
+// caller's target, so every caller scans the same rows and waits on the first.
+func (r *UserRepository) LockActiveAdminIDs(ctx context.Context) ([]int64, error) {
+	var ids []int64
 	db := DBFromContext(ctx, r.db)
 	err := db.WithContext(ctx).
 		Model(&models.User{}).
+		Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
 		Where("suspended_at IS NULL").
 		Where("role = ?", models.RoleAdmin).
-		Where("id != ?", excludeID).
-		Count(&count).Error
+		Pluck("id", &ids).Error
 	if err != nil {
-		return 0, ParseDBError(err)
+		return nil, ParseDBError(err)
 	}
 
-	return int(count), nil
-}
-
-// SetSuspended updates the user's suspended status.
-func (r *UserRepository) SetSuspended(ctx context.Context, id int64, suspended bool) error {
-	var updateMap map[string]any
-	if suspended {
-		updateMap = map[string]any{"suspended_at": time.Now()}
-	} else {
-		updateMap = map[string]any{"suspended_at": nil}
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return ids, nil
 }
 
 // DeleteSessions removes all sessions for a user.
@@ -142,10 +127,6 @@ var userSearchFields = []string{"username", "full_name"}
 
 // List retrieves a paginated list of users with filtering, sorting, and search support.
 func (r *UserRepository) List(ctx context.Context, query *ListQuery) (*ListResult[models.User], error) {
-	if query == nil {
-		query = NewListQuery()
-	}
-
 	db := r.db.WithContext(ctx).Model(&models.User{})
 	db = ApplySoftDeleteFilter(db, query.Trashed)
 

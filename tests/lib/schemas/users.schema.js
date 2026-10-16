@@ -20,35 +20,5 @@ module.exports = {
     sortableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at'],
     filterableFields: ['id', 'username', 'role'],
     selectableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at']
-  },
-
-  validation: {
-    fields: {
-      username: {
-        type: 'string',
-        required: true,
-        minLength: 3,
-        maxLength: 100,
-        unique: true,
-        rejectWhitespaceOnly: true
-      },
-      full_name: {
-        type: 'string',
-        required: true,
-        minLength: 1,
-        maxLength: 255
-      },
-      password: {
-        type: 'string',
-        required: true,
-        minLength: 8,
-        maxLength: 128
-      },
-      role: {
-        type: 'string',
-        required: true,
-        enum: ['admin', 'editor', 'viewer']
-      }
-    }
   }
 };

@@ -178,10 +178,8 @@ describe('Bulletin Cleanup', () => {
 
       expect(response.status).toBe(200);
       const purgedBulletins = response.data.data || [];
-
-      for (const b of purgedBulletins) {
-        expect(b.file_purged_at).toBeTruthy();
-      }
+      expect(purgedBulletins.map(b => String(b.id))).toContain(String(purgedBulletinId));
+      expect(purgedBulletins.every(b => Boolean(b.file_purged_at))).toBe(true);
     });
   });
 });

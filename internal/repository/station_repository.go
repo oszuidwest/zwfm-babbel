@@ -45,16 +45,7 @@ func (r *StationRepository) Create(ctx context.Context, name string, maxStories 
 
 // Update updates an existing station. Nil pointer fields are skipped.
 func (r *StationRepository) Update(ctx context.Context, id int64, u *StationUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 var stationFieldMapping = FieldMapping{

@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 )
 
 // ErrLoginRejected marks OIDC login errors safe to show to the user.
@@ -80,7 +82,7 @@ func (s *Service) findOrCreateOAuthUser(ctx context.Context, identity oauthIdent
 	for range 10 {
 		user := oauthUser{
 			Username: username, FullName: identity.Claims.Name, Email: identity.Claims.Email,
-			Role: "viewer", OIDCIssuer: identity.Issuer, OIDCSubject: identity.Subject,
+			Role: string(models.RoleViewer), OIDCIssuer: identity.Issuer, OIDCSubject: identity.Subject,
 		}
 		err = s.db.WithContext(ctx).Table("users").Create(&user).Error
 		if err == nil {

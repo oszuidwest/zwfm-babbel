@@ -1,7 +1,8 @@
 package handlers
 
 import (
-	"time"
+	"fmt"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -10,9 +11,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// ListStories returns a paginated list of stories with modern query parameter support.
+// ListStories returns a filtered, sorted page of stories.
 func (h *Handlers) ListStories(c *gin.Context) {
-	params, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
 		return
 	}
@@ -26,8 +27,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 	utils.PaginatedListResponse(c, params, result)
 }
 
-// GetStory returns a story by ID with computed fields populated by the model
-// hooks used by the repository layer.
+// GetStory returns a story with its voice and computed audio URL.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -43,12 +43,13 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory accepts a JSON story payload and persists a scheduled story.
+// CreateStory accepts a JSON story payload and persists a scheduled story, or
+// returns the existing one for a repeated idempotency key.
 // Missing status defaults to draft and missing weekdays default to every day.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
 
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -56,30 +57,32 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		req.Status = string(models.StoryStatusDraft)
 	}
 
-	weekdays := req.Weekdays
+	weekdays := models.Weekdays(req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
 	if weekdays == 0 {
 		weekdays = models.WeekdaysAll
 	}
 
 	svcReq := &services.CreateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
+		ActorUserID:    actorUserID(c),
+		Title:          req.Title,
+		Text:           req.Text,
+		VoiceID:        req.VoiceID,
+		Status:         req.Status,
+		StartDate:      req.StartDate,
+		EndDate:        req.EndDate,
+		Weekdays:       weekdays,
+		IsBreaking:     req.IsBreaking,
+		Metadata:       req.Metadata,
+		IdempotencyKey: req.IdempotencyKey,
 	}
 
-	story, err := h.storySvc.Create(c.Request.Context(), svcReq)
+	id, err := h.storySvc.Create(c.Request.Context(), svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
-	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
+	utils.CreatedWithLocation(c, id, "/api/v1/stories", "Story created successfully")
 }
 
 // UpdateStory applies a JSON partial update to an existing story.
@@ -91,44 +94,42 @@ func (h *Handlers) UpdateStory(c *gin.Context) {
 	}
 
 	var req utils.StoryUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	if !h.validateDateRange(c, req.StartDate, req.EndDate) {
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
-	hasUpdates := req.Title != nil || req.Text != nil || req.Status != nil ||
-		req.VoiceID != nil || req.StartDate != nil || req.EndDate != nil ||
-		req.Weekdays != nil || req.IsBreaking != nil || req.Metadata != nil
-	if !hasUpdates {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "fields",
-			Message: "No fields to update",
-		}})
-		return
-	}
-
-	svcReq := &services.UpdateStoryRequest{
-		Title:      req.Title,
-		Text:       req.Text,
-		VoiceID:    req.VoiceID,
-		Status:     req.Status,
-		StartDate:  req.StartDate,
-		EndDate:    req.EndDate,
-		Weekdays:   req.Weekdays,
-		IsBreaking: req.IsBreaking,
-		Metadata:   req.Metadata,
-	}
-
-	updated, err := h.storySvc.Update(c.Request.Context(), id, svcReq)
+	updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(req, actorUserID(c)))
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
 	utils.Success(c, updated)
+}
+
+func toStoryUpdateServiceRequest(req utils.StoryUpdateRequest, actorUserID *int64) *services.UpdateStoryRequest {
+	var weekdays *models.Weekdays
+	if req.Weekdays != nil {
+		w := models.Weekdays(*req.Weekdays) // #nosec G115 - binding limits weekdays to 0-127
+		weekdays = &w
+	}
+
+	return &services.UpdateStoryRequest{
+		ActorUserID: actorUserID,
+		Title:       req.Title,
+		Text:        req.Text,
+		VoiceID:     req.VoiceID,
+		Status:      req.Status,
+		StartDate:   req.StartDate,
+		EndDate:     req.EndDate,
+		Weekdays:    weekdays,
+		IsBreaking:  req.IsBreaking,
+		Metadata:    req.Metadata,
+	}
 }
 
 // DeleteStory soft deletes a story.
@@ -138,7 +139,7 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 		return
 	}
 
-	if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
+	if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
@@ -146,9 +147,9 @@ func (h *Handlers) DeleteStory(c *gin.Context) {
 	utils.NoContent(c)
 }
 
-// UpdateStoryStatus changes workflow state or toggles soft deletion.
-// An empty deleted_at string restores the story; any non-empty deleted_at value
-// is treated as a soft-delete request for compatibility with the legacy API.
+// UpdateStoryStatus changes status or soft deletion. Empty deleted_at restores
+// atomically with optional story fields; any other value soft-deletes the story
+// and accepts no other fields.
 func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
@@ -156,50 +157,52 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 	}
 
 	var req struct {
-		Status    *string `json:"status"`
+		utils.StoryUpdateRequest
 		DeletedAt *string `json:"deleted_at"`
 	}
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	if req.Status == nil && req.DeletedAt == nil {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field (status or deleted_at) is required",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
-	if req.DeletedAt != nil {
-		if *req.DeletedAt == "" {
-			if err := h.storySvc.Restore(c.Request.Context(), id); err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			restored, err := h.storySvc.GetByID(c.Request.Context(), id)
-			if err != nil {
-				handleServiceError(c, err, "Story")
-				return
-			}
-			utils.Success(c, restored)
-			return
-		}
-		if err := h.storySvc.SoftDelete(c.Request.Context(), id); err != nil {
-			handleServiceError(c, err, "Story")
-			return
-		}
-		utils.NoContent(c)
-		return
-	}
-
-	if req.Status != nil {
-		updated, err := h.storySvc.UpdateStatus(c.Request.Context(), id, *req.Status)
+	fields := req.StoryUpdateRequest
+	statusOnly := fields == utils.StoryUpdateRequest{Status: fields.Status}
+	switch {
+	case req.DeletedAt == nil && !statusOnly:
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "Story fields other than status require deleted_at \"\" (restore); use PUT to update a story",
+		})
+	case req.DeletedAt == nil:
+		updated, err := h.storySvc.Update(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
 		if err != nil {
 			handleServiceError(c, err, "Story")
 			return
 		}
 		utils.Success(c, updated)
+	case *req.DeletedAt == "":
+		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
+		if err != nil {
+			handleServiceError(c, err, "Story")
+			return
+		}
+		utils.Success(c, restored)
+	case fields != utils.StoryUpdateRequest{}:
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   apperrors.FieldRequest,
+			Code:    apperrors.CodeUnsupported,
+			Message: "A soft delete cannot be combined with other fields",
+		})
+	default:
+		if err := h.storySvc.SoftDelete(c.Request.Context(), id, actorUserID(c)); err != nil {
+			handleServiceError(c, err, "Story")
+			return
+		}
+		utils.NoContent(c)
 	}
 }
 
@@ -221,44 +224,22 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 		return
 	}
 
-	force := c.Query("force") == "true"
+	force := false
+	if raw, present := c.GetQuery("force"); present {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			utils.ProblemQueryValidation(c, "Invalid query parameter", apperrors.FieldError{
+				Field: "force", Code: apperrors.CodeInvalidFormat, Message: fmt.Sprintf("expected boolean, got %q", raw),
+			})
+			return
+		}
+		force = parsed
+	}
 
-	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, voiceID, force); err != nil {
+	if err := h.storySvc.GenerateTTS(c.Request.Context(), id, voiceID, force, actorUserID(c)); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
 	utils.CreatedWithMessage(c, "TTS audio generated successfully")
-}
-
-// validateDateRange reports whether the date range is valid.
-func (h *Handlers) validateDateRange(c *gin.Context, startDateStr, endDateStr *string) bool {
-	if startDateStr == nil || endDateStr == nil {
-		return true // Skip validation if either date is missing
-	}
-
-	startDate, err := time.ParseInLocation("2006-01-02", *startDateStr, time.Local)
-	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "start_date", Message: "Invalid start date format"},
-		})
-		return false
-	}
-
-	endDate, err := time.ParseInLocation("2006-01-02", *endDateStr, time.Local)
-	if err != nil {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "end_date", Message: "Invalid end date format"},
-		})
-		return false
-	}
-
-	if endDate.Before(startDate) {
-		utils.ProblemValidationError(c, "Date validation failed", []apperrors.ValidationError{
-			{Field: "end_date", Message: "End date cannot be before start date"},
-		})
-		return false
-	}
-
-	return true
 }

@@ -5,9 +5,11 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-const ttsSettingsSingletonID int64 = 1
+// TTSSettingsSingletonID is the id of the only tts_settings row.
+const TTSSettingsSingletonID int64 = 1
 
 // TTSSettingsUpdate uses nil for unchanged fields and ClearSeed for an explicit NULL.
 type TTSSettingsUpdate struct {
@@ -31,12 +33,17 @@ func NewTTSSettingsRepository(db *gorm.DB) *TTSSettingsRepository {
 
 // Get loads the singleton TTS settings row.
 func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, error) {
+	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx))
+}
+
+// GetForUpdate locks the singleton before an update. The caller must use a transaction.
+func (r *TTSSettingsRepository) GetForUpdate(ctx context.Context) (*models.TTSSettings, error) {
+	return firstTTSSettings(DBFromContext(ctx, r.db).WithContext(ctx).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}))
+}
+
+func firstTTSSettings(db *gorm.DB) (*models.TTSSettings, error) {
 	var settings models.TTSSettings
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).
-		Where("id = ?", ttsSettingsSingletonID).
-		First(&settings).Error
-	if err != nil {
+	if err := db.Where("id = ?", TTSSettingsSingletonID).First(&settings).Error; err != nil {
 		return nil, ParseDBError(err)
 	}
 	return &settings, nil
@@ -45,10 +52,6 @@ func (r *TTSSettingsRepository) Get(ctx context.Context) (*models.TTSSettings, e
 // Update writes non-nil fields without checking RowsAffected, allowing idempotent
 // updates. Callers must first verify that the singleton row exists.
 func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate) error {
-	if u == nil {
-		return nil
-	}
-
 	updateMap := BuildUpdateMap(u)
 	if len(updateMap) == 0 {
 		return nil
@@ -57,7 +60,7 @@ func (r *TTSSettingsRepository) Update(ctx context.Context, u *TTSSettingsUpdate
 	db := DBFromContext(ctx, r.db)
 	result := db.WithContext(ctx).
 		Model(&models.TTSSettings{}).
-		Where("id = ?", ttsSettingsSingletonID).
+		Where("id = ?", TTSSettingsSingletonID).
 		Updates(updateMap)
 	if result.Error != nil {
 		return ParseDBError(result.Error)

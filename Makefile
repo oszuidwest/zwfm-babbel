@@ -1,4 +1,4 @@
-.PHONY: help build run test test-integration clean docs docker
+.PHONY: help build run test test-integration lint quality clean docs docs-all validate-spec docker docker-run docker-stop docker-logs db-reset test-all
 
 help:
 	@echo "Babbel Commands:"
@@ -23,6 +23,8 @@ run:
 test:
 	go test ./... -v
 
+# Packages share one database: -p 1 keeps global-row assertions isolated from
+# other packages' fixtures.
 test-integration:
 	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }
 	docker compose up -d mysql
@@ -35,18 +37,14 @@ test-integration:
 	done
 	$(MAKE) db-reset
 	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true' \
-		go test -tags=integration ./internal/...
+		go test -p 1 -tags=integration ./internal/...
 
 # Quality
 lint:
 	go fmt ./...
 	go vet ./...
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run --timeout=5m \
-			--enable=errcheck,govet,ineffassign,staticcheck,unused \
-			--enable=bodyclose,dogsled,gocritic,gocyclo,gosec,misspell \
-			--enable=nakedret,noctx,nolintlint,revive,sqlclosecheck \
-			--enable=unconvert,unparam,whitespace || true; \
+		golangci-lint run --timeout=5m; \
 	else \
 		echo "golangci-lint not installed, skipping"; \
 	fi
@@ -57,7 +55,7 @@ quality: lint
 	@echo "✅ Unit tests passed!"
 	@echo "Running code quality checks..."
 	@echo "Checking for dead code..."
-	@deadcode_output=$$(go tool deadcode ./...); \
+	@deadcode_output=$$(go tool deadcode ./...) || exit $$?; \
 	if [ -n "$$deadcode_output" ]; then \
 		echo "❌ Found dead code:"; \
 		echo "$$deadcode_output"; \

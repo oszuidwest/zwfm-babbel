@@ -27,7 +27,7 @@ func TestStoryService_VoiceAndAudioWritesPreserveDeletedError(t *testing.T) {
 			return err
 		}},
 		{name: "tts override", write: func(s *StoryService) error {
-			return s.GenerateTTS(t.Context(), 99, new(int64(9)), true)
+			return s.GenerateTTS(t.Context(), 99, new(int64(9)), true, nil)
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -73,9 +73,11 @@ func TestStoryService_UpdateVoiceWithAudio(t *testing.T) {
 			wantVoiceSent: true,
 		},
 		{
-			name:      "same voice only is a no-op",
-			req:       UpdateStoryRequest{VoiceID: new(int64(7))},
-			audioFile: "story_99_voice_7_abc.wav",
+			// The repository skips an update without fields.
+			name:        "same voice only drops the voice",
+			req:         UpdateStoryRequest{VoiceID: new(int64(7))},
+			audioFile:   "story_99_voice_7_abc.wav",
+			wantUpdates: 1,
 		},
 		{
 			name:        "same voice with other fields drops the voice",
@@ -133,7 +135,7 @@ func TestStoryService_PrepareAudio(t *testing.T) {
 		story        *models.Story
 		voiceID      *int64
 		wantVoice    int64
-		wantInvalid  bool
+		wantNoVoice  bool
 		wantNotFound bool
 	}{
 		{
@@ -156,10 +158,10 @@ func TestStoryService_PrepareAudio(t *testing.T) {
 		{
 			name:        "story without voice is rejected",
 			story:       &models.Story{ID: 99},
-			wantInvalid: true,
+			wantNoVoice: true,
 		},
 		{
-			name:         "unknown requested voice is not found",
+			name:         "unknown requested voice is rejected",
 			story:        storyForTTSTest("Tekst"),
 			voiceID:      new(int64(404)),
 			wantNotFound: true,
@@ -176,11 +178,14 @@ func TestStoryService_PrepareAudio(t *testing.T) {
 			target, err := service.PrepareAudio(t.Context(), tt.story.ID, tt.voiceID)
 
 			switch {
-			case tt.wantInvalid:
-				assertValidationError(t, err, "Story", "voice_id")
+			case tt.wantNoVoice:
+				assertConflict(t, err, "story.no_voice")
 			case tt.wantNotFound:
-				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
-					t.Fatalf("PrepareAudio() error = %T, want *apperrors.NotFoundError", err)
+				invalid, ok := errors.AsType[*apperrors.ValidationError](err)
+				if !ok || len(invalid.Errors) != 1 || invalid.Errors[0] != (apperrors.FieldError{
+					Field: "voice_id", Code: apperrors.CodeNotFound, Message: "no resource with id 404",
+				}) {
+					t.Fatalf("PrepareAudio() error = %v, want voice_id not_found", err)
 				}
 			case err != nil:
 				t.Fatalf("PrepareAudio() error = %v", err)
@@ -205,7 +210,7 @@ func TestStoryService_GenerateTTSUsesRequestedVoice(t *testing.T) {
 		9: {ID: 9, ElevenLabsVoiceID: &overrideID},
 	}}
 
-	err := service.GenerateTTS(t.Context(), 99, new(int64(9)), false)
+	err := service.GenerateTTS(t.Context(), 99, new(int64(9)), false, nil)
 	if !errors.Is(err, stopErr) {
 		t.Fatalf("GenerateTTS() error = %v, want wrapped stop error", err)
 	}
@@ -215,18 +220,34 @@ func TestStoryService_GenerateTTSUsesRequestedVoice(t *testing.T) {
 }
 
 func TestStoryService_GenerateTTSRequiresVoice(t *testing.T) {
-	ttsSvc := &fakeSpeechGenerator{}
-	service := newGenerateTTSTestService(
-		&models.Story{ID: 99, Text: "Tekst"},
-		&models.TTSSettings{ApplyTextNormalization: TTSNormalizationAuto},
-		nil,
-		ttsSvc,
-	)
+	withoutElevenLabs := storyForTTSTest("Tekst")
+	withoutElevenLabs.Voice.ElevenLabsVoiceID = nil
+	for _, tt := range []struct {
+		name     string
+		story    *models.Story
+		voiceID  *int64
+		wantCode string
+	}{
+		{name: "story without voice", story: &models.Story{ID: 99, Text: "Tekst"}, wantCode: "story.no_voice"},
+		{name: "story voice without ElevenLabs ID", story: withoutElevenLabs, wantCode: "voice.no_elevenlabs_id"},
+		{name: "requested voice without ElevenLabs ID", story: storyForTTSTest("Tekst"), voiceID: new(int64(9)), wantCode: "voice.no_elevenlabs_id"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ttsSvc := &fakeSpeechGenerator{}
+			service := newGenerateTTSTestService(
+				tt.story,
+				&models.TTSSettings{ApplyTextNormalization: TTSNormalizationAuto},
+				nil,
+				ttsSvc,
+			)
+			service.voiceRepo = &fakeVoiceRepository{voices: map[int64]*models.Voice{9: {ID: 9}}}
 
-	err := service.GenerateTTS(t.Context(), 99, nil, false)
-	assertValidationError(t, err, "Story", "voice_id")
-	if ttsSvc.calls != 0 {
-		t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)
+			err := service.GenerateTTS(t.Context(), 99, tt.voiceID, false, nil)
+			assertConflict(t, err, tt.wantCode)
+			if ttsSvc.calls != 0 {
+				t.Fatalf("GenerateSpeech calls = %d, want 0", ttsSvc.calls)
+			}
+		})
 	}
 }
 

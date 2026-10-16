@@ -9,18 +9,15 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
-// elevenLabsVoiceIDPattern matches the alphanumeric voice IDs ElevenLabs issues
-// (e.g. 21m00Tcm4TlvDq8ikWAM). Hyphen and underscore are allowed for
-// forward-compatibility, but path-altering characters are rejected so the value
-// can never reshape the upstream URL.
+// Restrict voice IDs to one upstream URL path segment.
 var elevenLabsVoiceIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
 func validateElevenLabsVoiceID(id *string) error {
-	if id == nil || *id == "" {
+	if id == nil {
 		return nil
 	}
 	if !elevenLabsVoiceIDPattern.MatchString(*id) {
-		return apperrors.Validation("Voice", "elevenlabs_voice_id",
+		return apperrors.Invalid("elevenlabs_voice_id", apperrors.CodeInvalidFormat,
 			"must be 8-64 characters of letters, digits, hyphen, or underscore")
 	}
 	return nil
@@ -102,12 +99,8 @@ func (s *VoiceService) Update(ctx context.Context, id int64, req *UpdateVoiceReq
 // Delete removes a voice only when no stories or station-voice relationships
 // depend on it.
 func (s *VoiceService) Delete(ctx context.Context, id int64) error {
-	exists, err := s.repo.Exists(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoError("Voice", apperrors.OpQuery, err)
-	}
-	if !exists {
-		return apperrors.NotFoundWithID("Voice", id)
+	if err := requireExists(ctx, s.repo.Exists, "Voice", id); err != nil {
+		return err
 	}
 
 	hasDeps, err := s.repo.HasDependencies(ctx, id)

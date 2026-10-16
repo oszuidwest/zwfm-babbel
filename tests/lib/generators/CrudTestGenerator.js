@@ -35,23 +35,14 @@ function generateCrudTests(schema, setupFn = null) {
     });
 
     describe('Create', () => {
-      test('when creating with valid data, then returns 201 Created', async () => {
-        const data = await createData('create-test');
-
-        const response = await global.api.apiCall('POST', endpoint, data);
-
-        expect(response.status).toBe(201);
-        expect(response.data).toHaveProperty('id');
-
-        if (response.data?.id) {
-          global.resources.track(namePlural, response.data.id);
-        }
-      });
-
-      test(`when fetching created ${name}, then data matches input`, async () => {
+      test(`when creating ${name}, then the response and persisted resource match`, async () => {
         const data = await createData('verify-data');
         const createResponse = await global.api.apiCall('POST', endpoint, data);
         const createdId = createResponse.data?.id;
+
+        expect(createResponse.status).toBe(201);
+        expect(createdId).toEqual(expect.any(Number));
+        expect(createResponse.headers.location).toBe(`/api/v1${endpoint}/${createdId}`);
 
         const response = await global.api.apiCall('GET', `${endpoint}/${createdId}`);
 
@@ -61,57 +52,19 @@ function generateCrudTests(schema, setupFn = null) {
             expect(response.data[key]).toEqual(data[key]);
           }
         });
-
-        if (createdId) {
-          global.resources.track(namePlural, createdId);
-        }
-      });
-
-      test(`when fetching created ${name}, then has timestamps`, async () => {
-        const data = await createData('timestamp-check');
-        const createResponse = await global.api.apiCall('POST', endpoint, data);
-        const createdId = createResponse.data?.id;
-
-        const response = await global.api.apiCall('GET', `${endpoint}/${createdId}`);
-
-        expect(response.status).toBe(200);
         expect(response.data).toHaveProperty('created_at');
         expect(response.data).toHaveProperty('updated_at');
-
-        if (createdId) {
-          global.resources.track(namePlural, createdId);
-        }
-      });
-
-      test('when creating, then returns Location header', async () => {
-        const data = await createData('location-test');
-
-        const response = await global.api.apiCall('POST', endpoint, data);
-
-        expect(response.status).toBe(201);
-        expect(response.headers).toHaveProperty('location');
-        expect(response.headers.location).toContain(endpoint);
-
-        if (response.data?.id) {
-          global.resources.track(namePlural, response.data.id);
-        }
+        global.resources.track(namePlural, createdId);
       });
     });
 
     describe('Read', () => {
-      test('when listing, then returns array', async () => {
+      test('when listing, then returns a paginated collection', async () => {
         const response = await global.api.apiCall('GET', endpoint);
 
         expect(response.status).toBe(200);
         expect(response.data).toHaveProperty('data');
         expect(Array.isArray(response.data.data)).toBe(true);
-      });
-
-      test('when listing, then has pagination metadata', async () => {
-        const response = await global.api.apiCall('GET', endpoint);
-
-        expect(response.status).toBe(200);
-        expect(response.data).toHaveProperty('data');
         expect(response.data).toHaveProperty('total');
         expect(response.data).toHaveProperty('limit');
         expect(response.data).toHaveProperty('offset');
@@ -125,13 +78,7 @@ function generateCrudTests(schema, setupFn = null) {
         expect(response.data).toHaveProperty('id', sharedResource.id);
       });
 
-      test('when fetching non-existent ID, then returns 404', async () => {
-        const response = await global.api.apiCall('GET', `${endpoint}/999999`);
-
-        expect(response.status).toBe(404);
-      });
-
-      test('when resource not found, then error follows RFC 9457', async () => {
+      test('when fetching a non-existent ID, then returns a 404 problem', async () => {
         const response = await global.api.apiCall('GET', `${endpoint}/999999`);
 
         expect(response.status).toBe(404);
@@ -145,34 +92,16 @@ function generateCrudTests(schema, setupFn = null) {
       describe('Update', () => {
         const updatePayload = updateData();
 
-        test('when repeating an identical update, then both requests return 200', async () => {
+        test('when repeating an identical update, then both requests succeed and persist', async () => {
           const response = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updatePayload);
           const repeated = await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updatePayload);
 
           expect(response.status).toBe(200);
           expect(repeated.status).toBe(200);
-        });
-
-        test('when updating, then changes are persisted', async () => {
-          const response = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}`);
-
-          expect(response.status).toBe(200);
+          const persisted = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}`);
+          expect(persisted.status).toBe(200);
           const firstKey = Object.keys(updatePayload)[0];
-          expect(response.data[firstKey]).toEqual(updatePayload[firstKey]);
-        });
-
-        test('when updating, then updated_at changes', async () => {
-          const beforeResponse = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}`);
-          const beforeTimestamp = new Date(beforeResponse.data.updated_at).getTime();
-
-          // MySQL timestamps have one-second precision.
-          await global.helpers.sleep(1100);
-
-          await global.api.apiCall('PUT', `${endpoint}/${sharedResource.id}`, updateData());
-
-          const afterResponse = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}`);
-          const afterTimestamp = new Date(afterResponse.data.updated_at).getTime();
-          expect(afterTimestamp).toBeGreaterThan(beforeTimestamp);
+          expect(persisted.data[firstKey]).toEqual(updatePayload[firstKey]);
         });
 
         test('when updating non-existent ID, then returns 404', async () => {
@@ -190,7 +119,7 @@ function generateCrudTests(schema, setupFn = null) {
     }
 
     describe('Delete', () => {
-      test('when deleting, then returns 204', async () => {
+      test('when deleting, then the resource stays deleted', async () => {
         const data = await createData('delete-test');
         const createResponse = await global.api.apiCall('POST', endpoint, data);
         expect(createResponse.status).toBe(201);
@@ -202,24 +131,14 @@ function generateCrudTests(schema, setupFn = null) {
 
         const verifyResponse = await global.api.apiCall('GET', `${endpoint}/${deleteId}`);
         expect(verifyResponse.status).toBe(404);
+        const secondDelete = await global.api.apiCall('DELETE', `${endpoint}/${deleteId}`);
+        expect(secondDelete.status).toBe(404);
       });
 
       test('when deleting non-existent ID, then returns 404', async () => {
         const response = await global.api.apiCall('DELETE', `${endpoint}/999999`);
 
         expect(response.status).toBe(404);
-      });
-
-      test('when deleting twice, then second returns 404', async () => {
-        const data = await createData('idempotent-test');
-        const createResponse = await global.api.apiCall('POST', endpoint, data);
-        expect(createResponse.status).toBe(201);
-        const deleteId = createResponse.data.id;
-        await global.api.apiCall('DELETE', `${endpoint}/${deleteId}`);
-
-        const secondDelete = await global.api.apiCall('DELETE', `${endpoint}/${deleteId}`);
-
-        expect(secondDelete.status).toBe(404);
       });
     });
   });

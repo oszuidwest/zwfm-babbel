@@ -179,10 +179,18 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 	}
 }
 
+// nonFlushingWriter hides Flush so serveAudioFile sees http.ErrNotSupported.
+type nonFlushingWriter struct{ http.ResponseWriter }
+
 // audioFileChangingWriter changes the file after Content-Length is set, before copying.
 type audioFileChangingWriter struct {
 	gin.ResponseWriter
 	change func()
+}
+
+// Unwrap mirrors gin's writer so serveAudioFile flushes the underlying writer.
+func (w audioFileChangingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter.(interface{ Unwrap() http.ResponseWriter }).Unwrap()
 }
 
 func (w audioFileChangingWriter) WriteHeader(code int) {
@@ -217,7 +225,10 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 	for _, tt := range []struct {
 		name, byteRange, change string
 		status                  int
+		noFlush                 bool
 	}{
+		{name: "no flush support", noFlush: true, status: http.StatusOK},
+		{name: "truncated without flush support", noFlush: true, change: "truncate", status: http.StatusOK},
 		{name: "complete", status: http.StatusOK},
 		{name: "range", byteRange: "bytes=1-3", status: http.StatusPartialContent},
 		{name: "multipart", byteRange: "bytes=0-0,3-4", status: http.StatusPartialContent},
@@ -231,6 +242,10 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 			handler := newBulletinFileHandler(t, alerts)
 			c, recorder := newProblemContext(t)
 			c.Request.Method = http.MethodGet
+			if tt.noFlush {
+				c, _ = gin.CreateTestContext(nonFlushingWriter{recorder})
+				c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			}
 			c.Writer = audioFileChangingWriter{c.Writer, func() {
 				path := filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav")
 				var err error
@@ -257,8 +272,9 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 			} else if len(alerts.events) != 0 {
 				t.Errorf("unexpected alerts: %+v", alerts.events)
 			}
-			if got := slices.Contains(alerts.resolved, "bulletin:delivery:station:7"); got == failed {
-				t.Errorf("resolved = %v", alerts.resolved)
+			wantResolved := !failed && !tt.noFlush
+			if got := slices.Contains(alerts.resolved, "bulletin:delivery:station:7"); got != wantResolved {
+				t.Errorf("resolved = %v, want delivery resolved = %v", alerts.resolved, wantResolved)
 			}
 			if !failed && strconv.Itoa(recorder.Body.Len()) != recorder.Header().Get("Content-Length") {
 				t.Errorf("body length = %d, declared = %s", recorder.Body.Len(), recorder.Header().Get("Content-Length"))

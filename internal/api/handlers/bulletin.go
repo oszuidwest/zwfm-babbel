@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -30,17 +29,9 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Date json.RawMessage `json:"date"`
-	}
+	// Bulletins are always generated for today, so the body takes no members.
+	var req struct{}
 	if !utils.BindOptionalJSON(c, &req) {
-		return
-	}
-
-	if len(req.Date) > 0 {
-		utils.ProblemValidationError(c, "Bulletins are always generated for today", []apperrors.ValidationError{
-			{Field: "date", Message: "date is no longer supported"},
-		})
 		return
 	}
 
@@ -149,8 +140,11 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
+var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
+
 // serveAudioFile serves a download with range and conditional request support.
-// It handles the response and returns file access or delivery errors.
+// It handles the response and returns file access or delivery errors, including
+// errUnverifiedDelivery when the writer does not support flushing.
 func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
 	info, err := file.Stat()
 	if err != nil {
@@ -174,8 +168,11 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 	if u, ok := raw.(interface{ Unwrap() http.ResponseWriter }); ok {
 		raw = u.Unwrap()
 	}
-	if err := http.NewResponseController(raw).Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
-		return err
+	flushErr := http.NewResponseController(raw).Flush()
+	if errors.Is(flushErr, http.ErrNotSupported) {
+		flushErr = errUnverifiedDelivery // An incomplete read below takes precedence.
+	} else if flushErr != nil {
+		return flushErr
 	}
 	// Detect incomplete reads hidden by ServeContent.
 	if c.Request.Method != http.MethodHead {
@@ -183,7 +180,7 @@ func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID i
 			return io.ErrUnexpectedEOF
 		}
 	}
-	return nil
+	return flushErr
 }
 
 // GetBulletinStories returns a paginated list of stories in a bulletin.
@@ -229,8 +226,8 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 	}
 
 	if _, present := c.GetQuery("latest"); present {
-		utils.ProblemValidationError(c, "Use /stations/{id}/bulletins/latest for a single bulletin", []apperrors.ValidationError{
-			{Field: "latest", Message: "parameter is no longer supported on the list endpoint"},
+		utils.ProblemQueryValidation(c, "Use /stations/{id}/bulletins/latest for a single bulletin", apperrors.FieldError{
+			Field: "latest", Code: apperrors.CodeUnsupported, Message: "parameter is no longer supported on the list endpoint",
 		})
 		return
 	}

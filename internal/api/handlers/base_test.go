@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,18 +15,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 type problemResponse struct {
-	Type      string                      `json:"type"`
-	Status    int                         `json:"status"`
-	Code      string                      `json:"code"`
-	Hint      string                      `json:"hint"`
-	Detail    string                      `json:"detail"`
-	DeletedAt time.Time                   `json:"deleted_at"`
-	Errors    []apperrors.ValidationError `json:"errors"`
+	Type      string                 `json:"type"`
+	Status    int                    `json:"status"`
+	Code      string                 `json:"code"`
+	Hint      string                 `json:"hint"`
+	Detail    string                 `json:"detail"`
+	DeletedAt time.Time              `json:"deleted_at"`
+	Errors    []apperrors.FieldError `json:"errors"`
 }
 
 func newProblemContext(t *testing.T) (*gin.Context, *httptest.ResponseRecorder) {
@@ -48,11 +52,11 @@ func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problemResponse
 	return problem
 }
 
-// assertValidationField requires a problem+json body with exactly one error for field.
-func assertValidationField(t *testing.T, rec *httptest.ResponseRecorder, field string) {
+// assertFieldError requires a problem+json body with exactly one field error.
+func assertFieldError(t *testing.T, rec *httptest.ResponseRecorder, field, code string) {
 	t.Helper()
-	if errs := decodeProblem(t, rec).Errors; len(errs) != 1 || errs[0].Field != field {
-		t.Fatalf("errors = %+v, want exactly one %q error", errs, field)
+	if errs := decodeProblem(t, rec).Errors; len(errs) != 1 || errs[0].Field != field || errs[0].Code != code {
+		t.Fatalf("errors = %+v, want exactly one %s/%s error", errs, field, code)
 	}
 }
 
@@ -161,7 +165,7 @@ func TestHandleServiceErrorAlertsOnlyOperationalFailures(t *testing.T) {
 		},
 		{
 			name: "validation error does not alert",
-			err:  apperrors.Validation("Story", "title", "is required"),
+			err:  apperrors.Invalid("title", apperrors.CodeRequired, "is required"),
 		},
 		{
 			name: "not found does not alert",
@@ -231,10 +235,11 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 		name      string
 		err       error
 		wantField string
+		wantCode  string
 	}{
-		{name: "unknown filter field", err: &repository.UnknownFieldError{Kind: "filter", Field: "bogus"}, wantField: "filter"},
-		{name: "unknown sort field", err: &repository.UnknownFieldError{Kind: "sort", Field: "bogus"}, wantField: "sort"},
-		{name: "invalid filter value", err: &repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}, wantField: "filter[weekdays][band]"},
+		{name: "unknown filter field", err: &repository.UnknownFieldError{Kind: "filter", Key: "filter[bogus]", Field: "bogus"}, wantField: "filter[bogus]", wantCode: "unknown_field"},
+		{name: "unknown sort field", err: &repository.UnknownFieldError{Kind: "sort", Key: "sort", Field: "bogus"}, wantField: "sort", wantCode: "unknown_field"},
+		{name: "invalid filter value", err: &repository.InvalidFilterError{Key: "filter[weekdays][band]", Field: "weekdays", Operator: repository.FilterBitwiseAnd, Code: "out_of_range", Reason: "expected integer between 0 and 127"}, wantField: "filter[weekdays][band]", wantCode: "out_of_range"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -243,17 +248,119 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 			if rec.Code != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
 			}
-			assertValidationField(t, rec, tt.wantField)
+			assertFieldError(t, rec, tt.wantField, tt.wantCode)
 		})
 	}
 }
 
-func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
-	c, rec := newProblemContext(t)
-	err := apperrors.NewValidationProblemError("tts_settings", "validation failed", []apperrors.ValidationError{
-		{Field: "stability", Message: "must be between 0 and 1"},
-		{Field: "tts_style_prefix", Message: "must be at most 500 characters"},
+// captureLogs sends the slog default to a JSON buffer for one test. It swaps
+// process-wide loggers, so do not use it in parallel tests.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	// SetDefault also redirects the log package, and restoring the built-in
+	// default handler does not undo that.
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
 	})
+	return &buf
+}
+
+// Invalid list queries are expected client input, whichever check rejects
+// them: one Debug record and no alert, even when a query error arrives
+// wrapped. A database failure logs at Error and alerts.
+func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
+	serviceError := func(err error) func(*gin.Context) {
+		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
+	}
+	tests := []struct {
+		name       string
+		respond    func(*gin.Context)
+		wantStatus int
+	}{
+		{
+			name:       "parser rejects trashed",
+			respond:    func(c *gin.Context) { utils.ParseListQuery(c) },
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "pagination-only endpoint rejects trashed",
+			respond:    func(c *gin.Context) { utils.ParsePaginationOnly(c) },
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "sparse fieldset names an unknown field",
+			respond: func(c *gin.Context) {
+				utils.PaginatedListResponse(c, &utils.QueryParams{Fields: []string{"bogus"}}, &repository.ListResult[models.Story]{})
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "repository rejects unknown sort field",
+			respond:    serviceError(&repository.UnknownFieldError{Kind: "sort", Field: "bogus"}),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "repository rejects filter value",
+			respond:    serviceError(&repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "query error wrapped as a database error",
+			respond:    serviceError(apperrors.Database("Story", "query", &repository.UnknownFieldError{Kind: "sort", Field: "bogus"})),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "database failure",
+			respond:    serviceError(apperrors.Database("Story", "query", errors.New("connection lost"))),
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			c, rec := newProblemContext(t)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories?trashed=only", nil)
+			alerts := &automationAlertRecorder{}
+			c.Set(alertContextKey, alerts)
+			wantLevel, wantAlerts := "DEBUG", 0
+			if tt.wantStatus == http.StatusInternalServerError {
+				wantLevel, wantAlerts = "ERROR", 1
+			}
+
+			tt.respond(c)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			// Unmarshal rejects an empty buffer and a second record.
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != wantLevel {
+				t.Fatalf("logs = %s, want one %s record", logs, wantLevel)
+			}
+			if wantLevel == "DEBUG" {
+				_, hasRoute := record["route"]
+				if errs, _ := record["errors"].([]any); record["error_type"] != "query_validation" || len(errs) != 1 || !hasRoute {
+					t.Fatalf("record = %v, want error_type query_validation, a route and one field error", record)
+				}
+			}
+			if len(alerts.events) != wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), wantAlerts)
+			}
+		})
+	}
+}
+
+func TestHandleServiceError_ValidationReturns422(t *testing.T) {
+	c, rec := newProblemContext(t)
+	err := &apperrors.ValidationError{Errors: []apperrors.FieldError{
+		{Field: "stability", Code: apperrors.CodeOutOfRange, Message: "must be between 0 and 1"},
+		{Field: "tts_style_prefix", Code: apperrors.CodeTooLong, Message: "must be at most 500 characters"},
+	}}
 
 	handleServiceError(c, err, "tts_settings")
 
@@ -272,6 +379,65 @@ func TestHandleServiceError_ValidationProblemReturns422(t *testing.T) {
 		if !seen {
 			t.Fatalf("missing field %q in problem errors", field)
 		}
+	}
+}
+
+func TestHandleServiceError_ContractStatuses(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+		wantField  string
+	}{
+		{
+			name:       "single field validation",
+			err:        apperrors.Invalid("voice_id", apperrors.CodeNotFound, "no resource with id 9"),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantField:  "voice_id",
+			wantCode:   apperrors.CodeNotFound,
+		},
+		{
+			name:       "data too long",
+			err:        apperrors.TranslateRepoError("Story", apperrors.OpUpdate, repository.ErrDataTooLong),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantField:  "request",
+			wantCode:   apperrors.CodeTooLong,
+		},
+		{
+			name:       "state conflict",
+			err:        apperrors.Conflict("story.no_text", "Story has no text for TTS generation", "Add text"),
+			wantStatus: http.StatusConflict,
+			wantCode:   "story.no_text",
+		},
+		{
+			name:       "reference removed concurrently",
+			err:        apperrors.TranslateRepoError("Story", apperrors.OpCreate, repository.ErrForeignKeyViolation),
+			wantStatus: http.StatusConflict,
+			wantCode:   "story.reference_missing",
+		},
+		{
+			name:       "no stories for bulletin",
+			err:        apperrors.NoStories(3),
+			wantStatus: http.StatusConflict,
+			wantCode:   apperrors.CodeBulletinNoStories,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, rec := newProblemContext(t)
+			handleServiceError(c, tt.err, "Story")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if tt.wantField != "" {
+				assertFieldError(t, rec, tt.wantField, tt.wantCode)
+				return
+			}
+			if problem := decodeProblem(t, rec); problem.Code != tt.wantCode || len(problem.Errors) != 0 {
+				t.Fatalf("problem = %+v, want code %q without field errors", problem, tt.wantCode)
+			}
+		})
 	}
 }
 
@@ -332,13 +498,6 @@ func TestHandleServiceError_Audio(t *testing.T) {
 		wantCode   string
 		wantHint   string
 	}{
-		{
-			name:       "wrapped silent audio",
-			err:        apperrors.Audio("Story", "convert", fmt.Errorf("convert: %w", audio.ErrSilent)),
-			wantStatus: http.StatusUnprocessableEntity,
-			wantCode:   "audio.silent",
-			wantHint:   "Check the recording level and input channel, then upload audible audio or regenerate speech",
-		},
 		{
 			name:       "processing failure",
 			err:        apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")),

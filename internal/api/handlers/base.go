@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
@@ -22,7 +22,6 @@ import (
 // HandlersDeps groups dependencies resolved during router setup.
 type HandlersDeps struct {
 	AudioRepo             repository.AudioRepository
-	AudioSvc              *audio.Service
 	Config                *config.Config
 	BulletinSvc           *services.BulletinService
 	BulletinJobSvc        *services.BulletinJobService
@@ -39,7 +38,6 @@ type HandlersDeps struct {
 // Handlers owns shared dependencies used by endpoint methods.
 type Handlers struct {
 	audioRepo             repository.AudioRepository
-	audioSvc              *audio.Service
 	config                *config.Config
 	bulletinSvc           *services.BulletinService
 	bulletinJobSvc        *services.BulletinJobService
@@ -57,7 +55,6 @@ type Handlers struct {
 func NewHandlers(deps HandlersDeps) *Handlers {
 	return &Handlers{
 		audioRepo:             deps.AudioRepo,
-		audioSvc:              deps.AudioSvc,
 		config:                deps.Config,
 		bulletinSvc:           deps.BulletinSvc,
 		bulletinJobSvc:        deps.BulletinJobSvc,
@@ -85,7 +82,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if handleQueryShapeError(c, err, fallbackResource) {
+	if handleQueryShapeError(c, err) {
 		return
 	}
 
@@ -124,27 +121,15 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
-	if handleConflictError(c, err) {
-		return
-	}
-
-	if vp, ok := errors.AsType[*apperrors.ValidationProblemError](err); ok {
-		logErrorWithCause(strings.ToLower(vp.Resource), "validation_failed", err, vp.Unwrap())
-		utils.ProblemValidationError(c, vp.Detail, vp.Errors)
-		return
-	}
-
 	if validation, ok := errors.AsType[*apperrors.ValidationError](err); ok {
-		logErrorWithCause(validation.Resource, "validation_failed", err, validation.Unwrap())
-		hint := "Check your input and try again"
-		if validation.Field != "" {
-			hint = fmt.Sprintf("Check the %s field", validation.Field)
-		}
-		utils.ProblemExtended(c, http.StatusBadRequest,
-			validation.Error(),
-			strings.ToLower(validation.Resource)+".validation_failed",
-			hint,
-		)
+		logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, validation.Unwrap())
+		utils.ProblemValidationError(c, "The request contains invalid data", validation.Errors...)
+		return
+	}
+
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+		logErrorWithCause(strings.ToLower(fallbackResource), "conflict", err, conflict.Unwrap())
+		utils.ProblemExtended(c, http.StatusConflict, conflict.Message, conflict.Code, conflict.Hint)
 		return
 	}
 
@@ -154,7 +139,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if noStories, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
 		logError("bulletin", "no_stories", err)
-		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
+		utils.ProblemExtended(c, http.StatusConflict,
 			noStories.Error(),
 			apperrors.CodeBulletinNoStories,
 			"Add active stories with audio before generating a bulletin",
@@ -169,7 +154,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
 		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), dbError.Resource, dbError.Unwrap())))
+			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -180,9 +165,9 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	logger.Error("Unhandled error", "resource", fallbackResource, "error", err)
 	alertRequestFailure(c, notify.Event{
-		Key:               internalAlertKeyPrefix + routeKey(c),
+		Key:               internalAlertKeyPrefix + utils.RouteKey(c),
 		Summary:           "Unhandled API errors repeatedly occur",
-		Details:           fmt.Sprintf("Route %s, resource %s: %v", routeKey(c), fallbackResource, err),
+		Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), fallbackResource, err),
 		RequiresThreshold: true,
 	})
 	utils.ProblemExtended(c, http.StatusInternalServerError,
@@ -194,15 +179,6 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
-	if errors.Is(err, audio.ErrSilent) {
-		utils.ProblemExtended(c, http.StatusUnprocessableEntity,
-			"Audio is silent or too quiet",
-			apperrors.CodeAudioSilent,
-			"Check the recording level and input channel, then upload audible audio or regenerate speech",
-		)
-		return true
-	}
-
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,
@@ -228,7 +204,7 @@ const (
 // requests; NotificationMiddleware resolves it on the route's next success.
 func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 	return notify.Event{
-		Key:               databaseAlertKeyPrefix + routeKey(c),
+		Key:               databaseAlertKeyPrefix + utils.RouteKey(c),
 		Summary:           "Database requests repeatedly fail",
 		Details:           details,
 		RequiresThreshold: true,
@@ -245,7 +221,7 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 		if c.Writer.Status() >= http.StatusBadRequest {
 			return
 		}
-		route := routeKey(c)
+		route := utils.RouteKey(c)
 		alerts.Resolve(c.Request.Context(), databaseAlertKeyPrefix+route,
 			"Database request path recovered", "Requests to "+route+" succeed again.")
 		alerts.Resolve(c.Request.Context(), internalAlertKeyPrefix+route,
@@ -266,57 +242,24 @@ func alertRequestFailure(c *gin.Context, event notify.Event) {
 	}
 }
 
-// routeKey returns a stable method-and-route key without request parameters.
-func routeKey(c *gin.Context) string {
-	if route := c.FullPath(); route != "" {
-		return c.Request.Method + " " + route
-	}
-	return c.Request.Method + " unmatched"
-}
-
-func handleQueryShapeError(c *gin.Context, err error, fallbackResource string) bool {
+func handleQueryShapeError(c *gin.Context, err error) bool {
+	var invalid apperrors.FieldError
 	if unknownField, ok := errors.AsType[*repository.UnknownFieldError](err); ok {
-		logError(strings.ToLower(fallbackResource), "unknown_query_field", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
-			{Field: unknownField.Kind, Message: unknownField.Error()},
-		})
-		return true
+		invalid = apperrors.FieldError{Field: unknownField.Key, Code: apperrors.CodeUnknownField, Message: unknownField.Error()}
+	} else if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
+		invalid = apperrors.FieldError{Field: invalidFilter.Key, Code: invalidFilter.Code, Message: invalidFilter.Reason}
+	} else {
+		return false
 	}
-
-	if invalidFilter, ok := errors.AsType[*repository.InvalidFilterError](err); ok {
-		logError(strings.ToLower(fallbackResource), "invalid_filter", err)
-		utils.ProblemValidationError(c, "Invalid query parameter", []apperrors.ValidationError{
-			{Field: fmt.Sprintf("filter[%s][%s]", invalidFilter.Field, invalidFilter.Operator), Message: invalidFilter.Reason},
-		})
-		return true
-	}
-
-	return false
-}
-
-func handleConflictError(c *gin.Context, err error) bool {
-	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
-		logErrorWithCause(conflict.Resource, "conflict", err, conflict.Unwrap())
-		code := strings.ToLower(conflict.Resource) + ".conflict"
-		if conflict.Code != "" {
-			code = conflict.Code
-		}
-		hint := conflict.Hint
-		if hint == "" {
-			hint = "Reload the resource and try again"
-		}
-		utils.ProblemExtended(c, http.StatusConflict, conflict.Error(), code, hint)
-		return true
-	}
-
-	return false
+	utils.ProblemQueryValidation(c, "Invalid query parameter", invalid)
+	return true
 }
 
 func handleAvailabilityError(c *gin.Context, err error) bool {
 	if deleted, ok := errors.AsType[*repository.StoryDeletedError](err); ok {
 		logError("Story", "deleted", err)
 		problem := utils.NewExtendedProblem(http.StatusGone, deleted.Error(), "story.deleted",
-			"Restore the story with PATCH {\"deleted_at\":\"\"} before updating it")
+			"Restore the story with PATCH {\"deleted_at\":\"\"}, optionally with the fields to update")
 		problem.DeletedAt = &deleted.DeletedAt
 		utils.SendProblem(c, problem)
 		return true
@@ -393,10 +336,7 @@ func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 
 // logError logs an error with structured fields for filtering.
 func logError(resource, errorType string, err error) {
-	logger.WithFields(map[string]any{
-		"resource":   resource,
-		"error_type": errorType,
-	}).Error(err.Error())
+	logErrorWithCause(resource, errorType, err, nil)
 }
 
 // logErrorWithCause logs an error with the underlying cause for internal errors.
@@ -420,4 +360,12 @@ func deferCleanup(cleanup func() error, resourceType string) func() {
 			logger.Error("Failed to cleanup resource", "type", resourceType, "error", err)
 		}
 	}
+}
+
+// actorUserID returns the authenticated user to attribute a change to, or nil.
+func actorUserID(c *gin.Context) *int64 {
+	if id, ok := auth.UserID(c); ok {
+		return &id
+	}
+	return nil
 }

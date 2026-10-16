@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -42,7 +41,7 @@ func (h *Handlers) GetVoice(c *gin.Context) {
 // CreateVoice accepts a JSON voice payload and persists a newsreader voice.
 func (h *Handlers) CreateVoice(c *gin.Context) {
 	var req utils.VoiceRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -63,27 +62,19 @@ func (h *Handlers) UpdateVoice(c *gin.Context) {
 	}
 
 	var req utils.VoiceUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	if req.Name == nil && !req.ElevenLabsVoiceID.Set {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field must be provided",
-		}})
+	if !utils.RequireAnyField(c, req) {
 		return
 	}
 
-	// Empty string is treated as clearing (same as null) because a blank
-	// ElevenLabs voice ID is unusable.
+	// JSON null clears the ElevenLabs voice ID.
 	updateReq := &services.UpdateVoiceRequest{
-		Name: req.Name,
-	}
-	if req.ElevenLabsVoiceID.HasValue() && *req.ElevenLabsVoiceID.Value != "" {
-		updateReq.ElevenLabsVoiceID = req.ElevenLabsVoiceID.Value
-	} else if req.ElevenLabsVoiceID.Set {
-		updateReq.ClearElevenLabsVoiceID = true
+		Name:                   req.Name,
+		ElevenLabsVoiceID:      req.ElevenLabsVoiceID.Value,
+		ClearElevenLabsVoiceID: req.ElevenLabsVoiceID.IsClearing(),
 	}
 
 	updated, err := h.voiceSvc.Update(c.Request.Context(), id, updateReq)

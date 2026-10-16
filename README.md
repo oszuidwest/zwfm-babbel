@@ -22,7 +22,7 @@ Babbel connects to newsroom workflows and radio automation systems. It supplies 
 - **Authorization** - Role-based access control with Casbin (admin, editor, and viewer roles)
 - **Audio processing** - Audio mixing with FFmpeg and configurable mix points
 - **Loudness normalization** - Audio levels that agree with EBU R128 s2 (-16 LUFS)
-- **Error handling** - Error responses in the RFC 9457 Problem Details format
+- **Error handling** - Error responses in the RFC 9457 Problem Details format. Every 400 and 422 response lists each rejected value in `errors[]` with `field`, `code` and `message`; see "Validation errors" in `openapi.yaml`
 - **Soft delete** - You can delete stories and users temporarily, and you can restore them
 - **Session management** - Sessions in encrypted cookies
 - **CORS support** - Configurable cross-origin resource sharing
@@ -119,7 +119,7 @@ Babbel normalizes audio to [EBU R128](https://tech.ebu.ch/docs/r/r128.pdf) with 
 | Loudness Range | 11 LU |
 
 Babbel normalizes:
-- Story audio during upload or TTS. Two-pass `loudnorm` measures the mono downmix, then applies linear gain when possible to preserve dynamics while targeting -16 LUFS with a -1 dBTP ceiling. It uses dynamic mode when linear gain would breach that ceiling or its loudness-range constraints. Ungated clips use single-pass `loudnorm` and remain true-peak-limited. Silent audio, or audio below -50 LUFS, is rejected with `422 audio.silent` and existing audio is kept.
+- Story audio during upload or TTS. Two-pass `loudnorm` measures the mono downmix, then applies linear gain when possible to preserve dynamics while targeting -16 LUFS with a -1 dBTP ceiling. It uses dynamic mode when linear gain would breach that ceiling or its loudness-range constraints. Ungated clips use single-pass `loudnorm` and remain true-peak-limited. An uploaded file that is silent, or below -50 LUFS, is rejected with `422` (`errors[].field` `audio`, `errors[].code` `silent_audio`), and existing audio is kept. Silent TTS output returns `502 tts.upstream_failed`.
 - The final bulletin mix, after Babbel adds the jingle. This also runs in two passes, measured on the stereo mix, so the balance between jingle and voice survives normalization.
 
 Babbel does not normalize uploaded jingles. It converts them to stereo 48 kHz 16-bit PCM WAV as-is, so the level balance between intro and bed survives until the bulletin mix.
@@ -198,7 +198,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 ### Asynchronous bulletin generation
 
-`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; sending a `date` field returns `422`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
+`POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; only an empty body or `{}` is accepted, and any member, including `date`, returns `400` with code `unknown_field`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
 
 Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
 
@@ -226,6 +226,20 @@ Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA
 The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout covers the slowest synchronous route plus 2 minutes to stream audio to slow clients: `max(2 x BABBEL_AUTOMATION_TIMEOUT, BABBEL_ELEVENLABS_TIMEOUT) + 2m`, 360s by default. An automation request may wait one generation budget for the station lock (then it returns 504) and spend another generating. Reverse proxies must allow the same durations.
 
 If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
+
+### Logging
+
+Use this environment variable to set the log level:
+
+| Env var | Default | Description |
+|---|---|---|
+| `BABBEL_LOG_LEVEL` | `4` | The value 5 or higher enables debug logs. Lower values set the info level. |
+
+Babbel writes one access log line for each request. The line does not include the query string. `BABBEL_LOG_LEVEL` does not change the access log.
+
+Babbel logs server failures, for example database errors, at error level. These failures can cause an alert. Some client errors, for example 404 and 409 responses, also log at error level.
+
+Invalid list query parameters are client errors. The 422 response shows each field that is not valid. Babbel logs these errors at debug level, with the route and the field errors. At the default level, Babbel does not write these logs. These errors do not cause an alert.
 
 ### Operational e-mail notifications
 

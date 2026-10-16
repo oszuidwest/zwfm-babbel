@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 const storiesSchema = require('../lib/schemas/stories.schema');
-const { generateQueryTests } = require('../lib/generators');
+const { generateQueryTests, generateTrashedTests } = require('../lib/generators');
 const { createMySQLExecutor, sqlInteger } = require('../lib/MySQLHelper');
 
 const NONEXISTENT_STORY_ID = 2147483647;
@@ -10,6 +10,12 @@ const STORY_LOUDNESS_TARGET_LUFS = -16.0;
 const LOUDNESS_TOLERANCE_LU = 0.5;
 const STORY_TRUE_PEAK_CEILING_DBTP = -1.0;
 const TRUE_PEAK_TOLERANCE_DB = 0.3;
+
+const dateFromToday = days => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+const activeDateRange = () => ({
+  start_date: dateFromToday(0),
+  end_date: dateFromToday(366)
+});
 
 function runFFmpeg(args) {
   const result = spawnSync('ffmpeg', args, { encoding: 'utf8' });
@@ -49,20 +55,17 @@ function measureLoudness(inputPath) {
 }
 
 describe('Stories', () => {
-  const storyData = (voiceId, targetStations, overrides = {}) => ({
+  const storyData = (voiceId, overrides = {}) => ({
     title: `Story ${Date.now()}`,
     text: 'Test content',
     voice_id: voiceId,
     status: 'active',
     weekdays: 127,
-    ...(targetStations !== undefined ? { target_stations: targetStations } : {}),
     ...overrides
   });
 
-  // Registers each fixture and its dependencies for suite-wide cleanup.
-  const createStoryWithDeps = async (title, text, voiceName, stationName, weekdays = 127, status = 'active') => {
+  const createStoryWithDeps = async (title, text, voiceName, weekdays = 127, status = 'active') => {
     const voice = await global.helpers.createVoice(global.resources, voiceName);
-    const station = await global.helpers.createStation(global.resources, stationName);
 
     const result = await global.helpers.createStory(global.resources, {
       title,
@@ -70,9 +73,9 @@ describe('Stories', () => {
       voice_id: voice.id,
       weekdays,
       status
-    }, [station.id]);
+    });
 
-    return result ? { id: result.id, voiceId: voice.id, stationId: station.id } : null;
+    return result ? { id: result.id, voiceId: voice.id } : null;
   };
 
   const setupQueryTestData = async () => {
@@ -81,25 +84,21 @@ describe('Stories', () => {
       const result = await createStoryWithDeps(
         `QueryStory${i}`,
         `Query test content ${i}`,
-        `QueryVoice${i}`,
-        `QueryStation${i}`
+        `QueryVoice${i}`
       );
       if (result) ids.push(result.id);
     }
     return ids;
   };
 
-  // Covers the shared search, sort, filter, pagination, and field-selection contract.
   generateQueryTests(storiesSchema, setupQueryTestData);
 
   describe('Story CRUD', () => {
-    let voiceId, stationId, storyId;
+    let voiceId, storyId;
 
     beforeAll(async () => {
       const voice = await global.helpers.createVoice(global.resources, 'CrudTestVoice');
-      const station = await global.helpers.createStation(global.resources, 'CrudTestStation');
       voiceId = voice.id;
-      stationId = station.id;
 
       const story = await global.helpers.createStory(global.resources, {
         title: 'CRUD Test Story',
@@ -107,7 +106,7 @@ describe('Stories', () => {
         voice_id: voiceId,
         weekdays: 127,
         status: 'active'
-      }, [stationId]);
+      });
       storyId = story.id;
     });
 
@@ -165,6 +164,44 @@ describe('Stories', () => {
     });
   });
 
+  describe('Idempotent Create', () => {
+    test('when repeating a create with the same idempotency_key, then the first story answers unchecked', async () => {
+      const key = global.helpers.uniqueName('jest-idempotent');
+      const body = storiesSchema.createValidData('IdempotentCreate');
+      const first = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
+      expect(first.status).toBe(201);
+      global.resources.track('stories', first.data.id);
+
+      // The replay skips the voice and date order checks and ignores its body.
+      const again = await global.api.apiCall('POST', '/stories', {
+        ...body, title: 'Not stored', voice_id: 2147483647, start_date: '2026-12-31', end_date: '2026-01-01', idempotency_key: key
+      });
+      expect(again.status).toBe(201);
+      global.resources.track('stories', again.data.id);
+      expect(again.data.id).toBe(first.data.id);
+      const stored = await global.api.apiCall('GET', `/stories/${first.data.id}`);
+      expect(stored.data.title).toBe(body.title);
+      expect(stored.data).not.toHaveProperty('idempotency_key');
+
+      // The key still belongs to the story after it was deleted.
+      expect((await global.api.apiCall('DELETE', `/stories/${first.data.id}`)).status).toBe(204);
+      const afterDelete = await global.api.apiCall('POST', '/stories', { ...body, idempotency_key: key });
+      expect(afterDelete.status).toBe(201);
+      global.resources.track('stories', afterDelete.data.id);
+      expect(afterDelete.data.id).toBe(first.data.id);
+    });
+
+    test.each([
+      ['empty', '', 'blank'],
+      ['blank', ' ', 'blank'],
+      ['101 characters', 'x'.repeat(101), 'too_long']
+    ])('when idempotency_key is %s, then 422 names it', async (_, key, code) => {
+      const response = await global.api.apiCall('POST', '/stories', { ...storiesSchema.createValidData('InvalidKey'), idempotency_key: key });
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field: 'idempotency_key', code })]);
+    });
+  });
+
   describe('Story Soft Delete', () => {
     test.each([
       ['PUT title', 'PUT', '', { title: 'Changed' }],
@@ -172,7 +209,7 @@ describe('Stories', () => {
       ['PATCH status', 'PATCH', '', { status: 'draft' }],
       ['POST audio', 'POST', '/audio', null]
     ])('%s distinguishes deleted and missing stories', async (name, method, suffix, body) => {
-      const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice', 'WriteStation');
+      const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice');
       expect(story).not.toBeNull();
       const deletion = await global.api.apiCall('DELETE', `/stories/${story.id}`);
       expect(deletion.status).toBe(204);
@@ -195,7 +232,7 @@ describe('Stories', () => {
       ['DELETE', null],
       ['PATCH', { deleted_at: '2026-09-26T12:00:00Z' }]
     ])('%s soft deletion is idempotent and restorable', async (method, body) => {
-      const story = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice', 'DeleteStation');
+      const story = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice');
       expect(story).not.toBeNull();
       const path = `/stories/${story.id}`;
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -213,46 +250,144 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
-    test('when trashed=only, then returns soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedOnly', 'To be trashed', 'TrashVoice1', 'TrashStation1');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    describe('restore with fields', () => {
+      const start = dateFromToday(10);
+      const end = dateFromToday(12);
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=only');
+      const deletedStory = async (name) => {
+        const story = await global.helpers.createStory(global.resources, {
+          title: name, text: 'Restore with fields', status: 'draft', is_breaking: true
+        });
+        expect(story).not.toBeNull();
+        const path = `/stories/${story.id}`;
+        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+        return { id: story.id, path };
+      };
 
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      test('when restoring with story fields, then the story comes back with them', async () => {
+        const { path } = await deletedStory('RestoreFields');
+        const voice = await global.helpers.createVoice(global.resources, 'RestoredVoice');
+        expect(voice).not.toBeNull();
+
+        const restore = await global.api.apiCall('PATCH', path, {
+          deleted_at: '', title: 'Restored &amp; updated', text: 'News &amp; context',
+          voice_id: voice.id, status: 'active', start_date: start, end_date: end,
+          weekdays: 0, is_breaking: false, metadata: { source: 'restore' }
+        });
+
+        expect(restore.status).toBe(200);
+        expect(restore.data).toMatchObject({
+          deleted_at: null, title: 'Restored & updated', text: 'News & context',
+          voice_id: voice.id, status: 'active', start_date: start, end_date: end,
+          weekdays: 0, is_breaking: false, metadata: { source: 'restore' }
+        });
+      });
+
+      test('when the fields of a restore are rejected, then the story stays deleted', async () => {
+        const { id, path } = await deletedStory('RestoreRejected');
+
+        // Both dates are valid on their own, but the end lies before the start.
+        const restore = await global.api.apiCall('PATCH', path, { deleted_at: '', start_date: end, end_date: start });
+
+        expect(restore.status).toBe(422);
+        expect(restore.data.errors).toEqual([expect.objectContaining({ field: 'end_date', code: 'date_order' })]);
+        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${id}`);
+        expect(trashed.data.data[0].deleted_at).toEqual(expect.any(String));
+      });
     });
 
-    test('when trashed=with, then includes soft-deleted stories', async () => {
-      const result = await createStoryWithDeps('TrashedWith', 'To be trashed', 'TrashVoice2', 'TrashStation2');
-      await global.api.apiCall('DELETE', `/stories/${result.id}`);
+    describe('trashed', () => {
+      let deleted;
+      let active;
 
-      const response = await global.api.apiCall('GET', '/stories?trashed=with');
+      beforeAll(async () => {
+        deleted = await createStoryWithDeps('Trashed', 'To be trashed', 'TrashVoice');
+        active = await global.helpers.createStory(global.resources, {
+          title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
+        });
+        expect(active).not.toBeNull();
+        expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
+      });
 
-      expect(response.status).toBe(200);
-      const stories = response.data.data || [];
-      const found = stories.some(s => String(s.id) === String(result.id));
-      expect(found).toBe(true);
+      generateTrashedTests('/stories', () => `filter[id][in]=${deleted.id},${active.id}`);
+
+      // The default scope already excludes deleted stories (documented in openapi.yaml).
+      test.each([
+        ['', 0],
+        ['&trashed=only', 1],
+        ['&trashed=with', 1]
+      ])('when deleted_at null=false is combined with "%s", then matches %i', async (trashed, total) => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${deleted.id}&filter[deleted_at][null]=false${trashed}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(total);
+      });
+    });
+  });
+
+  // Pins story examples from "List queries" in openapi.yaml; the query test
+  // generator pins the remaining labels on every list endpoint.
+  describe('Documented Query Semantics', () => {
+    test.each([
+      ['filter[status]=bad', 'filter[status]', 'invalid_choice'],
+      ['filter[status][not]=bad', 'filter[status][not]', 'invalid_choice'],
+      ['filter[voice_id]=null', 'filter[voice_id]', 'invalid_format'],
+      ['filter[weekdays]=abc', 'filter[weekdays]', 'invalid_format'],
+      ['filter[weekdays]=128', 'filter[weekdays]', 'out_of_range'],
+      // An unencoded plus sign decodes as a space.
+      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]', 'invalid_format']
+    ])('when %s is invalid, then the 422 names %s', async (qs, field, code) => {
+      const response = await global.api.apiCall('GET', `/stories?${qs}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
+    });
+
+    // The default collation ignores case; literal null is text, not SQL NULL.
+    describe('literal null title', () => {
+      let story;
+
+      beforeAll(async () => {
+        story = await createStoryWithDeps('null', 'Literal null title', 'NullTitleVoice');
+        expect(story).not.toBeNull();
+      });
+
+      test.each([
+        'filter[title]=null',
+        'filter[title]=NULL',
+        'filter[title][like]=UL'
+      ])('when %s is sent, then the story titled null matches', async qs => {
+        const response = await global.api.apiCall('GET', `/stories?filter[id]=${story.id}&${qs}`);
+        expect(response.status).toBe(200);
+        expect(response.data.total).toBe(1);
+      });
     });
   });
 
   describe('Story Scheduling', () => {
-    let voiceId, stationId;
+    let voiceId;
 
     beforeAll(async () => {
       const voice = await global.helpers.createVoice(global.resources, 'ScheduleVoice');
-      const station = await global.helpers.createStation(global.resources, 'ScheduleStation');
       voiceId = voice.id;
-      stationId = station.id;
+    });
+
+    test('when creating a reversed date range, then rejects end_date', async () => {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
+        title: `Reversed create ${Date.now()}`,
+        start_date: '2026-12-31',
+        end_date: '2026-01-01'
+      }));
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field: 'end_date', code: 'date_order' })
+      ]);
     });
 
     test('calendar dates round-trip and filter correctly', async () => {
       const story = await global.helpers.createStory(global.resources, {
         title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
         start_date: '2026-09-26', end_date: '2026-10-25'
-      }, [stationId]);
+      });
       expect(story).not.toBeNull();
       const path = `/stories/${story.id}`;
       const dates = { start_date: '2026-09-26', end_date: '2026-10-25' };
@@ -279,12 +414,33 @@ describe('Stories', () => {
       }
     });
 
+    test.each([
+      ['both dates', { start_date: '2026-10-11', end_date: '2026-10-10' }, 'end_date'],
+      ['only start_date after stored end_date', { start_date: '2026-11-01' }, 'start_date'],
+      ['only end_date before stored start_date', { end_date: '2026-09-30' }, 'end_date']
+    ])('when updating %s into a reversed range, then 422 names %s', async (_name, update, field) => {
+      const dates = { start_date: '2026-10-01', end_date: '2026-10-31' };
+      const story = await global.helpers.createStory(global.resources, {
+        title: 'Reversed dates', text: 'Scheduled news', voice_id: voiceId, ...dates
+      });
+      expect(story).not.toBeNull();
+
+      const response = await global.api.apiCall('PUT', `/stories/${story.id}`, update);
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors).toEqual([
+        expect.objectContaining({ field, code: 'date_order' })
+      ]);
+      const stored = await global.api.apiCall('GET', `/stories/${story.id}`);
+      expect(stored.data).toMatchObject(dates);
+    });
+
     test('when creating future-dated story, then accepted', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Future Story ${Date.now()}`,
         text: 'Scheduled for future',
-        start_date: '2030-01-01',
-        end_date: '2030-12-31'
+        start_date: dateFromToday(1),
+        end_date: dateFromToday(366)
       }));
 
       expect(response.status).toBe(201);
@@ -293,7 +449,7 @@ describe('Stories', () => {
     });
 
     test('when creating weekend-only story, then accepted', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Weekend Story ${Date.now()}`,
         text: 'Weekend only',
         start_date: '2024-01-01',
@@ -307,7 +463,7 @@ describe('Stories', () => {
     });
 
     test('when updating weekday schedule, then persisted', async () => {
-      const result = await createStoryWithDeps('WeekdayUpdate', 'Test', 'WkdyVoice', 'WkdyStation');
+      const result = await createStoryWithDeps('WeekdayUpdate', 'Test', 'WkdyVoice');
       expect(result).not.toBeNull();
 
       // 42 encodes Monday, Wednesday, and Friday.
@@ -320,66 +476,6 @@ describe('Stories', () => {
     });
   });
 
-  describe('Station Targeting', () => {
-    let voiceId, station1Id, station2Id;
-
-    beforeAll(async () => {
-      const voice = await global.helpers.createVoice(global.resources, 'TargetVoice');
-      const station1 = await global.helpers.createStation(global.resources, 'Target1');
-      const station2 = await global.helpers.createStation(global.resources, 'Target2');
-      voiceId = voice.id;
-      station1Id = station1.id;
-      station2Id = station2.id;
-    });
-
-    test('when creating with multiple target_stations, then all assigned', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [station1Id, station2Id], {
-        title: `Multi-Target ${Date.now()}`,
-        text: 'Targets multiple stations',
-        start_date: '2024-01-01',
-        end_date: '2024-12-31'
-      }));
-
-      expect(response.status).toBe(201);
-
-      global.resources.track('stories', response.data.id);
-
-      const getResponse = await global.api.apiCall('GET', `/stories/${response.data.id}`);
-      expect(getResponse.status).toBe(200);
-      if (getResponse.data.target_stations) {
-        expect(getResponse.data.target_stations).toContain(station1Id);
-        expect(getResponse.data.target_stations).toContain(station2Id);
-      }
-    });
-
-    test('when target_stations missing, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, undefined, {
-        title: 'No Targets',
-        text: 'Missing target stations'
-      }));
-
-      expect([400, 422]).toContain(response.status);
-    });
-
-    test('when target_stations empty array, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [], {
-        title: 'Empty Targets',
-        text: 'Empty array'
-      }));
-
-      expect([400, 422]).toContain(response.status);
-    });
-
-    test('when target_stations has invalid ID, then rejected', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [999999], {
-        title: 'Invalid Station',
-        text: 'Non-existent station'
-      }));
-
-      expect([404, 422]).toContain(response.status);
-    });
-  });
-
   describe('Story Audio', () => {
     const testAudio = '/tmp/test_story_audio.wav';
     const storyAudioFile = (storyId, voiceId) =>
@@ -387,7 +483,7 @@ describe('Stories', () => {
 
     beforeAll(() => {
       if (!global.helpers.createTestAudioFile(testAudio, 2)) {
-        console.log('Could not create test audio file (ffmpeg unavailable or failed)');
+        throw new Error('Story audio tests require ffmpeg');
       }
     });
 
@@ -396,9 +492,7 @@ describe('Stories', () => {
     });
 
     test('when uploading audio, then attached to story', async () => {
-      if (!fs.existsSync(testAudio)) return;
-
-      const result = await createStoryWithDeps('AudioUpload', 'Has audio', 'AudioVoice', 'AudioStation');
+      const result = await createStoryWithDeps('AudioUpload', 'Has audio', 'AudioVoice');
       expect(result).not.toBeNull();
 
       const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
@@ -421,8 +515,8 @@ describe('Stories', () => {
 
       const response = await global.api.uploadFile(`/stories/${story.id}/audio`, {}, testAudio, 'audio');
 
-      expect(response.status).toBe(400);
-      expect(response.data.type).toContain('story.validation_failed');
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.no_voice');
 
       const getResponse = await global.api.apiCall('GET', `/stories/${story.id}`);
       expect(getResponse.data.audio_file).toBe('');
@@ -496,15 +590,13 @@ describe('Stories', () => {
     });
 
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
-      if (!fs.existsSync(testAudio)) return;
-
       const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
       const inputAudio = `${prefix}_input.wav`;
       const beforeAudio = `${prefix}_before.wav`;
       const afterAudio = `${prefix}_after.wav`;
       try {
         runFFmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1', '-y', inputAudio]);
-        const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice', 'SilentStation');
+        const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice');
         expect(result).not.toBeNull();
         const endpoint = `/stories/${result.id}/audio`;
 
@@ -515,7 +607,7 @@ describe('Stories', () => {
 
         const replacement = await global.api.uploadFile(endpoint, {}, inputAudio, 'audio');
         expect(replacement.status).toBe(422);
-        expect(replacement.data.code).toBe('audio.silent');
+        expect(replacement.data.errors).toEqual([expect.objectContaining({ field: 'audio', code: 'silent_audio' })]);
         const after = await global.api.apiCall('GET', `/stories/${result.id}`);
         expect(after.data.duration_seconds).toBe(before.data.duration_seconds);
         expect(after.data.updated_at).toBe(before.data.updated_at);
@@ -529,7 +621,7 @@ describe('Stories', () => {
     });
 
     test('when fetching story, then audio fields present', async () => {
-      const result = await createStoryWithDeps('AudioFields', 'Check fields', 'FieldsVoice', 'FieldsStation');
+      const result = await createStoryWithDeps('AudioFields', 'Check fields', 'FieldsVoice');
       expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('GET', `/stories/${result.id}`);
@@ -539,8 +631,6 @@ describe('Stories', () => {
     });
 
     test('when uploading quiet story audio, then normalizes loudness to -16 LUFS', async () => {
-      if (!global.helpers.isFFmpegAvailable()) return;
-
       const inputAudio = `/tmp/test_story_loudness_input_${Date.now()}_${process.pid}.wav`;
       const outputAudio = `/tmp/test_story_loudness_output_${Date.now()}_${process.pid}.wav`;
 
@@ -550,8 +640,7 @@ describe('Stories', () => {
         const result = await createStoryWithDeps(
           'LoudnessAudio',
           'Quiet story audio',
-          'LoudnessVoice',
-          'LoudnessStation'
+          'LoudnessVoice'
         );
         expect(result).not.toBeNull();
 
@@ -582,13 +671,12 @@ describe('Stories', () => {
 
     beforeAll(async () => {
       if (!global.helpers.createTestAudioFile(testAudio, 1)) {
-        console.warn('Audio presence filter tests will be skipped (ffmpeg not available)');
-        return;
+        throw new Error('Audio presence filter tests require ffmpeg');
       }
 
-      const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1', 'HasAudioStation1');
-      const withoutAudio = await createStoryWithDeps(`${titlePrefix} empty`, 'Without audio', 'HasAudioVoice2', 'HasAudioStation2');
-      const nullAudio = await createStoryWithDeps(`${titlePrefix} null`, 'NULL audio', 'HasAudioVoice3', 'HasAudioStation3');
+      const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1');
+      const withoutAudio = await createStoryWithDeps(`${titlePrefix} empty`, 'Without audio', 'HasAudioVoice2');
+      const nullAudio = await createStoryWithDeps(`${titlePrefix} null`, 'NULL audio', 'HasAudioVoice3');
       expect(withAudio).not.toBeNull();
       expect(withoutAudio).not.toBeNull();
       expect(nullAudio).not.toBeNull();
@@ -620,14 +708,10 @@ describe('Stories', () => {
     };
 
     test('when filtering has_audio=true, then returns only stories with audio', async () => {
-      if (!withAudioId) return;
-
       expect(await listScopedIds('true')).toEqual([withAudioId]);
     });
 
     test('when filtering has_audio=false, then includes empty and NULL audio stories', async () => {
-      if (!withAudioId) return;
-
       expect((await listScopedIds('false')).sort()).toEqual([withoutAudioId, nullAudioId].sort());
     });
 
@@ -657,9 +741,8 @@ describe('Stories', () => {
   describe('Story Metadata', () => {
     test('when creating with metadata, then stored', async () => {
       const voice = await global.helpers.createVoice(global.resources, 'MetaVoice');
-      const station = await global.helpers.createStation(global.resources, 'MetaStation');
 
-      const response = await global.api.apiCall('POST', '/stories', storyData(voice.id, [station.id], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voice.id, {
         title: `Metadata Story ${Date.now()}`,
         text: 'Story with metadata',
         start_date: '2024-01-01',
@@ -676,7 +759,7 @@ describe('Stories', () => {
     });
 
     test('when updating metadata, then persisted', async () => {
-      const result = await createStoryWithDeps('UpdateMeta', 'For update', 'MetaUpdVoice', 'MetaUpdStation');
+      const result = await createStoryWithDeps('UpdateMeta', 'For update', 'MetaUpdVoice');
       expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, {
@@ -692,21 +775,18 @@ describe('Stories', () => {
   });
 
   describe('Breaking News', () => {
-    let voiceId, stationId;
+    let voiceId;
 
     beforeAll(async () => {
       const voice = await global.helpers.createVoice(global.resources, 'BreakingVoice');
-      const station = await global.helpers.createStation(global.resources, 'BreakingStation');
       voiceId = voice.id;
-      stationId = station.id;
     });
 
     test('when creating story with is_breaking=true, then persists flag', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking Story ${Date.now()}`,
         text: 'Breaking news content',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31',
+        ...activeDateRange(),
         is_breaking: true
       }));
 
@@ -718,11 +798,10 @@ describe('Stories', () => {
     });
 
     test('when creating story without is_breaking, then defaults to false', async () => {
-      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const response = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Normal Story ${Date.now()}`,
         text: 'Normal news content',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31'
+        ...activeDateRange()
       }));
 
       expect(response.status).toBe(201);
@@ -733,7 +812,7 @@ describe('Stories', () => {
     });
 
     test('when updating is_breaking to true, then persists', async () => {
-      const result = await createStoryWithDeps('BreakingUpdate', 'Test', 'BrkUpdVoice', 'BrkUpdStation');
+      const result = await createStoryWithDeps('BreakingUpdate', 'Test', 'BrkUpdVoice');
       expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, { is_breaking: true });
@@ -745,11 +824,10 @@ describe('Stories', () => {
     });
 
     test('when updating is_breaking to false, then persists', async () => {
-      const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, [stationId], {
+      const createResponse = await global.api.apiCall('POST', '/stories', storyData(voiceId, {
         title: `Breaking to Normal ${Date.now()}`,
         text: 'Was breaking',
-        start_date: '2024-01-01',
-        end_date: '2030-12-31',
+        ...activeDateRange(),
         is_breaking: true
       }));
       expect(createResponse.status).toBe(201);
@@ -820,8 +898,8 @@ describe('Stories', () => {
 
   describe('Status Filtering', () => {
     test('when filtering by status, then returns matching', async () => {
-      await createStoryWithDeps('ActiveStory', 'Active', 'StatVoice1', 'StatStation1', 127, 'active');
-      await createStoryWithDeps('DraftStory', 'Draft', 'StatVoice2', 'StatStation2', 127, 'draft');
+      await createStoryWithDeps('ActiveStory', 'Active', 'StatVoice1', 127, 'active');
+      await createStoryWithDeps('DraftStory', 'Draft', 'StatVoice2', 127, 'draft');
 
       const response = await global.api.apiCall('GET', '/stories?filter[status]=active');
 

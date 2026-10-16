@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"net/http"
 	"net/url"
@@ -34,9 +35,7 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.ProblemBadRequest(c, "Invalid login request format")
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -55,15 +54,10 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 
 // HandleOAuthCallback completes authentication and redirects to the frontend.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	session := h.authService.Session(c)
-	frontendURL, ok := auth.SessionFrontendURL(session)
-	if !ok || frontendURL == "" {
-		if h.frontendURL != "" {
-			frontendURL = h.frontendURL
-		} else {
-			utils.ProblemInternalServer(c, "No frontend URL configured")
-			return
-		}
+	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
+	if frontendURL == "" {
+		utils.ProblemInternalServer(c, "No frontend URL configured")
+		return
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
@@ -79,11 +73,6 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		return
 	}
 
-	auth.ClearSessionOAuth(session)
-	if err := session.Save(c); err != nil {
-		logger.Error("Failed to save session after cleanup", "error", err)
-	}
-
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
 }
 
@@ -93,7 +82,7 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 		utils.ProblemInternalServer(c, "Failed to logout")
 		return
 	}
-	c.Status(http.StatusNoContent)
+	utils.NoContent(c)
 }
 
 // GetCurrentUser returns the authenticated user's profile and effective permissions.

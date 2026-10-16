@@ -1,19 +1,15 @@
 package handlers
 
 import (
-	"errors"
-
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 // ListUsers returns a paginated list of users.
 func (h *Handlers) ListUsers(c *gin.Context) {
-	params, ok := utils.ParseListQuery(c)
+	params, ok := utils.ParseListQueryWithTrashed(c)
 	if !ok {
 		return
 	}
@@ -34,13 +30,9 @@ func (h *Handlers) GetUser(c *gin.Context) {
 		return
 	}
 
-	h.RespondWithUser(c, id)
-}
-
-// RespondWithUser writes the user with the given ID.
-func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
-	user, ok := h.fetchUser(c, id)
-	if !ok {
+	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
 		return
 	}
 
@@ -49,8 +41,9 @@ func (h *Handlers) RespondWithUser(c *gin.Context, id int64) {
 
 // RespondWithCurrentUser writes the current user and their effective permissions.
 func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions auth.PermissionSet) {
-	user, ok := h.fetchUser(c, id)
-	if !ok {
+	user, err := h.userSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		handleServiceError(c, err, "User")
 		return
 	}
 
@@ -60,21 +53,10 @@ func (h *Handlers) RespondWithCurrentUser(c *gin.Context, id int64, permissions 
 	})
 }
 
-// fetchUser loads the user by ID, writing the error response on failure.
-func (h *Handlers) fetchUser(c *gin.Context, id int64) (*models.User, bool) {
-	user, err := h.userSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		handleServiceError(c, err, "User")
-		return nil, false
-	}
-
-	return user, true
-}
-
 // CreateUser accepts a JSON account payload and returns the created user ID.
 func (h *Handlers) CreateUser(c *gin.Context) {
 	var req utils.UserCreateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
@@ -107,21 +89,17 @@ func (h *Handlers) UpdateUser(c *gin.Context) {
 	}
 
 	var req utils.UserUpdateRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	serviceReq := &services.UpdateUserRequest{
-		Username:  req.Username,
-		FullName:  req.FullName,
-		Email:     req.Email,
-		Password:  req.Password,
-		Role:      req.Role,
-		Metadata:  req.Metadata,
-		Suspended: req.Suspended,
+	if !utils.RequireAnyField(c, req) {
+		return
 	}
 
-	updated, err := h.userSvc.Update(c.Request.Context(), id, serviceReq)
+	serviceReq := services.UpdateUserRequest(req)
+
+	updated, err := h.userSvc.Update(c.Request.Context(), id, &serviceReq)
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return
@@ -136,17 +114,7 @@ func (h *Handlers) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	err := h.userSvc.SoftDelete(c.Request.Context(), id)
-	if err != nil {
-		validationErr, ok := errors.AsType[*apperrors.ValidationError](err)
-		if ok && validationErr.Message == "cannot delete last admin" {
-			utils.ProblemCustom(c,
-				"https://babbel.api/problems/admin-constraint",
-				"Admin Constraint", 409,
-				"Cannot delete the last admin user",
-			)
-			return
-		}
+	if err := h.userSvc.SoftDelete(c.Request.Context(), id); err != nil {
 		handleServiceError(c, err, "User")
 		return
 	}
@@ -164,18 +132,12 @@ func (h *Handlers) UpdateUserStatus(c *gin.Context) {
 	var req struct {
 		Action string `json:"action" binding:"required,oneof=suspend restore"`
 	}
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	var updated *models.User
-	var err error
-	if req.Action == "suspend" {
-		updated, err = h.userSvc.Suspend(c.Request.Context(), id)
-	} else {
-		updated, err = h.userSvc.Unsuspend(c.Request.Context(), id)
-	}
-
+	suspend := req.Action == "suspend"
+	updated, err := h.userSvc.Update(c.Request.Context(), id, &services.UpdateUserRequest{Suspended: &suspend})
 	if err != nil {
 		handleServiceError(c, err, "User")
 		return

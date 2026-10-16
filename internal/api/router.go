@@ -22,11 +22,12 @@ import (
 )
 
 type routerDeps struct {
-	handlers          *handlers.Handlers
-	automationHandler *handlers.AutomationHandler
-	authHandlers      *AuthHandlers
-	authService       *auth.Service
-	bulletinJobSvc    *services.BulletinJobService
+	handlers           *handlers.Handlers
+	auditEventsHandler *handlers.AuditEventsHandler
+	automationHandler  *handlers.AutomationHandler
+	authHandlers       *AuthHandlers
+	authService        *auth.Service
+	bulletinJobSvc     *services.BulletinJobService
 }
 
 // SetupRouter configures routes and returns a bulletin worker for the caller to start.
@@ -73,7 +74,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 
 	audioSvc := audio.NewService(cfg, alerts)
 	ttsSvc := tts.NewService(&cfg.TTS)
-	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo)
+	ttsSettingsSvc := services.NewTTSSettingsService(ttsSettingsRepo, txManager)
 	pronunciationInjector := services.NewPronunciationInjector(pronunciationRuleRepo)
 	pronunciationRulesSvc := services.NewPronunciationRulesService(pronunciationRuleRepo, txManager)
 
@@ -101,10 +102,11 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		PronunciationInjector: pronunciationInjector,
 		Config:                cfg,
 		Alerts:                alerts,
+		TxManager:             txManager,
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
-	userSvc := services.NewUserService(userRepo, buildPasswordPolicy(cfg))
+	userSvc := services.NewUserService(userRepo, txManager, buildPasswordPolicy(cfg))
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		TxManager:        txManager,
 		StationVoiceRepo: stationVoiceRepo,
@@ -116,7 +118,6 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 
 	h := handlers.NewHandlers(handlers.HandlersDeps{
 		AudioRepo:             audioRepo,
-		AudioSvc:              audioSvc,
 		Config:                cfg,
 		BulletinSvc:           bulletinSvc,
 		BulletinJobSvc:        bulletinJobSvc,
@@ -136,11 +137,12 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 		return nil, fmt.Errorf("failed to create auth service: %w", err)
 	}
 	return &routerDeps{
-		handlers:          h,
-		automationHandler: automationHandler,
-		authHandlers:      NewAuthHandlers(authService, cfg.FrontendURL, h),
-		authService:       authService,
-		bulletinJobSvc:    bulletinJobSvc,
+		handlers:           h,
+		auditEventsHandler: handlers.NewAuditEventsHandler(repository.NewAuditEventRepository(db), authService.EffectivePermissions),
+		automationHandler:  automationHandler,
+		authHandlers:       NewAuthHandlers(authService, cfg.FrontendURL, h),
+		authService:        authService,
+		bulletinJobSvc:     bulletinJobSvc,
 	}, nil
 }
 
@@ -212,6 +214,7 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 
 	protected := v1.Group("")
 	protected.Use(deps.authService.Middleware())
+	protected.GET("/audit-events", deps.auditEventsHandler.List)
 
 	registerSessionRoutes(protected, deps)
 	registerStationRoutes(protected, deps)
@@ -388,34 +391,19 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	originChecker := config.NewOriginChecker(cfg.Server.AllowedOrigins)
 
 	return func(c *gin.Context) {
-		origin := c.Request.Header.Get("Origin")
-
-		// An empty allowlist disables cross-origin access.
-		if cfg.Server.AllowedOrigins == "" {
-			if c.Request.Method == "OPTIONS" {
-				c.AbortWithStatus(204)
-				return
-			}
-			c.Next()
-			return
-		}
-
-		if originChecker.Allowed(origin) {
-			c.Writer.Header().Del("Access-Control-Allow-Origin")
-			c.Writer.Header().Del("Access-Control-Allow-Credentials")
-			c.Writer.Header().Del("Access-Control-Allow-Headers")
-			c.Writer.Header().Del("Access-Control-Allow-Methods")
-
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-			c.Writer.Header().Set("Access-Control-Allow-Headers",
+		// An empty allowlist matches no origin, disabling cross-origin access.
+		if origin := c.Request.Header.Get("Origin"); originChecker.Allowed(origin) {
+			header := c.Writer.Header()
+			header.Set("Access-Control-Allow-Origin", origin)
+			header.Set("Access-Control-Allow-Credentials", "true")
+			header.Set("Access-Control-Allow-Headers",
 				"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, "+
 					"Authorization, accept, origin, Cache-Control, X-Requested-With")
-			c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+			header.Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 		}
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 

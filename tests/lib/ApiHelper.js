@@ -33,8 +33,6 @@ class ApiHelper {
     }));
   }
 
-  // Requests
-
   /**
    * Sends a request without throwing on HTTP error responses.
    * @param {string} method
@@ -148,15 +146,13 @@ class ApiHelper {
       });
     }
 
-    // Drain unused stream to prevent resource leaks
+    // Drain unused responses to release the connection.
     if (response.data && typeof response.data.resume === 'function') {
       response.data.resume();
     }
 
     return response.status;
   }
-
-  // Authentication
 
   /**
    * @param {string|null} username Defaults to the configured admin.

@@ -7,3 +7,4 @@ rules:
   operation-operationId: error
   no-invalid-media-type-examples: error
   no-server-example.com: error
+  no-required-schema-properties-undefined: error

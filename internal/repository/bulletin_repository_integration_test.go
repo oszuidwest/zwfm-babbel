@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -27,7 +28,7 @@ func createBulletin(t *testing.T, db *gorm.DB, stationID int64) models.Bulletin 
 }
 
 func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 	repo := NewBulletinRepository(db)
 	// Derive local midnight independently of startOfDay so the test checks it.

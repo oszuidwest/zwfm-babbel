@@ -5,16 +5,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
-// pronunciationRulesService is the subset of PronunciationRulesService the
-// handler depends on. Narrowing to an interface lets tests substitute a
-// request-capturing fake to assert that the authenticated user propagates to
-// the service audit trail.
 type pronunciationRulesService interface {
 	Get(ctx context.Context) (*services.PronunciationRulesResponse, error)
 	Update(ctx context.Context, req *services.UpdatePronunciationRulesRequest) (*services.PronunciationRulesResponse, error)
@@ -46,14 +41,12 @@ func (h *Handlers) GetPronunciationRules(c *gin.Context) {
 // UpdatePronunciationRules replaces the full local inline-IPA pronunciation rule set.
 func (h *Handlers) UpdatePronunciationRules(c *gin.Context) {
 	var req utils.PronunciationRulesUpdateRequest
-	if !utils.BindJSONStrict(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
 	serviceReq := toPronunciationRulesServiceRequest(req)
-	if userID, ok := auth.UserID(c); ok {
-		serviceReq.ActorUserID = &userID
-	}
+	serviceReq.ActorUserID = actorUserID(c)
 
 	result, err := h.pronunciationRulesSvc.Update(c.Request.Context(), serviceReq)
 	if err != nil {

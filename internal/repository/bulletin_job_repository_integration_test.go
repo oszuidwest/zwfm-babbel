@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"gorm.io/gorm"
 )
 
@@ -37,7 +38,7 @@ func createBulletinJobStation(t *testing.T, db *gorm.DB) models.Station {
 }
 
 func TestBulletinJobRepositoryIntegration_ClaimNextTakesOldestQueuedFirst(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -77,7 +78,7 @@ func TestBulletinJobRepositoryIntegration_ClaimNextTakesOldestQueuedFirst(t *tes
 // through running to succeeded, and verifies the terminal state rejects every
 // further transition, e.g. after a Complete commit whose response was lost.
 func TestBulletinJobRepositoryIntegration_JobLifecycle(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -116,7 +117,7 @@ func TestBulletinJobRepositoryIntegration_JobLifecycle(t *testing.T) {
 }
 
 func TestBulletinJobRepositoryIntegration_FailRecordsClientSafeError(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -143,7 +144,7 @@ func TestBulletinJobRepositoryIntegration_FailRecordsClientSafeError(t *testing.
 }
 
 func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -178,7 +179,7 @@ func TestBulletinJobRepositoryIntegration_ReleaseRequeues(t *testing.T) {
 }
 
 func TestBulletinJobRepositoryIntegration_RequeueInterruptedRecoversRunningJobs(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -208,7 +209,7 @@ func TestBulletinJobRepositoryIntegration_RequeueInterruptedRecoversRunningJobs(
 }
 
 func TestBulletinJobRepositoryIntegration_AttemptCapMakesJobsUnclaimable(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)
@@ -243,7 +244,7 @@ func TestBulletinJobRepositoryIntegration_AttemptCapMakesJobsUnclaimable(t *test
 }
 
 func TestBulletinJobRepositoryIntegration_DeleteTerminalBeforeKeepsLiveJobs(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	station := createBulletinJobStation(t, db)
 
 	repo := NewBulletinJobRepository(db)

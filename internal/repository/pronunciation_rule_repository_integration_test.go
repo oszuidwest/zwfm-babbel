@@ -4,17 +4,14 @@ package repository
 
 import (
 	"context"
-	"errors"
-	"os"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	gormmysql "gorm.io/driver/mysql"
-	"gorm.io/gorm"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	repo := NewPronunciationRuleRepository(db)
 	txManager := NewTxManager(db)
 
@@ -24,7 +21,7 @@ func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T
 			IPA:             "piː ɛs veː",
 			CaseSensitive:   false,
 			WordBoundaries:  false,
-		}})
+		}}, nil)
 	})
 	if err != nil {
 		t.Fatalf("replace rules: %v", err)
@@ -43,7 +40,7 @@ func TestPronunciationRuleRepositoryIntegration_FalseFlagsRoundTrip(t *testing.T
 }
 
 func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	repo := NewPronunciationRuleRepository(db)
 	txManager := NewTxManager(db)
 
@@ -51,7 +48,7 @@ func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testi
 		return repo.ReplaceAll(ctx, []models.PronunciationRule{
 			{StringToReplace: "PSV", IPA: "one", CaseSensitive: true, WordBoundaries: true},
 			{StringToReplace: "psv", IPA: "two", CaseSensitive: true, WordBoundaries: true},
-		})
+		}, nil)
 	})
 	if err != nil {
 		t.Fatalf("ReplaceAll() error = %v, want nil for case-distinct terms", err)
@@ -59,12 +56,12 @@ func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testi
 }
 
 func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) {
-	db := openIntegrationDB(t)
+	db := testutil.OpenIntegrationDB(t)
 	repo := NewPronunciationRuleRepository(db)
 	txManager := NewTxManager(db)
 
 	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		return repo.ReplaceAll(ctx, nil)
+		return repo.ReplaceAll(ctx, nil, nil)
 	})
 	if err != nil {
 		t.Fatalf("clear rules: %v", err)
@@ -77,42 +74,4 @@ func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) 
 	if updatedAt != nil {
 		t.Fatalf("updatedAt = %v, want nil", updatedAt)
 	}
-}
-
-// integrationTestDSN returns the shared integration database DSN, failing in
-// CI and skipping locally when it is not configured.
-func integrationTestDSN(t *testing.T) string {
-	t.Helper()
-
-	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
-	if dsn == "" {
-		if os.Getenv("CI") == "true" {
-			t.Fatal("BABBEL_TEST_DB_DSN is required in CI")
-		}
-		t.Skip("BABBEL_TEST_DB_DSN not set")
-	}
-	return dsn
-}
-
-func openIntegrationDB(t *testing.T) *gorm.DB {
-	t.Helper()
-
-	dsn := integrationTestDSN(t)
-	db, err := gorm.Open(
-		gormmysql.Open(dsn),
-		&gorm.Config{SkipDefaultTransaction: true},
-	)
-	if err != nil {
-		t.Fatalf("gorm.Open(): %v", err)
-	}
-	t.Cleanup(func() {
-		sqlDB, err := db.DB()
-		if err != nil {
-			t.Fatalf("db.DB(): %v", err)
-		}
-		if err := sqlDB.Close(); err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf("close db: %v", err)
-		}
-	})
-	return db
 }

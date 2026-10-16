@@ -158,13 +158,7 @@ func (r *BulletinRepository) GetBulletinStories(
 		Preload("Story.Voice").
 		Where("bulletin_id = ?", bulletinID).
 		Order("story_order ASC")
-
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
+	query = applyPagination(query, limit, offset)
 
 	if err := query.Find(&bulletinStories).Error; err != nil {
 		return nil, 0, ParseDBError(err)

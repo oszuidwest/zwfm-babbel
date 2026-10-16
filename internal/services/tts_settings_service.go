@@ -3,7 +3,8 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
+	"maps"
+	"math"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -23,7 +24,7 @@ const (
 	TTSNormalizationOff = "off"
 
 	maxTTSStylePrefixRunes  = 500
-	maxElevenLabsSeedUint32 = 4_294_967_295
+	maxElevenLabsSeedUint32 = math.MaxUint32
 )
 
 var allowedTextNormalizations = []string{
@@ -34,12 +35,13 @@ var allowedTextNormalizations = []string{
 
 // TTSSettingsService manages the singleton ElevenLabs request settings.
 type TTSSettingsService struct {
-	repo *repository.TTSSettingsRepository
+	repo      *repository.TTSSettingsRepository
+	txManager repository.TxManager
 }
 
 // NewTTSSettingsService binds settings validation and persistence to repo.
-func NewTTSSettingsService(repo *repository.TTSSettingsRepository) *TTSSettingsService {
-	return &TTSSettingsService{repo: repo}
+func NewTTSSettingsService(repo *repository.TTSSettingsRepository, txManager repository.TxManager) *TTSSettingsService {
+	return &TTSSettingsService{repo: repo, txManager: txManager}
 }
 
 // UpdateTTSSettingsRequest carries PATCH-style updates for TTS settings.
@@ -56,7 +58,7 @@ type UpdateTTSSettingsRequest struct {
 func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, error) {
 	settings, err := s.repo.Get(ctx)
 	if err != nil {
-		return nil, translateTTSSettingsRepoError(err)
+		return nil, translateTTSSettingsRepoError(apperrors.OpQuery, err)
 	}
 	return settings, nil
 }
@@ -64,21 +66,12 @@ func (s *TTSSettingsService) Get(ctx context.Context) (*models.TTSSettings, erro
 // Update validates and persists settings with last-writer-wins semantics.
 // Audit entries include changed values and the actor when available.
 func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsRequest) (*models.TTSSettings, error) {
-	current, err := s.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	if req == nil || req.IsEmpty() {
-		return current, nil
+		return s.Get(ctx)
 	}
 
 	if validationErrs := validateTTSSettingsUpdate(req); len(validationErrs) > 0 {
-		return nil, apperrors.NewValidationProblemError(
-			"tts_settings",
-			"One or more fields failed validation",
-			validationErrs,
-		)
+		return nil, &apperrors.ValidationError{Errors: validationErrs}
 	}
 
 	update := &repository.TTSSettingsUpdate{
@@ -89,13 +82,26 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 		ClearSeed:              req.ClearSeed,
 	}
 
-	if err := s.repo.Update(ctx, update); err != nil {
-		return nil, translateTTSSettingsRepoError(err)
-	}
-
-	updated, err := s.Get(ctx)
+	var current, updated *models.TTSSettings
+	err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
+		var err error
+		current, err = s.repo.GetForUpdate(ctx)
+		if err != nil {
+			return err
+		}
+		if err := s.repo.Update(ctx, update); err != nil {
+			return err
+		}
+		updated, err = s.repo.Get(ctx)
+		if err != nil {
+			return err
+		}
+		return repository.RecordAudit(ctx, models.AuditEvent{
+			UserID: req.ActorUserID, EntityType: models.AuditEntityTTSSettings, EntityID: repository.TTSSettingsSingletonID, Action: models.AuditActionUpdate,
+		}, ttsSettingsAuditValues(current), ttsSettingsAuditValues(updated))
+	})
 	if err != nil {
-		return nil, err
+		return nil, translateTTSSettingsRepoError(apperrors.OpUpdate, err)
 	}
 
 	logTTSSettingsUpdate(req, current, updated)
@@ -103,7 +109,6 @@ func (s *TTSSettingsService) Update(ctx context.Context, req *UpdateTTSSettingsR
 }
 
 // IsEmpty reports whether no fields are set.
-// Keep it aligned with utils.TTSSettingsUpdateRequest.IsEmpty.
 func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 	return r.Stability == nil &&
 		r.ApplyTextNormalization == nil &&
@@ -112,7 +117,7 @@ func (r *UpdateTTSSettingsRequest) IsEmpty() bool {
 		r.TTSStylePrefix == nil
 }
 
-func translateTTSSettingsRepoError(err error) error {
+func translateTTSSettingsRepoError(op apperrors.Operation, err error) error {
 	if errors.Is(err, repository.ErrSchemaUnavailable) {
 		return apperrors.NotInitialized("tts_settings", "apply migrations/001_complete_schema.sql", err)
 	}
@@ -125,7 +130,7 @@ func translateTTSSettingsRepoError(err error) error {
 			err,
 		)
 	}
-	return apperrors.TranslateRepoError("TTSSettings", apperrors.OpQuery, err)
+	return apperrors.TranslateRepoError("TTSSettings", op, err)
 }
 
 func seedUpdateValue(seed *int64) *uint32 {
@@ -140,56 +145,43 @@ func seedUpdateValue(seed *int64) *uint32 {
 	return &value
 }
 
-func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.ValidationError {
-	errs := []apperrors.ValidationError{}
+func validateTTSSettingsUpdate(req *UpdateTTSSettingsRequest) []apperrors.FieldError {
+	errs := []apperrors.FieldError{}
 
 	errs = append(errs, validateStability(req.Stability)...)
-	errs = append(errs, validateEnumField(
-		"apply_text_normalization",
-		req.ApplyTextNormalization,
-		allowedTextNormalizations,
-		enumMessage(allowedTextNormalizations),
-	)...)
+	if v := req.ApplyTextNormalization; v != nil && !slices.Contains(allowedTextNormalizations, *v) {
+		errs = append(errs, fieldError("apply_text_normalization", apperrors.CodeInvalidChoice,
+			"must be one of: "+strings.Join(allowedTextNormalizations, ", ")))
+	}
 	errs = append(errs, validateSeed(req.Seed)...)
 	errs = append(errs, validateTTSStylePrefix(req.TTSStylePrefix)...)
 
 	return errs
 }
 
-func enumMessage(allowed []string) string {
-	return "must be one of: " + strings.Join(allowed, ", ")
-}
-
-func validateEnumField(field string, value *string, allowed []string, message string) []apperrors.ValidationError {
-	if value == nil || slices.Contains(allowed, *value) {
-		return nil
-	}
-	return []apperrors.ValidationError{fieldError(field, message)}
-}
-
-func validateStability(value *float64) []apperrors.ValidationError {
+func validateStability(value *float64) []apperrors.FieldError {
 	if value == nil || (*value >= 0 && *value <= 1) {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("stability", "must be between 0 and 1")}
+	return []apperrors.FieldError{fieldError("stability", apperrors.CodeOutOfRange, "must be between 0 and 1")}
 }
 
-func validateSeed(seed *int64) []apperrors.ValidationError {
+func validateSeed(seed *int64) []apperrors.FieldError {
 	if seed == nil || (*seed >= 0 && *seed <= maxElevenLabsSeedUint32) {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("seed", "must be between 0 and 4294967295")}
+	return []apperrors.FieldError{fieldError("seed", apperrors.CodeOutOfRange, "must be between 0 and 4294967295")}
 }
 
-func validateTTSStylePrefix(prefix *string) []apperrors.ValidationError {
+func validateTTSStylePrefix(prefix *string) []apperrors.FieldError {
 	if prefix == nil || utf8.RuneCountInString(*prefix) <= maxTTSStylePrefixRunes {
 		return nil
 	}
-	return []apperrors.ValidationError{fieldError("tts_style_prefix", "must be at most 500 characters")}
+	return []apperrors.FieldError{fieldError("tts_style_prefix", apperrors.CodeTooLong, "must be at most 500 characters")}
 }
 
-func fieldError(field, message string) apperrors.ValidationError {
-	return apperrors.ValidationError{Field: field, Message: message}
+func fieldError(field, code, message string) apperrors.FieldError {
+	return apperrors.FieldError{Field: field, Code: code, Message: message}
 }
 
 func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) {
@@ -201,71 +193,40 @@ func logTTSSettingsUpdate(req *UpdateTTSSettingsRequest, before, after *models.T
 }
 
 func buildTTSSettingsAuditFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) map[string]any {
-	changed := changedTTSSettingsFields(req, before, after)
+	oldValues, newValues := ttsSettingsAuditValues(before), ttsSettingsAuditValues(after)
+	fields := map[string]any{}
+	changed := []string{}
+	// Scalar values compare with ==; floats come from the same DECIMAL(3,2)
+	// column on both sides, with no arithmetic between reads.
+	for _, field := range slices.Sorted(maps.Keys(newValues)) {
+		if oldValues[field] != newValues[field] {
+			changed = append(changed, field)
+			fields["old_"+field] = oldValues[field]
+			fields["new_"+field] = newValues[field]
+		}
+	}
 	if len(changed) == 0 {
 		return nil
 	}
-
-	fields := map[string]any{
-		"changed_fields": changed,
-	}
+	fields["changed_fields"] = changed
 	if req.ActorUserID != nil {
 		fields["user_id"] = *req.ActorUserID
-	}
-	for _, field := range changed {
-		fields["old_"+field] = ttsSettingsFieldValue(before, field)
-		fields["new_"+field] = ttsSettingsFieldValue(after, field)
 	}
 	return fields
 }
 
-func changedTTSSettingsFields(req *UpdateTTSSettingsRequest, before, after *models.TTSSettings) []string {
-	changed := []string{}
-	appendIfChanged := func(set bool, field string, equal bool) {
-		if set && !equal {
-			changed = append(changed, field)
-		}
+// ttsSettingsAuditValues returns every audited setting by API field name;
+// RecordAudit and the update log keep only the ones that changed. Seed is
+// unwrapped so the log compares and prints its value, not a pointer.
+func ttsSettingsAuditValues(settings *models.TTSSettings) map[string]any {
+	var seed any
+	if settings.Seed != nil {
+		seed = *settings.Seed
 	}
-
-	// Float equality is intentional: both sides are read from the same DECIMAL(3,2)
-	// database columns around the update, with no arithmetic between reads.
-	appendIfChanged(req.Stability != nil, "stability", before.Stability == after.Stability)
-	appendIfChanged(
-		req.ApplyTextNormalization != nil,
-		"apply_text_normalization",
-		before.ApplyTextNormalization == after.ApplyTextNormalization,
-	)
-	appendIfChanged(req.Seed != nil || req.ClearSeed, "seed", seedEqual(before.Seed, after.Seed))
-	appendIfChanged(req.TTSStylePrefix != nil, "tts_style_prefix", before.TTSStylePrefix == after.TTSStylePrefix)
-
-	return changed
-}
-
-func seedEqual(a, b *uint32) bool {
-	switch {
-	case a == nil && b == nil:
-		return true
-	case a == nil || b == nil:
-		return false
-	default:
-		return *a == *b
-	}
-}
-
-func ttsSettingsFieldValue(settings *models.TTSSettings, field string) any {
-	switch field {
-	case "stability":
-		return settings.Stability
-	case "apply_text_normalization":
-		return settings.ApplyTextNormalization
-	case "seed":
-		if settings.Seed == nil {
-			return nil
-		}
-		return *settings.Seed
-	case "tts_style_prefix":
-		return settings.TTSStylePrefix
-	default:
-		return fmt.Sprintf("<unknown field %s>", field)
+	return map[string]any{
+		"stability":                settings.Stability,
+		"apply_text_normalization": settings.ApplyTextNormalization,
+		"seed":                     seed,
+		"tts_style_prefix":         settings.TTSStylePrefix,
 	}
 }

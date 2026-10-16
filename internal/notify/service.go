@@ -98,7 +98,7 @@ func New(cfg *config.NotificationConfig) *Service {
 		return s
 	}
 	s.recipients = cfg.Email.RecipientList()
-	s.mailer = NewGraphClient(&cfg.Email)
+	s.mailer = newGraphClient(&cfg.Email)
 	return s
 }
 

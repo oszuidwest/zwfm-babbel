@@ -2,42 +2,32 @@ package utils
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin/binding"
-	"github.com/go-playground/validator/v10"
-	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 )
 
-// InitializeValidators registers the validation tags used by request structs.
-// It must run during application startup and panics if Gin is not using the
-// go-playground validator engine.
+// InitializeValidators registers the validation tags used by request structs
+// and reports fields by their JSON names. It must run before the first request
+// is validated, because the validator caches struct metadata, and panics if
+// Gin is not using the go-playground validator engine.
 func InitializeValidators() {
 	v, ok := binding.Validator.Engine().(*validator.Validate)
 	if !ok {
 		panic(fmt.Sprintf("Validator engine is not *validator.Validate, got %T", binding.Validator.Engine()))
 	}
 
-	// Optional[string] exposes its inner value to binding tags; absent/null
-	// fields return "" so omitempty can skip validation.
-	v.RegisterCustomTypeFunc(func(field reflect.Value) any {
-		if opt, ok := reflect.TypeAssert[Optional[string]](field); ok && opt.HasValue() {
-			return *opt.Value
-		}
-		return ""
-	}, Optional[string]{})
+	// Validation still resolves fields by Go name; only reported names change.
+	v.RegisterTagNameFunc(func(field reflect.StructField) string {
+		name, _ := jsonFieldName(field)
+		return name
+	})
 
 	if err := v.RegisterValidation("notblank", notBlankValidator); err != nil {
 		panic(fmt.Sprintf("Failed to register notblank validator: %v", err))
-	}
-
-	if err := v.RegisterValidation("story_status", storyStatusValidator); err != nil {
-		panic(fmt.Sprintf("Failed to register story_status validator: %v", err))
-	}
-
-	if err := v.RegisterValidation("dateafter", dateAfterValidator); err != nil {
-		panic(fmt.Sprintf("Failed to register dateafter validator: %v", err))
 	}
 
 	if err := v.RegisterValidation("dateformat", dateFormatValidator); err != nil {
@@ -52,111 +42,9 @@ func notBlankValidator(fl validator.FieldLevel) bool {
 	return strings.TrimSpace(value) != ""
 }
 
-// storyStatusValidator validates that a story status is one of the allowed values.
-// Ensures story status integrity by restricting to: draft, active, expired.
-func storyStatusValidator(fl validator.FieldLevel) bool {
-	status := models.StoryStatus(fl.Field().String())
-	return status.IsValid()
-}
-
-// dateParseResult holds the result of parsing a date field.
-type dateParseResult struct {
-	Time           time.Time
-	IsEmpty        bool
-	FailValidation bool
-}
-
-// parseDateField parses supported date field shapes for custom validators.
-// The boolean return is false for unsupported field types.
-func parseDateField(field reflect.Value) (dateParseResult, bool) {
-	result := dateParseResult{}
-
-	if !field.IsValid() {
-		result.IsEmpty = true
-		return result, true
-	}
-
-	switch {
-	case field.Type() == reflect.TypeFor[time.Time]():
-		timeVal, ok := reflect.TypeAssert[time.Time](field)
-		if !ok {
-			result.FailValidation = true
-			return result, true
-		}
-		result.Time = timeVal
-		return result, true
-
-	case field.Kind() == reflect.String:
-		dateStr := field.String()
-		if dateStr == "" {
-			result.IsEmpty = true
-			return result, true
-		}
-		t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-		if err != nil {
-			result.FailValidation = true
-			return result, true
-		}
-		result.Time = t
-		return result, true
-
-	case field.Kind() == reflect.Pointer && !field.IsNil():
-		if field.Elem().Kind() == reflect.String {
-			dateStr := field.Elem().String()
-			if dateStr == "" {
-				result.IsEmpty = true
-				return result, true
-			}
-			t, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-			if err != nil {
-				result.FailValidation = true
-				return result, true
-			}
-			result.Time = t
-			return result, true
-		}
-		return result, false // Unknown pointer type, skip
-
-	case field.Kind() == reflect.Pointer && field.IsNil():
-		result.IsEmpty = true
-		return result, true
-
-	default:
-		return result, false // Unknown type, skip
-	}
-}
-
-// dateAfterValidator validates that a date field is after another date field in the same struct.
-// Usage: `validate:"dateafter=StartDate"`.
-func dateAfterValidator(fl validator.FieldLevel) bool {
-	compareField := fl.Parent().FieldByName(fl.Param())
-	if !compareField.IsValid() {
-		return true // Comparison field doesn't exist, validation passes
-	}
-
-	currentResult, currentOK := parseDateField(fl.Field())
-	if currentResult.FailValidation {
-		return false
-	}
-	if !currentOK || currentResult.IsEmpty {
-		return true
-	}
-
-	compareResult, compareOK := parseDateField(compareField)
-	if !compareOK || compareResult.IsEmpty {
-		return true
-	}
-
-	return currentResult.Time.After(compareResult.Time) || currentResult.Time.Equal(compareResult.Time)
-}
-
-// dateFormatValidator validates date strings are in YYYY-MM-DD format.
+// dateFormatValidator validates date strings are in YYYY-MM-DD format. Absent
+// optional dates are skipped by omitempty, so a present empty string fails.
 func dateFormatValidator(fl validator.FieldLevel) bool {
-	dateStr := fl.Field().String()
-	if dateStr == "" {
-		return true // Empty strings are valid for optional fields
-	}
-
-	_, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
+	_, err := time.ParseInLocation(time.DateOnly, fl.Field().String(), time.Local)
 	return err == nil
 }

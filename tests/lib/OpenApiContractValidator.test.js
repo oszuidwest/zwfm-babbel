@@ -457,6 +457,24 @@ describe('openapi.yaml contract invariants', () => {
     expect(document.paths['/api/v1/stories/{id}'].get.responses['410']).toBeUndefined();
   });
 
+  test('unrelated problem responses keep deleted_at optional', () => {
+    expect(() => new OpenApiContractValidator(document).validateResponse({
+      method: 'put',
+      operationPath: '/api/v1/stories/{id}',
+      response: {
+        status: 404,
+        headers: { 'content-type': 'application/problem+json' },
+        data: {
+          type: 'https://babbel.api/problems/story.not_found',
+          title: 'Not Found',
+          status: 404,
+          detail: 'Story with id 1 not found',
+          code: 'story.not_found'
+        }
+      }
+    })).not.toThrow();
+  });
+
   const LIST_OPERATIONS = [
     ['get', '/api/v1/stations'],
     ['get', '/api/v1/voices'],
@@ -565,15 +583,15 @@ describe('openapi.yaml contract invariants', () => {
     expect(filter.schema.properties.id.oneOf[1].properties.null).toBeUndefined();
   });
 
-  test('when an operation uses the shared id path parameter, then 400 is declared', () => {
+  test('when an operation takes an id path parameter, then 422 is declared', () => {
     for (const [operationPath, pathItem] of Object.entries(document.paths)) {
-      if (!operationPath.includes('{id}') || operationPath.startsWith('/public/')) {
+      if (!operationPath.includes('{id}')) {
         continue;
       }
       for (const [method, operation] of Object.entries(pathItem)) {
         const statuses = Object.keys(operation.responses || {});
-        expect({ method, operationPath, has400: statuses.includes('400') })
-          .toEqual({ method, operationPath, has400: true });
+        expect({ method, operationPath, has422: statuses.includes('422') })
+          .toEqual({ method, operationPath, has422: true });
       }
     }
   });

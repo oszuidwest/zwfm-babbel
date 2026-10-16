@@ -35,17 +35,13 @@ func originFromURL(raw string) (string, error) {
 	return canonicalOrigin(parsed), nil
 }
 
-// OriginChecker matches request origins against a set of allowed origins that
-// is normalized once at construction time, so per-request checks only
-// normalize the incoming value.
+// OriginChecker matches origins against a normalized allowlist.
 type OriginChecker struct {
 	allowed map[string]struct{}
 }
 
-// NewOriginChecker normalizes the comma-separated allowedOrigins list into a
-// set. Malformed configured entries are skipped: they are rejected at startup
-// by validateAllowedOrigins, so skipping them here is defense-in-depth, not
-// the primary safeguard.
+// NewOriginChecker normalizes a comma-separated allowlist, skipping malformed
+// entries. Startup validation rejects those entries in application configuration.
 func NewOriginChecker(allowedOrigins string) *OriginChecker {
 	allowed := make(map[string]struct{})
 	for allowedOrigin := range strings.SplitSeq(allowedOrigins, ",") {

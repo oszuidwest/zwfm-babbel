@@ -21,13 +21,7 @@ func NewGormRepository[T any](db *gorm.DB) *GormRepository[T] {
 
 // GetByID retrieves a record by its primary key.
 func (r *GormRepository[T]) GetByID(ctx context.Context, id int64) (*T, error) {
-	var result T
-	db := DBFromContext(ctx, r.db)
-	err := db.WithContext(ctx).First(&result, id).Error
-	if err != nil {
-		return nil, ParseDBError(err)
-	}
-	return &result, nil
+	return r.GetByIDWithPreload(ctx, id)
 }
 
 // Exists reports whether a record with the given ID exists.
@@ -73,15 +67,21 @@ func (r *GormRepository[T]) IsFieldValueTaken(ctx context.Context, field, value 
 	return count > 0, nil
 }
 
+// Trashed values accepted by [ApplySoftDeleteFilter].
+const (
+	TrashedOnly = "only"
+	TrashedWith = "with"
+)
+
 // ApplySoftDeleteFilter applies soft delete filtering to a query based on the trashed parameter.
 // - "" (default): only non-deleted records (GORM default behavior)
 // - "only": only soft-deleted records
 // - "with": include all records regardless of deletion status.
 func ApplySoftDeleteFilter(db *gorm.DB, trashed string) *gorm.DB {
 	switch trashed {
-	case "only":
+	case TrashedOnly:
 		return db.Unscoped().Where("deleted_at IS NOT NULL")
-	case "with":
+	case TrashedWith:
 		return db.Unscoped()
 	default:
 		return db // empty - use GORM's default soft delete filtering

@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
@@ -37,22 +35,15 @@ func (h *Handlers) GetTTSSettings(c *gin.Context) {
 // UpdateTTSSettings applies a validated PATCH to the singleton TTS settings.
 func (h *Handlers) UpdateTTSSettings(c *gin.Context) {
 	var req utils.TTSSettingsUpdateRequest
-	if !utils.BindJSONStrict(c, &req) {
-		return
-	}
-
-	if req.IsEmpty() {
-		utils.ProblemValidationError(c, "Validation failed", []apperrors.ValidationError{{
-			Field:   "request",
-			Message: "At least one field must be provided",
-		}})
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
 	serviceReq := toTTSSettingsServiceRequest(req)
-	if userID, ok := auth.UserID(c); ok {
-		serviceReq.ActorUserID = &userID
+	if !utils.RequireAnyField(c, *serviceReq) {
+		return
 	}
+	serviceReq.ActorUserID = actorUserID(c)
 
 	updated, err := h.ttsSettingsSvc.Update(c.Request.Context(), serviceReq)
 	if err != nil {
@@ -80,12 +71,8 @@ func toTTSSettingsServiceRequest(req utils.TTSSettingsUpdateRequest) *services.U
 		Stability:              req.Stability,
 		ApplyTextNormalization: req.ApplyTextNormalization,
 		TTSStylePrefix:         req.TTSStylePrefix,
-	}
-
-	if req.Seed.HasValue() {
-		serviceReq.Seed = req.Seed.Value
-	} else if req.Seed.IsClearing() {
-		serviceReq.ClearSeed = true
+		Seed:                   req.Seed.Value,
+		ClearSeed:              req.Seed.IsClearing(),
 	}
 
 	return serviceReq

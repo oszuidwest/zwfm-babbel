@@ -41,9 +41,11 @@ type Story struct {
 	// IsBreaking takes priority over fair rotation.
 	IsBreaking bool               `gorm:"not null;default:false;index" json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt     `gorm:"index" json:"deleted_at"`
+	// IdempotencyKey is unique across stories, deleted ones included.
+	IdempotencyKey *string        `gorm:"size:100;uniqueIndex:idx_stories_idempotency_key" json:"-"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 
@@ -144,15 +146,6 @@ const (
 	RoleEditor UserRole = "editor"
 	RoleViewer UserRole = "viewer"
 )
-
-// IsValid reports whether the role is valid.
-func (r UserRole) IsValid() bool {
-	switch r {
-	case RoleAdmin, RoleEditor, RoleViewer:
-		return true
-	}
-	return false
-}
 
 // Bulletin represents a completed audio bulletin generated from multiple stories.
 type Bulletin struct {

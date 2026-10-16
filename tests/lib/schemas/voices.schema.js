@@ -16,18 +16,5 @@ module.exports = {
     sortableFields: ['id', 'name', 'created_at', 'updated_at'],
     filterableFields: ['id', 'name'],
     selectableFields: ['id', 'name', 'created_at', 'updated_at']
-  },
-
-  validation: {
-    fields: {
-      name: {
-        type: 'string',
-        required: true,
-        minLength: 1,
-        maxLength: 255,
-        unique: true,
-        rejectWhitespaceOnly: true
-      }
-    }
   }
 };

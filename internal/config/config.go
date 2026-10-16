@@ -115,15 +115,17 @@ type DatabaseConfig struct {
 	User            string        `env:"USER" envDefault:"babbel"`
 	Password        string        `env:"PASSWORD" envDefault:"babbel"`
 	Database        string        `env:"NAME" envDefault:"babbel"`
-	MigrationsPath  string        `env:"-"`
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
 	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
 }
 
+// MaxPasswordBytes is the longest password bcrypt accepts.
+const MaxPasswordBytes = 72
+
 // LocalAuthConfig defines password policy and lockout rules for local authentication.
 type LocalAuthConfig struct {
-	// MinPasswordLength must be between 8 and 128.
+	// MinPasswordLength must be between 8 and 72, the bcrypt byte limit.
 	MinPasswordLength      int  `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
 	RequireUppercase       bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
 	RequireLowercase       bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
@@ -162,8 +164,6 @@ type AudioConfig struct {
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
 	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
 	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
-	// AppRoot resolves application-relative assets.
-	AppRoot string `env:"APP_ROOT" envDefault:"/app"`
 	// BulletinRetention controls when bulletin audio files and finished job
 	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
@@ -177,9 +177,6 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-
-	cfg.Database.MigrationsPath = "migrations"
-
 	return &cfg, nil
 }
 
@@ -347,6 +344,10 @@ func (c *Config) validateCore() error {
 }
 
 func (c *Config) validateAuth() error {
+	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
+		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
+	}
+
 	if len(c.Auth.SessionSecret) < 32 {
 		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
 	}
@@ -417,9 +418,6 @@ func (c *Config) validateDatabasePool() error {
 }
 
 func (c *Config) validateLocalAuth() error {
-	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > 128 {
-		return errors.New("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128")
-	}
 	if c.Auth.Local.MaxLoginAttempts < 1 {
 		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
 	}

@@ -35,9 +35,10 @@ type Service struct {
 	config   *Config
 	db       *gorm.DB
 	enforcer *casbin.Enforcer
-	sessions SessionStore
-	ginStore sessions.Store
+	store    sessions.Store
 	alerts   notify.Alerter
+	oauth    *oauth2.Config
+	verifier *oidc.IDTokenVerifier
 }
 
 // IsLocalEnabled reports whether local authentication is enabled.
@@ -52,11 +53,11 @@ func (s *Service) IsOAuthEnabled() bool {
 
 // NewService initializes sessions, permissions, and the configured login methods.
 func NewService(cfg *Config, db *gorm.DB, alerts notify.Alerter) (*Service, error) {
-	alerts = notify.OrDiscard(alerts)
 	s := &Service{
 		config: cfg,
 		db:     db,
-		alerts: alerts,
+		alerts: notify.OrDiscard(alerts),
+		store:  newSessionStore(cfg.Session),
 	}
 
 	if cfg.Method.SupportsOIDC() {
@@ -64,13 +65,6 @@ func NewService(cfg *Config, db *gorm.DB, alerts notify.Alerter) (*Service, erro
 			return nil, fmt.Errorf("failed to initialize OIDC: %w", err)
 		}
 	}
-
-	store, ginStore, err := NewGinSessionStore(cfg.Session)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize session store: %w", err)
-	}
-	s.sessions = store
-	s.ginStore = ginStore
 
 	enforcer, err := s.initializeRBAC()
 	if err != nil {
@@ -90,16 +84,14 @@ func (s *Service) initializeOIDC() error {
 		return err
 	}
 
-	s.config.OIDC.Provider = provider
-
-	s.config.OIDC.OAuth2Config = &oauth2.Config{
+	s.oauth = &oauth2.Config{
 		ClientID:     s.config.OIDC.ClientID,
 		ClientSecret: s.config.OIDC.ClientSecret,
 		RedirectURL:  s.config.OIDC.RedirectURL,
 		Endpoint:     provider.Endpoint(),
 		Scopes:       s.config.OIDC.Scopes,
 	}
-
+	s.verifier = provider.Verifier(&oidc.Config{ClientID: s.config.OIDC.ClientID})
 	return nil
 }
 
@@ -170,15 +162,15 @@ m = g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && keyMatch(r.act, p.act)
 
 // SessionMiddleware returns middleware for the configured session store.
 func (s *Service) SessionMiddleware() gin.HandlerFunc {
-	return sessions.Sessions(s.config.Session.CookieName, s.ginStore)
+	return sessions.Sessions(s.config.Session.CookieName, s.store)
 }
 
 // Middleware validates the session user and loads their current role.
 func (s *Service) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		session := s.sessions.Get(c)
+		session := sessions.Default(c)
 
-		userID, ok := SessionUserID(session)
+		userID, ok := coerceInt64(session.Get(sessKeyUserID))
 		if !ok {
 			utils.ProblemAuthentication(c, "Authentication required")
 			c.Abort()
@@ -198,8 +190,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete(string(SessKeyUserID))
-			if saveErr := session.Save(c); saveErr != nil {
+			session.Delete(sessKeyUserID)
+			if saveErr := session.Save(); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -304,41 +296,40 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 // StartOAuthFlow saves the login state and redirects to the OIDC provider.
 func (s *Service) StartOAuthFlow(c *gin.Context) {
 	if !s.config.Method.SupportsOIDC() {
-		utils.ProblemBadRequest(c, "OAuth authentication is disabled")
+		utils.ProblemCustom(c, utils.ProblemTypeResourceNotFound, "Resource Not Found", http.StatusNotFound,
+			"OAuth authentication is disabled")
 		return
 	}
 
 	// Bind the callback to this session to prevent login CSRF.
 	state := rand.Text()
 
-	session := s.sessions.Get(c)
-	SetSessionOAuthState(session, state)
+	session := sessions.Default(c)
+	session.Set(sessKeyOAuthState, state)
 
-	frontendURL := c.Query("frontend_url")
-	if frontendURL != "" {
+	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
 		if s.isAllowedFrontendURL(frontendURL) {
-			SetSessionFrontendURL(session, frontendURL)
+			session.Set(sessKeyFrontendURL, frontendURL)
 		} else {
 			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
 		}
 	}
-	if err := session.Save(c); err != nil {
+	if err := session.Save(); err != nil {
 		logger.Error("Failed to save OAuth session", "error", err)
 		utils.ProblemInternalServer(c, "Session error")
 		return
 	}
 
-	url := s.config.OIDC.OAuth2Config.AuthCodeURL(state)
-	c.Redirect(http.StatusTemporaryRedirect, url)
+	c.Redirect(http.StatusTemporaryRedirect, s.oauth.AuthCodeURL(state))
 }
 
 // FinishOAuthFlow validates the OIDC callback and creates a session.
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
-	session := s.sessions.Get(c)
+	session := sessions.Default(c)
 
 	state := c.Query("state")
-	savedStateStr, ok := SessionOAuthState(session)
-	if !ok || state != savedStateStr {
+	savedState, ok := session.Get(sessKeyOAuthState).(string)
+	if !ok || state != savedState {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key:     oauthInvalidStateAlertKey,
 			Summary: "OAuth callback has an invalid CSRF state",
@@ -348,13 +339,15 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	session.Delete(string(SessKeyOAuthState))
+	// CreateSession's save persists these deletions on success.
+	session.Delete(sessKeyOAuthState)
+	session.Delete(sessKeyFrontendURL)
 
 	code := c.Query("code")
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	token, err := s.config.OIDC.OAuth2Config.Exchange(ctx, code)
+	token, err := s.oauth.Exchange(ctx, code)
 	if err != nil {
 		return fmt.Errorf("failed to exchange code: %w", err)
 	}
@@ -370,11 +363,7 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	s.alerts.Resolve(c.Request.Context(), oauthMissingIDAlertKey,
 		"OAuth ID token restored", "The identity provider returned an ID token again.")
 
-	verifier := s.config.OIDC.Provider.Verifier(&oidc.Config{
-		ClientID: s.config.OIDC.ClientID,
-	})
-
-	idToken, err := verifier.Verify(ctx, rawIDToken)
+	idToken, err := s.verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		s.alerts.Alert(c.Request.Context(), notify.Event{
 			Key: oauthInvalidTokenAlertKey, Summary: "OAuth ID token verification failed",
@@ -386,7 +375,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		"OAuth ID token verification recovered", "The identity provider returned a verifiable ID token again.")
 
 	var claims oauthClaims
-
 	if err := idToken.Claims(&claims); err != nil {
 		return fmt.Errorf("failed to parse claims: %w", err)
 	}
@@ -400,10 +388,6 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return err
 	}
 
-	return s.setupOAuthSession(c, userID)
-}
-
-func (s *Service) setupOAuthSession(c *gin.Context, userID int64) error {
 	if err := s.updateLoginSuccess(c.Request.Context(), userID); err != nil {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
@@ -415,16 +399,11 @@ func (s *Service) setupOAuthSession(c *gin.Context, userID int64) error {
 	return nil
 }
 
-// Session returns the request's session.
-func (s *Service) Session(c *gin.Context) Session {
-	return s.sessions.Get(c)
-}
-
 // Logout clears and saves the current session.
 func (s *Service) Logout(c *gin.Context) error {
-	session := s.sessions.Get(c)
+	session := sessions.Default(c)
 	session.Clear()
-	if err := session.Save(c); err != nil {
+	if err := session.Save(); err != nil {
 		logger.Error("Failed to save session during logout", "error", err)
 		return fmt.Errorf("failed to save session: %w", err)
 	}
@@ -434,9 +413,9 @@ func (s *Service) Logout(c *gin.Context) error {
 // CreateSession stores the authenticated user's ID in the session.
 // Middleware reads their role from the database on each request.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
-	session := s.sessions.Get(c)
-	session.Set(string(SessKeyUserID), userID)
-	return session.Save(c)
+	session := sessions.Default(c)
+	session.Set(sessKeyUserID, userID)
+	return session.Save()
 }
 
 func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {
@@ -511,9 +490,5 @@ WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
 }
 
 func (s *Service) isAllowedFrontendURL(urlStr string) bool {
-	if urlStr == "" || s.config.AllowedOrigins == "" {
-		return false
-	}
-
 	return config.IsURLAllowedByOrigin(urlStr, s.config.AllowedOrigins)
 }

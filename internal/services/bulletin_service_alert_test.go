@@ -39,3 +39,25 @@ func TestBulletinServiceAlertsForMultipleVoicesRegardlessOfFirstStory(t *testing
 		t.Fatalf("events = %+v", alerts.events)
 	}
 }
+
+func TestPrepareStoriesForPlaybackCapturesJingleBeforeShuffle(t *testing.T) {
+	voiceID := int64(11)
+	stories := []repository.BulletinStoryData{
+		{ID: 1, VoiceID: &voiceID, MixPoint: 5},
+		{ID: 2, MixPoint: 0.5},
+	}
+
+	jingle := prepareStoriesForPlayback(stories, func(n int, swap func(int, int)) {
+		if n != 2 {
+			t.Fatalf("shuffle size = %d, want 2", n)
+		}
+		swap(0, 1)
+	})
+
+	if jingle.VoiceID != &voiceID || jingle.MixPoint != 5 {
+		t.Fatalf("jingle = %+v, want first story voice and mix point", jingle)
+	}
+	if stories[0].ID != 2 || stories[1].ID != 1 {
+		t.Fatalf("stories = %+v, want injected shuffle to change playback order", stories)
+	}
+}

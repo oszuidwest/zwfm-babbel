@@ -27,6 +27,16 @@ func TestCORSMiddlewareRejectsPrefixAttack(t *testing.T) {
 	}
 }
 
+func TestCORSMiddlewareEmptyAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, origin := range []string{"", "https://app.example.com"} {
+		recorder := performCORSRequest(t, origin, "")
+		if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+			t.Fatalf("origin %q: Access-Control-Allow-Origin = %q, want empty", origin, got)
+		}
+	}
+}
+
 func performCORSRequest(t *testing.T, origin, allowedOrigins string) *httptest.ResponseRecorder {
 	t.Helper()
 

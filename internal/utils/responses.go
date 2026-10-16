@@ -74,38 +74,44 @@ func CreatedWithMessage(c *gin.Context, message string) {
 // RFC 9457 Problem Details compatible error response functions.
 
 // ProblemValidationError responds with HTTP 422 for input validation failures.
-func ProblemValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	SendProblem(c, NewValidationProblem(detail, c.Request.URL.Path, errors))
+func ProblemValidationError(c *gin.Context, detail string, errors ...apperrors.FieldError) {
+	ProblemCustom(c, ProblemTypeValidationError, "Validation Error", http.StatusUnprocessableEntity, detail, errors...)
 }
 
 // ProblemNotFound responds with HTTP 404 Not Found.
 func ProblemNotFound(c *gin.Context, resource string) {
-	SendProblem(c, NewNotFoundProblem(resource, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeResourceNotFound, "Resource Not Found", http.StatusNotFound, resource+" not found")
 }
 
 // ProblemAuthentication responds with HTTP 401 Unauthorized.
 // Per RFC 7235, includes WWW-Authenticate header.
 func ProblemAuthentication(c *gin.Context, detail string) {
 	c.Header("WWW-Authenticate", `Session realm="Babbel API"`)
-	SendProblem(c, NewAuthenticationProblem(detail, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeAuthenticationRequired, "Authentication Required", http.StatusUnauthorized, detail)
 }
 
 // ProblemInternalServer responds with HTTP 500 Internal Server Error.
 func ProblemInternalServer(c *gin.Context, detail string) {
-	SendProblem(c, NewInternalServerProblem(detail, c.Request.URL.Path))
-}
-
-// ProblemBadRequest responds with HTTP 400 Bad Request.
-func ProblemBadRequest(c *gin.Context, detail string) {
-	SendProblem(c, NewBadRequestProblem(detail, c.Request.URL.Path))
+	ProblemCustom(c, ProblemTypeInternalServerError, "Internal Server Error", http.StatusInternalServerError, detail)
 }
 
 // ProblemBadRequestValidationError responds with HTTP 400 and field-level parse errors.
-func ProblemBadRequestValidationError(c *gin.Context, detail string, errors []apperrors.ValidationError) {
-	SendProblem(c, NewBadRequestValidationProblem(detail, errors, c.Request.URL.Path))
+func ProblemBadRequestValidationError(c *gin.Context, detail string, errors ...apperrors.FieldError) {
+	ProblemCustom(c, ProblemTypeBadRequest, "Bad Request", http.StatusBadRequest, detail, errors...)
 }
 
-// ProblemPayloadTooLarge responds with HTTP 413 for JSON request bodies above the size cap.
+// ProblemRequestTimeout responds with HTTP 408 for uploads that exceed the read deadline.
+func ProblemRequestTimeout(c *gin.Context) {
+	ProblemCustom(
+		c,
+		ProblemTypeRequestTimeout,
+		"Request Timeout",
+		http.StatusRequestTimeout,
+		"Upload did not complete within the time limit",
+	)
+}
+
+// ProblemPayloadTooLarge responds with HTTP 413 for request bodies above their size cap.
 func ProblemPayloadTooLarge(c *gin.Context) {
 	ProblemCustom(
 		c,
@@ -127,9 +133,11 @@ func ProblemNotAcceptable(c *gin.Context, detail string) {
 	)
 }
 
-// ProblemCustom responds with a custom problem type.
-func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string) {
-	SendProblem(c, NewProblemDetail(problemType, title, status, detail, c.Request.URL.Path))
+// ProblemCustom responds with a custom problem type and optional field errors.
+func ProblemCustom(c *gin.Context, problemType, title string, status int, detail string, errors ...apperrors.FieldError) {
+	problem := NewProblemDetail(problemType, title, status, detail)
+	problem.Errors = errors
+	SendProblem(c, problem)
 }
 
 // ProblemExtended responds with an RFC 9457 problem including code and hint fields.
@@ -141,7 +149,7 @@ func ProblemExtended(c *gin.Context, status int, detail, code, hint string) {
 // NewExtendedProblem builds the problem sent by ProblemExtended for callers
 // that add extension fields before sending.
 func NewExtendedProblem(status int, detail, code, hint string) *ProblemDetail {
-	problem := NewProblemDetail("https://babbel.api/problems/"+code, http.StatusText(status), status, detail, "")
+	problem := NewProblemDetail("https://babbel.api/problems/"+code, http.StatusText(status), status, detail)
 	problem.Code = code
 	problem.Hint = hint
 	return problem

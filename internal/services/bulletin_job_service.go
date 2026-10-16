@@ -100,6 +100,9 @@ func (s *BulletinJobService) Stop(ctx context.Context) error {
 func (s *BulletinJobService) Enqueue(ctx context.Context, stationID int64) (*models.BulletinJob, error) {
 	job, err := s.repo.Create(ctx, stationID)
 	if err != nil {
+		if errors.Is(err, repository.ErrForeignKeyViolation) {
+			return nil, apperrors.NotFoundWithID("Station", stationID)
+		}
 		return nil, apperrors.TranslateRepoError("Bulletin job", apperrors.OpCreate, err)
 	}
 	select {
@@ -348,13 +351,13 @@ func checkedFinalization(err error, job *models.BulletinJob) error {
 }
 
 func bulletinJobError(err error) (code, detail string) {
-	if _, ok := errors.AsType[*apperrors.NoStoriesError](err); ok {
+	if isNoStories(err) {
 		return apperrors.CodeBulletinNoStories, "No eligible stories are available for bulletin generation"
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return apperrors.CodeTimeout, "Bulletin generation exceeded the server-side time limit"
 	}
-	if _, ok := errors.AsType[*apperrors.AudioError](err); ok {
+	if isAudioFailure(err) {
 		return apperrors.CodeAudioProcessingFailed, "Audio processing failed during bulletin generation"
 	}
 	return apperrors.CodeGenerationFailed, jobDetailGenerationFailed

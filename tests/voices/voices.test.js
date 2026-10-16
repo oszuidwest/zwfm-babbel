@@ -2,36 +2,20 @@ const voicesSchema = require('../lib/schemas/voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
 describe('Voices', () => {
-  // Generate standard CRUD, Query, and Validation tests
   generateCrudTests(voicesSchema);
   generateQueryTests(voicesSchema);
   generateValidationTests(voicesSchema);
 
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to voice behavior that can't be generated
-
   describe('Voice with Associated Stories', () => {
-    let stationId;
     let voiceId;
 
     beforeAll(async () => {
-      // Create station and voice for dependency testing
-      const station = await global.helpers.createStation(
-        global.resources,
-        'VoiceTestStation',
-        4,
-        2.0
-      );
-      expect(station).not.toBeNull();
-      stationId = station.id;
-
       const voice = await global.helpers.createVoice(global.resources, 'AssociatedVoice');
       expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 
-    test('when deleting voice with stories, then protected or cascades', async () => {
-      // Create story with voice dependency
+    test('when deleting voice with stories, then returns dependency conflict', async () => {
       const storyData = {
         title: 'Voice Association Test Story',
         text: 'Test content for voice association.',
@@ -39,8 +23,7 @@ describe('Voices', () => {
         status: 'active',
         start_date: new Date().toISOString().split('T')[0],
         end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        weekdays: 127,
-        target_stations: [stationId]
+        weekdays: 127
       };
 
       const storyResponse = await global.api.apiCall('POST', '/stories', storyData);
@@ -50,13 +33,8 @@ describe('Voices', () => {
 
       const deleteResponse = await global.api.apiCall('DELETE', `/voices/${voiceId}`);
 
-      // Should either protect (409) or cascade delete (204)
-      expect([204, 409]).toContain(deleteResponse.status);
-
-      // Cleanup: Untrack if deleted
-      if (deleteResponse.status === 204) {
-        global.resources.untrack('voices', voiceId);
-      }
+      expect(deleteResponse.status).toBe(409);
+      expect(deleteResponse.data.code).toBe('voice.has_dependencies');
     });
   });
 });

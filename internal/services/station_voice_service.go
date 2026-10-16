@@ -71,20 +71,11 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 	var result *models.StationVoice
 
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		exists, err := s.stationRepo.Exists(txCtx, req.StationID)
-		if err != nil {
-			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
+		if err := requireReference(txCtx, s.stationRepo.Exists, "StationVoice", "station_id", req.StationID); err != nil {
+			return err
 		}
-		if !exists {
-			return apperrors.NotFoundWithID("Station", req.StationID)
-		}
-
-		exists, err = s.voiceRepo.Exists(txCtx, req.VoiceID)
-		if err != nil {
-			return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
-		}
-		if !exists {
-			return apperrors.NotFoundWithID("Voice", req.VoiceID)
+		if err := requireReference(txCtx, s.voiceRepo.Exists, "StationVoice", "voice_id", req.VoiceID); err != nil {
+			return err
 		}
 
 		taken, err := s.stationVoiceRepo.IsCombinationTaken(txCtx, req.StationID, req.VoiceID, nil)
@@ -117,9 +108,9 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 // Update applies relationship changes while preserving the uniqueness of the
 // final station/voice pair.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
-	current, err := s.stationVoiceRepo.GetByID(ctx, id)
+	current, err := s.GetByID(ctx, id)
 	if err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
+		return nil, err
 	}
 
 	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
@@ -131,75 +122,25 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		VoiceID:   req.VoiceID,
 		MixPoint:  req.MixPoint,
 	}
-
-	if req.StationID == nil && req.VoiceID == nil && req.MixPoint == nil {
-		return nil, apperrors.Validation("StationVoice", "", "no fields to update")
-	}
-
 	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
 		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 	}
 
-	return s.stationVoiceRepo.GetByID(ctx, id)
+	return s.GetByID(ctx, id)
 }
 
-// validateStationIDUpdate validates station_id if being updated.
-func (s *StationVoiceService) validateStationIDUpdate(ctx context.Context, stationID *int64) error {
-	if stationID == nil {
-		return nil
-	}
-	if *stationID <= 0 {
-		return apperrors.Validation("StationVoice", "station_id", "must be positive")
-	}
-	exists, err := s.stationRepo.Exists(ctx, *stationID)
-	if err != nil {
-		return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
-	}
-	if !exists {
-		return apperrors.NotFoundWithID("Station", *stationID)
-	}
-	return nil
-}
-
-// validateVoiceIDUpdate validates voice_id if being updated.
-func (s *StationVoiceService) validateVoiceIDUpdate(ctx context.Context, voiceID *int64) error {
-	if voiceID == nil {
-		return nil
-	}
-	if *voiceID <= 0 {
-		return apperrors.Validation("StationVoice", "voice_id", "must be positive")
-	}
-	exists, err := s.voiceRepo.Exists(ctx, *voiceID)
-	if err != nil {
-		return apperrors.TranslateRepoError("StationVoice", apperrors.OpQuery, err)
-	}
-	if !exists {
-		return apperrors.NotFoundWithID("Voice", *voiceID)
-	}
-	return nil
-}
-
-// validateMixPointUpdate validates mix_point if being updated.
-func (s *StationVoiceService) validateMixPointUpdate(mixPoint *float64) error {
-	if mixPoint == nil {
-		return nil
-	}
-	if *mixPoint < 0 || *mixPoint > 300 {
-		return apperrors.Validation("StationVoice", "mix_point", "must be between 0 and 300 seconds")
-	}
-	return nil
-}
-
-// validateUpdateRequest validates all fields in an update request.
+// validateUpdateRequest checks that changed parents exist and that the final
+// station/voice pair stays unique. Binding enforces ID and mix_point ranges.
 func (s *StationVoiceService) validateUpdateRequest(ctx context.Context, id int64, current *models.StationVoice, req *UpdateStationVoiceRequest) error {
-	if err := s.validateStationIDUpdate(ctx, req.StationID); err != nil {
-		return err
+	if req.StationID != nil {
+		if err := requireReference(ctx, s.stationRepo.Exists, "StationVoice", "station_id", *req.StationID); err != nil {
+			return err
+		}
 	}
-	if err := s.validateVoiceIDUpdate(ctx, req.VoiceID); err != nil {
-		return err
-	}
-	if err := s.validateMixPointUpdate(req.MixPoint); err != nil {
-		return err
+	if req.VoiceID != nil {
+		if err := requireReference(ctx, s.voiceRepo.Exists, "StationVoice", "voice_id", *req.VoiceID); err != nil {
+			return err
+		}
 	}
 
 	if req.StationID != nil || req.VoiceID != nil {
@@ -260,24 +201,22 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 
 // ProcessJingle converts an uploaded audio file and associates it with the
 // already-loaded station-voice relationship. The database stores the
-// canonical filename, not the absolute path returned by the audio converter.
+// canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	filename, _, err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath)
-	if err != nil {
+	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
 	filenameOnly := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
-	err = s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly)
-	if err != nil {
+	if err := s.stationVoiceRepo.UpdateAudio(ctx, stationVoice.ID, filenameOnly); err != nil {
 		if rmErr := os.Remove(outputPath); rmErr != nil {
 			logger.Error("Failed to remove jingle file after database error", "error", rmErr)
 		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
 
-	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", filename)
+	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)
 	return nil
 }
 

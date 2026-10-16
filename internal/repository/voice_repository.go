@@ -44,16 +44,7 @@ func (r *VoiceRepository) Create(ctx context.Context, name string, elevenLabsVoi
 
 // Update applies the fields and clearing flag in u.
 func (r *VoiceRepository) Update(ctx context.Context, id int64, u *VoiceUpdate) error {
-	if u == nil {
-		return nil
-	}
-
-	updateMap := BuildUpdateMap(u)
-	if len(updateMap) == 0 {
-		return nil
-	}
-
-	return r.UpdateByID(ctx, id, updateMap)
+	return updateFields(ctx, id, u, r.UpdateByID)
 }
 
 // IsNameTaken reports whether a voice name is already in use.

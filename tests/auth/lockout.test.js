@@ -19,12 +19,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('Account Lockout', () => {
   let username;
+  let userSequence = 0;
   const password = 'LockoutTest123!';
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     await global.api.apiLogin('admin', 'admin');
 
-    username = `lockouttest${Date.now()}`;
+    username = `lockouttest${Date.now()}${userSequence++}`;
     const response = await global.api.apiCall('POST', '/users', {
       username,
       full_name: 'Lockout Test',
@@ -57,9 +58,6 @@ describe('Account Lockout', () => {
     // Correct credentials still work because threshold was not reached.
     const loginResponse = await global.api.apiLogin(username, password);
     expect(loginResponse.status).toBe(201);
-
-    // Cleanup: successful login resets the counter, so the next test starts fresh.
-    await global.api.apiLogin('admin', 'admin');
   });
 
   test('when wrong password attempts reach threshold, then account is locked and correct password is also rejected', async () => {
@@ -82,9 +80,16 @@ describe('Account Lockout', () => {
   });
 
   test('when locked account is spammed with parallel wrong-password attempts, then locked_until is not extended', async () => {
-    // Account is already locked from the previous test. Capture the
-    // initial lockout timestamp, then wait long enough that a missing guard
-    // would push locked_until into the next TIMESTAMP second.
+    for (let i = 0; i < MAX_LOGIN_ATTEMPTS; i++) {
+      const response = await global.api.apiCall('POST', '/sessions', {
+        username,
+        password: 'wrong-password'
+      });
+      expect(response.status).toBe(401);
+    }
+
+    // Wait long enough that a missing guard would push locked_until into the
+    // next TIMESTAMP second.
     const lockedUntilBefore = readLockedUntilUnix(username);
     expect(lockedUntilBefore).toBeGreaterThan(0);
 

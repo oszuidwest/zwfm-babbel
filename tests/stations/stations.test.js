@@ -2,20 +2,15 @@ const stationsSchema = require('../lib/schemas/stations.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 
 describe('Stations', () => {
-  // Generate standard CRUD, Query, and Validation tests
   generateCrudTests(stationsSchema);
   generateQueryTests(stationsSchema);
   generateValidationTests(stationsSchema);
-
-  // === BUSINESS LOGIC TESTS ===
-  // Tests specific to station behavior that can't be generated
 
   describe('Station Dependencies', () => {
     let stationId;
     let voiceId;
 
     beforeAll(async () => {
-      // Create station and voice for dependency testing
       const station = await global.helpers.createStation(
         global.resources,
         'DependencyTestStation',
@@ -30,8 +25,7 @@ describe('Stations', () => {
       voiceId = voice.id;
     });
 
-    test('when deleting station with station-voices, then protected or cascades', async () => {
-      // Create station-voice relationship
+    test('when deleting station with station-voices, then returns dependency conflict', async () => {
       const svResponse = await global.api.apiCall('POST', '/station-voices', {
         station_id: stationId,
         voice_id: voiceId,
@@ -43,13 +37,8 @@ describe('Stations', () => {
 
       const deleteResponse = await global.api.apiCall('DELETE', `/stations/${stationId}`);
 
-      // Should either protect (409) or cascade delete (204)
-      expect([204, 409]).toContain(deleteResponse.status);
-
-      // Cleanup: Untrack if deleted
-      if (deleteResponse.status === 204) {
-        global.resources.untrack('stations', stationId);
-      }
+      expect(deleteResponse.status).toBe(409);
+      expect(deleteResponse.data.code).toBe('station.has_dependencies');
     });
   });
 
@@ -65,7 +54,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }
@@ -82,7 +70,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }
@@ -99,7 +86,6 @@ describe('Stations', () => {
 
       expect(response.status).toBe(201);
 
-      // Cleanup
       if (response.data?.id) {
         global.resources.track('stations', response.data.id);
       }

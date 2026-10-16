@@ -54,11 +54,11 @@ func resolvePauseSeconds(pauseSeconds *float64) float64 {
 // CreateStation accepts a JSON station payload and persists a radio station.
 func (h *Handlers) CreateStation(c *gin.Context) {
 	var req utils.StationRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
-	station, err := h.stationSvc.Create(c.Request.Context(), req.Name, req.MaxStoriesPerBlock, resolvePauseSeconds(req.PauseSeconds))
+	station, err := h.stationSvc.Create(c.Request.Context(), req.Name, *req.MaxStoriesPerBlock, resolvePauseSeconds(req.PauseSeconds))
 	if err != nil {
 		handleServiceError(c, err, "Station")
 		return
@@ -75,14 +75,14 @@ func (h *Handlers) UpdateStation(c *gin.Context) {
 	}
 
 	var req utils.StationRequest
-	if !utils.BindAndValidate(c, &req) {
+	if !utils.BindJSON(c, &req) {
 		return
 	}
 
 	pauseSeconds := resolvePauseSeconds(req.PauseSeconds)
 	updateReq := &services.UpdateStationRequest{
 		Name:               &req.Name,
-		MaxStoriesPerBlock: &req.MaxStoriesPerBlock,
+		MaxStoriesPerBlock: req.MaxStoriesPerBlock,
 		PauseSeconds:       &pauseSeconds,
 	}
 

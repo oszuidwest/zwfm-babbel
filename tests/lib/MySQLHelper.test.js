@@ -121,6 +121,29 @@ describe('MySQLHelper', () => {
     );
   });
 
+  test('when ranking by a column, then the SQL ranks by it and the output maps ids to ranks', () => {
+    execFileSync
+      .mockReturnValueOnce('babbel-mysql\n')
+      .mockReturnValueOnce('3\t1\n1\t2\n2\t2\n');
+
+    const ranks = createMySQLExecutor().rankByColumn('voices', 'name', [1, 2, 3]);
+
+    expect([...ranks]).toEqual([[3, 1], [1, 2], [2, 2]]);
+    expect(execFileSync).toHaveBeenLastCalledWith(
+      'docker',
+      expect.arrayContaining(['-e', 'SELECT id, DENSE_RANK() OVER (ORDER BY name) FROM voices WHERE id IN (1, 2, 3)']),
+      expect.anything()
+    );
+  });
+
+  test.each([
+    ['voices; DROP TABLE users', 'name', 1],
+    ['voices', 'name DESC', 1],
+    ['voices', 'name', '1 OR 1=1']
+  ])('when ranking with table %p, column %p and id %p, then rejected', (table, column, id) => {
+    expect(() => createMySQLExecutor().rankByColumn(table, column, [id])).toThrow(/Invalid/);
+  });
+
   test('when execSQL fails, then stderr is included', () => {
     execFileSync.mockImplementation((bin, args) => {
       if (bin === 'docker' && args[0] === 'ps') {

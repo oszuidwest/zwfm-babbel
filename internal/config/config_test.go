@@ -288,18 +288,18 @@ func TestValidateLocalAuthConfig(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "minimum password length below fixed HTTP floor",
+			name: "minimum password length below floor",
 			mutate: func(cfg *Config) {
 				cfg.Auth.Local.MinPasswordLength = 7
 			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
 		},
 		{
-			name: "minimum password length above HTTP maximum",
+			name: "minimum password length above bcrypt limit",
 			mutate: func(cfg *Config) {
-				cfg.Auth.Local.MinPasswordLength = 129
+				cfg.Auth.Local.MinPasswordLength = 73
 			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 128",
+			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
 		},
 		{
 			name: "max login attempts too low",
@@ -330,7 +330,7 @@ func TestValidateLocalAuthConfig(t *testing.T) {
 	}
 }
 
-func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
+func TestValidateOIDCOnlySkipsLoginLimitsButEnforcesPasswordBounds(t *testing.T) {
 	t.Parallel()
 
 	cfg := validTestConfig(t)
@@ -344,6 +344,10 @@ func TestValidateSkipsLocalAuthConfigForOIDCOnly(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, length := range []int{1, 73} {
+		cfg.Auth.Local.MinPasswordLength = length
+		assertErrorContains(t, cfg.Validate(), "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72")
 	}
 }
 
