@@ -696,19 +696,20 @@ func TestSaveAudioUpload_RejectedUploadLeavesNoFile(t *testing.T) {
 		want     bindExpect
 	}{
 		{name: "one byte over file limit", filename: "clip.wav", size: maxAudioUploadBytes + 1, want: bindExpect{status: 413}},
-		{name: "over body limit", filename: "clip.wav", size: maxAudioUploadBytes + 2<<20, want: bindExpect{status: 413}},
-		{name: "unsupported before storage", filename: "notes.txt", size: 33 << 20, want: bindExpect{status: 422, field: "jingle", code: "unsupported"}},
+		{name: "unsupported", filename: "notes.txt", size: 33 << 20, want: bindExpect{status: 422, field: "jingle", code: "unsupported"}},
+		// As with FormFile, the size check wins over the extension check.
+		{name: "unsupported and too large", filename: "notes.txt", size: maxAudioUploadBytes + 1, want: bindExpect{status: 413}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tempDir := t.TempDir()
 			t.Setenv("TMPDIR", tempDir)
-			contentRead := false
 			content := uploadReaderFunc(func(p []byte) (int, error) {
-				if tt.want.code == "unsupported" && !contentRead {
-					t.Error("unsupported file content was read before rejecting its extension")
+				if filepath.Ext(tt.filename) == ".txt" {
+					if entries, err := os.ReadDir(tempDir); err != nil || len(entries) != 0 {
+						t.Fatalf("temp dir while reading unsupported file = %v, %v; want empty", entries, err)
+					}
 				}
-				contentRead = true
 				clear(p)
 				return len(p), nil
 			})
@@ -830,6 +831,7 @@ func TestSaveAudioUpload_PartSelection(t *testing.T) {
 
 func TestSaveAudioUpload_BodyReadFailure(t *testing.T) {
 	const fileHeader = "--boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"clip.wav\"\r\n\r\naudio"
+	const unsupportedHeader = "--boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"notes.txt\"\r\n\r\ntext"
 	const otherHeader = "--boundary\r\nContent-Disposition: form-data; name=\"other\"\r\n\r\ntext"
 	tests := []struct {
 		name   string
@@ -839,6 +841,8 @@ func TestSaveAudioUpload_BodyReadFailure(t *testing.T) {
 		{name: "in file", prefix: fileHeader},
 		{name: "in skipped part", prefix: otherHeader},
 		{name: "after stored file", prefix: fileHeader + "\r\n" + otherHeader},
+		// As with FormFile, read errors win over the extension check.
+		{name: "after unsupported file", prefix: unsupportedHeader + "\r\n" + otherHeader},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -861,6 +865,44 @@ func TestSaveAudioUpload_BodyReadFailure(t *testing.T) {
 					checkTempFileCount(t, tempDir, 0)
 				})
 			}
+		})
+	}
+}
+
+func TestSaveAudioUpload_PartLimit(t *testing.T) {
+	for _, tt := range []struct {
+		parts int
+		want  bindExpect
+	}{
+		{parts: maxAudioUploadParts, want: bindExpect{ok: true}},
+		{parts: maxAudioUploadParts + 1, want: bindExpect{status: 400, field: "request", code: "invalid_format"}},
+	} {
+		t.Run(fmt.Sprintf("%d parts", tt.parts), func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("TMPDIR", tempDir)
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			if _, err := writer.CreateFormFile("audio", "clip.wav"); err != nil {
+				t.Fatal(err)
+			}
+			for range tt.parts - 1 {
+				if err := writer.WriteField("other", "text"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			c, w := newTestContext(t, body.String())
+			c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+			_, cleanup, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
+			checkBindResult(t, w, ok, tt.want)
+			if ok {
+				if err := cleanup(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checkTempFileCount(t, tempDir, 0)
 		})
 	}
 }
