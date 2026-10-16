@@ -19,10 +19,13 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// processingFileMinAge leaves a full day for conversion, well beyond the
-// default six-minute HTTP write timeout. FFmpeg uses the request context but
-// has no separate deadline, so the write timeout is not a conversion limit.
-const processingFileMinAge = 24 * time.Hour
+// processingMinAge must exceed the longest audio conversion. A conversion
+// directory's mtime changes only when an entry inside it is created, renamed
+// or removed, not while FFmpeg writes its output, and FFmpeg has no deadline
+// of its own. Converting a 100 MB upload normally takes minutes, so a day is
+// ample. Removing a live conversion only fails that request; the published
+// audio stays as it was.
+const processingMinAge = 24 * time.Hour
 
 // BulletinCleanupService purges expired audio, abandoned conversions and terminal job state while retaining bulletins.
 type BulletinCleanupService struct {
@@ -62,7 +65,7 @@ func (s *BulletinCleanupService) Stop() {
 func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
-	processingErr := s.cleanProcessingFiles(time.Now())
+	processingErr := s.cleanProcessingLeftovers(time.Now())
 	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
@@ -86,9 +89,11 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	return errors.Join(processingErr, purgeErr, orphanErr, jobsErr)
 }
 
-// cleanProcessingFiles removes only old regular conversion files directly in
-// ProcessedPath. DirEntry.Info does not follow symlinks.
-func (s *BulletinCleanupService) cleanProcessingFiles(now time.Time) error {
+// cleanProcessingLeftovers removes conversion leftovers that a crash or restart
+// left directly in ProcessedPath: per-request "*.processing" directories, and
+// "*.processing.wav" files from releases before those directories. Symlinks
+// are skipped, and os.RemoveAll does not follow symlinks inside a directory.
+func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
 	dir := s.config.Audio.ProcessedPath
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -96,28 +101,34 @@ func (s *BulletinCleanupService) cleanProcessingFiles(now time.Time) error {
 		return fmt.Errorf("read processed audio directory: %w", err)
 	}
 
-	cutoff := now.Add(-processingFileMinAge)
+	cutoff := now.Add(-processingMinAge)
 	var cleanupErr error
 	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".processing.wav") {
+		name := entry.Name()
+		isDirName := strings.HasSuffix(name, ".processing")
+		if !isDirName && !strings.HasSuffix(name, ".processing.wav") {
 			continue
 		}
-		path := filepath.Join(dir, entry.Name())
+		path := filepath.Join(dir, name)
 		info, err := entry.Info()
 		if err != nil {
-			logger.Error("Failed to stat processing audio file", "path", path, "error", err)
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat processing audio %s: %w", path, err))
+			logger.Error("Failed to stat audio conversion leftover", "path", path, "error", err)
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat audio conversion leftover %s: %w", path, err))
 			continue
 		}
-		if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) {
+		typeMatches := info.Mode().IsRegular()
+		if isDirName {
+			typeMatches = info.IsDir()
+		}
+		if !typeMatches || !info.ModTime().Before(cutoff) {
 			continue
 		}
-		if err := os.Remove(path); err != nil {
-			logger.Error("Failed to remove processing audio file", "path", path, "error", err)
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove processing audio %s: %w", path, err))
+		if err := os.RemoveAll(path); err != nil {
+			logger.Error("Failed to remove audio conversion leftover", "path", path, "error", err)
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove audio conversion leftover %s: %w", path, err))
 			continue
 		}
-		logger.Info("Removed abandoned processing audio file", "path", path)
+		logger.Info("Removed abandoned audio conversion leftover", "path", path)
 	}
 	return cleanupErr
 }

@@ -196,7 +196,7 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
 
-The bulletin cleanup also removes abandoned conversion files (`*.processing.wav`) older than 24 hours from `BABBEL_PROCESSED_PATH`, at startup and every 24 hours. It only touches regular files directly in that directory and logs each removal.
+The bulletin cleanup also removes abandoned audio conversions older than 24 hours from `BABBEL_PROCESSED_PATH`, at startup and every 24 hours: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It only touches those entries directly in that directory, never follows symlinks, and logs each removal.
 
 ### Asynchronous bulletin generation
 
