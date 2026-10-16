@@ -73,8 +73,8 @@ type StoryService struct {
 
 // NewStoryService wires story business logic to its dependencies.
 func NewStoryService(deps StoryServiceDeps) *StoryService {
-	if deps.PronunciationInjector == nil {
-		panic("services: NewStoryService requires a non-nil pronunciation injector")
+	if deps.PronunciationInjector == nil || deps.TxManager == nil {
+		panic("services: NewStoryService requires a non-nil pronunciation injector and transaction manager")
 	}
 	return &StoryService{
 		storyRepo:             deps.StoryRepo,
