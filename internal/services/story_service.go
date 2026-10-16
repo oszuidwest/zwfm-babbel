@@ -2,6 +2,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -343,8 +344,8 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
 		}
 	}()
-	// FFmpeg keeps the mode of the file it overwrites; keep published audio
-	// readable like the files FFmpeg creates, not CreateTemp's 0600.
+	// FFmpeg keeps the mode of the file it overwrites; publish world-readable
+	// audio (0644), not CreateTemp's 0600.
 	if err := errors.Join(converted.Chmod(0o644), converted.Close()); err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
@@ -433,7 +434,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return translateTTSError(storyID, err)
 	}
 
-	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
+	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
@@ -569,27 +570,4 @@ func translateTTSError(storyID int64, err error) error {
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)
-}
-
-// writeTempFile writes data to an OS temp file and removes partial output on
-// write or close failure.
-func writeTempFile(data []byte, pattern string) (string, error) {
-	f, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", err
-	}
-
-	path := f.Name()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	return path, nil
 }

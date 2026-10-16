@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
@@ -27,13 +25,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
-	inputPath := filepath.Join(t.TempDir(), "silent.wav")
-	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
-	cmd := exec.CommandContext(t.Context(), ffmpegPath,
-		"-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=1", "-y", inputPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("create silent audio: %v; output: %s", err, output)
-	}
+	inputPath := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=1")
 	// #nosec G304 - fixture generated inside t.TempDir
 	silentAudio, err := os.ReadFile(inputPath)
 	if err != nil {
@@ -93,26 +85,21 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 }
 
-// gatedAudioRepository models UpdateAudio's transaction: the row lock
-// serializes publication, and the row changes only when Publish succeeds.
-// The first call waits for release before it writes.
-type gatedAudioRepository struct {
+// interleavingRepository records the published row values and runs during
+// inside the first UpdateAudio call, between that request's conversion and
+// its publication.
+type interleavingRepository struct {
 	storyRepository
-	reached, release chan struct{}
-	gated            atomic.Bool
-
-	mu              sync.Mutex
+	during          func()
 	audioFile       string
 	durationSeconds float64
 }
 
-func (r *gatedAudioRepository) UpdateAudio(_ context.Context, _ int64, u repository.StoryAudioUpdate) error {
-	if r.gated.CompareAndSwap(false, true) {
-		close(r.reached)
-		<-r.release
+func (r *interleavingRepository) UpdateAudio(_ context.Context, _ int64, u repository.StoryAudioUpdate) error {
+	if during := r.during; during != nil {
+		r.during = nil
+		during()
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if err := u.Publish(); err != nil {
 		return err
 	}
@@ -130,83 +117,78 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 	if err != nil {
 		t.Skip("ffprobe not available")
 	}
-	fixture := func(source string) string {
-		path := filepath.Join(t.TempDir(), "input.wav")
-		// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
-		cmd := exec.CommandContext(t.Context(), ffmpegPath, "-f", "lavfi", "-i", source, "-y", path)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("create audio fixture: %v; output: %s", err, output)
-		}
-		return path
-	}
-	firstInput := fixture("sine=frequency=440:duration=1")
+	firstInput := lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
 
 	tests := []struct {
 		name    string
-		input   string
+		source  string
 		wantErr error
 	}{
-		{"other request fails", fixture("anullsrc=r=48000:cl=mono:d=1"), audio.ErrSilent},
-		{"other request succeeds", fixture("sine=frequency=880:duration=2"), nil},
+		{"other request fails", "anullsrc=r=48000:cl=mono:d=1", audio.ErrSilent},
+		{"other request succeeds", "sine=frequency=880:duration=2", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			otherInput := lavfiFixture(t, ffmpegPath, tt.source)
 			cfg := &config.Config{Audio: config.AudioConfig{
 				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
-			repo := &gatedAudioRepository{reached: make(chan struct{}), release: make(chan struct{})}
+			repo := &interleavingRepository{}
 			service := &StoryService{storyRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
 			const storyID = 99
 
-			// Hold the first request between its conversion and publication.
-			firstDone := make(chan error, 1)
-			go func() { firstDone <- service.ProcessAudio(t.Context(), storyID, firstInput, nil) }()
-			select {
-			case <-repo.reached:
-			case err := <-firstDone:
-				t.Fatalf("first request finished before publishing: %v", err)
+			// Run the other request while the first waits to publish, so the
+			// first publishes last.
+			repo.during = func() {
+				if err := service.ProcessAudio(t.Context(), storyID, otherInput, nil); !errors.Is(err, tt.wantErr) {
+					t.Fatalf("other request = %v, want %v", err, tt.wantErr)
+				}
 			}
-			if err := service.ProcessAudio(t.Context(), storyID, tt.input, nil); !errors.Is(err, tt.wantErr) {
-				t.Fatalf("other request = %v, want %v", err, tt.wantErr)
-			}
-			close(repo.release)
-			if err := <-firstDone; err != nil {
+			if err := service.ProcessAudio(t.Context(), storyID, firstInput, nil); err != nil {
 				t.Fatalf("first request = %v, want success", err)
 			}
-			// The first request published last.
-			assertOnlyPublishedAudio(t, service, repo, storyID, 1)
+
+			finalPath := utils.StoryPath(cfg, storyID)
+			duration, err := service.audioSvc.Duration(t.Context(), finalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			publishedFirst := math.Abs(duration-1) <= 0.1
+			rowMatchesFile := repo.audioFile == utils.StoryFilename(storyID) && repo.durationSeconds == duration
+			if !publishedFirst || !rowMatchesFile {
+				t.Fatalf("published %.3f s, row = %q with %.3f s; want the first request's 1 s audio in both",
+					duration, repo.audioFile, repo.durationSeconds)
+			}
+			info, err := os.Stat(finalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mode := info.Mode().Perm(); mode != 0o644 {
+				t.Fatalf("published file mode = %v, want 0644", mode)
+			}
+			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 1 {
+				t.Fatalf("processed files = %v, want only the published audio", entries)
+			}
 		})
 	}
 }
 
-// assertOnlyPublishedAudio checks that the processed directory holds only the
-// story's published file, and that the file and row both have wantSeconds.
-func assertOnlyPublishedAudio(t *testing.T, service *StoryService, repo *gatedAudioRepository, storyID int64, wantSeconds float64) {
+// lavfiFixture renders an FFmpeg lavfi source to a WAV file in a test temp
+// directory and returns its path.
+func lavfiFixture(t *testing.T, ffmpegPath, source string) string {
 	t.Helper()
-	finalPath := utils.StoryPath(service.config, storyID)
-	duration, err := service.audioSvc.Duration(t.Context(), finalPath)
-	if err != nil {
-		t.Fatal(err)
+	path := filepath.Join(t.TempDir(), "input.wav")
+	// #nosec G204 - local ffmpeg binary and controlled test fixture arguments
+	cmd := exec.CommandContext(t.Context(), ffmpegPath, "-f", "lavfi", "-i", source, "-y", path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create audio fixture: %v; output: %s", err, output)
 	}
-	if math.Abs(duration-wantSeconds) > 0.1 || repo.audioFile != utils.StoryFilename(storyID) || repo.durationSeconds != duration {
-		t.Fatalf("published %.3f s, row = %q with %.3f s; want %.0f s audio in both",
-			duration, repo.audioFile, repo.durationSeconds, wantSeconds)
-	}
-	info, err := os.Stat(finalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mode := info.Mode().Perm(); mode != 0o644 {
-		t.Fatalf("published file mode = %v, want 0644", mode)
-	}
-	entries, err := os.ReadDir(service.config.Audio.ProcessedPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 || entries[0].Name() != utils.StoryFilename(storyID) {
-		t.Fatalf("processed files = %v, want only the published audio", entries)
-	}
+	return path
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
