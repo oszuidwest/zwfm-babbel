@@ -237,7 +237,7 @@ Use this environment variable to set the log level:
 
 Babbel writes one access log line for each request. The line does not include the query string. `BABBEL_LOG_LEVEL` does not change the access log.
 
-When Babbel logs an error response or a failed bulletin job, the level depends on the class of the error:
+When Babbel maps a service error to an error response, or a bulletin job fails, the log level depends on the class of the error:
 
 | Class | Level | Examples |
 |---|---|---|
@@ -249,7 +249,7 @@ A client error is a problem with the request. The response tells the client what
 
 An operational signal is not a fault of the client or of Babbel, but it can need action from an administrator. These conditions also cause alerts, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
 
-A server failure can cause an alert, for example when database requests fail repeatedly. A log alert on `level=ERROR` does not fire for client errors or operational signals in this table.
+A server failure can cause an alert, for example when database requests fail repeatedly. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel also logs each failed ElevenLabs response, at error level for a 401, 403 or 5xx status. A status that Babbel does not map to a specific response, for example 400, writes a separate log at error level.
 
 ### Operational e-mail notifications
 
