@@ -381,8 +381,8 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		},
 		{
 			name:       "missing migration",
-			respond:    serviceError(apperrors.NotInitialized("tts_settings", "apply migration", nil)),
-			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized",
+			respond:    serviceError(apperrors.NotInitialized("tts_settings", "apply migration", repository.ErrSchemaUnavailable)),
+			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized", wantCause: repository.ErrSchemaUnavailable.Error(),
 		},
 		{
 			name:       "timeout",

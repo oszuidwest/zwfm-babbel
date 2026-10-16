@@ -1,12 +1,95 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
+
+// audioPathRepository returns a fixed audio lookup result.
+type audioPathRepository struct {
+	path string
+	err  error
+}
+
+func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string, error) {
+	return r.path, r.err
+}
+
+// Both 500 responses of an audio download log one Error record with the
+// cause. Only the failed record lookup counts toward the database alert.
+func TestServeAudioLogsServerFailures(t *testing.T) {
+	processed := t.TempDir()
+	// A path below a regular file makes stat fail with ENOTDIR, which is not
+	// a missing file and also fails when the tests run as root.
+	if err := os.WriteFile(filepath.Join(processed, "story.wav"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		repo       audioPathRepository
+		wantField  string
+		wantCause  string
+		wantAlerts int
+	}{
+		{
+			name:       "record lookup fails",
+			repo:       audioPathRepository{err: errors.New("connection lost")},
+			wantField:  "cause",
+			wantCause:  "connection lost",
+			wantAlerts: 1,
+		},
+		{
+			name:      "file cannot be accessed",
+			repo:      audioPathRepository{path: "story.wav/1.wav"},
+			wantField: "error",
+			wantCause: syscall.ENOTDIR.Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			alerts := &automationAlertRecorder{}
+			h := &Handlers{audioRepo: tt.repo, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: processed}}}
+			router := gin.New()
+			router.GET("/stories/:id/audio", func(c *gin.Context) {
+				c.Set(alertContextKey, alerts)
+				h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+			})
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stories/1/audio", nil))
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+			}
+			// Unmarshal rejects an empty buffer and a second record.
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" {
+				t.Fatalf("logs = %s, want one ERROR record", logs)
+			}
+			if cause, _ := record[tt.wantField].(string); !strings.Contains(cause, tt.wantCause) {
+				t.Fatalf("record = %v, want %s containing %q", record, tt.wantField, tt.wantCause)
+			}
+			if len(alerts.events) != tt.wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
+			}
+			if tt.wantAlerts > 0 && alerts.events[0].Key != "database:request:GET /stories/:id/audio" {
+				t.Fatalf("alert key = %q, want the route's database alert", alerts.events[0].Key)
+			}
+		})
+	}
+}
 
 func TestValidByteRange(t *testing.T) {
 	t.Parallel()

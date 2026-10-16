@@ -153,9 +153,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
-		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
-		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
+		reportDatabaseError(c, err, dbError)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -210,6 +208,15 @@ func databaseRequestEvent(c *gin.Context, details string) notify.Event {
 		Details:           details,
 		RequiresThreshold: true,
 	}
+}
+
+// reportDatabaseError logs a database failure with its cause and counts it
+// toward the route's database alert. err is the error as returned, which may
+// wrap dbError.
+func reportDatabaseError(c *gin.Context, err error, dbError *apperrors.DatabaseError) {
+	logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
+	alertRequestFailure(c, databaseRequestEvent(c,
+		fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
 }
 
 // NotificationMiddleware provides request alerts and resolves them on successful responses.
@@ -302,7 +309,7 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	}
 
 	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
-		logError(ni.Resource, "not_initialized", err)
+		logErrorWithCause(ni.Resource, "not_initialized", err, ni.Unwrap())
 		code := strings.ToLower(ni.Resource) + ".not_initialized"
 		if ni.Code != "" {
 			code = ni.Code

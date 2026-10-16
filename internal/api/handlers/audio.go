@@ -14,6 +14,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 // AudioConfig maps an audio endpoint to the database table and storage
@@ -43,6 +44,8 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 			utils.ProblemNotFound(c, "Audio file")
 			return
 		}
+		dbError := apperrors.Database(config.TableName, apperrors.OpQuery.String(), err)
+		reportDatabaseError(c, dbError, dbError)
 		utils.ProblemInternalServer(c, "Failed to fetch record")
 		return
 	}
@@ -71,6 +74,7 @@ func validateAudioFile(c *gin.Context, path string) bool {
 		if os.IsNotExist(err) {
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
+			logger.Error("Failed to access audio file", "error", err)
 			utils.ProblemInternalServer(c, "Failed to access audio file")
 		}
 		return false
