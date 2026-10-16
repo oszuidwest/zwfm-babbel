@@ -237,9 +237,19 @@ Use this environment variable to set the log level:
 
 Babbel writes one access log line for each request. The line does not include the query string. `BABBEL_LOG_LEVEL` does not change the access log.
 
-Babbel logs server failures, for example database errors, at error level. These failures can cause an alert. Some client errors, for example 404 and 409 responses, also log at error level.
+When Babbel logs an error response or a failed bulletin job, the level depends on the class of the error:
 
-Invalid list query parameters are client errors. The 422 response shows each field that is not valid. Babbel logs these errors at debug level, with the route and the field errors. At the default level, Babbel does not write these logs. These errors do not cause an alert.
+| Class | Level | Examples |
+|---|---|---|
+| Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or list query parameters that are not valid |
+| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs failure), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job |
+| Server failure | error | 500 for a database error, an audio processing error or an unhandled error, 503 for a missing migration or seed row, 504 for a timeout, and the other failures of a bulletin job |
+
+A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid list query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
+
+An operational signal is not a fault of the client or of Babbel, but it can need action from an administrator. These conditions also cause alerts, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
+
+A server failure can cause an alert, for example when database requests fail repeatedly. A log alert on `level=ERROR` does not fire for client errors or operational signals in this table.
 
 ### Operational e-mail notifications
 
