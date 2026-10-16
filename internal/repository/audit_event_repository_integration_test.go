@@ -541,16 +541,21 @@ func TestAuditActorNamesRequirePermission(t *testing.T) {
 			if system.UserID != nil || system.Username != nil || system.FullName != nil {
 				t.Fatalf("system event = %+v", system)
 			}
-			if !tt.includeNames {
-				if got.Username != nil || got.FullName != nil {
-					t.Fatalf("actor names disclosed: %+v", got)
-				}
-				return
-			}
-			if got.Username == nil || *got.Username != user.Username || got.FullName == nil || *got.FullName != user.FullName {
-				t.Fatalf("soft-deleted actor names = %+v", got)
-			}
+			assertAuditActorNames(t, got, user, tt.includeNames)
 		})
+	}
+}
+
+func assertAuditActorNames(t *testing.T, got models.AuditEvent, user models.User, includeNames bool) {
+	t.Helper()
+	if !includeNames {
+		if got.Username != nil || got.FullName != nil {
+			t.Fatalf("actor names disclosed: %+v", got)
+		}
+		return
+	}
+	if got.Username == nil || *got.Username != user.Username || got.FullName == nil || *got.FullName != user.FullName {
+		t.Fatalf("soft-deleted actor names = %+v", got)
 	}
 }
 
