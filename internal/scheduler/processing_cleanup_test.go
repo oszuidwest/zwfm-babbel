@@ -3,6 +3,7 @@ package scheduler
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"log"
 	"log/slog"
 	"os"
@@ -167,6 +168,40 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 		if !strings.Contains(logs.String(), "Failed to remove audio conversion leftover") || !strings.Contains(logs.String(), name) {
 			t.Errorf("removal failure not logged: %s", logs.String())
 		}
+	}
+}
+
+func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
+	logs := captureCleanupLogs(t)
+	dir := t.TempDir()
+	now := time.Now()
+	vanished := []string{"a.processing", "b.processing.wav"}
+	writeCleanupDir(t, filepath.Join(dir, vanished[0]), now.Add(-25*time.Hour))
+	writeCleanupFile(t, filepath.Join(dir, vanished[1]), now.Add(-25*time.Hour))
+	kept := filepath.Join(dir, "c.processing")
+	writeCleanupDir(t, kept, now.Add(-25*time.Hour))
+	// The owning requests remove their entries after ReadDir.
+	t.Cleanup(func() { processingEntryInfo = fs.DirEntry.Info })
+	processingEntryInfo = func(entry fs.DirEntry) (fs.FileInfo, error) {
+		if entry.Name() != "c.processing" {
+			if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return entry.Info()
+	}
+
+	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	if err := service.cleanProcessingLeftovers(now); err != nil {
+		t.Fatalf("cleanProcessingLeftovers = %v, want vanished entries skipped", err)
+	}
+	for _, name := range vanished {
+		if strings.Contains(logs.String(), name) {
+			t.Errorf("vanished entry %s logged: %s", name, logs.String())
+		}
+	}
+	if _, err := os.Lstat(kept); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat = %v, want remaining leftover removed", err)
 	}
 }
 

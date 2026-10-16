@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,9 @@ import (
 // ample. Removing a live conversion only fails that request; the published
 // audio stays as it was.
 const processingMinAge = 24 * time.Hour
+
+// processingEntryInfo lets tests remove an entry between ReadDir and its stat.
+var processingEntryInfo = fs.DirEntry.Info
 
 // BulletinCleanupService purges expired audio, abandoned conversions and terminal job state while retaining bulletins.
 type BulletinCleanupService struct {
@@ -93,6 +97,8 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 // left directly in ProcessedPath: per-request "*.processing" directories, and
 // "*.processing.wav" files from releases before those directories. Symlinks
 // are skipped, and os.RemoveAll does not follow symlinks inside a directory.
+// An entry that vanishes during the sweep is not an error: a missing entry is
+// skipped at the stat, and os.RemoveAll returns nil for a path that is gone.
 func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
 	dir := s.config.Audio.ProcessedPath
 	entries, err := os.ReadDir(dir)
@@ -110,7 +116,11 @@ func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
 			continue
 		}
 		path := filepath.Join(dir, name)
-		info, err := entry.Info()
+		info, err := processingEntryInfo(entry)
+		if errors.Is(err, fs.ErrNotExist) {
+			// The owning request removed it after ReadDir.
+			continue
+		}
 		if err != nil {
 			logger.Error("Failed to stat audio conversion leftover", "path", path, "error", err)
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat audio conversion leftover %s: %w", path, err))
