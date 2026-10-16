@@ -247,7 +247,7 @@ When Babbel maps a service error to an error response, or a bulletin job fails, 
 
 A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid list query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
 
-An operational signal is not a fault of the client or of Babbel, but it can need action from an administrator. These conditions also cause alerts, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
+An operational signal is not a fault of the client or of Babbel, but it can need action from an administrator. These conditions can also cause alerts, some only after repeated failures, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
 
 A server failure can cause an alert, for example when database requests fail repeatedly. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel also logs each failed ElevenLabs response, at error level for a 401, 403 or 5xx status. A status that Babbel does not map to a specific response, for example 400, writes a separate log at error level.
 

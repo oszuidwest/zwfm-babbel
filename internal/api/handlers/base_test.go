@@ -279,7 +279,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 	serviceError := func(err error) func(*gin.Context) {
 		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
 	}
-	deletedAt := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name       string
 		respond    func(*gin.Context)
@@ -349,7 +348,7 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		},
 		{
 			name:       "deleted story",
-			respond:    serviceError(&repository.StoryDeletedError{ID: 1, DeletedAt: deletedAt}),
+			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
 		},
 		// Operational signals.
@@ -420,11 +419,10 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 				t.Fatalf("record = %v, want cause %q", record, tt.wantCause)
 			}
 			if tt.wantType == "query_validation" {
-				_, hasRoute := record["route"]
-				if errs, _ := record["errors"].([]any); len(errs) != 1 || !hasRoute {
+				if errs, _ := record["errors"].([]any); len(errs) != 1 || record["route"] == nil {
 					t.Fatalf("record = %v, want a route and one field error", record)
 				}
-			} else if _, hasResource := record["resource"]; tt.wantType != "" && !hasResource {
+			} else if tt.wantType != "" && record["resource"] == nil {
 				t.Fatalf("record = %v, want a resource", record)
 			}
 			if len(alerts.events) != tt.wantAlerts {

@@ -367,9 +367,8 @@ func errorLevel(errorType string) slog.Level {
 		// fail, and the services that return these errors send the alerts.
 		return slog.LevelWarn
 	default:
-		// Server failures and any error_type not classified above:
-		// database_error, audio_failed, and not_initialized, which reports a
-		// missing migration or seed row in Babbel's own database.
+		// Server failures (database_error, audio_failed, and not_initialized
+		// for a missing migration or seed row) and any unclassified type.
 		return slog.LevelError
 	}
 }
