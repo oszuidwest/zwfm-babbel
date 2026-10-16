@@ -270,10 +270,13 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// Invalid list queries are expected client input, whichever check rejects
-// them: one Debug record and no alert, even when a query error arrives
-// wrapped. A database failure logs at Error and alerts.
-func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
+// Each error class logs one record at its own level: client errors at Debug
+// (invalid list queries from every check, also when wrapped), operational
+// signals at Warn and server failures at Error. Mapped records carry their
+// error_type, resource and any cause; query records carry the route and field
+// errors. Only database and unhandled errors alert from here; the services
+// alert for operational signals.
+func TestErrorLogLevelsByClass(t *testing.T) {
 	serviceError := func(err error) func(*gin.Context) {
 		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
 	}
@@ -281,43 +284,115 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 		name       string
 		respond    func(*gin.Context)
 		wantStatus int
+		wantLevel  string
+		wantType   string
+		wantCause  string
+		wantAlerts int
 	}{
+		// Client errors.
 		{
 			name:       "parser rejects trashed",
 			respond:    func(c *gin.Context) { utils.ParseListQuery(c) },
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
 		{
 			name:       "pagination-only endpoint rejects trashed",
 			respond:    func(c *gin.Context) { utils.ParsePaginationOnly(c) },
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
 		{
 			name: "sparse fieldset names an unknown field",
 			respond: func(c *gin.Context) {
 				utils.PaginatedListResponse(c, &utils.QueryParams{Fields: []string{"bogus"}}, &repository.ListResult[models.Story]{})
 			},
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
 		{
 			name:       "repository rejects unknown sort field",
 			respond:    serviceError(&repository.UnknownFieldError{Kind: "sort", Field: "bogus"}),
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
 		{
 			name:       "repository rejects filter value",
 			respond:    serviceError(&repository.InvalidFilterError{Field: "weekdays", Operator: repository.FilterBitwiseAnd, Reason: "expected integer between 0 and 127"}),
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
 		{
 			name:       "query error wrapped as a database error",
 			respond:    serviceError(apperrors.Database("Story", "query", &repository.UnknownFieldError{Kind: "sort", Field: "bogus"})),
-			wantStatus: http.StatusUnprocessableEntity,
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "query_validation",
 		},
+		{
+			name:       "not found",
+			respond:    serviceError(apperrors.NotFoundWithID("Story", 9)),
+			wantStatus: http.StatusNotFound, wantLevel: "DEBUG", wantType: "not_found",
+		},
+		{
+			name:       "duplicate",
+			respond:    serviceError(apperrors.Duplicate("Station", "name", "Zuid")),
+			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "duplicate",
+		},
+		{
+			name:       "dependency blocks delete",
+			respond:    serviceError(apperrors.TranslateRepoError("Voice", apperrors.OpDelete, repository.ErrForeignKeyViolation)),
+			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "has_dependencies",
+		},
+		{
+			name:       "body validation",
+			respond:    serviceError(apperrors.TranslateRepoError("Story", apperrors.OpUpdate, repository.ErrDataTooLong)),
+			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "validation_failed", wantCause: repository.ErrDataTooLong.Error(),
+		},
+		{
+			name:       "state conflict",
+			respond:    serviceError(apperrors.Conflict("story.no_text", "Story has no text for TTS generation", "Add text")),
+			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "conflict",
+		},
+		{
+			name:       "deleted story",
+			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
+			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
+		},
+		// Operational signals.
+		{
+			name:       "ElevenLabs quota",
+			respond:    serviceError(apperrors.RateLimited("TTS", "45", errors.New("quota"))),
+			wantStatus: http.StatusTooManyRequests, wantLevel: "WARN", wantType: "rate_limited",
+		},
+		{
+			name:       "ElevenLabs failure",
+			respond:    serviceError(apperrors.Upstream("TTS", "ElevenLabs", http.StatusServiceUnavailable, "", errors.New("boom"))),
+			wantStatus: http.StatusServiceUnavailable, wantLevel: "WARN", wantType: "upstream_failed", wantCause: "boom",
+		},
+		{
+			name:       "no stories for bulletin",
+			respond:    serviceError(apperrors.NoStories(3)),
+			wantStatus: http.StatusConflict, wantLevel: "WARN", wantType: "no_stories",
+		},
+		// Server failures.
 		{
 			name:       "database failure",
 			respond:    serviceError(apperrors.Database("Story", "query", errors.New("connection lost"))),
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "connection lost", wantAlerts: 1,
+		},
+		{
+			name:       "audio processing failure",
+			respond:    serviceError(apperrors.Audio("Story", "convert", errors.New("ffmpeg failed"))),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed",
+		},
+		{
+			name:       "missing migration",
+			respond:    serviceError(apperrors.NotInitialized("tts_settings", "apply migration", nil)),
+			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized",
+		},
+		{
+			name:       "timeout",
+			respond:    serviceError(context.DeadlineExceeded),
+			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR",
+		},
+		{
+			name:       "unhandled error",
+			respond:    serviceError(errors.New("boom")),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantAlerts: 1,
 		},
 	}
 	for _, tt := range tests {
@@ -327,10 +402,6 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories?trashed=only", nil)
 			alerts := &automationAlertRecorder{}
 			c.Set(alertContextKey, alerts)
-			wantLevel, wantAlerts := "DEBUG", 0
-			if tt.wantStatus == http.StatusInternalServerError {
-				wantLevel, wantAlerts = "ERROR", 1
-			}
 
 			tt.respond(c)
 
@@ -339,17 +410,24 @@ func TestQueryValidationLogsAtDebugAndDatabaseFailuresAtError(t *testing.T) {
 			}
 			// Unmarshal rejects an empty buffer and a second record.
 			var record map[string]any
-			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != wantLevel {
-				t.Fatalf("logs = %s, want one %s record", logs, wantLevel)
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != tt.wantLevel {
+				t.Fatalf("logs = %s, want one %s record", logs, tt.wantLevel)
 			}
-			if wantLevel == "DEBUG" {
-				_, hasRoute := record["route"]
-				if errs, _ := record["errors"].([]any); record["error_type"] != "query_validation" || len(errs) != 1 || !hasRoute {
-					t.Fatalf("record = %v, want error_type query_validation, a route and one field error", record)
+			if errorType, _ := record["error_type"].(string); errorType != tt.wantType {
+				t.Fatalf("record = %v, want error_type %q", record, tt.wantType)
+			}
+			if cause, _ := record["cause"].(string); cause != tt.wantCause {
+				t.Fatalf("record = %v, want cause %q", record, tt.wantCause)
+			}
+			if tt.wantType == "query_validation" {
+				if errs, _ := record["errors"].([]any); len(errs) != 1 || record["route"] == nil {
+					t.Fatalf("record = %v, want a route and one field error", record)
 				}
+			} else if tt.wantType != "" && record["resource"] == nil {
+				t.Fatalf("record = %v, want a resource", record)
 			}
-			if len(alerts.events) != wantAlerts {
-				t.Fatalf("alerts = %d, want %d", len(alerts.events), wantAlerts)
+			if len(alerts.events) != tt.wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
 			}
 		})
 	}
