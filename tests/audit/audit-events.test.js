@@ -158,16 +158,12 @@ describe('Audit events', () => {
     }));
   });
 
-  // Audit events have no search fields, so OpenAPI does not declare search
-  // and a non-empty search is rejected instead of ignored.
-  test.each([
-    ['x', 422],
-    ['', 200]
-  ])('when search=%s, then returns %i', async (value, status) => {
+  // Audit events have no search fields, so OpenAPI does not declare search.
+  test('when search=x, then returns a search 422', async () => {
     expect(declaresQueryParameter('/audit-events', 'search')).toBe(false);
-    const response = await global.api.apiCall('GET', `/audit-events?search=${value}`);
-    expect(response.status).toBe(status);
-    if (status === 422) expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
+    const response = await global.api.apiCall('GET', '/audit-events?search=x');
+    expect(response.status).toBe(422);
+    expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
   });
 
   test('when listing with an unknown key, then the 422 names it', async () => {

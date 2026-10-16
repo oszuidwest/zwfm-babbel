@@ -13,8 +13,7 @@ The query parameter system provides:
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
 Most resource list endpoints support filtering, sorting, field selection and
-search; `/station-voices` and `/audit-events` have no search.
-`/bulletins/{id}/stories` supports pagination only. The parameters above
+search. `/bulletins/{id}/stories` supports pagination only. The parameters above
 return RFC 9457 validation errors on endpoints that do not support them instead
 of being silently ignored.
 
@@ -335,10 +334,10 @@ GET /api/v1/stories?fields=id,title,created_at
 
 ### Search Configuration
 
-Each endpoint defines searchable fields:
+Each repository passes its searchable columns to `ApplyListQuery`:
 
 ```go
-SearchFields: []string{"s.title", "s.text", "v.name"}
+var storySearchFields = []string{"title", "text"}
 ```
 
 A resource without searchable fields passes `nil`; `ApplyListQuery` then

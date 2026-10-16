@@ -154,9 +154,9 @@ func TestApplySearch_SQL(t *testing.T) {
 		wantSQL  string
 		wantVars []any
 	}{
-		{name: "any field matches", search: `50%`, fields: []string{"title", "text"}, wantSQL: `title LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\'`, wantVars: []any{`%50\%%`, `%50\%%`}},
-		{name: "empty search", fields: []string{"title"}},
-		{name: "empty search without fields"},
+		{name: "any field matches", search: `50%`, fields: []string{"title", "text"}, wantSQL: `WHERE title LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\'`, wantVars: []any{`%50\%%`, `%50\%%`}},
+		{name: "empty search", fields: []string{"title"}, wantSQL: "FROM `stories`"},
+		{name: "empty search without fields", wantSQL: "FROM `stories`"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,9 +166,8 @@ func TestApplySearch_SQL(t *testing.T) {
 				t.Fatalf("applySearch: %v", err)
 			}
 			stmt := out.Find(&[]struct{}{}).Statement
-			if (tt.wantSQL == "" && strings.Contains(stmt.SQL.String(), "WHERE")) ||
-				!strings.Contains(stmt.SQL.String(), tt.wantSQL) || !slices.Equal(stmt.Vars, tt.wantVars) {
-				t.Fatalf("SQL = %q, vars = %#v; want fragment %q with %#v", stmt.SQL.String(), stmt.Vars, tt.wantSQL, tt.wantVars)
+			if !strings.HasSuffix(stmt.SQL.String(), tt.wantSQL) || !slices.Equal(stmt.Vars, tt.wantVars) {
+				t.Fatalf("SQL = %q, vars = %#v; want suffix %q with %#v", stmt.SQL.String(), stmt.Vars, tt.wantSQL, tt.wantVars)
 			}
 		})
 	}
