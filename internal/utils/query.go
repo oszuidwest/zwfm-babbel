@@ -2,8 +2,10 @@ package utils
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,41 @@ type QueryParams struct {
 	repository.ListQuery
 	// Fields lists the JSON field names requested with ?fields=.
 	Fields []string
+}
+
+// listQueryKeys are the keys besides filter[...] that the list parsers read.
+// A parser that does not support one of them rejects it as unsupported. No
+// list endpoint accepts other keys; one that answers a key with a specific
+// error, such as latest on station bulletins, checks it before parsing.
+var listQueryKeys = []string{"limit", "offset", "sort", "fields", "search", "trashed"}
+
+// unknownQueryParams reports every key the list parsers do not read, in
+// sorted order. Keys are case-sensitive, so Trashed is unknown. A misspelled
+// or outdated key would otherwise be ignored and return an unexpected page.
+func unknownQueryParams(query url.Values) []apperrors.FieldError {
+	var errs []apperrors.FieldError
+	for _, key := range slices.Sorted(maps.Keys(query)) {
+		if !strings.HasPrefix(key, "filter[") && !slices.Contains(listQueryKeys, key) {
+			errs = append(errs, *queryError(key, apperrors.CodeUnknownField, "unknown query parameter"))
+		}
+	}
+	return errs
+}
+
+// parseKnownQueryParams rejects unknown keys before [parseQueryParams] runs,
+// so a repeated unknown key reports as unknown rather than duplicate. On
+// errors it writes an RFC 9457 response and returns false.
+func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
+	if errs := unknownQueryParams(c.Request.URL.Query()); len(errs) > 0 {
+		ProblemQueryValidation(c, "Invalid query parameter", errs...)
+		return nil, false
+	}
+	params, err := parseQueryParams(c)
+	if err != nil {
+		emitQueryError(c, err)
+		return nil, false
+	}
+	return params, true
 }
 
 // parseQueryParams parses list options and validates query syntax, operator
@@ -42,6 +79,11 @@ func parseQueryParams(c *gin.Context) (*QueryParams, *apperrors.FieldError) {
 		return nil, err
 	}
 
+	fields, err := parseFields(query.Get("fields"))
+	if err != nil {
+		return nil, err
+	}
+
 	filters, err := parseFilters(query)
 	if err != nil {
 		return nil, err
@@ -56,7 +98,7 @@ func parseQueryParams(c *gin.Context) (*QueryParams, *apperrors.FieldError) {
 			Trashed: query.Get("trashed"),
 			Search:  query.Get("search"),
 		},
-		Fields: parseFields(query.Get("fields")),
+		Fields: fields,
 	}, nil
 }
 
@@ -96,6 +138,13 @@ func parsePagination(query url.Values) (limit, offset int, err *apperrors.FieldE
 	return limit, offset, nil
 }
 
+// emptyListItem reports a blank item in a non-empty sort or fields list, such
+// as sort=title, or fields=, so the list does not fall back to the default
+// order or the full payload.
+const emptyListItem = "contains an empty item; separate names with single commas"
+
+// parseSorting parses a comma-separated sort list. An empty value means no
+// sort; an empty item or an item without a field name is an error.
 func parseSorting(sortParam string) ([]repository.SortField, *apperrors.FieldError) {
 	if sortParam == "" {
 		return nil, nil
@@ -107,7 +156,7 @@ func parseSorting(sortParam string) ([]repository.SortField, *apperrors.FieldErr
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if part == "" {
-			continue
+			return nil, queryError("sort", apperrors.CodeInvalidFormat, emptyListItem)
 		}
 
 		var field string
@@ -131,20 +180,23 @@ func parseSorting(sortParam string) ([]repository.SortField, *apperrors.FieldErr
 			field = part
 		}
 
-		if field != "" {
-			sortFields = append(sortFields, repository.SortField{
-				Field:     field,
-				Direction: direction,
-			})
+		if field == "" {
+			return nil, queryError("sort", apperrors.CodeInvalidFormat, fmt.Sprintf("item %q has no field name", part))
 		}
+		sortFields = append(sortFields, repository.SortField{
+			Field:     field,
+			Direction: direction,
+		})
 	}
 
 	return sortFields, nil
 }
 
-func parseFields(fieldsParam string) []string {
+// parseFields parses a comma-separated sparse fieldset. An empty value means
+// all fields; an empty item is an error.
+func parseFields(fieldsParam string) ([]string, *apperrors.FieldError) {
 	if fieldsParam == "" {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.Split(fieldsParam, ",")
@@ -152,12 +204,13 @@ func parseFields(fieldsParam string) []string {
 
 	for _, part := range parts {
 		field := strings.TrimSpace(part)
-		if field != "" {
-			fields = append(fields, field)
+		if field == "" {
+			return nil, queryError("fields", apperrors.CodeInvalidFormat, emptyListItem)
 		}
+		fields = append(fields, field)
 	}
 
-	return fields
+	return fields, nil
 }
 
 // filterOperators maps query operator names to repository operators.
@@ -314,43 +367,37 @@ func jsonFieldName(field reflect.StructField) (name string, visible bool) {
 }
 
 // ParseListQuery parses list options for resources without soft deletion and
-// rejects any non-empty trashed. On errors it writes an RFC 9457 response and
-// returns false. The embedded ListQuery is ready for the repository.
+// rejects unknown keys and any non-empty trashed. On errors it writes an
+// RFC 9457 response and returns false. The embedded ListQuery is ready for
+// the repository.
 func ParseListQuery(c *gin.Context) (*QueryParams, bool) {
-	params, err := parseQueryParams(c)
-	if err == nil && params.Trashed != "" {
-		err = queryError("trashed", apperrors.CodeUnsupported, unsupportedOnEndpoint)
-	}
-	if err != nil {
-		emitQueryError(c, err)
+	params, ok := parseKnownQueryParams(c)
+	if ok && params.Trashed != "" {
+		emitQueryError(c, queryError("trashed", apperrors.CodeUnsupported, unsupportedOnEndpoint))
 		return nil, false
 	}
-	return params, true
+	return params, ok
 }
 
 // ParseListQueryWithTrashed is like [ParseListQuery] but accepts trashed=only
 // or trashed=with, for resources with soft deletion. An empty or omitted
 // trashed lists active records only.
 func ParseListQueryWithTrashed(c *gin.Context) (*QueryParams, bool) {
-	params, err := parseQueryParams(c)
-	if err == nil && params.Trashed != "" && params.Trashed != repository.TrashedOnly && params.Trashed != repository.TrashedWith {
-		err = queryError("trashed", apperrors.CodeInvalidChoice, "expected only or with")
-	}
-	if err != nil {
-		emitQueryError(c, err)
+	params, ok := parseKnownQueryParams(c)
+	if ok && params.Trashed != "" && params.Trashed != repository.TrashedOnly && params.Trashed != repository.TrashedWith {
+		emitQueryError(c, queryError("trashed", apperrors.CodeInvalidChoice, "expected only or with"))
 		return nil, false
 	}
-	return params, true
+	return params, ok
 }
 
 const unsupportedOnEndpoint = "not supported on this endpoint"
 
-// ParsePaginationOnly parses limit and offset, rejecting search, sort, filter,
-// fields, and trashed options with a 422 response.
+// ParsePaginationOnly parses limit and offset, rejecting unknown keys and
+// search, sort, filter, fields, and trashed options with a 422 response.
 func ParsePaginationOnly(c *gin.Context) (limit, offset int, ok bool) {
-	params, err := parseQueryParams(c)
-	if err != nil {
-		emitQueryError(c, err)
+	params, ok := parseKnownQueryParams(c)
+	if !ok {
 		return 0, 0, false
 	}
 	var errs []apperrors.FieldError

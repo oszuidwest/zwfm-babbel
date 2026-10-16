@@ -211,6 +211,31 @@ function generateQueryTests(schema, setupFn = null) {
       });
     });
 
+    // Documented under "Unknown keys and empty values" in openapi.yaml.
+    describe('Unknown keys and degenerate lists', () => {
+      test.each([
+        ['page=2', [['page', 'unknown_field']]],
+        ['Trashed=only', [['Trashed', 'unknown_field']]],
+        ['per_page=5&page=2&limit=5', [['page', 'unknown_field'], ['per_page', 'unknown_field']]],
+        ['foo=1&foo=2', [['foo', 'unknown_field']]],
+        ['sort=,', [['sort', 'invalid_format']]],
+        ['sort=-', [['sort', 'invalid_format']]],
+        ['sort=:desc', [['sort', 'invalid_format']]],
+        ['fields=,', [['fields', 'invalid_format']]]
+      ])('when %s is sent, then the 422 names %j', async (qs, errors) => {
+        expect.hasAssertions();
+        const response = await expectStatus(qs, 422);
+        expect(response.data.errors.map(error => [error.field, error.code])).toEqual(errors);
+      });
+
+      test('when sort and fields are empty, then they count as omitted', async () => {
+        expect.hasAssertions();
+        const omitted = await expectStatus('limit=1');
+        const empty = await expectStatus('sort=&fields=&limit=1');
+        expect(empty.data.total).toBe(omitted.data.total);
+      });
+    });
+
     if (query.selectableFields?.length > 0) {
       describe('Field Selection', () => {
         test('when selecting fields, then returns only those', async () => {
