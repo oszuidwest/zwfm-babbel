@@ -63,19 +63,7 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	if restored.DeletedAt.Valid || time.Time(restored.StartDate).Format(time.DateOnly) != start {
 		t.Fatalf("Restore() returned stale state: %+v", restored)
 	}
-	var events []models.AuditEvent
-	if err := db.Where("entity_type = ? AND entity_id = ? AND action IN ?", models.AuditEntityStory, story.ID,
-		[]models.AuditAction{models.AuditActionRestore, models.AuditActionUpdate}).Order("id").Find(&events).Error; err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 2 || events[0].Action != models.AuditActionRestore || events[1].Action != models.AuditActionUpdate {
-		t.Fatalf("restore audit events = %+v", events)
-	}
-	for _, event := range events {
-		if event.UserID == nil || *event.UserID != actor {
-			t.Fatalf("restore audit actor = %v, want %d", event.UserID, actor)
-		}
-	}
+	assertStoryRestoreAudit(t, db, story.ID, actor)
 	if !probed {
 		t.Fatal("probe did not run during the restore")
 	}
@@ -88,6 +76,23 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	}
 	if !containsStory(selected, story.ID) {
 		t.Fatal("restored story not selectable on its new start date")
+	}
+}
+
+func assertStoryRestoreAudit(t *testing.T, db *gorm.DB, storyID, actor int64) {
+	t.Helper()
+	var events []models.AuditEvent
+	if err := db.Where("entity_type = ? AND entity_id = ? AND action IN ?", models.AuditEntityStory, storyID,
+		[]models.AuditAction{models.AuditActionRestore, models.AuditActionUpdate}).Order("id").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Action != models.AuditActionRestore || events[1].Action != models.AuditActionUpdate {
+		t.Fatalf("restore audit events = %+v", events)
+	}
+	for _, event := range events {
+		if event.UserID == nil || *event.UserID != actor {
+			t.Fatalf("restore audit actor = %v, want %d", event.UserID, actor)
+		}
 	}
 }
 
