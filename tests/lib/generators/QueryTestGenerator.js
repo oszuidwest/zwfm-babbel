@@ -3,12 +3,18 @@ const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
  * Generates list-query contract tests from a resource schema.
+ *
+ * Sort tests list only the fixtures whose ids setupFn resolves to. Every
+ * sortable field needs two distinct values among them, or an ignored or
+ * reversed sort would pass. When no other field sorts the fixtures in their
+ * default order, in either direction, an ignored sort fails both ways.
  * @param {Object} schema
- * @param {Function|null} [setupFn]
+ * @param {Function|null} [setupFn] Creates the fixtures and resolves to their ids.
  */
 function generateQueryTests(schema, setupFn = null) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
+  if (query.sortableFields?.length > 0 && !setupFn) throw new Error(`${name} sort tests need a setupFn that returns fixture ids`);
   const filters = getFilterContracts(endpoint);
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
@@ -43,8 +49,10 @@ function generateQueryTests(schema, setupFn = null) {
   };
 
   describe(`${name} Query Parameters`, () => {
+    let fixtureIds = [];
+
     beforeAll(async () => {
-      if (setupFn) await setupFn();
+      if (setupFn) fixtureIds = await setupFn();
     });
 
     if (query.searchFields?.length > 0) {
@@ -76,10 +84,15 @@ function generateQueryTests(schema, setupFn = null) {
             [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, -1]
           ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
-            const response = await expectStatus(`sort=${sort}`);
+            // Rows from other tests could fill the page with equal keys.
+            const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}&sort=${sort}`);
             const keys = sortKeys(response, field);
             // A missing rank or unparsable date would sort to the end unnoticed.
             expect(keys.every(Number.isFinite)).toBe(true);
+            // Equal keys are in order both ways and cannot catch an ignored or
+            // reversed sort. Collation-equal strings share a rank, so the Set
+            // counts keys the way the comparison below does.
+            expect(new Set(keys).size).toBeGreaterThan(1);
             expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
           });
         });
