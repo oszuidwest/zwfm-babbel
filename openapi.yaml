@@ -29,9 +29,9 @@ info:
       well-formed, but the API rejects a value. This covers field rules,
       cross-field rules such as date order, body references to resources
       that do not exist (such as `voice_id` or `station_id`), an update that
-      sets no field, an invalid path `id`, unknown or invalid query
-      parameters on list endpoints, and a missing, unsupported or silent
-      uploaded file.
+      sets no field, an invalid path `id`, a query string that cannot be
+      decoded on any endpoint, unknown or invalid query parameters on list
+      endpoints, and a missing, unsupported or silent uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
@@ -71,7 +71,9 @@ info:
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
     - Malformed URL encoding or an unescaped semicolon fails with 422
-      `invalid_format` and field `query` before checking keys.
+      `invalid_format` and field `query` before checking keys, for example
+      `page=%ZZ` or `limit=5;page=2`. This applies to every endpoint, not
+      only list endpoints, so no parameter is silently dropped.
     - Unknown keys are then checked, whatever their value, and one
       response names each of them in sorted order. A repeated unknown key
       fails as `unknown_field`, not `duplicate`.
@@ -566,6 +568,8 @@ paths:
                 status: 404
                 detail: "OAuth authentication is disabled"
                 instance: "/api/v1/auth/oauth"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           description: Session storage failed before the redirect
           content:
@@ -626,6 +630,8 @@ paths:
                   value: "https://your-frontend.com/dashboard?login=success"
                 error:
                   value: "https://your-frontend.com/dashboard?error=invalid_credentials"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -5353,6 +5359,18 @@ components:
                   - field: "per_page"
                     code: "unknown_field"
                     message: "unknown query parameter"
+            malformed_query:
+              summary: A query string that cannot be decoded
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "Invalid query parameter"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "query"
+                    code: "invalid_format"
+                    message: "invalid URL escape \"%ZZ\""
             silent_audio:
               summary: Uploaded story audio is silent or below -50 LUFS; existing audio is preserved
               value:

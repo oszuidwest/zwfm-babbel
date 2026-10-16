@@ -1,3 +1,5 @@
+const TestHelpers = require('../lib/TestHelpers');
+
 describe('Empty Update Validation', () => {
   const paths = {};
 
@@ -85,4 +87,50 @@ describe('Validation Error Contract', () => {
     expectFieldError(response, 422, 'password', 'too_long');
   });
 
+});
+
+describe('Malformed Query Strings', () => {
+  let storyId;
+
+  beforeAll(async () => {
+    const voice = await global.helpers.createVoice(global.resources, 'MalformedQueryVoice');
+    const story = await global.helpers.createStory(global.resources, {
+      title: 'Malformed query', text: 'Test content', voice_id: voice.id
+    });
+    storyId = story.id;
+  });
+
+  const expectMalformedQuery = (response) => {
+    expect(response.status).toBe(422);
+    expect(response.data.errors).toEqual([expect.objectContaining({ field: 'query', code: 'invalid_format' })]);
+  };
+
+  test.each([
+    ['an invalid escape in page', 'page=%ZZ'],
+    ['a semicolon separator', 'limit=5;page=2'],
+    ['an invalid escape in trashed', 'trashed=only%ZZ']
+  ])('when listing stories with %s, then 422 names query', async (_name, query) => {
+    expectMalformedQuery(await global.api.apiCall('GET', `/stories?${query}`));
+  });
+
+  test('when generating TTS with an invalid escape in force, then 422 names query', async () => {
+    expectMalformedQuery(await global.api.apiCall('POST', `/stories/${storyId}/tts?force=true%ZZ`));
+  });
+
+  test('when the automation key is behind a semicolon, then 422 names query', async () => {
+    const response = await global.api.http({
+      method: 'get',
+      url: `${global.api.apiBase}/public/stations/1/bulletin.wav?key=${TestHelpers.AUTOMATION_KEY};max_age=0`
+    });
+    expectMalformedQuery(response);
+  });
+
+  test('when the OAuth callback has an invalid escape in state, then 422 names query', async () => {
+    const response = await global.api.http({
+      method: 'get',
+      url: `${global.api.apiUrl}/auth/oauth/callback?state=x%ZZ&code=contract`,
+      maxRedirects: 0
+    });
+    expectMalformedQuery(response);
+  });
 });
