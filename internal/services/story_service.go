@@ -404,6 +404,7 @@ func (s *StoryService) PrepareAudio(ctx context.Context, storyID int64, voiceID 
 	return s.audioTarget(ctx, story, voiceID)
 }
 
+// audioTarget resolves the voice heard in new audio for story; see PrepareAudio.
 func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voiceID *int64) (*AudioTarget, error) {
 	if !changesVoice(story, voiceID) {
 		if story.Voice == nil {
@@ -415,7 +416,7 @@ func (s *StoryService) audioTarget(ctx context.Context, story *models.Story, voi
 
 	voice, err := s.voiceRepo.GetByID(ctx, *voiceID)
 	if errors.Is(err, repository.ErrNotFound) {
-		return nil, apperrors.Invalid("voice_id", apperrors.CodeNotFound, fmt.Sprintf("no resource with id %d", *voiceID))
+		return nil, errMissingReference("voice_id", *voiceID)
 	}
 	if err != nil {
 		return nil, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
@@ -450,30 +451,34 @@ func (s *StoryService) publishAudio(ctx context.Context, target *AudioTarget, te
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	err = s.storyRepo.UpdateAudio(ctx, story.ID, repository.StoryAudioUpdate{
-		ActorUserID:       actorUserID,
-		Action:            action,
-		AudioFile:         filename,
-		DurationSeconds:   duration,
-		VoiceID:           target.voice.ID,
-		ExpectedVoiceID:   story.VoiceID,
-		ExpectedAudioFile: story.AudioFile,
+	// writeErr is set when the write failed inside the transaction, which then
+	// rolled back. Any other failure, such as at commit, may have applied it.
+	var writeErr error
+	err = s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
+		writeErr = s.storyRepo.UpdateAudio(ctx, story.ID, repository.StoryAudioUpdate{
+			ActorUserID:       actorUserID,
+			Action:            action,
+			AudioFile:         filename,
+			DurationSeconds:   duration,
+			VoiceID:           target.voice.ID,
+			ExpectedVoiceID:   story.VoiceID,
+			ExpectedAudioFile: story.AudioFile,
+		})
+		return writeErr
 	})
-	if errors.Is(err, repository.ErrStateConflict) {
+	if errors.Is(writeErr, repository.ErrStateConflict) {
 		return apperrors.ConflictWithCause("story.audio_changed",
 			"Story voice or audio changed while the audio was being processed",
-			"Reload the story and try again", err)
+			"Reload the story and try again", writeErr)
+	}
+	if writeErr != nil {
+		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, writeErr)
 	}
 	if err != nil {
-		// A commit error can arrive after the transaction committed. Keep the
-		// new file unless the database certainly does not point at it, or
-		// cleanup could remove the audio the story now references.
-		_, deleted := errors.AsType[*repository.StoryDeletedError](err)
-		if !deleted && !errors.Is(err, repository.ErrNotFound) && s.mayReferenceAudio(ctx, story.ID, filename) {
-			keepAudio = true
-			// The handler logs and alerts on the cause; name the kept file there.
-			err = fmt.Errorf("story %d audio kept at %s after uncertain database write: %w", story.ID, finalPath, err)
-		}
+		// Keep the new file: the story may reference it once the commit lands.
+		keepAudio = true
+		// The handler logs and alerts on the cause; name the kept file there.
+		err = fmt.Errorf("story %d audio kept at %s after uncertain commit: %w", story.ID, finalPath, err)
 		return apperrors.TranslateRepoErrorWithID("Story", story.ID, apperrors.OpUpdate, err)
 	}
 	keepAudio = true
@@ -488,13 +493,6 @@ func (s *StoryService) publishAudio(ctx context.Context, target *AudioTarget, te
 	logger.Info("Processed audio for story",
 		"story_id", story.ID, "voice_id", target.voice.ID, "filename", finalPath, "duration_s", duration)
 	return nil
-}
-
-// mayReferenceAudio reports whether the story may point at filename after a
-// failed audio write: it does, or the database cannot be read to rule it out.
-func (s *StoryService) mayReferenceAudio(ctx context.Context, storyID int64, filename string) bool {
-	current, err := s.storyRepo.GetByID(ctx, storyID)
-	return err != nil || current.AudioFile == filename
 }
 
 // newAudioID returns a short random ID that keeps story audio filenames unique.
@@ -671,7 +669,7 @@ func translateTTSError(storyID int64, err error) error {
 			)
 		case http.StatusNotFound:
 			return apperrors.ConflictWithCause("voice.elevenlabs_not_found", "ElevenLabs does not know the configured voice ID",
-				"Check elevenlabs_voice_id on the story's voice", apiErr)
+				"Check elevenlabs_voice_id on the voice used for TTS", apiErr)
 		case http.StatusTooManyRequests:
 			return apperrors.RateLimited("TTS", apiErr.RetryAfter, apiErr)
 		case http.StatusUnprocessableEntity:

@@ -76,6 +76,7 @@ func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 		storyRepo: repo, voiceRepo: repository.NewVoiceRepository(tx), audioSvc: audio.NewService(cfg, nil),
 		ttsSvc: speechGenerator, ttsSettingsSvc: &fakeTTSSettingsGetter{settings: &models.TTSSettings{}},
 		pronunciationInjector: NewPronunciationInjector(&fakePronunciationRuleLister{}), config: cfg, alerts: notify.Discard,
+		txManager: repository.NewTxManager(tx),
 	}
 	actor := int64(307)
 	if err := service.GenerateTTS(t.Context(), story.ID, nil, false, &actor); err != nil {

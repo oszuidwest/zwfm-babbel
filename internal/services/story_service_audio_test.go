@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -113,17 +114,15 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 	}
 	for _, tt := range []struct {
 		name      string
-		err       error
-		committed bool
-		readErr   error
+		writeErr  error
+		commitErr error
 		wantFiles int
 	}{
-		{name: "response lost after commit", err: errors.New("connection lost"), committed: true, wantFiles: 2},
-		{name: "outcome unknown", err: errors.New("connection lost"), readErr: errors.New("connection lost"), wantFiles: 2},
-		{name: "write rolled back", err: errors.New("audit unavailable"), wantFiles: 1},
-		{name: "concurrent change", err: repository.ErrStateConflict, wantFiles: 1},
-		{name: "deleted during conversion", err: &repository.StoryDeletedError{ID: 99}, wantFiles: 1},
-		{name: "missing during conversion", err: repository.ErrNotFound, wantFiles: 1},
+		{name: "commit outcome unknown", commitErr: errors.New("connection lost"), wantFiles: 2},
+		{name: "write rolled back", writeErr: errors.New("audit unavailable"), wantFiles: 1},
+		{name: "concurrent change", writeErr: repository.ErrStateConflict, wantFiles: 1},
+		{name: "deleted during conversion", writeErr: &repository.StoryDeletedError{ID: 99}, wantFiles: 1},
+		{name: "missing during conversion", writeErr: repository.ErrNotFound, wantFiles: 1},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -136,15 +135,22 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 			if err := os.WriteFile(oldPath, []byte("old audio"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			repo := &uncertainAudioRepository{story: *story, err: tt.err, committed: tt.committed, readErr: tt.readErr}
-			svc := &StoryService{storyRepo: repo, audioSvc: audio.NewService(cfg, nil), config: cfg}
+			repo := &uncertainAudioRepository{err: tt.writeErr, audioFile: story.AudioFile}
+			svc := &StoryService{
+				storyRepo: repo, txManager: fakeCommitTxManager{err: tt.commitErr},
+				audioSvc: audio.NewService(cfg, nil), config: cfg,
+			}
 			err := svc.ProcessAudio(t.Context(), &AudioTarget{story: story, voice: story.Voice}, inputPath, nil)
-			if errors.Is(tt.err, repository.ErrNotFound) {
+			wantErr := tt.writeErr
+			if wantErr == nil {
+				wantErr = tt.commitErr
+			}
+			if errors.Is(wantErr, repository.ErrNotFound) {
 				if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
 					t.Fatalf("ProcessAudio error = %v, want NotFoundError", err)
 				}
-			} else if !errors.Is(err, tt.err) {
-				t.Fatalf("ProcessAudio error = %v, want %v", err, tt.err)
+			} else if !errors.Is(err, wantErr) {
+				t.Fatalf("ProcessAudio error = %v, want %v", err, wantErr)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil || len(entries) != tt.wantFiles {
@@ -153,33 +159,36 @@ func TestStoryService_ProcessAudioPreservesUncertainPublication(t *testing.T) {
 			if _, err := os.Stat(oldPath); err != nil {
 				t.Fatalf("previous audio removed: %v", err)
 			}
-			if _, err := os.Stat(utils.StoryPath(cfg, repo.story.AudioFile)); err != nil {
+			if _, err := os.Stat(utils.StoryPath(cfg, repo.audioFile)); err != nil {
 				t.Fatalf("database references missing audio: %v", err)
 			}
 		})
 	}
 }
 
+// uncertainAudioRepository fails the write with err, or records the new audio
+// as if the write applied.
 type uncertainAudioRepository struct {
 	storyRepository
-	story     models.Story
 	err       error
-	committed bool
-	readErr   error
+	audioFile string
 }
 
 func (r *uncertainAudioRepository) UpdateAudio(_ context.Context, _ int64, update repository.StoryAudioUpdate) error {
-	if r.committed {
-		r.story.AudioFile = update.AudioFile
+	if r.err == nil {
+		r.audioFile = update.AudioFile
 	}
 	return r.err
 }
 
-func (r *uncertainAudioRepository) GetByID(context.Context, int64) (*models.Story, error) {
-	if r.readErr != nil {
-		return nil, r.readErr
+// fakeCommitTxManager runs fn and then reports err as the commit result.
+type fakeCommitTxManager struct{ err error }
+
+func (f fakeCommitTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if err := fn(ctx); err != nil {
+		return fmt.Errorf("transaction failed: %w", err)
 	}
-	return &r.story, nil
+	return f.err
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
