@@ -3,6 +3,7 @@ package scheduler
 import (
 	"bytes"
 	"errors"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -209,9 +210,15 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 func captureCleanupLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var logs bytes.Buffer
-	previousLogger := slog.Default()
+	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	// SetDefault also redirects the log package, and restoring the built-in
+	// default handler does not undo that.
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
 	return &logs
 }
 
