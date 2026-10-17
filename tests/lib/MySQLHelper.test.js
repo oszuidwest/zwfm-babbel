@@ -144,6 +144,32 @@ describe('MySQLHelper', () => {
     expect(() => createMySQLExecutor().rankByColumn(table, column, [id])).toThrow(/Invalid/);
   });
 
+  test('when setting timestamps, then every row is offset from one shared base', () => {
+    execFileSync.mockReturnValueOnce('babbel-mysql\n').mockReturnValueOnce('');
+
+    createMySQLExecutor().setTimestamps('stories', [[4, { created_at: 1, updated_at: 3 }], [5, { created_at: 0 }]]);
+
+    expect(execFileSync).toHaveBeenLastCalledWith(
+      'docker',
+      expect.arrayContaining(['-e', [
+        "SET time_zone = '+00:00'",
+        'SET @base = NOW() - INTERVAL 1 MINUTE',
+        'UPDATE stories SET created_at = @base + INTERVAL 1 SECOND, updated_at = @base + INTERVAL 3 SECOND WHERE id = 4',
+        'UPDATE stories SET created_at = @base + INTERVAL 0 SECOND WHERE id = 5'
+      ].join('; ')]),
+      expect.anything()
+    );
+  });
+
+  test.each([
+    ['stories; DROP TABLE users', 'created_at', 1, 1],
+    ['stories', 'created_at = NOW()', 1, 1],
+    ['stories', 'created_at', '1 OR 1=1', 1],
+    ['stories', 'created_at', 1, '1 SECOND']
+  ])('when setting timestamps with table %p, column %p, id %p and seconds %p, then rejected', (table, column, id, seconds) => {
+    expect(() => createMySQLExecutor().setTimestamps(table, [[id, { [column]: seconds }]])).toThrow(/Invalid/);
+  });
+
   test('when execSQL fails, then stderr is included', () => {
     execFileSync.mockImplementation((bin, args) => {
       if (bin === 'docker' && args[0] === 'ps') {

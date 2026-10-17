@@ -669,8 +669,8 @@ paths:
         Returns a paginated list of radio stations with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
-        - `s.name` - Station name
+        Substring search across:
+        - `name` - Station name
         
         ## Filter Fields
         Available filter fields:
@@ -888,7 +888,7 @@ paths:
         Returns a paginated list of newsreader voices with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `name` - Voice name
         
         ## Filter Fields
@@ -1175,7 +1175,12 @@ paths:
       summary: List all stories
       description: |
         List stories with modern query parameter support.
-        
+
+        ## Search Fields
+        Substring search across:
+        - `title` - Story title
+        - `text` - Story text
+
         ## Date Filtering
         Use date range filters to find stories active on specific dates:
         - `filter[start_date][lte]=2024-06-15` - Start date before or on date
@@ -1904,7 +1909,7 @@ paths:
         Ordered by bulletin creation time descending by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
         
         ## Filter Fields
@@ -1930,12 +1935,12 @@ paths:
         - `created_at` - Bulletin creation timestamp
 
         ## Examples
-        - Search by bulletin filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by station: `?filter[station_id]=1`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by creation date: `?sort=-created_at`
         - Field selection: `?fields=id,filename,created_at`
-        - Complex query: `?search=bulletin&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Stories
       parameters:
@@ -1994,6 +1999,13 @@ paths:
     get:
       operationId: getUsers
       summary: List all users
+      description: |
+        Returns a paginated list of users with modern query parameter support.
+
+        ## Search Fields
+        Substring search across:
+        - `username` - Username
+        - `full_name` - Full name
       tags:
         - Users
       parameters:
@@ -2215,7 +2227,7 @@ paths:
         Returns a paginated list of generated bulletins with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -2244,13 +2256,13 @@ paths:
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
         
         ## Examples
-        - Search by filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by station: `?filter[station_id]=1`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
         - Filter by story count: `?filter[story_count][gte]=3`
         - Field selection: `?fields=id,filename,duration_seconds,story_count,created_at`
-        - Complex query: `?search=2024&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
+        - Complex query: `?search=20240120&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
       tags:
         - Bulletin
       parameters:
@@ -2353,7 +2365,7 @@ paths:
         Ordered by most recent first by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -2383,11 +2395,11 @@ paths:
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
         ## Examples
-        - Search by filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
         - Field selection: `?fields=id,filename,duration_seconds,created_at`
-        - Complex query: `?search=2024&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Bulletin
       parameters:
@@ -3169,8 +3181,10 @@ components:
       schema:
         type: string
       description: |
-        Search term for full-text search across relevant fields.
-        Searches in names, titles, text content depending on resource.
+        Literal substring match on any of the operation's fields listed
+        under "Search Fields" (`%` and `_` are not wildcards); case
+        sensitivity follows the column collation (case-insensitive by
+        default).
       example: "news update"
     trashed:
       name: trashed
