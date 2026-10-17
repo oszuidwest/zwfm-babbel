@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -183,7 +184,7 @@ func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
 	// The owning requests remove their entries after ReadDir.
 	t.Cleanup(func() { processingEntryInfo = fs.DirEntry.Info })
 	processingEntryInfo = func(entry fs.DirEntry) (fs.FileInfo, error) {
-		if entry.Name() != "c.processing" {
+		if slices.Contains(vanished, entry.Name()) {
 			if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
 				t.Fatal(err)
 			}
