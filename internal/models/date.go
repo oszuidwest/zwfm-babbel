@@ -15,12 +15,14 @@ func (d Date) MarshalJSON() ([]byte, error) {
 }
 
 // Scan implements sql.Scanner for MySQL DATE values read with parseTime=true.
+// The driver returns midnight in the session zone (UTC); Scan keeps the
+// calendar day and moves it to local midnight, where parsed dates live.
 func (d *Date) Scan(value any) error {
 	t, ok := value.(time.Time)
 	if !ok {
 		return fmt.Errorf("cannot scan %T into Date", value)
 	}
-	*d = Date(t)
+	*d = Date(time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local))
 	return nil
 }
 

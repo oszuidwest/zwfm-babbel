@@ -61,6 +61,7 @@ CREATE TABLE bulletins (
     duration_seconds DECIMAL(8,2) DEFAULT 0,
     file_size BIGINT DEFAULT 0,
     story_count INT DEFAULT 0,
+    -- DATETIME columns hold UTC: the application session runs in UTC.
     file_purged_at DATETIME NULL,
     metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

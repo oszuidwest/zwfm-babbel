@@ -155,9 +155,9 @@ info:
       `filter[created_at][gte]=2024-01-15T13:30:00%2B01:00`. An unencoded `+`
       decodes as a space, and the value fails with 422. Inside `in` and
       `between`, write fractions with a dot; a comma splits the list.
-    - The server's local timezone is the Babbel process's `TZ`; the database
-      driver binds times in that zone. The MySQL session timezone must match;
-      the Docker Compose files set the same `TZ` for both containers.
+    - The server's local timezone is the Babbel process's `TZ`. The database
+      session runs in UTC, so stored times stay exact across clock changes,
+      and date-times read from the database are returned with `Z`.
 
     ### Compatibility
 
@@ -174,6 +174,8 @@ info:
       of being ignored.
     - `search` on list endpoints without search fields returns 422 instead
       of being ignored.
+    - Date-times read from the database are returned in UTC with `Z`
+      instead of with the server's offset; they identify the same instants.
     - `errors[].field` is the query key as sent. `filter[status]=bad` used
       to fail as `filter[status][eq]`, `filter[status][not]=bad` as
       `filter[status][ne]`, and `filter[bogus]=1` as `filter`.

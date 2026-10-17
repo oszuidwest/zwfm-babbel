@@ -435,12 +435,12 @@ func validLiteral(t filterType, raw string) bool {
 }
 
 // parseDateTime parses raw, reading layouts without a zone in loc, and returns
-// the time in loc. The MySQL driver binds that representation and cannot bind
-// years outside 1 to 9999.
+// the time in UTC. The MySQL session binds times in UTC and cannot bind years
+// outside 1 to 9999.
 func parseDateTime(raw string, loc *time.Location) (any, error) {
 	for _, layout := range dateTimeLayouts {
 		if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
-			t = t.In(loc)
+			t = t.UTC()
 			if t.Year() < 1 || t.Year() > 9999 {
 				break
 			}
