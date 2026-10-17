@@ -78,16 +78,26 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id } : null;
   };
 
+  // Every sortable field rises with the fixture index except created_at, the
+  // default sort key, which lists the fixtures as 1, 0, 2 (newest first).
   const setupQueryTestData = async () => {
+    const year = new Date().getFullYear();
+    const voice = await global.helpers.createVoice(global.resources, 'QueryVoice');
+    expect(voice).not.toBeNull();
     const ids = [];
-    for (let i = 1; i <= 3; i++) {
-      const result = await createStoryWithDeps(
-        `QueryStory${i}`,
-        `Query test content ${i}`,
-        `QueryVoice${i}`
-      );
-      if (result) ids.push(result.id);
+    for (const [index, status] of ['active', 'draft', 'expired'].entries()) {
+      const story = await global.helpers.createStory(global.resources, {
+        title: `QueryStory${index + 1}`,
+        text: `Query test content ${index + 1}`,
+        voice_id: voice.id,
+        status,
+        start_date: `${year}-01-0${index + 1}`,
+        end_date: `${year + 1}-12-${29 + index}`
+      });
+      expect(story).not.toBeNull();
+      ids.push(story.id);
     }
+    createMySQLExecutor().setTimestamps('stories', ids.map((id, index) => [id, { created_at: [1, 2, 0][index], updated_at: 3 + index }]));
     return ids;
   };
 
