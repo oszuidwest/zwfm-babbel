@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 )
 
@@ -285,7 +287,13 @@ func TestTranslateTTSError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := translateTTSError(123, tt.err)
+			// The handler logs each translated failure, so GenerateTTS logs nothing.
+			service := newGenerateTTSTestService(storyForTTSTest("News"), &models.TTSSettings{}, nil, &fakeSpeechGenerator{err: tt.err})
+			logs := testutil.CaptureLogs(t, slog.LevelInfo)
+			got := service.GenerateTTS(t.Context(), 99, true, nil)
+			if logs.Len() != 0 {
+				t.Fatalf("logs = %s, want none", logs)
+			}
 			if got == nil {
 				t.Fatal("translateTTSError returned nil")
 			}
