@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mysqlerr "github.com/go-sql-driver/mysql"
@@ -16,9 +17,9 @@ import (
 )
 
 // A stored bulletin holds only server-generated values, so insert failures are
-// database errors (500, Error level, alert). Only a reference deleted during
-// generation stays a conflict. A transaction that never begins or rolls back
-// (including a failed job finalize) removes the rendered file; a failed commit
+// database errors. Only a reference deleted during generation stays a
+// conflict. A transaction that never begins or rolls back (including a failed
+// job finalize) removes the rendered file; a stored bulletin or a failed commit
 // keeps it, since the row may exist.
 func TestBulletinService_SaveFailures(t *testing.T) {
 	t.Parallel()
@@ -40,6 +41,7 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 		// worker detects this through the wrapped cause.
 		{name: "job finalize", finalizeErr: repository.ErrBulletinJobStateConflict, wantCause: repository.ErrBulletinJobStateConflict},
 		{name: "commit", tx: failingTxManager{err: connLost}, wantCause: connLost, wantFileKept: true},
+		{name: "stored", wantFileKept: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -59,18 +61,52 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 			}
 
 			_, err := service.saveBulletinToDatabase(t.Context(), saveBulletinParams{StationID: 1, BulletinPath: path}, finalize)
-			if tt.wantConflict {
+			switch {
+			case tt.wantConflict:
 				assertConflict(t, err, "bulletin.reference_missing")
-			} else {
+			case tt.wantCause == nil:
+				if err != nil {
+					t.Fatalf("saveBulletinToDatabase() error = %v, want nil", err)
+				}
+			default:
 				dbErr, ok := errors.AsType[*apperrors.DatabaseError](err)
 				if !ok || dbErr.Resource != "Bulletin" || dbErr.Operation != apperrors.OpCreate.String() || !errors.Is(err, tt.wantCause) {
 					t.Fatalf("saveBulletinToDatabase() error = %v, want a Bulletin create database error caused by %v", err, tt.wantCause)
+				}
+				if tt.wantFileKept && !strings.Contains(dbErr.Unwrap().Error(), path) {
+					t.Fatalf("commit failure cause %q does not name %s", dbErr.Unwrap(), path)
 				}
 			}
 			if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) == tt.wantFileKept {
 				t.Fatalf("rendered file: %v, want kept = %v", statErr, tt.wantFileKept)
 			}
 		})
+	}
+}
+
+// A panic in the transaction body rolls it back, so the rendered file goes too.
+func TestBulletinService_SavePanicRemovesFile(t *testing.T) {
+	t.Parallel()
+	service := &BulletinService{
+		txManager:    failingTxManager{},
+		bulletinRepo: repository.NewBulletinRepository(insertFailingDB(t, nil)),
+	}
+	path := filepath.Join(t.TempDir(), "bulletin.wav")
+	if err := os.WriteFile(path, []byte("RIFF"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	func() {
+		defer func() {
+			if got := recover(); got != "finalize" {
+				t.Fatalf("recovered %v, want the finalize panic", got)
+			}
+		}()
+		_, _ = service.saveBulletinToDatabase(t.Context(), saveBulletinParams{StationID: 1, BulletinPath: path},
+			func(context.Context, int64) error { panic("finalize") })
+	}()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rendered file: %v, want removed", err)
 	}
 }
 
