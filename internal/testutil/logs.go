@@ -11,20 +11,21 @@ import (
 
 // CaptureLogs sends the slog default to a JSON buffer for one test, keeping
 // records at level and above. It swaps process-wide loggers, so it panics in a
-// parallel test.
+// parallel test. The guard does not reach subtests of the capturing test, so
+// those must not call t.Parallel either.
 //
-// It is a variable rather than a function because deadcode only follows the
-// binaries and would report a function used solely by tests.
+// It is a variable rather than a function because deadcode, which runs without
+// -test, reports functions that no binary reaches but not function literals.
 var CaptureLogs = func(t *testing.T, level slog.Level) *bytes.Buffer {
 	t.Helper()
-	// Setenv panics if the test or an ancestor called t.Parallel, and makes a
-	// later t.Parallel call panic.
+	// Nothing reads this variable: Setenv panics if the test or an ancestor
+	// called t.Parallel, and makes a later t.Parallel call panic.
 	t.Setenv("BABBEL_TEST_CAPTURE_LOGS", "1")
 	var buf bytes.Buffer
 	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: level})))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
+	// SetDefault also points the log package at the new handler and clears its
+	// flags; restoring the built-in default handler undoes neither.
 	t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(previousWriter)

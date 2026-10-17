@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
@@ -106,8 +107,12 @@ func TestCleanProcessingLeftoversReportsMissingDirectory(t *testing.T) {
 	if err := service.cleanProcessingLeftovers(time.Now()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleanProcessingLeftovers = %v, want ErrNotExist", err)
 	}
-	if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
-		t.Errorf("directory failure not logged: %s", logs.String())
+	// Unmarshal rejects an empty buffer and a second record. Comparing the
+	// decoded path keeps JSON escaping out of the check.
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil ||
+		record["msg"] != "Failed to read processed audio directory" || record["path"] != dir {
+		t.Errorf("logs = %s, want one directory failure record for %s", logs, dir)
 	}
 }
 
