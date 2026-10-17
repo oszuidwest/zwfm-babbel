@@ -44,9 +44,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 			utils.ProblemNotFound(c, "Audio file")
 			return
 		}
-		dbError := apperrors.Database(config.TableName, apperrors.OpQuery.String(), err)
-		reportDatabaseError(c, dbError, dbError)
-		utils.ProblemInternalServer(c, "Failed to fetch record")
+		handleServiceError(c, apperrors.Database(config.TableName, apperrors.OpQuery.String(), err), "Audio file")
 		return
 	}
 

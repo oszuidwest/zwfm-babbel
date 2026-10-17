@@ -26,8 +26,9 @@ func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string
 	return r.path, r.err
 }
 
-// Both 500 responses of an audio download log one Error record with the
-// cause. Only the failed record lookup counts toward the database alert.
+// Every server failure of an audio download logs one Error record with the
+// cause. Only a failed record lookup counts toward the database alert; a
+// lookup that hits the request deadline returns 504 like other routes.
 func TestServeAudioLogsServerFailures(t *testing.T) {
 	processed := t.TempDir()
 	// A path below a regular file makes stat fail with ENOTDIR, which is not
@@ -39,6 +40,7 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 	tests := []struct {
 		name       string
 		repo       audioPathRepository
+		wantStatus int
 		wantField  string
 		wantCause  string
 		wantAlerts int
@@ -46,15 +48,24 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 		{
 			name:       "record lookup fails",
 			repo:       audioPathRepository{err: errors.New("connection lost")},
+			wantStatus: http.StatusInternalServerError,
 			wantField:  "cause",
 			wantCause:  "connection lost",
 			wantAlerts: 1,
 		},
 		{
-			name:      "file cannot be accessed",
-			repo:      audioPathRepository{path: "story.wav/1.wav"},
-			wantField: "error",
-			wantCause: syscall.ENOTDIR.Error(),
+			name:       "record lookup times out",
+			repo:       audioPathRepository{err: context.DeadlineExceeded},
+			wantStatus: http.StatusGatewayTimeout,
+			wantField:  "msg",
+			wantCause:  "Request timeout",
+		},
+		{
+			name:       "file cannot be accessed",
+			repo:       audioPathRepository{path: "story.wav/1.wav"},
+			wantStatus: http.StatusInternalServerError,
+			wantField:  "error",
+			wantCause:  syscall.ENOTDIR.Error(),
 		},
 	}
 	for _, tt := range tests {
@@ -70,8 +81,8 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stories/1/audio", nil))
 
-			if rec.Code != http.StatusInternalServerError {
-				t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
 			// Unmarshal rejects an empty buffer and a second record.
 			var record map[string]any
