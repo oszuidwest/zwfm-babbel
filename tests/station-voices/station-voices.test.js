@@ -187,6 +187,11 @@ describe('Station-Voices', () => {
       });
       expect(resend.status).toBe(200);
       expect(resend.data).toMatchObject({ station_id: station.id, voice_id: voice.id, mix_point: 2.0 });
+
+      const jingle = await global.api.apiCall('GET', `/station-voices/${stationVoice.id}/audio`, null, {
+        responseType: 'arraybuffer'
+      });
+      expect(jingle.status).toBe(200);
     });
 
     test('when changing station or voice without a jingle, then moves the pair', async () => {

@@ -2947,8 +2947,10 @@ paths:
         Jingle audio file must be uploaded separately via POST /station-voices/{id}/audio.
 
         `station_id` and `voice_id` cannot change while the station-voice has a
-        jingle (409 `stationvoice.jingle_locked`); delete it and create one for
-        the new station and voice instead. Sending the current values is a no-op.
+        jingle (409 `stationvoice.jingle_locked`); create a station-voice for the
+        new station and voice, upload its jingle, then delete this one. Sending
+        the current values is accepted. This check comes first, so such a change
+        gets the 409 even when the new station or voice does not exist.
       tags:
         - Station-Voices
       parameters:
@@ -3976,13 +3978,13 @@ components:
           minimum: 1
           description: |
             New station ID (optional). Cannot change while the station-voice has a
-            jingle (409); sending the current value is a no-op.
+            jingle (409); sending the current value is accepted.
         voice_id:
           type: [integer, 'null']
           minimum: 1
           description: |
             New voice ID (optional). Cannot change while the station-voice has a
-            jingle (409); sending the current value is a no-op.
+            jingle (409); sending the current value is accepted.
         mix_point:
           type: [number, 'null']
           format: float
@@ -5173,10 +5175,10 @@ components:
                 type: "https://babbel.api/problems/stationvoice.jingle_locked"
                 title: "Conflict"
                 status: 409
-                detail: "Station-voice station and voice cannot change while it has a jingle"
+                detail: "station_id and voice_id cannot change while the station-voice has a jingle"
                 instance: "/api/v1/station-voices/1"
                 code: "stationvoice.jingle_locked"
-                hint: "Delete the station-voice and create one for the new station and voice"
+                hint: "Create a station-voice for the new station and voice, upload its jingle, then delete this one"
     RequestTimeout:
       description: Upload did not complete within the time limit
       content:

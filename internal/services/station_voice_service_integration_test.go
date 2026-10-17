@@ -5,6 +5,7 @@ package services
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -16,12 +17,7 @@ import (
 
 func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
-	service := NewStationVoiceService(StationVoiceServiceDeps{
-		TxManager:        repository.NewTxManager(db),
-		StationVoiceRepo: repository.NewStationVoiceRepository(db),
-		StationRepo:      repository.NewStationRepository(db),
-		VoiceRepo:        repository.NewVoiceRepository(db),
-	})
+	service := newStationVoiceTestService(db)
 	mixPoint := 4.5
 	const omit = -1
 
@@ -89,6 +85,58 @@ func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 	}
 }
 
+func TestStationVoiceService_UpdateSeesUncommittedJingle(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newStationVoiceTestService(db)
+	stations, _, stationVoice := createStationVoiceFixture(t, db, noJingle)
+	jingle := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
+
+	// An open transaction that has written the jingle holds the row lock, as
+	// an upload does between its row update and commit.
+	upload := db.Begin()
+	if upload.Error != nil {
+		t.Fatal(upload.Error)
+	}
+	t.Cleanup(func() { upload.Rollback() })
+	if err := upload.Model(&models.StationVoice{}).Where("id = ?", stationVoice.ID).
+		Update("audio_file", jingle).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := service.Update(t.Context(), stationVoice.ID, &UpdateStationVoiceRequest{StationID: &stations[1].ID})
+		errc <- err
+	}()
+	// Let Update reach its read before the jingle commits. Without the lock it
+	// reads no jingle and moves the pair once the upload commits.
+	time.Sleep(200 * time.Millisecond)
+	if err := upload.Commit().Error; err != nil {
+		t.Fatal(err)
+	}
+
+	err := <-errc
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); !ok || conflict.Code != "stationvoice.jingle_locked" {
+		t.Fatalf("Update() error = %v, want stationvoice.jingle_locked conflict", err)
+	}
+	var stored models.StationVoice
+	if err := db.First(&stored, stationVoice.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.StationID != stationVoice.StationID || stored.AudioFile != jingle {
+		t.Fatalf("stored row = %+v, want station %d with jingle %q", stored, stationVoice.StationID, jingle)
+	}
+}
+
+func newStationVoiceTestService(db *gorm.DB) *StationVoiceService {
+	return NewStationVoiceService(StationVoiceServiceDeps{
+		TxManager:        repository.NewTxManager(db),
+		StationVoiceRepo: repository.NewStationVoiceRepository(db),
+		StationRepo:      repository.NewStationRepository(db),
+		VoiceRepo:        repository.NewVoiceRepository(db),
+	})
+}
+
 // fixtureJingle selects the jingle a station-voice fixture refers to.
 type fixtureJingle int
 
@@ -96,8 +144,8 @@ const (
 	noJingle fixtureJingle = iota
 	// pairJingle is named after the fixture's own pair.
 	pairJingle
-	// staleJingle is named after the second station and first voice, as a
-	// pair change before #367 left it.
+	// staleJingle is named after the second station and first voice, as if
+	// the row moved off that pair after its jingle was uploaded.
 	staleJingle
 )
 
@@ -125,6 +173,8 @@ func createStationVoiceFixture(t *testing.T, db *gorm.DB, jingle fixtureJingle) 
 	return stations, voices, stationVoice
 }
 
+// createNamedVoice inserts a voice with the given name and deletes it on
+// cleanup.
 func createNamedVoice(t *testing.T, db *gorm.DB, name string) models.Voice {
 	t.Helper()
 	voice := models.Voice{Name: name}
