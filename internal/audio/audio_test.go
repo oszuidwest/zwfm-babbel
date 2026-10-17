@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -341,9 +342,21 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 	if err := os.Rename(image, imageUpload); err != nil {
 		t.Fatal(err)
 	}
+	// ffprobe detects an audio stream in random bytes from the extension, but
+	// decodes none of it.
+	garbage := make([]byte, 64<<10)
+	_, _ = rand.NewChaCha8([32]byte{}).Read(garbage) // Deterministic bytes.
+	var randomInputs []string
+	for _, ext := range []string{".aac", ".flac"} {
+		path := filepath.Join(tempDir, "random"+ext)
+		if err := os.WriteFile(path, garbage, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		randomInputs = append(randomInputs, path)
+	}
 
 	for kind, convert := range conversions(svc) {
-		for _, input := range []string{text, imageUpload} {
+		for _, input := range append([]string{text, imageUpload}, randomInputs...) {
 			t.Run(kind+" "+filepath.Base(input), func(t *testing.T) {
 				outputPath := filepath.Join(t.TempDir(), "output.wav")
 				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {

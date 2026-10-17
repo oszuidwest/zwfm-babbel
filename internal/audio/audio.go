@@ -43,7 +43,7 @@ const (
 var ErrSilent = errors.New("audio is silent or too quiet")
 
 // ErrUndecodable indicates input that ffprobe cannot open or that has no audio
-// stream, such as a corrupt or non-audio file.
+// stream FFmpeg can decode, such as a corrupt or non-audio file.
 var ErrUndecodable = errors.New("input is not decodable audio")
 
 // loudnormStats carries first-pass measurements into the linear second pass.
@@ -130,23 +130,29 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 }
 
 // probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
-// finds no audio stream in it. FFmpeg's exit status and messages cannot tell
-// such input apart from other failures, and FFmpeg accepts a video-only input.
+// finds no audio stream with a sample rate and channel count. FFmpeg's exit
+// status and messages cannot tell such input apart from other failures, and
+// FFmpeg accepts a video-only input.
 func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	// #nosec G204 - FFprobePath is from config, inputPath is internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
 		"-v", "error",
 		"-select_streams", "a",
-		"-show_entries", "stream=codec_type",
+		"-show_entries", "stream=sample_rate,channels",
 		"-of", "csv=p=0",
 		inputPath,
 	)
 	output, err := cmd.Output()
 	if err == nil {
-		if len(bytes.TrimSpace(output)) == 0 {
-			return fmt.Errorf("%w: no audio stream", ErrUndecodable)
+		// ffprobe reports zero for both when it detected an audio stream, for
+		// example from the file extension, but could not decode any of it.
+		for line := range strings.Lines(string(output)) {
+			rate, channels, _ := strings.Cut(strings.TrimSpace(line), ",")
+			if positiveInt(rate) && positiveInt(channels) {
+				return nil
+			}
 		}
-		return nil
+		return fmt.Errorf("%w: no decodable audio stream", ErrUndecodable)
 	}
 
 	// ffprobe exits with status 1 when it cannot open or parse its input. A
@@ -158,6 +164,11 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 		}
 	}
 	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(ctx, err))
+}
+
+func positiveInt(value string) bool {
+	n, err := strconv.Atoi(value)
+	return err == nil && n > 0
 }
 
 func (s *Service) convertToWAV(
