@@ -48,7 +48,7 @@ function generateQueryTests(schema, setupFn) {
     }
     return items.map(item => item[field]);
   };
-  const sorted = (keys, direction) => [...keys].sort((a, b) => direction * (a - b));
+  const sorted = (keys, direction) => keys.toSorted((a, b) => direction * (a - b));
 
   describe(`${name} Query Parameters`, () => {
     let fixtureIds;
@@ -89,8 +89,7 @@ function generateQueryTests(schema, setupFn) {
         // fixture orders only hold when the page lists exactly the fixtures.
         const listFixtures = async (qs = '') => {
           const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}${qs}`);
-          const byId = (a, b) => a - b;
-          expect(response.data.data.map(item => item.id).sort(byId)).toEqual([...fixtureIds].sort(byId));
+          expect(sorted(response.data.data.map(item => item.id), 1)).toEqual(sorted(fixtureIds, 1));
           return response;
         };
 
