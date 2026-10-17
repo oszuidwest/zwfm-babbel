@@ -136,11 +136,15 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
         if (tiedSortField) {
           if (!query.sortableFields.includes(tiedSortField)) throw new Error(`${name} tiedSortField: ${tiedSortField} is not sortable`);
           // An API that drops the second key sends the same ORDER BY for both
-          // cases, so the ties come back in the same order and one case fails.
+          // directions of id, so the ties come back in the same order and one
+          // case of each pair fails. The descending pair fails an API that
+          // gives only the last key its direction.
           test.each([
-            ['when sorting by multiple fields, then ties follow the second field', `${tiedSortField},id`, 1],
-            ['when sorting with mixed directions, then ties follow the second field', `${tiedSortField},-id`, -1]
-          ])('%s', async (_name, sort, direction) => {
+            ['when sorting by multiple fields, then ties follow the second field', `${tiedSortField},id`, 1, 1],
+            ['when sorting with mixed directions, then ties follow the second field', `${tiedSortField},-id`, 1, -1],
+            ['when sorting descending by multiple fields, then ties follow the second field', `-${tiedSortField},-id`, -1, -1],
+            ['when sorting descending with mixed directions, then ties follow the second field', `-${tiedSortField},id`, -1, 1]
+          ])('%s', async (_name, sort, direction, idDirection) => {
             expect.hasAssertions();
             const response = await listFixtures(`&sort=${sort}`);
             const keys = sortKeys(response, tiedSortField);
@@ -150,7 +154,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
             expect(distinct).toBeGreaterThan(1);
             expect(distinct).toBeLessThan(keys.length);
             const rows = response.data.data.map((item, index) => ({ key: keys[index], id: item.id }));
-            expect(rows).toEqual([...rows].sort((a, b) => a.key - b.key || direction * (a.id - b.id)));
+            expect(rows).toEqual([...rows].sort((a, b) => direction * (a.key - b.key) || idDirection * (a.id - b.id)));
           });
         }
       });
