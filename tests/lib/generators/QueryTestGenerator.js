@@ -71,9 +71,9 @@ function generateQueryTests(schema, setupFn) {
       });
     });
 
-    if (searchable && !query.searchFields?.length) throw new Error(`${name} searchFields: ${endpoint} declares search but lists no fields`);
-    if (query.searchFields?.length > 0) {
-      if (!searchable) throw new Error(`${name} searchFields: ${endpoint} does not declare search`);
+    const hasSearchFields = query.searchFields?.length > 0;
+    if (searchable !== hasSearchFields) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
+    if (hasSearchFields) {
       describe('Search', () => {
         test(`when searching ${searchTerm}, then returns only matches`, async () => {
           expect.hasAssertions();
@@ -311,7 +311,7 @@ function generateQueryTests(schema, setupFn) {
       test('when combining all query types, then accepted', async () => {
         expect.hasAssertions();
         const params = new URLSearchParams();
-        if (query.searchFields?.length > 0) params.append('search', searchTerm);
+        if (hasSearchFields) params.append('search', searchTerm);
         if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
         if (query.filterableFields?.length > 0) params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
         if (query.selectableFields?.length > 0) params.append('fields', query.selectableFields.slice(0, 3).join(','));
