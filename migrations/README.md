@@ -43,5 +43,6 @@ version whose database session runs in UTC. Run it with the server's default
 time zone (`docker exec -i babbel-mysql mysql ... < 015_utc_datetime_columns.sql`
 does), because it reads the stored local times in that zone. It converts
 `bulletins.file_purged_at` and the bulletin job `started_at`/`completed_at`
-from local time to UTC; running it twice shifts them twice. Do not apply it to
-databases created from the current `001` snapshot.
+from local time to UTC; running it twice shifts them twice. It also succeeds
+on databases created from the current `001` snapshot, where those columns
+already hold UTC, so do not apply it there: it would shift them again.
