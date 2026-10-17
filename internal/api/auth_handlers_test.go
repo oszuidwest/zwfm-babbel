@@ -24,51 +24,43 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 		name         string
 		query        url.Values
 		wantLevel    string
-		wantMsg      string
 		wantMessage  string
 		wantExchange bool
-		wantProvider string
 	}{
 		{
-			name:         "cancelled at provider",
-			query:        url.Values{"error": {"access_denied"}, "error_description": {"User cancelled\nlevel=ERROR msg=forged"}},
-			wantLevel:    "WARN",
-			wantMsg:      "OIDC login rejected",
-			wantMessage:  "OIDC login rejected: login was cancelled",
-			wantProvider: "access_denied",
+			name:        "cancelled at provider",
+			query:       url.Values{"error": {"access_denied"}, "error_description": {"User cancelled\nlevel=ERROR msg=forged"}},
+			wantLevel:   "WARN",
+			wantMessage: "OIDC login rejected: login was cancelled",
 		},
 		{
-			name:         "other provider error",
-			query:        url.Values{"error": {"<script>alert(1)</script>"}},
-			wantLevel:    "WARN",
-			wantMsg:      "OIDC login rejected",
-			wantMessage:  "OIDC login rejected: identity provider did not complete the login",
-			wantProvider: "<script>alert(1)</script>",
+			name:        "other provider error",
+			query:       url.Values{"error": {"<script>alert(1)</script>"}},
+			wantLevel:   "WARN",
+			wantMessage: "OIDC login rejected: identity provider did not complete the login",
 		},
 		{
 			name:        "empty provider error with code",
 			query:       url.Values{"error": {""}, "code": {"valid-code"}},
 			wantLevel:   "WARN",
-			wantMsg:     "OIDC login rejected",
 			wantMessage: "OIDC login rejected: identity provider did not complete the login",
 		},
 		{
 			name:        "missing code",
 			query:       url.Values{},
 			wantLevel:   "WARN",
-			wantMsg:     "OIDC login rejected",
 			wantMessage: "OIDC login rejected: missing authorization code",
 		},
 		{
 			name:         "exchange failure",
 			query:        url.Values{"code": {"used-code"}},
 			wantLevel:    "ERROR",
-			wantMsg:      "OIDC login failed",
 			wantMessage:  "Login failed; try again or contact an administrator",
 			wantExchange: true,
 		},
 	}
 
+	wantMsg := map[string]string{"WARN": "OIDC login rejected", "ERROR": "OIDC login failed"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			router, exchanged := newOAuthTestRouter(t)
@@ -92,18 +84,20 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 				t.Fatalf("token endpoint called = %v, want %v", got, tt.wantExchange)
 			}
 
-			entry := findLogEntry(t, logs, tt.wantMsg)
-			if entry["level"] != tt.wantLevel {
-				t.Fatalf("log level = %v, want %s", entry["level"], tt.wantLevel)
+			// Unmarshal rejects an empty buffer and a second record.
+			var entry map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &entry); err != nil ||
+				entry["level"] != tt.wantLevel || entry["msg"] != wantMsg[tt.wantLevel] {
+				t.Fatalf("logs = %s, want one %s %q record", logs, tt.wantLevel, wantMsg[tt.wantLevel])
 			}
-			if tt.wantProvider != "" {
-				if entry["provider_error"] != tt.wantProvider {
-					t.Fatalf("provider_error = %v, want %q", entry["provider_error"], tt.wantProvider)
-				}
-				if entry["provider_error_description"] != tt.query.Get("error_description") {
-					t.Fatalf("provider_error_description = %v, want %q",
-						entry["provider_error_description"], tt.query.Get("error_description"))
-				}
+			// The provider values are logged only when the callback has an error parameter.
+			_, wantProvider := tt.query["error"]
+			providerErr, hasErr := entry["provider_error"]
+			providerDesc, hasDesc := entry["provider_error_description"]
+			if hasErr != wantProvider || hasDesc != wantProvider || wantProvider &&
+				(providerErr != tt.query.Get("error") || providerDesc != tt.query.Get("error_description")) {
+				t.Fatalf("logged provider_error = %v, provider_error_description = %v, want the query values only when error is set",
+					providerErr, providerDesc)
 			}
 		})
 	}
@@ -167,8 +161,8 @@ func startOAuthFlow(t *testing.T, router *gin.Engine) (*http.Cookie, string) {
 	router.ServeHTTP(recorder, request)
 
 	location, err := url.Parse(recorder.Header().Get("Location"))
-	if err != nil {
-		t.Fatalf("parse provider redirect: %v", err)
+	if err != nil || location.Query().Get("state") == "" {
+		t.Fatalf("provider redirect %q (status %d) has no state: %v", recorder.Header().Get("Location"), recorder.Code, err)
 	}
 	cookies := recorder.Result().Cookies()
 	if len(cookies) == 0 {
@@ -192,20 +186,4 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 		log.SetFlags(previousFlags)
 	})
 	return &buf
-}
-
-func findLogEntry(t *testing.T, logs *bytes.Buffer, msg string) map[string]any {
-	t.Helper()
-
-	for line := range strings.Lines(logs.String()) {
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			t.Fatalf("parse log line %q: %v", line, err)
-		}
-		if entry["msg"] == msg {
-			return entry
-		}
-	}
-	t.Fatalf("no log entry with msg %q in:\n%s", msg, logs.String())
-	return nil
 }
