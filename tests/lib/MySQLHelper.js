@@ -43,6 +43,11 @@ function sqlInteger(value, label = 'value') {
   return String(parseSafeInteger(value, label));
 }
 
+function sqlIdentifier(value, label) {
+  if (!/^\w+$/.test(value)) throw new Error(`Invalid ${label}: ${value}`);
+  return value;
+}
+
 function mysqlConfigFromEnv(env = process.env) {
   return {
     user: env.MYSQL_USER || 'babbel',
@@ -124,14 +129,30 @@ function createMySQLExecutor(options = {}) {
     // under the column collation and equal values share a rank. Returns a Map
     // from id to dense rank; ids must not be empty.
     rankByColumn(table, column, ids) {
-      if (!/^\w+$/.test(table)) throw new Error(`Invalid table: ${table}`);
-      if (!/^\w+$/.test(column)) throw new Error(`Invalid column: ${column}`);
       const idList = ids.map(id => sqlInteger(id, 'id')).join(', ');
       const output = this.execSQL(
-        `SELECT id, DENSE_RANK() OVER (ORDER BY ${column}) FROM ${table} WHERE id IN (${idList})`,
+        `SELECT id, DENSE_RANK() OVER (ORDER BY ${sqlIdentifier(column, 'column')}) FROM ${sqlIdentifier(table, 'table')} WHERE id IN (${idList})`,
         { silent: true }
       );
       return new Map(output.trim().split('\n').filter(Boolean).map(line => line.split('\t').map(Number)));
+    },
+
+    // TIMESTAMP columns store whole seconds, so rows created together tie.
+    // rows is a list of [id, {column: seconds}]; each column becomes a base
+    // one minute ago plus that many seconds; offsets under 60 stay in the
+    // past. All rows share the base, so the offsets alone order them. The
+    // session runs in UTC: in a zone with DST, a value inside the skipped
+    // hour is no valid local time and MySQL rejects the update. Columns left
+    // out keep their ON UPDATE behavior.
+    setTimestamps(table, rows) {
+      const tableName = sqlIdentifier(table, 'table');
+      const updates = rows.map(([id, columns]) => {
+        const assignments = Object.entries(columns).map(([column, seconds]) =>
+          `${sqlIdentifier(column, 'column')} = @base + INTERVAL ${sqlInteger(seconds, 'seconds')} SECOND`
+        );
+        return `UPDATE ${tableName} SET ${assignments.join(', ')} WHERE id = ${sqlInteger(id, 'id')}`;
+      });
+      this.execSQL(["SET time_zone = '+00:00'", 'SET @base = NOW() - INTERVAL 1 MINUTE', ...updates].join('; '));
     },
 
     execSQLScript(input, execOptions = {}) {

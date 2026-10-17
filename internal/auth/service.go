@@ -343,7 +343,25 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session.Delete(sessKeyOAuthState)
 	session.Delete(sessKeyFrontendURL)
 
+	// access_denied means the user cancelled or the provider denied the user. Any
+	// other error code points to the provider or the client configuration (RFC
+	// 6749 section 4.1.2.1), which an administrator must see. An empty error
+	// parameter is a malformed callback, not a success response. The provider's
+	// values stay out of the error text, which the user sees for a rejection.
+	if providerErr, ok := c.GetQuery("error"); ok {
+		switch providerErr {
+		case "access_denied":
+			return fmt.Errorf("%w: login was cancelled or denied at the identity provider", ErrLoginRejected)
+		case "":
+			return fmt.Errorf("%w: invalid callback from the identity provider", ErrLoginRejected)
+		}
+		return fmt.Errorf("identity provider returned an error")
+	}
 	code := c.Query("code")
+	if code == "" {
+		return fmt.Errorf("%w: missing authorization code", ErrLoginRejected)
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 
