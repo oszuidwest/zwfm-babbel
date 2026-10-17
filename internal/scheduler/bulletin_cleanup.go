@@ -21,10 +21,10 @@ import (
 
 // processingMinAge must exceed the longest audio conversion. A conversion
 // directory's mtime changes only when an entry inside it is created, renamed
-// or removed, not while FFmpeg writes its output, and FFmpeg has no deadline
-// of its own. Converting a 100 MB upload normally takes minutes, so a day is
-// ample. Removing a live conversion only fails that request; the published
-// audio stays as it was.
+// or removed, not while FFmpeg writes its output, and the conversion runs
+// under the request context without a timeout. Normal conversions take
+// minutes, so a day leaves a wide margin. Removing a live conversion at worst
+// fails that request; the published audio stays as it was.
 const processingMinAge = 24 * time.Hour
 
 // BulletinCleanupService purges expired audio, abandoned conversions and terminal job state while retaining bulletins.
@@ -90,10 +90,11 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	return errors.Join(processingErr, purgeErr, orphanErr, jobsErr)
 }
 
-// cleanProcessingLeftovers removes conversion leftovers that a crash or restart
-// left directly in ProcessedPath: per-request "*.processing" directories, and
-// "*.processing.wav" files from releases before those directories. Symlinks
-// are skipped, and os.RemoveAll does not follow symlinks inside a directory.
+// cleanProcessingLeftovers removes conversion leftovers older than
+// processingMinAge that a crash or restart left directly in ProcessedPath:
+// per-request "*.processing" directories, and "*.processing.wav" files from
+// v0.17.0 and earlier. Symlinks are skipped, and os.RemoveAll does not follow
+// symlinks inside a directory.
 func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
 	dir := s.config.Audio.ProcessedPath
 	entries, err := os.ReadDir(dir)

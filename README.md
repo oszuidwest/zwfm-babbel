@@ -103,7 +103,7 @@ All 13 stories air 3 or 4 times in 12 bulletins (48 slots). The `RAND()` functio
 
 Each bulletin WAV file uses approximately 15 MB. A background service deletes the old files automatically. The database records stay as an audit trail.
 
-- The service operates one time each day. It deletes the bulletin audio files that are older than the retention period.
+- The service runs at startup and then once each day. It deletes the bulletin audio files that are older than the retention period.
 - The service always keeps the latest bulletin of each station.
 - The service removes the files that have no database record.
 - The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.

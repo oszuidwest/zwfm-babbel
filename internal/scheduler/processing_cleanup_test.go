@@ -3,6 +3,7 @@ package scheduler
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"log"
 	"log/slog"
 	"os"
@@ -20,7 +21,7 @@ import (
 func TestCleanProcessingLeftovers(t *testing.T) {
 	// Times are relative to a future now, so entries whose own mtime cannot be
 	// set, such as symlinks, are already old.
-	now := time.Now().Add(72 * time.Hour)
+	now := time.Now().Add(72 * time.Hour).Truncate(time.Second)
 	old := now.Add(-48 * time.Hour)
 	dir := t.TempDir()
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
@@ -125,7 +126,7 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		// #nosec G302 - Test directory needs owner traversal for cleanup.
+		// #nosec G302 - Restore owner write so TempDir cleanup can remove the entries.
 		if err := os.Chmod(dir, 0o700); err != nil {
 			t.Error(err)
 		}
@@ -146,22 +147,8 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 }
 
 func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.T) {
-	// No database connection: an existing GORM error stops every query.
-	db, err := gorm.Open(mysql.New(mysql.Config{
-		SkipInitializeWithVersion: true,
-	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := sqlDB.Close(); err != nil {
-			t.Error(err)
-		}
-	})
+	// An existing GORM error stops every query.
+	db := offlineDB(t)
 	queryErr := errors.New("database unavailable")
 	if err := db.AddError(queryErr); !errors.Is(err, queryErr) {
 		t.Fatal(err)
@@ -182,6 +169,41 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleanup = %v, want both storage and database failures", err)
 	}
+}
+
+func TestBulletinCleanupReportsProcessingFailureAfterDatabaseSuccess(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{Audio: config.AudioConfig{ProcessedPath: filepath.Join(dir, "missing"), OutputPath: dir}}
+	service := NewBulletinCleanupService(offlineDB(t), cfg, nil)
+	err := service.cleanup(t.Context())
+	if pathErr, ok := errors.AsType[*fs.PathError](err); !ok || pathErr.Path != cfg.Audio.ProcessedPath {
+		t.Fatalf("cleanup = %v, want processed audio directory failure", err)
+	}
+}
+
+// offlineDB returns a GORM handle whose queries succeed without rows and never
+// reach a server: DryRun builds statements without running them, and the
+// skipped default transaction keeps deletes from connecting. The DSN names a
+// socket that does not exist, so a query that does connect fails fast.
+func offlineDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(mysql.New(mysql.Config{
+		DSN:                       "babbel@unix(" + filepath.Join(t.TempDir(), "none.sock") + ")/babbel",
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true, SkipDefaultTransaction: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return db
 }
 
 func captureCleanupLogs(t *testing.T) *bytes.Buffer {
