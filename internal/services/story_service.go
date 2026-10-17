@@ -349,7 +349,19 @@ func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStor
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
-	return s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	if errors.Is(err, audio.ErrUndecodable) {
+		// The AudioError message omits its cause, which has ffprobe's message.
+		return undecodableUpload("audio", errors.Unwrap(err))
+	}
+	return err
+}
+
+// undecodableUpload rejects an uploaded file in field that is not decodable
+// audio. The cause carries ffprobe's message for the log.
+func undecodableUpload(field string, cause error) error {
+	return apperrors.InvalidWithCause(field, apperrors.CodeUndecodable,
+		"the file cannot be decoded as audio; check that it is a complete, valid audio file", cause)
 }
 
 // publishAudio converts audio at tempPath and publishes it, recording action

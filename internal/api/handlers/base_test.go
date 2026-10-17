@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
@@ -354,13 +353,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
 		},
-		{
-			name: "undecodable upload",
-			respond: func(c *gin.Context) {
-				handleAudioUploadError(c, apperrors.Audio("StationVoice", "convert", audio.ErrUndecodable), "jingle", "Jingle processing")
-			},
-			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "validation_failed", wantCause: audio.ErrUndecodable.Error(),
-		},
 		// Operational signals.
 		{
 			name:       "ElevenLabs quota",
@@ -386,13 +378,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		{
 			name:       "audio processing failure",
 			respond:    serviceError(apperrors.Audio("Story", "convert", errors.New("ffmpeg failed"))),
-			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed",
-		},
-		{
-			name: "upload processing failure",
-			respond: func(c *gin.Context) {
-				handleAudioUploadError(c, apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")), "audio", "Story")
-			},
 			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed",
 		},
 		{
@@ -615,20 +600,6 @@ func TestHandleServiceError_Audio(t *testing.T) {
 			if problem.Status != tt.wantStatus || problem.Code != tt.wantCode || problem.Hint != tt.wantHint {
 				t.Fatalf("problem = %+v, want status %d, code %q, hint %q", problem, tt.wantStatus, tt.wantCode, tt.wantHint)
 			}
-		})
-	}
-}
-
-func TestHandleAudioUploadError_UndecodableReturns422(t *testing.T) {
-	for _, field := range []string{"audio", "jingle"} {
-		t.Run(field, func(t *testing.T) {
-			c, rec := newProblemContext(t)
-			err := apperrors.Audio("Story", "convert", fmt.Errorf("%w: no audio stream", audio.ErrUndecodable))
-			handleAudioUploadError(c, err, field, "Story")
-			if rec.Code != http.StatusUnprocessableEntity {
-				t.Fatalf("status = %d, want 422", rec.Code)
-			}
-			assertFieldError(t, rec, field, apperrors.CodeUndecodable)
 		})
 	}
 }

@@ -205,6 +205,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, outputPath); err != nil {
+		if errors.Is(err, audio.ErrUndecodable) {
+			return undecodableUpload("jingle", err)
+		}
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
