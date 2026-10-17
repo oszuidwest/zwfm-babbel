@@ -222,8 +222,7 @@ func TestServiceImmediateAlertSendsFirstOccurrenceAndRespectsCooldown(t *testing
 		t.Fatalf("messages during cooldown = %d, want 1", got)
 	}
 
-	// The next daily run is past both the cooldown and the failure window,
-	// so it alerts again on its own occurrence.
+	// The next daily run is past the cooldown, so it alerts again.
 	now = now.Add(24 * time.Hour)
 	svc.Alert(t.Context(), event)
 	mailer.waitForCount(t, 2)
