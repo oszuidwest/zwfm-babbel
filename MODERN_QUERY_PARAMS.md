@@ -30,9 +30,9 @@ GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "pe
 ```
 
 Malformed URL encoding or an unescaped semicolon returns 422 with field `query`
-and code `invalid_format` before checking keys. Unknown keys are then checked,
-whatever their value, and one response names each of them in sorted order;
-a repeated unknown key reports as
+and code `invalid_format` on every endpoint, before checking keys. On list
+endpoints, unknown keys are then checked, whatever their value, and one
+response names each of them in sorted order; a repeated unknown key reports as
 `unknown_field`, not `duplicate`. `/stations/{id}/bulletins` answers the
 removed `latest` key with `unsupported` and a `detail` that points to
 `/stations/{id}/bulletins/latest`.
