@@ -136,9 +136,10 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
         if (tiedSortField) {
           if (!query.sortableFields.includes(tiedSortField)) throw new Error(`${name} tiedSortField: ${tiedSortField} is not sortable`);
           // An API that drops the second key sends the same ORDER BY for both
-          // directions of id, so the ties come back in the same order and one
-          // case of each pair fails. The descending pair fails an API that
-          // gives only the last key its direction.
+          // directions of id. MySQL does not promise an order for the ties, but
+          // in practice returns the same one for the same query, so one case of
+          // each pair fails. The descending pair fails an API that gives only
+          // the last key its direction.
           test.each([
             [`${tiedSortField},id`, 1, 1],
             [`${tiedSortField},-id`, 1, -1],
