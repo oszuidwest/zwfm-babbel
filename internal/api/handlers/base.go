@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -334,12 +335,13 @@ func (h *Handlers) requireTTSEnabled(c *gin.Context) bool {
 	return false
 }
 
-// logError logs an error with structured fields for filtering.
+// logError logs a service error with structured fields for filtering, at the
+// level errorLevel picks for errorType.
 func logError(resource, errorType string, err error) {
 	logErrorWithCause(resource, errorType, err, nil)
 }
 
-// logErrorWithCause logs an error with the underlying cause for internal errors.
+// logErrorWithCause logs like logError and adds the underlying cause.
 func logErrorWithCause(resource, errorType string, err error, cause error) {
 	fields := map[string]any{
 		"resource":   resource,
@@ -348,7 +350,27 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 	if cause != nil {
 		fields["cause"] = cause.Error()
 	}
-	logger.WithFields(fields).Error(err.Error())
+	logger.WithFields(fields).Log(context.Background(), errorLevel(errorType), err.Error())
+}
+
+// errorLevel classifies a handleServiceError error_type, so that only server
+// failures log at Error.
+func errorLevel(errorType string) slog.Level {
+	switch errorType {
+	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted":
+		// Client errors: the response tells the client what to fix and the
+		// access log records the status.
+		return slog.LevelDebug
+	case "rate_limited", "upstream_failed", "no_stories":
+		// Operational signals: ElevenLabs quota, credentials or failures, and
+		// stations without stories. An operator may need to act, and the
+		// services that return these errors send the alerts.
+		return slog.LevelWarn
+	default:
+		// Server failures (database_error, audio_failed, and not_initialized
+		// for a missing migration or seed row) and any unclassified type.
+		return slog.LevelError
+	}
 }
 
 // deferCleanup wraps cleanup to log errors:
