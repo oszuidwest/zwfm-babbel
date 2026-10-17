@@ -471,15 +471,32 @@ describe('Bulletins', () => {
       expect(response.data.errors[0].field).toBe('trashed');
     });
 
-    // Nested bulletin lists search bulletin filenames, so they declare and
-    // accept search.
-    test.each([
-      ['/stations/{id}/bulletins', () => stationId],
-      ['/stories/{id}/bulletins', () => storyId]
-    ])('when listing %s with search, then returns 200', async (template, id) => {
-      expect(declaresQueryParameter(template, 'search')).toBe(true);
-      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?search=x`);
-      expect(response.status).toBe(200);
+    // Nested bulletin lists search bulletin filenames, so a filename finds its
+    // bulletin and a term no filename contains finds none.
+    describe('Search', () => {
+      let bulletin;
+
+      beforeAll(async () => {
+        const response = await global.helpers.generateBulletin(stationId);
+        expect(response.status).toBe(200);
+        bulletin = response.data;
+      });
+
+      test.each([
+        ['/stations/{id}/bulletins', () => stationId],
+        ['/stories/{id}/bulletins', () => storyId]
+      ])('when searching %s, then lists only matching filenames', async (template, id) => {
+        expect(declaresQueryParameter(template, 'search')).toBe(true);
+        const search = term => global.api.apiCall('GET', `${template.replace('{id}', id())}?search=${encodeURIComponent(term)}`);
+
+        const matching = await search(bulletin.filename);
+        expect(matching.status).toBe(200);
+        expect(matching.data.data.map(item => item.id)).toEqual([bulletin.id]);
+
+        const unmatched = await search('__no_such_term__');
+        expect(unmatched.status).toBe(200);
+        expect(unmatched.data.total).toBe(0);
+      });
     });
 
     test.each([
