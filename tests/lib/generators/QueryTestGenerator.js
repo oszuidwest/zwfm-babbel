@@ -1,4 +1,4 @@
-const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
@@ -30,7 +30,6 @@ function generateQueryTests(schema, setupFn) {
     expect(items.length).toBeGreaterThan(0);
     return items;
   };
-  const expectValuesFor = (response, field) => expectItemsWith(response, field).map(item => item[field]);
   const mysql = createMySQLExecutor();
   const table = endpoint.slice(1).replaceAll('-', '_');
   // Returns numeric sort keys. Strings follow the column collation, which
@@ -52,6 +51,7 @@ function generateQueryTests(schema, setupFn) {
 
   describe(`${name} Query Parameters`, () => {
     let fixtureIds;
+    const fixtureScope = () => `filter[id][in]=${fixtureIds.join(',')}`;
 
     beforeAll(async () => {
       fixtureIds = await setupFn();
@@ -140,16 +140,42 @@ function generateQueryTests(schema, setupFn) {
     }
 
     if (query.filterableFields?.length > 0) {
+      // Filter tests list only the fixtures. Every range-filterable field
+      // needs two distinct values among them, or no bound taken from them
+      // could drop a fixture.
       describe('Filtering', () => {
+        let fixtures;
+        const ascending = (a, b) => a - b;
+        const idsOf = items => items.map(item => item.id).sort(ascending);
+        const present = value => value !== null && value !== undefined;
+
+        beforeAll(async () => {
+          const response = await expectStatus(fixtureScope());
+          fixtures = response.data.data;
+          expect(idsOf(fixtures)).toEqual([...fixtureIds].sort(ascending));
+        });
+
+        const fixtureValues = field => {
+          const values = fixtures.map(item => item[field]).filter(present);
+          expect(values.length).toBeGreaterThan(0);
+          return values;
+        };
+        // MySQL comparisons never match NULL, so keep only gets present
+        // values. The expected fixtures must leave one out, or an ignored
+        // filter would pass.
+        const expectFiltered = async (field, qs, keep) => {
+          const expected = idsOf(fixtures.filter(item => present(item[field]) && keep(item[field])));
+          expect(expected.length).toBeLessThan(fixtures.length);
+          const response = await expectStatus(`${fixtureScope()}&${qs}`);
+          expect(idsOf(response.data.data)).toEqual(expected);
+        };
+
         query.filterableFields.forEach(field => {
-          const contract = filters[field];
-          if (!contract) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
-          const notValue = filterExamples(contract).at(-1);
-          test(`when filtering ${field} with not, then excludes`, async () => {
+          if (!filters[field]) throw new Error(`${name} filterableFields: ${field} is not a documented filter for ${endpoint}`);
+          test(`when filtering ${field} with not, then excludes the fixtures with that value`, async () => {
             expect.hasAssertions();
-            const response = await expectStatus(`filter[${field}][not]=${notValue}`);
-            expect(response.data.total).toBeGreaterThan(0);
-            expectValuesFor(response, field).forEach(value => expect(String(value)).not.toBe(notValue));
+            const [excluded] = fixtureValues(field);
+            await expectFiltered(field, `filter[${field}][not]=${encodeURIComponent(excluded)}`, value => value !== excluded);
           });
         });
 
@@ -165,21 +191,23 @@ function generateQueryTests(schema, setupFn) {
           expect(response.data.errors.map(error => [error.field, error.code])).toEqual([[field, code]]);
         });
 
+        // Bounds come from the distinct fixture values: gte the second lowest
+        // drops the lowest, lte the second highest drops the highest, and
+        // between on the second lowest alone also drops the highest when
+        // there are three values.
         query.filterableFields
           .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
           .forEach(field => {
-            const [low, high] = filterExamples(filters[field]).map(Number);
             test.each([
-              [`when filtering ${field} with gte, then filters correctly`, `filter[${field}][gte]=${low}`, value => expect(value).toBeGreaterThanOrEqual(low)],
-              [`when filtering ${field} with lte, then filters correctly`, `filter[${field}][lte]=${high}`, value => expect(value).toBeLessThanOrEqual(high)],
-              [`when filtering ${field} with between, then filters range`, `filter[${field}][between]=${low},${high}`, value => {
-                expect(value).toBeGreaterThanOrEqual(low);
-                expect(value).toBeLessThanOrEqual(high);
-              }]
-            ])('%s', async (_name, qs, verifyValue) => {
+              ['gte', ({ above }) => [above, value => value >= above]],
+              ['lte', ({ below }) => [below, value => value <= below]],
+              ['between', ({ above }) => [`${above},${above}`, value => value === above]]
+            ])(`when filtering ${field} with %s, then lists only the fixtures in range`, async (operator, bounds) => {
               expect.hasAssertions();
-              const response = await expectStatus(qs);
-              expectValuesFor(response, field).forEach(verifyValue);
+              const levels = [...new Set(fixtureValues(field).map(Number))].sort(ascending);
+              expect(levels.length).toBeGreaterThan(1);
+              const [raw, inRange] = bounds({ above: levels[1], below: levels.at(-2) });
+              await expectFiltered(field, `filter[${field}][${operator}]=${raw}`, value => inRange(Number(value)));
             });
           });
 
@@ -231,12 +259,19 @@ function generateQueryTests(schema, setupFn) {
     });
 
     describe('Pagination', () => {
+      // An ignored offset returns the first row instead of the second.
+      test('when paginating with offset, then skips records', async () => {
+        expect.hasAssertions();
+        const page = qs => expectStatus(`${fixtureScope()}&sort=id&${qs}`);
+        const first = await page('limit=2&offset=0');
+        expect(first.data.data).toHaveLength(2);
+        const skipped = await page('limit=1&offset=1');
+        expect(skipped.data).toHaveProperty('offset', 1);
+        expect(skipped.data.data.map(item => item.id)).toEqual([first.data.data[1].id]);
+      });
+
       test.each([
         ['when paginating with limit, then respects limit', 'limit=2', response => expect(response.data.data.length).toBeLessThanOrEqual(2)],
-        ['when paginating with offset, then skips records', 'limit=2&offset=1', response => {
-          expect(response.data.data.length).toBeLessThanOrEqual(2);
-          expect(response.data).toHaveProperty('offset', 1);
-        }],
         ['when offset exceeds data, then returns empty array', 'limit=10&offset=999999', response => expect(response.data.data).toEqual([])]
       ])('%s', async (_name, qs, verify) => {
         expect.hasAssertions();
