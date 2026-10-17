@@ -8,7 +8,7 @@ The query parameter system provides:
 - **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
-- **Search functionality**: `?search=keyword` for full-text search on stations, voices, stories, users and bulletins
+- **Search functionality**: `?search=keyword` for substring search on stations, voices, stories, users and bulletins
 - **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
@@ -30,9 +30,9 @@ GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "pe
 ```
 
 Malformed URL encoding or an unescaped semicolon returns 422 with field `query`
-and code `invalid_format` before checking keys. Unknown keys are then checked,
-whatever their value, and one response names each of them in sorted order;
-a repeated unknown key reports as
+and code `invalid_format` on every endpoint, before checking keys. On list
+endpoints, unknown keys are then checked, whatever their value, and one
+response names each of them in sorted order; a repeated unknown key reports as
 `unknown_field`, not `duplicate`. `/stations/{id}/bulletins` answers the
 removed `latest` key with `unsupported` and a `detail` that points to
 `/stations/{id}/bulletins/latest`.
@@ -175,10 +175,10 @@ An empty `fields=` returns all fields. An empty item, as in `fields=,` or
 ### 4. Search
 
 ```http
-# Full-text search across configured fields
-GET /api/v1/stories?search=breaking news
-GET /api/v1/users?search=john.doe@example.com
-GET /api/v1/stations?search=radio
+# Substring search across each endpoint's search fields
+GET /api/v1/stories?search=breaking%20news # title or text
+GET /api/v1/users?search=john              # username or full_name
+GET /api/v1/stations?search=radio          # name
 ```
 
 Station-voice relationships and audit events have no searchable fields. Their
@@ -265,7 +265,7 @@ GET /api/v1/users?filter[created_at][gte]=2024-01-01&filter[role][in]=admin,edit
 
 ```http
 # Station filtering with search
-GET /api/v1/bulletins?filter[station_id]=1&search=morning&sort=-created_at&fields=id,filename,created_at,station_name
+GET /api/v1/bulletins?filter[station_id]=1&search=20240120&sort=-created_at&fields=id,filename,created_at,station_name
 
 # File size and duration filtering (use gte/lte for ranges)
 GET /api/v1/bulletins?filter[file_size][gte]=1000000&filter[duration_seconds][gte]=60&filter[duration_seconds][lte]=300
@@ -438,7 +438,7 @@ Potential additions for future versions:
 
 1. **Use modern parameters**: Use the modern query system on endpoints that document support for it
 2. **Optimize**: Use field selection to reduce bandwidth
-3. **Search**: Implement full-text search where applicable
+3. **Search**: Use substring search where applicable
 4. **Filter precisely**: Use the filter operators for exact matching
 
 ### For Developers
