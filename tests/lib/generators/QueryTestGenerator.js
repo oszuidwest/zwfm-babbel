@@ -62,34 +62,28 @@ function generateQueryTests(schema, setupFn) {
     // OpenAPI declares search only where the repository has search fields, so
     // query.searchFields must be listed exactly where search is declared.
     const searchable = declaresQueryParameter(endpoint, 'search');
+    if (searchable !== (query.searchFields?.length > 0)) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
     describe('Search scope', () => {
-      test(`when search=x, then returns ${searchable ? 200 : 'a search 422'}`, async () => {
+      // searchTerm may match every row, so only this test notices a search
+      // that does not filter.
+      test(`when search matches nothing, then returns ${searchable ? 'total 0' : 'a search 422'}`, async () => {
         expect.hasAssertions();
-        const response = await expectStatus('search=x', searchable ? 200 : 422);
-        if (searchable) expect(Array.isArray(response.data.data)).toBe(true);
+        const response = await expectStatus('search=__no_such_term__', searchable ? 200 : 422);
+        if (searchable) expect(response.data).toMatchObject({ total: 0, data: [] });
         else expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
       });
     });
 
-    const hasSearchFields = query.searchFields?.length > 0;
-    if (searchable !== hasSearchFields) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
-    if (hasSearchFields) {
+    if (searchable) {
       describe('Search', () => {
         test(`when searching ${searchTerm}, then returns only matches`, async () => {
           expect.hasAssertions();
           const response = await expectStatus(`search=${encodeURIComponent(searchTerm)}`);
           expect(response.data.data.length).toBeGreaterThan(0);
+          const term = searchTerm.toLowerCase();
           for (const item of response.data.data) {
-            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes(searchTerm.toLowerCase()))).toBe(true);
+            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes(term))).toBe(true);
           }
-        });
-
-        // When searchTerm matches every row, only this test notices a search
-        // that does not filter.
-        test('when search matches nothing, then returns total 0', async () => {
-          expect.hasAssertions();
-          const response = await expectStatus('search=__no_such_term__');
-          expect(response.data.total).toBe(0);
         });
       });
     }
@@ -311,7 +305,7 @@ function generateQueryTests(schema, setupFn) {
       test('when combining all query types, then accepted', async () => {
         expect.hasAssertions();
         const params = new URLSearchParams();
-        if (hasSearchFields) params.append('search', searchTerm);
+        if (searchable) params.append('search', searchTerm);
         if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
         if (query.filterableFields?.length > 0) params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
         if (query.selectableFields?.length > 0) params.append('fields', query.selectableFields.slice(0, 3).join(','));
