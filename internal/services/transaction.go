@@ -9,7 +9,7 @@ import (
 
 // inTransaction runs fn in a transaction. fn translates its own errors, which
 // are returned untranslated. A failure to begin or commit the transaction is
-// translated for resource and op, so it reports as a DatabaseError.
+// translated for resource and op, so it is returned as a DatabaseError.
 func inTransaction(ctx context.Context, txManager repository.TxManager, resource string, op apperrors.Operation, fn func(context.Context) error) error {
 	var fnErr error
 	err := txManager.WithTransaction(ctx, func(txCtx context.Context) error {
