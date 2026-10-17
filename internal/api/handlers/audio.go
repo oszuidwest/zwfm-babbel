@@ -44,7 +44,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 			utils.ProblemNotFound(c, "Audio file")
 			return
 		}
-		utils.ProblemInternalServer(c, "Failed to fetch record")
+		handleServiceError(c, apperrors.Database(config.TableName, apperrors.OpQuery.String(), err), "Audio file")
 		return
 	}
 
@@ -76,6 +76,7 @@ func validateAudioFile(c *gin.Context, resource string, id int64, path string) b
 			logger.Warn("Audio file missing for existing record", "resource", resource, "id", id, "path", path)
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
+			logger.Error("Failed to access audio file", "error", err)
 			utils.ProblemInternalServer(c, "Failed to access audio file")
 		}
 		return false

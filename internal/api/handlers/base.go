@@ -302,7 +302,7 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	}
 
 	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
-		logError(ni.Resource, "not_initialized", err)
+		logErrorWithCause(ni.Resource, "not_initialized", err, ni.Unwrap())
 		code := strings.ToLower(ni.Resource) + ".not_initialized"
 		if ni.Code != "" {
 			code = ni.Code
