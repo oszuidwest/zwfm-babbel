@@ -1,9 +1,23 @@
 const stationsSchema = require('../lib/schemas/stations.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
+const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Stations', () => {
+  // Every sortable field rises with the fixture index except name, the
+  // default sort key, which lists the fixtures as 1, 0, 2.
+  const setupQueryTestData = async () => {
+    const ids = [];
+    for (const [index, letter] of ['B', 'A', 'C'].entries()) {
+      const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, index + 3, index + 1);
+      expect(station).not.toBeNull();
+      ids.push(station.id);
+    }
+    createMySQLExecutor().setTimestamps('stations', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    return ids;
+  };
+
   generateCrudTests(stationsSchema);
-  generateQueryTests(stationsSchema);
+  generateQueryTests(stationsSchema, setupQueryTestData);
   generateValidationTests(stationsSchema);
 
   describe('Station Dependencies', () => {

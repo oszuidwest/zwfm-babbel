@@ -140,7 +140,7 @@ Most resource list endpoints support advanced querying:
 
 | Parameter | Type | Example | Description |
 |-----------|------|---------|-------------|
-| ` + "`search`" + ` | string | ` + "`search=news`" + ` | Full-text search on endpoints that declare it |
+| ` + "`search`" + ` | string | ` + "`search=news`" + ` | Substring search on endpoints that declare it |
 | ` + "`filter[field]`" + ` | string | ` + "`filter[station_id]=5`" + ` | Filter by field value |
 | ` + "`filter[field][op]`" + ` | string | ` + "`filter[created_at][gte]=2024-01-01`" + ` | Advanced filtering with operators |
 | ` + "`sort`" + ` | string | ` + "`sort=-created_at`" + ` | Sort results (- for DESC, field:asc/desc) |
@@ -154,7 +154,7 @@ Most resource list endpoints support advanced querying:
 - ` + "`ne`" + `: Not equal
 - ` + "`in`" + `: In list (comma-separated)
 - ` + "`between`" + `: Between two values (comma-separated)
-- ` + "`like`" + `: Case-sensitive substring matching; values are treated literally
+- ` + "`like`" + `: Literal substring matching; case sensitivity follows the column collation (case-insensitive by default)
 
 ### Special Parameters
 

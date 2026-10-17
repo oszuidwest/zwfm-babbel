@@ -103,9 +103,10 @@ All 13 stories air 3 or 4 times in 12 bulletins (48 slots). The `RAND()` functio
 
 Each bulletin WAV file uses approximately 15 MB. A background service deletes the old files automatically. The database records stay as an audit trail.
 
-- The service operates one time each day. It deletes the bulletin audio files that are older than the retention period.
+- The service runs at startup and then once each day. It deletes the bulletin audio files that are older than the retention period.
 - The service always keeps the latest bulletin of each station.
 - The service removes the files that have no database record.
+- The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
 - Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days).
 
 ## Loudness Normalization
@@ -242,14 +243,16 @@ When Babbel maps a service error to an error response, or a bulletin job fails, 
 | Class | Level | Examples |
 |---|---|---|
 | Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or list query parameters that are not valid |
-| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs rejected the credentials or the request, or failed), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job |
+| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs rejected the credentials or the request, or failed), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job, a 404 for audio whose record exists but whose file is missing on disk |
 | Server failure | error | 500 for a database error, an audio processing error, an audio file that Babbel cannot stat on disk or an unhandled error, 503 for a missing migration or seed row, 504 for a timeout, and the other failures of a bulletin job |
 
 A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid list query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
 
-An operational signal is usually not a fault of the client or of Babbel, but it can need action from an administrator. These conditions can also cause alerts, some only after repeated failures, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
+An operational signal is usually not a fault of the client or of Babbel, but it can need action from an administrator. These conditions can also cause alerts, some only after repeated failures, as [Operational e-mail notifications](#operational-e-mail-notifications) describes. A request for story, jingle or bulletin audio whose file is missing on disk logs the resource, the ID and the path at warn level, but does not cause an alert. The log also occurs for a bulletin whose file the cleanup job removed after the retention time. Bulletin generation and the radio automation endpoint send their own alerts for missing files, and log a missing story or bulletin file at error level.
 
 A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel also logs each failed ElevenLabs response, at error level for a 401, 403 or 5xx status. A status that Babbel does not map to a specific response, for example 400, writes a separate log at error level.
+
+An OIDC login logs at warn level when the user cancels or the identity provider denies the user (`access_denied`), or when Babbel rejects the login, for example for an expired login state, a callback with an empty `error` value or a suspended account. Any other `error` value from the identity provider in a callback with a valid login state, for example `server_error` or `invalid_scope`, points to a problem with the provider or the client configuration and logs at error level, like a failed token exchange. The log line has the provider's `error` and `error_description` values, each cut to 1024 bytes. The message to the user does not include these values.
 
 ### Operational e-mail notifications
 
@@ -287,9 +290,11 @@ These conditions cause an immediate alert:
 - There are no stories for a bulletin.
 - The stories in a bulletin do not use the same voice.
 - The audio file of a story is missing, or a jingle is missing.
+- New story audio is live, but Babbel cannot confirm that its database record was saved. The next successful upload or TTS generation for that story sends the recovery.
 - Bulletin generation fails, and the cause is not a timeout.
 - Babbel cannot read the bulletin output directory.
 - The ElevenLabs credentials are not valid.
+- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the default failure window. While the failure continues, each run after the cooldown sends the alert again.
 - A scheduler job stops because of a panic.
 - Babbel locks a user account after too many bad login attempts.
 - The OAuth state or the OAuth token data is not valid.
@@ -299,7 +304,6 @@ These conditions cause a thresholded alert:
 - ElevenLabs sends error 429 or an upstream error, or does not reply in time.
 - Bulletin generation stops because of a timeout.
 - A database request or the database connection fails.
-- The bulletin cleanup job or the story expiration job fails.
 - Babbel cannot parse the FFmpeg loudnorm output.
 - Requests to the public bulletin endpoint use a bad automation key.
 

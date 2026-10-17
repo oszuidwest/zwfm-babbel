@@ -54,7 +54,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	}
 	audioPath := filepath.Join(baseDir, filePath)
 
-	if !validateAudioFile(c, audioPath) {
+	if !validateAudioFile(c, config.TableName, id, audioPath) {
 		return
 	}
 	c.Header("Content-Type", "audio/wav")
@@ -65,11 +65,15 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 }
 
 // validateAudioFile stats an audio file and validates any Range header against
-// its size, writing the Problem Details response when either check fails.
-func validateAudioFile(c *gin.Context, path string) bool {
+// its size, writing the Problem Details response when either check fails. A
+// missing file is logged at warn level with the resource and id.
+func validateAudioFile(c *gin.Context, resource string, id int64, path string) bool {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Warn, not Error: a purged bulletin keeps audio_file, so a
+			// missing file is not always a fault.
+			logger.Warn("Audio file missing for existing record", "resource", resource, "id", id, "path", path)
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
 			logger.Error("Failed to access audio file", "error", err)
