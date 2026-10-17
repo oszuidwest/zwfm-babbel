@@ -26,8 +26,8 @@ func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string
 	return r.path, r.err
 }
 
-// Every server failure of an audio download logs one Error record with the
-// cause. Only a failed record lookup counts toward the database alert; a
+// A failed record lookup and a failed stat of the audio file each log one
+// Error record. Only the lookup counts toward the database alert, and a
 // lookup that hits the request deadline returns 504 like other routes.
 func TestServeAudioLogsServerFailures(t *testing.T) {
 	processed := t.TempDir()
