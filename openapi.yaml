@@ -70,11 +70,14 @@ info:
       `errors[].field`: `page=2` fails as `page` and `status=deleted` as
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
-    - Single-resource endpoints, such as `GET /stations/{id}`,
-      `GET /stations/{id}/bulletins/latest` and the audio downloads, read
-      no query keys. Every key fails as `unknown_field`, even with an
-      empty value and including list options: `fields=name` fails as
-      `fields` and `trashed=with` as `trashed`.
+    - Single-resource endpoints under `/api/v1`, such as
+      `GET /stations/{id}`, `GET /stations/{id}/bulletins/latest` and the
+      `/stories/{id}/audio`, `/station-voices/{id}/audio` and
+      `/bulletins/{id}/audio` downloads, read no query keys. Every key
+      fails as `unknown_field`, even with an empty value and including list
+      options: `fields=name` fails as `fields` and `trashed=with` as
+      `trashed`. `GET /public/stations/{id}/bulletin.wav` is not affected;
+      it reads `key` and `max_age`.
     - Malformed URL encoding or an unescaped semicolon fails with 422
       `invalid_format` and field `query` before checking keys.
     - Unknown keys are then checked, whatever their value, and one
