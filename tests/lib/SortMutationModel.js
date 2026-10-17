@@ -8,7 +8,8 @@
  *
  * @param {Object<string, number[]>} keysByField Numeric sort keys per field,
  *   one per row, with the rows in the same order for every field.
- * @returns {Array<[string, string]>} [field, column] pairs no sort test notices.
+ * @returns {Array<[string, string]>} [field, column] pairs no sort test is
+ *   sure to notice.
  */
 function unnoticedSortMappings(keysByField) {
   const fields = Object.keys(keysByField);

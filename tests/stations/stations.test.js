@@ -3,9 +3,10 @@ const { generateCrudTests, generateQueryTests, generateValidationTests } = requi
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Stations', () => {
-  // Every sortable field lists the fixtures in its own order, so a field
-  // mapped to another field's column fails a sort test. name, the default
-  // sort key, lists them as 1, 0, 3, 2; id rises with the fixture index.
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. name, the
+  // default sort key, lists them as 1, 0, 3, 2; id rises with the fixture
+  // index.
   const setupQueryTestData = async () => {
     const fixtures = [
       // [name, max_stories_per_block, pause_seconds, created_at, updated_at]

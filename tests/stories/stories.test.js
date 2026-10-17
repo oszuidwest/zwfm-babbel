@@ -78,8 +78,8 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id } : null;
   };
 
-  // Every sortable field lists the fixtures in its own order, so a field
-  // mapped to another field's column fails a sort test. created_at, the
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. created_at, the
   // default sort key, lists them as 2, 3, 0, 1 (newest first); id rises with
   // the fixture index. The two drafts tie on status, which still leaves every
   // other field a pair of fixtures that status orders the other way.

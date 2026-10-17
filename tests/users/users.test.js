@@ -3,11 +3,12 @@ const { generateCrudTests, generateQueryTests, generateTrashedTests, generateVal
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Users', () => {
-  // Every sortable field lists the fixtures in its own order, so a field
-  // mapped to another field's column fails a sort test. username, the default
-  // sort key, lists them as 1, 0, 3, 2; id rises with the fixture index.
-  // Roles tie, but every other field sorts some editor after some viewer. No
-  // admin: the last admin tests expect a single one.
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. username, the
+  // default sort key, lists them as 1, 0, 3, 2; id rises with the fixture
+  // index. The editors and the viewers tie on role, but every other field
+  // sorts some editor after some viewer. No admin: the last admin tests
+  // expect a single one.
   const setupQueryTestData = async () => {
     const stamp = `${Date.now()}${process.pid}`;
     const fixtures = [

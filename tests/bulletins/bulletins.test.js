@@ -38,10 +38,10 @@ describe('Bulletins', () => {
     return { station, voice, stationVoice };
   };
 
-  // Every sortable field lists the fixtures in its own order, so a field
-  // mapped to another field's column fails a sort test. id rises with the
-  // fixture index, station_id runs high, low, low and created_at, the default
-  // sort key, lists them as 1, 0, 2 (newest first).
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. id rises with
+  // the fixture index, station_id runs high, low, low and created_at, the
+  // default sort key, lists them as 1, 0, 2 (newest first).
   const setupQueryTestData = async () => {
     const { station, voice } = await global.helpers.createBroadcastFixture(global.resources, {
       stationName: 'QueryBulletinStation',

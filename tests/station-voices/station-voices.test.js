@@ -12,10 +12,10 @@ describe('Station-Voices', () => {
     };
   };
 
-  // Every sortable field lists the fixtures in its own order, so a field
-  // mapped to another field's column fails a sort test. id, the default sort
-  // key, rises with the fixture index; station and voice ids rise with their
-  // index in the lists below.
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. id, the default
+  // sort key, rises with the fixture index; station and voice ids rise with
+  // their index in stations and voices.
   const setupQueryTestData = async () => {
     const stations = [];
     const voices = [];
@@ -25,7 +25,7 @@ describe('Station-Voices', () => {
     }
 
     const fixtures = [
-      // [station, voice, mix_point, created_at, updated_at]
+      // [station index, voice index, mix_point, created_at, updated_at]
       [2, 1, 2.5, 1, 4],
       [0, 3, 3.0, 0, 6],
       [3, 0, 1.0, 3, 7],
