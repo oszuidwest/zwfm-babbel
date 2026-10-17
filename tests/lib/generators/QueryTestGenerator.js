@@ -140,21 +140,22 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
           // case of each pair fails. The descending pair fails an API that
           // gives only the last key its direction.
           test.each([
-            ['when sorting by multiple fields, then ties follow the second field', `${tiedSortField},id`, 1, 1],
-            ['when sorting with mixed directions, then ties follow the second field', `${tiedSortField},-id`, 1, -1],
-            ['when sorting descending by multiple fields, then ties follow the second field', `-${tiedSortField},-id`, -1, -1],
-            ['when sorting descending with mixed directions, then ties follow the second field', `-${tiedSortField},id`, -1, 1]
-          ])('%s', async (_name, sort, direction, idDirection) => {
+            [`${tiedSortField},id`, 1, 1],
+            [`${tiedSortField},-id`, 1, -1],
+            [`-${tiedSortField},-id`, -1, -1],
+            [`-${tiedSortField},id`, -1, 1]
+          ])('when sorting by %s, then ties follow the second field', async (sort, direction, idDirection) => {
             expect.hasAssertions();
             const response = await listFixtures(`&sort=${sort}`);
             const keys = sortKeys(response, tiedSortField);
             expect(keys).toHaveLength(fixtureIds.length);
+            expect(keys.every(Number.isFinite)).toBe(true);
             // Two distinct keys check the first field, a shared one the second.
             const distinct = new Set(keys).size;
             expect(distinct).toBeGreaterThan(1);
             expect(distinct).toBeLessThan(keys.length);
             const rows = response.data.data.map((item, index) => ({ key: keys[index], id: item.id }));
-            expect(rows).toEqual([...rows].sort((a, b) => direction * (a.key - b.key) || idDirection * (a.id - b.id)));
+            expect(rows).toEqual(rows.toSorted((a, b) => direction * (a.key - b.key) || idDirection * (a.id - b.id)));
           });
         }
       });
