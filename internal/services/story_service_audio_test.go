@@ -98,8 +98,8 @@ func lavfiFixture(t *testing.T, ffmpegPath, source string) string {
 	return path
 }
 
-// failingTxManager fails the publication transaction: before fn when it
-// cannot begin, or after fn succeeds when it cannot commit.
+// failingTxManager fails a transaction: before fn when it cannot begin, or
+// after fn succeeds when it cannot commit.
 type failingTxManager struct {
 	beginFails bool
 	err        error
