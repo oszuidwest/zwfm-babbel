@@ -17,7 +17,8 @@ function generateQueryTests(schema, setupFn) {
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
-  // Must match a fixture in one of query.searchFields.
+  // Must occur in a query.searchFields value of at least one row. The default
+  // matches rows that other tests leave behind, not only the fixtures.
   const searchTerm = query.searchTerm ?? 'test';
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
@@ -60,13 +61,14 @@ function generateQueryTests(schema, setupFn) {
     });
 
     // OpenAPI declares search only where the repository has search fields, so
-    // query.searchFields must be listed exactly where search is declared.
+    // query.searchFields must be non-empty exactly where search is declared.
     const searchable = declaresQueryParameter(endpoint, 'search');
     if (searchable !== (query.searchFields?.length > 0)) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
     describe('Search scope', () => {
-      // searchTerm may match every row, so only this test notices a search
-      // that does not filter.
-      test(`when search matches nothing, then returns ${searchable ? 'total 0' : 'a search 422'}`, async () => {
+      // searchTerm may match every row (bulletins search '.wav'), so the Search
+      // test cannot tell an ignored search from a working one; a term no row
+      // contains can.
+      test(searchable ? 'when search matches nothing, then returns total 0' : 'when searching, then returns a search 422', async () => {
         expect.hasAssertions();
         const response = await expectStatus('search=__no_such_term__', searchable ? 200 : 422);
         if (searchable) expect(response.data).toMatchObject({ total: 0, data: [] });
@@ -76,7 +78,7 @@ function generateQueryTests(schema, setupFn) {
 
     if (searchable) {
       describe('Search', () => {
-        test(`when searching ${searchTerm}, then returns only matches`, async () => {
+        test(`when searching "${searchTerm}", then returns only matches`, async () => {
           expect.hasAssertions();
           const response = await expectStatus(`search=${encodeURIComponent(searchTerm)}`);
           expect(response.data.data.length).toBeGreaterThan(0);

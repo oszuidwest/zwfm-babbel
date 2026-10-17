@@ -10,7 +10,8 @@ module.exports = {
 
   query: {
     searchFields: ['filename'],
-    // Bulletin filenames are bulletin_<station>_<timestamp>.wav.
+    // Every generated filename ends in .wav (utils.BulletinFilename), so this
+    // matches every bulletin.
     searchTerm: '.wav',
     sortableFields: ['id', 'station_id', 'created_at'],
     filterableFields: ['id', 'station_id'],

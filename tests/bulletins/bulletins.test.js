@@ -444,6 +444,7 @@ describe('Bulletins', () => {
 
   describe('Station Bulletin Endpoints', () => {
     let stationId;
+    let stationName;
     let storyId;
     let bulletin;
 
@@ -455,6 +456,7 @@ describe('Bulletins', () => {
         storyText: 'Station endpoint test story'
       });
       stationId = station.id;
+      stationName = station.name;
       storyId = story.id;
 
       const response = await global.helpers.generateBulletin(stationId);
@@ -476,20 +478,21 @@ describe('Bulletins', () => {
       expect(response.data.errors[0].field).toBe('trashed');
     });
 
-    // Nested bulletin lists search bulletin filenames, so a filename finds its
-    // bulletin and a term no filename contains finds none.
+    // Nested bulletin lists search only bulletin filenames, within the parent:
+    // a term every filename contains lists just this fixture's bulletin, and
+    // the station name, which no filename contains, lists none.
     test.each([
       ['/stations/{id}/bulletins', () => stationId],
       ['/stories/{id}/bulletins', () => storyId]
-    ])('when searching %s, then lists only matching filenames', async (template, id) => {
+    ])('when searching %s, then lists only its bulletins with matching filenames', async (template, id) => {
       expect(declaresQueryParameter(template, 'search')).toBe(true);
       const search = term => global.api.apiCall('GET', `${template.replace('{id}', id())}?search=${encodeURIComponent(term)}`);
 
-      const matching = await search(bulletin.filename);
+      const matching = await search(bulletinsSchema.query.searchTerm);
       expect(matching.status).toBe(200);
-      expect(matching.data.data.map(item => item.id)).toEqual([bulletin.id]);
+      expect(matching.data).toMatchObject({ total: 1, data: [{ id: bulletin.id }] });
 
-      const unmatched = await search('__no_such_term__');
+      const unmatched = await search(stationName);
       expect(unmatched.status).toBe(200);
       expect(unmatched.data).toMatchObject({ total: 0, data: [] });
     });
