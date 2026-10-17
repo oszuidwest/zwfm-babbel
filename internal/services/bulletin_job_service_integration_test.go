@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -64,7 +65,7 @@ func TestBulletinJobService_FailureLogLevel(t *testing.T) {
 				t.Fatalf("ClaimNext() = %#v, %v; want job %d", job, err, queued.ID)
 			}
 
-			logs := captureLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelInfo)
 
 			if err := service.processJob(t.Context(), job); err != nil {
 				t.Fatalf("processJob() error = %v", err)

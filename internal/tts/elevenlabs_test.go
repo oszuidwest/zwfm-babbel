@@ -1,20 +1,17 @@
 package tts
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 type generateSpeechRequestCase struct {
@@ -459,46 +456,13 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 func captureLogEntry(t *testing.T, emit func()) map[string]any {
 	t.Helper()
 
-	originalStdout := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create log capture pipe: %v", err)
-	}
-	defer func() {
-		os.Stdout = originalStdout
-		_ = logger.Initialize("debug", false)
-		_ = reader.Close()
-		_ = writer.Close()
-	}()
-
-	os.Stdout = writer
-	if err := logger.Initialize("debug", false); err != nil {
-		t.Fatalf("initialize capture logger: %v", err)
-	}
-
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 	emit()
 
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close log capture writer: %v", err)
-	}
-	os.Stdout = originalStdout
-	if err := logger.Initialize("debug", false); err != nil {
-		t.Fatalf("restore logger: %v", err)
-	}
-
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
-		t.Fatalf("read captured log: %v", err)
-	}
-
-	line := bytes.TrimSpace(buf.Bytes())
-	if len(line) == 0 {
-		t.Fatal("captured log is empty")
-	}
-
+	// Unmarshal rejects an empty buffer and a second record.
 	var entry map[string]any
-	if err := json.Unmarshal(line, &entry); err != nil {
-		t.Fatalf("decode captured log %q: %v", line, err)
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("decode captured log %q: %v", logs, err)
 	}
 	return entry
 }
