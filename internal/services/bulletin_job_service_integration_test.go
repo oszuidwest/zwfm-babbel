@@ -88,7 +88,14 @@ func TestBulletinJobService_FailureLogLevel(t *testing.T) {
 // cleanup.
 func createTestStation(t *testing.T, db *gorm.DB) models.Station {
 	t.Helper()
-	station := models.Station{Name: t.Name(), MaxStoriesPerBlock: 5}
+	return createNamedStation(t, db, t.Name())
+}
+
+// createNamedStation inserts a station with the given name and deletes it on
+// cleanup.
+func createNamedStation(t *testing.T, db *gorm.DB, name string) models.Station {
+	t.Helper()
+	station := models.Station{Name: name, MaxStoriesPerBlock: 5}
 	if err := db.Create(&station).Error; err != nil {
 		t.Fatal(err)
 	}
