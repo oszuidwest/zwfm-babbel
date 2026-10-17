@@ -31,15 +31,16 @@ type StoryUpdate struct {
 type StoryCreateData struct {
 	ActorUserID *int64
 
-	Title      string
-	Text       string
-	VoiceID    *int64
-	Status     string
-	StartDate  time.Time
-	EndDate    time.Time
-	Weekdays   models.Weekdays
-	IsBreaking bool
-	Metadata   *datatypes.JSONMap
+	Title          string
+	Text           string
+	VoiceID        *int64
+	Status         string
+	StartDate      time.Time
+	EndDate        time.Time
+	Weekdays       models.Weekdays
+	IsBreaking     bool
+	Metadata       *datatypes.JSONMap
+	IdempotencyKey *string
 }
 
 // StoryRepository provides story data access using GORM.
@@ -54,18 +55,19 @@ func NewStoryRepository(db *gorm.DB) *StoryRepository {
 	}
 }
 
-// Create inserts a story and reloads voice data when a voice is assigned.
+// Create inserts a story; an idempotency key already in use fails with ErrDuplicateKey.
 func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
-		Title:      data.Title,
-		Text:       data.Text,
-		VoiceID:    data.VoiceID,
-		Status:     models.StoryStatus(data.Status),
-		StartDate:  models.Date(data.StartDate),
-		EndDate:    models.Date(data.EndDate),
-		Weekdays:   data.Weekdays,
-		IsBreaking: data.IsBreaking,
-		Metadata:   data.Metadata,
+		Title:          data.Title,
+		Text:           data.Text,
+		VoiceID:        data.VoiceID,
+		Status:         models.StoryStatus(data.Status),
+		StartDate:      models.Date(data.StartDate),
+		EndDate:        models.Date(data.EndDate),
+		Weekdays:       data.Weekdays,
+		IsBreaking:     data.IsBreaking,
+		Metadata:       data.Metadata,
+		IdempotencyKey: data.IdempotencyKey,
 	}
 
 	err := r.inTx(ctx, func(ctx context.Context) error {
@@ -77,21 +79,25 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		if err != nil {
 			return err
 		}
-		if err := RecordAudit(ctx, models.AuditEvent{
+		return RecordAudit(ctx, models.AuditEvent{
 			UserID: data.ActorUserID, EntityType: models.AuditEntityStory, EntityID: story.ID, Action: models.AuditActionCreate,
-		}, nil, values); err != nil {
-			return err
-		}
-		if story.VoiceID != nil {
-			return ParseDBError(db.Preload("Voice").First(story, story.ID).Error)
-		}
-		return nil
+		}, nil, values)
 	})
 	if err != nil {
 		return nil, err
 	}
-
 	return story, nil
+}
+
+// GetIDByIdempotencyKey returns the ID of the story created with key, deleted
+// stories included, or ErrNotFound.
+func (r *StoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
+	var story models.Story
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Unscoped().Select("id").Where("idempotency_key = ?", key).Take(&story).Error; err != nil {
+		return 0, ParseDBError(err)
+	}
+	return story.ID, nil
 }
 
 // GetByID loads a story with its associated voice.
@@ -173,25 +179,17 @@ type StoryAudioUpdate struct {
 
 	AudioFile       string
 	DurationSeconds float64
-	// Publish runs after the row and audit writes, before commit. A publish
-	// failure rolls them back; a commit failure cannot undo publication.
-	Publish func() error
 }
 
-// UpdateAudio updates the row and audit event in one database transaction.
-// Publication precedes commit; if commit fails, the new file remains and
-// the database outcome may be unknown.
+// UpdateAudio updates the row and records the audit event atomically. Inside
+// a caller's transaction the row stays locked until that transaction commits,
+// so the caller can publish the file before commit in row-lock order.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
-	return r.inTx(ctx, func(ctx context.Context) error {
-		if err := r.auditedWrite(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
-			return r.UpdateByID(ctx, id, map[string]any{
-				"audio_file":       u.AudioFile,
-				"duration_seconds": u.DurationSeconds,
-			})
-		}); err != nil {
-			return err
-		}
-		return u.Publish()
+	return r.withAudit(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
+		return r.UpdateByID(ctx, id, map[string]any{
+			"audio_file":       u.AudioFile,
+			"duration_seconds": u.DurationSeconds,
+		})
 	})
 }
 

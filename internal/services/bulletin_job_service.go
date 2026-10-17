@@ -282,7 +282,13 @@ func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.B
 		return s.releaseInterrupted(workerCtx, job)
 	default:
 		code, detail := bulletinJobError(err)
-		logger.Error("Bulletin generation job failed", "job_id", job.ID, "station_id", job.StationID, "error", err)
+		// A station without stories is an operational signal, as on the HTTP
+		// path: generation already alerted, so it logs at Warn.
+		logFailure := logger.Error
+		if isNoStories(err) {
+			logFailure = logger.Warn
+		}
+		logFailure("Bulletin generation job failed", "job_id", job.ID, "station_id", job.StationID, "error", err)
 		return s.recordFailure(workerCtx, job, code, detail)
 	}
 }
