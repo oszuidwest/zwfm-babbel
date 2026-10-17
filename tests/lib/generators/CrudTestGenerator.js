@@ -78,6 +78,18 @@ function generateCrudTests(schema, setupFn = null) {
         expect(response.data).toHaveProperty('id', sharedResource.id);
       });
 
+      // GET /{resource}/{id} reads no query keys, list options included.
+      test('when fetching by ID with query keys, then the 422 names each key', async () => {
+        const response = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}?fields=name&bogus=1&search=nomatch`);
+
+        expect(response.status).toBe(422);
+        expect(response.data.errors.map(error => [error.field, error.code])).toEqual([
+          ['bogus', 'unknown_field'],
+          ['fields', 'unknown_field'],
+          ['search', 'unknown_field']
+        ]);
+      });
+
       test('when fetching a non-existent ID, then returns a 404 problem', async () => {
         const response = await global.api.apiCall('GET', `${endpoint}/999999`);
 

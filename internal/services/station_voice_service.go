@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -30,6 +29,7 @@ type StationVoiceServiceDeps struct {
 type stationVoiceRepository interface {
 	Create(context.Context, int64, int64, float64) (*models.StationVoice, error)
 	GetByID(context.Context, int64) (*models.StationVoice, error)
+	GetForUpdate(context.Context, int64) (*models.StationVoice, error)
 	Update(context.Context, int64, *repository.StationVoiceUpdate) error
 	IsCombinationTaken(context.Context, int64, int64, *int64) (bool, error)
 	GetStationVoiceIDs(context.Context, int64) (int64, int64, string, error)
@@ -82,7 +82,7 @@ type UpdateStationVoiceRequest struct {
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
 	var result *models.StationVoice
 
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "StationVoice", apperrors.OpCreate, func(txCtx context.Context) error {
 		if err := requireReference(txCtx, s.stationRepo.Exists, "StationVoice", "station_id", req.StationID); err != nil {
 			return err
 		}
@@ -118,27 +118,48 @@ func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoic
 }
 
 // Update applies relationship changes while preserving the uniqueness of the
-// final station/voice pair.
+// final station/voice pair. The jingle file is named after the pair, so the
+// station and voice cannot change once a jingle exists.
 func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateStationVoiceRequest) (*models.StationVoice, error) {
-	current, err := s.GetByID(ctx, id)
+	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		// The row lock makes a jingle write that has not committed yet finish
+		// first, so the check sees it. An upload that loaded the pair before
+		// this commit still writes that pair's filename afterwards.
+		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
+		if err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
+		}
+		// No pair change can succeed on this row, so report that before
+		// validating the new pair.
+		if current.AudioFile != "" && changesPair(current, req) {
+			return apperrors.Conflict("stationvoice.jingle_locked",
+				"station_id and voice_id cannot change while the station-voice has a jingle",
+				"Create a station-voice for the new station and voice, upload its jingle, then delete this one")
+		}
+		if err := s.validateUpdateRequest(txCtx, id, current, req); err != nil {
+			return err
+		}
+		updates := &repository.StationVoiceUpdate{
+			StationID: req.StationID,
+			VoiceID:   req.VoiceID,
+			MixPoint:  req.MixPoint,
+		}
+		if err := s.stationVoiceRepo.Update(txCtx, id, updates); err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.validateUpdateRequest(ctx, id, current, req); err != nil {
-		return nil, err
-	}
-
-	updates := &repository.StationVoiceUpdate{
-		StationID: req.StationID,
-		VoiceID:   req.VoiceID,
-		MixPoint:  req.MixPoint,
-	}
-	if err := s.stationVoiceRepo.Update(ctx, id, updates); err != nil {
-		return nil, apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
-	}
-
 	return s.GetByID(ctx, id)
+}
+
+// changesPair reports whether req moves stationVoice to another station or voice.
+func changesPair(stationVoice *models.StationVoice, req *UpdateStationVoiceRequest) bool {
+	return (req.StationID != nil && *req.StationID != stationVoice.StationID) ||
+		(req.VoiceID != nil && *req.VoiceID != stationVoice.VoiceID)
 }
 
 // validateUpdateRequest checks that changed parents exist and that the final
@@ -219,23 +240,14 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // already-loaded station-voice relationship. The database stores the
 // canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
-	// Convert beside the live file for atomic rename and WAV muxer selection.
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	// A directory per request keeps concurrent uploads for this station-voice
-	// from overwriting or removing each other's output. FFmpeg creates the file
-	// in it, so the published mode follows the umask.
-	convertedDir, err := os.MkdirTemp(filepath.Dir(outputPath),
-		fmt.Sprintf("station_%d_voice_%d_*.processing", stationVoice.StationID, stationVoice.VoiceID))
+	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
+		fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
 	if err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
-			logger.Error("Failed to remove temporary jingle directory", "path", convertedDir, "error", rmErr)
-		}
-	}()
+	defer cleanup()
 	filename := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
-	convertedPath := filepath.Join(convertedDir, filename)
 
 	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, convertedPath); err != nil {
 		if errors.Is(err, audio.ErrUndecodable) {

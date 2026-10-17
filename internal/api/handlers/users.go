@@ -26,7 +26,7 @@ func (h *Handlers) ListUsers(c *gin.Context) {
 // GetUser returns a single user by ID.
 func (h *Handlers) GetUser(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 

@@ -113,7 +113,7 @@ func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
 	var cleanupErr error
 	for _, entry := range entries {
 		name := entry.Name()
-		isDirName := strings.HasSuffix(name, ".processing")
+		isDirName := strings.HasSuffix(name, utils.ProcessingDirSuffix)
 		if !isDirName && !strings.HasSuffix(name, ".processing.wav") {
 			continue
 		}

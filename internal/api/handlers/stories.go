@@ -30,7 +30,7 @@ func (h *Handlers) ListStories(c *gin.Context) {
 // GetStory returns a story with its voice and computed audio URL.
 func (h *Handlers) GetStory(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 

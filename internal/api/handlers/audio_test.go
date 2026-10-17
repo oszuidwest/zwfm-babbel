@@ -3,9 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +24,82 @@ type audioPathRepository struct {
 
 func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string, error) {
 	return r.path, r.err
+}
+
+// A failed record lookup and a failed stat of the audio file each log one
+// Error record. Only the lookup counts toward the database alert, and a
+// lookup that hits the request deadline returns 504 like other routes.
+func TestServeAudioLogsServerFailures(t *testing.T) {
+	processed := t.TempDir()
+	// A path below a regular file makes stat fail with ENOTDIR, which is not
+	// a missing file and also fails when the tests run as root.
+	if err := os.WriteFile(filepath.Join(processed, "story.wav"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		repo       audioPathRepository
+		wantStatus int
+		wantField  string
+		wantCause  string
+		wantAlerts int
+	}{
+		{
+			name:       "record lookup fails",
+			repo:       audioPathRepository{err: errors.New("connection lost")},
+			wantStatus: http.StatusInternalServerError,
+			wantField:  "cause",
+			wantCause:  "connection lost",
+			wantAlerts: 1,
+		},
+		{
+			name:       "record lookup times out",
+			repo:       audioPathRepository{err: context.DeadlineExceeded},
+			wantStatus: http.StatusGatewayTimeout,
+			wantField:  "msg",
+			wantCause:  "Request timeout",
+		},
+		{
+			name:       "file cannot be accessed",
+			repo:       audioPathRepository{path: "story.wav/1.wav"},
+			wantStatus: http.StatusInternalServerError,
+			wantField:  "error",
+			wantCause:  syscall.ENOTDIR.Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logs := captureLogs(t)
+			alerts := &automationAlertRecorder{}
+			h := &Handlers{audioRepo: tt.repo, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: processed}}}
+			router := gin.New()
+			router.GET("/stories/:id/audio", func(c *gin.Context) {
+				c.Set(alertContextKey, alerts)
+				h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+			})
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stories/1/audio", nil))
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			// Unmarshal rejects an empty buffer and a second record.
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" {
+				t.Fatalf("logs = %s, want one ERROR record", logs)
+			}
+			if cause, _ := record[tt.wantField].(string); !strings.Contains(cause, tt.wantCause) {
+				t.Fatalf("record = %v, want %s containing %q", record, tt.wantField, tt.wantCause)
+			}
+			if len(alerts.events) != tt.wantAlerts {
+				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
+			}
+			if tt.wantAlerts > 0 && alerts.events[0].Key != "database:request:GET /stories/:id/audio" {
+				t.Fatalf("alert key = %q, want the route's database alert", alerts.events[0].Key)
+			}
+		})
+	}
 }
 
 // A row that names a file missing on disk returns 404 and logs one Warn

@@ -201,8 +201,9 @@ func assertUmaskMode(t *testing.T, path string) {
 	}
 }
 
-// failingTxManager fails the publication transaction: before fn when it
-// cannot begin, or after fn succeeds when it cannot commit.
+// failingTxManager returns err instead of beginning (beginFails) or, after fn
+// succeeds, instead of committing. With a nil err it runs fn like a working
+// transaction.
 type failingTxManager struct {
 	beginFails bool
 	err        error

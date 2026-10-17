@@ -261,7 +261,7 @@ func (s *UserService) Update(ctx context.Context, id int64, req *UpdateUserReque
 		}
 	}
 
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "User", apperrors.OpUpdate, func(txCtx context.Context) error {
 		if err := s.guardLastAdminUpdate(txCtx, id, req); err != nil {
 			return err
 		}
@@ -290,7 +290,7 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 // SoftDelete permanently deletes a user and their sessions.
 // It rejects deletion of the last active admin.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "User", apperrors.OpDelete, func(txCtx context.Context) error {
 		if err := s.requireOtherActiveAdmin(txCtx, id, "delete"); err != nil {
 			return err
 		}
