@@ -174,26 +174,25 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete removes a relationship before deleting its jingle file.
-// File cleanup failure is logged but does not resurrect the deleted database row.
+// Delete removes a relationship and its canonical jingle file, which goes even
+// when the row recorded none: a first upload may have committed since the
+// read. The file is removed before commit, while the uncommitted delete still
+// blocks a replacement for the same pair, so the cleanup cannot remove the
+// replacement's jingle. An upload whose row update follows the delete fails
+// and leaves no jingle. A cleanup failure is logged and the delete commits. A
+// failed commit keeps the row without its jingle; bulletins then play without
+// a bed until a new upload.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
-	// The file is removed before commit, while the deleted row still blocks a
-	// replacement for the same pair, so this cleanup cannot remove the
-	// replacement's jingle. A failed commit keeps the row without its jingle;
-	// bulletins then play without a bed until a new upload.
 	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.stationVoiceRepo.Delete(txCtx, id); err != nil {
 			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
 		}
 
-		// Remove the canonical path even when the read above saw no jingle: a
-		// first upload may have committed since. An upload that updates the
-		// row after the delete fails and removes its own file.
 		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
 		if err := os.Remove(jinglePath); err == nil {
 			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
