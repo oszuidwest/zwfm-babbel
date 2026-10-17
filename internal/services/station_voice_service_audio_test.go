@@ -43,13 +43,24 @@ func (r *jingleAudioRepository) UpdateAudio(ctx context.Context, id int64, filen
 
 type jingleTxKey struct{}
 
-// jingleTxManager marks the transaction context and records rollbacks.
-type jingleTxManager struct{ rolledBack bool }
+// jingleTxManager marks the transaction context and records rollbacks. A
+// non-nil err fails the transaction: before fn when beginFails, otherwise at
+// commit after fn succeeds.
+type jingleTxManager struct {
+	beginFails bool
+	err        error
+	rolledBack bool
+}
 
 func (m *jingleTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
-	err := fn(context.WithValue(ctx, jingleTxKey{}, true))
-	m.rolledBack = m.rolledBack || err != nil
-	return err
+	if m.beginFails {
+		return m.err
+	}
+	if err := fn(context.WithValue(ctx, jingleTxKey{}, true)); err != nil {
+		m.rolledBack = true
+		return err
+	}
+	return m.err
 }
 
 func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
@@ -121,6 +132,39 @@ func TestStationVoiceService_JingleDatabaseFailureKeepsExistingAudio(t *testing.
 	}
 	assertJingleContent(t, service, stationVoice, existing)
 	assertNoProcessingJingles(t, service, stationVoice)
+}
+
+func TestStationVoiceService_JingleTransactionFailuresAreDatabaseErrors(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name       string
+		beginFails bool
+	}{
+		{name: "begin", beginFails: true},
+		{name: "commit"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			service, stationVoice := newJingleTestService(t, &jingleAudioRepository{})
+			cause := errors.New("connection refused")
+			service.txManager = &jingleTxManager{beginFails: tt.beginFails, err: cause}
+			input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
+			existing := seedJingle(t, service, stationVoice)
+
+			err := service.ProcessJingle(t.Context(), stationVoice, input)
+			dbErr, ok := errors.AsType[*apperrors.DatabaseError](err)
+			if !ok || dbErr.Resource != "StationVoice" || dbErr.Operation != apperrors.OpUpdate.String() || !errors.Is(err, cause) {
+				t.Fatalf("ProcessJingle() = %v, want a StationVoice update database error caused by %v", err, cause)
+			}
+			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
+			if tt.beginFails {
+				assertJingleContent(t, service, stationVoice, existing)
+			} else if !strings.Contains(errors.Unwrap(err).Error(), path) {
+				t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), path)
+			}
+			assertNoProcessingJingles(t, service, stationVoice)
+		})
+	}
 }
 
 func TestStationVoiceService_ConcurrentJingleRequestsPublishOwnFiles(t *testing.T) {

@@ -241,17 +241,28 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	// cannot remove the row and its jingle in between. A failed update or
 	// rename rolls back and keeps the old jingle; a failed commit can leave
 	// the new jingle published.
+	published := false
 	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.stationVoiceRepo.UpdateAudio(txCtx, stationVoice.ID, filename); err != nil {
-			return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
+			return err
 		}
 		if err := os.Rename(convertedPath, outputPath); err != nil {
 			return apperrors.Audio("StationVoice", "finalize", err)
 		}
+		published = true
 		return nil
 	})
 	if err != nil {
-		return err
+		// A failed rename is already an audio error. Anything else came from
+		// the transaction: begin, the row update, or commit.
+		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
+			return audioErr
+		}
+		if published {
+			// The handler logs the cause; name the live file there.
+			err = fmt.Errorf("station-voice %d jingle published to %s but commit failed: %w", stationVoice.ID, outputPath, err)
+		}
+		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
 
 	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)
