@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -16,15 +17,19 @@ import (
 
 // A stored bulletin holds only server-generated values, so insert failures are
 // database errors (500, Error level, alert). Only a reference deleted during
-// generation stays a conflict. A rolled-back insert removes the rendered file;
-// a failed commit keeps it, since the row may exist.
+// generation stays a conflict. A transaction that never begins or rolls back
+// (including a failed job finalize) removes the rendered file; a failed commit
+// keeps it, since the row may exist.
 func TestBulletinService_SaveFailures(t *testing.T) {
 	t.Parallel()
 	commitLost := errors.New("connection lost during commit")
+	beginRefused := errors.New("connection refused")
 	for _, tt := range []struct {
 		name         string
 		insertErr    *mysqlerr.MySQLError
-		commitErr    error
+		beginFails   bool
+		finalizeErr  error
+		txErr        error
 		wantCause    error
 		wantConflict bool
 		wantFileKept bool
@@ -32,13 +37,17 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 		{name: "duplicate key", insertErr: &mysqlerr.MySQLError{Number: 1062}, wantCause: repository.ErrDuplicateKey},
 		{name: "data too long", insertErr: &mysqlerr.MySQLError{Number: 1406}, wantCause: repository.ErrDataTooLong},
 		{name: "station deleted", insertErr: &mysqlerr.MySQLError{Number: 1452}, wantConflict: true},
-		{name: "commit", commitErr: commitLost, wantCause: commitLost, wantFileKept: true},
+		{name: "begin", beginFails: true, txErr: beginRefused, wantCause: beginRefused},
+		// A job that left the running state keeps its stored outcome; the
+		// worker detects this through the wrapped cause.
+		{name: "job finalize", finalizeErr: repository.ErrBulletinJobStateConflict, wantCause: repository.ErrBulletinJobStateConflict},
+		{name: "commit", txErr: commitLost, wantCause: commitLost, wantFileKept: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			db := insertFailingDB(t, tt.insertErr)
 			service := &BulletinService{
-				txManager:    failingTxManager{err: tt.commitErr},
+				txManager:    failingTxManager{beginFails: tt.beginFails, err: tt.txErr},
 				bulletinRepo: repository.NewBulletinRepository(db),
 			}
 			path := filepath.Join(t.TempDir(), "bulletin.wav")
@@ -46,7 +55,12 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err := service.saveBulletinToDatabase(t.Context(), saveBulletinParams{StationID: 1, BulletinPath: path}, nil)
+			var finalize func(context.Context, int64) error
+			if tt.finalizeErr != nil {
+				finalize = func(context.Context, int64) error { return tt.finalizeErr }
+			}
+
+			_, err := service.saveBulletinToDatabase(t.Context(), saveBulletinParams{StationID: 1, BulletinPath: path}, finalize)
 			if tt.wantConflict {
 				conflict, ok := errors.AsType[*apperrors.ConflictError](err)
 				if !ok || conflict.Code != "bulletin.reference_missing" {
