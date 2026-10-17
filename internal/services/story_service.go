@@ -356,9 +356,10 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 // in the story's history.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
 	// Convert beside the final file for atomic rename and WAV muxer selection.
-	// Publish after the row and audit writes; their failure preserves old audio.
-	// A failed rename rolls back both writes. A later commit failure leaves the
-	// new file published and may leave the database outcome unknown.
+	// Publish in the transaction, after the row and audit writes; their failure
+	// preserves old audio. A failed rename rolls back both writes. A later
+	// commit failure leaves the new file published and may leave the database
+	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
 	// A directory per request keeps concurrent requests for this story from
 	// overwriting or removing each other's output. FFmpeg creates the file in
@@ -379,25 +380,30 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	var renameErr error
 	published := false
-	err = s.storyRepo.UpdateAudio(ctx, storyID, repository.StoryAudioUpdate{
-		ActorUserID:     actorUserID,
-		Action:          action,
-		AudioFile:       utils.StoryFilename(storyID),
-		DurationSeconds: duration,
-		Publish: func() error {
-			renameErr = os.Rename(convertedPath, finalPath)
-			published = renameErr == nil
-			return renameErr
-		},
+	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{
+			ActorUserID:     actorUserID,
+			Action:          action,
+			AudioFile:       utils.StoryFilename(storyID),
+			DurationSeconds: duration,
+		}); err != nil {
+			return err
+		}
+		if err := os.Rename(convertedPath, finalPath); err != nil {
+			return apperrors.Audio("Story", "finalize", err)
+		}
+		published = true
+		return nil
 	})
-	if renameErr != nil {
-		return apperrors.Audio("Story", "finalize", renameErr)
-	}
 	if err != nil {
+		// A failed rename is already an audio error. Anything else came from
+		// the transaction: begin, the row and audit writes, or commit.
+		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
+			return audioErr
+		}
 		if published {
-			// The handler logs and alerts on the cause; name the live file there.
+			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)

@@ -22,10 +22,10 @@ import (
 
 // processingMinAge must exceed the longest audio conversion. A conversion
 // directory's mtime changes only when an entry inside it is created, renamed
-// or removed, not while FFmpeg writes its output, and FFmpeg has no deadline
-// of its own. Converting a 100 MB upload normally takes minutes, so a day is
-// ample. Removing a live conversion only fails that request; the published
-// audio stays as it was.
+// or removed, not while FFmpeg writes its output, and the conversion runs
+// under the request context without a timeout. Normal conversions take
+// minutes, so a day leaves a wide margin. Removing a live conversion at worst
+// fails that request; the published audio stays as it was.
 const processingMinAge = 24 * time.Hour
 
 // processingEntryInfo lets tests remove an entry between ReadDir and its stat.
@@ -69,8 +69,9 @@ func (s *BulletinCleanupService) Stop() {
 func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
-	processingErr := s.cleanProcessingLeftovers(time.Now())
-	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
+	now := time.Now()
+	processingErr := s.cleanProcessingLeftovers(now)
+	cutoff := now.Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
 		logger.Error("Failed to query expired bulletins", "error", err)
@@ -93,10 +94,11 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	return errors.Join(processingErr, purgeErr, orphanErr, jobsErr)
 }
 
-// cleanProcessingLeftovers removes conversion leftovers that a crash or restart
-// left directly in ProcessedPath: per-request "*.processing" directories, and
-// "*.processing.wav" files from releases before those directories. Symlinks
-// are skipped, and os.RemoveAll does not follow symlinks inside a directory.
+// cleanProcessingLeftovers removes conversion leftovers older than
+// processingMinAge that a crash or restart left directly in ProcessedPath:
+// per-request "*.processing" directories, and "*.processing.wav" files from
+// v0.17.0 and earlier. Symlinks are skipped, and os.RemoveAll does not follow
+// symlinks inside a directory.
 // An entry that vanishes during the sweep is not an error: a missing entry is
 // skipped at the stat, and os.RemoveAll returns nil for a path that is gone.
 func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {

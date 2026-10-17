@@ -16,7 +16,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// probingStoryRepository probes between the restore and update.
+// probingStoryRepository probes between the restore and update, and between
+// the audio update and its publication.
 type probingStoryRepository struct {
 	*repository.StoryRepository
 	probe func()
@@ -24,6 +25,12 @@ type probingStoryRepository struct {
 
 func (r probingStoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
 	err := r.StoryRepository.Restore(ctx, id, actorUserID)
+	r.probe()
+	return err
+}
+
+func (r probingStoryRepository) UpdateAudio(ctx context.Context, id int64, u repository.StoryAudioUpdate) error {
+	err := r.StoryRepository.UpdateAudio(ctx, id, u)
 	r.probe()
 	return err
 }
@@ -160,7 +167,6 @@ func createSelectableDeletedStory(t *testing.T, db *gorm.DB) (models.Station, mo
 	})
 	if err := repo.UpdateAudio(t.Context(), story.ID, repository.StoryAudioUpdate{
 		Action: models.AuditActionAudio, AudioFile: "restore.wav", DurationSeconds: 10,
-		Publish: func() error { return nil },
 	}); err != nil {
 		t.Fatal(err)
 	}

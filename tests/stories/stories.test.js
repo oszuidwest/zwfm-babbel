@@ -334,7 +334,13 @@ describe('Stories', () => {
       ['filter[weekdays]=abc', 'filter[weekdays]', 'invalid_format'],
       ['filter[weekdays]=128', 'filter[weekdays]', 'out_of_range'],
       // An unencoded plus sign decodes as a space.
-      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]', 'invalid_format']
+      ['filter[created_at][gte]=2024-01-15T13:30:00+01:00', 'filter[created_at][gte]', 'invalid_format'],
+      // Unknown keys and degenerate lists were once ignored.
+      ['page=2', 'page', 'unknown_field'],
+      ['status=deleted', 'status', 'unknown_field'],
+      ['status=draft', 'status', 'unknown_field'],
+      ['sort=title,', 'sort', 'invalid_format'],
+      ['fields=id,,title', 'fields', 'invalid_format']
     ])('when %s is invalid, then the 422 names %s', async (qs, field, code) => {
       const response = await global.api.apiCall('GET', `/stories?${qs}`);
       expect(response.status).toBe(422);

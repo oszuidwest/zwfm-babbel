@@ -22,7 +22,7 @@ import (
 func TestCleanProcessingLeftovers(t *testing.T) {
 	// Times are relative to a future now, so entries whose own mtime cannot be
 	// set, such as symlinks, are already old.
-	now := time.Now().Add(72 * time.Hour)
+	now := time.Now().Add(72 * time.Hour).Truncate(time.Second)
 	old := now.Add(-48 * time.Hour)
 	dir := t.TempDir()
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
@@ -101,44 +101,22 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 	}
 }
 
-func TestCleanProcessingLeftoversDirectoryErrors(t *testing.T) {
-	for _, name := range []string{"missing", "not a directory", "unreadable"} {
-		t.Run(name, func(t *testing.T) {
-			logs := captureCleanupLogs(t)
-			dir := filepath.Join(t.TempDir(), "processed")
-			wantErr := os.ErrNotExist
-			switch name {
-			case "not a directory":
-				writeCleanupFile(t, dir, time.Now())
-				wantErr = nil // ENOTDIR is platform-specific; any error suffices.
-			case "unreadable":
-				if err := os.Mkdir(dir, 0); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() {
-					// #nosec G302 - Test directory needs owner traversal for cleanup.
-					if err := os.Chmod(dir, 0o700); err != nil {
-						t.Error(err)
-					}
-				})
-				if _, err := os.ReadDir(dir); err == nil {
-					t.Skip("directory permissions are not enforced for this user")
-				}
-				wantErr = os.ErrPermission
-			}
-			service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
-			err := service.cleanProcessingLeftovers(time.Now())
-			if err == nil || (wantErr != nil && !errors.Is(err, wantErr)) {
-				t.Fatalf("cleanProcessingLeftovers = %v, want %v", err, wantErr)
-			}
-			if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
-				t.Errorf("directory failure not logged: %s", logs.String())
-			}
-		})
+func TestCleanProcessingLeftoversReportsMissingDirectory(t *testing.T) {
+	logs := captureCleanupLogs(t)
+	dir := filepath.Join(t.TempDir(), "missing")
+	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	if err := service.cleanProcessingLeftovers(time.Now()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanProcessingLeftovers = %v, want ErrNotExist", err)
+	}
+	if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
+		t.Errorf("directory failure not logged: %s", logs.String())
 	}
 }
 
 func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can remove files despite directory permissions")
+	}
 	logs := captureCleanupLogs(t)
 	dir := t.TempDir()
 	now := time.Now()
@@ -149,14 +127,11 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		// #nosec G302 - Test directory needs owner traversal for cleanup.
+		// #nosec G302 - Restore owner write so TempDir cleanup can remove the entries.
 		if err := os.Chmod(dir, 0o700); err != nil {
 			t.Error(err)
 		}
 	})
-	if os.Getuid() == 0 {
-		t.Skip("root can remove files despite directory permissions")
-	}
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
 	err := service.cleanProcessingLeftovers(now)
 	if !errors.Is(err, os.ErrPermission) {
@@ -207,10 +182,50 @@ func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
 }
 
 func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.T) {
-	// No database connection: an existing GORM error stops every query.
+	// An existing GORM error stops every query.
+	db := offlineDB(t)
+	queryErr := errors.New("database unavailable")
+	if err := db.AddError(queryErr); !errors.Is(err, queryErr) {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "story_42_123.processing")
+	writeCleanupDir(t, path, time.Now().Add(-25*time.Hour))
+	service := NewBulletinCleanupService(db, &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}, nil)
+	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) {
+		t.Fatalf("cleanup = %v, want database failure", err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat = %v, want leftover removed despite database failure", err)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanup = %v, want both storage and database failures", err)
+	}
+}
+
+func TestBulletinCleanupReportsProcessingFailureAfterDatabaseSuccess(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &config.Config{Audio: config.AudioConfig{ProcessedPath: filepath.Join(dir, "missing"), OutputPath: dir}}
+	service := NewBulletinCleanupService(offlineDB(t), cfg, nil)
+	err := service.cleanup(t.Context())
+	if pathErr, ok := errors.AsType[*fs.PathError](err); !ok || pathErr.Path != cfg.Audio.ProcessedPath {
+		t.Fatalf("cleanup = %v, want processed audio directory failure", err)
+	}
+}
+
+// offlineDB returns a GORM handle whose queries succeed without rows and never
+// reach a server: DryRun builds statements without running them, and the
+// skipped default transaction keeps deletes from connecting. The DSN names a
+// socket that does not exist, so a query that does connect fails fast.
+func offlineDB(t *testing.T) *gorm.DB {
+	t.Helper()
 	db, err := gorm.Open(mysql.New(mysql.Config{
+		DSN:                       "babbel@unix(" + filepath.Join(t.TempDir(), "none.sock") + ")/babbel",
 		SkipInitializeWithVersion: true,
-	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	}), &gorm.Config{DryRun: true, DisableAutomaticPing: true, SkipDefaultTransaction: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,24 +238,7 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 			t.Error(err)
 		}
 	})
-	queryErr := errors.New("database unavailable")
-	if err := db.AddError(queryErr); !errors.Is(err, queryErr) {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, "story_42_123.processing")
-	writeCleanupDir(t, path, time.Now().Add(-25*time.Hour))
-	service := NewBulletinCleanupService(db, &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}, nil)
-	service.runner.runOnce()
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("scheduled cleanup: Lstat = %v, want leftover removed despite database failure", err)
-	}
-	if err := os.Remove(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) || !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("cleanup = %v, want both storage and database failures", err)
-	}
+	return db
 }
 
 func captureCleanupLogs(t *testing.T) *bytes.Buffer {

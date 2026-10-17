@@ -29,7 +29,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "original.wav", DurationSeconds: 12, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "original.wav", DurationSeconds: 12,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20,
 	})
 	deleted, ok := errors.AsType[*StoryDeletedError](err)
 	if !ok || deleted.ID != story.ID || deleted.DeletedAt.IsZero() {
@@ -51,7 +51,7 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 		t.Fatalf("deleted story audio changed: %+v", saved)
 	}
 	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20,
 	}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UpdateAudio missing = %v, want ErrNotFound", err)
 	}
@@ -84,7 +84,7 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 		t.Fatal(err)
 	}
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "calendar.wav", DurationSeconds: 10, Publish: noPublish,
+		Action: models.AuditActionAudio, AudioFile: "calendar.wav", DurationSeconds: 10,
 	}); err != nil {
 		t.Fatal(err)
 	}
