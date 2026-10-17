@@ -159,8 +159,14 @@ func TestStationVoiceService_JingleTransactionFailuresAreDatabaseErrors(t *testi
 			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
 			if tt.beginFails {
 				assertJingleContent(t, service, stationVoice, existing)
-			} else if !strings.Contains(errors.Unwrap(err).Error(), path) {
-				t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), path)
+			} else {
+				if !strings.Contains(errors.Unwrap(err).Error(), path) {
+					t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), path)
+				}
+				// #nosec G304 - canonical jingle path inside t.TempDir.
+				if got, err := os.ReadFile(path); err != nil || bytes.Equal(got, existing) {
+					t.Fatalf("jingle after commit failure: %v, still the old bytes = %v; want the new jingle published", err, bytes.Equal(got, existing))
+				}
 			}
 			assertNoProcessingJingles(t, service, stationVoice)
 		})
