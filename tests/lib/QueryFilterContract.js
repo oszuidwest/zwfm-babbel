@@ -33,7 +33,7 @@ function getFilterContracts(endpoint) {
   }));
 }
 
-// Returns valid literals; exclusion tests use the last value.
+// Returns valid literals.
 function filterExamples({ value }) {
   if (value.enum) return value.enum.map(String);
   if (value.format === 'date-time') return ['2024-01-01T00:00:00Z', '2024-12-31T23:59:59Z'];
@@ -117,7 +117,6 @@ module.exports = {
   declaresQueryParameter,
   getFilterContracts,
   getJsonRequestSchema,
-  filterExamples,
   validFilterCases,
   invalidFilterCases
 };
