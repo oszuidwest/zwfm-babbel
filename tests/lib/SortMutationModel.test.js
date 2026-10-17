@@ -8,7 +8,7 @@ describe('SortMutationModel', () => {
     ['orders that differ in one pair', { a: [0, 1, 2], b: [1, 0, 2] }, []],
     ['a tied field with a discordant pair', { a: [0, 1, 1], b: [2, 0, 1] }, []],
     ['three fields where two rise together', { a: [0, 1, 2], b: [1, 0, 2], c: [0, 1, 2] }, [['a', 'c'], ['c', 'a']]]
-  ])('when the fixtures hold %s, then the unnoticed mappings are %j', (_name, keysByField, expected) => {
+  ])('when the fixtures hold %s %j, then the unnoticed mappings are %j', (_name, keysByField, expected) => {
     expect(unnoticedSortMappings(keysByField)).toEqual(expected);
   });
 

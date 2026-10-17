@@ -4,7 +4,7 @@
  * field keys. Rows that tie on the column may come back in any order, so the
  * test only fails for sure when two rows are discordant: the column puts one
  * strictly first and the field puts it strictly last. Without such a pair,
- * both directions pass.
+ * both directions can pass.
  *
  * @param {Object<string, number[]>} keysByField Numeric sort keys per field,
  *   one per row, with the rows in the same order for every field.

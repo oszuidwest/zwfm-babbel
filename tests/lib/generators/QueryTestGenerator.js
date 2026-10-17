@@ -11,7 +11,8 @@ const { unnoticedSortMappings } = require('../SortMutationModel');
  * fields: an ignored sort returns that order, so it passes one direction of
  * every field the order happens to sort.
  * Every two fields must also order some pair of fixtures oppositely: a field
- * mapped to the column of a field it never contradicts passes both directions.
+ * mapped to the column of a field it never contradicts can pass both
+ * directions.
  * @param {Object} schema
  * @param {Function} setupFn Creates the fixtures and resolves to their ids.
  */
