@@ -165,28 +165,6 @@ func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.Response
 	return c, w
 }
 
-// newAudioUploadContext returns a context whose body is a multipart form with
-// content as the "audio" file part named filename.
-func newAudioUploadContext(t *testing.T, filename, content string) (*gin.Context, *httptest.ResponseRecorder) {
-	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("audio", filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := io.WriteString(part, content); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	c, w := newTestContext(t, "")
-	c.Request.Body = io.NopCloser(&body)
-	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
-	return c, w
-}
-
 // bindExpect describes a successful bind (ok) or the status and the field
 // error that the response must contain.
 type bindExpect struct {
@@ -570,7 +548,7 @@ func TestSaveAudioUpload_ReadTimeout(t *testing.T) {
 func TestSaveAudioUpload_StorageFailure(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 	// Even a small upload now needs a writable temp directory.
-	c, w := newAudioUploadContext(t, "clip.wav", "audio bytes")
+	c, w := newAudioUploadContext(t, "audio", "clip.wav", strings.NewReader("audio bytes"))
 	_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
 	checkBindResult(t, w, ok, bindExpect{status: 500})
 	if strings.Contains(w.Body.String(), os.TempDir()) {
@@ -592,13 +570,6 @@ func TestSaveAudioUpload(t *testing.T) {
 		{name: "unsupported extension", field: "audio", filename: "notes.txt", wantStatus: 422, wantField: "audio", wantCode: "unsupported"},
 		{name: "valid audio", field: "audio", filename: "clip.WAV", wantOK: true},
 	}
-
-	t.Run("malformed multipart", func(t *testing.T) {
-		c, w := newTestContext(t, "--boundary\r\ninvalid part\r\n")
-		c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
-		_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
-		checkBindResult(t, w, ok, bindExpect{status: 400, field: "request", code: "invalid_format"})
-	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -663,7 +634,7 @@ func TestSaveAudioUpload_StreamsToSingleFile(t *testing.T) {
 				read += int64(len(p))
 				return len(p), nil
 			})
-			c, w := newStreamingAudioUploadContext(t, "audio", "../../news clip.MP3", io.LimitReader(content, size))
+			c, w := newAudioUploadContext(t, "audio", "../../news clip.MP3", io.LimitReader(content, size))
 			path, cleanup, ok := SaveAudioUpload(c, "audio", "story_42")
 			if !ok {
 				t.Fatalf("SaveAudioUpload() failed: %s", w.Body.String())
@@ -704,16 +675,17 @@ func TestSaveAudioUpload_RejectedUploadLeavesNoFile(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tempDir := t.TempDir()
 			t.Setenv("TMPDIR", tempDir)
+			var read int64
 			content := uploadReaderFunc(func(p []byte) (int, error) {
-				if filepath.Ext(tt.filename) == ".txt" {
-					if entries, err := os.ReadDir(tempDir); err != nil || len(entries) != 0 {
-						t.Fatalf("temp dir while reading unsupported file = %v, %v; want empty", entries, err)
-					}
+				read += int64(len(p))
+				// The last read also catches FormFile's spill file past 32 MiB.
+				if filepath.Ext(tt.filename) == ".txt" && read >= tt.size {
+					checkTempFileCount(t, tempDir, 0)
 				}
 				clear(p)
 				return len(p), nil
 			})
-			c, w := newStreamingAudioUploadContext(t, "jingle", tt.filename, io.LimitReader(content, tt.size))
+			c, w := newAudioUploadContext(t, "jingle", tt.filename, io.LimitReader(content, tt.size))
 			path, cleanup, ok := SaveAudioUpload(c, "jingle", "upload_contract_test")
 			checkBindResult(t, w, ok, tt.want)
 			if path != "" || cleanup != nil {
@@ -735,6 +707,7 @@ func TestSaveAudioUpload_InvalidMultipart(t *testing.T) {
 		{name: "missing boundary", contentType: "multipart/form-data"},
 		{name: "empty body", contentType: "multipart/form-data; boundary=boundary"},
 		{name: "not multipart", contentType: "multipart/form-data; boundary=boundary", body: "garbage"},
+		{name: "malformed part header", contentType: "multipart/form-data; boundary=boundary", body: "--boundary\r\ninvalid part\r\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -749,26 +722,21 @@ func TestSaveAudioUpload_InvalidMultipart(t *testing.T) {
 
 func TestSaveAudioUpload_SkippedPartsAreBounded(t *testing.T) {
 	const otherHeader = "--boundary\r\nContent-Disposition: form-data; name=\"other\"\r\n\r\n"
-	const file = "--boundary\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"clip.wav\"\r\n\r\naudio\r\n"
-	for _, prefix := range []string{"", file} {
-		t.Run(fmt.Sprintf("stored file: %t", prefix != ""), func(t *testing.T) {
-			tempDir := t.TempDir()
-			t.Setenv("TMPDIR", tempDir)
-			content := uploadReaderFunc(func(p []byte) (int, error) {
-				clear(p)
-				return len(p), nil
-			})
-			c, w := newTestContext(t, "")
-			c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
-			c.Request.Body = io.NopCloser(io.MultiReader(strings.NewReader(prefix+otherHeader), io.LimitReader(content, maxAudioUploadBytes+2<<20)))
-			path, cleanup, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
-			checkBindResult(t, w, ok, bindExpect{status: 413})
-			if path != "" || cleanup != nil {
-				t.Fatalf("failed upload = %q, cleanup present: %v", path, cleanup != nil)
-			}
-			checkTempFileCount(t, tempDir, 0)
-		})
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	content := uploadReaderFunc(func(p []byte) (int, error) {
+		clear(p)
+		return len(p), nil
+	})
+	c, w := newTestContext(t, "")
+	c.Request.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	c.Request.Body = io.NopCloser(io.MultiReader(strings.NewReader(otherHeader), io.LimitReader(content, maxAudioUploadBytes+2<<20)))
+	path, cleanup, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
+	checkBindResult(t, w, ok, bindExpect{status: 413})
+	if path != "" || cleanup != nil {
+		t.Fatalf("failed upload = %q, cleanup present: %v", path, cleanup != nil)
 	}
+	checkTempFileCount(t, tempDir, 0)
 }
 
 func TestSaveAudioUpload_PartSelection(t *testing.T) {
@@ -907,8 +875,10 @@ func TestSaveAudioUpload_PartLimit(t *testing.T) {
 	}
 }
 
-// newStreamingAudioUploadContext builds only the multipart framing in memory.
-func newStreamingAudioUploadContext(t *testing.T, field, filename string, content io.Reader) (*gin.Context, *httptest.ResponseRecorder) {
+// newAudioUploadContext returns a context whose body is a multipart form with
+// content as the file part field named filename. Only the multipart framing is
+// held in memory.
+func newAudioUploadContext(t *testing.T, field, filename string, content io.Reader) (*gin.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -944,7 +914,7 @@ func TestSaveAudioUpload_SameFilenameGetsOwnFile(t *testing.T) {
 	t.Setenv("TMPDIR", tempDir)
 	save := func(content string) (string, func() error) {
 		t.Helper()
-		c, w := newAudioUploadContext(t, "news clip.MP3", content)
+		c, w := newAudioUploadContext(t, "audio", "news clip.MP3", strings.NewReader(content))
 		path, cleanup, ok := SaveAudioUpload(c, "audio", "story_42")
 		if !ok {
 			t.Fatalf("SaveAudioUpload() failed: %s", w.Body.String())

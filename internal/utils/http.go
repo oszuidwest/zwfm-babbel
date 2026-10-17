@@ -67,13 +67,13 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 	// Allow form overhead around a file at the size limit.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
 	// MultipartReader also accepts multipart/mixed, which FormFile rejected.
-	if mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type")); err != nil || mediaType != "multipart/form-data" {
-		problemAudioUpload(c, field, http.ErrNotMultipart)
+	if mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type")); err != nil || mediaType != binding.MIMEMultipartPOSTForm {
+		problemAudioUpload(c, http.ErrNotMultipart)
 		return "", nil, false
 	}
 	reader, err := c.Request.MultipartReader()
 	if err != nil {
-		problemAudioUpload(c, field, err)
+		problemAudioUpload(c, err)
 		return "", nil, false
 	}
 
@@ -108,14 +108,16 @@ func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefi
 			_, err = io.Copy(io.Discard, part)
 		}
 		if err != nil {
-			problemAudioUpload(c, field, err)
+			problemAudioUpload(c, err)
 			return "", nil, false
 		}
 	}
 
 	switch {
 	case !found:
-		problemAudioUpload(c, field, http.ErrMissingFile)
+		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field: field, Code: apperrors.CodeRequired, Message: "file is required",
+		})
 	case tooLarge:
 		ProblemPayloadTooLarge(c)
 	case storedPath == "": // readAudioPart stores every supported file.
@@ -163,7 +165,7 @@ func removeTempFile(path string) error {
 	return nil
 }
 
-func problemAudioUpload(c *gin.Context, field string, err error) {
+func problemAudioUpload(c *gin.Context, err error) {
 	_, storageFailure := errors.AsType[*fs.PathError](err)
 	switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
 	case tooLarge:
@@ -173,10 +175,6 @@ func problemAudioUpload(c *gin.Context, field string, err error) {
 		userID, _ := c.Get("user_id")
 		logger.Warn("Audio upload timed out", "route", RouteKey(c), "user_id", userID)
 		ProblemRequestTimeout(c)
-	case errors.Is(err, http.ErrMissingFile):
-		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-			Field: field, Code: apperrors.CodeRequired, Message: "file is required",
-		})
 	case storageFailure:
 		logger.Error("Failed to store uploaded audio", "route", RouteKey(c), "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
