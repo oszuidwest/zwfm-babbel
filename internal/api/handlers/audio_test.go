@@ -12,11 +12,14 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
-// stubAudioRepo returns a fixed filename for every audio lookup.
-type stubAudioRepo struct{ file string }
+// audioPathRepository returns a fixed audio lookup result.
+type audioPathRepository struct {
+	path string
+	err  error
+}
 
-func (r stubAudioRepo) GetFilePath(context.Context, string, int64) (string, error) {
-	return r.file, nil
+func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string, error) {
+	return r.path, r.err
 }
 
 // A row that names a file missing on disk keeps its 404 and logs one Warn
@@ -25,11 +28,10 @@ func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
 	logs := captureLogs(t)
 	dir := t.TempDir()
 	h := NewHandlers(HandlersDeps{
-		AudioRepo: stubAudioRepo{file: "story_7.wav"},
+		AudioRepo: audioPathRepository{path: "story_7.wav"},
 		Config:    &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}},
 	})
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c, recorder := newProblemContext(t)
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories/7/audio", nil)
 	c.Params = gin.Params{{Key: "id", Value: "7"}}
 	alerts := &automationAlertRecorder{}
