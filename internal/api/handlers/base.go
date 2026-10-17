@@ -83,6 +83,16 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		return
 	}
 
+	// A client that went away cancels the request context, and the database
+	// driver then returns context.Canceled. That is not a server failure. An
+	// expired request deadline is not a disconnect, so it keeps the handling
+	// below.
+	if errors.Is(err, context.Canceled) && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		logError(fallbackResource, "client_canceled", err)
+		c.AbortWithStatus(statusClientClosedRequest)
+		return
+	}
+
 	if handleQueryShapeError(c, err) {
 		return
 	}
@@ -191,6 +201,12 @@ func handleAudioError(c *gin.Context, err error) bool {
 	}
 	return false
 }
+
+// statusClientClosedRequest is the non-standard status that nginx logs for a
+// request whose client closed the connection. The client never reads it; it
+// keeps the request out of the 5xx counts and, as a status of 400 or higher,
+// stops NotificationMiddleware from resolving the route's alerts.
+const statusClientClosedRequest = 499
 
 const (
 	alertContextKey = "babbel.operational-alerts"
@@ -302,7 +318,7 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	}
 
 	if ni, ok := errors.AsType[*apperrors.NotInitializedError](err); ok {
-		logError(ni.Resource, "not_initialized", err)
+		logErrorWithCause(ni.Resource, "not_initialized", err, ni.Unwrap())
 		code := strings.ToLower(ni.Resource) + ".not_initialized"
 		if ni.Code != "" {
 			code = ni.Code
@@ -357,9 +373,9 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 // failures log at Error.
 func errorLevel(errorType string) slog.Level {
 	switch errorType {
-	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted":
-		// Client errors: the response tells the client what to fix and the
-		// access log records the status.
+	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted", "client_canceled":
+		// Client errors and disconnects: the response tells the client what
+		// to fix, or nobody reads it, and the access log records the status.
 		return slog.LevelDebug
 	case "rate_limited", "upstream_failed", "no_stories":
 		// Operational signals: ElevenLabs quota, credentials or failures, and

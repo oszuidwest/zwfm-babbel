@@ -29,30 +29,79 @@ type QueryParams struct {
 // error, such as latest on station bulletins, checks it before parsing.
 var listQueryKeys = []string{"limit", "offset", "sort", "fields", "search", "trashed"}
 
-// unknownQueryParams reports every key the list parsers do not read, in
-// sorted order. Keys are case-sensitive, so Trashed is unknown. A misspelled
-// or outdated key would otherwise be ignored and return an unexpected page.
-func unknownQueryParams(query url.Values) []apperrors.FieldError {
+// isListQueryKey reports whether the list parsers read key. Keys are
+// case-sensitive, so Trashed is not a list key.
+func isListQueryKey(key string) bool {
+	return strings.HasPrefix(key, "filter[") || slices.Contains(listQueryKeys, key)
+}
+
+// unknownQueryParams reports every key that known rejects, in sorted order.
+// A misspelled or outdated key would otherwise be ignored and return an
+// unexpected result.
+func unknownQueryParams(query url.Values, known func(key string) bool) []apperrors.FieldError {
 	var errs []apperrors.FieldError
 	for _, key := range slices.Sorted(maps.Keys(query)) {
-		if !strings.HasPrefix(key, "filter[") && !slices.Contains(listQueryKeys, key) {
+		if !known(key) {
 			errs = append(errs, *queryError(key, apperrors.CodeUnknownField, "unknown query parameter"))
 		}
 	}
 	return errs
 }
 
+// parseRawQuery decodes the raw query string. URL.Query, and with it gin's
+// c.Query and c.GetQuery, silently drops a pair with an invalid percent escape
+// or an unescaped semicolon. This reports it as field query instead of a key,
+// because the key may itself be undecodable or hidden behind a semicolon.
+func parseRawQuery(c *gin.Context) (url.Values, *apperrors.FieldError) {
+	query, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		return nil, queryError("query", apperrors.CodeInvalidFormat, err.Error())
+	}
+	return query, nil
+}
+
+// RejectMalformedQuery answers a query string that url.ParseQuery rejects,
+// such as an invalid percent escape or an unescaped semicolon, with a 422
+// naming field query, so no handler runs as if the dropped pairs were never
+// sent.
+func RejectMalformedQuery(c *gin.Context) {
+	if _, err := parseRawQuery(c); err != nil {
+		emitQueryError(c, err)
+		c.Abort()
+		return
+	}
+	c.Next()
+}
+
+// parseKnownQuery rejects malformed encoding, then every key that known
+// rejects. On errors it writes an RFC 9457 response and returns false.
+func parseKnownQuery(c *gin.Context, known func(key string) bool) (url.Values, bool) {
+	query, parseErr := parseRawQuery(c)
+	if parseErr != nil {
+		emitQueryError(c, parseErr)
+		return nil, false
+	}
+	if errs := unknownQueryParams(query, known); len(errs) > 0 {
+		ProblemQueryValidation(c, "Invalid query parameter", errs...)
+		return nil, false
+	}
+	return query, true
+}
+
+// RejectQueryParams rejects every query key on endpoints that read none,
+// such as GET /stations/{id}, with the same 422 that list endpoints return
+// for unknown keys. On errors it writes an RFC 9457 response and returns false.
+func RejectQueryParams(c *gin.Context) bool {
+	_, ok := parseKnownQuery(c, func(string) bool { return false })
+	return ok
+}
+
 // parseKnownQueryParams rejects malformed encoding and unknown keys before
 // [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
 // than duplicate. On errors it writes an RFC 9457 response and returns false.
 func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
-	query, parseErr := url.ParseQuery(c.Request.URL.RawQuery)
-	if parseErr != nil {
-		emitQueryError(c, queryError("query", apperrors.CodeInvalidFormat, parseErr.Error()))
-		return nil, false
-	}
-	if errs := unknownQueryParams(query); len(errs) > 0 {
-		ProblemQueryValidation(c, "Invalid query parameter", errs...)
+	query, ok := parseKnownQuery(c, isListQueryKey)
+	if !ok {
 		return nil, false
 	}
 	params, err := parseQueryParams(query)
@@ -445,7 +494,7 @@ func RouteKey(c *gin.Context) string {
 	return c.Request.Method + " unmatched"
 }
 
-// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// ProblemQueryValidation writes a 422 for invalid query parameters and
 // logs the field errors at Debug. These are expected client errors: the
 // response names each field and the access log records the status, so they
 // never log at Error or alert.

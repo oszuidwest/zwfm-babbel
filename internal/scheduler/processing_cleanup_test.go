@@ -1,12 +1,14 @@
 package scheduler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +149,74 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 		if !strings.Contains(logs.String(), "Failed to remove audio conversion leftover") || !strings.Contains(logs.String(), name) {
 			t.Errorf("removal failure not logged: %s", logs.String())
 		}
+	}
+}
+
+func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	dir := t.TempDir()
+	now := time.Now()
+	vanished := []string{"a.processing", "b.processing.wav"}
+	writeCleanupDir(t, filepath.Join(dir, vanished[0]), now.Add(-25*time.Hour))
+	writeCleanupFile(t, filepath.Join(dir, vanished[1]), now.Add(-25*time.Hour))
+	kept := filepath.Join(dir, "c.processing")
+	writeCleanupDir(t, kept, now.Add(-25*time.Hour))
+	t.Cleanup(func() { processingEntryInfo = fs.DirEntry.Info })
+	// The owning requests remove their entries after ReadDir.
+	processingEntryInfo = func(entry fs.DirEntry) (fs.FileInfo, error) {
+		if slices.Contains(vanished, entry.Name()) {
+			if err := os.RemoveAll(filepath.Join(dir, entry.Name())); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return entry.Info()
+	}
+
+	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	if err := service.cleanProcessingLeftovers(now); err != nil {
+		t.Fatalf("cleanProcessingLeftovers = %v, want vanished entries skipped", err)
+	}
+	for _, name := range vanished {
+		if strings.Contains(logs.String(), name) {
+			t.Errorf("vanished entry %s logged: %s", name, logs.String())
+		}
+	}
+	if _, err := os.Lstat(kept); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat = %v, want remaining leftover removed", err)
+	}
+}
+
+func TestCleanProcessingLeftoversReportsStatFailure(t *testing.T) {
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	dir := t.TempDir()
+	now := time.Now()
+	failed := filepath.Join(dir, "a.processing")
+	writeCleanupDir(t, failed, now.Add(-25*time.Hour))
+	kept := filepath.Join(dir, "b.processing")
+	writeCleanupDir(t, kept, now.Add(-25*time.Hour))
+	t.Cleanup(func() { processingEntryInfo = fs.DirEntry.Info })
+	processingEntryInfo = func(entry fs.DirEntry) (fs.FileInfo, error) {
+		if entry.Name() == "a.processing" {
+			return nil, fs.ErrPermission
+		}
+		return entry.Info()
+	}
+
+	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	err := service.cleanProcessingLeftovers(now)
+	if !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), failed) {
+		t.Fatalf("cleanProcessingLeftovers = %v, want stat failure for %s", err, failed)
+	}
+	// Comparing the decoded path keeps JSON escaping out of the check.
+	if !slices.ContainsFunc(bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")), func(line []byte) bool {
+		var record map[string]any
+		return json.Unmarshal(line, &record) == nil &&
+			record["msg"] == "Failed to stat audio conversion leftover" && record["path"] == failed
+	}) {
+		t.Errorf("stat failure not logged: %s", logs)
+	}
+	if _, err := os.Lstat(kept); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Lstat = %v, want remaining leftover removed", err)
 	}
 }
 

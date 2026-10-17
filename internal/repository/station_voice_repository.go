@@ -5,6 +5,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // StationVoiceUpdate contains optional fields for updating a station-voice relationship.
@@ -51,6 +52,17 @@ func (r *StationVoiceRepository) Create(ctx context.Context, stationID, voiceID 
 // GetByID loads a station-voice relationship with its station and voice.
 func (r *StationVoiceRepository) GetByID(ctx context.Context, id int64) (*models.StationVoice, error) {
 	return r.GetByIDWithJoins(ctx, id, "Station", "Voice")
+}
+
+// GetForUpdate loads a station-voice relationship without its station and
+// voice and locks the row. The caller must use a transaction.
+func (r *StationVoiceRepository) GetForUpdate(ctx context.Context, id int64) (*models.StationVoice, error) {
+	var stationVoice models.StationVoice
+	db := DBFromContext(ctx, r.db)
+	if err := db.WithContext(ctx).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).First(&stationVoice, id).Error; err != nil {
+		return nil, ParseDBError(err)
+	}
+	return &stationVoice, nil
 }
 
 // Update applies non-nil station-voice fields.

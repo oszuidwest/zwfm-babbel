@@ -256,11 +256,24 @@ func TestHandleServiceError_QueryShapeErrors(t *testing.T) {
 // (invalid list queries from every check, also when wrapped), operational
 // signals at Warn and server failures at Error. Mapped records carry their
 // error_type, resource and any cause; query records carry the route and field
-// errors. Only database and unhandled errors alert from here; the services
-// alert for operational signals.
+// errors. A client that went away logs at Debug; the same canceled query on a
+// live or expired request context, and any other database error after a
+// disconnect, are database failures. Only database and unhandled errors alert
+// from here; the services alert for operational signals.
 func TestErrorLogLevelsByClass(t *testing.T) {
 	serviceError := func(err error) func(*gin.Context) {
 		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
+	}
+	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
+		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
+	// endRequest ends the request context with end before it maps err.
+	endRequest := func(end func(context.Context) (context.Context, context.CancelFunc), err error) func(*gin.Context) {
+		return func(c *gin.Context) {
+			ctx, cancel := end(c.Request.Context())
+			cancel()
+			c.Request = c.Request.WithContext(ctx)
+			serviceError(err)(c)
+		}
 	}
 	tests := []struct {
 		name       string
@@ -334,6 +347,11 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
 		},
+		{
+			name:       "client disconnect",
+			respond:    endRequest(context.WithCancel, canceledQuery),
+			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+		},
 		// Operational signals.
 		{
 			name:       "ElevenLabs quota",
@@ -357,14 +375,31 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "connection lost", wantAlerts: 1,
 		},
 		{
+			name:       "canceled query on a live request",
+			respond:    serviceError(canceledQuery),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "query: context canceled", wantAlerts: 1,
+		},
+		{
+			name: "canceled query on an expired request deadline",
+			respond: endRequest(func(parent context.Context) (context.Context, context.CancelFunc) {
+				return context.WithDeadline(parent, time.Now().Add(-time.Second))
+			}, canceledQuery),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "query: context canceled", wantAlerts: 1,
+		},
+		{
+			name:       "other database failure on a canceled request",
+			respond:    endRequest(context.WithCancel, apperrors.Database("Story", "query", errors.New("connection lost"))),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "connection lost", wantAlerts: 1,
+		},
+		{
 			name:       "audio processing failure",
 			respond:    serviceError(apperrors.Audio("Story", "convert", errors.New("ffmpeg failed"))),
 			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed",
 		},
 		{
 			name:       "missing migration",
-			respond:    serviceError(apperrors.NotInitialized("tts_settings", "apply migration", nil)),
-			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized",
+			respond:    serviceError(apperrors.NotInitialized("tts_settings", "apply migration", repository.ErrSchemaUnavailable)),
+			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized", wantCause: repository.ErrSchemaUnavailable.Error(),
 		},
 		{
 			name:       "timeout",

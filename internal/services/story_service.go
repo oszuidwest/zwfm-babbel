@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -38,6 +37,10 @@ type StoryServiceDeps struct {
 	Alerts                notify.Alerter
 	TxManager             repository.TxManager
 }
+
+// storyAudioPublishTimeout bounds the publication transaction, which ignores
+// request cancellation.
+const storyAudioPublishTimeout = 10 * time.Second
 
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
@@ -332,7 +335,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 // update must be non-nil; an empty update only restores.
 func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
 	var story *models.Story
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "Story", apperrors.OpUpdate, func(txCtx context.Context) error {
 		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID); err != nil {
 			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 		}
@@ -353,35 +356,33 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 }
 
 // publishAudio converts audio at tempPath and publishes it, recording action
-// in the story's history.
+// in the story's history. Cancelling ctx stops the conversion; publication
+// then ignores cancellation and is bounded by storyAudioPublishTimeout.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
-	// Convert beside the final file for atomic rename and WAV muxer selection.
-	// Publish in the transaction, after the row and audit writes; their failure
-	// preserves old audio. A failed rename rolls back both writes. A later
-	// commit failure leaves the new file published and may leave the database
-	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	// A directory per request keeps concurrent requests for this story from
-	// overwriting or removing each other's output. FFmpeg creates the file in
-	// it, so the published mode follows the umask.
-	convertedDir, err := os.MkdirTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing", storyID))
+	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
-			logger.Error("Failed to remove temporary audio directory", "path", convertedDir, "error", rmErr)
-		}
-	}()
-	convertedPath := filepath.Join(convertedDir, utils.StoryFilename(storyID))
+	defer cleanup()
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
+	// Publish in the transaction, after the row and audit writes; their failure
+	// preserves old audio. A failed rename rolls back both writes. A later
+	// commit failure leaves the new file published and may leave the database
+	// outcome unknown.
+	//
+	// A client disconnect after the rename must not roll back the row and
+	// audit event behind the live file.
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)
+	defer cancel()
+	alertKey := fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 	published := false
-	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
 		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{
 			ActorUserID:     actorUserID,
 			Action:          action,
@@ -403,11 +404,23 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 			return audioErr
 		}
 		if published {
-			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
+			// Report the live file now and per story: on a timeout the handler
+			// logs neither this cause nor an alert, and its database alert is
+			// per route and waits for a threshold.
+			logger.Error("Story audio is live but its database record may be missing",
+				"story_id", storyID, "path", finalPath, "error", err)
+			s.alerts.Alert(ctx, notify.Event{
+				Key:     alertKey,
+				Summary: fmt.Sprintf("Story %d audio is live but its database record may be missing", storyID),
+				Details: err.Error() + "\n\nPublish this story's audio again to record it.",
+			})
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
+	s.alerts.Resolve(ctx, alertKey,
+		fmt.Sprintf("Story %d audio recorded again", storyID),
+		"A later publication saved the story's audio file and history.")
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil

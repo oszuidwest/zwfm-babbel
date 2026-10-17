@@ -25,7 +25,7 @@ func (h *Handlers) ListVoices(c *gin.Context) {
 // GetVoice returns a single newsreader voice by ID.
 func (h *Handlers) GetVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 

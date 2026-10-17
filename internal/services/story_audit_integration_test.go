@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -18,9 +17,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
-	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
-	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -281,23 +278,34 @@ func TestStoryAudioPublishedInsideTransaction(t *testing.T) {
 	}
 }
 
+func TestStoryAudioCommitsAfterRequestCancel(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newAudioIntegrationService(t, db)
+	story := createAudioIntegrationStory(t, db, nil)
+	finalPath := utils.StoryPath(service.config, story.ID)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	service.txManager = cancelAfterPublish{TxManager: service.txManager, t: t, finalPath: finalPath, cancel: cancel}
+
+	if err := service.ProcessAudio(ctx, story.ID, audioFixture(t, service, "sine=frequency=440:duration=1"), nil); err != nil {
+		t.Fatalf("ProcessAudio = %v, want success after the request was cancelled", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("request was not cancelled during the publication")
+	}
+	if after := audioStateOf(t, service, db, story.ID); after.AudioFile != utils.StoryFilename(story.ID) ||
+		after.Duration <= 0 || len(after.EventIDs) != 1 || after.Files[utils.StoryFilename(story.ID)] == "" {
+		t.Fatalf("published state = %+v, want the row, its audit event and the file", after)
+	}
+}
+
 // newAudioIntegrationService returns a story service that writes through db
 // and publishes into a temporary directory.
 func newAudioIntegrationService(t *testing.T, db *gorm.DB) *StoryService {
 	t.Helper()
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobe, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
-	cfg := &config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg, FFprobePath: ffprobe, ProcessedPath: t.TempDir()}}
-	return &StoryService{
-		storyRepo: repository.NewStoryRepository(db), voiceRepo: repository.NewVoiceRepository(db),
-		audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: notify.Discard, txManager: repository.NewTxManager(db),
-	}
+	s := newPublishAudioTestService(t)
+	s.storyRepo, s.voiceRepo, s.txManager = repository.NewStoryRepository(db), repository.NewVoiceRepository(db), repository.NewTxManager(db)
+	return s
 }
 
 // audioFixture renders an FFmpeg lavfi source to a WAV file.

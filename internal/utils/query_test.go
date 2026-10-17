@@ -331,6 +331,64 @@ func TestListParsers_AcceptKnownKeys(t *testing.T) {
 	}
 }
 
+// RejectQueryParams accepts no key, list options included, so every key fails
+// as unknown_field. Malformed encoding fails first, as query/invalid_format.
+func TestRejectQueryParams(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		target     string
+		wantFields []string
+		wantCode   string
+	}{
+		{name: "no query", target: "/x"},
+		{name: "only separators", target: "/x?&&"},
+		{name: "list options and unknown key sorted", target: "/x?search=nomatch&fields=name&bogus=1", wantFields: []string{"bogus", "fields", "search"}},
+		{name: "trashed", target: "/x?trashed=with", wantFields: []string{"trashed"}},
+		{name: "empty value", target: "/x?limit=", wantFields: []string{"limit"}},
+		{name: "no value", target: "/x?download", wantFields: []string{"download"}},
+		{name: "filter key", target: "/x?filter[id]=1", wantFields: []string{"filter[id]"}},
+		{name: "repeated key is unknown, not duplicate", target: "/x?foo=1&foo=2", wantFields: []string{"foo"}},
+		{name: "unescaped semicolon", target: "/x?a=1;b=2", wantFields: []string{"query"}, wantCode: "invalid_format"},
+		{name: "invalid escape", target: "/x?bogus=%ZZ", wantFields: []string{"query"}, wantCode: "invalid_format"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, nil)
+
+			ok := RejectQueryParams(c)
+			if len(tt.wantFields) == 0 {
+				if !ok || w.Body.Len() != 0 {
+					t.Fatalf("rejected %s: status = %d, body: %s", tt.target, w.Code, w.Body.String())
+				}
+				return
+			}
+			if ok || w.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("ok = %v, status = %d, want false/422; body: %s", ok, w.Code, w.Body.String())
+			}
+			var body problemResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("unmarshal: %v; body: %s", err, w.Body.String())
+			}
+			if len(body.Errors) != len(tt.wantFields) {
+				t.Fatalf("errors = %+v, want fields %v", body.Errors, tt.wantFields)
+			}
+			code := tt.wantCode
+			if code == "" {
+				code = "unknown_field"
+			}
+			for i, field := range tt.wantFields {
+				if body.Errors[i].Field != field || body.Errors[i].Code != code || body.Errors[i].Message == "" {
+					t.Fatalf("errors[%d] = %+v, want %s/%s with a message", i, body.Errors[i], field, code)
+				}
+			}
+		})
+	}
+}
+
 // Only soft-delete resources accept trashed, and only its two values. Any
 // other non-empty value fails with one trashed error. An empty trashed counts
 // as omitted everywhere.

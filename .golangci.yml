@@ -1,5 +1,10 @@
 version: "2"
 
+run:
+  # Also lint files behind //go:build integration.
+  build-tags:
+    - integration
+
 linters:
   default: none
   enable:
