@@ -45,6 +45,13 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 			wantProvider: "<script>alert(1)</script>",
 		},
 		{
+			name:        "empty provider error with code",
+			query:       url.Values{"error": {""}, "code": {"valid-code"}},
+			wantLevel:   "WARN",
+			wantMsg:     "OIDC login rejected",
+			wantMessage: "OIDC login rejected: identity provider did not complete the login",
+		},
+		{
 			name:        "missing code",
 			query:       url.Values{},
 			wantLevel:   "WARN",

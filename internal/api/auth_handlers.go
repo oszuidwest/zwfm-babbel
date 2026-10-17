@@ -65,7 +65,7 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		message := "Login failed; try again or contact an administrator"
 		if errors.Is(err, auth.ErrLoginRejected) {
 			attrs := []any{"error", err}
-			if providerErr := c.Query("error"); providerErr != "" {
+			if providerErr, ok := c.GetQuery("error"); ok {
 				attrs = append(attrs, "provider_error", providerErr,
 					"provider_error_description", c.Query("error_description"))
 			}

@@ -345,7 +345,8 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 
 	// A cancelled or failed login at the provider is a user action, not a server
 	// fault. The provider's error values are not part of the user-facing message.
-	if providerErr := c.Query("error"); providerErr != "" {
+	// An empty error parameter is not a valid success response either.
+	if providerErr, ok := c.GetQuery("error"); ok {
 		if providerErr == "access_denied" {
 			return fmt.Errorf("%w: login was cancelled", ErrLoginRejected)
 		}
