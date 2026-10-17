@@ -42,13 +42,38 @@ func unknownQueryParams(query url.Values) []apperrors.FieldError {
 	return errs
 }
 
+// parseRawQuery decodes the raw query string. URL.Query, and with it gin's
+// c.Query and c.GetQuery, silently drops a pair with an invalid percent escape
+// or an unescaped semicolon. This reports it as field query instead of a key,
+// because the key may itself be undecodable or hidden behind a semicolon.
+func parseRawQuery(c *gin.Context) (url.Values, *apperrors.FieldError) {
+	query, err := url.ParseQuery(c.Request.URL.RawQuery)
+	if err != nil {
+		return nil, queryError("query", apperrors.CodeInvalidFormat, err.Error())
+	}
+	return query, nil
+}
+
+// RejectMalformedQuery answers a query string that url.ParseQuery rejects,
+// such as an invalid percent escape or an unescaped semicolon, with a 422
+// naming field query, so no handler runs as if the dropped pairs were never
+// sent.
+func RejectMalformedQuery(c *gin.Context) {
+	if _, err := parseRawQuery(c); err != nil {
+		emitQueryError(c, err)
+		c.Abort()
+		return
+	}
+	c.Next()
+}
+
 // parseKnownQueryParams rejects malformed encoding and unknown keys before
 // [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
 // than duplicate. On errors it writes an RFC 9457 response and returns false.
 func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
-	query, parseErr := url.ParseQuery(c.Request.URL.RawQuery)
+	query, parseErr := parseRawQuery(c)
 	if parseErr != nil {
-		emitQueryError(c, queryError("query", apperrors.CodeInvalidFormat, parseErr.Error()))
+		emitQueryError(c, parseErr)
 		return nil, false
 	}
 	if errs := unknownQueryParams(query); len(errs) > 0 {
@@ -445,7 +470,7 @@ func RouteKey(c *gin.Context) string {
 	return c.Request.Method + " unmatched"
 }
 
-// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// ProblemQueryValidation writes a 422 for invalid query parameters and
 // logs the field errors at Debug. These are expected client errors: the
 // response names each field and the access log records the status, so they
 // never log at Error or alert.

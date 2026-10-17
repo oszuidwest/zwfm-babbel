@@ -29,9 +29,9 @@ info:
       well-formed, but the API rejects a value. This covers field rules,
       cross-field rules such as date order, body references to resources
       that do not exist (such as `voice_id` or `station_id`), an update that
-      sets no field, an invalid path `id`, unknown or invalid query
-      parameters on list endpoints, and a missing, unsupported or silent
-      uploaded file.
+      sets no field, an invalid path `id`, a query string that cannot be
+      decoded on any endpoint, unknown or invalid query parameters on list
+      endpoints, and a missing, unsupported or silent uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
@@ -70,8 +70,9 @@ info:
       `errors[].field`: `page=2` fails as `page` and `status=deleted` as
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
-    - Malformed URL encoding or an unescaped semicolon fails with 422
-      `invalid_format` and field `query` before checking keys.
+    - Malformed URL encoding or an unescaped semicolon, such as
+      `page=%ZZ` or `limit=5;page=2`, fails with 422 `invalid_format`
+      and field `query` on every endpoint, before keys are checked.
     - Unknown keys are then checked, whatever their value, and one
       response names each of them in sorted order. A repeated unknown key
       fails as `unknown_field`, not `duplicate`.
@@ -260,6 +261,8 @@ paths:
                   service:
                     type: string
                     example: babbel-api
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '503':
           description: The service is unhealthy because it cannot connect to the database
           content:
@@ -409,8 +412,9 @@ paths:
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
           description: |
-            Invalid path or query parameter. `errors[].field` is `id` or
-            `max_age`; `max_age` fails with `required`, `invalid_format` or
+            Invalid path or query parameter. `errors[].field` is `id`,
+            `max_age`, or `query` for a query string that cannot be decoded;
+            `max_age` fails with `required`, `invalid_format` or
             `out_of_range`.
           content:
             application/problem+json:
@@ -454,6 +458,8 @@ paths:
                     type: string
                     description: URL to start OAuth flow (only present when OAuth is enabled)
                     example: "/api/v1/auth/oauth"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 
   /api/v1/sessions:
     post:
@@ -505,7 +511,9 @@ paths:
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
-          description: A missing or empty `username` or `password` fails with code `required`.
+          description: |
+            A missing or empty `username` or `password` fails with code
+            `required`. A query string that cannot be decoded fails as `query`.
           content:
             application/problem+json:
               schema:
@@ -566,6 +574,8 @@ paths:
                 status: 404
                 detail: "OAuth authentication is disabled"
                 instance: "/api/v1/auth/oauth"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           description: Session storage failed before the redirect
           content:
@@ -626,6 +636,8 @@ paths:
                   value: "https://your-frontend.com/dashboard?login=success"
                 error:
                   value: "https://your-frontend.com/dashboard?error=invalid_credentials"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -645,6 +657,8 @@ paths:
                 $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
@@ -657,6 +671,8 @@ paths:
           description: Session terminated successfully
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -668,8 +684,8 @@ paths:
         Returns a paginated list of radio stations with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
-        - `s.name` - Station name
+        Substring search across:
+        - `name` - Station name
         
         ## Filter Fields
         Available filter fields:
@@ -887,7 +903,7 @@ paths:
         Returns a paginated list of newsreader voices with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `name` - Voice name
         
         ## Filter Fields
@@ -1174,7 +1190,12 @@ paths:
       summary: List all stories
       description: |
         List stories with modern query parameter support.
-        
+
+        ## Search Fields
+        Substring search across:
+        - `title` - Story title
+        - `text` - Story text
+
         ## Date Filtering
         Use date range filters to find stories active on specific dates:
         - `filter[start_date][lte]=2024-06-15` - Start date before or on date
@@ -1389,6 +1410,8 @@ paths:
           extension (`unsupported`), or is silent or below -50 LUFS
           (`silent_audio`). Existing audio is kept.
         - 500: the server could not store or process the file.
+        - 504: the database did not save the upload in time. The new audio
+          may already be live; upload it again to record it.
       tags:
         - Stories
       parameters:
@@ -1442,6 +1465,8 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 
   /api/v1/stories/{id}/tts:
     post:
@@ -1572,6 +1597,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '500':
@@ -1641,6 +1668,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -1902,7 +1931,7 @@ paths:
         Ordered by bulletin creation time descending by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
         
         ## Filter Fields
@@ -1928,12 +1957,12 @@ paths:
         - `created_at` - Bulletin creation timestamp
 
         ## Examples
-        - Search by bulletin filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by station: `?filter[station_id]=1`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by creation date: `?sort=-created_at`
         - Field selection: `?fields=id,filename,created_at`
-        - Complex query: `?search=bulletin&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Stories
       parameters:
@@ -1992,6 +2021,13 @@ paths:
     get:
       operationId: getUsers
       summary: List all users
+      description: |
+        Returns a paginated list of users with modern query parameter support.
+
+        ## Search Fields
+        Substring search across:
+        - `username` - Username
+        - `full_name` - Full name
       tags:
         - Users
       parameters:
@@ -2213,7 +2249,7 @@ paths:
         Returns a paginated list of generated bulletins with modern query parameter support.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -2242,13 +2278,13 @@ paths:
         To get story information for a bulletin, use GET /bulletins/{id}/stories after fetching the bulletin list.
         
         ## Examples
-        - Search by filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by station: `?filter[station_id]=1`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
         - Filter by story count: `?filter[story_count][gte]=3`
         - Field selection: `?fields=id,filename,duration_seconds,story_count,created_at`
-        - Complex query: `?search=2024&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
+        - Complex query: `?search=20240120&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
       tags:
         - Bulletin
       parameters:
@@ -2351,7 +2387,7 @@ paths:
         Ordered by most recent first by default.
         
         ## Search Fields
-        Full-text search across:
+        Substring search across:
         - `filename` - Bulletin filename
 
         ## Filter Fields
@@ -2381,11 +2417,11 @@ paths:
         To get story information for bulletins, use GET /bulletins/{id}/stories for each bulletin.
         
         ## Examples
-        - Search by filename: `?search=bulletin_2024`
+        - Search by filename date: `?search=20240120`
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
         - Field selection: `?fields=id,filename,duration_seconds,created_at`
-        - Complex query: `?search=2024&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Bulletin
       parameters:
@@ -3166,8 +3202,10 @@ components:
       schema:
         type: string
       description: |
-        Search term for full-text search across relevant fields.
-        Searches in names, titles, text content depending on resource.
+        Literal substring match on any of the operation's fields listed
+        under "Search Fields" (`%` and `_` are not wildcards); case
+        sensitivity follows the column collation (case-insensitive by
+        default).
       example: "news update"
     trashed:
       name: trashed
@@ -5269,7 +5307,7 @@ components:
       description: |
         The request is well-formed, but the API rejects one or more values.
         `errors[]` names each rejected body field, query parameter, path `id`
-        or uploaded file.
+        or uploaded file, or `query` for a query string that cannot be decoded.
       content:
         application/problem+json:
           schema:
@@ -5353,6 +5391,18 @@ components:
                   - field: "per_page"
                     code: "unknown_field"
                     message: "unknown query parameter"
+            malformed_query:
+              summary: A query string that cannot be decoded
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "Invalid query parameter"
+                instance: "/api/v1/stories"
+                errors:
+                  - field: "query"
+                    code: "invalid_format"
+                    message: "invalid URL escape \"%ZZ\""
             silent_audio:
               summary: Uploaded story audio is silent or below -50 LUFS; existing audio is preserved
               value:
