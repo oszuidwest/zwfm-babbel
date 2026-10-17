@@ -3,12 +3,19 @@ const { createMySQLExecutor } = require('../MySQLHelper');
 
 /**
  * Generates list-query contract tests from a resource schema.
+ *
+ * Sort tests list only the fixtures whose ids setupFn resolves to. Every
+ * sortable field needs two distinct values among them, or an ignored or
+ * reversed sort would pass. The default order may sort at most one of these
+ * fields: an ignored sort returns that order, so it passes one direction of
+ * every field the order happens to sort.
  * @param {Object} schema
- * @param {Function|null} [setupFn]
+ * @param {Function} setupFn Creates the fixtures and resolves to their ids.
  */
-function generateQueryTests(schema, setupFn = null) {
+function generateQueryTests(schema, setupFn) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
+  if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
@@ -41,10 +48,13 @@ function generateQueryTests(schema, setupFn = null) {
     }
     return items.map(item => item[field]);
   };
+  const sorted = (keys, direction) => keys.toSorted((a, b) => direction * (a - b));
 
   describe(`${name} Query Parameters`, () => {
+    let fixtureIds;
+
     beforeAll(async () => {
-      if (setupFn) await setupFn();
+      fixtureIds = await setupFn();
     });
 
     // OpenAPI declares search only where the repository has search fields;
@@ -75,6 +85,14 @@ function generateQueryTests(schema, setupFn = null) {
 
     if (query.sortableFields?.length > 0) {
       describe('Sorting', () => {
+        // Rows from other tests could fill the page with equal keys, and the
+        // fixture orders only hold when the page lists exactly the fixtures.
+        const listFixtures = async (qs = '') => {
+          const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}${qs}`);
+          expect(sorted(response.data.data.map(item => item.id), 1)).toEqual(sorted(fixtureIds, 1));
+          return response;
+        };
+
         query.sortableFields.forEach(field => {
           if (!filters[field]) throw new Error(`${name} sortableFields: ${field} is not a documented filter for ${endpoint}`);
           test.each([
@@ -82,12 +100,28 @@ function generateQueryTests(schema, setupFn = null) {
             [`when sorting desc by ${field}, then ordered correctly`, `-${field}`, -1]
           ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
-            const response = await expectStatus(`sort=${sort}`);
+            const response = await listFixtures(`&sort=${sort}`);
             const keys = sortKeys(response, field);
-            // A missing rank or unparsable date would sort to the end unnoticed.
+            // Every fixture needs a key: a missing rank sorts to the end and an
+            // unparsable date (NaN) compares equal to everything, so either
+            // would hide a wrong order.
+            expect(keys).toHaveLength(fixtureIds.length);
             expect(keys.every(Number.isFinite)).toBe(true);
-            expect(keys).toEqual([...keys].sort((a, b) => direction * (a - b)));
+            // Collation-equal strings share a rank, so the Set counts distinct
+            // keys the way the comparison below does.
+            expect(new Set(keys).size).toBeGreaterThan(1);
+            expect(keys).toEqual(sorted(keys, direction));
           });
+        });
+
+        test('when sort is omitted, then at most one sortable field lists the fixtures in order', async () => {
+          expect.hasAssertions();
+          const response = await listFixtures();
+          const ordered = query.sortableFields.filter(field => {
+            const keys = sortKeys(response, field);
+            return [1, -1].some(direction => sorted(keys, direction).every((key, index) => key === keys[index]));
+          });
+          expect(ordered.length).toBeLessThanOrEqual(1);
         });
 
         test.each([
