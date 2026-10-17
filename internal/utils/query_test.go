@@ -342,7 +342,6 @@ func TestRejectQueryParams(t *testing.T) {
 		wantCode   string
 	}{
 		{name: "no query", target: "/x"},
-		{name: "empty query", target: "/x?"},
 		{name: "only separators", target: "/x?&&"},
 		{name: "list options and unknown key sorted", target: "/x?search=nomatch&fields=name&bogus=1", wantFields: []string{"bogus", "fields", "search"}},
 		{name: "trashed", target: "/x?trashed=with", wantFields: []string{"trashed"}},

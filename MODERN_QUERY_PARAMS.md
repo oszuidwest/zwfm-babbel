@@ -29,12 +29,10 @@ GET /api/v1/stations?Trashed=only       # 422, field "Trashed"
 GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "per_page"
 ```
 
-Single-resource endpoints under `/api/v1`, such as `/stations/{id}`,
-`/stations/{id}/bulletins/latest` and the `/stories/{id}/audio`,
-`/station-voices/{id}/audio` and `/bulletins/{id}/audio` downloads, read no
-query keys and reject every key the same way, list options included. The
-public `/public/stations/{id}/bulletin.wav` endpoint is not affected; it reads
-`key` and `max_age`.
+`GET /{resource}/{id}` endpoints, such as `/stations/{id}`, and
+`/stations/{id}/bulletins/latest` read no query keys and reject every key the
+same way, list options included. The `/audio` downloads ignore query keys, so
+a cache-busting key such as `v=2` still returns the file.
 
 ```http
 GET /api/v1/stations/1?fields=name      # 422, errors[0].field = "fields", code "unknown_field"

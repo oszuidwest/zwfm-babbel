@@ -33,7 +33,7 @@ type AudioConfig struct {
 // callers do not need to distinguish metadata from storage state.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	id, ok := utils.IDParam(c)
-	if !ok || !utils.RejectQueryParams(c) {
+	if !ok {
 		return
 	}
 
