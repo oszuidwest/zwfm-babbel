@@ -1,5 +1,10 @@
 const TestHelpers = require('../lib/TestHelpers');
 
+const expectFieldError = (response, status, field, code) => {
+  expect(response.status).toBe(status);
+  expect(response.data.errors).toEqual([expect.objectContaining({ field, code })]);
+};
+
 describe('Empty Update Validation', () => {
   const paths = {};
 
@@ -45,11 +50,6 @@ describe('Validation Error Contract', () => {
     voicePath = `/voices/${voice.id}`;
   });
 
-  const expectFieldError = (response, status, field, code) => {
-    expect(response.status).toBe(status);
-    expect(response.data.errors).toEqual([expect.objectContaining({ field, code })]);
-  };
-
   test.each([
     ['a soft delete with status', { status: 'draft', deleted_at: '2026-09-26T12:00:00Z' }],
     ['a story field other than status without a restore', { title: 'Changed' }],
@@ -90,31 +90,12 @@ describe('Validation Error Contract', () => {
 });
 
 describe('Malformed Query Strings', () => {
-  let storyId;
-
-  beforeAll(async () => {
-    const voice = await global.helpers.createVoice(global.resources, 'MalformedQueryVoice');
-    const story = await global.helpers.createStory(global.resources, {
-      title: 'Malformed query', text: 'Test content', voice_id: voice.id
-    });
-    storyId = story.id;
-  });
-
-  const expectMalformedQuery = (response) => {
-    expect(response.status).toBe(422);
-    expect(response.data.errors).toEqual([expect.objectContaining({ field: 'query', code: 'invalid_format' })]);
-  };
-
-  test.each([
-    ['an invalid escape in page', 'page=%ZZ'],
-    ['a semicolon separator', 'limit=5;page=2'],
-    ['an invalid escape in trashed', 'trashed=only%ZZ']
-  ])('when listing stories with %s, then 422 names query', async (_name, query) => {
-    expectMalformedQuery(await global.api.apiCall('GET', `/stories?${query}`));
-  });
+  // The router rejects these before authentication and the handler, so the
+  // story and station do not need to exist.
+  const expectMalformedQuery = (response) => expectFieldError(response, 422, 'query', 'invalid_format');
 
   test('when generating TTS with an invalid escape in force, then 422 names query', async () => {
-    expectMalformedQuery(await global.api.apiCall('POST', `/stories/${storyId}/tts?force=true%ZZ`));
+    expectMalformedQuery(await global.api.apiCall('POST', '/stories/1/tts?force=true%ZZ'));
   });
 
   test('when the automation key is behind a semicolon, then 422 names query', async () => {

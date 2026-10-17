@@ -70,10 +70,9 @@ info:
       `errors[].field`: `page=2` fails as `page` and `status=deleted` as
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
-    - Malformed URL encoding or an unescaped semicolon fails with 422
-      `invalid_format` and field `query` before checking keys, for example
-      `page=%ZZ` or `limit=5;page=2`. This applies to every endpoint, not
-      only list endpoints, so no parameter is silently dropped.
+    - Malformed URL encoding or an unescaped semicolon, such as
+      `page=%ZZ` or `limit=5;page=2`, fails with 422 `invalid_format`
+      and field `query` on every endpoint, before keys are checked.
     - Unknown keys are then checked, whatever their value, and one
       response names each of them in sorted order. A repeated unknown key
       fails as `unknown_field`, not `duplicate`.

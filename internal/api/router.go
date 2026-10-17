@@ -199,7 +199,8 @@ func setupEngine(cfg *config.Config, authService *auth.Service, alerts *notify.S
 	// CORS may abort preflight requests, so set security headers first.
 	r.Use(securityHeaders(cfg))
 	r.Use(corsMiddleware(cfg))
-	// Runs after CORS so preflight requests are answered as before.
+	// After CORS: preflight requests skip the check, and the 422 carries the
+	// CORS headers so a cross-origin frontend can read it.
 	r.Use(utils.RejectMalformedQuery)
 	return r
 }

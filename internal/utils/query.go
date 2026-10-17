@@ -468,7 +468,7 @@ func RouteKey(c *gin.Context) string {
 	return c.Request.Method + " unmatched"
 }
 
-// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// ProblemQueryValidation writes a 422 for invalid query parameters and
 // logs the field errors at Debug. These are expected client errors: the
 // response names each field and the access log records the status, so they
 // never log at Error or alert.

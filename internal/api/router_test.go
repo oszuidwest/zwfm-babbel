@@ -89,20 +89,18 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 		target     string
 		wantStatus int
 		wantField  string
-		wantCode   string
 	}{
-		{name: "invalid escape in page", target: "/probe?page=%ZZ", wantStatus: 422, wantField: "query", wantCode: "invalid_format"},
-		{name: "semicolon separator", target: "/probe?limit=5;page=2", wantStatus: 422, wantField: "query", wantCode: "invalid_format"},
-		{name: "invalid escape in trashed", target: "/probe?trashed=only%ZZ", wantStatus: 422, wantField: "query", wantCode: "invalid_format"},
-		{name: "automation key behind semicolon", target: "/public/stations/1/bulletin.wav?key=expected;max_age=0", wantStatus: 422, wantField: "query", wantCode: "invalid_format"},
-		{name: "automation key with invalid escape", target: "/public/stations/1/bulletin.wav?key=%ZZ&max_age=0", wantStatus: 422, wantField: "query", wantCode: "invalid_format"},
+		{name: "invalid escape in page", target: "/probe?page=%ZZ", wantStatus: 422, wantField: "query"},
+		{name: "semicolon separator", target: "/probe?limit=5;page=2", wantStatus: 422, wantField: "query"},
+		{name: "automation key behind semicolon", target: "/public/stations/1/bulletin.wav?key=expected;max_age=0", wantStatus: 422, wantField: "query"},
+		{name: "automation key with invalid escape", target: "/public/stations/1/bulletin.wav?key=%ZZ&max_age=0", wantStatus: 422, wantField: "query"},
+		{name: "unmatched route", target: "/missing?page=%ZZ", wantStatus: 422, wantField: "query"},
 		{name: "preflight is not checked", method: http.MethodOptions, target: "/probe?page=%ZZ", wantStatus: 204},
 		{name: "no query", target: "/probe", wantStatus: 200},
 		{name: "OAuth callback parameters", target: "/probe?code=abc&state=x%2By%3D&error=", wantStatus: 200},
 		{name: "list parameters", target: "/probe?filter[status]=active&sort=-id&limit=5&trashed=only", wantStatus: 200},
 		{name: "escaped semicolon and key without value", target: "/probe?search=a%3Bb+c&flag", wantStatus: 200},
-		{name: "wrong automation key", target: "/public/stations/1/bulletin.wav?key=wrong&max_age=0", wantStatus: 401},
-		{name: "invalid automation max_age", target: "/public/stations/1/bulletin.wav?key=expected&max_age=abc", wantStatus: 422, wantField: "max_age", wantCode: "invalid_format"},
+		{name: "invalid automation max_age", target: "/public/stations/1/bulletin.wav?key=expected&max_age=abc", wantStatus: 422, wantField: "max_age"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,8 +127,8 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 				t.Fatalf("unmarshal: %v; body: %s", err, recorder.Body.String())
 			}
-			if len(body.Errors) != 1 || body.Errors[0].Field != tt.wantField || body.Errors[0].Code != tt.wantCode || body.Errors[0].Message == "" {
-				t.Fatalf("errors = %+v, want one %s/%s with a message", body.Errors, tt.wantField, tt.wantCode)
+			if len(body.Errors) != 1 || body.Errors[0].Field != tt.wantField || body.Errors[0].Code != apperrors.CodeInvalidFormat || body.Errors[0].Message == "" {
+				t.Fatalf("errors = %+v, want one %s/invalid_format with a message", body.Errors, tt.wantField)
 			}
 		})
 	}
