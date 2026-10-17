@@ -186,17 +186,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	}
 	defer deferCleanup(cleanup, "audio file")()
 
-	err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath, actorUserID(c))
-	switch {
-	case errors.Is(err, audio.ErrSilent):
-		// The audio service already logs the rejection at Warn.
-		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-			Field:   "audio",
-			Code:    apperrors.CodeSilentAudio,
-			Message: "audio is silent or too quiet; check the recording level and input channel",
-		})
-		return
-	case err != nil:
+	if err := h.storySvc.ProcessAudio(c.Request.Context(), id, tempPath, actorUserID(c)); err != nil {
 		handleAudioUploadError(c, err, "audio", "Story")
 		return
 	}
@@ -233,17 +223,26 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	utils.CreatedWithMessage(c, "Jingle uploaded successfully")
 }
 
-// handleAudioUploadError rejects an uploaded file that is not decodable audio
-// with 422 on field, and maps any other error with handleServiceError.
+// handleAudioUploadError rejects an uploaded file that is silent or not
+// decodable audio with 422 on field, and maps any other error with
+// handleServiceError.
 func handleAudioUploadError(c *gin.Context, err error, field, fallbackResource string) {
-	if !errors.Is(err, audio.ErrUndecodable) {
+	switch {
+	case errors.Is(err, audio.ErrSilent):
+		// The audio service already logs the rejection at Warn.
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   field,
+			Code:    apperrors.CodeSilentAudio,
+			Message: "audio is silent or too quiet; check the recording level and input channel",
+		})
+	case errors.Is(err, audio.ErrUndecodable):
+		logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, errors.Unwrap(err))
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   field,
+			Code:    apperrors.CodeUndecodable,
+			Message: "the file cannot be decoded as audio; check that it is a complete, valid audio file",
+		})
+	default:
 		handleServiceError(c, err, fallbackResource)
-		return
 	}
-	logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, errors.Unwrap(err))
-	utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-		Field:   field,
-		Code:    apperrors.CodeUndecodable,
-		Message: "the file cannot be decoded as audio; check that it is a complete, valid audio file",
-	})
 }

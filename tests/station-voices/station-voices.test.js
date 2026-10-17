@@ -102,16 +102,11 @@ describe('Station-Voices', () => {
         fs.writeFileSync(notAudio, 'this is not audio\n');
         const station = await global.helpers.createStation(global.resources, 'NotAudioStation');
         const voice = await global.helpers.createVoice(global.resources, 'NotAudioVoice');
-        const response = await global.api.apiCall('POST', '/station-voices', {
-          station_id: station.id,
-          voice_id: voice.id,
-          mix_point: 1.5
-        });
-        expect(response.status).toBe(201);
-        global.resources.track('stationVoices', response.data.id);
+        const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.5);
+        expect(stationVoice).not.toBeNull();
 
         const uploadResponse = await global.api.uploadFile(
-          `/station-voices/${response.data.id}/audio`,
+          `/station-voices/${stationVoice.id}/audio`,
           {},
           notAudio,
           'jingle'
