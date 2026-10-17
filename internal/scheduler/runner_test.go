@@ -64,6 +64,9 @@ func TestRunnerAlertsOnFirstErrorAndResolvesOnSuccess(t *testing.T) {
 	if event.Key != "scheduler:test job" || event.RequiresThreshold || event.Details != jobErr.Error() {
 		t.Fatalf("event = %+v, want immediate scheduler alert", event)
 	}
+	if len(alerts.resolved) != 0 {
+		t.Fatalf("resolved after failure = %v, want none", alerts.resolved)
+	}
 
 	runner.fn = func(context.Context) error { return nil }
 	runner.runOnce()

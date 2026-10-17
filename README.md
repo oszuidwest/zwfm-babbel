@@ -290,7 +290,7 @@ These conditions cause an immediate alert:
 - Bulletin generation fails, and the cause is not a timeout.
 - Babbel cannot read the bulletin output directory.
 - The ElevenLabs credentials are not valid.
-- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the default failure threshold. While the failure continues, each run after the cooldown sends the alert again.
+- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the default failure window. While the failure continues, each run after the cooldown sends the alert again.
 - A scheduler job stops because of a panic.
 - Babbel locks a user account after too many bad login attempts.
 - The OAuth state or the OAuth token data is not valid.
