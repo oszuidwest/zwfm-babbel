@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -94,6 +96,76 @@ func lavfiFixture(t *testing.T, ffmpegPath, source string) string {
 		t.Fatalf("create audio fixture: %v; output: %s", err, output)
 	}
 	return path
+}
+
+// failingTxManager fails the publication transaction: before fn when it
+// cannot begin, or after fn succeeds when it cannot commit.
+type failingTxManager struct {
+	beginFails bool
+	err        error
+}
+
+func (m failingTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if !m.beginFails {
+		if err := fn(ctx); err != nil {
+			return err
+		}
+	}
+	return m.err
+}
+
+// acceptingAudioRepository accepts every audio update.
+type acceptingAudioRepository struct{ storyRepository }
+
+func (acceptingAudioRepository) UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error {
+	return nil
+}
+
+func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *testing.T) {
+	t.Parallel()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	input := lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
+	for _, tt := range []struct {
+		name          string
+		beginFails    bool
+		wantPublished bool
+	}{
+		{name: "begin", beginFails: true},
+		{name: "commit", wantPublished: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+			}}
+			cause := errors.New("connection refused")
+			service := &StoryService{
+				storyRepo: acceptingAudioRepository{}, txManager: failingTxManager{beginFails: tt.beginFails, err: cause},
+				audioSvc: audio.NewService(cfg, nil), config: cfg,
+			}
+			const storyID = 99
+
+			err := service.ProcessAudio(t.Context(), storyID, input, nil)
+			dbErr, ok := errors.AsType[*apperrors.DatabaseError](err)
+			if !ok || dbErr.Resource != "Story" || dbErr.Operation != apperrors.OpUpdate.String() || !errors.Is(err, cause) {
+				t.Fatalf("ProcessAudio = %v, want a Story update database error caused by %v", err, cause)
+			}
+			finalPath := utils.StoryPath(cfg, storyID)
+			if _, statErr := os.Stat(finalPath); (statErr == nil) != tt.wantPublished {
+				t.Fatalf("published file: %v, want published = %v", statErr, tt.wantPublished)
+			}
+			if tt.wantPublished && !strings.Contains(errors.Unwrap(err).Error(), finalPath) {
+				t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), finalPath)
+			}
+		})
+	}
 }
 
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {

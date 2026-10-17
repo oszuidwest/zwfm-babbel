@@ -140,7 +140,7 @@ Most resource list endpoints support advanced querying:
 
 | Parameter | Type | Example | Description |
 |-----------|------|---------|-------------|
-| ` + "`search`" + ` | string | ` + "`search=news`" + ` | Full-text search across searchable fields |
+| ` + "`search`" + ` | string | ` + "`search=news`" + ` | Full-text search on endpoints that declare it |
 | ` + "`filter[field]`" + ` | string | ` + "`filter[station_id]=5`" + ` | Filter by field value |
 | ` + "`filter[field][op]`" + ` | string | ` + "`filter[created_at][gte]=2024-01-01`" + ` | Advanced filtering with operators |
 | ` + "`sort`" + ` | string | ` + "`sort=-created_at`" + ` | Sort results (- for DESC, field:asc/desc) |
