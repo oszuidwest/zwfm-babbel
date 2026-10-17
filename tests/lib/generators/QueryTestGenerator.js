@@ -160,9 +160,9 @@ function generateQueryTests(schema, setupFn) {
           expect(values.length).toBeGreaterThan(0);
           return values;
         };
-        // MySQL comparisons never match NULL, so keep only gets present
-        // values. The expected fixtures must leave one out, or an ignored
-        // filter would pass.
+        // MySQL comparisons never match NULL, so keep only sees fixtures
+        // with a value. The expected fixtures must leave one out, or an
+        // ignored filter would pass.
         const expectFiltered = async (field, qs, keep) => {
           const expected = idsOf(fixtures.filter(item => present(item[field]) && keep(item[field])));
           expect(expected.length).toBeLessThan(fixtures.length);
