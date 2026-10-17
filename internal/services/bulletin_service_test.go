@@ -22,14 +22,12 @@ import (
 // keeps it, since the row may exist.
 func TestBulletinService_SaveFailures(t *testing.T) {
 	t.Parallel()
-	commitLost := errors.New("connection lost during commit")
-	beginRefused := errors.New("connection refused")
+	connLost := errors.New("connection lost")
 	for _, tt := range []struct {
 		name         string
 		insertErr    *mysqlerr.MySQLError
-		beginFails   bool
+		tx           failingTxManager
 		finalizeErr  error
-		txErr        error
 		wantCause    error
 		wantConflict bool
 		wantFileKept bool
@@ -37,17 +35,17 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 		{name: "duplicate key", insertErr: &mysqlerr.MySQLError{Number: 1062}, wantCause: repository.ErrDuplicateKey},
 		{name: "data too long", insertErr: &mysqlerr.MySQLError{Number: 1406}, wantCause: repository.ErrDataTooLong},
 		{name: "station deleted", insertErr: &mysqlerr.MySQLError{Number: 1452}, wantConflict: true},
-		{name: "begin", beginFails: true, txErr: beginRefused, wantCause: beginRefused},
+		{name: "begin", tx: failingTxManager{beginFails: true, err: connLost}, wantCause: connLost},
 		// A job that left the running state keeps its stored outcome; the
 		// worker detects this through the wrapped cause.
 		{name: "job finalize", finalizeErr: repository.ErrBulletinJobStateConflict, wantCause: repository.ErrBulletinJobStateConflict},
-		{name: "commit", txErr: commitLost, wantCause: commitLost, wantFileKept: true},
+		{name: "commit", tx: failingTxManager{err: connLost}, wantCause: connLost, wantFileKept: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			db := insertFailingDB(t, tt.insertErr)
 			service := &BulletinService{
-				txManager:    failingTxManager{beginFails: tt.beginFails, err: tt.txErr},
+				txManager:    tt.tx,
 				bulletinRepo: repository.NewBulletinRepository(db),
 			}
 			path := filepath.Join(t.TempDir(), "bulletin.wav")
@@ -62,17 +60,14 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 
 			_, err := service.saveBulletinToDatabase(t.Context(), saveBulletinParams{StationID: 1, BulletinPath: path}, finalize)
 			if tt.wantConflict {
-				conflict, ok := errors.AsType[*apperrors.ConflictError](err)
-				if !ok || conflict.Code != "bulletin.reference_missing" {
-					t.Fatalf("saveBulletinToDatabase() error = %v, want bulletin.reference_missing conflict", err)
-				}
+				assertConflict(t, err, "bulletin.reference_missing")
 			} else {
 				dbErr, ok := errors.AsType[*apperrors.DatabaseError](err)
 				if !ok || dbErr.Resource != "Bulletin" || dbErr.Operation != apperrors.OpCreate.String() || !errors.Is(err, tt.wantCause) {
 					t.Fatalf("saveBulletinToDatabase() error = %v, want a Bulletin create database error caused by %v", err, tt.wantCause)
 				}
 			}
-			if _, statErr := os.Stat(path); (statErr == nil) != tt.wantFileKept {
+			if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) == tt.wantFileKept {
 				t.Fatalf("rendered file: %v, want kept = %v", statErr, tt.wantFileKept)
 			}
 		})
