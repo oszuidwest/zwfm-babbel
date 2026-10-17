@@ -373,13 +373,9 @@ func logErrorWithCause(resource, errorType string, err error, cause error) {
 // failures log at Error.
 func errorLevel(errorType string) slog.Level {
 	switch errorType {
-	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted":
-		// Client errors: the response tells the client what to fix and the
-		// access log records the status.
-		return slog.LevelDebug
-	case "client_canceled":
-		// The client went away before the response; the access log records
-		// the 499.
+	case "not_found", "duplicate", "has_dependencies", "validation_failed", "conflict", "deleted", "client_canceled":
+		// Client errors and disconnects: the response tells the client what
+		// to fix, or nobody reads it, and the access log records the status.
 		return slog.LevelDebug
 	case "rate_limited", "upstream_failed", "no_stories":
 		// Operational signals: ElevenLabs quota, credentials or failures, and

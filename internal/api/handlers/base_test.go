@@ -274,11 +274,23 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 // (invalid list queries from every check, also when wrapped), operational
 // signals at Warn and server failures at Error. Mapped records carry their
 // error_type, resource and any cause; query records carry the route and field
-// errors. Only database and unhandled errors alert from here; the services
-// alert for operational signals.
+// errors. A client that went away logs at Debug; the same canceled query on a
+// live or expired request context is a database failure. Only database and
+// unhandled errors alert from here; the services alert for operational signals.
 func TestErrorLogLevelsByClass(t *testing.T) {
 	serviceError := func(err error) func(*gin.Context) {
 		return func(c *gin.Context) { handleServiceError(c, err, "Story") }
+	}
+	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
+		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
+	// endRequest ends the request context with end before it maps canceledQuery.
+	endRequest := func(end func(context.Context) (context.Context, context.CancelFunc)) func(*gin.Context) {
+		return func(c *gin.Context) {
+			ctx, cancel := end(c.Request.Context())
+			cancel()
+			c.Request = c.Request.WithContext(ctx)
+			serviceError(canceledQuery)(c)
+		}
 	}
 	tests := []struct {
 		name       string
@@ -352,6 +364,11 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
 		},
+		{
+			name:       "client disconnect",
+			respond:    endRequest(context.WithCancel),
+			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+		},
 		// Operational signals.
 		{
 			name:       "ElevenLabs quota",
@@ -373,6 +390,18 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			name:       "database failure",
 			respond:    serviceError(apperrors.Database("Story", "query", errors.New("connection lost"))),
 			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "connection lost", wantAlerts: 1,
+		},
+		{
+			name:       "canceled query on a live request",
+			respond:    serviceError(canceledQuery),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "query: context canceled", wantAlerts: 1,
+		},
+		{
+			name: "canceled query on an expired request deadline",
+			respond: endRequest(func(parent context.Context) (context.Context, context.CancelFunc) {
+				return context.WithDeadline(parent, time.Now().Add(-time.Second))
+			}),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantCause: "query: context canceled", wantAlerts: 1,
 		},
 		{
 			name:       "audio processing failure",
@@ -425,68 +454,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 				}
 			} else if tt.wantType != "" && record["resource"] == nil {
 				t.Fatalf("record = %v, want a resource", record)
-			}
-			if len(alerts.events) != tt.wantAlerts {
-				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
-			}
-		})
-	}
-}
-
-// A client that went away logs at Debug and sends no alert. The same error on
-// a live request context, for example from a server shutdown, or on a request
-// whose deadline expired, is still a database failure.
-func TestHandleServiceError_ClientCanceled(t *testing.T) {
-	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
-		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
-	tests := []struct {
-		name       string
-		requestCtx func(context.Context) (context.Context, context.CancelFunc)
-		wantStatus int
-		wantLevel  string
-		wantType   string
-		wantAlerts int
-	}{
-		{
-			name: "canceled request",
-			requestCtx: func(parent context.Context) (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithCancel(parent)
-				cancel()
-				return ctx, cancel
-			},
-			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
-		},
-		{
-			name:       "live request",
-			requestCtx: context.WithCancel,
-			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantAlerts: 1,
-		},
-		{
-			name: "expired request deadline",
-			requestCtx: func(parent context.Context) (context.Context, context.CancelFunc) {
-				return context.WithDeadline(parent, time.Now().Add(-time.Second))
-			},
-			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantAlerts: 1,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logs := captureLogs(t)
-			c, rec := newProblemContext(t)
-			ctx, cancel := tt.requestCtx(t.Context())
-			defer cancel()
-			c.Request = c.Request.WithContext(ctx)
-			alerts := &automationAlertRecorder{}
-			c.Set(alertContextKey, alerts)
-
-			handleServiceError(c, canceledQuery, "Story")
-
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
-			}
-			var record map[string]any
-			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != tt.wantLevel || record["error_type"] != tt.wantType {
-				t.Fatalf("logs = %s, want one %s %s record", logs, tt.wantLevel, tt.wantType)
 			}
 			if len(alerts.events) != tt.wantAlerts {
 				t.Fatalf("alerts = %d, want %d", len(alerts.events), tt.wantAlerts)
