@@ -1,10 +1,7 @@
 package audio
 
 import (
-	"bytes"
 	"errors"
-	"log"
-	"log/slog"
 	"math"
 	"os"
 	"os/exec"
@@ -312,34 +309,6 @@ func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
 	}
 	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("output file stat error = %v, want no file", err)
-	}
-}
-
-// Callers choose the level for a silent rejection (Debug for an upload, Warn
-// for TTS output), so the audio service returns the measurements and does
-// not log. It swaps the slog default, so it must not run in parallel.
-func TestService_ConvertStoryToWAVLeavesSilenceLoggingToCallers(t *testing.T) {
-	svc, ffmpegPath := newFFmpegService(t)
-	silence := filepath.Join(t.TempDir(), "silence.wav")
-	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono:d=1", "-y", silence)
-
-	var logs bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	// SetDefault also redirects the log package; restoring slog alone does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-
-	_, err := svc.ConvertStoryToWAV(t.Context(), silence, filepath.Join(t.TempDir(), "output.wav"))
-	silent, ok := errors.AsType[*SilentError](err)
-	if !ok || !strings.Contains(silent.Error(), "input_tp -Inf") {
-		t.Fatalf("ConvertStoryToWAV error = %v, want a SilentError naming the true peak", err)
-	}
-	if logs.Len() != 0 {
-		t.Fatalf("logs = %s, want none", logs.String())
 	}
 }
 

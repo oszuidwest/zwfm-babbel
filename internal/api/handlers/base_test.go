@@ -356,7 +356,7 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		{
 			name:       "ElevenLabs quota",
 			respond:    serviceError(apperrors.RateLimited("TTS", "45", errors.New("quota"))),
-			wantStatus: http.StatusTooManyRequests, wantLevel: "WARN", wantType: "rate_limited",
+			wantStatus: http.StatusTooManyRequests, wantLevel: "WARN", wantType: "rate_limited", wantCause: "quota",
 		},
 		{
 			name:       "ElevenLabs failure",

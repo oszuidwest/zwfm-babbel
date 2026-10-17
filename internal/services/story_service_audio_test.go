@@ -19,8 +19,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
+// The handler logs the rejection at the level of its class, so the service
+// logs nothing. Log capture swaps the slog default, so this runs serially.
 func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
-	t.Parallel()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not available")
@@ -45,7 +46,6 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			cfg := &config.Config{Audio: config.AudioConfig{
 				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
 			}}
@@ -63,7 +63,11 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			alerts := &capturingAlerter{}
 			service.alerts = alerts
 
+			logs := captureLogs(t)
 			err := tt.run(t.Context(), service, story.ID)
+			if logs.Len() != 0 {
+				t.Fatalf("logs = %s, want none", logs)
+			}
 			if !errors.Is(err, audio.ErrSilent) {
 				t.Fatalf("error = %v, want audio.ErrSilent", err)
 			}

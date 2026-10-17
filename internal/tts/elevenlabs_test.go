@@ -134,7 +134,7 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "45")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+		_, _ = w.Write([]byte(`{"detail":{"code":"concurrent_limit_exceeded","request_id":"req_123"}}`))
 	}))
 	defer server.Close()
 
@@ -167,6 +167,10 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
+	}
+	// The handler logs this message as the cause, so it names the limit.
+	if want := "(code concurrent_limit_exceeded) (request_id req_123)"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("Error() = %q, want it to contain %q", err.Error(), want)
 	}
 }
 
@@ -357,10 +361,14 @@ func TestService_GenerateSpeech_APIErrorMarksTruncatedBody(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	var err error
+	entry := captureLogEntry(t, func() {
+		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	})
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
+	assertLogField(t, entry, "level", "DEBUG")
 
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {

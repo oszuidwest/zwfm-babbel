@@ -285,9 +285,10 @@ func TestTranslateTTSError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// The handler logs each translated failure, so translation logs nothing.
+			// The handler logs each translated failure, so GenerateTTS logs nothing.
+			service := newGenerateTTSTestService(storyForTTSTest("News"), &models.TTSSettings{}, nil, &fakeSpeechGenerator{err: tt.err})
 			logs := captureLogs(t)
-			got := translateTTSError(tt.err)
+			got := service.GenerateTTS(t.Context(), 99, true, nil)
 			if logs.Len() != 0 {
 				t.Fatalf("logs = %s, want none", logs)
 			}

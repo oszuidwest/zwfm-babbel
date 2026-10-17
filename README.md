@@ -249,7 +249,7 @@ A client error is a problem with the request. The response tells the client what
 
 An operational signal is usually not a fault of the client or of Babbel, but it can need action from an administrator. These conditions can also cause alerts, some only after repeated failures, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
 
-A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel logs each failed ElevenLabs response once, at the level of its response in this table. With debug logs on, Babbel also logs the ElevenLabs status, request ID, error code and concurrency headers of the response.
+A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel logs each failed ElevenLabs request once, at the level of the response Babbel returns for it, with the ElevenLabs error code and request ID when ElevenLabs sends them. ElevenLabs error responses, including rejected credentials, log at warn (an unknown voice ID at debug), not at error: without e-mail notifications, alert on `error_type=upstream_failed` and `error_type=rate_limited` as well as on `level=ERROR`. For an ElevenLabs error status, debug logs also show the status and the concurrency headers.
 
 ### Operational e-mail notifications
 

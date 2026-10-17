@@ -39,24 +39,37 @@ type APIError struct {
 	StatusCode int
 	Body       string
 	RetryAfter string
+	// Code and RequestID are the sanitized detail.code (or detail.status) and
+	// detail.request_id of the response, when ElevenLabs sends them.
+	Code      string
+	RequestID string
 }
 
-// Error returns the ElevenLabs failure message for the upstream status code.
+// Error returns the ElevenLabs failure message for the upstream status code,
+// with the ElevenLabs error code and request ID when known.
 func (e *APIError) Error() string {
+	var msg string
 	switch e.StatusCode {
 	case http.StatusUnauthorized:
-		return "ElevenLabs API key is invalid or expired"
+		msg = "ElevenLabs API key is invalid or expired"
 	case http.StatusForbidden:
-		return "ElevenLabs API key does not have access to this resource"
+		msg = "ElevenLabs API key does not have access to this resource"
 	case http.StatusNotFound:
-		return "ElevenLabs voice ID not found - check the voice configuration"
+		msg = "ElevenLabs voice ID not found - check the voice configuration"
 	case http.StatusTooManyRequests:
-		return "ElevenLabs API rate limit or quota exceeded - try again later"
+		msg = "ElevenLabs API rate limit or quota exceeded - try again later"
 	case http.StatusUnprocessableEntity:
-		return fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
+		msg = fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
 	default:
-		return fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
+		msg = fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
 	}
+	if e.Code != "" {
+		msg += " (code " + e.Code + ")"
+	}
+	if e.RequestID != "" {
+		msg += " (request_id " + e.RequestID + ")"
+	}
+	return msg
 }
 
 // Service handles text-to-speech generation via the ElevenLabs API.
@@ -165,6 +178,8 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 			StatusCode: resp.StatusCode,
 			Body:       string(respBody),
 			RetryAfter: resp.Header.Get("Retry-After"),
+			Code:       detail.Code,
+			RequestID:  detail.RequestID,
 		}
 	}
 
@@ -212,9 +227,8 @@ func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
 	return elevenLabsErrorDetail{}
 }
 
-// logElevenLabsResponse records diagnostics for a failed response at Debug.
-// The service maps each failure to an API error, and the handler logs that
-// once at the level of its class.
+// logElevenLabsResponse records Debug diagnostics for a non-200 response.
+// Callers log the failure itself at the level of its class.
 func logElevenLabsResponse(
 	ctx context.Context,
 	statusCode int,
