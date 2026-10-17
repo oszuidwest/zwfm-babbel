@@ -349,7 +349,13 @@ func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStor
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
-	return s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	if silent, ok := errors.AsType[*audio.SilentError](err); ok {
+		// A silent upload is a client error; the cause carries the loudness.
+		return apperrors.InvalidWithCause("audio", apperrors.CodeSilentAudio,
+			"audio is silent or too quiet; check the recording level and input channel", silent)
+	}
+	return err
 }
 
 // publishAudio converts audio at tempPath and publishes it, recording action

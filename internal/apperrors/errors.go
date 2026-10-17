@@ -147,6 +147,11 @@ func Invalid(field, code, message string) *ValidationError {
 	return &ValidationError{Errors: []FieldError{{Field: field, Code: code, Message: message}}}
 }
 
+// InvalidWithCause creates a ValidationError for one field with an underlying cause.
+func InvalidWithCause(field, code, message string, cause error) *ValidationError {
+	return &ValidationError{Errors: []FieldError{{Field: field, Code: code, Message: message}}, cause: cause}
+}
+
 // ConflictError reports a request that conflicts with the current server state,
 // such as a missing prerequisite on the target resource.
 type ConflictError struct {

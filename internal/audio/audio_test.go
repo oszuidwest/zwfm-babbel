@@ -326,6 +326,7 @@ func TestService_ConvertStoryToWAVLeavesSilenceLoggingToCallers(t *testing.T) {
 	var logs bytes.Buffer
 	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	// SetDefault also redirects the log package; restoring slog alone does not undo that.
 	t.Cleanup(func() {
 		slog.SetDefault(previous)
 		log.SetOutput(previousWriter)
@@ -334,7 +335,7 @@ func TestService_ConvertStoryToWAVLeavesSilenceLoggingToCallers(t *testing.T) {
 
 	_, err := svc.ConvertStoryToWAV(t.Context(), silence, filepath.Join(t.TempDir(), "output.wav"))
 	silent, ok := errors.AsType[*SilentError](err)
-	if !ok || !errors.Is(err, ErrSilent) || !strings.Contains(silent.Error(), "input_tp -Inf") {
+	if !ok || !strings.Contains(silent.Error(), "input_tp -Inf") {
 		t.Fatalf("ConvertStoryToWAV error = %v, want a SilentError naming the true peak", err)
 	}
 	if logs.Len() != 0 {

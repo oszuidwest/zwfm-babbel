@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
-	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
@@ -353,11 +352,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
 		},
-		{
-			name:       "silent upload",
-			respond:    serviceError(apperrors.Audio("Story", "convert", &audio.SilentError{})),
-			wantStatus: http.StatusUnprocessableEntity, wantLevel: "DEBUG", wantType: "validation_failed",
-		},
 		// Operational signals.
 		{
 			name:       "ElevenLabs quota",
@@ -368,11 +362,6 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			name:       "ElevenLabs failure",
 			respond:    serviceError(apperrors.Upstream("TTS", "ElevenLabs", http.StatusServiceUnavailable, "", errors.New("boom"))),
 			wantStatus: http.StatusServiceUnavailable, wantLevel: "WARN", wantType: "upstream_failed", wantCause: "boom",
-		},
-		{
-			name:       "silent TTS output",
-			respond:    serviceError(apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway, "", &audio.SilentError{})),
-			wantStatus: http.StatusBadGateway, wantLevel: "WARN", wantType: "upstream_failed", wantCause: (&audio.SilentError{}).Error(),
 		},
 		{
 			name:       "no stories for bulletin",
@@ -608,15 +597,4 @@ func TestHandleServiceError_Audio(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestHandleServiceError_SilentUploadReturns422(t *testing.T) {
-	c, rec := newProblemContext(t)
-
-	handleServiceError(c, apperrors.Audio("Story", "convert", &audio.SilentError{}), "Story")
-
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
-	}
-	assertFieldError(t, rec, "audio", apperrors.CodeSilentAudio)
 }

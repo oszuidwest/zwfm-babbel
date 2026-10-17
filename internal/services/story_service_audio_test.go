@@ -69,6 +69,8 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			}
 			if tt.name == "forced TTS" {
 				assertSilentTTSFailure(t, err, alerts)
+			} else {
+				assertSilentUploadRejected(t, err)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
@@ -165,6 +167,20 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 				t.Fatalf("commit failure cause %q does not name %s", errors.Unwrap(err), finalPath)
 			}
 		})
+	}
+}
+
+// A silent upload is a client error: the handler logs it at Debug with the
+// loudness measurements as its cause.
+func assertSilentUploadRejected(t *testing.T, err error) {
+	t.Helper()
+	validation, ok := errors.AsType[*apperrors.ValidationError](err)
+	if !ok || len(validation.Errors) != 1 ||
+		validation.Errors[0].Field != "audio" || validation.Errors[0].Code != apperrors.CodeSilentAudio {
+		t.Fatalf("error = %#v, want a ValidationError for audio/%s", err, apperrors.CodeSilentAudio)
+	}
+	if cause := validation.Unwrap(); cause == nil || !strings.Contains(cause.Error(), "input_tp") {
+		t.Fatalf("validation cause = %v, want the loudness measurements", cause)
 	}
 }
 

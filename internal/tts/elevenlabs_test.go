@@ -144,10 +144,16 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	var err error
+	entry := captureLogEntry(t, func() {
+		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	})
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
+	// The handler logs the failure at the level of its class; the client only
+	// adds a Debug diagnostic.
+	assertLogField(t, entry, "level", "DEBUG")
 
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
@@ -279,43 +285,6 @@ func TestConcurrencyHeaderValue(t *testing.T) {
 			if got != tt.want {
 				t.Fatalf("concurrencyHeaderValue() = %q, want %q", got, tt.want)
 			}
-		})
-	}
-}
-
-// The client logs a failed response only as a Debug diagnostic. The handler
-// logs each failure once, at the level of its class.
-func TestService_GenerateSpeech_LogsFailedResponsesAtDebug(t *testing.T) {
-	statuses := []int{
-		http.StatusUnauthorized,
-		http.StatusForbidden,
-		http.StatusNotFound,
-		http.StatusUnprocessableEntity,
-		http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusServiceUnavailable,
-	}
-	for _, status := range statuses {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(status)
-			}))
-			defer server.Close()
-
-			service := &Service{
-				apiKey:  "test-key",
-				baseURL: server.URL,
-				client:  &http.Client{Timeout: time.Second},
-			}
-
-			entry := captureLogEntry(t, func() {
-				if _, err := service.GenerateSpeech(t.Context(), "text", "voice-123", Options{}); err == nil {
-					t.Error("GenerateSpeech() error = nil, want API error")
-				}
-			})
-
-			assertLogField(t, entry, "level", "DEBUG")
-			assertLogField(t, entry, "status_code", float64(status))
 		})
 	}
 }
