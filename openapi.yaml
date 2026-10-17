@@ -1938,7 +1938,7 @@ paths:
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by creation date: `?sort=-created_at`
         - Field selection: `?fields=id,filename,created_at`
-        - Complex query: `?search=2024&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=2&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Stories
       parameters:
@@ -2260,7 +2260,7 @@ paths:
         - Sort by duration: `?sort=-duration_seconds`
         - Filter by story count: `?filter[story_count][gte]=3`
         - Field selection: `?fields=id,filename,duration_seconds,story_count,created_at`
-        - Complex query: `?search=2024&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
+        - Complex query: `?search=20240120&filter[station_id]=1&filter[story_count][gte]=3&sort=-created_at`
       tags:
         - Bulletin
       parameters:
@@ -2397,7 +2397,7 @@ paths:
         - Filter by date range: `?filter[created_at][gte]=2024-01-01&filter[created_at][lte]=2024-12-31`
         - Sort by duration: `?sort=-duration_seconds`
         - Field selection: `?fields=id,filename,duration_seconds,created_at`
-        - Complex query: `?search=2024&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
+        - Complex query: `?search=20240120&filter[story_count][gte]=3&sort=-created_at&fields=id,filename,story_count`
       tags:
         - Bulletin
       parameters:

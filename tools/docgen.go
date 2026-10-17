@@ -154,7 +154,7 @@ Most resource list endpoints support advanced querying:
 - ` + "`ne`" + `: Not equal
 - ` + "`in`" + `: In list (comma-separated)
 - ` + "`between`" + `: Between two values (comma-separated)
-- ` + "`like`" + `: Case-sensitive substring matching; values are treated literally
+- ` + "`like`" + `: Literal substring matching; case sensitivity follows the column collation (case-insensitive by default)
 
 ### Special Parameters
 
