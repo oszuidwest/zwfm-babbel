@@ -103,27 +103,6 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 	}
 }
 
-// assertUmaskMode fails unless path has the mode the umask gives a new file.
-func assertUmaskMode(t *testing.T, path string) {
-	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// os.Create applies the umask the same way FFmpeg does.
-	ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	refInfo, err := ref.Stat()
-	if err := errors.Join(err, ref.Close()); err != nil {
-		t.Fatal(err)
-	}
-	if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
-		t.Fatalf("published file mode = %v, want %v from the umask", mode, want)
-	}
-}
-
 func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	service := newAudioIntegrationService(t, db)
