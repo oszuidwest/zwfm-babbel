@@ -78,7 +78,7 @@ function generateCrudTests(schema, setupFn = null) {
         expect(response.data).toHaveProperty('id', sharedResource.id);
       });
 
-      // Single-resource endpoints read no query keys, list options included.
+      // GET /{resource}/{id} reads no query keys, list options included.
       test('when fetching by ID with query keys, then the 422 names each key', async () => {
         const response = await global.api.apiCall('GET', `${endpoint}/${sharedResource.id}?fields=name&bogus=1&search=nomatch`);
 

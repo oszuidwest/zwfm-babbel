@@ -29,14 +29,15 @@ type QueryParams struct {
 // error, such as latest on station bulletins, checks it before parsing.
 var listQueryKeys = []string{"limit", "offset", "sort", "fields", "search", "trashed"}
 
-// isListQueryKey reports whether the list parsers read key.
+// isListQueryKey reports whether the list parsers read key. Keys are
+// case-sensitive, so Trashed is not a list key.
 func isListQueryKey(key string) bool {
 	return strings.HasPrefix(key, "filter[") || slices.Contains(listQueryKeys, key)
 }
 
 // unknownQueryParams reports every key that known rejects, in sorted order.
-// Keys are case-sensitive, so Trashed is unknown. A misspelled or outdated
-// key would otherwise be ignored and return an unexpected result.
+// A misspelled or outdated key would otherwise be ignored and return an
+// unexpected result.
 func unknownQueryParams(query url.Values, known func(key string) bool) []apperrors.FieldError {
 	var errs []apperrors.FieldError
 	for _, key := range slices.Sorted(maps.Keys(query)) {
@@ -468,7 +469,7 @@ func RouteKey(c *gin.Context) string {
 	return c.Request.Method + " unmatched"
 }
 
-// ProblemQueryValidation writes a 422 for invalid list query parameters and
+// ProblemQueryValidation writes a 422 for invalid query parameters and
 // logs the field errors at Debug. These are expected client errors: the
 // response names each field and the access log records the status, so they
 // never log at Error or alert.

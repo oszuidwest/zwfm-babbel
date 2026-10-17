@@ -31,7 +31,7 @@ GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "pe
 
 `GET /{resource}/{id}` endpoints, such as `/stations/{id}`, and
 `/stations/{id}/bulletins/latest` read no query keys and reject every key the
-same way, list options included. The `/audio` downloads ignore query keys, so
+same way, even with an empty value and including list options. The `/audio` downloads ignore query keys, so
 a cache-busting key such as `v=2` still returns the file.
 
 ```http

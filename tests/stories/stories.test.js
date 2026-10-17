@@ -515,8 +515,8 @@ describe('Stories', () => {
       expect(getResponse.data.audio_file).not.toBe('');
     });
 
-    // Audio downloads ignore query keys, so a client can add a cache-busting
-    // key after replacing the audio.
+    // Audio downloads ignore query keys: the frontend loads /audio?v=<timestamp>
+    // after replacing the audio, to bypass the browser cache.
     test('when downloading audio with a cache-busting key, then returns the file', async () => {
       const outputAudio = `${global.helpers.uniqueName('/tmp/test_story_cache_bust')}.wav`;
       try {

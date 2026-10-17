@@ -331,8 +331,8 @@ func TestListParsers_AcceptKnownKeys(t *testing.T) {
 	}
 }
 
-// Single-resource endpoints read no query keys, so every key fails as unknown,
-// list options included. Malformed encoding still fails first.
+// RejectQueryParams accepts no key, list options included, so every key fails
+// as unknown_field. Malformed encoding fails first, as query/invalid_format.
 func TestRejectQueryParams(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
