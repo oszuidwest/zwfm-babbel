@@ -250,6 +250,9 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	filename := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
 
 	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, convertedPath); err != nil {
+		if errors.Is(err, audio.ErrUndecodable) {
+			return undecodableUpload("jingle", err)
+		}
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 

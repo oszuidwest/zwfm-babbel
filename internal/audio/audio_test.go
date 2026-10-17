@@ -1,8 +1,10 @@
 package audio
 
 import (
+	"context"
 	"errors"
 	"math"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -309,6 +311,142 @@ func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
 	}
 	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("output file stat error = %v, want no file", err)
+	}
+}
+
+// conversions adapts the story and jingle conversions to one signature.
+func conversions(svc *Service) map[string]func(ctx context.Context, inputPath, outputPath string) error {
+	return map[string]func(ctx context.Context, inputPath, outputPath string) error{
+		"story": func(ctx context.Context, inputPath, outputPath string) error {
+			_, err := svc.ConvertStoryToWAV(ctx, inputPath, outputPath)
+			return err
+		},
+		"jingle": svc.ConvertJingleToWAV,
+	}
+}
+
+func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	tempDir := t.TempDir()
+	text := filepath.Join(tempDir, "text.mp3")
+	if err := os.WriteFile(text, []byte("this is not audio\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// FFmpeg accepts a video-only input; story loudness measurement then
+	// finds no loudnorm output.
+	image := filepath.Join(tempDir, "image.png")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "color=c=red:s=16x16", "-frames:v", "1", "-y", image)
+	imageUpload := filepath.Join(tempDir, "image.mp3")
+	if err := os.Rename(image, imageUpload); err != nil {
+		t.Fatal(err)
+	}
+	// ffprobe detects an audio stream in random bytes from the extension, but
+	// decodes none of it.
+	garbage := make([]byte, 64<<10)
+	_, _ = rand.NewChaCha8([32]byte{}).Read(garbage) // Deterministic bytes.
+	var randomInputs []string
+	for _, ext := range []string{".aac", ".flac"} {
+		path := filepath.Join(tempDir, "random"+ext)
+		if err := os.WriteFile(path, garbage, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		randomInputs = append(randomInputs, path)
+	}
+
+	for kind, convert := range conversions(svc) {
+		for _, input := range append([]string{text, imageUpload}, randomInputs...) {
+			t.Run(kind+" "+filepath.Base(input), func(t *testing.T) {
+				outputPath := filepath.Join(t.TempDir(), "output.wav")
+				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {
+					t.Fatalf("error = %v, want ErrUndecodable", err)
+				}
+				if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("output file stat error = %v, want no file", err)
+				}
+			})
+		}
+	}
+}
+
+func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	// ffprobe prints ReplayGain side data as an extra CSV field.
+	input := filepath.Join(t.TempDir(), "replaygain.flac")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
+		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-y", input)
+
+	for kind, convert := range conversions(svc) {
+		t.Run(kind, func(t *testing.T) {
+			if err := convert(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+				t.Fatalf("error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+func TestService_ConvertProcessingFailureIsNotUndecodable(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	tempDir := t.TempDir()
+	valid := filepath.Join(tempDir, "valid.wav")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", valid)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	withFFprobe := func(path string) *Service {
+		return NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpegPath, FFprobePath: path}}, nil)
+	}
+	crashingFFprobe := filepath.Join(tempDir, "crashing-ffprobe")
+	// #nosec G306 - the test script must be executable
+	if err := os.WriteFile(crashingFFprobe, []byte("#!/bin/sh\nexit 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	type testCase struct {
+		name       string
+		svc        *Service
+		ctx        context.Context
+		inputPath  string
+		outputPath string // Default: a writable path.
+		wantErr    error
+	}
+	tests := []testCase{
+		{name: "unwritable output", svc: svc, ctx: t.Context(), inputPath: valid, outputPath: filepath.Join(tempDir, "missing", "output.wav")},
+		{name: "missing input", svc: svc, ctx: t.Context(), inputPath: filepath.Join(tempDir, "missing.wav")},
+		{name: "canceled request", svc: svc, ctx: canceled, inputPath: valid, wantErr: context.Canceled},
+		{name: "missing ffprobe", svc: withFFprobe(filepath.Join(tempDir, "missing-ffprobe")), ctx: t.Context(), inputPath: valid},
+		{name: "crashing ffprobe", svc: withFFprobe(crashingFFprobe), ctx: t.Context(), inputPath: valid},
+	}
+	// ffprobe also exits with status 1 for an input it may not read. Root
+	// reads the file anyway.
+	if os.Geteuid() != 0 {
+		unreadable := filepath.Join(tempDir, "unreadable.wav")
+		runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", unreadable)
+		if err := os.Chmod(unreadable, 0); err != nil {
+			t.Fatal(err)
+		}
+		tests = append(tests, testCase{name: "unreadable input", svc: svc, ctx: t.Context(), inputPath: unreadable})
+	}
+	for _, tt := range tests {
+		for kind, convert := range conversions(tt.svc) {
+			t.Run(kind+" "+tt.name, func(t *testing.T) {
+				outputPath := tt.outputPath
+				if outputPath == "" {
+					outputPath = filepath.Join(t.TempDir(), "output.wav")
+				}
+				err := convert(tt.ctx, tt.inputPath, outputPath)
+				if err == nil || errors.Is(err, ErrUndecodable) {
+					t.Fatalf("error = %v, want a processing failure", err)
+				}
+				if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tt.wantErr)
+				}
+			})
+		}
 	}
 }
 

@@ -53,8 +53,9 @@ info:
     - `code` is one of `required`, `blank`, `too_short`, `too_long`,
       `out_of_range`, `invalid_format`, `invalid_choice`, `invalid_type`,
       `invalid_json`, `unknown_field`, `not_found`, `date_order`,
-      `empty_update`, `duplicate`, `unsupported` and `silent_audio`. The
-      list is closed; the `FieldError` schema describes each code.
+      `empty_update`, `duplicate`, `unsupported`, `silent_audio` and
+      `undecodable_audio`. The list is closed; the `FieldError` schema
+      describes each code.
     - `message` is for people. Its wording can change; do not parse it.
 
     ## List queries
@@ -1414,7 +1415,8 @@ paths:
         - 408: the upload did not complete within the time limit.
         - 413: the file is larger than 100 MB.
         - 422: the `audio` file is missing (`required`), has an unsupported
-          extension (`unsupported`), or is silent or below -50 LUFS
+          extension (`unsupported`), cannot be decoded as audio
+          (`undecodable_audio`), or is silent or below -50 LUFS
           (`silent_audio`). Existing audio is kept.
         - 500: the server could not store or process the file.
         - 504: the database did not save the upload in time. The new audio
@@ -2900,8 +2902,9 @@ paths:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
         - 408: the upload did not complete within the time limit.
         - 413: the file is larger than 100 MB.
-        - 422: the `jingle` file is missing (`required`) or has an unsupported
-          extension (`unsupported`).
+        - 422: the `jingle` file is missing (`required`), has an unsupported
+          extension (`unsupported`), or cannot be decoded as audio
+          (`undecodable_audio`).
         - 500: the server could not store or process the file.
       tags:
         - Station-Voices
@@ -4630,7 +4633,7 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
         - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
-        - `tts.upstream_failed` - 502 ElevenLabs failed, rejected the request or returned silent audio
+        - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
@@ -4746,6 +4749,9 @@ components:
               other than `status` without a restore, or a soft delete with
               another field
             - `silent_audio` - uploaded story audio is silent or below -50 LUFS; `field` is `audio`
+            - `undecodable_audio` - the uploaded file is not audio that FFmpeg
+              can decode, such as a corrupt or non-audio file; `field` is
+              `audio` or `jingle`
           enum:
             - required
             - blank
@@ -4763,6 +4769,7 @@ components:
             - duplicate
             - unsupported
             - silent_audio
+            - undecodable_audio
           example: "required"
         message:
           type: string
@@ -5258,8 +5265,9 @@ components:
             hint: "Retry the request later"
     BadGateway:
       description: |
-        Upstream service failed (`tts.upstream_failed`): ElevenLabs returned an
-        error, rejected the generated request, or returned silent audio.
+        Upstream service failed (`tts.upstream_failed`): ElevenLabs could not be
+        reached, returned an error, rejected the generated request, or returned
+        silent audio.
       content:
         application/problem+json:
           schema:
@@ -5285,6 +5293,16 @@ components:
                 instance: "/api/v1/stories/1/tts"
                 code: "tts.upstream_failed"
                 hint: "ElevenLabs rejected the generated request; check the TTS settings"
+            unreachable:
+              summary: ElevenLabs could not be reached
+              value:
+                type: "https://babbel.api/problems/tts.upstream_failed"
+                title: "Bad Gateway"
+                status: 502
+                detail: "TTS upstream ElevenLabs failed"
+                instance: "/api/v1/stories/1/tts"
+                code: "tts.upstream_failed"
+                hint: "ElevenLabs could not be reached; try again later"
             silent_audio:
               summary: ElevenLabs returned silent audio
               value:
@@ -5444,6 +5462,18 @@ components:
                   - field: "audio"
                     code: "silent_audio"
                     message: "audio is silent or too quiet; check the recording level and input channel"
+            undecodable_audio:
+              summary: Uploaded file cannot be decoded as audio; existing audio is preserved
+              value:
+                type: "https://babbel.api/problems/validation-error"
+                title: "Validation Error"
+                status: 422
+                detail: "The request contains invalid data"
+                instance: "/api/v1/stories/1/audio"
+                errors:
+                  - field: "audio"
+                    code: "undecodable_audio"
+                    message: "the file cannot be decoded as audio; check that it is a complete, valid audio file"
     InternalServerError:
       description: Internal server error
       content:

@@ -136,8 +136,14 @@ func newJingleDeleteFixture(t *testing.T) jingleDeleteFixture {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
 	db := testutil.OpenIntegrationDB(t)
-	cfg := &config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir()}}
+	cfg := &config.Config{Audio: config.AudioConfig{
+		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+	}}
 
 	station := createTestStation(t, db)
 	voice := models.Voice{Name: t.Name()}

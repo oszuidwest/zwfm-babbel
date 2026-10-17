@@ -285,7 +285,13 @@ func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVo
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
-	cfg := &config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir()}}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	cfg := &config.Config{Audio: config.AudioConfig{
+		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+	}}
 	service := &StationVoiceService{
 		txManager:        &jingleTxManager{},
 		stationVoiceRepo: repo,

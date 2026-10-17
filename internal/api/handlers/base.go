@@ -195,7 +195,7 @@ func handleAudioError(c *gin.Context, err error) bool {
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			apperrors.CodeAudioProcessingFailed,
-			"Check the audio file format and try again",
+			"Please try again later or contact support",
 		)
 		return true
 	}

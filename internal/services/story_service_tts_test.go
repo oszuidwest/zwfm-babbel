@@ -193,6 +193,23 @@ func TestStoryService_GenerateTTSValidatesComposedTextBeforeTTS(t *testing.T) {
 	}
 }
 
+func TestStoryService_GenerateTTSReportsUnreachableElevenLabsAsUpstream(t *testing.T) {
+	transportErr := &tts.TransportError{Err: errors.New("dial tcp: connection refused")}
+	service := newGenerateTTSTestService(storyForTTSTest("news"), &models.TTSSettings{}, nil,
+		&fakeSpeechGenerator{err: transportErr})
+	alerts := &capturingAlerter{}
+	service.alerts = alerts
+
+	err := service.GenerateTTS(t.Context(), 99, false, nil)
+	assertUpstreamError(t, err, http.StatusBadGateway)
+	if !errors.Is(err, transportErr) {
+		t.Fatalf("error = %v, want the transport error as cause", err)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold {
+		t.Fatalf("alerts = %+v, want tts:upstream requiring a threshold", alerts.events)
+	}
+}
+
 func TestTTSOptionsFromSettings(t *testing.T) {
 	seed := uint32(42)
 
@@ -268,6 +285,14 @@ func TestTranslateTTSError(t *testing.T) {
 		{
 			name: "server error maps to upstream bad gateway",
 			err:  &tts.APIError{StatusCode: http.StatusInternalServerError, Body: "upstream failed"},
+			assert: func(t *testing.T, got error) {
+				t.Helper()
+				assertUpstreamError(t, got, http.StatusBadGateway)
+			},
+		},
+		{
+			name: "unreachable ElevenLabs maps to upstream bad gateway",
+			err:  &tts.TransportError{Err: errors.New("dial tcp: connection refused")},
 			assert: func(t *testing.T, got error) {
 				t.Helper()
 				assertUpstreamError(t, got, http.StatusBadGateway)

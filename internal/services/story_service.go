@@ -353,12 +353,23 @@ func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStor
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
 	err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	if errors.Is(err, audio.ErrUndecodable) {
+		// The AudioError message omits its cause, which has ffprobe's message.
+		return undecodableUpload("audio", errors.Unwrap(err))
+	}
 	if silent, ok := errors.AsType[*audio.SilentError](err); ok {
 		// A silent upload is a client error; the cause carries the loudness.
 		return apperrors.InvalidWithCause("audio", apperrors.CodeSilentAudio,
 			"audio is silent or too quiet; check the recording level and input channel", silent)
 	}
 	return err
+}
+
+// undecodableUpload rejects an uploaded file in field that is not decodable
+// audio. The cause carries ffprobe's message for the log.
+func undecodableUpload(field string, cause error) error {
+	return apperrors.InvalidWithCause(field, apperrors.CodeUndecodable,
+		"the file cannot be decoded as audio; check that it is a complete, valid audio file", cause)
 }
 
 // publishAudio converts audio at tempPath and publishes it, recording action
@@ -613,6 +624,10 @@ func translateTTSError(err error) error {
 				apiErr,
 			)
 		}
+	}
+	if transportErr, ok := errors.AsType[*tts.TransportError](err); ok {
+		return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+			"ElevenLabs could not be reached; try again later", transportErr)
 	}
 	return apperrors.Audio("Story", "tts_generate", err)
 }

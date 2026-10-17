@@ -42,6 +42,11 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
+// ErrUndecodable indicates input that ffprobe cannot open or parse, or in which
+// it finds no audio stream with a sample rate and channel count, such as a
+// corrupt or non-audio file.
+var ErrUndecodable = errors.New("input is not decodable audio")
+
 // SilentError matches [ErrSilent] and names the loudness measurements. The
 // audio service does not log the rejection: a silent upload is a client
 // error, while silent TTS output is an upstream failure, so callers choose
@@ -101,7 +106,11 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
+// It returns [ErrUndecodable] when the input is not decodable audio.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
+	if err := s.probeAudio(ctx, inputPath); err != nil {
+		return err
+	}
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
@@ -109,9 +118,13 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // a -1 dBTP ceiling, preserving dynamics when possible.
 // It returns the duration in seconds.
 //
-// It returns a [SilentError] without writing outputPath when the input is
-// silent or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
+// It returns [ErrUndecodable] when the input is not decodable audio, and a
+// [SilentError] without writing outputPath when the input is silent or below
+// -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
+	if err := s.probeAudio(ctx, inputPath); err != nil {
+		return 0, err
+	}
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return 0, err
@@ -125,6 +138,53 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 		return 0, err
 	}
 	return s.Duration(ctx, outputPath)
+}
+
+// probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
+// finds no audio stream with a sample rate and channel count. FFmpeg's exit
+// status and messages vary between versions, and its loudness pass accepts a
+// video-only input without printing stats.
+func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
+	// #nosec G204 - FFprobePath is from config, inputPath is internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
+		"-v", "error",
+		"-select_streams", "a",
+		"-show_entries", "stream=sample_rate,channels",
+		"-of", "csv=p=0",
+		inputPath,
+	)
+	output, err := cmd.Output()
+	if err == nil {
+		// ffprobe reports a zero sample rate or channel count when it detected
+		// an audio stream, for example from the file extension, but could not
+		// decode any of it. Side data such as ReplayGain adds fields after
+		// these two.
+		for line := range strings.Lines(string(output)) {
+			fields := strings.Split(strings.TrimSpace(line), ",")
+			if len(fields) >= 2 && positiveInt(fields[0]) && positiveInt(fields[1]) {
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: no decodable audio stream", ErrUndecodable)
+	}
+
+	// ffprobe exits with status 1 when it cannot open or parse its input. A
+	// canceled probe, a crash, or an input file the server cannot read is a
+	// server failure.
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if ok && exitErr.ExitCode() == 1 && ctx.Err() == nil {
+		// #nosec G304 - inputPath is internally validated
+		if f, openErr := os.Open(inputPath); openErr == nil {
+			_ = f.Close()
+			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(exitErr.Stderr))
+		}
+	}
+	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(ctx, err))
+}
+
+func positiveInt(value string) bool {
+	n, err := strconv.Atoi(value)
+	return err == nil && n > 0
 }
 
 func (s *Service) convertToWAV(
