@@ -445,7 +445,9 @@ describe('Bulletins', () => {
 
   describe('Station Bulletin Endpoints', () => {
     let stationId;
+    let stationName;
     let storyId;
+    let bulletin;
 
     beforeAll(async () => {
       const { station, story } = await global.helpers.createBroadcastFixture(global.resources, {
@@ -455,7 +457,12 @@ describe('Bulletins', () => {
         storyText: 'Station endpoint test story'
       });
       stationId = station.id;
+      stationName = station.name;
       storyId = story.id;
+
+      const response = await global.helpers.generateBulletin(stationId);
+      expect(response.status).toBe(200);
+      bulletin = response.data;
     });
 
     // Bulletins have no soft deletion, so nested bulletin lists neither declare
@@ -472,15 +479,23 @@ describe('Bulletins', () => {
       expect(response.data.errors[0].field).toBe('trashed');
     });
 
-    // Nested bulletin lists search bulletin filenames, so they declare and
-    // accept search.
+    // Nested bulletin lists search only bulletin filenames, within the parent:
+    // a term every filename contains lists just this fixture's bulletin, and
+    // the station name, which no filename contains, lists none.
     test.each([
       ['/stations/{id}/bulletins', () => stationId],
       ['/stories/{id}/bulletins', () => storyId]
-    ])('when listing %s with search, then returns 200', async (template, id) => {
+    ])('when searching %s, then lists only its bulletins with matching filenames', async (template, id) => {
       expect(declaresQueryParameter(template, 'search')).toBe(true);
-      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?search=x`);
-      expect(response.status).toBe(200);
+      const search = term => global.api.apiCall('GET', `${template.replace('{id}', id())}?search=${encodeURIComponent(term)}`);
+
+      const matching = await search(bulletinsSchema.query.searchTerm);
+      expect(matching.status).toBe(200);
+      expect(matching.data).toMatchObject({ total: 1, data: [{ id: bulletin.id }] });
+
+      const unmatched = await search(stationName);
+      expect(unmatched.status).toBe(200);
+      expect(unmatched.data).toMatchObject({ total: 0, data: [] });
     });
 
     test.each([
@@ -490,12 +505,6 @@ describe('Bulletins', () => {
       const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?page=2`);
       expect(response.status).toBe(422);
       expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['page', 'unknown_field']]);
-    });
-
-    test('when generating station bulletin, then succeeds', async () => {
-      const response = await global.helpers.generateBulletin(stationId);
-
-      expect(response.status).toBe(200);
     });
 
     test('when listing station bulletins, then returns data', async () => {

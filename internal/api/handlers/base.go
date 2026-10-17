@@ -283,7 +283,7 @@ func handleAvailabilityError(c *gin.Context, err error) bool {
 	}
 
 	if rateLimited, ok := errors.AsType[*apperrors.RateLimitedError](err); ok {
-		logError(rateLimited.Resource, "rate_limited", err)
+		logErrorWithCause(rateLimited.Resource, "rate_limited", err, rateLimited.Unwrap())
 		if rateLimited.RetryAfter != "" {
 			c.Header("Retry-After", rateLimited.RetryAfter)
 		}

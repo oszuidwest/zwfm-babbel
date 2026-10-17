@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -135,7 +134,7 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Retry-After", "45")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"detail":"slow down"}`))
+		_, _ = w.Write([]byte(`{"detail":{"code":"concurrent_limit_exceeded","request_id":"req_123"}}`))
 	}))
 	defer server.Close()
 
@@ -145,10 +144,16 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	var err error
+	entry := captureLogEntry(t, func() {
+		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	})
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
+	// The handler logs the failure at the level of its class; the client only
+	// adds a Debug diagnostic.
+	assertLogField(t, entry, "level", "DEBUG")
 
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {
@@ -162,6 +167,10 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 	if apiErr.Body == "" {
 		t.Fatal("Body is empty, want response body")
+	}
+	// The handler logs this message as the cause, so it names the limit.
+	if want := "(code concurrent_limit_exceeded) (request_id req_123)"; !strings.Contains(err.Error(), want) {
+		t.Fatalf("Error() = %q, want it to contain %q", err.Error(), want)
 	}
 }
 
@@ -308,68 +317,6 @@ func TestConcurrencyHeaderValue(t *testing.T) {
 	}
 }
 
-func TestElevenLabsResponseLogLevel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		statusCode int
-		want       slog.Level
-	}{
-		{
-			name:       "unauthorized is error",
-			statusCode: http.StatusUnauthorized,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "forbidden is error",
-			statusCode: http.StatusForbidden,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "rate limited is warn",
-			statusCode: http.StatusTooManyRequests,
-			want:       slog.LevelWarn,
-		},
-		{
-			name:       "request timeout is warn",
-			statusCode: http.StatusRequestTimeout,
-			want:       slog.LevelWarn,
-		},
-		{
-			name:       "not found is info",
-			statusCode: http.StatusNotFound,
-			want:       slog.LevelInfo,
-		},
-		{
-			name:       "unprocessable is info",
-			statusCode: http.StatusUnprocessableEntity,
-			want:       slog.LevelInfo,
-		},
-		{
-			name:       "server error is error",
-			statusCode: http.StatusInternalServerError,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "unexpected non error status is warn",
-			statusCode: http.StatusMovedPermanently,
-			want:       slog.LevelWarn,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := elevenLabsResponseLogLevel(tt.statusCode)
-			if got != tt.want {
-				t.Fatalf("elevenLabsResponseLogLevel(%d) = %s, want %s", tt.statusCode, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
 	header := http.Header{}
 	header.Set("Retry-After", "45")
@@ -390,7 +337,7 @@ func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
 		)
 	})
 
-	assertLogField(t, entry, "level", "WARN")
+	assertLogField(t, entry, "level", "DEBUG")
 	assertLogField(t, entry, "msg", "elevenlabs tts response")
 	assertLogField(t, entry, "status_code", float64(http.StatusTooManyRequests))
 	assertLogField(t, entry, "duration_ms", float64(123))
@@ -438,10 +385,14 @@ func TestService_GenerateSpeech_APIErrorMarksTruncatedBody(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	var err error
+	entry := captureLogEntry(t, func() {
+		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	})
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
+	assertLogField(t, entry, "level", "DEBUG")
 
 	var apiErr *APIError
 	if !errors.As(err, &apiErr) {

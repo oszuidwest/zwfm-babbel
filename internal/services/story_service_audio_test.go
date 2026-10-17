@@ -23,8 +23,9 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
+// The handler logs the rejection at the level of its class, so the service
+// logs nothing. Log capture swaps the slog default, so this runs serially.
 func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
-	t.Parallel()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not available")
@@ -53,7 +54,6 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			cfg := &config.Config{Audio: config.AudioConfig{
 				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
@@ -71,12 +71,18 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			alerts := &capturingAlerter{}
 			service.alerts = alerts
 
+			logs := captureLogs(t)
 			err := tt.run(t.Context(), service, story.ID)
+			if logs.Len() != 0 {
+				t.Fatalf("logs = %s, want none", logs)
+			}
 			if !errors.Is(err, audio.ErrSilent) {
 				t.Fatalf("error = %v, want audio.ErrSilent", err)
 			}
 			if tt.name == "forced TTS" {
 				assertSilentTTSFailure(t, err, alerts)
+			} else {
+				assertSilentUploadRejected(t, err)
 			}
 			entries, err := os.ReadDir(cfg.Audio.ProcessedPath)
 			if err != nil {
@@ -268,6 +274,20 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 	}
 }
 
+// A silent upload is a client error: the handler logs it at Debug with the
+// loudness measurements as its cause.
+func assertSilentUploadRejected(t *testing.T, err error) {
+	t.Helper()
+	validation, ok := errors.AsType[*apperrors.ValidationError](err)
+	if !ok || len(validation.Errors) != 1 ||
+		validation.Errors[0].Field != "audio" || validation.Errors[0].Code != apperrors.CodeSilentAudio {
+		t.Fatalf("error = %#v, want a ValidationError for audio/%s", err, apperrors.CodeSilentAudio)
+	}
+	if cause := validation.Unwrap(); cause == nil || !strings.Contains(cause.Error(), "input_tp") {
+		t.Fatalf("validation cause = %v, want the loudness measurements", cause)
+	}
+}
+
 // A deadline error from the commit after the rename is reported with the live
 // path, in an Error log and an immediate alert.
 func TestStoryService_PublishAudioTimeoutAfterRenameReportsLiveFile(t *testing.T) {
@@ -403,6 +423,10 @@ func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
 	upstream, ok := errors.AsType[*apperrors.UpstreamError](err)
 	if !ok || upstream.Status != http.StatusBadGateway {
 		t.Fatalf("error = %v, want UpstreamError with status 502", err)
+	}
+	// The handler logs the cause, so it must carry the loudness measurements.
+	if cause := upstream.Unwrap(); cause == nil || !strings.Contains(cause.Error(), "input_tp") {
+		t.Fatalf("upstream cause = %v, want the loudness measurements", cause)
 	}
 	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold {
 		t.Fatalf("alerts = %+v, want tts:upstream requiring a threshold", alerts.events)

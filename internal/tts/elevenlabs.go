@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,24 +39,37 @@ type APIError struct {
 	StatusCode int
 	Body       string
 	RetryAfter string
+	// Code and RequestID are the sanitized detail.code (or detail.status) and
+	// detail.request_id of the response, when ElevenLabs sends them.
+	Code      string
+	RequestID string
 }
 
-// Error returns the ElevenLabs failure message for the upstream status code.
+// Error returns the ElevenLabs failure message for the upstream status code,
+// with the ElevenLabs error code and request ID when known.
 func (e *APIError) Error() string {
+	var msg string
 	switch e.StatusCode {
 	case http.StatusUnauthorized:
-		return "ElevenLabs API key is invalid or expired"
+		msg = "ElevenLabs API key is invalid or expired"
 	case http.StatusForbidden:
-		return "ElevenLabs API key does not have access to this resource"
+		msg = "ElevenLabs API key does not have access to this resource"
 	case http.StatusNotFound:
-		return "ElevenLabs voice ID not found - check the voice configuration"
+		msg = "ElevenLabs voice ID not found - check the voice configuration"
 	case http.StatusTooManyRequests:
-		return "ElevenLabs API rate limit or quota exceeded - try again later"
+		msg = "ElevenLabs API rate limit or quota exceeded - try again later"
 	case http.StatusUnprocessableEntity:
-		return fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
+		msg = fmt.Sprintf("ElevenLabs rejected the request: %s", e.Body)
 	default:
-		return fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
+		msg = fmt.Sprintf("ElevenLabs API returned status %d: %s", e.StatusCode, e.Body)
 	}
+	if e.Code != "" {
+		msg += " (code " + e.Code + ")"
+	}
+	if e.RequestID != "" {
+		msg += " (request_id " + e.RequestID + ")"
+	}
+	return msg
 }
 
 // TransportError reports an ElevenLabs request that failed without a response,
@@ -186,6 +198,8 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 			StatusCode: resp.StatusCode,
 			Body:       string(respBody),
 			RetryAfter: resp.Header.Get("Retry-After"),
+			Code:       detail.Code,
+			RequestID:  detail.RequestID,
 		}
 	}
 
@@ -233,6 +247,8 @@ func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
 	return elevenLabsErrorDetail{}
 }
 
+// logElevenLabsResponse records Debug diagnostics for a non-200 response.
+// Callers log the failure itself at the level of its class.
 func logElevenLabsResponse(
 	ctx context.Context,
 	statusCode int,
@@ -262,27 +278,12 @@ func logElevenLabsResponse(
 		concurrencyHeaderValue(header, headerMaximumConcurrentRequests),
 	)
 
-	logger.WithFields(fields).Log(ctx, elevenLabsResponseLogLevel(statusCode), "elevenlabs tts response")
+	logger.WithFields(fields).DebugContext(ctx, "elevenlabs tts response")
 }
 
 func storyIDFromContext(ctx context.Context) (int64, bool) {
 	storyID, ok := ctx.Value(storyIDContextKey{}).(int64)
 	return storyID, ok
-}
-
-func elevenLabsResponseLogLevel(statusCode int) slog.Level {
-	switch {
-	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
-		return slog.LevelError
-	case statusCode >= http.StatusInternalServerError:
-		return slog.LevelError
-	case statusCode == http.StatusTooManyRequests || statusCode == http.StatusRequestTimeout:
-		return slog.LevelWarn
-	case statusCode >= http.StatusBadRequest:
-		return slog.LevelInfo
-	default:
-		return slog.LevelWarn
-	}
 }
 
 func concurrencyHeaderValue(header http.Header, key string) string {
