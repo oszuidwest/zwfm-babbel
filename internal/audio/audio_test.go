@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"context"
 	"errors"
 	"math"
 	"os"
@@ -309,6 +310,86 @@ func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
 	}
 	if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("output file stat error = %v, want no file", err)
+	}
+}
+
+// conversions runs the story and jingle conversions with one signature.
+func conversions(svc *Service) map[string]func(ctx context.Context, inputPath, outputPath string) error {
+	return map[string]func(ctx context.Context, inputPath, outputPath string) error{
+		"story": func(ctx context.Context, inputPath, outputPath string) error {
+			_, err := svc.ConvertStoryToWAV(ctx, inputPath, outputPath)
+			return err
+		},
+		"jingle": svc.ConvertJingleToWAV,
+	}
+}
+
+func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	tempDir := t.TempDir()
+	text := filepath.Join(tempDir, "text.mp3")
+	if err := os.WriteFile(text, []byte("this is not audio\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// FFmpeg accepts a video-only input; story loudness measurement then
+	// finds no loudnorm output.
+	image := filepath.Join(tempDir, "image.png")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "color=c=red:s=16x16", "-frames:v", "1", "-y", image)
+	imageUpload := filepath.Join(tempDir, "image.mp3")
+	if err := os.Rename(image, imageUpload); err != nil {
+		t.Fatal(err)
+	}
+
+	for kind, convert := range conversions(svc) {
+		for _, input := range []string{text, imageUpload} {
+			t.Run(kind+" "+filepath.Base(input), func(t *testing.T) {
+				outputPath := filepath.Join(t.TempDir(), "output.wav")
+				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {
+					t.Fatalf("error = %v, want ErrUndecodable", err)
+				}
+				if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("output file stat error = %v, want no file", err)
+				}
+			})
+		}
+	}
+}
+
+func TestService_ConvertProcessingFailureIsNotUndecodable(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	tempDir := t.TempDir()
+	valid := filepath.Join(tempDir, "valid.wav")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", valid)
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		inputPath  string
+		outputPath string
+		wantErr    error
+	}{
+		{name: "unwritable output", ctx: t.Context(), inputPath: valid, outputPath: filepath.Join(tempDir, "missing", "output.wav")},
+		{name: "missing input", ctx: t.Context(), inputPath: filepath.Join(tempDir, "missing.wav"), outputPath: filepath.Join(tempDir, "output.wav")},
+		{name: "canceled request", ctx: canceled, inputPath: valid, outputPath: filepath.Join(tempDir, "output.wav"), wantErr: context.Canceled},
+	}
+	for kind, convert := range conversions(svc) {
+		for _, tt := range tests {
+			t.Run(kind+" "+tt.name, func(t *testing.T) {
+				err := convert(tt.ctx, tt.inputPath, tt.outputPath)
+				if err == nil || errors.Is(err, ErrUndecodable) {
+					t.Fatalf("error = %v, want a processing failure", err)
+				}
+				if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tt.wantErr)
+				}
+			})
+		}
 	}
 }
 

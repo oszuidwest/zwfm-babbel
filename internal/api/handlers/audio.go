@@ -197,7 +197,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		})
 		return
 	case err != nil:
-		handleServiceError(c, err, "Story")
+		handleAudioUploadError(c, err, "audio", "Story")
 		return
 	}
 
@@ -226,9 +226,24 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	defer deferCleanup(cleanup, "jingle file")()
 
 	if err := h.stationVoiceSvc.ProcessJingle(c.Request.Context(), stationVoice, tempPath); err != nil {
-		handleServiceError(c, err, "Jingle processing")
+		handleAudioUploadError(c, err, "jingle", "Jingle processing")
 		return
 	}
 
 	utils.CreatedWithMessage(c, "Jingle uploaded successfully")
+}
+
+// handleAudioUploadError rejects an uploaded file that is not decodable audio
+// with 422 on field, and maps any other error with handleServiceError.
+func handleAudioUploadError(c *gin.Context, err error, field, fallbackResource string) {
+	if !errors.Is(err, audio.ErrUndecodable) {
+		handleServiceError(c, err, fallbackResource)
+		return
+	}
+	logErrorWithCause(strings.ToLower(fallbackResource), "validation_failed", err, errors.Unwrap(err))
+	utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+		Field:   field,
+		Code:    apperrors.CodeUndecodable,
+		Message: "the file cannot be decoded as audio; check that it is a complete, valid audio file",
+	})
 }

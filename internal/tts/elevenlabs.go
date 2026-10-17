@@ -60,6 +60,20 @@ func (e *APIError) Error() string {
 	}
 }
 
+// TransportError reports an ElevenLabs request that failed without a response,
+// such as a DNS, connection or TLS failure.
+type TransportError struct {
+	Err error
+}
+
+// Error returns the transport failure.
+func (e *TransportError) Error() string {
+	return fmt.Sprintf("ElevenLabs request failed without a response: %v", e.Err)
+}
+
+// Unwrap exposes the underlying network error for errors.Is/As.
+func (e *TransportError) Unwrap() error { return e.Err }
+
 // Service handles text-to-speech generation via the ElevenLabs API.
 type Service struct {
 	apiKey  string
@@ -145,7 +159,11 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	started := time.Now()
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("TTS API request failed: %w", err)
+		// The caller's own cancellation or deadline is not an ElevenLabs failure.
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("TTS API request failed: %w", err)
+		}
+		return nil, &TransportError{Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 

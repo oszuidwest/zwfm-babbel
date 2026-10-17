@@ -507,6 +507,23 @@ describe('Stories', () => {
       expect(getResponse.data.audio_file).not.toBe('');
     });
 
+    test('when uploading a file that is not audio, then returns 422 undecodable_audio', async () => {
+      const notAudio = `${global.helpers.uniqueName('/tmp/test_story_not_audio')}.mp3`;
+      try {
+        fs.writeFileSync(notAudio, 'this is not audio\n');
+        const result = await createStoryWithDeps('NotAudio', 'Reject non-audio', 'NotAudioVoice');
+        expect(result).not.toBeNull();
+
+        const response = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, notAudio, 'audio');
+        expect(response.status).toBe(422);
+        expect(response.data.errors).toEqual([expect.objectContaining({ field: 'audio', code: 'undecodable_audio' })]);
+        const after = await global.api.apiCall('GET', `/stories/${result.id}`);
+        expect(after.data.audio_file).toBe('');
+      } finally {
+        global.helpers.cleanupTempFile(notAudio);
+      }
+    });
+
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {
       const prefix = global.helpers.uniqueName('/tmp/test_story_silent');
       const inputAudio = `${prefix}_input.wav`;

@@ -42,6 +42,10 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
+// ErrUndecodable indicates input that ffprobe cannot open or that has no audio
+// stream, such as a corrupt or non-audio file.
+var ErrUndecodable = errors.New("input is not decodable audio")
+
 // loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
 	Integrated   float64
@@ -84,7 +88,11 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
+// It returns [ErrUndecodable] when the input is not decodable audio.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
+	if err := s.probeAudio(ctx, inputPath); err != nil {
+		return err
+	}
 	return s.convertToWAV(ctx, inputPath, outputPath, Stereo, "")
 }
 
@@ -92,9 +100,13 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // a -1 dBTP ceiling, preserving dynamics when possible.
 // It returns the duration in seconds.
 //
-// It returns [ErrSilent] without writing outputPath when the input is silent
-// or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
+// It returns [ErrUndecodable] when the input is not decodable audio, and
+// [ErrSilent] without writing outputPath when the input is silent or below
+// -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
+	if err := s.probeAudio(ctx, inputPath); err != nil {
+		return 0, err
+	}
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
 		return 0, err
@@ -115,6 +127,37 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 		return 0, err
 	}
 	return s.Duration(ctx, outputPath)
+}
+
+// probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
+// finds no audio stream in it. FFmpeg's exit status and messages cannot tell
+// such input apart from other failures, and FFmpeg accepts a video-only input.
+func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
+	// #nosec G204 - FFprobePath is from config, inputPath is internally validated
+	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
+		"-v", "error",
+		"-select_streams", "a",
+		"-show_entries", "stream=codec_type",
+		"-of", "csv=p=0",
+		inputPath,
+	)
+	output, err := cmd.Output()
+	if err == nil {
+		if len(bytes.TrimSpace(output)) == 0 {
+			return fmt.Errorf("%w: no audio stream", ErrUndecodable)
+		}
+		return nil
+	}
+
+	// ffprobe exits with status 1 when it cannot open or parse its input. A
+	// canceled probe, a crash, or a missing input file is a server failure.
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if ok && exitErr.ExitCode() == 1 && ctx.Err() == nil {
+		if _, statErr := os.Stat(inputPath); statErr == nil {
+			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(exitErr.Stderr))
+		}
+	}
+	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(ctx, err))
 }
 
 func (s *Service) convertToWAV(

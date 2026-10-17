@@ -25,6 +25,10 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
 	inputPath := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=1")
 	// #nosec G304 - fixture generated inside t.TempDir
 	silentAudio, err := os.ReadFile(inputPath)
@@ -47,7 +51,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
 			story := storyForTTSTest("News bulletin")
 			story.AudioFile = utils.StoryFilename(story.ID)

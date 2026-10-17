@@ -110,6 +110,7 @@ const (
 	CodeDuplicate     = "duplicate"
 	CodeUnsupported   = "unsupported"
 	CodeSilentAudio   = "silent_audio"
+	CodeUndecodable   = "undecodable_audio"
 )
 
 // FieldRequest labels errors about the request body as a whole.

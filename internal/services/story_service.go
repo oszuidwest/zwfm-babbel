@@ -599,5 +599,9 @@ func translateTTSError(storyID int64, err error) error {
 			)
 		}
 	}
+	if transportErr, ok := errors.AsType[*tts.TransportError](err); ok {
+		return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+			"ElevenLabs could not be reached; try again later", transportErr)
+	}
 	return apperrors.Audio("Story", "tts_generate", err)
 }
