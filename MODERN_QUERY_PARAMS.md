@@ -265,7 +265,7 @@ GET /api/v1/users?filter[created_at][gte]=2024-01-01&filter[role][in]=admin,edit
 
 ```http
 # Station filtering with search
-GET /api/v1/bulletins?filter[station_id]=1&search=morning&sort=-created_at&fields=id,filename,created_at,station_name
+GET /api/v1/bulletins?filter[station_id]=1&search=20240120&sort=-created_at&fields=id,filename,created_at,station_name
 
 # File size and duration filtering (use gte/lte for ranges)
 GET /api/v1/bulletins?filter[file_size][gte]=1000000&filter[duration_seconds][gte]=60&filter[duration_seconds][lte]=300
