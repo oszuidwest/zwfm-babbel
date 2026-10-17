@@ -2,11 +2,13 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,6 +41,7 @@ type StoryServiceDeps struct {
 
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
+	GetIDByIdempotencyKey(context.Context, string) (int64, error)
 	GetByID(context.Context, int64) (*models.Story, error)
 	GetByIDForWrite(context.Context, int64) (*models.Story, error)
 	Update(context.Context, int64, *repository.StoryUpdate) error
@@ -89,20 +92,21 @@ func NewStoryService(deps StoryServiceDeps) *StoryService {
 	}
 }
 
-// CreateStoryRequest carries the required fields for a scheduled story.
+// CreateStoryRequest carries the fields for creating a scheduled story.
 // Dates use YYYY-MM-DD in the server's local timezone.
 type CreateStoryRequest struct {
 	ActorUserID *int64
 
-	Title      string
-	Text       string
-	VoiceID    *int64
-	Status     string
-	StartDate  string
-	EndDate    string
-	Weekdays   models.Weekdays
-	IsBreaking bool
-	Metadata   *datatypes.JSONMap
+	Title          string
+	Text           string
+	VoiceID        *int64
+	Status         string
+	StartDate      string
+	EndDate        string
+	Weekdays       models.Weekdays
+	IsBreaking     bool
+	Metadata       *datatypes.JSONMap
+	IdempotencyKey *string
 }
 
 // UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
@@ -121,48 +125,74 @@ type UpdateStoryRequest struct {
 	Metadata   *datatypes.JSONMap
 }
 
-// Create validates local-date bounds and the optional voice reference before
-// persisting a story.
-func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (*models.Story, error) {
+// Create checks the dates and optional voice, persists a story, and returns its
+// ID. If an earlier create used the same idempotency key, it returns that
+// story's ID instead, unchecked, even if the story has since been deleted.
+func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int64, error) {
+	if req.IdempotencyKey != nil {
+		if id, found, err := s.storyIDForKey(ctx, *req.IdempotencyKey); found || err != nil {
+			return id, err
+		}
+	}
+
 	startDate, err := parseStoryDate("start_date", req.StartDate)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	endDate, err := parseStoryDate("end_date", req.EndDate)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if err := checkDateRange(startDate, endDate, "end_date"); err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	if req.VoiceID != nil {
 		if err := requireReference(ctx, s.voiceRepo.Exists, "Story", "voice_id", *req.VoiceID); err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
 
 	data := &repository.StoryCreateData{
-		ActorUserID: req.ActorUserID,
-		Title:       req.Title,
-		Text:        req.Text,
-		VoiceID:     req.VoiceID,
-		Status:      req.Status,
-		StartDate:   startDate,
-		EndDate:     endDate,
-		Weekdays:    req.Weekdays,
-		IsBreaking:  req.IsBreaking,
-		Metadata:    req.Metadata,
+		ActorUserID:    req.ActorUserID,
+		Title:          req.Title,
+		Text:           req.Text,
+		VoiceID:        req.VoiceID,
+		Status:         req.Status,
+		StartDate:      startDate,
+		EndDate:        endDate,
+		Weekdays:       req.Weekdays,
+		IsBreaking:     req.IsBreaking,
+		Metadata:       req.Metadata,
+		IdempotencyKey: req.IdempotencyKey,
 	}
 
 	story, err := s.storyRepo.Create(ctx, data)
+	if errors.Is(err, repository.ErrDuplicateKey) && req.IdempotencyKey != nil {
+		// A concurrent create with the same key won; its story is the answer.
+		if id, found, lookupErr := s.storyIDForKey(ctx, *req.IdempotencyKey); found || lookupErr != nil {
+			return id, lookupErr
+		}
+	}
 	if err != nil {
-		return nil, apperrors.TranslateRepoError("Story", apperrors.OpCreate, err)
+		return 0, apperrors.TranslateRepoError("Story", apperrors.OpCreate, err)
 	}
 
-	return story, nil
+	return story.ID, nil
+}
+
+// storyIDForKey returns the ID of the story created with key and whether one exists.
+func (s *StoryService) storyIDForKey(ctx context.Context, key string) (int64, bool, error) {
+	id, err := s.storyRepo.GetIDByIdempotencyKey(ctx, key)
+	if errors.Is(err, repository.ErrNotFound) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, apperrors.TranslateRepoError("Story", apperrors.OpQuery, err)
+	}
+	return id, true, nil
 }
 
 // Update applies a partial story update and validates the effective date range,
@@ -326,41 +356,54 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 // in the story's history.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
 	// Convert beside the final file for atomic rename and WAV muxer selection.
-	// Publish after the row and audit writes; their failure preserves old audio.
-	// A failed rename rolls back both writes. A later commit failure leaves the
-	// new file published and may leave the database outcome unknown.
+	// Publish in the transaction, after the row and audit writes; their failure
+	// preserves old audio. A failed rename rolls back both writes. A later
+	// commit failure leaves the new file published and may leave the database
+	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	convertedPath := strings.TrimSuffix(finalPath, ".wav") + ".processing.wav"
+	// A directory per request keeps concurrent requests for this story from
+	// overwriting or removing each other's output. FFmpeg creates the file in
+	// it, so the published mode follows the umask.
+	convertedDir, err := os.MkdirTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing", storyID))
+	if err != nil {
+		return apperrors.Audio("Story", "convert", err)
+	}
 	defer func() {
-		if rmErr := os.Remove(convertedPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			logger.Error("Failed to remove temporary audio file", "path", convertedPath, "error", rmErr)
+		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
+			logger.Error("Failed to remove temporary audio directory", "path", convertedDir, "error", rmErr)
 		}
 	}()
+	convertedPath := filepath.Join(convertedDir, utils.StoryFilename(storyID))
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
-	var renameErr error
 	published := false
-	err = s.storyRepo.UpdateAudio(ctx, storyID, repository.StoryAudioUpdate{
-		ActorUserID:     actorUserID,
-		Action:          action,
-		AudioFile:       utils.StoryFilename(storyID),
-		DurationSeconds: duration,
-		Publish: func() error {
-			renameErr = os.Rename(convertedPath, finalPath)
-			published = renameErr == nil
-			return renameErr
-		},
+	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{
+			ActorUserID:     actorUserID,
+			Action:          action,
+			AudioFile:       utils.StoryFilename(storyID),
+			DurationSeconds: duration,
+		}); err != nil {
+			return err
+		}
+		if err := os.Rename(convertedPath, finalPath); err != nil {
+			return apperrors.Audio("Story", "finalize", err)
+		}
+		published = true
+		return nil
 	})
-	if renameErr != nil {
-		return apperrors.Audio("Story", "finalize", renameErr)
-	}
 	if err != nil {
+		// A failed rename is already an audio error. Anything else came from
+		// the transaction: begin, the row and audit writes, or commit.
+		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
+			return audioErr
+		}
 		if published {
-			// The handler logs and alerts on the cause; name the live file there.
+			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
@@ -421,7 +464,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return translateTTSError(storyID, err)
 	}
 
-	tempPath, err := writeTempFile(audioData, fmt.Sprintf("tts_story_%d_*.opus", storyID))
+	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
@@ -557,27 +600,4 @@ func translateTTSError(storyID int64, err error) error {
 		}
 	}
 	return apperrors.Audio("Story", "tts_generate", err)
-}
-
-// writeTempFile writes data to an OS temp file and removes partial output on
-// write or close failure.
-func writeTempFile(data []byte, pattern string) (string, error) {
-	f, err := os.CreateTemp("", pattern)
-	if err != nil {
-		return "", err
-	}
-
-	path := f.Name()
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-
-	return path, nil
 }

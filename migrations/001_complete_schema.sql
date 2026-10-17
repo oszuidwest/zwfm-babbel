@@ -45,9 +45,11 @@ CREATE TABLE stories (
     weekdays TINYINT UNSIGNED NOT NULL DEFAULT 127,  -- Bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
     is_breaking BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSON,
+    idempotency_key VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NULL,  -- POST /stories retry key
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_stories_idempotency_key (idempotency_key),
     FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE SET NULL
 );
 

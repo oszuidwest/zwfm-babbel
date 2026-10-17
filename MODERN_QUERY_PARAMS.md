@@ -8,7 +8,7 @@ The query parameter system provides:
 - **Modern filtering**: `?filter[field]=value`, `?filter[created_at][gte]=2024-01-01&filter[created_at][lt]=2025-01-01`
 - **Advanced sorting**: `?sort=created_at:desc,name:asc` or `?sort=-created_at,+name`
 - **Field selection**: `?fields=id,name,created_at` (sparse fieldsets)
-- **Search functionality**: `?search=keyword` for full-text search
+- **Search functionality**: `?search=keyword` for full-text search on stations, voices, stories, users and bulletins
 - **Soft-delete filtering**: `?trashed=only|with` for controlling visibility of deleted records on stories and users
 - **Status field filters**: `?filter[status]=active|draft|expired` for filtering by status column
 
@@ -16,6 +16,26 @@ Most resource list endpoints support filtering, sorting, field selection and
 search. `/bulletins/{id}/stories` supports pagination only. The parameters above
 return RFC 9457 validation errors on endpoints that do not support them instead
 of being silently ignored.
+
+List endpoints read only `limit`, `offset`, `sort`, `fields`, `search`,
+`trashed` and `filter[...]` keys. Any other key returns 422 with code
+`unknown_field` and the key as sent in `errors[].field`, so a misspelled or
+outdated key never returns an unexpected page. Keys are case-sensitive:
+
+```http
+GET /api/v1/stories?page=2              # 422, errors[0].field = "page", code "unknown_field"
+GET /api/v1/stories?status=deleted      # 422, field "status"; use trashed=only
+GET /api/v1/stations?Trashed=only       # 422, field "Trashed"
+GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "per_page"
+```
+
+Malformed URL encoding or an unescaped semicolon returns 422 with field `query`
+and code `invalid_format` before checking keys. Unknown keys are then checked,
+whatever their value, and one response names each of them in sorted order;
+a repeated unknown key reports as
+`unknown_field`, not `duplicate`. `/stations/{id}/bulletins` answers the
+removed `latest` key with `unsupported` and a `detail` that points to
+`/stations/{id}/bulletins/latest`.
 
 ## Modern Query Parameter Formats
 
@@ -128,6 +148,17 @@ GET /api/v1/stories?sort=title
 GET /api/v1/stories?sort=-created_at,+title
 ```
 
+An empty `sort=` means the default order. An empty item or an item without a
+field name returns 422 with code `invalid_format` for `sort`; an item of only
+spaces counts as empty:
+
+```http
+GET /api/v1/stories?sort=,              # 422
+GET /api/v1/stories?sort=title,         # 422
+GET /api/v1/stories?sort=-              # 422
+GET /api/v1/stories?sort=:desc          # 422
+```
+
 ### 3. Field Selection (Sparse Fieldsets)
 
 ```http
@@ -138,6 +169,9 @@ GET /api/v1/stories?fields=id,title,created_at
 GET /api/v1/users?fields=id,username,role
 ```
 
+An empty `fields=` returns all fields. An empty item, as in `fields=,` or
+`fields=id,,title`, returns 422 with code `invalid_format` for `fields`.
+
 ### 4. Search
 
 ```http
@@ -145,6 +179,14 @@ GET /api/v1/users?fields=id,username,role
 GET /api/v1/stories?search=breaking news
 GET /api/v1/users?search=john.doe@example.com
 GET /api/v1/stations?search=radio
+```
+
+Station-voice relationships and audit events have no searchable fields. Their
+list endpoints reject a non-empty `search` with 422 and an error for the
+`search` field; an empty `search=` is ignored:
+
+```http
+GET /api/v1/station-voices?search=radio # 422, errors[0].field = "search", code "unsupported"
 ```
 
 ### 5. Soft-Delete Filtering
@@ -292,11 +334,15 @@ GET /api/v1/stories?fields=id,title,created_at
 
 ### Search Configuration
 
-Each endpoint defines searchable fields:
+Each repository passes its searchable columns to `ApplyListQuery`:
 
 ```go
-SearchFields: []string{"s.title", "s.text", "v.name"}
+var storySearchFields = []string{"title", "text"}
 ```
+
+A resource without searchable fields passes `nil`; `ApplyListQuery` then
+rejects a non-empty `search`, and the endpoint's OpenAPI operation must not
+declare the `search` parameter.
 
 ### Field Mapping
 
@@ -343,9 +389,14 @@ under "List queries" in `openapi.yaml`):
 | `limit=abc` | `limit` | `invalid_format` |
 | `limit=0` or `limit=101` | `limit` | `out_of_range` |
 | `limit=10&limit=20` | `limit` | `duplicate` |
+| `page=2` | `page` | `unknown_field` |
+| `Limit=10` | `Limit` | `unknown_field` |
+| `foo=1&foo=2` | `foo` | `unknown_field` |
 | `sort=bogus` | `sort` | `unknown_field` |
 | `sort=title:up` | `sort` | `invalid_choice` |
+| `sort=title,` or `sort=-` | `sort` | `invalid_format` |
 | `fields=bogus` | `fields` | `unknown_field` |
+| `fields=id,,title` | `fields` | `invalid_format` |
 | `filter[status]=bad` | `filter[status]` | `invalid_choice` |
 | `filter[status][not]=bad` | `filter[status][not]` | `invalid_choice` |
 | `filter[voice_id]=null` | `filter[voice_id]` | `invalid_format` |
@@ -358,10 +409,10 @@ Operators are checked before fields, so `filter[bogus][xyz]` reports as
 `filter[bogus][xyz]`. Validation stops at the first invalid filter.
 `/bulletins/{id}/stories` supports only `limit` and `offset`; it reports
 non-empty `search`, parsed `sort`/`fields`, `trashed`, and well-formed filters
-with known operators as `unsupported`, using each key as sent. Shared parsing
-runs first: duplicate keys produce `duplicate`, malformed filter keys
-`invalid_format`, and unknown filter operators or invalid sort directions
-`invalid_choice`. Other unknown keys are ignored unless repeated; empty
+with known operators as `unsupported`, using each key as sent. Unknown keys
+and shared parsing run first: duplicate keys produce `duplicate`, malformed
+filter keys and empty `sort` or `fields` items `invalid_format`, and unknown
+filter operators or invalid sort directions `invalid_choice`. Empty
 non-filter options are ignored.
 
 ## Performance Considerations

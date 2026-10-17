@@ -43,7 +43,8 @@ func (h *Handlers) GetStory(c *gin.Context) {
 	utils.Success(c, story)
 }
 
-// CreateStory accepts a JSON story payload and persists a scheduled story.
+// CreateStory accepts a JSON story payload and persists a scheduled story, or
+// returns the existing one for a repeated idempotency key.
 // Missing status defaults to draft and missing weekdays default to every day.
 func (h *Handlers) CreateStory(c *gin.Context) {
 	var req utils.StoryCreateRequest
@@ -62,25 +63,26 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 	}
 
 	svcReq := &services.CreateStoryRequest{
-		ActorUserID: actorUserID(c),
-		Title:       req.Title,
-		Text:        req.Text,
-		VoiceID:     req.VoiceID,
-		Status:      req.Status,
-		StartDate:   req.StartDate,
-		EndDate:     req.EndDate,
-		Weekdays:    weekdays,
-		IsBreaking:  req.IsBreaking,
-		Metadata:    req.Metadata,
+		ActorUserID:    actorUserID(c),
+		Title:          req.Title,
+		Text:           req.Text,
+		VoiceID:        req.VoiceID,
+		Status:         req.Status,
+		StartDate:      req.StartDate,
+		EndDate:        req.EndDate,
+		Weekdays:       weekdays,
+		IsBreaking:     req.IsBreaking,
+		Metadata:       req.Metadata,
+		IdempotencyKey: req.IdempotencyKey,
 	}
 
-	story, err := h.storySvc.Create(c.Request.Context(), svcReq)
+	id, err := h.storySvc.Create(c.Request.Context(), svcReq)
 	if err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
 
-	utils.CreatedWithLocation(c, story.ID, "/api/v1/stories", "Story created successfully")
+	utils.CreatedWithLocation(c, id, "/api/v1/stories", "Story created successfully")
 }
 
 // UpdateStory applies a JSON partial update to an existing story.

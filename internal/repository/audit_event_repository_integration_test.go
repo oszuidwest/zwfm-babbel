@@ -70,7 +70,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	assertAuditChange(t, restored, "deleted_at", deleted.DeletedAt.Time, nil)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionAudio, AudioFile: "new.wav", DurationSeconds: 1.236, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionAudio, AudioFile: "new.wav", DurationSeconds: 1.236,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	assertAuditChange(t, uploaded, "duration_seconds", nil, 1.24)
 
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 
 	// Regenerating overwrites the same file; it is history even when no column changes.
 	if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
-		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2, Publish: noPublish,
+		ActorUserID: &actor, Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 2,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -116,48 +116,6 @@ func TestStoryAuditNoOp(t *testing.T) {
 	}
 	if got := storyAuditEvents(t, db, id); len(got) != 0 {
 		t.Fatalf("no-op events = %+v", got)
-	}
-}
-
-func noPublish() error { return nil }
-
-func TestStoryAudioPublishFailureRollsBack(t *testing.T) {
-	db := testutil.OpenIntegrationDB(t)
-	repo := NewStoryRepository(db)
-	id := createIntegrationStory(t, db)
-	sentinel := errors.New("rename failed")
-	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3,
-		Publish: func() error { return sentinel },
-	})
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("UpdateAudio = %v, want publish error", err)
-	}
-	story, err := repo.GetByID(t.Context(), id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if story.AudioFile != "" || story.DurationSeconds != nil {
-		t.Fatalf("failed publish changed audio: %+v", story)
-	}
-	if got := storyAuditEvents(t, db, id); len(got) != 0 {
-		t.Fatalf("failed publish events = %+v", got)
-	}
-}
-
-func TestStoryAudioNotPublishedWhenAuditFails(t *testing.T) {
-	db := testutil.OpenIntegrationDB(t)
-	repo := NewStoryRepository(db)
-	id := createIntegrationStory(t, db)
-	sentinel := errors.New("audit unavailable")
-	testutil.RejectAuditWrites(t, db, func() error { return sentinel })
-	published := false
-	err := repo.UpdateAudio(t.Context(), id, StoryAudioUpdate{
-		Action: models.AuditActionAudio, AudioFile: "story.wav", DurationSeconds: 3,
-		Publish: func() error { published = true; return nil },
-	})
-	if !errors.Is(err, sentinel) || published {
-		t.Fatalf("UpdateAudio = %v, published = %v; want audit error before publishing", err, published)
 	}
 }
 
@@ -541,16 +499,21 @@ func TestAuditActorNamesRequirePermission(t *testing.T) {
 			if system.UserID != nil || system.Username != nil || system.FullName != nil {
 				t.Fatalf("system event = %+v", system)
 			}
-			if !tt.includeNames {
-				if got.Username != nil || got.FullName != nil {
-					t.Fatalf("actor names disclosed: %+v", got)
-				}
-				return
-			}
-			if got.Username == nil || *got.Username != user.Username || got.FullName == nil || *got.FullName != user.FullName {
-				t.Fatalf("soft-deleted actor names = %+v", got)
-			}
+			assertAuditActorNames(t, got, user, tt.includeNames)
 		})
+	}
+}
+
+func assertAuditActorNames(t *testing.T, got models.AuditEvent, user models.User, includeNames bool) {
+	t.Helper()
+	if !includeNames {
+		if got.Username != nil || got.FullName != nil {
+			t.Fatalf("actor names disclosed: %+v", got)
+		}
+		return
+	}
+	if got.Username == nil || *got.Username != user.Username || got.FullName == nil || *got.FullName != user.FullName {
+		t.Fatalf("soft-deleted actor names = %+v", got)
 	}
 }
 
