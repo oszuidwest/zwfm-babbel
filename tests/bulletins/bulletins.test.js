@@ -417,6 +417,18 @@ describe('Bulletins', () => {
       const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
       expect(response.status).toBe(422);
     });
+
+    // Unknown keys fail before the pagination-only check; degenerate lists
+    // fail in shared parsing.
+    test.each([
+      ['foo=1', [['foo', 'unknown_field']]],
+      ['page=2&sort=story_order', [['page', 'unknown_field']]],
+      ['sort=,', [['sort', 'invalid_format']]]
+    ])('when called with %s, then the 422 names %j', async (query, errors) => {
+      const response = await global.api.apiCall('GET', `/bulletins/${bulletinId}/stories?${query}`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual(errors);
+    });
   });
 
   describe('Station Bulletin Endpoints', () => {
@@ -448,6 +460,26 @@ describe('Bulletins', () => {
       expect(response.data.errors[0].field).toBe('trashed');
     });
 
+    // Nested bulletin lists search bulletin filenames, so they declare and
+    // accept search.
+    test.each([
+      ['/stations/{id}/bulletins', () => stationId],
+      ['/stories/{id}/bulletins', () => storyId]
+    ])('when listing %s with search, then returns 200', async (template, id) => {
+      expect(declaresQueryParameter(template, 'search')).toBe(true);
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?search=x`);
+      expect(response.status).toBe(200);
+    });
+
+    test.each([
+      ['/stations/{id}/bulletins', () => stationId],
+      ['/stories/{id}/bulletins', () => storyId]
+    ])('when listing %s with an unknown key, then the 422 names it', async (template, id) => {
+      const response = await global.api.apiCall('GET', `${template.replace('{id}', id())}?page=2`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['page', 'unknown_field']]);
+    });
+
     test('when generating station bulletin, then succeeds', async () => {
       const response = await global.helpers.generateBulletin(stationId);
 
@@ -475,10 +507,12 @@ describe('Bulletins', () => {
       expect(response.data.data).toHaveLength(1);
     });
 
-    test('when using the removed latest parameter, then returns 422 with migration guidance', async () => {
-      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?latest=true`);
+    // The handler answers latest before the parser rejects unknown keys.
+    test.each(['latest=true', 'latest=true&page=2'])('when using the removed latest parameter in %s, then returns 422 with migration guidance', async query => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?${query}`);
       expect(response.status).toBe(422);
       expect(response.data.detail).toContain('/stations/{id}/bulletins/latest');
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['latest', 'unsupported']]);
     });
   });
 

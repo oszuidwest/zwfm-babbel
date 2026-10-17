@@ -163,6 +163,28 @@ func newTestContext(t *testing.T, body string) (*gin.Context, *httptest.Response
 	return c, w
 }
 
+// newAudioUploadContext returns a context whose body is a multipart form with
+// content as the "audio" file part named filename.
+func newAudioUploadContext(t *testing.T, filename, content string) (*gin.Context, *httptest.ResponseRecorder) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("audio", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	c, w := newTestContext(t, "")
+	c.Request.Body = io.NopCloser(&body)
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	return c, w
+}
+
 // bindExpect describes a successful bind (ok) or the status and the field
 // error that the response must contain.
 type bindExpect struct {
@@ -545,22 +567,8 @@ func TestSaveAudioUpload_ReadTimeout(t *testing.T) {
 
 func TestSaveAudioUpload_StorageFailure(t *testing.T) {
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("audio", "clip.wav")
-	if err != nil {
-		t.Fatal(err)
-	}
 	// net/http spills file parts larger than 32 MiB to its temp directory.
-	if _, err := io.WriteString(part, strings.Repeat("x", 33<<20)); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	c, w := newTestContext(t, "")
-	c.Request.Body = io.NopCloser(&body)
-	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	c, w := newAudioUploadContext(t, "clip.wav", strings.Repeat("x", 33<<20))
 	_, _, ok := SaveAudioUpload(c, "audio", "upload_contract_test")
 	checkBindResult(t, w, ok, bindExpect{status: 500})
 	if strings.Contains(w.Body.String(), os.TempDir()) {
@@ -631,6 +639,55 @@ func TestSaveAudioUpload(t *testing.T) {
 			}
 			checkBindResult(t, w, ok, bindExpect{status: tt.wantStatus, field: tt.wantField, code: tt.wantCode})
 		})
+	}
+}
+
+func TestSaveAudioUpload_SameFilenameGetsOwnFile(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	save := func(content string) (string, func() error) {
+		t.Helper()
+		c, w := newAudioUploadContext(t, "news clip.MP3", content)
+		path, cleanup, ok := SaveAudioUpload(c, "audio", "story_42")
+		if !ok {
+			t.Fatalf("SaveAudioUpload() failed: %s", w.Body.String())
+		}
+		return path, cleanup
+	}
+
+	// Both requests hold their input before either finishes.
+	firstPath, firstCleanup := save("first upload")
+	secondPath, _ := save("second upload")
+	if firstPath == secondPath {
+		t.Fatalf("both uploads stored at %s", firstPath)
+	}
+	for _, path := range []string{firstPath, secondPath} {
+		if filepath.Dir(path) != tempDir || !strings.HasPrefix(filepath.Base(path), "story_42_") || filepath.Ext(path) != ".mp3" {
+			t.Fatalf("upload path = %s, want story_42_*.mp3 in %s", path, tempDir)
+		}
+	}
+
+	// A failed request cleans up only its own input.
+	if err := firstCleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first upload after cleanup: %v, want removed", err)
+	}
+	// #nosec G304 -- path is created by SaveAudioUpload in the test temp directory.
+	if data, err := os.ReadFile(secondPath); err != nil || string(data) != "second upload" {
+		t.Fatalf("second upload = %q, %v; want its own content", data, err)
+	}
+}
+
+func TestWriteTempFile_RemovesPartialOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("TMPDIR", tempDir)
+	if path, err := WriteTempFile(failingReadCloser{}, "upload_*.wav"); err == nil {
+		t.Fatalf("WriteTempFile() = %q, want read error", path)
+	}
+	if entries, err := os.ReadDir(tempDir); err != nil || len(entries) != 0 {
+		t.Fatalf("temp dir = %v, %v; want partial output removed", entries, err)
 	}
 }
 

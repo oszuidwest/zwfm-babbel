@@ -332,7 +332,7 @@ func (s *BulletinService) filterStoriesWithMissingAudio(
 		path := utils.StoryPath(s.config, story.ID)
 		key := fmt.Sprintf("bulletin:missing-story-audio:station:%d:story:%d", stationID, story.ID)
 		if _, err := os.Stat(path); err != nil {
-			logger.Warn("Skipping story with missing audio file during bulletin generation",
+			logger.Error("Skipping story with missing audio file during bulletin generation",
 				"story_id", story.ID, "station_id", stationID, "path", path, "error", err)
 			s.alerts.Alert(ctx, notify.Event{
 				Key:     key,
