@@ -89,8 +89,8 @@ func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
 	}()
 	defer func() { cancel(); <-stopped }()
 
-	// More bytes than the old jingle proves FFmpeg has written output,
-	// including when testing the old direct-to-live code.
+	// More bytes than the old jingle proves FFmpeg has written output. The
+	// live path is watched too, so conversion straight onto it also fails.
 	livePath := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
 	written := func() bool {
 		converted, _ := filepath.Glob(filepath.Join(service.config.Audio.ProcessedPath, "*.processing", "*"))
@@ -261,7 +261,8 @@ func TestStationVoiceService_JingleRenameFailure(t *testing.T) {
 				}
 			}
 			err := service.ProcessJingle(t.Context(), stationVoice, input)
-			if audioErr, ok := errors.AsType[*apperrors.AudioError](err); !ok || audioErr.Operation != "finalize" {
+			_, isDatabaseErr := errors.AsType[*apperrors.DatabaseError](err)
+			if audioErr, ok := errors.AsType[*apperrors.AudioError](err); !ok || audioErr.Operation != "finalize" || isDatabaseErr {
 				t.Fatalf("ProcessJingle() = %v, want finalize error", err)
 			}
 			if !service.txManager.(*jingleTxManager).rolledBack {

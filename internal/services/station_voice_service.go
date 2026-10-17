@@ -238,9 +238,10 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	}
 
 	// Rename while the row update holds the row lock, so a concurrent Delete
-	// cannot remove the row and its jingle in between. A failed update or
-	// rename rolls back and keeps the old jingle; a failed commit can leave
-	// the new jingle published.
+	// cannot remove the row and its jingle between the update and the rename.
+	// A failed update or rename rolls back and keeps the old jingle; a failed
+	// commit leaves the new jingle published and may leave the database
+	// outcome unknown.
 	published := false
 	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.stationVoiceRepo.UpdateAudio(txCtx, stationVoice.ID, filename); err != nil {
