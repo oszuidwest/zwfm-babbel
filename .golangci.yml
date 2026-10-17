@@ -1,7 +1,7 @@
 version: "2"
 
 run:
-  # Also lint *_integration_test.go, which only builds with this tag.
+  # Also lint files behind //go:build integration.
   build-tags:
     - integration
 
