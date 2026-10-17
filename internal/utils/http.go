@@ -120,7 +120,7 @@ func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefi
 		})
 	case tooLarge:
 		ProblemPayloadTooLarge(c)
-	case storedPath == "": // readAudioPart stores every supported file.
+	case storedPath == "": // Only an unsupported extension leaves no stored file.
 		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeUnsupported,
@@ -142,9 +142,9 @@ func nextAudioPart(reader *multipart.Reader, parts int) (*multipart.Part, error)
 	return part, err
 }
 
-// readAudioPart reads up to one byte past maxAudioUploadBytes of part and
-// reports whether it got there. It stores the file only for a supported ext,
-// which is all of the client filename that reaches the temp file name.
+// readAudioPart reads part up to one byte past maxAudioUploadBytes and reports
+// whether it is larger than that. It stores the file only for a supported ext,
+// the only part of the client filename that reaches the temp file name.
 func readAudioPart(part io.Reader, prefix, ext string) (path string, tooLarge bool, err error) {
 	limited := &io.LimitedReader{R: part, N: maxAudioUploadBytes + 1}
 	if slices.Contains(audioUploadExtensions, ext) {
