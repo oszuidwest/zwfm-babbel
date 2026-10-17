@@ -29,6 +29,16 @@ func TestCaptureLogsRestoresLoggers(t *testing.T) {
 		}
 	})
 
+	t.Run("parallel", func(t *testing.T) {
+		CaptureLogs(t, slog.LevelInfo)
+		defer func() {
+			if recover() == nil {
+				t.Error("t.Parallel after CaptureLogs did not panic")
+			}
+		}()
+		t.Parallel()
+	})
+
 	if slog.Default() != previous || log.Writer() != &stdlib || log.Flags() != log.Lshortfile {
 		t.Fatalf("loggers not restored: writer %T, flags %d", log.Writer(), log.Flags())
 	}

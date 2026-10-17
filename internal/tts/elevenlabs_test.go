@@ -349,19 +349,23 @@ func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
 	header.Set(headerCurrentConcurrentRequests, "5")
 	header.Set(headerMaximumConcurrentRequests, "8")
 
-	entry := captureLogEntry(t, func() {
-		logElevenLabsResponse(
-			ContextWithStoryID(context.Background(), 99),
-			http.StatusTooManyRequests,
-			123*time.Millisecond,
-			header,
-			elevenLabsErrorDetail{
-				Type:      "rate_limit_error",
-				Code:      "concurrent_limit_exceeded",
-				RequestID: "req_123",
-			},
-		)
-	})
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	logElevenLabsResponse(
+		ContextWithStoryID(context.Background(), 99),
+		http.StatusTooManyRequests,
+		123*time.Millisecond,
+		header,
+		elevenLabsErrorDetail{
+			Type:      "rate_limit_error",
+			Code:      "concurrent_limit_exceeded",
+			RequestID: "req_123",
+		},
+	)
+	// Unmarshal rejects an empty buffer and a second record.
+	var entry map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("decode captured log %q: %v", logs, err)
+	}
 
 	assertLogField(t, entry, "level", "WARN")
 	assertLogField(t, entry, "msg", "elevenlabs tts response")
@@ -452,19 +456,6 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 	if capturedPath != want {
 		t.Fatalf("escaped path = %q, want %q", capturedPath, want)
 	}
-}
-func captureLogEntry(t *testing.T, emit func()) map[string]any {
-	t.Helper()
-
-	logs := testutil.CaptureLogs(t, slog.LevelDebug)
-	emit()
-
-	// Unmarshal rejects an empty buffer and a second record.
-	var entry map[string]any
-	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
-		t.Fatalf("decode captured log %q: %v", logs, err)
-	}
-	return entry
 }
 
 func assertLogField(t *testing.T, entry map[string]any, key string, want any) {
