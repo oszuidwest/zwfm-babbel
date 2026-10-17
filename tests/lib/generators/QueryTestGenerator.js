@@ -139,9 +139,9 @@ function generateQueryTests(schema, setupFn) {
     }
 
     if (query.filterableFields?.length > 0) {
-      // Filter tests list only the fixtures. Every range-filterable field
-      // needs two distinct values among them, or no bound taken from them
-      // could drop a fixture.
+      // Result checks list only the fixtures, and every filterable field needs
+      // two distinct values among them: a filter must drop one fixture and
+      // keep another.
       describe('Filtering', () => {
         let listed;
         beforeAll(async () => {
@@ -149,11 +149,12 @@ function generateQueryTests(schema, setupFn) {
         });
 
         // MySQL comparisons never match NULL, so keep only sees fixtures
-        // with a value. The expected fixtures must leave one out, or an
-        // ignored filter would pass.
+        // with a value. Every value and bound below drops a fixture, so an
+        // ignored filter fails; an empty expected set would also let a filter
+        // that matches nothing pass.
         const expectFiltered = async (field, qs, keep) => {
           const expected = expectItemsWith(listed, field).filter(item => keep(item[field])).map(item => item.id);
-          expect(expected.length).toBeLessThan(fixtureIds.length);
+          expect(expected.length).toBeGreaterThan(0);
           await listFixtures(`&${qs}`, expected);
         };
 
@@ -181,7 +182,7 @@ function generateQueryTests(schema, setupFn) {
         // Bounds come from the distinct fixture values: gte the second lowest
         // drops the lowest, lte the second highest drops the highest, and
         // between on the second lowest alone also drops the highest when
-        // there are three values.
+        // there are at least three values.
         query.filterableFields
           .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
           .forEach(field => {
@@ -251,6 +252,7 @@ function generateQueryTests(schema, setupFn) {
         expect.hasAssertions();
         const response = await listFixtures('&sort=id&limit=1&offset=1', [sorted(fixtureIds, 1)[1]]);
         expect(response.data).toHaveProperty('offset', 1);
+        expect(response.data.total).toBe(fixtureIds.length);
       });
 
       test.each([

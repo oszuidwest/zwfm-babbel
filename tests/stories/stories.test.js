@@ -80,8 +80,8 @@ describe('Stories', () => {
 
   // Every sortable field rises with the fixture index except created_at, the
   // default sort key, which lists the fixtures as 1, 0, 2 (newest first).
-  // The expired story has a voice of its own, so voice_id range filters have
-  // two values to choose bounds from.
+  // The expired story has its own voice, weekdays and breaking flag, so every
+  // filterable field has two values among the fixtures.
   const setupQueryTestData = async () => {
     const year = new Date().getFullYear();
     const voice = await global.helpers.createVoice(global.resources, 'QueryVoice');
@@ -90,10 +90,13 @@ describe('Stories', () => {
     expect(expiredVoice).not.toBeNull();
     const ids = [];
     for (const [index, status] of ['active', 'draft', 'expired'].entries()) {
+      const expired = status === 'expired';
       const story = await global.helpers.createStory(global.resources, {
         title: `QueryStory${index + 1}`,
         text: `Query test content ${index + 1}`,
-        voice_id: status === 'expired' ? expiredVoice.id : voice.id,
+        voice_id: expired ? expiredVoice.id : voice.id,
+        weekdays: expired ? 31 : 127,
+        is_breaking: expired,
         status,
         start_date: `${year}-01-0${index + 1}`,
         end_date: `${year + 1}-12-${29 + index}`
