@@ -261,6 +261,8 @@ paths:
                   service:
                     type: string
                     example: babbel-api
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '503':
           description: The service is unhealthy because it cannot connect to the database
           content:
@@ -410,8 +412,9 @@ paths:
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
           description: |
-            Invalid path or query parameter. `errors[].field` is `id` or
-            `max_age`; `max_age` fails with `required`, `invalid_format` or
+            Invalid path or query parameter. `errors[].field` is `id`,
+            `max_age`, or `query` for a query string that cannot be decoded;
+            `max_age` fails with `required`, `invalid_format` or
             `out_of_range`.
           content:
             application/problem+json:
@@ -455,6 +458,8 @@ paths:
                     type: string
                     description: URL to start OAuth flow (only present when OAuth is enabled)
                     example: "/api/v1/auth/oauth"
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 
   /api/v1/sessions:
     post:
@@ -506,7 +511,9 @@ paths:
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
-          description: A missing or empty `username` or `password` fails with code `required`.
+          description: |
+            A missing or empty `username` or `password` fails with code
+            `required`. A query string that cannot be decoded fails as `query`.
           content:
             application/problem+json:
               schema:
@@ -650,6 +657,8 @@ paths:
                 $ref: '#/components/schemas/CurrentSession'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
     delete:
@@ -662,6 +671,8 @@ paths:
           description: Session terminated successfully
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -1577,6 +1588,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
         '500':
@@ -1646,6 +1659,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/InternalServerError'
         '503':
@@ -5274,7 +5289,7 @@ components:
       description: |
         The request is well-formed, but the API rejects one or more values.
         `errors[]` names each rejected body field, query parameter, path `id`
-        or uploaded file.
+        or uploaded file, or `query` for a query string that cannot be decoded.
       content:
         application/problem+json:
           schema:

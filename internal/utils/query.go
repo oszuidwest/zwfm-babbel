@@ -54,8 +54,10 @@ func parseRawQuery(c *gin.Context) (url.Values, *apperrors.FieldError) {
 	return query, nil
 }
 
-// RejectMalformedQuery answers a query string that [parseRawQuery] rejects
-// with a 422, so no handler runs as if the dropped pairs were never sent.
+// RejectMalformedQuery answers a query string that url.ParseQuery rejects,
+// such as an invalid percent escape or an unescaped semicolon, with a 422
+// naming field query, so no handler runs as if the dropped pairs were never
+// sent.
 func RejectMalformedQuery(c *gin.Context) {
 	if _, err := parseRawQuery(c); err != nil {
 		emitQueryError(c, err)

@@ -91,7 +91,7 @@ describe('Validation Error Contract', () => {
 
 describe('Malformed Query Strings', () => {
   // The router rejects these before authentication and the handler, so the
-  // story and station do not need to exist.
+  // story and station need not exist and OAuth need not be enabled.
   const expectMalformedQuery = (response) => expectFieldError(response, 422, 'query', 'invalid_format');
 
   test('when generating TTS with an invalid escape in force, then 422 names query', async () => {
