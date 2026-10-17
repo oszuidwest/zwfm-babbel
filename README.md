@@ -288,6 +288,7 @@ These conditions cause an immediate alert:
 - There are no stories for a bulletin.
 - The stories in a bulletin do not use the same voice.
 - The audio file of a story is missing, or a jingle is missing.
+- New story audio is live, but Babbel cannot confirm that its database record was saved. The next successful upload or TTS generation for that story sends the recovery.
 - Bulletin generation fails, and the cause is not a timeout.
 - Babbel cannot read the bulletin output directory.
 - The ElevenLabs credentials are not valid.
