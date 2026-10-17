@@ -83,10 +83,14 @@ describe('Stories', () => {
   // default sort key, lists them as 2, 3, 0, 1 (newest first); id rises with
   // the fixture index. The two drafts tie on status, which still leaves every
   // other field a pair of fixtures that status orders the other way.
+  // The expired story has its own voice, weekdays and breaking flag, so every
+  // filterable field has two values among the fixtures.
   const setupQueryTestData = async () => {
     const year = new Date().getFullYear();
     const voice = await global.helpers.createVoice(global.resources, 'QueryVoice');
     expect(voice).not.toBeNull();
+    const expiredVoice = await global.helpers.createVoice(global.resources, 'QueryExpiredVoice');
+    expect(expiredVoice).not.toBeNull();
     const fixtures = [
       // [title, status, start_date day, end_date day, created_at, updated_at]
       ['C', 'active', 2, 31, 1, 4],
@@ -97,10 +101,13 @@ describe('Stories', () => {
     const ids = [];
     const timestamps = [];
     for (const [letter, status, startDay, endDay, createdAt, updatedAt] of fixtures) {
+      const expired = status === 'expired';
       const story = await global.helpers.createStory(global.resources, {
         title: `QueryStory${letter}`,
         text: `Query test content ${letter}`,
-        voice_id: voice.id,
+        voice_id: expired ? expiredVoice.id : voice.id,
+        weekdays: expired ? 31 : 127,
+        is_breaking: expired,
         status,
         start_date: `${year}-01-0${startDay}`,
         end_date: `${year + 1}-12-${endDay}`
