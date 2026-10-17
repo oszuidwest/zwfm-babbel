@@ -163,16 +163,11 @@ describe('Station-Voices', () => {
       const otherStation = await global.helpers.createStation(global.resources, 'JingleLockStation2');
       const voice = await global.helpers.createVoice(global.resources, 'JingleLockVoice');
       const otherVoice = await global.helpers.createVoice(global.resources, 'JingleLockVoice2');
-      const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: station.id,
-        voice_id: voice.id,
-        mix_point: 1.0
-      });
-      expect(response.status).toBe(201);
-      global.resources.track('stationVoices', response.data.id);
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
+      expect(stationVoice).not.toBeNull();
 
       const uploadResponse = await global.api.uploadFile(
-        `/station-voices/${response.data.id}/audio`,
+        `/station-voices/${stationVoice.id}/audio`,
         {},
         testAudio,
         'jingle'
@@ -180,12 +175,12 @@ describe('Station-Voices', () => {
       expect(uploadResponse.status).toBe(201);
 
       for (const change of [{ station_id: otherStation.id }, { voice_id: otherVoice.id }]) {
-        const conflict = await global.api.apiCall('PUT', `/station-voices/${response.data.id}`, change);
+        const conflict = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, change);
         expect(conflict.status).toBe(409);
         expect(conflict.data.code).toBe('stationvoice.jingle_locked');
       }
 
-      const resend = await global.api.apiCall('PUT', `/station-voices/${response.data.id}`, {
+      const resend = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, {
         station_id: station.id,
         voice_id: voice.id,
         mix_point: 2.0
@@ -199,15 +194,10 @@ describe('Station-Voices', () => {
       const otherStation = await global.helpers.createStation(global.resources, 'NoJingleMoveStation2');
       const voice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice');
       const otherVoice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice2');
-      const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: station.id,
-        voice_id: voice.id,
-        mix_point: 1.0
-      });
-      expect(response.status).toBe(201);
-      global.resources.track('stationVoices', response.data.id);
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
+      expect(stationVoice).not.toBeNull();
 
-      const moved = await global.api.apiCall('PUT', `/station-voices/${response.data.id}`, {
+      const moved = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, {
         station_id: otherStation.id,
         voice_id: otherVoice.id
       });
