@@ -185,29 +185,33 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete removes a relationship before deleting its jingle file.
-// File cleanup failure is logged but does not resurrect the deleted database row.
+// Delete removes a relationship and its canonical jingle file, even when the
+// row recorded none, because a first upload may have committed after the row
+// was read. The file is removed before commit, while the uncommitted delete
+// still blocks a replacement for the same pair, so the cleanup cannot remove
+// the replacement's jingle. A file that cannot be removed rolls the delete
+// back, so a recreated pair never picks up the stale jingle. A failed commit
+// can keep the row without its jingle; bulletins then play without a bed until
+// a new upload.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	stationID, voiceID, audioFile, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
+	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
 		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
-	err = s.stationVoiceRepo.Delete(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
-	}
-
-	if audioFile != "" {
-		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
-		if err := os.Remove(jinglePath); err != nil {
-			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
-		} else {
-			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
+	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.stationVoiceRepo.Delete(txCtx, id); err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
 		}
-	}
 
-	return nil
+		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
+		if err := os.Remove(jinglePath); err == nil {
+			logger.Info("Removed jingle file", "station_voice_id", id, "station_id", stationID, "voice_id", voiceID)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove jingle %s of station-voice %d: %w", jinglePath, id, err)
+		}
+		return nil
+	})
 }
 
 // ProcessJingle converts an uploaded audio file and associates it with the

@@ -1,3 +1,10 @@
+const TestHelpers = require('../lib/TestHelpers');
+
+const expectFieldError = (response, status, field, code) => {
+  expect(response.status).toBe(status);
+  expect(response.data.errors).toEqual([expect.objectContaining({ field, code })]);
+};
+
 describe('Empty Update Validation', () => {
   const paths = {};
 
@@ -43,11 +50,6 @@ describe('Validation Error Contract', () => {
     voicePath = `/voices/${voice.id}`;
   });
 
-  const expectFieldError = (response, status, field, code) => {
-    expect(response.status).toBe(status);
-    expect(response.data.errors).toEqual([expect.objectContaining({ field, code })]);
-  };
-
   test.each([
     ['a soft delete with status', { status: 'draft', deleted_at: '2026-09-26T12:00:00Z' }],
     ['a story field other than status without a restore', { title: 'Changed' }],
@@ -85,4 +87,26 @@ describe('Validation Error Contract', () => {
     expectFieldError(response, 422, 'password', 'too_long');
   });
 
+});
+
+describe('Malformed Query Strings', () => {
+  // The router rejects these before authentication and the handler, so the
+  // story and station need not exist and OAuth need not be enabled.
+  const expectMalformedQuery = (response) => expectFieldError(response, 422, 'query', 'invalid_format');
+
+  test('when generating TTS with an invalid escape in force, then 422 names query', async () => {
+    expectMalformedQuery(await global.api.apiCall('POST', '/stories/1/tts?force=true%ZZ'));
+  });
+
+  test('when the automation key is behind a semicolon, then 422 names query', async () => {
+    const response = await global.api.http({
+      method: 'get',
+      url: `${global.api.apiBase}/public/stations/1/bulletin.wav?key=${TestHelpers.AUTOMATION_KEY};max_age=0`
+    });
+    expectMalformedQuery(response);
+  });
+
+  test('when the OAuth callback has an invalid escape in state, then 422 names query', async () => {
+    expectMalformedQuery(await global.api.apiCall('GET', '/auth/oauth/callback?state=x%ZZ&code=contract', null, { maxRedirects: 0 }));
+  });
 });
