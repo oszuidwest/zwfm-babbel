@@ -21,7 +21,7 @@ import (
 )
 
 func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
-	f := newJingleFixture(t)
+	f := newJingleDeleteFixture(t)
 
 	// The first upload commits after Delete has read the row without a
 	// jingle, just before its DELETE runs.
@@ -51,7 +51,7 @@ func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
 		t.Fatalf("jingle after delete: %v, want removed", err)
 	}
 
-	// An upload that loaded the row before the delete publishes after it.
+	// An upload that loaded the row before the delete finishes after it.
 	err := f.service.ProcessJingle(t.Context(), f.stationVoice, f.input)
 	if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
 		t.Fatalf("ProcessJingle() after delete = %v, want not found", err)
@@ -62,11 +62,13 @@ func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
 }
 
 func TestStationVoiceService_DeleteKeepsReplacementJingle(t *testing.T) {
-	f := newJingleFixture(t)
+	f := newJingleDeleteFixture(t)
 
-	// Right after the row's DELETE, another request recreates the pair and
-	// uploads its first jingle. Until the delete commits, that create must be
-	// refused as a duplicate, or the delete's cleanup removes the new jingle.
+	// Right after the row's DELETE, another request tries to recreate the pair
+	// and upload a jingle. Until the delete commits, that create is refused as
+	// a duplicate; otherwise the delete's cleanup would remove the new jingle.
+	// A refused request tries again right after the commit, before Delete
+	// returns, so cleanup after the commit would remove that jingle too.
 	tried := false
 	var replaceErr error
 	if err := f.db.Callback().Delete().After("gorm:delete").Register("test:replace_station_voice", func(tx *gorm.DB) {
@@ -75,6 +77,9 @@ func TestStationVoiceService_DeleteKeepsReplacementJingle(t *testing.T) {
 		}
 		tried = true
 		replaceErr = f.replaceAndUploadJingle(t)
+		if _, ok := errors.AsType[*apperrors.DuplicateError](replaceErr); ok {
+			f.txManager.afterCommit = func() { replaceErr = f.replaceAndUploadJingle(t) }
+		}
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +90,6 @@ func TestStationVoiceService_DeleteKeepsReplacementJingle(t *testing.T) {
 	if !tried {
 		t.Fatal("replacement did not run during the delete")
 	}
-	if _, ok := errors.AsType[*apperrors.DuplicateError](replaceErr); ok {
-		replaceErr = f.replaceAndUploadJingle(t)
-	}
 	if replaceErr != nil {
 		t.Fatalf("replace station-voice: %v", replaceErr)
 	}
@@ -96,17 +98,18 @@ func TestStationVoiceService_DeleteKeepsReplacementJingle(t *testing.T) {
 	}
 }
 
-// jingleFixture is a station-voice without a jingle, the service that stores
-// its jingle in a temp directory, that jingle's path, and an upload input.
-type jingleFixture struct {
+// jingleDeleteFixture is a station-voice without a jingle and a service whose
+// jingles go to a temp directory.
+type jingleDeleteFixture struct {
 	db           *gorm.DB
+	txManager    *afterCommitTxManager
 	service      *StationVoiceService
 	stationVoice *models.StationVoice
 	jinglePath   string
 	input        string
 }
 
-func newJingleFixture(t *testing.T) jingleFixture {
+func newJingleDeleteFixture(t *testing.T) jingleDeleteFixture {
 	t.Helper()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
@@ -127,8 +130,9 @@ func newJingleFixture(t *testing.T) jingleFixture {
 		}
 	})
 
+	txManager := &afterCommitTxManager{TxManager: repository.NewTxManager(db)}
 	service := NewStationVoiceService(StationVoiceServiceDeps{
-		TxManager:        repository.NewTxManager(db),
+		TxManager:        txManager,
 		StationVoiceRepo: repository.NewStationVoiceRepository(db),
 		StationRepo:      repository.NewStationRepository(db),
 		VoiceRepo:        repository.NewVoiceRepository(db),
@@ -139,8 +143,9 @@ func newJingleFixture(t *testing.T) jingleFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return jingleFixture{
+	return jingleDeleteFixture{
 		db:           db,
+		txManager:    txManager,
 		service:      service,
 		stationVoice: stationVoice,
 		jinglePath:   utils.JinglePath(cfg, station.ID, voice.ID),
@@ -150,8 +155,8 @@ func newJingleFixture(t *testing.T) jingleFixture {
 
 // replaceAndUploadJingle creates the fixture's pair again and uploads its
 // first jingle. The timeout fails a create that waits on a lock held by the
-// calling goroutine instead of hanging.
-func (f jingleFixture) replaceAndUploadJingle(t *testing.T) error {
+// calling goroutine before innodb_lock_wait_timeout would.
+func (f jingleDeleteFixture) replaceAndUploadJingle(t *testing.T) error {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	replacement, err := f.service.Create(ctx, &CreateStationVoiceRequest{StationID: f.stationVoice.StationID, VoiceID: f.stationVoice.VoiceID, MixPoint: 1})
@@ -159,4 +164,20 @@ func (f jingleFixture) replaceAndUploadJingle(t *testing.T) error {
 		return err
 	}
 	return f.service.ProcessJingle(ctx, replacement, f.input)
+}
+
+// afterCommitTxManager calls afterCommit once, right after the next
+// transaction commits.
+type afterCommitTxManager struct {
+	repository.TxManager
+	afterCommit func()
+}
+
+func (m *afterCommitTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	err := m.TxManager.WithTransaction(ctx, fn)
+	if hook := m.afterCommit; err == nil && hook != nil {
+		m.afterCommit = nil
+		hook()
+	}
+	return err
 }

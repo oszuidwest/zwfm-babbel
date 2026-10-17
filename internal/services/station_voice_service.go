@@ -174,14 +174,13 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete removes a relationship and its canonical jingle file, which goes even
-// when the row recorded none: a first upload may have committed since the
-// read. The file is removed before commit, while the uncommitted delete still
-// blocks a replacement for the same pair, so the cleanup cannot remove the
-// replacement's jingle. An upload whose row update follows the delete fails
-// and leaves no jingle. A cleanup failure is logged and the delete commits. A
-// failed commit keeps the row without its jingle; bulletins then play without
-// a bed until a new upload.
+// Delete removes a relationship and its canonical jingle file, even when the
+// row recorded none, because a first upload may have committed after the row
+// was read. The file is removed before commit, while the uncommitted delete
+// still blocks a replacement for the same pair, so the cleanup cannot remove
+// the replacement's jingle. A cleanup failure is logged and the delete
+// commits. A failed commit can keep the row without its jingle; bulletins then
+// play without a bed until a new upload.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
 	if err != nil {
@@ -195,9 +194,9 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 
 		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
 		if err := os.Remove(jinglePath); err == nil {
-			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
+			logger.Info("Removed jingle file", "station_voice_id", id, "station_id", stationID, "voice_id", voiceID)
 		} else if !errors.Is(err, os.ErrNotExist) {
-			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
+			logger.Error("Failed to remove jingle file after deletion", "station_voice_id", id, "path", jinglePath, "error", err)
 		}
 		return nil
 	})
