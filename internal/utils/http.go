@@ -12,6 +12,8 @@ import (
 	"html"
 	"io"
 	"io/fs"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -51,6 +53,9 @@ func IDParam(c *gin.Context) (int64, bool) {
 
 const maxAudioUploadBytes = 100 * 1024 * 1024
 
+// maxAudioUploadParts is ReadForm's default part limit; NextPart has none.
+const maxAudioUploadParts = 1000
+
 var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".flac", ".opus"}
 
 // SaveAudioUpload stores the multipart file in field at a temporary path. On
@@ -61,70 +66,123 @@ var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".f
 func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
 	// Allow form overhead around a file at the size limit.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
-	file, header, err := c.Request.FormFile(field)
+	// MultipartReader also accepts multipart/mixed, which FormFile rejected.
+	if mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type")); err != nil || mediaType != binding.MIMEMultipartPOSTForm {
+		problemAudioUpload(c, http.ErrNotMultipart)
+		return "", nil, false
+	}
+	reader, err := c.Request.MultipartReader()
 	if err != nil {
-		_, storageFailure := errors.AsType[*fs.PathError](err)
-		switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
-		case tooLarge:
-			ProblemPayloadTooLarge(c)
-		case errors.Is(err, os.ErrDeadlineExceeded):
-			// Mirrors auth.ctxKeyUserID: auth imports utils, so auth.UserID is unavailable here.
-			userID, _ := c.Get("user_id")
-			logger.Warn("Audio upload timed out", "route", RouteKey(c), "user_id", userID)
-			ProblemRequestTimeout(c)
-		case errors.Is(err, http.ErrMissingFile):
-			ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
-				Field: field, Code: apperrors.CodeRequired, Message: "file is required",
-			})
-		case storageFailure:
-			logger.Error("Failed to read uploaded audio", "error", err)
-			ProblemInternalServer(c, "Failed to store the uploaded file")
-		default:
-			ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
-				Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidFormat, Message: err.Error(),
-			})
-		}
+		problemAudioUpload(c, err)
 		return "", nil, false
 	}
 
+	return saveAudioUploadParts(c, reader, field, prefix)
+}
+
+func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
+	var storedPath, ext string
+	var found, tooLarge bool
 	defer func() {
-		if err := file.Close(); err != nil {
-			logger.Warn("Failed to close uploaded file", "error", err)
+		if !ok && storedPath != "" {
+			_ = removeTempFile(storedPath)
 		}
 	}()
 
-	if header.Size > maxAudioUploadBytes {
-		ProblemPayloadTooLarge(c)
-		return "", nil, false
+	// Read the whole body as FormFile did, so read errors and the part limit
+	// take precedence over the missing-file, size and extension checks.
+	for parts := 0; ; parts++ {
+		part, err := nextAudioPart(reader, parts)
+		if err == io.EOF { //nolint:errorlint // Only an unwrapped EOF marks a complete multipart body.
+			break
+		}
+		// Keep the first file for field, as FormFile did.
+		if err == nil && !found && part.FormName() == field && part.FileName() != "" {
+			found = true
+			ext = strings.ToLower(filepath.Ext(part.FileName()))
+			storedPath, tooLarge, err = readAudioPart(part, prefix, ext)
+		}
+		if err == nil {
+			// Discard other parts and the rest of an oversized file here:
+			// NextPart would too, but Part.Close drops read errors.
+			_, err = io.Copy(io.Discard, part)
+		}
+		if err != nil {
+			problemAudioUpload(c, err)
+			return "", nil, false
+		}
 	}
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if !slices.Contains(audioUploadExtensions, ext) {
+
+	switch {
+	case !found:
+		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field: field, Code: apperrors.CodeRequired, Message: "file is required",
+		})
+	case tooLarge:
+		ProblemPayloadTooLarge(c)
+	case storedPath == "": // Only an unsupported extension leaves no stored file.
 		ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeUnsupported,
 			Message: fmt.Sprintf("unsupported file type %q; use one of %s", ext, strings.Join(audioUploadExtensions, ", ")),
 		})
-		return "", nil, false
+	default:
+		return storedPath, func() error { return removeTempFile(storedPath) }, true
 	}
+	return "", nil, false
+}
 
-	// CreateTemp gives each upload its own file; the extension helps FFmpeg
-	// detect the format.
-	tempPath, err = WriteTempFile(file, prefix+"_*"+ext)
-	if err != nil {
+// nextAudioPart is reader.NextPart with the part limit FormFile applied
+// through multipart.Reader.ReadForm; parts counts the parts already read.
+func nextAudioPart(reader *multipart.Reader, parts int) (*multipart.Part, error) {
+	part, err := reader.NextPart()
+	if err == nil && parts == maxAudioUploadParts {
+		return nil, multipart.ErrMessageTooLarge
+	}
+	return part, err
+}
+
+// readAudioPart reads part up to one byte past maxAudioUploadBytes and reports
+// whether it is larger than that. It stores the file only for a supported ext,
+// the only part of the client filename that reaches the temp file name.
+func readAudioPart(part io.Reader, prefix, ext string) (path string, tooLarge bool, err error) {
+	limited := &io.LimitedReader{R: part, N: maxAudioUploadBytes + 1}
+	if slices.Contains(audioUploadExtensions, ext) {
+		// CreateTemp gives each upload its own file; the extension helps
+		// FFmpeg detect the format.
+		path, err = WriteTempFile(limited, prefix+"_*"+ext)
+	} else {
+		_, err = io.Copy(io.Discard, limited)
+	}
+	return path, limited.N == 0, err
+}
+
+func removeTempFile(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		logger.Warn("Failed to remove temp file", "path", path, "error", err)
+		return err
+	}
+	return nil
+}
+
+func problemAudioUpload(c *gin.Context, err error) {
+	_, storageFailure := errors.AsType[*fs.PathError](err)
+	switch _, tooLarge := errors.AsType[*http.MaxBytesError](err); {
+	case tooLarge:
+		ProblemPayloadTooLarge(c)
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		// Mirrors auth.ctxKeyUserID: auth imports utils, so auth.UserID is unavailable here.
+		userID, _ := c.Get("user_id")
+		logger.Warn("Audio upload timed out", "route", RouteKey(c), "user_id", userID)
+		ProblemRequestTimeout(c)
+	case storageFailure:
 		logger.Error("Failed to store uploaded audio", "route", RouteKey(c), "error", err)
 		ProblemInternalServer(c, "Failed to store the uploaded file")
-		return "", nil, false
+	default:
+		ProblemBadRequestValidationError(c, "Request body is not valid multipart form data", apperrors.FieldError{
+			Field: apperrors.FieldRequest, Code: apperrors.CodeInvalidFormat, Message: err.Error(),
+		})
 	}
-
-	cleanup = func() error {
-		if err := os.Remove(tempPath); err != nil && !os.IsNotExist(err) {
-			logger.Warn("Failed to remove temp file", "path", tempPath, "error", err)
-			return err
-		}
-		return nil
-	}
-
-	return tempPath, cleanup, true
 }
 
 // WriteTempFile copies r to a new OS temp file named by pattern and removes

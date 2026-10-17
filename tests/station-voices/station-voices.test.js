@@ -1,5 +1,6 @@
 const stationVoicesSchema = require('../lib/schemas/station-voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
+const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Station-Voices', () => {
   const createDependencies = async () => {
@@ -11,28 +12,24 @@ describe('Station-Voices', () => {
     };
   };
 
+  // Every sortable field rises with the fixture index except id, the default
+  // sort key: the links are created as 1, 0, 2.
   const setupQueryTestData = async () => {
-    const testData = [
-      { station: 'QueryStation1', voice: 'QueryVoice1', mix: 1.0 },
-      { station: 'QueryStation2', voice: 'QueryVoice2', mix: 2.5 },
-      { station: 'QueryStation3', voice: 'QueryVoice3', mix: 3.0 }
-    ];
+    const fixtures = [];
+    for (const [index, mix] of [1.0, 2.5, 3.0].entries()) {
+      const station = await global.helpers.createStation(global.resources, `QueryStation${index + 1}`);
+      const voice = await global.helpers.createVoice(global.resources, `QueryVoice${index + 1}`);
+      fixtures.push({ station, voice, mix });
+    }
 
     const ids = [];
-    for (const data of testData) {
-      const station = await global.helpers.createStation(global.resources, data.station);
-      const voice = await global.helpers.createVoice(global.resources, data.voice);
-
-      const response = await global.api.apiCall('POST', '/station-voices', {
-        station_id: station.id,
-        voice_id: voice.id,
-        mix_point: data.mix
-      });
-
-      expect(response.status).toBe(201);
-      global.resources.track('stationVoices', response.data.id);
-      ids.push(response.data.id);
+    for (const index of [1, 0, 2]) {
+      const { station, voice, mix } = fixtures[index];
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, mix);
+      expect(stationVoice).not.toBeNull();
+      ids[index] = stationVoice.id;
     }
+    createMySQLExecutor().setTimestamps('station_voices', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
     return ids;
   };
 

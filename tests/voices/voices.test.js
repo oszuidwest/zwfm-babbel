@@ -1,9 +1,23 @@
 const voicesSchema = require('../lib/schemas/voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
+const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Voices', () => {
+  // Every sortable field rises with the fixture index except name, the
+  // default sort key, which lists the fixtures as 1, 0, 2.
+  const setupQueryTestData = async () => {
+    const ids = [];
+    for (const letter of ['B', 'A', 'C']) {
+      const voice = await global.helpers.createVoice(global.resources, `QuerySort${letter}`);
+      expect(voice).not.toBeNull();
+      ids.push(voice.id);
+    }
+    createMySQLExecutor().setTimestamps('voices', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    return ids;
+  };
+
   generateCrudTests(voicesSchema);
-  generateQueryTests(voicesSchema);
+  generateQueryTests(voicesSchema, setupQueryTestData);
   generateValidationTests(voicesSchema);
 
   describe('Voice with Associated Stories', () => {
