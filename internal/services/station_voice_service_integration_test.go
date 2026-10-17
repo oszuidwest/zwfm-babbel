@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -95,6 +96,26 @@ func TestStationVoiceService_DeleteKeepsReplacementJingle(t *testing.T) {
 	}
 	if _, err := os.Stat(f.jinglePath); err != nil {
 		t.Fatalf("replacement jingle after delete: %v, want kept", err)
+	}
+}
+
+func TestStationVoiceService_DeleteRollsBackWhenJingleRemovalFails(t *testing.T) {
+	f := newJingleDeleteFixture(t)
+
+	// A non-empty directory at the jingle path makes os.Remove fail with an
+	// error other than not-exist.
+	if err := os.Mkdir(f.jinglePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.jinglePath, "keep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.service.Delete(t.Context(), f.stationVoice.ID); err == nil {
+		t.Fatal("Delete() = nil, want the removal error")
+	}
+	if _, err := f.service.GetByID(t.Context(), f.stationVoice.ID); err != nil {
+		t.Fatalf("GetByID() after failed delete = %v, want the row kept", err)
 	}
 }
 
