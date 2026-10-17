@@ -182,22 +182,26 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 	}
 
-	err = s.stationVoiceRepo.Delete(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
-	}
+	// The file is removed before commit, while the deleted row still blocks a
+	// replacement for the same pair, so this cleanup cannot remove the
+	// replacement's jingle. A failed commit keeps the row without its jingle;
+	// bulletins then play without a bed until a new upload.
+	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.stationVoiceRepo.Delete(txCtx, id); err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
+		}
 
-	// Remove the canonical path even when the read above saw no jingle: a
-	// first upload may have committed since. An upload that updates the row
-	// after the delete fails and removes its own file.
-	jinglePath := utils.JinglePath(s.config, stationID, voiceID)
-	if err := os.Remove(jinglePath); err == nil {
-		logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
-	}
-
-	return nil
+		// Remove the canonical path even when the read above saw no jingle: a
+		// first upload may have committed since. An upload that updates the
+		// row after the delete fails and removes its own file.
+		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
+		if err := os.Remove(jinglePath); err == nil {
+			logger.Info("Removed jingle file", "station_id", stationID, "voice_id", voiceID)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			logger.Error("Failed to remove jingle file after deletion", "path", jinglePath, "error", err)
+		}
+		return nil
+	})
 }
 
 // ProcessJingle converts an uploaded audio file and associates it with the
