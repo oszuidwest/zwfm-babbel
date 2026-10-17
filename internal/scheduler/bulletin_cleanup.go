@@ -65,8 +65,9 @@ func (s *BulletinCleanupService) Stop() {
 func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
-	processingErr := s.cleanProcessingLeftovers(time.Now())
-	cutoff := time.Now().Add(-s.config.Audio.BulletinRetention)
+	now := time.Now()
+	processingErr := s.cleanProcessingLeftovers(now)
+	cutoff := now.Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
 		logger.Error("Failed to query expired bulletins", "error", err)

@@ -106,6 +106,7 @@ Each bulletin WAV file uses approximately 15 MB. A background service deletes th
 - The service operates one time each day. It deletes the bulletin audio files that are older than the retention period.
 - The service always keeps the latest bulletin of each station.
 - The service removes the files that have no database record.
+- The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
 - Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days).
 
 ## Loudness Normalization
@@ -195,8 +196,6 @@ Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the aud
 | `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
 
 Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
-
-The bulletin cleanup also removes abandoned audio conversions older than 24 hours from `BABBEL_PROCESSED_PATH`, at startup and every 24 hours: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It only touches those entries directly in that directory, never follows symlinks, and logs each removal.
 
 ### Asynchronous bulletin generation
 

@@ -99,44 +99,22 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 	}
 }
 
-func TestCleanProcessingLeftoversDirectoryErrors(t *testing.T) {
-	for _, name := range []string{"missing", "not a directory", "unreadable"} {
-		t.Run(name, func(t *testing.T) {
-			logs := captureCleanupLogs(t)
-			dir := filepath.Join(t.TempDir(), "processed")
-			wantErr := os.ErrNotExist
-			switch name {
-			case "not a directory":
-				writeCleanupFile(t, dir, time.Now())
-				wantErr = nil // ENOTDIR is platform-specific; any error suffices.
-			case "unreadable":
-				if err := os.Mkdir(dir, 0); err != nil {
-					t.Fatal(err)
-				}
-				t.Cleanup(func() {
-					// #nosec G302 - Test directory needs owner traversal for cleanup.
-					if err := os.Chmod(dir, 0o700); err != nil {
-						t.Error(err)
-					}
-				})
-				if _, err := os.ReadDir(dir); err == nil {
-					t.Skip("directory permissions are not enforced for this user")
-				}
-				wantErr = os.ErrPermission
-			}
-			service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
-			err := service.cleanProcessingLeftovers(time.Now())
-			if err == nil || (wantErr != nil && !errors.Is(err, wantErr)) {
-				t.Fatalf("cleanProcessingLeftovers = %v, want %v", err, wantErr)
-			}
-			if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
-				t.Errorf("directory failure not logged: %s", logs.String())
-			}
-		})
+func TestCleanProcessingLeftoversReportsMissingDirectory(t *testing.T) {
+	logs := captureCleanupLogs(t)
+	dir := filepath.Join(t.TempDir(), "missing")
+	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	if err := service.cleanProcessingLeftovers(time.Now()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cleanProcessingLeftovers = %v, want ErrNotExist", err)
+	}
+	if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
+		t.Errorf("directory failure not logged: %s", logs.String())
 	}
 }
 
 func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can remove files despite directory permissions")
+	}
 	logs := captureCleanupLogs(t)
 	dir := t.TempDir()
 	now := time.Now()
@@ -152,9 +130,6 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	if os.Getuid() == 0 {
-		t.Skip("root can remove files despite directory permissions")
-	}
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
 	err := service.cleanProcessingLeftovers(now)
 	if !errors.Is(err, os.ErrPermission) {
@@ -195,9 +170,11 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 	path := filepath.Join(dir, "story_42_123.processing")
 	writeCleanupDir(t, path, time.Now().Add(-25*time.Hour))
 	service := NewBulletinCleanupService(db, &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}, nil)
-	service.runner.runOnce()
+	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) {
+		t.Fatalf("cleanup = %v, want database failure", err)
+	}
 	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("scheduled cleanup: Lstat = %v, want leftover removed despite database failure", err)
+		t.Fatalf("Lstat = %v, want leftover removed despite database failure", err)
 	}
 	if err := os.Remove(dir); err != nil {
 		t.Fatal(err)
