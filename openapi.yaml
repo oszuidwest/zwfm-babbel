@@ -5111,8 +5111,7 @@ components:
         - `bulletin.no_stories` - No eligible stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
-        - `stationvoice.jingle_locked` - A station-voice's `station_id` or `voice_id` cannot change
-          while it has a jingle; delete it and create one for the new station and voice
+        - `stationvoice.jingle_locked` - The station or voice cannot change while the station-voice has a jingle
       content:
         application/problem+json:
           schema:

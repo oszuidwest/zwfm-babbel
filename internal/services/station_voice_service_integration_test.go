@@ -56,22 +56,25 @@ func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 
 			_, err := service.Update(t.Context(), stationVoice.ID, req)
 
-			want := models.StationVoice{
-				StationID: stations[max(tt.station, 0)].ID,
-				VoiceID:   voices[max(tt.voice, 0)].ID,
-				MixPoint:  mixPoint,
-			}
+			// Update never touches the jingle reference.
+			want := stationVoice
 			if tt.wantLocked {
 				conflict, ok := errors.AsType[*apperrors.ConflictError](err)
 				if !ok || conflict.Code != "stationvoice.jingle_locked" {
 					t.Fatalf("Update() error = %v, want stationvoice.jingle_locked conflict", err)
 				}
-				want = models.StationVoice{StationID: stations[0].ID, VoiceID: voices[0].ID, MixPoint: 1}
-			} else if err != nil {
-				t.Fatalf("Update() error = %v", err)
+			} else {
+				if err != nil {
+					t.Fatalf("Update() error = %v", err)
+				}
+				want.MixPoint = mixPoint
+				if req.StationID != nil {
+					want.StationID = *req.StationID
+				}
+				if req.VoiceID != nil {
+					want.VoiceID = *req.VoiceID
+				}
 			}
-			// Update never touches the jingle reference.
-			want.AudioFile = stationVoice.AudioFile
 
 			var stored models.StationVoice
 			if err := db.First(&stored, stationVoice.ID).Error; err != nil {
@@ -120,20 +123,6 @@ func createStationVoiceFixture(t *testing.T, db *gorm.DB, jingle fixtureJingle) 
 		}
 	})
 	return stations, voices, stationVoice
-}
-
-func createNamedStation(t *testing.T, db *gorm.DB, name string) models.Station {
-	t.Helper()
-	station := models.Station{Name: name, MaxStoriesPerBlock: 5}
-	if err := db.Create(&station).Error; err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := db.Delete(&station).Error; err != nil {
-			t.Errorf("delete station: %v", err)
-		}
-	})
-	return station
 }
 
 func createNamedVoice(t *testing.T, db *gorm.DB, name string) models.Voice {
