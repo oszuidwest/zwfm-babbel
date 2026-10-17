@@ -13,7 +13,7 @@ import (
 // runner executes a job immediately on Start and then at a fixed interval in a
 // background goroutine until Stop is called. Each run receives a context that
 // is cancelled after runTimeout. A run that returns an error or panics raises
-// an operational alert; a successful run resolves it.
+// an immediate operational alert; a successful run resolves it.
 type runner struct {
 	name       string
 	interval   time.Duration
@@ -73,9 +73,12 @@ func (r *runner) runOnce() {
 		}
 	}()
 	if err := r.fn(ctx); err != nil {
+		// Immediate, not thresholded: the jobs that can fail here run hourly
+		// or daily, too rarely to reach the default failure threshold within
+		// its window. A persistent failure alerts again on the first run after
+		// each cooldown.
 		r.alerts.Alert(ctx, notify.Event{
-			Key: "scheduler:" + r.name, Summary: "Scheduler job repeatedly fails: " + r.name, Details: err.Error(),
-			RequiresThreshold: true,
+			Key: "scheduler:" + r.name, Summary: "Scheduler job failed: " + r.name, Details: err.Error(),
 		})
 		return
 	}
