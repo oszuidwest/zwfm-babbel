@@ -156,6 +156,14 @@ describe('Stories', () => {
 
       expect(response.status).toBe(404);
     });
+
+    // GET /stories/{id} reads no query keys, trashed included.
+    test('when fetching story by ID with trashed, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', `/stories/${storyId}?trashed=with`);
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['trashed', 'unknown_field']]);
+    });
   });
 
   describe('Idempotent Updates', () => {
@@ -527,6 +535,22 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.data.audio_file).not.toBe('');
+    });
+
+    // Audio downloads ignore query keys: the frontend loads /audio?v=<timestamp>
+    // after replacing the audio, to bypass the browser cache.
+    test('when downloading audio with a cache-busting key, then returns the file', async () => {
+      const outputAudio = `${global.helpers.uniqueName('/tmp/test_story_cache_bust')}.wav`;
+      try {
+        const result = await createStoryWithDeps('CacheBustAudio', 'Has audio', 'CacheBustVoice');
+        expect(result).not.toBeNull();
+        const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
+        expect(uploadResponse.status).toBe(201);
+
+        expect(await global.api.downloadFile(`/stories/${result.id}/audio?v=1`, outputAudio)).toBe(200);
+      } finally {
+        global.helpers.cleanupTempFile(outputAudio);
+      }
     });
 
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {

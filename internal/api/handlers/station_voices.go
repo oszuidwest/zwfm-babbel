@@ -26,7 +26,7 @@ func (h *Handlers) ListStationVoices(c *gin.Context) {
 // populated by model hooks.
 func (h *Handlers) GetStationVoice(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 

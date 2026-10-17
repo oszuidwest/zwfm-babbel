@@ -512,6 +512,12 @@ describe('Bulletins', () => {
       expect(response.data).toHaveProperty('id');
     });
 
+    test('when requesting the latest bulletin with limit, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins/latest?limit=1`);
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['limit', 'unknown_field']]);
+    });
+
     test('when limiting the list to one, then keeps the list envelope', async () => {
       const response = await global.api.apiCall('GET', `/stations/${stationId}/bulletins?limit=1`);
       expect(response.status).toBe(200);

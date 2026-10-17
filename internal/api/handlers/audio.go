@@ -29,7 +29,9 @@ type AudioConfig struct {
 	FromOutput bool
 }
 
-// ServeAudio streams a stored WAV file for the route ID.
+// ServeAudio streams a stored WAV file for the route ID. It ignores query
+// keys: the frontend adds a cache-busting v=<timestamp> after replacing the
+// audio, and no key could change which file is served.
 // Missing database records and missing files are both reported as 404 so
 // callers do not need to distinguish metadata from storage state.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {

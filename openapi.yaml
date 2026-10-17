@@ -30,8 +30,8 @@ info:
       cross-field rules such as date order, body references to resources
       that do not exist (such as `voice_id` or `station_id`), an update that
       sets no field, an invalid path `id`, a query string that cannot be
-      decoded on any endpoint, unknown or invalid query parameters on list
-      endpoints, and a missing, unsupported or silent uploaded file.
+      decoded on any endpoint, unknown or invalid query parameters, and a
+      missing, unsupported or silent uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
@@ -70,6 +70,13 @@ info:
       `errors[].field`: `page=2` fails as `page` and `status=deleted` as
       `status`. Keys are case-sensitive, so `Trashed=only` fails as
       `Trashed`.
+    - `GET /{resource}/{id}` endpoints, such as `GET /stations/{id}`, and
+      `GET /stations/{id}/bulletins/latest` read no query keys. Every key
+      fails as `unknown_field`, even with an empty value and including list
+      options: `fields=name` fails as `fields` and `trashed=with` as
+      `trashed`. The `/audio` downloads
+      ignore query keys, so a cache-busting key such as `v=2` still
+      returns the file.
     - Malformed URL encoding or an unescaped semicolon, such as
       `page=%ZZ` or `limit=5;page=2`, fails with 422 `invalid_format`
       and field `query` on every endpoint, before keys are checked.

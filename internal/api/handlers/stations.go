@@ -25,7 +25,7 @@ func (h *Handlers) ListStations(c *gin.Context) {
 // GetStation returns a single radio station by ID.
 func (h *Handlers) GetStation(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 
