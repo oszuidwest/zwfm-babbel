@@ -15,14 +15,14 @@ describe('Stations', () => {
       ['C', 4, 3, 0, 5]
     ];
     const ids = [];
-    for (const [letter, maxStories, pauseSeconds] of fixtures) {
+    const timestamps = [];
+    for (const [letter, maxStories, pauseSeconds, createdAt, updatedAt] of fixtures) {
       const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, maxStories, pauseSeconds);
       expect(station).not.toBeNull();
       ids.push(station.id);
+      timestamps.push([station.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('stations', fixtures.map(([, , , createdAt, updatedAt], index) =>
-      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
-    ));
+    createMySQLExecutor().setTimestamps('stations', timestamps);
     return ids;
   };
 

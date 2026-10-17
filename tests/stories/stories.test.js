@@ -95,7 +95,8 @@ describe('Stories', () => {
       ['B', 'draft', 3, 28, 2, 5]
     ];
     const ids = [];
-    for (const [letter, status, startDay, endDay] of fixtures) {
+    const timestamps = [];
+    for (const [letter, status, startDay, endDay, createdAt, updatedAt] of fixtures) {
       const story = await global.helpers.createStory(global.resources, {
         title: `QueryStory${letter}`,
         text: `Query test content ${letter}`,
@@ -106,10 +107,9 @@ describe('Stories', () => {
       });
       expect(story).not.toBeNull();
       ids.push(story.id);
+      timestamps.push([story.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('stories', fixtures.map(([, , , , createdAt, updatedAt], index) =>
-      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
-    ));
+    createMySQLExecutor().setTimestamps('stories', timestamps);
     return ids;
   };
 

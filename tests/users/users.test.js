@@ -18,7 +18,8 @@ describe('Users', () => {
       ['c', 'A', 'editor', 0, 5]
     ];
     const ids = [];
-    for (const [letter, fullName, role] of fixtures) {
+    const timestamps = [];
+    for (const [letter, fullName, role, createdAt, updatedAt] of fixtures) {
       const response = await global.api.apiCall('POST', '/users', {
         ...usersSchema.createValidData(),
         username: `querysort${letter}${stamp}`,
@@ -28,10 +29,9 @@ describe('Users', () => {
       expect(response.status).toBe(201);
       global.resources.track('users', response.data.id);
       ids.push(response.data.id);
+      timestamps.push([response.data.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('users', fixtures.map(([, , , createdAt, updatedAt], index) =>
-      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
-    ));
+    createMySQLExecutor().setTimestamps('users', timestamps);
     return ids;
   };
 

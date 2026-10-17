@@ -32,14 +32,14 @@ describe('Station-Voices', () => {
       [1, 2, 2.0, 2, 5]
     ];
     const ids = [];
-    for (const [station, voice, mix] of fixtures) {
+    const timestamps = [];
+    for (const [station, voice, mix, createdAt, updatedAt] of fixtures) {
       const stationVoice = await global.helpers.createStationVoice(global.resources, stations[station].id, voices[voice].id, mix);
       expect(stationVoice).not.toBeNull();
       ids.push(stationVoice.id);
+      timestamps.push([stationVoice.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('station_voices', fixtures.map(([, , , createdAt, updatedAt], index) =>
-      [ids[index], { created_at: createdAt, updated_at: updatedAt }]
-    ));
+    createMySQLExecutor().setTimestamps('station_voices', timestamps);
     return ids;
   };
 
