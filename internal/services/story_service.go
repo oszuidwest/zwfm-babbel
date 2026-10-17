@@ -354,10 +354,6 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 // publishAudio converts audio at tempPath and publishes it, recording action
 // in the story's history.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
-	// Publish in the transaction, after the row and audit writes; their failure
-	// preserves old audio. A failed rename rolls back both writes. A later
-	// commit failure leaves the new file published and may leave the database
-	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
 	if err != nil {
@@ -370,6 +366,10 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		return apperrors.Audio("Story", "convert", err)
 	}
 
+	// Publish in the transaction, after the row and audit writes; their failure
+	// preserves old audio. A failed rename rolls back both writes. A later
+	// commit failure leaves the new file published and may leave the database
+	// outcome unknown.
 	published := false
 	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{

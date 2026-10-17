@@ -22,8 +22,8 @@ func TestBulletinFilenameIncludesSubsecondPrecision(t *testing.T) {
 func TestProcessingPath(t *testing.T) {
 	t.Parallel()
 
-	// Jingle directories are named after the station-voice pair rather than
-	// the file name, so name is independent of finalPath.
+	// Jingle-shaped arguments: name differs from finalPath's stem, so this
+	// fails if the directory name is derived from finalPath.
 	root := t.TempDir()
 	finalPath := filepath.Join(root, "station_1_voice_2_jingle.wav")
 	first, cleanup, err := ProcessingPath(finalPath, "station_1_voice_2")

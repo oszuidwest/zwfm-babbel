@@ -51,10 +51,12 @@ func BulletinPath(config *config.Config, filename string) string {
 
 // ProcessingPath creates a "<name>_*.processing" directory beside finalPath
 // and returns the path inside it to convert to, plus a func that removes the
-// directory. Converting beside the final file keeps the rename atomic and the
-// ".wav" name selects the WAV muxer. A directory per request keeps concurrent
-// requests for the same file from overwriting or removing each other's
-// output, and the converter creates the file, so its mode follows the umask.
+// directory and logs a failure. The path keeps finalPath's base name, so its
+// extension selects the FFmpeg muxer, and its filesystem, so the rename onto
+// finalPath is atomic. A directory per request keeps concurrent requests for
+// the same file from overwriting or removing each other's output.
+// ProcessingPath creates no file: the converter does, so its mode follows the
+// umask.
 func ProcessingPath(finalPath, name string) (string, func(), error) {
 	dir, err := os.MkdirTemp(filepath.Dir(finalPath), name+"_*"+ProcessingDirSuffix)
 	if err != nil {
