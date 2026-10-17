@@ -124,23 +124,19 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 		MixPoint:  req.MixPoint,
 	}
 	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
-		if err := s.stationVoiceRepo.Update(txCtx, id, updates); err != nil {
-			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
-		}
-		if req.StationID == nil && req.VoiceID == nil {
-			return nil
-		}
-		// The update holds the row lock, so this read also sees a jingle
-		// uploaded after current was loaded. Rolling back keeps the row at
-		// the pair its jingle file is named after.
-		updated, err := s.GetByID(txCtx, id)
+		// Lock the row so a jingle uploaded after current was loaded is seen
+		// before the pair changes.
+		locked, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
 		if err != nil {
-			return err
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
 		}
-		if updated.AudioFile != "" && updated.AudioFile != utils.JingleFilename(updated.StationID, updated.VoiceID) {
+		if locked.AudioFile != "" && changesPair(locked, req) {
 			return apperrors.Conflict("stationvoice.jingle_locked",
 				"Station-voice station and voice cannot change while it has a jingle",
 				"Delete the station-voice and create one for the new station and voice")
+		}
+		if err := s.stationVoiceRepo.Update(txCtx, id, updates); err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpUpdate, err)
 		}
 		return nil
 	})
@@ -149,6 +145,12 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 	}
 
 	return s.GetByID(ctx, id)
+}
+
+// changesPair reports whether req moves stationVoice to another station or voice.
+func changesPair(stationVoice *models.StationVoice, req *UpdateStationVoiceRequest) bool {
+	return (req.StationID != nil && *req.StationID != stationVoice.StationID) ||
+		(req.VoiceID != nil && *req.VoiceID != stationVoice.VoiceID)
 }
 
 // validateUpdateRequest checks that changed parents exist and that the final

@@ -28,16 +28,18 @@ func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 	// station and voice index the two fixtures of each kind, or omit the field.
 	tests := []struct {
 		name       string
-		jingle     bool
+		jingle     fixtureJingle
 		station    int
 		voice      int
 		wantLocked bool
 	}{
-		{name: "jingle blocks station change", jingle: true, station: 1, voice: omit, wantLocked: true},
-		{name: "jingle blocks voice change", jingle: true, station: omit, voice: 1, wantLocked: true},
-		{name: "jingle allows resending the pair", jingle: true, station: 0, voice: 0},
-		{name: "jingle allows mix point change", jingle: true, station: omit, voice: omit},
-		{name: "no jingle allows pair change", station: 1, voice: 1},
+		{name: "jingle blocks station change", jingle: pairJingle, station: 1, voice: omit, wantLocked: true},
+		{name: "jingle blocks voice change", jingle: pairJingle, station: omit, voice: 1, wantLocked: true},
+		{name: "jingle allows resending the pair", jingle: pairJingle, station: 0, voice: 0},
+		{name: "jingle allows mix point change", jingle: pairJingle, station: omit, voice: omit},
+		{name: "no jingle allows pair change", jingle: noJingle, station: 1, voice: 1},
+		{name: "stale jingle allows resending the pair", jingle: staleJingle, station: 0, voice: 0},
+		{name: "stale jingle blocks change to its pair", jingle: staleJingle, station: 1, voice: omit, wantLocked: true},
 	}
 
 	for _, tt := range tests {
@@ -68,9 +70,8 @@ func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 			} else if err != nil {
 				t.Fatalf("Update() error = %v", err)
 			}
-			if tt.jingle {
-				want.AudioFile = utils.JingleFilename(want.StationID, want.VoiceID)
-			}
+			// Update never touches the jingle reference.
+			want.AudioFile = stationVoice.AudioFile
 
 			var stored models.StationVoice
 			if err := db.First(&stored, stationVoice.ID).Error; err != nil {
@@ -85,15 +86,30 @@ func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 	}
 }
 
+// fixtureJingle selects the jingle a station-voice fixture refers to.
+type fixtureJingle int
+
+const (
+	noJingle fixtureJingle = iota
+	// pairJingle is named after the fixture's own pair.
+	pairJingle
+	// staleJingle is named after the second station and first voice, as a
+	// pair change before #367 left it.
+	staleJingle
+)
+
 // createStationVoiceFixture creates two stations and two voices, and links the
-// first of each with mix point 1 and, if jingle is set, their jingle.
-func createStationVoiceFixture(t *testing.T, db *gorm.DB, jingle bool) ([2]models.Station, [2]models.Voice, models.StationVoice) {
+// first of each with mix point 1 and the given jingle.
+func createStationVoiceFixture(t *testing.T, db *gorm.DB, jingle fixtureJingle) ([2]models.Station, [2]models.Voice, models.StationVoice) {
 	t.Helper()
 	stations := [2]models.Station{createNamedStation(t, db, t.Name()+"/a"), createNamedStation(t, db, t.Name()+"/b")}
 	voices := [2]models.Voice{createNamedVoice(t, db, t.Name()+"/a"), createNamedVoice(t, db, t.Name()+"/b")}
 	stationVoice := models.StationVoice{StationID: stations[0].ID, VoiceID: voices[0].ID, MixPoint: 1}
-	if jingle {
+	switch jingle {
+	case pairJingle:
 		stationVoice.AudioFile = utils.JingleFilename(stations[0].ID, voices[0].ID)
+	case staleJingle:
+		stationVoice.AudioFile = utils.JingleFilename(stations[1].ID, voices[0].ID)
 	}
 	if err := db.Create(&stationVoice).Error; err != nil {
 		t.Fatal(err)
