@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -219,23 +218,14 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // already-loaded station-voice relationship. The database stores the
 // canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
-	// Convert beside the live file for atomic rename and WAV muxer selection.
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
-	// A directory per request keeps concurrent uploads for this station-voice
-	// from overwriting or removing each other's output. FFmpeg creates the file
-	// in it, so the published mode follows the umask.
-	convertedDir, err := os.MkdirTemp(filepath.Dir(outputPath),
-		fmt.Sprintf("station_%d_voice_%d_*.processing", stationVoice.StationID, stationVoice.VoiceID))
+	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
+		fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
 	if err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
-			logger.Error("Failed to remove temporary jingle directory", "path", convertedDir, "error", rmErr)
-		}
-	}()
+	defer cleanup()
 	filename := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
-	convertedPath := filepath.Join(convertedDir, filename)
 
 	if err := s.audioSvc.ConvertJingleToWAV(ctx, tempPath, convertedPath); err != nil {
 		return apperrors.Audio("StationVoice", "convert", err)
