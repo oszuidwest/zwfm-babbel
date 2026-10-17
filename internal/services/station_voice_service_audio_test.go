@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,32 +78,25 @@ func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
 	}()
 	defer func() { cancel(); <-stopped }()
 
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	written := false
-	for !written {
+	// More bytes than the old jingle proves FFmpeg has written output,
+	// including when testing the old direct-to-live code.
+	livePath := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
+	written := func() bool {
+		converted, _ := filepath.Glob(filepath.Join(service.config.Audio.ProcessedPath, "*.processing", "*"))
+		for _, path := range append(converted, livePath) {
+			if info, err := os.Stat(path); err == nil && info.Size() > int64(len(existing)) {
+				return true
+			}
+		}
+		return false
+	}
+	for !written() {
 		select {
 		case err := <-done:
 			t.Fatalf("conversion finished before cancellation: %v", err)
 		case <-ctx.Done():
 			t.Fatal("timed out waiting for FFmpeg to write output")
-		case <-ticker.C:
-			err := filepath.WalkDir(service.config.Audio.ProcessedPath, func(_ string, entry fs.DirEntry, err error) error {
-				if err != nil || !entry.Type().IsRegular() {
-					return err
-				}
-				info, err := entry.Info()
-				if err != nil {
-					return err
-				}
-				// More bytes than the old jingle proves FFmpeg has written
-				// output, including when testing the old direct-to-live code.
-				written = written || info.Size() > int64(len(existing))
-				return nil
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 	cancel()
@@ -122,15 +114,10 @@ func TestStationVoiceService_JingleDatabaseFailureKeepsExistingAudio(t *testing.
 	service, stationVoice := newJingleTestService(t, repo)
 	input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
 	existing := seedJingle(t, service, stationVoice)
-	updated := false
-	repo.update = func() { updated = true }
 
 	err := service.ProcessJingle(t.Context(), stationVoice, input)
 	if _, ok := errors.AsType[*apperrors.DatabaseError](err); !ok || !errors.Is(err, databaseDown) {
 		t.Fatalf("ProcessJingle() = %v, want the database error", err)
-	}
-	if !updated {
-		t.Fatal("conversion failed before the database update")
 	}
 	assertJingleContent(t, service, stationVoice, existing)
 	assertNoProcessingJingles(t, service, stationVoice)
@@ -163,8 +150,7 @@ func TestStationVoiceService_ConcurrentJingleRequestsPublishOwnFiles(t *testing.
 				t.Fatal(err)
 			}
 
-			// Interleave the other upload between conversion and publication,
-			// just as the story audio concurrency test does.
+			// Interleave the other upload between conversion and publication.
 			repo.update = func() {
 				repo.update = nil
 				assertJingleContent(t, service, stationVoice, existing)
@@ -186,26 +172,11 @@ func TestStationVoiceService_ConcurrentJingleRequestsPublishOwnFiles(t *testing.
 			}
 			// The first request publishes last and must publish its own bytes.
 			assertJingleContent(t, service, stationVoice, expected)
-			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
-			if repo.id != stationVoice.ID || repo.audioFile != filepath.Base(path) {
-				t.Fatalf("row = %d, %q; want %d, %q", repo.id, repo.audioFile, stationVoice.ID, filepath.Base(path))
+			filename := utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID)
+			if repo.id != stationVoice.ID || repo.audioFile != filename {
+				t.Fatalf("row = %d, %q; want %d, %q", repo.id, repo.audioFile, stationVoice.ID, filename)
 			}
-			info, err := os.Stat(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// os.Create applies the umask the same way FFmpeg does.
-			ref, err := os.Create(filepath.Join(t.TempDir(), "ref.wav"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			refInfo, err := ref.Stat()
-			if err := errors.Join(err, ref.Close()); err != nil {
-				t.Fatal(err)
-			}
-			if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
-				t.Fatalf("published mode = %v, want %v from the umask", mode, want)
-			}
+			assertUmaskMode(t, utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID))
 			assertNoProcessingJingles(t, service, stationVoice)
 		})
 	}
@@ -270,18 +241,12 @@ func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVo
 		audioSvc:         audio.NewService(cfg, nil),
 		config:           cfg,
 	}
-	return service,
-		&models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
+	return service, &models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
 }
 
 func seedJingle(t *testing.T, service *StationVoiceService, stationVoice *models.StationVoice) []byte {
 	t.Helper()
-	input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=220:duration=0.1")
-	// #nosec G304 - fixture generated inside t.TempDir.
-	data, err := os.ReadFile(input)
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := []byte("existing jingle must stay intact")
 	// #nosec G703 - storage root and numeric IDs are controlled by the test.
 	if err := os.WriteFile(utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID), data, 0o600); err != nil {
 		t.Fatal(err)
@@ -294,7 +259,7 @@ func assertJingleContent(t *testing.T, service *StationVoiceService, stationVoic
 	// #nosec G304 - canonical jingle path inside t.TempDir.
 	got, err := os.ReadFile(utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID))
 	if err != nil || !bytes.Equal(got, want) {
-		t.Fatalf("jingle: %v, bytes match = %v; want the previous complete file", err, bytes.Equal(got, want))
+		t.Fatalf("jingle: %v, bytes match = %v; want the expected bytes", err, bytes.Equal(got, want))
 	}
 }
 
