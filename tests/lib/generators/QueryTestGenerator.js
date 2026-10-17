@@ -54,7 +54,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
     }
     return items.map(item => item[field]);
   };
-  const sorted = (keys, direction) => [...keys].sort((a, b) => direction * (a - b));
+  const sorted = (keys, direction) => keys.toSorted((a, b) => direction * (a - b));
 
   describe(`${name} Query Parameters`, () => {
     let fixtureIds;
@@ -89,8 +89,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
         // fixture orders only hold when the page lists exactly the fixtures.
         const listFixtures = async (qs = '') => {
           const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}${qs}`);
-          const byId = (a, b) => a - b;
-          expect(response.data.data.map(item => item.id).sort(byId)).toEqual([...fixtureIds].sort(byId));
+          expect(sorted(response.data.data.map(item => item.id), 1)).toEqual(sorted(fixtureIds, 1));
           return response;
         };
 
@@ -103,8 +102,9 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
             expect.hasAssertions();
             const response = await listFixtures(`&sort=${sort}`);
             const keys = sortKeys(response, field);
-            // Every fixture needs a key; a missing rank or unparsable date
-            // would sort to the end unnoticed.
+            // Every fixture needs a key: a missing rank sorts to the end and an
+            // unparsable date (NaN) compares equal to everything, so either
+            // would hide a wrong order.
             expect(keys).toHaveLength(fixtureIds.length);
             expect(keys.every(Number.isFinite)).toBe(true);
             // Collation-equal strings share a rank, so the Set counts distinct
