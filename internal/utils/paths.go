@@ -11,7 +11,7 @@ import (
 )
 
 // ProcessingDirSuffix ends the name of every per-request conversion
-// directory. Cleanup of abandoned conversions matches on it.
+// directory, so cleanup of abandoned conversions can match on it.
 const ProcessingDirSuffix = ".processing"
 
 // StoryFilename returns the canonical processed-audio filename for storyID.

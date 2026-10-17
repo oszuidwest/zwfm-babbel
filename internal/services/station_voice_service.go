@@ -214,7 +214,6 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // already-loaded station-voice relationship. The database stores the
 // canonical filename, not the absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
-	// Convert beside the live file for atomic rename and WAV muxer selection.
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
 		fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))

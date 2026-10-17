@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"testing"
 	"time"
 )
@@ -22,37 +22,39 @@ func TestBulletinFilenameIncludesSubsecondPrecision(t *testing.T) {
 func TestProcessingPath(t *testing.T) {
 	t.Parallel()
 
+	// Jingle directories are named after the station-voice pair rather than
+	// the file name, so name is independent of finalPath.
 	root := t.TempDir()
-	finalPath := filepath.Join(root, "story_7.wav")
-	first, cleanup, err := ProcessingPath(finalPath, "story_7")
+	finalPath := filepath.Join(root, "station_1_voice_2_jingle.wav")
+	first, cleanup, err := ProcessingPath(finalPath, "station_1_voice_2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, cleanupSecond, err := ProcessingPath(finalPath, "story_7")
+	second, cleanupSecond, err := ProcessingPath(finalPath, "station_1_voice_2")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanupSecond()
 
 	dir := filepath.Dir(first)
-	if filepath.Dir(dir) != root || filepath.Base(first) != "story_7.wav" {
-		t.Fatalf("ProcessingPath() = %q, want story_7.wav in a directory beside %q", first, finalPath)
+	if filepath.Dir(dir) != root || filepath.Base(first) != "station_1_voice_2_jingle.wav" {
+		t.Fatalf("ProcessingPath() = %q, want station_1_voice_2_jingle.wav in a directory beside %q", first, finalPath)
 	}
-	if name := filepath.Base(dir); !strings.HasPrefix(name, "story_7_") || !strings.HasSuffix(name, ProcessingDirSuffix) {
-		t.Fatalf("directory = %q, want story_7_*%s", name, ProcessingDirSuffix)
+	if name := filepath.Base(dir); !regexp.MustCompile(`^station_1_voice_2_[^_]+\.processing$`).MatchString(name) {
+		t.Fatalf("directory = %q, want station_1_voice_2_<random>%s", name, ProcessingDirSuffix)
 	}
 	if filepath.Dir(second) == dir {
 		t.Fatalf("concurrent requests share directory %q", dir)
 	}
 
-	// The converter creates the file, so its mode follows the umask. os.Create
-	// applies the umask the same way FFmpeg does.
-	info := createAndStat(t, first)
-	refInfo := createAndStat(t, filepath.Join(t.TempDir(), "ref.wav"))
-	if mode, want := info.Mode().Perm(), refInfo.Mode().Perm(); mode != want {
-		t.Fatalf("converted mode = %v, want %v from the umask", mode, want)
+	// The converter creates the file, so its mode follows the umask.
+	if _, err := os.Lstat(first); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("converted file before conversion: %v, want not created", err)
 	}
-
+	// Stand in for the converted file: cleanup must remove a non-empty directory.
+	if err := os.WriteFile(first, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cleanup()
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("directory after cleanup: %v, want removed", err)
@@ -69,18 +71,4 @@ func TestProcessingPathMissingDirectory(t *testing.T) {
 	if _, _, err := ProcessingPath(finalPath, "story_7"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("ProcessingPath() error = %v, want not exist", err)
 	}
-}
-
-func createAndStat(t *testing.T, path string) os.FileInfo {
-	t.Helper()
-	// #nosec G304 - path inside t.TempDir.
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, err := f.Stat()
-	if err := errors.Join(err, f.Close()); err != nil {
-		t.Fatal(err)
-	}
-	return info
 }
