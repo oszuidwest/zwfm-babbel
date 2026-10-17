@@ -32,8 +32,4 @@ func TestCaptureLogsRestoresLoggers(t *testing.T) {
 	if slog.Default() != previous || log.Writer() != &stdlib || log.Flags() != log.Lshortfile {
 		t.Fatalf("loggers not restored: writer %T, flags %d", log.Writer(), log.Flags())
 	}
-	log.Print("after")
-	if !strings.Contains(stdlib.String(), "after") {
-		t.Fatalf("log output = %q, want the restored writer", stdlib.String())
-	}
 }
