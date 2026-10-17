@@ -241,15 +241,15 @@ When Babbel maps a service error to an error response, or a bulletin job fails, 
 
 | Class | Level | Examples |
 |---|---|---|
-| Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or list query parameters that are not valid |
-| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs rejected the credentials or the request, or failed), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job |
+| Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or list query parameters that are not valid, or for a silent audio upload |
+| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs rejected the credentials or the request, failed, or returned silent audio), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job |
 | Server failure | error | 500 for a database error, an audio processing error or an unhandled error, 503 for a missing migration or seed row, 504 for a timeout, and the other failures of a bulletin job |
 
 A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid list query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
 
 An operational signal is usually not a fault of the client or of Babbel, but it can need action from an administrator. These conditions can also cause alerts, some only after repeated failures, as [Operational e-mail notifications](#operational-e-mail-notifications) describes.
 
-A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel also logs each failed ElevenLabs response, at error level for a 401, 403 or 5xx status. A status that Babbel does not map to a specific response, for example 400, writes a separate log at error level.
+A server failure can cause an alert, for example when database requests fail repeatedly. A story whose audio file is missing on disk logs at error level, even when the bulletin then fails with `bulletin.no_stories`. A log alert on `level=ERROR` does not fire for the client errors in this table. Babbel logs each failed ElevenLabs response once, at the level of its response in this table. With debug logs on, Babbel also logs the ElevenLabs status, request ID, error code and concurrency headers of the response.
 
 ### Operational e-mail notifications
 

@@ -285,7 +285,7 @@ func TestTranslateTTSError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := translateTTSError(123, tt.err)
+			got := translateTTSError(tt.err)
 			if got == nil {
 				t.Fatal("translateTTSError returned nil")
 			}
@@ -295,6 +295,17 @@ func TestTranslateTTSError(t *testing.T) {
 			}
 			tt.assert(t, got)
 		})
+	}
+}
+
+// The handler logs each translated failure, so translation itself logs nothing.
+func TestTranslateTTSErrorDoesNotLog(t *testing.T) {
+	logs := captureLogs(t)
+
+	_ = translateTTSError(&tts.APIError{StatusCode: http.StatusInternalServerError, Body: "boom"})
+
+	if logs.Len() != 0 {
+		t.Fatalf("logs = %s, want none", logs)
 	}
 }
 

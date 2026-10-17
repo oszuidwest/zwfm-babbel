@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
@@ -180,6 +181,16 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
+	// Silent TTS output is an upstream failure, so only uploads get here.
+	if silent, ok := errors.AsType[*audio.SilentError](err); ok {
+		logError("Story", "validation_failed", silent)
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   "audio",
+			Code:    apperrors.CodeSilentAudio,
+			Message: "audio is silent or too quiet; check the recording level and input channel",
+		})
+		return true
+	}
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
 		utils.ProblemExtended(c, http.StatusInternalServerError,

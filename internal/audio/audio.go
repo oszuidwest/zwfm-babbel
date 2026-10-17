@@ -42,6 +42,23 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
+// SilentError matches [ErrSilent] and names the loudness measurements. The
+// audio service does not log the rejection: a silent upload is a client
+// error, while silent TTS output is an upstream failure, so callers choose
+// the level.
+type SilentError struct {
+	stats loudnormStats
+}
+
+// Error returns [ErrSilent]'s message with the measured loudness.
+func (e *SilentError) Error() string {
+	return fmt.Sprintf("%v (input_i %.2f, input_tp %.2f, input_lra %.2f, input_thresh %.2f)",
+		ErrSilent, e.stats.Integrated, e.stats.TruePeak, e.stats.LRA, e.stats.Threshold)
+}
+
+// Unwrap returns [ErrSilent].
+func (e *SilentError) Unwrap() error { return ErrSilent }
+
 // loudnormStats carries first-pass measurements into the linear second pass.
 type loudnormStats struct {
 	Integrated   float64
@@ -92,8 +109,8 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // a -1 dBTP ceiling, preserving dynamics when possible.
 // It returns the duration in seconds.
 //
-// It returns [ErrSilent] without writing outputPath when the input is silent
-// or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
+// It returns a [SilentError] without writing outputPath when the input is
+// silent or below -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
 	stats, err := s.measureLoudness(ctx, inputPath)
 	if err != nil {
@@ -101,14 +118,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 	}
 
 	if stats.tooQuiet() {
-		logger.Warn("Rejected silent or near-silent story audio",
-			"path", inputPath,
-			"input_i", fmt.Sprintf("%.2f", stats.Integrated),
-			"input_tp", fmt.Sprintf("%.2f", stats.TruePeak),
-			"input_lra", fmt.Sprintf("%.2f", stats.LRA),
-			"input_thresh", fmt.Sprintf("%.2f", stats.Threshold),
-		)
-		return 0, ErrSilent
+		return 0, &SilentError{stats: stats}
 	}
 
 	if err := s.convertToWAV(ctx, inputPath, outputPath, Mono, storyNormalizationFilter(stats)); err != nil {

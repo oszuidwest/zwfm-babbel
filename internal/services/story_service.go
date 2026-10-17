@@ -461,7 +461,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	)
 	if err != nil {
 		s.alertTTSError(ctx, storyID, err)
-		return translateTTSError(storyID, err)
+		return translateTTSError(err)
 	}
 
 	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
@@ -475,10 +475,11 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
-		if errors.Is(err, audio.ErrSilent) {
-			s.alertTTSError(ctx, storyID, err)
+		if silent, ok := errors.AsType[*audio.SilentError](err); ok {
+			// The cause carries the loudness for the handler's Warn log.
+			s.alertTTSError(ctx, storyID, silent)
 			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
-				"ElevenLabs returned silent audio; try again", err)
+				"ElevenLabs returned silent audio; try again", silent)
 		}
 		return err
 	}
@@ -565,7 +566,7 @@ func ttsOptionsFromSettings(settings *models.TTSSettings) tts.Options {
 	}
 }
 
-func translateTTSError(storyID int64, err error) error {
+func translateTTSError(err error) error {
 	if apiErr, ok := errors.AsType[*tts.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
@@ -585,11 +586,6 @@ func translateTTSError(storyID int64, err error) error {
 			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
 				"ElevenLabs rejected the generated request; check the TTS settings", apiErr)
 		default:
-			logger.WithFields(map[string]any{
-				"story_id":    storyID,
-				"status_code": apiErr.StatusCode,
-				"body":        apiErr.Body,
-			}).Error("unmapped ElevenLabs TTS error")
 			return apperrors.Upstream(
 				"TTS",
 				"ElevenLabs",

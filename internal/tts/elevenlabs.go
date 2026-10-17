@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -213,6 +212,9 @@ func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
 	return elevenLabsErrorDetail{}
 }
 
+// logElevenLabsResponse records diagnostics for a failed response at Debug.
+// The service maps each failure to an API error, and the handler logs that
+// once at the level of its class.
 func logElevenLabsResponse(
 	ctx context.Context,
 	statusCode int,
@@ -242,27 +244,12 @@ func logElevenLabsResponse(
 		concurrencyHeaderValue(header, headerMaximumConcurrentRequests),
 	)
 
-	logger.WithFields(fields).Log(ctx, elevenLabsResponseLogLevel(statusCode), "elevenlabs tts response")
+	logger.WithFields(fields).DebugContext(ctx, "elevenlabs tts response")
 }
 
 func storyIDFromContext(ctx context.Context) (int64, bool) {
 	storyID, ok := ctx.Value(storyIDContextKey{}).(int64)
 	return storyID, ok
-}
-
-func elevenLabsResponseLogLevel(statusCode int) slog.Level {
-	switch {
-	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
-		return slog.LevelError
-	case statusCode >= http.StatusInternalServerError:
-		return slog.LevelError
-	case statusCode == http.StatusTooManyRequests || statusCode == http.StatusRequestTimeout:
-		return slog.LevelWarn
-	case statusCode >= http.StatusBadRequest:
-		return slog.LevelInfo
-	default:
-		return slog.LevelWarn
-	}
 }
 
 func concurrencyHeaderValue(header http.Header, key string) string {

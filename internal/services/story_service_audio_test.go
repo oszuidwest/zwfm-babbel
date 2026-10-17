@@ -174,6 +174,10 @@ func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
 	if !ok || upstream.Status != http.StatusBadGateway {
 		t.Fatalf("error = %v, want UpstreamError with status 502", err)
 	}
+	// The handler logs the cause, so it must carry the loudness measurements.
+	if cause := upstream.Unwrap(); cause == nil || !strings.Contains(cause.Error(), "input_tp") {
+		t.Fatalf("upstream cause = %v, want the loudness measurements", cause)
+	}
 	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold {
 		t.Fatalf("alerts = %+v, want tts:upstream requiring a threshold", alerts.events)
 	}

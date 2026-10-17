@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -284,64 +283,39 @@ func TestConcurrencyHeaderValue(t *testing.T) {
 	}
 }
 
-func TestElevenLabsResponseLogLevel(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		statusCode int
-		want       slog.Level
-	}{
-		{
-			name:       "unauthorized is error",
-			statusCode: http.StatusUnauthorized,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "forbidden is error",
-			statusCode: http.StatusForbidden,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "rate limited is warn",
-			statusCode: http.StatusTooManyRequests,
-			want:       slog.LevelWarn,
-		},
-		{
-			name:       "request timeout is warn",
-			statusCode: http.StatusRequestTimeout,
-			want:       slog.LevelWarn,
-		},
-		{
-			name:       "not found is info",
-			statusCode: http.StatusNotFound,
-			want:       slog.LevelInfo,
-		},
-		{
-			name:       "unprocessable is info",
-			statusCode: http.StatusUnprocessableEntity,
-			want:       slog.LevelInfo,
-		},
-		{
-			name:       "server error is error",
-			statusCode: http.StatusInternalServerError,
-			want:       slog.LevelError,
-		},
-		{
-			name:       "unexpected non error status is warn",
-			statusCode: http.StatusMovedPermanently,
-			want:       slog.LevelWarn,
-		},
+// The client logs a failed response only as a Debug diagnostic. The handler
+// logs each failure once, at the level of its class.
+func TestService_GenerateSpeech_LogsFailedResponsesAtDebug(t *testing.T) {
+	statuses := []int{
+		http.StatusUnauthorized,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusUnprocessableEntity,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusServiceUnavailable,
 	}
+	for _, status := range statuses {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			got := elevenLabsResponseLogLevel(tt.statusCode)
-			if got != tt.want {
-				t.Fatalf("elevenLabsResponseLogLevel(%d) = %s, want %s", tt.statusCode, got, tt.want)
+			service := &Service{
+				apiKey:  "test-key",
+				baseURL: server.URL,
+				client:  &http.Client{Timeout: time.Second},
 			}
+
+			entry := captureLogEntry(t, func() {
+				if _, err := service.GenerateSpeech(t.Context(), "text", "voice-123", Options{}); err == nil {
+					t.Error("GenerateSpeech() error = nil, want API error")
+				}
+			})
+
+			assertLogField(t, entry, "level", "DEBUG")
+			assertLogField(t, entry, "status_code", float64(status))
 		})
 	}
 }
@@ -366,7 +340,7 @@ func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
 		)
 	})
 
-	assertLogField(t, entry, "level", "WARN")
+	assertLogField(t, entry, "level", "DEBUG")
 	assertLogField(t, entry, "msg", "elevenlabs tts response")
 	assertLogField(t, entry, "status_code", float64(http.StatusTooManyRequests))
 	assertLogField(t, entry, "duration_ms", float64(123))
