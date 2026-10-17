@@ -36,7 +36,7 @@ test-integration:
 		sleep 1; \
 	done
 	$(MAKE) db-reset
-	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true' \
+	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%27%2B00%3A00%27&clientFoundRows=true' \
 		go test -p 1 -tags=integration ./internal/...
 
 # Quality

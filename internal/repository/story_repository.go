@@ -20,8 +20,8 @@ type StoryUpdate struct {
 	Text       *string            `gorm:"column:text"`
 	VoiceID    *int64             `gorm:"column:voice_id"`
 	Status     *string            `gorm:"column:status"`
-	StartDate  *time.Time         `gorm:"column:start_date"`
-	EndDate    *time.Time         `gorm:"column:end_date"`
+	StartDate  *models.Date       `gorm:"column:start_date"`
+	EndDate    *models.Date       `gorm:"column:end_date"`
 	Weekdays   *models.Weekdays   `gorm:"column:weekdays"`
 	Metadata   *datatypes.JSONMap `gorm:"column:metadata"`
 	IsBreaking *bool              `gorm:"column:is_breaking"`
@@ -194,7 +194,8 @@ func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudi
 }
 
 // ExpireStoriesPastEndDate marks active stories whose end_date has passed as
-// expired and returns the number of stories updated.
+// expired and returns the number of stories updated. "Passed" uses the local
+// calendar date; CURDATE() would use the session's UTC date.
 // GORM automatically excludes soft-deleted records (deleted_at IS NULL).
 func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, error) {
 	var count int64
@@ -202,7 +203,7 @@ func (r *StoryRepository) ExpireStoriesPastEndDate(ctx context.Context) (int64, 
 		db := DBFromContext(ctx, r.db).WithContext(ctx)
 		var ids []int64
 		if err := db.Model(&models.Story{}).Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
-			Where("status = ?", models.StoryStatusActive).Where("end_date < CURDATE()").
+			Where("status = ?", models.StoryStatusActive).Where("end_date < ?", time.Now().Format(time.DateOnly)).
 			Order("id").Pluck("id", &ids).Error; err != nil {
 			return ParseDBError(err)
 		}

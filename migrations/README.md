@@ -37,3 +37,12 @@ Apply `014_story_idempotency_key.sql` once, before deploying a Babbel version
 that accepts `idempotency_key` on `POST /stories`; without the column every
 story create fails, also without a key. It fails on databases created from the
 current `001` snapshot, which already has the column.
+
+Stop Babbel, apply `015_utc_datetime_columns.sql` once, then deploy the Babbel
+version whose database session runs in UTC. Run it with the server's default
+time zone (`docker exec -i babbel-mysql mysql ... < 015_utc_datetime_columns.sql`
+does), because it reads the stored local times in that zone. It converts
+`bulletins.file_purged_at` and the bulletin job `started_at`/`completed_at`
+from local time to UTC; running it twice shifts them twice. It also succeeds
+on databases created from the current `001` snapshot, where those columns
+already hold UTC, so do not apply it there: it would shift them again.

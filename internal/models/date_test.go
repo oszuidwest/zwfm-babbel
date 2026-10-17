@@ -36,3 +36,16 @@ func TestDateScan(t *testing.T) {
 		t.Error("Scan(string) succeeded, want error")
 	}
 }
+
+// The UTC session returns DATE values as UTC midnight. Scan must yield the
+// same instant as a parsed local date, so date comparisons match the day.
+func TestDateScanLocalMidnight(t *testing.T) {
+	var date Date
+	if err := date.Scan(time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 10, 25, 0, 0, 0, 0, time.Local)
+	if got := time.Time(date); !got.Equal(want) || got.Location() != time.Local {
+		t.Fatalf("Scan(UTC midnight) = %s, want local midnight %s", got, want)
+	}
+}

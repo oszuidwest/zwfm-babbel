@@ -12,8 +12,11 @@ import (
 	pkglogger "github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
+// mysqlDSN runs the session in UTC. MySQL then sends and reads TIMESTAMP
+// values as UTC; local wall-clock time would repeat an hour at the autumn
+// clock change and shift values written in that hour.
 func mysqlDSN(cfg *config.Config) string {
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&clientFoundRows=true",
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%%27%%2B00%%3A00%%27&clientFoundRows=true",
 		cfg.Database.User,
 		cfg.Database.Password,
 		cfg.Database.Host,

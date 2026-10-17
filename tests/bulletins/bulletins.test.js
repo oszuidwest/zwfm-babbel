@@ -628,12 +628,12 @@ describe('Bulletins', () => {
       }
     });
 
-    // The driver binds times in the server zone (Europe/Amsterdam here), so the
-    // bindable year range 1 to 9999 is checked after conversion.
+    // The database session binds times in UTC, so the bindable year range 1
+    // to 9999 is checked after conversion to UTC.
     test.each([
       ['0001-01-01T00:00:00+14:00'],
-      ['9999-12-31T23:30:00Z']
-    ])('when filter[created_at][gte]=%s leaves the bindable year range in server time, then returns 422', async value => {
+      ['9999-12-31T23:30:00-01:00']
+    ])('when filter[created_at][gte]=%s leaves the bindable year range in UTC, then returns 422', async value => {
       const response = await global.api.apiCall('GET', `/bulletins?filter[created_at][gte]=${encodeURIComponent(value)}`);
       expect(response.status).toBe(422);
       expect(response.data.errors[0].field).toBe('filter[created_at][gte]');

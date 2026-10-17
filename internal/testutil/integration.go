@@ -12,9 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// OpenIntegrationDB opens the database named by BABBEL_TEST_DB_DSN and closes
-// it on cleanup. Without a DSN it fails in CI and skips locally.
-func OpenIntegrationDB(t *testing.T) *gorm.DB {
+// IntegrationDSN returns BABBEL_TEST_DB_DSN. Without it, it fails in CI and
+// skips locally.
+func IntegrationDSN(t *testing.T) string {
 	t.Helper()
 
 	dsn := os.Getenv("BABBEL_TEST_DB_DSN")
@@ -24,8 +24,15 @@ func OpenIntegrationDB(t *testing.T) *gorm.DB {
 		}
 		t.Skip("BABBEL_TEST_DB_DSN not set")
 	}
+	return dsn
+}
 
-	db, err := gorm.Open(gormmysql.Open(dsn), &gorm.Config{SkipDefaultTransaction: true})
+// OpenIntegrationDB opens the database named by BABBEL_TEST_DB_DSN and closes
+// it on cleanup. Without a DSN it fails in CI and skips locally.
+func OpenIntegrationDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db, err := gorm.Open(gormmysql.Open(IntegrationDSN(t)), &gorm.Config{SkipDefaultTransaction: true})
 	if err != nil {
 		t.Fatalf("gorm.Open(): %v", err)
 	}

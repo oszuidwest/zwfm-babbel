@@ -116,6 +116,23 @@ func TestStoryRepositoryIntegration_CalendarDatesAndBulletinSelection(t *testing
 	}
 }
 
+// An update gets local midnight; the UTC session must not store the day before.
+func TestStoryRepositoryIntegration_UpdateStoresCalendarDates(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	id := createIntegrationStory(t, db)
+	date := time.Date(2026, 9, 27, 0, 0, 0, 0, time.FixedZone("CEST", 2*60*60))
+	if err := NewStoryRepository(db).Update(t.Context(), id, &StoryUpdate{StartDate: (*models.Date)(&date), EndDate: (*models.Date)(&date)}); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := db.Raw("SELECT CONCAT(start_date, '/', end_date) FROM stories WHERE id = ?", id).Scan(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored != "2026-09-27/2026-09-27" {
+		t.Fatalf("stored dates = %s, want 2026-09-27/2026-09-27", stored)
+	}
+}
+
 func assertStoryDateJSON(t *testing.T, story any, want string) {
 	t.Helper()
 	data, err := json.Marshal(story)

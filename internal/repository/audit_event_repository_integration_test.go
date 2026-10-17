@@ -40,7 +40,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 	metadata := datatypes.JSONMap{"source": "test", "count": 1}
 	if err := repo.Update(t.Context(), story.ID, &StoryUpdate{
 		ActorUserID: &actor, Title: &title, Text: &text, Status: &status,
-		StartDate: &start, EndDate: &end, Weekdays: &weekdays, IsBreaking: &breaking, Metadata: &metadata,
+		StartDate: (*models.Date)(&start), EndDate: (*models.Date)(&end), Weekdays: &weekdays, IsBreaking: &breaking, Metadata: &metadata,
 	}); err != nil {
 		t.Fatal(err)
 	}
