@@ -27,6 +27,9 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
+  // Must occur in a query.searchFields value of at least one row. The default
+  // matches rows that other tests leave behind, not only the fixtures.
+  const searchTerm = query.searchTerm ?? 'test';
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
   const expectStatus = async (qs, status = 200) => {
@@ -67,27 +70,31 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       fixtureIds = await setupFn();
     });
 
-    // OpenAPI declares search only where the repository has search fields;
-    // query.searchFields may still be empty (bulletins).
+    // OpenAPI declares search only where the repository has search fields, so
+    // query.searchFields must be non-empty exactly where search is declared.
     const searchable = declaresQueryParameter(endpoint, 'search');
+    if (searchable !== (query.searchFields?.length > 0)) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
     describe('Search scope', () => {
-      test(`when search=x, then returns ${searchable ? 200 : 'a search 422'}`, async () => {
+      // searchTerm may match every row (bulletins search '.wav'), so the Search
+      // test cannot tell an ignored search from a working one; a term no row
+      // contains can.
+      test(searchable ? 'when search matches nothing, then returns total 0' : 'when searching, then returns a search 422', async () => {
         expect.hasAssertions();
-        const response = await expectStatus('search=x', searchable ? 200 : 422);
-        if (searchable) expect(Array.isArray(response.data.data)).toBe(true);
+        const response = await expectStatus('search=__no_such_term__', searchable ? 200 : 422);
+        if (searchable) expect(response.data).toMatchObject({ total: 0, data: [] });
         else expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
       });
     });
 
-    if (query.searchFields?.length > 0) {
-      if (!searchable) throw new Error(`${name} searchFields: ${endpoint} does not declare search`);
+    if (searchable) {
       describe('Search', () => {
-        test('when searching, then returns 200', async () => {
+        test(`when searching "${searchTerm}", then returns only matches`, async () => {
           expect.hasAssertions();
-          const response = await expectStatus('search=test');
+          const response = await expectStatus(`search=${encodeURIComponent(searchTerm)}`);
           expect(response.data.data.length).toBeGreaterThan(0);
+          const term = searchTerm.toLowerCase();
           for (const item of response.data.data) {
-            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes('test'))).toBe(true);
+            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes(term))).toBe(true);
           }
         });
       });
@@ -336,7 +343,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       test('when combining all query types, then accepted', async () => {
         expect.hasAssertions();
         const params = new URLSearchParams();
-        if (query.searchFields?.length > 0) params.append('search', 'test');
+        if (searchable) params.append('search', searchTerm);
         if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
         if (query.filterableFields?.length > 0) params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
         if (query.selectableFields?.length > 0) params.append('fields', query.selectableFields.slice(0, 3).join(','));

@@ -9,7 +9,10 @@ module.exports = {
   updateData: null,
 
   query: {
-    searchFields: [],
+    searchFields: ['filename'],
+    // Every generated filename ends in .wav (utils.BulletinFilename), so this
+    // matches every bulletin.
+    searchTerm: '.wav',
     sortableFields: ['id', 'station_id', 'created_at'],
     filterableFields: ['id', 'station_id'],
     selectableFields: ['id', 'station_id', 'created_at']
