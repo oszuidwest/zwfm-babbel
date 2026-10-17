@@ -22,7 +22,7 @@ func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string
 	return r.path, r.err
 }
 
-// A row that names a file missing on disk keeps its 404 and logs one Warn
+// A row that names a file missing on disk returns 404 and logs one Warn
 // record with the resource, id and path. It sends no alert.
 func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
 	logs := captureLogs(t)

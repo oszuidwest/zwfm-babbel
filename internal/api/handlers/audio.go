@@ -65,13 +65,14 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 }
 
 // validateAudioFile stats an audio file and validates any Range header against
-// its size, writing the Problem Details response when either check fails.
+// its size, writing the Problem Details response when either check fails. A
+// missing file is logged at warn level with the resource and id.
 func validateAudioFile(c *gin.Context, resource string, id int64, path string) bool {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// The row names a file that is not on disk. Warn, not Error: a
-			// purged bulletin keeps its row, so this is not always a fault.
+			// Warn, not Error: a purged bulletin keeps audio_file, so a
+			// missing file is not always a fault.
 			logger.Warn("Audio file missing for existing record", "resource", resource, "id", id, "path", path)
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
