@@ -1,12 +1,62 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
+
+// audioPathRepository returns a fixed audio lookup result.
+type audioPathRepository struct {
+	path string
+	err  error
+}
+
+func (r audioPathRepository) GetFilePath(context.Context, string, int64) (string, error) {
+	return r.path, r.err
+}
+
+// A row that names a file missing on disk returns 404 and logs one Warn
+// record with the resource, id and path. It sends no alert.
+func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	dir := t.TempDir()
+	h := NewHandlers(HandlersDeps{
+		AudioRepo: audioPathRepository{path: "story_7.wav"},
+		Config:    &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}},
+	})
+	c, recorder := newProblemContext(t)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/stories/7/audio", nil)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	alerts := &automationAlertRecorder{}
+	c.Set(alertContextKey, alerts)
+
+	h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusNotFound)
+	}
+	// Unmarshal rejects an empty buffer and a second record.
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "WARN" {
+		t.Fatalf("logs = %s, want one WARN record", logs)
+	}
+	wantPath := filepath.Join(dir, "story_7.wav")
+	if record["resource"] != "stories" || record["id"] != float64(7) || record["path"] != wantPath {
+		t.Fatalf("record = %v, want resource stories, id 7 and path %s", record, wantPath)
+	}
+	if len(alerts.events) != 0 {
+		t.Fatalf("alerts = %d, want 0", len(alerts.events))
+	}
+}
 
 func TestValidByteRange(t *testing.T) {
 	t.Parallel()

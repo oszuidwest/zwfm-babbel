@@ -38,20 +38,31 @@ describe('Bulletins', () => {
     return { station, voice, stationVoice };
   };
 
+  // id rises with the fixture index and station_id runs low, high, high,
+  // while created_at, the default sort key, lists the fixtures as 1, 0, 2
+  // (newest first).
   const setupQueryTestData = async () => {
-    const { station } = await global.helpers.createBroadcastFixture(global.resources, {
+    const { station, voice } = await global.helpers.createBroadcastFixture(global.resources, {
       stationName: 'QueryBulletinStation',
       voiceName: 'QueryBulletinVoice',
       storyTitle: 'QueryBulletinStory',
       storyText: 'Query test story'
     });
+    const second = await global.helpers.createStation(global.resources, 'QueryBulletinStation2');
+    expect(second).not.toBeNull();
+    expect(await global.helpers.createStationVoiceWithJingle(global.resources, second.id, voice.id)).not.toBeNull();
 
-    const response = await global.helpers.generateBulletin(station.id);
-    // A failed fixture must fail the suite; pre-seeded rows would otherwise
-    // keep the generated query tests green without exercising this data.
-    expect(response.status).toBe(200);
-    expect(response.data.id).toBeDefined();
-    return [response.data.id];
+    const ids = [];
+    for (const stationId of [station.id, second.id, second.id]) {
+      const response = await global.helpers.generateBulletin(stationId);
+      // A failed fixture must fail the suite; pre-seeded rows would otherwise
+      // keep the generated query tests green without exercising this data.
+      expect(response.status).toBe(200);
+      expect(response.data.id).toBeDefined();
+      ids.push(response.data.id);
+    }
+    mysql.setTimestamps('bulletins', ids.map((id, index) => [id, { created_at: [1, 2, 0][index] }]));
+    return ids;
   };
 
   generateQueryTests(bulletinsSchema, setupQueryTestData);
