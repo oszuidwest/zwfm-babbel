@@ -1,5 +1,10 @@
 version: "2"
 
+run:
+  # Also lint *_integration_test.go, which only builds with this tag.
+  build-tags:
+    - integration
+
 linters:
   default: none
   enable:
