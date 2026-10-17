@@ -82,7 +82,7 @@ type UpdateStationVoiceRequest struct {
 func (s *StationVoiceService) Create(ctx context.Context, req *CreateStationVoiceRequest) (*models.StationVoice, error) {
 	var result *models.StationVoice
 
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "StationVoice", apperrors.OpCreate, func(txCtx context.Context) error {
 		if err := requireReference(txCtx, s.stationRepo.Exists, "StationVoice", "station_id", req.StationID); err != nil {
 			return err
 		}
