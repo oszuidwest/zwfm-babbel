@@ -174,6 +174,30 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 	}
 }
 
+func TestService_GenerateSpeech_UnreachableEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close() // Connections to the closed listener are refused.
+
+	service := &Service{
+		apiKey:  "test-key",
+		baseURL: server.URL,
+		client:  &http.Client{Timeout: time.Second},
+	}
+
+	_, err := service.GenerateSpeech(t.Context(), "final text", "voice-123", Options{})
+	if _, ok := errors.AsType[*TransportError](err); !ok {
+		t.Fatalf("error = %v, want *TransportError", err)
+	}
+
+	// The caller's own cancellation is not an unreachable ElevenLabs.
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = service.GenerateSpeech(ctx, "final text", "voice-123", Options{})
+	if _, ok := errors.AsType[*TransportError](err); ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled without *TransportError", err)
+	}
+}
+
 func TestParseElevenLabsErrorDetail(t *testing.T) {
 	t.Parallel()
 

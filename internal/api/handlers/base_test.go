@@ -17,6 +17,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -578,6 +579,10 @@ func TestHandleServiceError_DeadlineExceededReturnsGatewayTimeout(t *testing.T) 
 	}{
 		{"direct", context.DeadlineExceeded},
 		{"wrapped", fmt.Errorf("generate bulletin: %w", context.DeadlineExceeded)},
+		// The ElevenLabs client timeout is a transport error that translateTTSError
+		// maps to a 502; its deadline cause takes precedence.
+		{"ElevenLabs client timeout", apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+			"ElevenLabs could not be reached; try again later", &tts.TransportError{Err: context.DeadlineExceeded})},
 	}
 
 	for _, tt := range tests {
@@ -616,7 +621,7 @@ func TestHandleServiceError_Audio(t *testing.T) {
 			err:        apperrors.Audio("Story", "convert", errors.New("ffmpeg failed")),
 			wantStatus: http.StatusInternalServerError,
 			wantCode:   "audio.processing_failed",
-			wantHint:   "Check the audio file format and try again",
+			wantHint:   "Please try again later or contact support",
 		},
 	}
 	for _, tt := range tests {

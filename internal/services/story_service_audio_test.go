@@ -30,6 +30,10 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	if err != nil {
 		t.Skip("ffmpeg not available")
 	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
 	inputPath := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=1")
 	// #nosec G304 - fixture generated inside t.TempDir
 	silentAudio, err := os.ReadFile(inputPath)
@@ -51,7 +55,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, ProcessedPath: t.TempDir(),
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
 			}}
 			story := storyForTTSTest("News bulletin")
 			story.AudioFile = utils.StoryFilename(story.ID)
@@ -90,6 +94,80 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			// #nosec G304 - canonical story path inside t.TempDir
 			if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existingAudio) {
 				t.Fatalf("existing audio = %q, %v; want %q", got, err, existingAudio)
+			}
+		})
+	}
+}
+
+func TestUploadsRejectUndecodableAudioAndKeepExistingFiles(t *testing.T) {
+	t.Parallel()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobePath, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	inputPath := filepath.Join(t.TempDir(), "not-audio.mp3")
+	if err := os.WriteFile(inputPath, []byte("this is not audio\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	story := storyForTTSTest("News bulletin")
+	stationVoice := &models.StationVoice{ID: 1, StationID: 2, VoiceID: 3}
+
+	// The nil repositories make any database update panic.
+	tests := []struct {
+		field     string
+		finalPath func(cfg *config.Config) string
+		upload    func(ctx context.Context, cfg *config.Config) error
+	}{
+		{
+			field:     "audio",
+			finalPath: func(cfg *config.Config) string { return utils.StoryPath(cfg, story.ID) },
+			upload: func(ctx context.Context, cfg *config.Config) error {
+				service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, nil)
+				service.config = cfg
+				service.audioSvc = audio.NewService(cfg, nil)
+				return service.ProcessAudio(ctx, story.ID, inputPath, nil)
+			},
+		},
+		{
+			field: "jingle",
+			finalPath: func(cfg *config.Config) string {
+				return utils.JinglePath(cfg, stationVoice.StationID, stationVoice.VoiceID)
+			},
+			upload: func(ctx context.Context, cfg *config.Config) error {
+				service := &StationVoiceService{config: cfg, audioSvc: audio.NewService(cfg, nil)}
+				return service.ProcessJingle(ctx, stationVoice, inputPath)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+			}}
+			finalPath := tt.finalPath(cfg)
+			existing := []byte("existing audio must stay intact")
+			if err := os.WriteFile(finalPath, existing, 0600); err != nil {
+				t.Fatal(err)
+			}
+
+			err := tt.upload(t.Context(), cfg)
+			invalid, ok := errors.AsType[*apperrors.ValidationError](err)
+			if !ok || len(invalid.Errors) != 1 || invalid.Errors[0].Field != tt.field ||
+				invalid.Errors[0].Code != apperrors.CodeUndecodable {
+				t.Fatalf("error = %v, want a %s field error with code %s", err, tt.field, apperrors.CodeUndecodable)
+			}
+			// The handler logs the cause's message.
+			if !errors.Is(err, audio.ErrUndecodable) || !strings.Contains(invalid.Unwrap().Error(), audio.ErrUndecodable.Error()) {
+				t.Fatalf("cause = %v, want the audio.ErrUndecodable message", invalid.Unwrap())
+			}
+			// #nosec G304 - canonical path inside t.TempDir
+			if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existing) {
+				t.Fatalf("existing file = %q, %v; want %q", got, err, existing)
 			}
 		})
 	}

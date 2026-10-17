@@ -242,8 +242,8 @@ When Babbel maps a service error to an error response, or a bulletin job fails, 
 
 | Class | Level | Examples |
 |---|---|---|
-| Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or query parameters that are not valid, or for a silent audio upload |
-| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs rejected the credentials or the request, failed, or returned silent audio), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job, a 404 for audio whose record exists but whose file is missing on disk |
+| Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or query parameters that are not valid, for a silent audio upload, or for an uploaded file that FFmpeg cannot decode (`undecodable_audio`) |
+| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs could not be reached, rejected the credentials or the request, failed, or returned silent audio), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job, a 404 for audio whose record exists but whose file is missing on disk |
 | Server failure | error | 500 for a database error, an audio processing error, an audio file that Babbel cannot stat on disk or an unhandled error, 503 for a missing migration or seed row, 504 for a timeout, and the other failures of a bulletin job |
 
 A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
@@ -303,7 +303,7 @@ These conditions cause an immediate alert:
 
 These conditions cause a thresholded alert:
 
-- ElevenLabs sends error 429 or an upstream error, or does not reply in time.
+- ElevenLabs sends error 429 or an upstream error, cannot be reached, or does not reply in time.
 - Bulletin generation stops because of a timeout.
 - A database request or the database connection fails.
 - Babbel cannot parse the FFmpeg loudnorm output.

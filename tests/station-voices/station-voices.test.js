@@ -1,3 +1,4 @@
+const fs = require('fs');
 const stationVoicesSchema = require('../lib/schemas/station-voices.schema');
 const { generateCrudTests, generateQueryTests, generateValidationTests } = require('../lib/generators');
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
@@ -100,6 +101,31 @@ describe('Station-Voices', () => {
       );
 
       expect(uploadResponse.status).toBe(201);
+    });
+
+    test('when uploading a file that is not audio, then returns 422 undecodable_audio', async () => {
+      const notAudio = `${global.helpers.uniqueName('/tmp/test_jingle_not_audio')}.mp3`;
+      try {
+        fs.writeFileSync(notAudio, 'this is not audio\n');
+        const station = await global.helpers.createStation(global.resources, 'NotAudioStation');
+        const voice = await global.helpers.createVoice(global.resources, 'NotAudioVoice');
+        const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.5);
+        expect(stationVoice).not.toBeNull();
+
+        const uploadResponse = await global.api.uploadFile(
+          `/station-voices/${stationVoice.id}/audio`,
+          {},
+          notAudio,
+          'jingle'
+        );
+
+        expect(uploadResponse.status).toBe(422);
+        expect(uploadResponse.data.errors).toEqual([
+          expect.objectContaining({ field: 'jingle', code: 'undecodable_audio' })
+        ]);
+      } finally {
+        global.helpers.cleanupTempFile(notAudio);
+      }
     });
 
     test('when fetching, then audio fields present', async () => {
