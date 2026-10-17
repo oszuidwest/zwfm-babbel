@@ -1,5 +1,6 @@
 const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
+const { unnoticedSortMappings } = require('../SortMutationModel');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -9,10 +10,19 @@ const { createMySQLExecutor } = require('../MySQLHelper');
  * reversed sort would pass. The default order may sort at most one of these
  * fields: an ignored sort returns that order, so it passes one direction of
  * every field the order happens to sort.
+ * Every two fields must also order some pair of fixtures oppositely: a field
+ * mapped to the column of a field it never contradicts can pass both
+ * directions.
+ *
+ * Multi-field sort tests run only with tiedSortField: a sortable field with
+ * two distinct values among the fixtures, one of them shared, so the second
+ * sort key decides the order within the tie.
  * @param {Object} schema
  * @param {Function} setupFn Creates the fixtures and resolves to their ids.
+ * @param {Object} [options]
+ * @param {string} [options.tiedSortField]
  */
-function generateQueryTests(schema, setupFn) {
+function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
@@ -124,6 +134,15 @@ function generateQueryTests(schema, setupFn) {
           expect(ordered.length).toBeLessThanOrEqual(1);
         });
 
+        test('when a sortable field is mapped to another sortable column, then the fixture order exposes it', async () => {
+          expect.hasAssertions();
+          const response = await listFixtures();
+          const keysByField = Object.fromEntries(query.sortableFields.map(field => [field, sortKeys(response, field)]));
+          // The model pairs keys by position, so every field needs every fixture.
+          Object.values(keysByField).forEach(keys => expect(keys).toHaveLength(fixtureIds.length));
+          expect(unnoticedSortMappings(keysByField).map(([field, column]) => `${field} -> ${column}`)).toEqual([]);
+        });
+
         test.each([
           ['when sorting unknown field, then returns a sort 422', 'sort=__bogus__', 'unknown_field'],
           ['when sort direction is invalid, then returns a sort 422', `sort=${query.sortableFields[0]}:sideways`, 'invalid_choice']
@@ -133,13 +152,30 @@ function generateQueryTests(schema, setupFn) {
           expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['sort', code]]);
         });
 
-        if (query.sortableFields.length >= 2) {
+        if (tiedSortField) {
+          if (!query.sortableFields.includes(tiedSortField)) throw new Error(`${name} tiedSortField: ${tiedSortField} is not sortable`);
+          // An API that drops the second key sends the same ORDER BY for both
+          // directions of id. MySQL does not promise an order for the ties, but
+          // in practice returns the same one for the same query, so one case of
+          // each pair fails. The descending pair fails an API that gives only
+          // the last key its direction.
           test.each([
-            ['when sorting by multiple fields, then accepted', `sort=${query.sortableFields.slice(0, 2).join(',')}`],
-            ['when sorting with mixed directions, then accepted', `sort=${query.sortableFields[0]},-${query.sortableFields[1]}`]
-          ])('%s', async (_name, qs) => {
+            [`${tiedSortField},id`, 1, 1],
+            [`${tiedSortField},-id`, 1, -1],
+            [`-${tiedSortField},-id`, -1, -1],
+            [`-${tiedSortField},id`, -1, 1]
+          ])('when sorting by %s, then ties follow the second field', async (sort, direction, idDirection) => {
             expect.hasAssertions();
-            await expectStatus(qs);
+            const response = await listFixtures(`&sort=${sort}`);
+            const keys = sortKeys(response, tiedSortField);
+            expect(keys).toHaveLength(fixtureIds.length);
+            expect(keys.every(Number.isFinite)).toBe(true);
+            // Two distinct keys check the first field, a shared one the second.
+            const distinct = new Set(keys).size;
+            expect(distinct).toBeGreaterThan(1);
+            expect(distinct).toBeLessThan(keys.length);
+            const rows = response.data.data.map((item, index) => ({ key: keys[index], id: item.id }));
+            expect(rows).toEqual(rows.toSorted((a, b) => direction * (a.key - b.key) || idDirection * (a.id - b.id)));
           });
         }
       });

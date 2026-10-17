@@ -12,24 +12,34 @@ describe('Station-Voices', () => {
     };
   };
 
-  // Every sortable field rises with the fixture index except id, the default
-  // sort key: the links are created as 1, 0, 2.
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. id, the default
+  // sort key, rises with the fixture index; station and voice ids rise with
+  // their index in stations and voices.
   const setupQueryTestData = async () => {
-    const fixtures = [];
-    for (const [index, mix] of [1.0, 2.5, 3.0].entries()) {
-      const station = await global.helpers.createStation(global.resources, `QueryStation${index + 1}`);
-      const voice = await global.helpers.createVoice(global.resources, `QueryVoice${index + 1}`);
-      fixtures.push({ station, voice, mix });
+    const stations = [];
+    const voices = [];
+    for (let n = 1; n <= 4; n++) {
+      stations.push(await global.helpers.createStation(global.resources, `QueryStation${n}`));
+      voices.push(await global.helpers.createVoice(global.resources, `QueryVoice${n}`));
     }
 
+    const fixtures = [
+      // [station index, voice index, mix_point, created_at, updated_at]
+      [2, 1, 2.5, 1, 4],
+      [0, 3, 3.0, 0, 6],
+      [3, 0, 1.0, 3, 7],
+      [1, 2, 2.0, 2, 5]
+    ];
     const ids = [];
-    for (const index of [1, 0, 2]) {
-      const { station, voice, mix } = fixtures[index];
-      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, mix);
+    const timestamps = [];
+    for (const [station, voice, mix, createdAt, updatedAt] of fixtures) {
+      const stationVoice = await global.helpers.createStationVoice(global.resources, stations[station].id, voices[voice].id, mix);
       expect(stationVoice).not.toBeNull();
-      ids[index] = stationVoice.id;
+      ids.push(stationVoice.id);
+      timestamps.push([stationVoice.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('station_voices', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    createMySQLExecutor().setTimestamps('station_voices', timestamps);
     return ids;
   };
 
@@ -153,6 +163,59 @@ describe('Station-Voices', () => {
       );
       expect(withoutResponse.status).toBe(200);
       expect(withoutResponse.data.data.map((sv) => sv.id)).toEqual([withoutJingle.data.id]);
+    });
+
+    test('when changing station or voice with a jingle, then returns 409 and keeps the pair', async () => {
+      const station = await global.helpers.createStation(global.resources, 'JingleLockStation');
+      const otherStation = await global.helpers.createStation(global.resources, 'JingleLockStation2');
+      const voice = await global.helpers.createVoice(global.resources, 'JingleLockVoice');
+      const otherVoice = await global.helpers.createVoice(global.resources, 'JingleLockVoice2');
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
+      expect(stationVoice).not.toBeNull();
+
+      const uploadResponse = await global.api.uploadFile(
+        `/station-voices/${stationVoice.id}/audio`,
+        {},
+        testAudio,
+        'jingle'
+      );
+      expect(uploadResponse.status).toBe(201);
+
+      for (const change of [{ station_id: otherStation.id }, { voice_id: otherVoice.id }]) {
+        const conflict = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, change);
+        expect(conflict.status).toBe(409);
+        expect(conflict.data.code).toBe('stationvoice.jingle_locked');
+      }
+
+      const resend = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, {
+        station_id: station.id,
+        voice_id: voice.id,
+        mix_point: 2.0
+      });
+      expect(resend.status).toBe(200);
+      expect(resend.data).toMatchObject({ station_id: station.id, voice_id: voice.id, mix_point: 2.0 });
+
+      const jingle = await global.api.apiCall('GET', `/station-voices/${stationVoice.id}/audio`, null, {
+        responseType: 'arraybuffer'
+      });
+      expect(jingle.status).toBe(200);
+    });
+
+    test('when changing station or voice without a jingle, then moves the pair', async () => {
+      const station = await global.helpers.createStation(global.resources, 'NoJingleMoveStation');
+      const otherStation = await global.helpers.createStation(global.resources, 'NoJingleMoveStation2');
+      const voice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice');
+      const otherVoice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice2');
+      const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
+      expect(stationVoice).not.toBeNull();
+
+      const moved = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, {
+        station_id: otherStation.id,
+        voice_id: otherVoice.id
+      });
+
+      expect(moved.status).toBe(200);
+      expect(moved.data).toMatchObject({ station_id: otherStation.id, voice_id: otherVoice.id });
     });
   });
 

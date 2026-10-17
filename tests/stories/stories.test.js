@@ -78,26 +78,38 @@ describe('Stories', () => {
     return result ? { id: result.id, voiceId: voice.id } : null;
   };
 
-  // Every sortable field rises with the fixture index except created_at, the
-  // default sort key, which lists the fixtures as 1, 0, 2 (newest first).
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. created_at, the
+  // default sort key, lists them as 2, 3, 0, 1 (newest first); id rises with
+  // the fixture index. The two drafts tie on status, which still leaves every
+  // other field a pair of fixtures that status orders the other way.
   const setupQueryTestData = async () => {
     const year = new Date().getFullYear();
     const voice = await global.helpers.createVoice(global.resources, 'QueryVoice');
     expect(voice).not.toBeNull();
+    const fixtures = [
+      // [title, status, start_date day, end_date day, created_at, updated_at]
+      ['C', 'active', 2, 31, 1, 4],
+      ['A', 'expired', 4, 30, 0, 6],
+      ['D', 'draft', 1, 29, 3, 7],
+      ['B', 'draft', 3, 28, 2, 5]
+    ];
     const ids = [];
-    for (const [index, status] of ['active', 'draft', 'expired'].entries()) {
+    const timestamps = [];
+    for (const [letter, status, startDay, endDay, createdAt, updatedAt] of fixtures) {
       const story = await global.helpers.createStory(global.resources, {
-        title: `QueryStory${index + 1}`,
-        text: `Query test content ${index + 1}`,
+        title: `QueryStory${letter}`,
+        text: `Query test content ${letter}`,
         voice_id: voice.id,
         status,
-        start_date: `${year}-01-0${index + 1}`,
-        end_date: `${year + 1}-12-${29 + index}`
+        start_date: `${year}-01-0${startDay}`,
+        end_date: `${year + 1}-12-${endDay}`
       });
       expect(story).not.toBeNull();
       ids.push(story.id);
+      timestamps.push([story.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('stories', ids.map((id, index) => [id, { created_at: [1, 2, 0][index], updated_at: 3 + index }]));
+    createMySQLExecutor().setTimestamps('stories', timestamps);
     return ids;
   };
 
@@ -143,6 +155,14 @@ describe('Stories', () => {
       const response = await global.api.apiCall('GET', '/stories/999999');
 
       expect(response.status).toBe(404);
+    });
+
+    // GET /stories/{id} reads no query keys, trashed included.
+    test('when fetching story by ID with trashed, then returns 422', async () => {
+      const response = await global.api.apiCall('GET', `/stories/${storyId}?trashed=with`);
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['trashed', 'unknown_field']]);
     });
   });
 
@@ -515,6 +535,22 @@ describe('Stories', () => {
 
       const getResponse = await global.api.apiCall('GET', `/stories/${result.id}`);
       expect(getResponse.data.audio_file).not.toBe('');
+    });
+
+    // Audio downloads ignore query keys: the frontend loads /audio?v=<timestamp>
+    // after replacing the audio, to bypass the browser cache.
+    test('when downloading audio with a cache-busting key, then returns the file', async () => {
+      const outputAudio = `${global.helpers.uniqueName('/tmp/test_story_cache_bust')}.wav`;
+      try {
+        const result = await createStoryWithDeps('CacheBustAudio', 'Has audio', 'CacheBustVoice');
+        expect(result).not.toBeNull();
+        const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
+        expect(uploadResponse.status).toBe(201);
+
+        expect(await global.api.downloadFile(`/stories/${result.id}/audio?v=1`, outputAudio)).toBe(200);
+      } finally {
+        global.helpers.cleanupTempFile(outputAudio);
+      }
     });
 
     test('when uploading silent audio, then returns 422 and preserves existing audio', async () => {

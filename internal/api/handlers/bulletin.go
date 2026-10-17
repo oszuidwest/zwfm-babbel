@@ -51,7 +51,7 @@ func (h *Handlers) GenerateBulletin(c *gin.Context) {
 // GetBulletinJob returns a bulletin generation job's status.
 func (h *Handlers) GetBulletinJob(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 	job, err := h.bulletinJobSvc.GetByID(c.Request.Context(), id)
@@ -249,7 +249,7 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 // GetLatestStationBulletin returns the most recently generated bulletin.
 func (h *Handlers) GetLatestStationBulletin(c *gin.Context) {
 	stationID, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 
@@ -287,7 +287,7 @@ func (h *Handlers) ListBulletins(c *gin.Context) {
 // GetBulletin returns a bulletin by ID.
 func (h *Handlers) GetBulletin(c *gin.Context) {
 	id, ok := utils.IDParam(c)
-	if !ok {
+	if !ok || !utils.RejectQueryParams(c) {
 		return
 	}
 

@@ -29,13 +29,19 @@ type QueryParams struct {
 // error, such as latest on station bulletins, checks it before parsing.
 var listQueryKeys = []string{"limit", "offset", "sort", "fields", "search", "trashed"}
 
-// unknownQueryParams reports every key the list parsers do not read, in
-// sorted order. Keys are case-sensitive, so Trashed is unknown. A misspelled
-// or outdated key would otherwise be ignored and return an unexpected page.
-func unknownQueryParams(query url.Values) []apperrors.FieldError {
+// isListQueryKey reports whether the list parsers read key. Keys are
+// case-sensitive, so Trashed is not a list key.
+func isListQueryKey(key string) bool {
+	return strings.HasPrefix(key, "filter[") || slices.Contains(listQueryKeys, key)
+}
+
+// unknownQueryParams reports every key that known rejects, in sorted order.
+// A misspelled or outdated key would otherwise be ignored and return an
+// unexpected result.
+func unknownQueryParams(query url.Values, known func(key string) bool) []apperrors.FieldError {
 	var errs []apperrors.FieldError
 	for _, key := range slices.Sorted(maps.Keys(query)) {
-		if !strings.HasPrefix(key, "filter[") && !slices.Contains(listQueryKeys, key) {
+		if !known(key) {
 			errs = append(errs, *queryError(key, apperrors.CodeUnknownField, "unknown query parameter"))
 		}
 	}
@@ -67,17 +73,35 @@ func RejectMalformedQuery(c *gin.Context) {
 	c.Next()
 }
 
-// parseKnownQueryParams rejects malformed encoding and unknown keys before
-// [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
-// than duplicate. On errors it writes an RFC 9457 response and returns false.
-func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
+// parseKnownQuery rejects malformed encoding, then every key that known
+// rejects. On errors it writes an RFC 9457 response and returns false.
+func parseKnownQuery(c *gin.Context, known func(key string) bool) (url.Values, bool) {
 	query, parseErr := parseRawQuery(c)
 	if parseErr != nil {
 		emitQueryError(c, parseErr)
 		return nil, false
 	}
-	if errs := unknownQueryParams(query); len(errs) > 0 {
+	if errs := unknownQueryParams(query, known); len(errs) > 0 {
 		ProblemQueryValidation(c, "Invalid query parameter", errs...)
+		return nil, false
+	}
+	return query, true
+}
+
+// RejectQueryParams rejects every query key on endpoints that read none,
+// such as GET /stations/{id}, with the same 422 that list endpoints return
+// for unknown keys. On errors it writes an RFC 9457 response and returns false.
+func RejectQueryParams(c *gin.Context) bool {
+	_, ok := parseKnownQuery(c, func(string) bool { return false })
+	return ok
+}
+
+// parseKnownQueryParams rejects malformed encoding and unknown keys before
+// [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
+// than duplicate. On errors it writes an RFC 9457 response and returns false.
+func parseKnownQueryParams(c *gin.Context) (*QueryParams, bool) {
+	query, ok := parseKnownQuery(c, isListQueryKey)
+	if !ok {
 		return nil, false
 	}
 	params, err := parseQueryParams(query)

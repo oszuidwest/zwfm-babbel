@@ -3,16 +3,27 @@ const { generateCrudTests, generateQueryTests, generateValidationTests } = requi
 const { createMySQLExecutor } = require('../lib/MySQLHelper');
 
 describe('Stations', () => {
-  // Every sortable field rises with the fixture index except name, the
-  // default sort key, which lists the fixtures as 1, 0, 2.
+  // Every two sortable fields order some pair of fixtures oppositely, so a
+  // field mapped to another field's column fails a sort test. name, the
+  // default sort key, lists them as 1, 0, 3, 2; id rises with the fixture
+  // index.
   const setupQueryTestData = async () => {
+    const fixtures = [
+      // [name, max_stories_per_block, pause_seconds, created_at, updated_at]
+      ['B', 5, 2, 3, 4],
+      ['A', 3, 4, 2, 6],
+      ['D', 6, 1, 1, 7],
+      ['C', 4, 3, 0, 5]
+    ];
     const ids = [];
-    for (const [index, letter] of ['B', 'A', 'C'].entries()) {
-      const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, index + 3, index + 1);
+    const timestamps = [];
+    for (const [letter, maxStories, pauseSeconds, createdAt, updatedAt] of fixtures) {
+      const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, maxStories, pauseSeconds);
       expect(station).not.toBeNull();
       ids.push(station.id);
+      timestamps.push([station.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
-    createMySQLExecutor().setTimestamps('stations', ids.map((id, index) => [id, { created_at: index, updated_at: index }]));
+    createMySQLExecutor().setTimestamps('stations', timestamps);
     return ids;
   };
 

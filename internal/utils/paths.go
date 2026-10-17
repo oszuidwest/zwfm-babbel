@@ -2,11 +2,17 @@ package utils
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+// ProcessingDirSuffix ends the name of every per-request conversion
+// directory, so cleanup of abandoned conversions can match on it.
+const ProcessingDirSuffix = ".processing"
 
 // StoryFilename returns the canonical processed-audio filename for storyID.
 func StoryFilename(storyID int64) string {
@@ -41,4 +47,25 @@ func JinglePath(config *config.Config, stationID, voiceID int64) string {
 // BulletinPath returns the absolute filesystem path for a bulletin filename.
 func BulletinPath(config *config.Config, filename string) string {
 	return filepath.Join(config.Audio.OutputPath, filename)
+}
+
+// ProcessingPath creates a "<name>_*.processing" directory beside finalPath
+// and returns the path inside it to convert to, plus a func that removes the
+// directory and logs a failure. The path keeps finalPath's base name, so its
+// extension selects the FFmpeg muxer, and its filesystem, so the rename onto
+// finalPath is atomic. A directory per request keeps concurrent requests for
+// the same file from overwriting or removing each other's output.
+// ProcessingPath creates no file: the converter does, so its mode follows the
+// umask.
+func ProcessingPath(finalPath, name string) (string, func(), error) {
+	dir, err := os.MkdirTemp(filepath.Dir(finalPath), name+"_*"+ProcessingDirSuffix)
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() {
+		if err := os.RemoveAll(dir); err != nil {
+			logger.Error("Failed to remove audio processing directory", "path", dir, "error", err)
+		}
+	}
+	return filepath.Join(dir, filepath.Base(finalPath)), cleanup, nil
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -336,7 +335,7 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 // update must be non-nil; an empty update only restores.
 func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
 	var story *models.Story
-	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err := inTransaction(ctx, s.txManager, "Story", apperrors.OpUpdate, func(txCtx context.Context) error {
 		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID); err != nil {
 			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 		}
@@ -366,31 +365,23 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 // in the story's history. Cancelling ctx stops the conversion; publication
 // then ignores cancellation and is bounded by storyAudioPublishTimeout.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
-	// Convert beside the final file for atomic rename and WAV muxer selection.
-	// Publish in the transaction, after the row and audit writes; their failure
-	// preserves old audio. A failed rename rolls back both writes. A later
-	// commit failure leaves the new file published and may leave the database
-	// outcome unknown.
 	finalPath := utils.StoryPath(s.config, storyID)
-	// A directory per request keeps concurrent requests for this story from
-	// overwriting or removing each other's output. FFmpeg creates the file in
-	// it, so the published mode follows the umask.
-	convertedDir, err := os.MkdirTemp(filepath.Dir(finalPath), fmt.Sprintf("story_%d_*.processing", storyID))
+	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
-	defer func() {
-		if rmErr := os.RemoveAll(convertedDir); rmErr != nil {
-			logger.Error("Failed to remove temporary audio directory", "path", convertedDir, "error", rmErr)
-		}
-	}()
-	convertedPath := filepath.Join(convertedDir, utils.StoryFilename(storyID))
+	defer cleanup()
 
 	duration, err := s.audioSvc.ConvertStoryToWAV(ctx, tempPath, convertedPath)
 	if err != nil {
 		return apperrors.Audio("Story", "convert", err)
 	}
 
+	// Publish in the transaction, after the row and audit writes; their failure
+	// preserves old audio. A failed rename rolls back both writes. A later
+	// commit failure leaves the new file published and may leave the database
+	// outcome unknown.
+	//
 	// A client disconnect after the rename must not roll back the row and
 	// audit event behind the live file.
 	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)

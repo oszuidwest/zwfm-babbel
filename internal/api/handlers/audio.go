@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -27,7 +28,9 @@ type AudioConfig struct {
 	FromOutput bool
 }
 
-// ServeAudio streams a stored WAV file for the route ID.
+// ServeAudio streams a stored WAV file for the route ID. It ignores query
+// keys: the frontend adds a cache-busting v=<timestamp> after replacing the
+// audio, and no key could change which file is served.
 // Missing database records and missing files are both reported as 404 so
 // callers do not need to distinguish metadata from storage state.
 func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
@@ -42,7 +45,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 			utils.ProblemNotFound(c, "Audio file")
 			return
 		}
-		utils.ProblemInternalServer(c, "Failed to fetch record")
+		handleServiceError(c, apperrors.Database(config.TableName, apperrors.OpQuery.String(), err), "Audio file")
 		return
 	}
 
@@ -74,6 +77,7 @@ func validateAudioFile(c *gin.Context, resource string, id int64, path string) b
 			logger.Warn("Audio file missing for existing record", "resource", resource, "id", id, "path", path)
 			utils.ProblemNotFound(c, "Audio file")
 		} else {
+			logger.Error("Failed to access audio file", "error", err)
 			utils.ProblemInternalServer(c, "Failed to access audio file")
 		}
 		return false
