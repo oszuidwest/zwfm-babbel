@@ -73,9 +73,9 @@ func (r *runner) runOnce() {
 		}
 	}()
 	if err := r.fn(ctx); err != nil {
-		// Jobs run hourly or daily, so they can never fail often enough to
-		// reach the failure threshold within its window. Alert on the first
-		// failure; the per-key cooldown limits repeats of a persistent one.
+		// Immediate, not thresholded: the jobs that can fail here run hourly
+		// or daily, too rarely to reach the default failure threshold within
+		// its window. The per-key cooldown limits repeats of a persistent one.
 		r.alerts.Alert(ctx, notify.Event{
 			Key: "scheduler:" + r.name, Summary: "Scheduler job failed: " + r.name, Details: err.Error(),
 		})
