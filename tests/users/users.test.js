@@ -25,7 +25,7 @@ describe('Users', () => {
   };
 
   generateCrudTests(usersSchema);
-  generateQueryTests(usersSchema, setupQueryTestData);
+  generateQueryTests(usersSchema, setupQueryTestData, { tiedSortField: 'role' });
   generateValidationTests(usersSchema);
 
   describe('Query Validation', () => {

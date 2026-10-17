@@ -65,7 +65,7 @@ describe('Bulletins', () => {
     return ids;
   };
 
-  generateQueryTests(bulletinsSchema, setupQueryTestData);
+  generateQueryTests(bulletinsSchema, setupQueryTestData, { tiedSortField: 'station_id' });
 
   describe('Bulletin Generation', () => {
     let stationId;

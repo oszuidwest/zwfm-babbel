@@ -9,10 +9,16 @@ const { createMySQLExecutor } = require('../MySQLHelper');
  * reversed sort would pass. The default order may sort at most one of these
  * fields: an ignored sort returns that order, so it passes one direction of
  * every field the order happens to sort.
+ *
+ * Multi-field sort tests run only with tiedSortField: a sortable field with
+ * two distinct values among the fixtures, one of them shared, so the second
+ * sort key decides the order within the tie.
  * @param {Object} schema
  * @param {Function} setupFn Creates the fixtures and resolves to their ids.
+ * @param {Object} [options]
+ * @param {string} [options.tiedSortField]
  */
-function generateQueryTests(schema, setupFn) {
+function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   const { endpoint, name, query } = schema;
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
@@ -127,13 +133,24 @@ function generateQueryTests(schema, setupFn) {
           expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['sort', code]]);
         });
 
-        if (query.sortableFields.length >= 2) {
+        if (tiedSortField) {
+          if (!query.sortableFields.includes(tiedSortField)) throw new Error(`${name} tiedSortField: ${tiedSortField} is not sortable`);
+          // An API that drops the second key sends the same ORDER BY for both
+          // cases, so the ties come back in the same order and one case fails.
           test.each([
-            ['when sorting by multiple fields, then accepted', `sort=${query.sortableFields.slice(0, 2).join(',')}`],
-            ['when sorting with mixed directions, then accepted', `sort=${query.sortableFields[0]},-${query.sortableFields[1]}`]
-          ])('%s', async (_name, qs) => {
+            ['when sorting by multiple fields, then ties follow the second field', `${tiedSortField},id`, 1],
+            ['when sorting with mixed directions, then ties follow the second field', `${tiedSortField},-id`, -1]
+          ])('%s', async (_name, sort, direction) => {
             expect.hasAssertions();
-            await expectStatus(qs);
+            const response = await listFixtures(`&sort=${sort}`);
+            const keys = sortKeys(response, tiedSortField);
+            expect(keys).toHaveLength(fixtureIds.length);
+            // Two distinct keys check the first field, a shared one the second.
+            const distinct = new Set(keys).size;
+            expect(distinct).toBeGreaterThan(1);
+            expect(distinct).toBeLessThan(keys.length);
+            const rows = response.data.data.map((item, index) => ({ key: keys[index], id: item.id }));
+            expect(rows).toEqual([...rows].sort((a, b) => a.key - b.key || direction * (a.id - b.id)));
           });
         }
       });
