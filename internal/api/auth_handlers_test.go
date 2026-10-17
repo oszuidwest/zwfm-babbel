@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -70,7 +71,7 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			router, exchanges := newOAuthTestRouter(t)
+			router, exchanged := newOAuthTestRouter(t)
 			cookie, state := startOAuthFlow(t, router)
 			logs := captureLogs(t)
 
@@ -87,8 +88,7 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 			if got := recorder.Header().Get("Location"); got != wantLocation {
 				t.Fatalf("Location = %q, want %q", got, wantLocation)
 			}
-			// oauth2 may retry with another client auth style, so only count presence.
-			if got := exchanges.Load() > 0; got != tt.wantExchange {
+			if got := exchanged.Load(); got != tt.wantExchange {
 				t.Fatalf("token endpoint called = %v, want %v", got, tt.wantExchange)
 			}
 
@@ -111,10 +111,10 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 
 // newOAuthTestRouter serves the OAuth handlers against a fake OIDC provider
 // whose token endpoint always fails.
-func newOAuthTestRouter(t *testing.T) (*gin.Engine, *atomic.Int32) {
+func newOAuthTestRouter(t *testing.T) (*gin.Engine, *atomic.Bool) {
 	t.Helper()
 
-	exchanges := &atomic.Int32{}
+	exchanged := &atomic.Bool{}
 	mux := http.NewServeMux()
 	provider := httptest.NewServer(mux)
 	t.Cleanup(provider.Close)
@@ -127,7 +127,7 @@ func newOAuthTestRouter(t *testing.T) (*gin.Engine, *atomic.Int32) {
 		})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
-		exchanges.Add(1)
+		exchanged.Store(true)
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 	})
 
@@ -155,7 +155,7 @@ func newOAuthTestRouter(t *testing.T) (*gin.Engine, *atomic.Int32) {
 	router.Use(authService.SessionMiddleware())
 	router.GET("/oauth", h.StartOAuthFlow)
 	router.GET("/callback", h.HandleOAuthCallback)
-	return router, exchanges
+	return router, exchanged
 }
 
 // startOAuthFlow returns the session cookie and the state sent to the provider.
@@ -177,14 +177,20 @@ func startOAuthFlow(t *testing.T, router *gin.Engine) (*http.Cookie, string) {
 	return cookies[0], location.Query().Get("state")
 }
 
-// captureLogs sends the default slog output to a buffer for this test.
+// captureLogs sends the slog default to a JSON buffer for one test. It swaps
+// process-wide loggers, so do not use it in parallel tests.
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
-
 	var buf bytes.Buffer
-	previous := slog.Default()
+	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	// SetDefault also redirects the log package, and restoring the built-in
+	// default handler does not undo that.
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+	})
 	return &buf
 }
 
