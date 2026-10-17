@@ -39,8 +39,8 @@ type StoryServiceDeps struct {
 	TxManager             repository.TxManager
 }
 
-// storyAudioPublishTimeout bounds the publication transaction, which no longer
-// ends when the request does.
+// storyAudioPublishTimeout bounds the publication transaction, which outlives
+// the request.
 const storyAudioPublishTimeout = 10 * time.Second
 
 type storyRepository interface {
@@ -388,6 +388,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	// audit event behind the live file.
 	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)
 	defer cancel()
+	alertKey := fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 	published := false
 	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
 		if err := s.storyRepo.UpdateAudio(txCtx, storyID, repository.StoryAudioUpdate{
@@ -417,23 +418,19 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 			logger.Error("Story audio published without its database record",
 				"story_id", storyID, "path", finalPath, "error", err)
 			s.alerts.Alert(ctx, notify.Event{
-				Key:     unrecordedStoryAudioKey(storyID),
+				Key:     alertKey,
 				Summary: fmt.Sprintf("Story %d audio published without its database record", storyID),
 				Details: err.Error(),
 			})
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)
 	}
-	s.alerts.Resolve(ctx, unrecordedStoryAudioKey(storyID),
+	s.alerts.Resolve(ctx, alertKey,
 		fmt.Sprintf("Story %d audio recorded again", storyID),
 		"A later publication saved the story's audio file and history.")
 
 	logger.Info("Processed audio for story", "story_id", storyID, "filename", finalPath, "duration_s", duration)
 	return nil
-}
-
-func unrecordedStoryAudioKey(storyID int64) string {
-	return fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 }
 
 // List retrieves stories with filtering, sorting, and pagination.

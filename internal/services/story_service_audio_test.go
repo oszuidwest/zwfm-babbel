@@ -126,15 +126,6 @@ func (acceptingAudioRepository) UpdateAudio(context.Context, int64, repository.S
 
 func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *testing.T) {
 	t.Parallel()
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobePath, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
-	input := lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
 	for _, tt := range []struct {
 		name          string
 		beginFails    bool
@@ -145,15 +136,11 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
-			}}
+			service, input := newPublishAudioTestService(t)
 			cause := errors.New("connection refused")
+			service.txManager = failingTxManager{beginFails: tt.beginFails, err: cause}
 			alerts := &capturingAlerter{}
-			service := &StoryService{
-				storyRepo: acceptingAudioRepository{}, txManager: failingTxManager{beginFails: tt.beginFails, err: cause},
-				audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: alerts,
-			}
+			service.alerts = alerts
 			const storyID = 99
 
 			err := service.ProcessAudio(t.Context(), storyID, input, nil)
@@ -161,7 +148,7 @@ func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *
 			if !ok || dbErr.Resource != "Story" || dbErr.Operation != apperrors.OpUpdate.String() || !errors.Is(err, cause) {
 				t.Fatalf("ProcessAudio = %v, want a Story update database error caused by %v", err, cause)
 			}
-			finalPath := utils.StoryPath(cfg, storyID)
+			finalPath := utils.StoryPath(service.config, storyID)
 			if _, statErr := os.Stat(finalPath); (statErr == nil) != tt.wantPublished {
 				t.Fatalf("published file: %v, want published = %v", statErr, tt.wantPublished)
 			}
