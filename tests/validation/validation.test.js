@@ -126,11 +126,6 @@ describe('Malformed Query Strings', () => {
   });
 
   test('when the OAuth callback has an invalid escape in state, then 422 names query', async () => {
-    const response = await global.api.http({
-      method: 'get',
-      url: `${global.api.apiUrl}/auth/oauth/callback?state=x%ZZ&code=contract`,
-      maxRedirects: 0
-    });
-    expectMalformedQuery(response);
+    expectMalformedQuery(await global.api.apiCall('GET', '/auth/oauth/callback?state=x%ZZ&code=contract', null, { maxRedirects: 0 }));
   });
 });
