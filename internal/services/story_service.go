@@ -39,8 +39,8 @@ type StoryServiceDeps struct {
 	TxManager             repository.TxManager
 }
 
-// storyAudioPublishTimeout bounds the publication transaction, which outlives
-// the request.
+// storyAudioPublishTimeout bounds the publication transaction, which ignores
+// request cancellation.
 const storyAudioPublishTimeout = 10 * time.Second
 
 type storyRepository interface {
@@ -357,7 +357,8 @@ func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath
 }
 
 // publishAudio converts audio at tempPath and publishes it, recording action
-// in the story's history.
+// in the story's history. Cancelling ctx stops the conversion; publication
+// then ignores cancellation and is bounded by storyAudioPublishTimeout.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
 	// Convert beside the final file for atomic rename and WAV muxer selection.
 	// Publish in the transaction, after the row and audit writes; their failure
@@ -413,14 +414,15 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		}
 		if published {
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
-			// The handler's timeout log omits this cause, and its database
-			// alert waits for a threshold, so report the live file here.
-			logger.Error("Story audio published without its database record",
+			// Report the live file now and per story: on a timeout the handler
+			// logs neither this cause nor an alert, and its database alert is
+			// per route and waits for a threshold.
+			logger.Error("Story audio is live but its database record may be missing",
 				"story_id", storyID, "path", finalPath, "error", err)
 			s.alerts.Alert(ctx, notify.Event{
 				Key:     alertKey,
-				Summary: fmt.Sprintf("Story %d audio published without its database record", storyID),
-				Details: err.Error(),
+				Summary: fmt.Sprintf("Story %d audio is live but its database record may be missing", storyID),
+				Details: err.Error() + "\n\nPublish this story's audio again to record it.",
 			})
 		}
 		return apperrors.TranslateRepoErrorWithID("Story", storyID, apperrors.OpUpdate, err)

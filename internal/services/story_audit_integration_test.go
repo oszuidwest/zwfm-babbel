@@ -329,6 +329,12 @@ func newAudioIntegrationService(t *testing.T, db *gorm.DB) *StoryService {
 	return s
 }
 
+// audioFixture renders an FFmpeg lavfi source to a WAV file.
+func audioFixture(t *testing.T, s *StoryService, source string) string {
+	t.Helper()
+	return lavfiFixture(t, s.config.Audio.FFmpegPath, source)
+}
+
 // createAudioIntegrationStory creates a story without history and removes it
 // and its history on cleanup.
 func createAudioIntegrationStory(t *testing.T, db *gorm.DB, voiceID *int64) models.Story {
