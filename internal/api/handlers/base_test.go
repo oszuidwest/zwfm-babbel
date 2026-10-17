@@ -434,26 +434,38 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 }
 
 // A client that went away logs at Debug and sends no alert. The same error on
-// a live request context, for example from a server shutdown, is still a
-// database failure.
+// a live request context, for example from a server shutdown, or on a request
+// whose deadline expired, is still a database failure.
 func TestHandleServiceError_ClientCanceled(t *testing.T) {
 	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
 		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
 	tests := []struct {
-		name          string
-		cancelRequest bool
-		wantStatus    int
-		wantLevel     string
-		wantType      string
-		wantAlerts    int
+		name       string
+		requestCtx func(context.Context) (context.Context, context.CancelFunc)
+		wantStatus int
+		wantLevel  string
+		wantType   string
+		wantAlerts int
 	}{
 		{
-			name:          "canceled request",
-			cancelRequest: true,
-			wantStatus:    statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+			name: "canceled request",
+			requestCtx: func(parent context.Context) (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(parent)
+				cancel()
+				return ctx, cancel
+			},
+			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
 		},
 		{
 			name:       "live request",
+			requestCtx: context.WithCancel,
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantAlerts: 1,
+		},
+		{
+			name: "expired request deadline",
+			requestCtx: func(parent context.Context) (context.Context, context.CancelFunc) {
+				return context.WithDeadline(parent, time.Now().Add(-time.Second))
+			},
 			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error", wantAlerts: 1,
 		},
 	}
@@ -461,11 +473,8 @@ func TestHandleServiceError_ClientCanceled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logs := captureLogs(t)
 			c, rec := newProblemContext(t)
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, cancel := tt.requestCtx(t.Context())
 			defer cancel()
-			if tt.cancelRequest {
-				cancel()
-			}
 			c.Request = c.Request.WithContext(ctx)
 			alerts := &automationAlertRecorder{}
 			c.Set(alertContextKey, alerts)

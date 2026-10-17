@@ -84,8 +84,10 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	// A client that went away cancels the request context, and the database
-	// driver then returns context.Canceled. That is not a server failure.
-	if errors.Is(err, context.Canceled) && c.Request.Context().Err() != nil {
+	// driver then returns context.Canceled. That is not a server failure. An
+	// expired request deadline is not a disconnect, so it keeps the handling
+	// below.
+	if errors.Is(err, context.Canceled) && errors.Is(c.Request.Context().Err(), context.Canceled) {
 		logError(fallbackResource, "client_canceled", err)
 		c.AbortWithStatus(statusClientClosedRequest)
 		return
