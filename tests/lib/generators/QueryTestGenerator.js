@@ -1,5 +1,6 @@
 const { declaresQueryParameter, getFilterContracts, filterExamples, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
+const { unnoticedSortMappings } = require('../SortMutationModel');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -9,6 +10,9 @@ const { createMySQLExecutor } = require('../MySQLHelper');
  * reversed sort would pass. The default order may sort at most one of these
  * fields: an ignored sort returns that order, so it passes one direction of
  * every field the order happens to sort.
+ * Every two fields must also order some pair of fixtures oppositely: a field
+ * mapped to the column of a field it never contradicts can pass both
+ * directions.
  * @param {Object} schema
  * @param {Function} setupFn Creates the fixtures and resolves to their ids.
  */
@@ -122,6 +126,15 @@ function generateQueryTests(schema, setupFn) {
             return [1, -1].some(direction => sorted(keys, direction).every((key, index) => key === keys[index]));
           });
           expect(ordered.length).toBeLessThanOrEqual(1);
+        });
+
+        test('when a sortable field is mapped to another sortable column, then the fixture order exposes it', async () => {
+          expect.hasAssertions();
+          const response = await listFixtures();
+          const keysByField = Object.fromEntries(query.sortableFields.map(field => [field, sortKeys(response, field)]));
+          // The model pairs keys by position, so every field needs every fixture.
+          Object.values(keysByField).forEach(keys => expect(keys).toHaveLength(fixtureIds.length));
+          expect(unnoticedSortMappings(keysByField).map(([field, column]) => `${field} -> ${column}`)).toEqual([]);
         });
 
         test.each([
