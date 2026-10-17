@@ -141,8 +141,9 @@ function createMySQLExecutor(options = {}) {
     // rows is a list of [id, {column: seconds}]; each column becomes a base
     // one minute ago plus that many seconds; offsets under 60 stay in the
     // past. All rows share the base, so the offsets alone order them. The
-    // session runs in UTC, where no DST gap can fold the offsets into one
-    // instant. Columns left out keep their ON UPDATE behavior.
+    // session runs in UTC: in a zone with DST, a value inside the skipped
+    // hour is no valid local time and MySQL rejects the update. Columns left
+    // out keep their ON UPDATE behavior.
     setTimestamps(table, rows) {
       const tableName = sqlIdentifier(table, 'table');
       const updates = rows.map(([id, columns]) => {

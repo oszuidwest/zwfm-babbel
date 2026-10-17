@@ -102,8 +102,9 @@ function generateQueryTests(schema, setupFn) {
             expect.hasAssertions();
             const response = await listFixtures(`&sort=${sort}`);
             const keys = sortKeys(response, field);
-            // Every fixture needs a key; a missing rank or unparsable date
-            // would sort to the end unnoticed.
+            // Every fixture needs a key: a missing rank sorts to the end and an
+            // unparsable date (NaN) compares equal to everything, so either
+            // would hide a wrong order.
             expect(keys).toHaveLength(fixtureIds.length);
             expect(keys.every(Number.isFinite)).toBe(true);
             // Collation-equal strings share a rank, so the Set counts distinct
