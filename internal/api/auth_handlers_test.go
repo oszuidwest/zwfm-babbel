@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"log"
 	"log/slog"
@@ -31,19 +32,25 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 			name:        "cancelled at provider",
 			query:       url.Values{"error": {"access_denied"}, "error_description": {"User cancelled\nlevel=ERROR msg=forged"}},
 			wantLevel:   "WARN",
-			wantMessage: "OIDC login rejected: login was cancelled",
+			wantMessage: "OIDC login rejected: login was cancelled or denied at the identity provider",
 		},
 		{
-			name:        "other provider error",
-			query:       url.Values{"error": {"<script>alert(1)</script>"}},
-			wantLevel:   "WARN",
-			wantMessage: "OIDC login rejected: identity provider did not complete the login",
+			name:        "provider error that is not a user action",
+			query:       url.Values{"error": {"server_error"}, "error_description": {"<script>alert(1)</script>"}},
+			wantLevel:   "ERROR",
+			wantMessage: "Login failed; try again or contact an administrator",
 		},
 		{
 			name:        "empty provider error with code",
 			query:       url.Values{"error": {""}, "code": {"valid-code"}},
 			wantLevel:   "WARN",
-			wantMessage: "OIDC login rejected: identity provider did not complete the login",
+			wantMessage: "OIDC login rejected: invalid callback from the identity provider",
+		},
+		{
+			name:        "invalid state with provider error",
+			query:       url.Values{"state": {"forged"}, "error": {"access_denied"}},
+			wantLevel:   "WARN",
+			wantMessage: "OIDC login rejected: invalid or expired login state",
 		},
 		{
 			name:        "missing code",
@@ -67,7 +74,7 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 			cookie, state := startOAuthFlow(t, router)
 			logs := captureLogs(t)
 
-			tt.query.Set("state", state)
+			tt.query.Set("state", cmp.Or(tt.query.Get("state"), state))
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?"+tt.query.Encode(), nil)
 			request.AddCookie(cookie)
 			recorder := httptest.NewRecorder()
@@ -90,6 +97,10 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 				entry["level"] != tt.wantLevel || entry["msg"] != wantMsg[tt.wantLevel] {
 				t.Fatalf("logs = %s, want one %s %q record", logs, tt.wantLevel, wantMsg[tt.wantLevel])
 			}
+			// A rejection logs the text the user sees, which says why.
+			if tt.wantLevel == "WARN" && entry["error"] != tt.wantMessage {
+				t.Fatalf("logged error = %v, want %q", entry["error"], tt.wantMessage)
+			}
 			// The provider values are logged only when the callback has an error parameter.
 			_, wantProvider := tt.query["error"]
 			providerErr, hasErr := entry["provider_error"]
@@ -100,6 +111,23 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 					providerErr, providerDesc)
 			}
 		})
+	}
+}
+
+func TestHandleOAuthCallbackTruncatesProviderValues(t *testing.T) {
+	router, _ := newOAuthTestRouter(t)
+	cookie, state := startOAuthFlow(t, router)
+	logs := captureLogs(t)
+
+	long := strings.Repeat("x", 100_000)
+	query := url.Values{"state": {state}, "error": {long}, "error_description": {long}}
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?"+query.Encode(), nil)
+	request.AddCookie(cookie)
+	router.ServeHTTP(httptest.NewRecorder(), request)
+
+	// The bound covers every attribute, also one that would copy a provider value.
+	if logs.Len() == 0 || logs.Len() > 4*maxProviderLogBytes {
+		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*maxProviderLogBytes)
 	}
 }
 
@@ -177,7 +205,7 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
 	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	// SetDefault also redirects the log package, and restoring the built-in
 	// default handler does not undo that.
 	t.Cleanup(func() {

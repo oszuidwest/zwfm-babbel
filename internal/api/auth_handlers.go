@@ -61,24 +61,36 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
+		// The provider's values come from the query, also with an invalid state.
+		// They go only into the log, cut to a fixed length.
+		attrs := []any{"error", err}
+		if providerErr, ok := c.GetQuery("error"); ok {
+			attrs = append(attrs, "provider_error", truncateForLog(providerErr),
+				"provider_error_description", truncateForLog(c.Query("error_description")))
+		}
 		// Only login rejections are safe to show to the user.
 		message := "Login failed; try again or contact an administrator"
 		if errors.Is(err, auth.ErrLoginRejected) {
-			attrs := []any{"error", err}
-			if providerErr, ok := c.GetQuery("error"); ok {
-				attrs = append(attrs, "provider_error", providerErr,
-					"provider_error_description", c.Query("error_description"))
-			}
 			logger.Warn("OIDC login rejected", attrs...)
 			message = err.Error()
 		} else {
-			logger.Error("OIDC login failed", "error", err)
+			logger.Error("OIDC login failed", attrs...)
 		}
 		c.Redirect(http.StatusSeeOther, frontendURL+"?error="+url.QueryEscape(message))
 		return
 	}
 
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
+}
+
+// maxProviderLogBytes caps each provider value in the OIDC callback log line.
+const maxProviderLogBytes = 1024
+
+func truncateForLog(s string) string {
+	if len(s) <= maxProviderLogBytes {
+		return s
+	}
+	return s[:maxProviderLogBytes] + " (truncated)"
 }
 
 // Logout clears the current session. It is safe to call repeatedly.

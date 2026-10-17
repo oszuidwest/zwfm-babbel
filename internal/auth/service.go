@@ -343,14 +343,19 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	session.Delete(sessKeyOAuthState)
 	session.Delete(sessKeyFrontendURL)
 
-	// A cancelled or failed login at the provider is a user action, not a server
-	// fault. The provider's error values are not part of the user-facing message.
-	// An empty error parameter is not a valid success response either.
+	// access_denied means the user cancelled or the provider denied the user. Any
+	// other error code points to the provider or the client configuration (RFC
+	// 6749 section 4.1.2.1), which an administrator must see. An empty error
+	// parameter is a malformed callback, not a success response. The provider's
+	// values stay out of the error text, which the user sees for a rejection.
 	if providerErr, ok := c.GetQuery("error"); ok {
-		if providerErr == "access_denied" {
-			return fmt.Errorf("%w: login was cancelled", ErrLoginRejected)
+		switch providerErr {
+		case "access_denied":
+			return fmt.Errorf("%w: login was cancelled or denied at the identity provider", ErrLoginRejected)
+		case "":
+			return fmt.Errorf("%w: invalid callback from the identity provider", ErrLoginRejected)
 		}
-		return fmt.Errorf("%w: identity provider did not complete the login", ErrLoginRejected)
+		return fmt.Errorf("identity provider returned an error")
 	}
 	code := c.Query("code")
 	if code == "" {
