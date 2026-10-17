@@ -61,7 +61,9 @@ func (e *APIError) Error() string {
 }
 
 // TransportError reports an ElevenLabs request that failed without a response,
-// such as a DNS, connection or TLS failure.
+// such as a DNS, connection or TLS failure, or the client timeout (whose cause
+// matches context.DeadlineExceeded). The caller's own cancellation or deadline
+// is not wrapped.
 type TransportError struct {
 	Err error
 }

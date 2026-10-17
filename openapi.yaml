@@ -5198,8 +5198,9 @@ components:
             hint: "Retry the request later"
     BadGateway:
       description: |
-        Upstream service failed (`tts.upstream_failed`): ElevenLabs returned an
-        error, rejected the generated request, or returned silent audio.
+        Upstream service failed (`tts.upstream_failed`): ElevenLabs could not be
+        reached, returned an error, rejected the generated request, or returned
+        silent audio.
       content:
         application/problem+json:
           schema:

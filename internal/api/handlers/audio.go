@@ -223,13 +223,13 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 	utils.CreatedWithMessage(c, "Jingle uploaded successfully")
 }
 
-// handleAudioUploadError rejects an uploaded file that is silent or not
-// decodable audio with 422 on field, and maps any other error with
-// handleServiceError.
+// handleAudioUploadError answers an upload that is silent (stories only) or not
+// decodable audio with a 422 field error on field, and passes any other error
+// to handleServiceError.
 func handleAudioUploadError(c *gin.Context, err error, field, fallbackResource string) {
 	switch {
 	case errors.Is(err, audio.ErrSilent):
-		// The audio service already logs the rejection at Warn.
+		// Only story conversion returns ErrSilent, and it logs it at Warn.
 		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
 			Field:   field,
 			Code:    apperrors.CodeSilentAudio,

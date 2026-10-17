@@ -314,7 +314,7 @@ func assertRejectedAsSilent(t *testing.T, svc *Service, inputPath string) {
 	}
 }
 
-// conversions runs the story and jingle conversions with one signature.
+// conversions adapts the story and jingle conversions to one signature.
 func conversions(svc *Service) map[string]func(ctx context.Context, inputPath, outputPath string) error {
 	return map[string]func(ctx context.Context, inputPath, outputPath string) error{
 		"story": func(ctx context.Context, inputPath, outputPath string) error {
@@ -370,6 +370,24 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 	}
 }
 
+func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+
+	// ffprobe prints ReplayGain side data as an extra CSV field.
+	input := filepath.Join(t.TempDir(), "replaygain.flac")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
+		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-y", input)
+
+	for kind, convert := range conversions(svc) {
+		t.Run(kind, func(t *testing.T) {
+			if err := convert(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+				t.Fatalf("error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 func TestService_ConvertProcessingFailureIsNotUndecodable(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
@@ -379,22 +397,48 @@ func TestService_ConvertProcessingFailureIsNotUndecodable(t *testing.T) {
 	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", valid)
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
+	withFFprobe := func(path string) *Service {
+		return NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpegPath, FFprobePath: path}}, nil)
+	}
+	crashingFFprobe := filepath.Join(tempDir, "crashing-ffprobe")
+	// #nosec G306 - the test script must be executable
+	if err := os.WriteFile(crashingFFprobe, []byte("#!/bin/sh\nexit 2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 
-	tests := []struct {
+	type testCase struct {
 		name       string
+		svc        *Service
 		ctx        context.Context
 		inputPath  string
-		outputPath string
+		outputPath string // Default: a writable path.
 		wantErr    error
-	}{
-		{name: "unwritable output", ctx: t.Context(), inputPath: valid, outputPath: filepath.Join(tempDir, "missing", "output.wav")},
-		{name: "missing input", ctx: t.Context(), inputPath: filepath.Join(tempDir, "missing.wav"), outputPath: filepath.Join(tempDir, "output.wav")},
-		{name: "canceled request", ctx: canceled, inputPath: valid, outputPath: filepath.Join(tempDir, "output.wav"), wantErr: context.Canceled},
 	}
-	for kind, convert := range conversions(svc) {
-		for _, tt := range tests {
+	tests := []testCase{
+		{name: "unwritable output", svc: svc, ctx: t.Context(), inputPath: valid, outputPath: filepath.Join(tempDir, "missing", "output.wav")},
+		{name: "missing input", svc: svc, ctx: t.Context(), inputPath: filepath.Join(tempDir, "missing.wav")},
+		{name: "canceled request", svc: svc, ctx: canceled, inputPath: valid, wantErr: context.Canceled},
+		{name: "missing ffprobe", svc: withFFprobe(filepath.Join(tempDir, "missing-ffprobe")), ctx: t.Context(), inputPath: valid},
+		{name: "crashing ffprobe", svc: withFFprobe(crashingFFprobe), ctx: t.Context(), inputPath: valid},
+	}
+	// ffprobe also exits with status 1 for an input it may not read. Root
+	// reads the file anyway.
+	if os.Geteuid() != 0 {
+		unreadable := filepath.Join(tempDir, "unreadable.wav")
+		runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", unreadable)
+		if err := os.Chmod(unreadable, 0); err != nil {
+			t.Fatal(err)
+		}
+		tests = append(tests, testCase{name: "unreadable input", svc: svc, ctx: t.Context(), inputPath: unreadable})
+	}
+	for _, tt := range tests {
+		for kind, convert := range conversions(tt.svc) {
 			t.Run(kind+" "+tt.name, func(t *testing.T) {
-				err := convert(tt.ctx, tt.inputPath, tt.outputPath)
+				outputPath := tt.outputPath
+				if outputPath == "" {
+					outputPath = filepath.Join(t.TempDir(), "output.wav")
+				}
+				err := convert(tt.ctx, tt.inputPath, outputPath)
 				if err == nil || errors.Is(err, ErrUndecodable) {
 					t.Fatalf("error = %v, want a processing failure", err)
 				}

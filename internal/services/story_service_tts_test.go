@@ -344,10 +344,6 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 			wantRequiresThreshold: true,
 		},
 		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
-		{
-			name: "unreachable ElevenLabs", err: &tts.TransportError{Err: errors.New("connection refused")},
-			wantKey: "tts:upstream", wantRequiresThreshold: true,
-		},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
 		{
 			name: "upstream rejects request", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity},

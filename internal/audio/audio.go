@@ -42,8 +42,9 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
-// ErrUndecodable indicates input that ffprobe cannot open or that has no audio
-// stream FFmpeg can decode, such as a corrupt or non-audio file.
+// ErrUndecodable indicates input that ffprobe cannot open or parse, or in which
+// it finds no audio stream with a sample rate and channel count, such as a
+// corrupt or non-audio file.
 var ErrUndecodable = errors.New("input is not decodable audio")
 
 // loudnormStats carries first-pass measurements into the linear second pass.
@@ -131,8 +132,8 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 
 // probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
 // finds no audio stream with a sample rate and channel count. FFmpeg's exit
-// status and messages cannot tell such input apart from other failures, and
-// FFmpeg accepts a video-only input.
+// status and messages vary between versions, and its loudness pass accepts a
+// video-only input without printing stats.
 func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	// #nosec G204 - FFprobePath is from config, inputPath is internally validated
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
@@ -144,11 +145,13 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	)
 	output, err := cmd.Output()
 	if err == nil {
-		// ffprobe reports zero for both when it detected an audio stream, for
-		// example from the file extension, but could not decode any of it.
+		// ffprobe reports a zero sample rate or channel count when it detected
+		// an audio stream, for example from the file extension, but could not
+		// decode any of it. Side data such as ReplayGain adds fields after
+		// these two.
 		for line := range strings.Lines(string(output)) {
-			rate, channels, _ := strings.Cut(strings.TrimSpace(line), ",")
-			if positiveInt(rate) && positiveInt(channels) {
+			fields := strings.Split(strings.TrimSpace(line), ",")
+			if len(fields) >= 2 && positiveInt(fields[0]) && positiveInt(fields[1]) {
 				return nil
 			}
 		}
@@ -156,10 +159,13 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	}
 
 	// ffprobe exits with status 1 when it cannot open or parse its input. A
-	// canceled probe, a crash, or a missing input file is a server failure.
+	// canceled probe, a crash, or an input file the server cannot read is a
+	// server failure.
 	exitErr, ok := errors.AsType[*exec.ExitError](err)
 	if ok && exitErr.ExitCode() == 1 && ctx.Err() == nil {
-		if _, statErr := os.Stat(inputPath); statErr == nil {
+		// #nosec G304 - inputPath is internally validated
+		if f, openErr := os.Open(inputPath); openErr == nil {
+			_ = f.Close()
 			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(exitErr.Stderr))
 		}
 	}
