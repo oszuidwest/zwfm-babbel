@@ -5,15 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 type generateSpeechRequestCase struct {
@@ -144,10 +143,9 @@ func TestService_GenerateSpeech_APIErrorIncludesRetryAfter(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	var err error
-	entry := captureLogEntry(t, func() {
-		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
-	})
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	entry := decodeLogEntry(t, logs)
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
@@ -323,19 +321,19 @@ func TestLogElevenLabsResponseIncludesSafeFields(t *testing.T) {
 	header.Set(headerCurrentConcurrentRequests, "5")
 	header.Set(headerMaximumConcurrentRequests, "8")
 
-	entry := captureLogEntry(t, func() {
-		logElevenLabsResponse(
-			ContextWithStoryID(context.Background(), 99),
-			http.StatusTooManyRequests,
-			123*time.Millisecond,
-			header,
-			elevenLabsErrorDetail{
-				Type:      "rate_limit_error",
-				Code:      "concurrent_limit_exceeded",
-				RequestID: "req_123",
-			},
-		)
-	})
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	logElevenLabsResponse(
+		ContextWithStoryID(context.Background(), 99),
+		http.StatusTooManyRequests,
+		123*time.Millisecond,
+		header,
+		elevenLabsErrorDetail{
+			Type:      "rate_limit_error",
+			Code:      "concurrent_limit_exceeded",
+			RequestID: "req_123",
+		},
+	)
+	entry := decodeLogEntry(t, logs)
 
 	assertLogField(t, entry, "level", "DEBUG")
 	assertLogField(t, entry, "msg", "elevenlabs tts response")
@@ -385,10 +383,9 @@ func TestService_GenerateSpeech_APIErrorMarksTruncatedBody(t *testing.T) {
 		client:  &http.Client{Timeout: time.Second},
 	}
 
-	var err error
-	entry := captureLogEntry(t, func() {
-		_, err = service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
-	})
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	_, err := service.GenerateSpeech(context.Background(), "final text", "voice-123", Options{})
+	entry := decodeLogEntry(t, logs)
 	if err == nil {
 		t.Fatal("GenerateSpeech() error = nil, want API error")
 	}
@@ -431,49 +428,15 @@ func TestService_GenerateSpeech_EscapesVoiceIDPath(t *testing.T) {
 		t.Fatalf("escaped path = %q, want %q", capturedPath, want)
 	}
 }
-func captureLogEntry(t *testing.T, emit func()) map[string]any {
+
+// decodeLogEntry decodes the single record in logs. Unmarshal rejects an
+// empty buffer and a second record.
+func decodeLogEntry(t *testing.T, logs *bytes.Buffer) map[string]any {
 	t.Helper()
 
-	originalStdout := os.Stdout
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("create log capture pipe: %v", err)
-	}
-	defer func() {
-		os.Stdout = originalStdout
-		_ = logger.Initialize("debug", false)
-		_ = reader.Close()
-		_ = writer.Close()
-	}()
-
-	os.Stdout = writer
-	if err := logger.Initialize("debug", false); err != nil {
-		t.Fatalf("initialize capture logger: %v", err)
-	}
-
-	emit()
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("close log capture writer: %v", err)
-	}
-	os.Stdout = originalStdout
-	if err := logger.Initialize("debug", false); err != nil {
-		t.Fatalf("restore logger: %v", err)
-	}
-
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
-		t.Fatalf("read captured log: %v", err)
-	}
-
-	line := bytes.TrimSpace(buf.Bytes())
-	if len(line) == 0 {
-		t.Fatal("captured log is empty")
-	}
-
 	var entry map[string]any
-	if err := json.Unmarshal(line, &entry); err != nil {
-		t.Fatalf("decode captured log %q: %v", line, err)
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("decode captured log %q: %v", logs, err)
 	}
 	return entry
 }

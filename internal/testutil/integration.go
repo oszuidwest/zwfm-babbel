@@ -1,6 +1,5 @@
 //go:build integration
 
-// Package testutil holds helpers shared by integration tests.
 package testutil
 
 import (

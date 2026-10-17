@@ -1,32 +1,14 @@
 package services
 
 import (
-	"bytes"
 	"encoding/json"
-	"log"
 	"log/slog"
 	"testing"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
-
-// captureLogs sends the slog default to a JSON buffer for one test. It swaps
-// process-wide loggers, so do not use it in parallel tests.
-func captureLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-	return &buf
-}
 
 // A missing processed file is a storage fault: it logs at Error even though
 // the bulletin then fails with no_stories, which only logs at Warn.
@@ -36,7 +18,7 @@ func TestBulletinServiceAlertsForMissingStoryAudio(t *testing.T) {
 		config: &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir()}},
 		alerts: alerts,
 	}
-	logs := captureLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 
 	stories := []repository.BulletinStoryData{{ID: 42}}
 	got := service.filterStoriesWithMissingAudio(t.Context(), stories, 7)

@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/json"
-	"log"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 const testFrontendURL = "https://app.example.com/"
@@ -72,7 +71,7 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			router, exchanged := newOAuthTestRouter(t)
 			cookie, state := startOAuthFlow(t, router)
-			logs := captureLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelDebug)
 
 			tt.query.Set("state", cmp.Or(tt.query.Get("state"), state))
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?"+tt.query.Encode(), nil)
@@ -117,7 +116,7 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 func TestHandleOAuthCallbackTruncatesProviderValues(t *testing.T) {
 	router, _ := newOAuthTestRouter(t)
 	cookie, state := startOAuthFlow(t, router)
-	logs := captureLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 
 	long := strings.Repeat("x", 100_000)
 	query := url.Values{"state": {state}, "error": {long}, "error_description": {long}}
@@ -197,21 +196,4 @@ func startOAuthFlow(t *testing.T, router *gin.Engine) (*http.Cookie, string) {
 		t.Fatal("StartOAuthFlow set no session cookie")
 	}
 	return cookies[0], location.Query().Get("state")
-}
-
-// captureLogs sends the slog default to a JSON buffer for one test. It swaps
-// process-wide loggers, so do not use it in parallel tests.
-func captureLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-	return &buf
 }

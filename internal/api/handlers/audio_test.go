@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 // audioPathRepository returns a fixed audio lookup result.
@@ -70,7 +72,7 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logs := captureLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelDebug)
 			alerts := &automationAlertRecorder{}
 			h := &Handlers{audioRepo: tt.repo, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: processed}}}
 			router := gin.New()
@@ -105,7 +107,7 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 // A row that names a file missing on disk returns 404 and logs one Warn
 // record with the resource, id and path. It sends no alert.
 func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
-	logs := captureLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 	dir := t.TempDir()
 	h := NewHandlers(HandlersDeps{
 		AudioRepo: audioPathRepository{path: "story_7.wav"},

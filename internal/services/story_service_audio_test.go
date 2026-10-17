@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -71,7 +73,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 			alerts := &capturingAlerter{}
 			service.alerts = alerts
 
-			logs := captureLogs(t)
+			logs := testutil.CaptureLogs(t, slog.LevelInfo)
 			err := tt.run(t.Context(), service, story.ID)
 			if logs.Len() != 0 {
 				t.Fatalf("logs = %s, want none", logs)
@@ -297,7 +299,7 @@ func TestStoryService_PublishAudioTimeoutAfterRenameReportsLiveFile(t *testing.T
 	service.txManager = failingTxManager{err: cause}
 	alerts := &capturingAlerter{}
 	service.alerts = alerts
-	logs := captureLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	const storyID = 99
 	finalPath := utils.StoryPath(service.config, storyID)
 

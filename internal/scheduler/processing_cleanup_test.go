@@ -2,9 +2,9 @@ package scheduler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io/fs"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestCleanProcessingLeftovers(t *testing.T) {
@@ -26,7 +27,7 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 	old := now.Add(-48 * time.Hour)
 	dir := t.TempDir()
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 
 	tests := []struct {
 		name    string
@@ -102,14 +103,18 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 }
 
 func TestCleanProcessingLeftoversReportsMissingDirectory(t *testing.T) {
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	dir := filepath.Join(t.TempDir(), "missing")
 	service := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
 	if err := service.cleanProcessingLeftovers(time.Now()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("cleanProcessingLeftovers = %v, want ErrNotExist", err)
 	}
-	if !strings.Contains(logs.String(), "Failed to read processed audio directory") || !strings.Contains(logs.String(), dir) {
-		t.Errorf("directory failure not logged: %s", logs.String())
+	// Unmarshal rejects an empty buffer and a second record. Comparing the
+	// decoded path keeps JSON escaping out of the check.
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil ||
+		record["msg"] != "Failed to read processed audio directory" || record["path"] != dir {
+		t.Errorf("logs = %s, want one directory failure record for %s", logs, dir)
 	}
 }
 
@@ -117,7 +122,7 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root can remove files despite directory permissions")
 	}
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	dir := t.TempDir()
 	now := time.Now()
 	writeCleanupDir(t, filepath.Join(dir, "a.processing"), now.Add(-25*time.Hour))
@@ -148,7 +153,7 @@ func TestCleanProcessingLeftoversContinuesAfterRemovalFailure(t *testing.T) {
 }
 
 func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	dir := t.TempDir()
 	now := time.Now()
 	vanished := []string{"a.processing", "b.processing.wav"}
@@ -182,7 +187,7 @@ func TestCleanProcessingLeftoversSkipsVanishedEntries(t *testing.T) {
 }
 
 func TestCleanProcessingLeftoversReportsStatFailure(t *testing.T) {
-	logs := captureCleanupLogs(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	dir := t.TempDir()
 	now := time.Now()
 	failed := filepath.Join(dir, "a.processing")
@@ -202,8 +207,13 @@ func TestCleanProcessingLeftoversReportsStatFailure(t *testing.T) {
 	if !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), failed) {
 		t.Fatalf("cleanProcessingLeftovers = %v, want stat failure for %s", err, failed)
 	}
-	if !strings.Contains(logs.String(), "Failed to stat audio conversion leftover") || !strings.Contains(logs.String(), failed) {
-		t.Errorf("stat failure not logged: %s", logs.String())
+	// Comparing the decoded path keeps JSON escaping out of the check.
+	if !slices.ContainsFunc(bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")), func(line []byte) bool {
+		var record map[string]any
+		return json.Unmarshal(line, &record) == nil &&
+			record["msg"] == "Failed to stat audio conversion leftover" && record["path"] == failed
+	}) {
+		t.Errorf("stat failure not logged: %s", logs)
 	}
 	if _, err := os.Lstat(kept); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Lstat = %v, want remaining leftover removed", err)
@@ -268,21 +278,6 @@ func offlineDB(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
-}
-
-func captureCleanupLogs(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var logs bytes.Buffer
-	previous, previousWriter, previousFlags := slog.Default(), log.Writer(), log.Flags()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	// SetDefault also redirects the log package, and restoring the built-in
-	// default handler does not undo that.
-	t.Cleanup(func() {
-		slog.SetDefault(previous)
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-	})
-	return &logs
 }
 
 func writeCleanupFile(t *testing.T, path string, mtime time.Time) {
