@@ -293,7 +293,7 @@ These conditions cause an immediate alert:
 - The stories in a bulletin do not use the same voice.
 - The audio file of a story is missing, or a jingle is missing.
 - New story audio is live, but Babbel cannot confirm that its database record was saved. The next successful upload or TTS generation for that story sends the recovery.
-- Bulletin generation fails, and the cause is not a timeout.
+- Bulletin generation fails or times out, or the generated bulletin cannot be stored. The next stored bulletin for that station sends the recovery.
 - Babbel cannot read the bulletin output directory.
 - The ElevenLabs credentials are not valid.
 - The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the default failure window. While the failure continues, each run after the cooldown sends the alert again.
@@ -304,7 +304,6 @@ These conditions cause an immediate alert:
 These conditions cause a thresholded alert:
 
 - ElevenLabs sends error 429 or an upstream error, cannot be reached, or does not reply in time.
-- Bulletin generation stops because of a timeout.
 - A database request or the database connection fails.
 - Babbel cannot parse the FFmpeg loudnorm output.
 - Requests to the public bulletin endpoint use a bad automation key.

@@ -21,27 +21,41 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
-func TestBulletinGenerationTimeoutAlertsImmediatelyButShutdownDoesNot(t *testing.T) {
+// resolveJobOutcome's own test covers the classification; this pins which
+// outcomes alert and that the alert is immediate and names the cause.
+func TestBulletinGenerationAlertsOnlyRealFailures(t *testing.T) {
 	t.Parallel()
-	alerts := &capturingAlerter{}
-	s := &BulletinService{alerts: alerts}
-	s.reportGenerationFailure(t.Context(), 7, apperrors.Audio("Bulletin", "generate", context.DeadlineExceeded))
-	if len(alerts.events) != 1 || alerts.events[0].RequiresThreshold || alerts.events[0].Key != "bulletin:generation:station:7" ||
-		!strings.Contains(alerts.events[0].Details, context.DeadlineExceeded.Error()) {
-		t.Fatalf("events = %+v; want immediate timeout alert", alerts.events)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
+	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	s.reportGenerationFailure(ctx, 7, apperrors.Audio("Bulletin", "generate", context.Canceled))
-	s.reportGenerationFailure(ctx, 7, apperrors.Database("Bulletin", "create", errors.New("connection closed during shutdown")))
-	s.reportGenerationFailure(t.Context(), 7, apperrors.Database("Bulletin", "create", repository.ErrBulletinJobStateConflict))
-	if len(alerts.events) != 1 {
-		t.Fatalf("shutdown added alert: %+v", alerts.events)
-	}
-	// Deterministic audio failures stay terminal even when shutdown races them.
-	s.reportGenerationFailure(ctx, 7, apperrors.Audio("Bulletin", "generate", errors.New("read-only file system")))
-	if len(alerts.events) != 2 {
-		t.Fatalf("real audio failure was suppressed: %+v", alerts.events)
+	expired, cancelExpired := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancelExpired()
+	for _, tt := range []struct {
+		name      string
+		ctx       context.Context
+		err       error
+		wantAlert bool
+	}{
+		{"timeout", t.Context(), apperrors.Audio("Bulletin", "generate", context.DeadlineExceeded), true},
+		{"audio failure during shutdown", canceled, apperrors.Audio("Bulletin", "generate", errors.New("read-only file system")), true},
+		{"commit failure after the budget expired", expired, apperrors.Database("Bulletin", "create", errors.New("invalid connection")), true},
+		{"shutdown", canceled, apperrors.Database("Bulletin", "create", errors.New("connection closed during shutdown")), false},
+		{"job state conflict", t.Context(), apperrors.Database("Bulletin", "create", repository.ErrBulletinJobStateConflict), false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			alerts := &capturingAlerter{}
+			(&BulletinService{alerts: alerts}).reportGeneration(tt.ctx, 7, tt.err)
+			if !tt.wantAlert {
+				if len(alerts.events) != 0 {
+					t.Fatalf("events = %+v; want none", alerts.events)
+				}
+				return
+			}
+			if len(alerts.events) != 1 || alerts.events[0].RequiresThreshold || alerts.events[0].Key != "bulletin:generation:station:7" ||
+				!strings.Contains(alerts.events[0].Details, errors.Unwrap(tt.err).Error()) {
+				t.Fatalf("events = %+v; want one immediate alert naming the cause", alerts.events)
+			}
+		})
 	}
 }
 

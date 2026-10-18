@@ -129,7 +129,7 @@ func (s *BulletinService) create(
 
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
-		s.reportGenerationFailure(ctx, stationID, err)
+		s.reportGeneration(ctx, stationID, err)
 		return 0, err
 	}
 
@@ -283,25 +283,35 @@ func (s *BulletinService) saveBulletinToDatabase(
 			return 0, apperrors.TranslateRepoError("Bulletin", apperrors.OpCreate, err)
 		}
 		dbErr := apperrors.Database("Bulletin", apperrors.OpCreate.String(), err)
-		s.reportGenerationFailure(ctx, params.StationID, dbErr)
+		s.reportGeneration(ctx, params.StationID, dbErr)
 		return 0, dbErr
 	}
 
-	notify.OrDiscard(s.alerts).Resolve(ctx, fmt.Sprintf("bulletin:generation:station:%d", params.StationID),
-		fmt.Sprintf("Bulletin generation recovered for station %d", params.StationID), "Bulletin audio was generated and stored successfully again.")
+	s.reportGeneration(ctx, params.StationID, nil)
 	return bulletinID, nil
 }
 
-func (s *BulletinService) reportGenerationFailure(ctx context.Context, stationID int64, err error) {
-	if outcome := resolveJobOutcome(ctx, err); outcome == jobInterrupted || outcome == jobConflict {
-		return // Match worker interruption policy, including canceled driver connections.
+// reportGeneration alerts on a failed generation and resolves the incident
+// once a bulletin is stored.
+func (s *BulletinService) reportGeneration(ctx context.Context, stationID int64, err error) {
+	key := fmt.Sprintf("bulletin:generation:station:%d", stationID)
+	if err == nil {
+		s.alerts.Resolve(ctx, key, fmt.Sprintf("Bulletin generation recovered for station %d", stationID),
+			"Bulletin audio was generated and stored successfully again.")
+		return
+	}
+	// Shutdown or a client cancel is no generation failure, an expired budget
+	// is: a commit can then fail with a bare "invalid connection".
+	if outcome := resolveJobOutcome(ctx, err); outcome == jobConflict ||
+		outcome == jobInterrupted && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return
 	}
 	details := err.Error()
 	if cause := errors.Unwrap(err); cause != nil {
 		details += ": " + cause.Error()
 	}
-	notify.OrDiscard(s.alerts).Alert(ctx, notify.Event{
-		Key:     fmt.Sprintf("bulletin:generation:station:%d", stationID),
+	s.alerts.Alert(ctx, notify.Event{
+		Key:     key,
 		Summary: fmt.Sprintf("Bulletin generation failed for station %d", stationID), Details: details,
 	}) // Immediate: an hourly station cannot reach a short-window threshold.
 }
