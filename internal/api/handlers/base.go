@@ -75,6 +75,9 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Timeouts take precedence over wrapped domain errors.
 	if errors.Is(err, context.DeadlineExceeded) {
 		logger.Error("Request timeout", "error", err)
+		if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+			alertAudioFailure(c, audioError) // For example a hung ffprobe.
+		}
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
 			apperrors.CodeTimeout,
@@ -188,17 +191,26 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	)
 }
 
+// alertAudioFailure counts a server-side upload processing failure toward the
+// route's audio incident. Bulletin generation (bulletin:generation:*) and TTS
+// synthesis (tts:*) alert in their services.
+func alertAudioFailure(c *gin.Context, audioError *apperrors.AudioError) {
+	if audioError.Resource == "Bulletin" || audioError.Operation == "tts_generate" {
+		return
+	}
+	alertRequestFailure(c, notify.Event{
+		Key:               audioAlertKeyPrefix + utils.RouteKey(c),
+		Summary:           "Audio processing requests repeatedly fail",
+		Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), audioError.Resource, audioError.Unwrap()),
+		RequiresThreshold: true,
+	})
+}
+
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
-		if audioError.Resource != "Bulletin" && audioError.Operation != "tts_generate" {
-			alertRequestFailure(c, notify.Event{
-				Key: audioAlertKeyPrefix + utils.RouteKey(c), Summary: "Audio processing requests repeatedly fail",
-				Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), audioError.Resource, audioError.Unwrap()),
-				RequiresThreshold: true,
-			})
-		}
+		alertAudioFailure(c, audioError)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			apperrors.CodeAudioProcessingFailed,

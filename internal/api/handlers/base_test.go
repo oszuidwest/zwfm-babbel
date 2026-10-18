@@ -171,6 +171,20 @@ func TestHandleServiceErrorAlertsOnlyOperationalFailures(t *testing.T) {
 			name: "not found does not alert",
 			err:  apperrors.NotFoundWithID("Story", 9),
 		},
+		{
+			name:       "upload audio failure alerts",
+			err:        apperrors.Audio("StationVoice", "finalize", errors.New("read-only file system")),
+			wantEvents: 1,
+			wantKey:    "audio:request:POST unmatched",
+		},
+		{
+			name:       "upload audio timeout alerts",
+			err:        apperrors.Audio("Story", "probe", fmt.Errorf("ffprobe: %w", context.DeadlineExceeded)),
+			wantEvents: 1,
+			wantKey:    "audio:request:POST unmatched",
+		},
+		{name: "bulletin audio alerts in its service", err: apperrors.Audio("Bulletin", "generate", errors.New("ffmpeg failed"))},
+		{name: "TTS audio alerts in its service", err: apperrors.Audio("Story", "tts_generate", errors.New("provider failed"))},
 	}
 
 	for _, tt := range tests {
@@ -347,6 +361,11 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			name:       "deleted story",
 			respond:    serviceError(&repository.StoryDeletedError{ID: 1}),
 			wantStatus: http.StatusGone, wantLevel: "DEBUG", wantType: "deleted",
+		},
+		{
+			name:       "canceled audio upload",
+			respond:    endRequest(context.WithCancel, apperrors.Audio("Story", "convert", context.Canceled)),
+			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
 		},
 		{
 			name:       "client disconnect",
