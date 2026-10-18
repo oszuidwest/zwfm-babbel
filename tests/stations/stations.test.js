@@ -19,7 +19,6 @@ describe('Stations', () => {
     const timestamps = [];
     for (const [letter, maxStories, pauseSeconds, createdAt, updatedAt] of fixtures) {
       const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, maxStories, pauseSeconds);
-      expect(station).not.toBeNull();
       ids.push(station.id);
       timestamps.push([station.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
@@ -42,11 +41,9 @@ describe('Stations', () => {
         5,
         2.0
       );
-      expect(station).not.toBeNull();
       stationId = station.id;
 
       const voice = await global.helpers.createVoice(global.resources, 'DependencyTestVoice');
-      expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 

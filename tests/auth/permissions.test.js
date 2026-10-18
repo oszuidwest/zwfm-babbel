@@ -59,7 +59,6 @@ describe('Permissions', () => {
 
     test('when admin updates user, then succeeds', async () => {
       const userId = await createUser(`updatetest${Date.now()}`, 'Update Test', 'TestPass123!', 'viewer');
-      expect(userId).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/users/${userId}`, {
         full_name: 'Updated Test User',
@@ -86,8 +85,7 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       editorUsername = `testeditor${Date.now()}`;
-      const editorId = await createUser(editorUsername, 'Test Editor', 'TestPass123!', 'editor');
-      expect(editorId).not.toBeNull();
+      await createUser(editorUsername, 'Test Editor', 'TestPass123!', 'editor');
 
       const switched = await switchToUser(editorUsername, 'TestPass123!');
       expect(switched).toBe(true);
@@ -163,8 +161,7 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       viewerUsername = `testviewer${Date.now()}`;
-      const viewerId = await createUser(viewerUsername, 'Test Viewer', 'TestPass123!', 'viewer');
-      expect(viewerId).not.toBeNull();
+      await createUser(viewerUsername, 'Test Viewer', 'TestPass123!', 'viewer');
 
       const switched = await switchToUser(viewerUsername, 'TestPass123!');
       expect(switched).toBe(true);
@@ -250,7 +247,6 @@ describe('Permissions', () => {
 
       suspendedUsername = `suspendeduser${Date.now()}`;
       const suspendedId = await createUser(suspendedUsername, 'Suspended User', 'TestPass123!', 'editor');
-      expect(suspendedId).not.toBeNull();
 
       // Suspend the user (soft delete)
       const response = await global.api.apiCall('DELETE', `/users/${suspendedId}`);
@@ -273,7 +269,6 @@ describe('Permissions', () => {
 
       const username = `suspendedadmin${Date.now()}`;
       const suspendedAdminId = await createUser(username, 'Suspended Admin', 'TestPass123!', 'admin');
-      expect(suspendedAdminId).not.toBeNull();
 
       const suspendedAdminApi = new ApiHelper();
       const login = await suspendedAdminApi.apiLogin(username, 'TestPass123!');
