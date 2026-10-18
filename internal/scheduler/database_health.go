@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
@@ -14,12 +15,19 @@ import (
 // /health endpoint use it, so one connection loss produces one alert/recovery
 // pair regardless of which path observes it first.
 func CheckDatabase(ctx context.Context, db *gorm.DB, alerts notify.Alerter) error {
+	return checkDatabase(ctx, db, alerts, false)
+}
+
+func checkDatabase(ctx context.Context, db *gorm.DB, alerts notify.Alerter, ignoreCancellation bool) error {
 	alerts = notify.OrDiscard(alerts)
 	sqlDB, err := db.DB()
 	if err == nil {
 		err = sqlDB.PingContext(ctx)
 	}
 	if err != nil {
+		if ignoreCancellation && errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) {
+			return err
+		}
 		logger.Error("Database health check failed", "error", err)
 		alerts.Alert(ctx, notify.Event{
 			Key: "database:connection", Summary: "Database connection repeatedly fails", Details: err.Error(),
@@ -56,6 +64,6 @@ func (s *DatabaseHealthService) Stop() { s.runner.Stop() }
 func (s *DatabaseHealthService) check(ctx context.Context) error {
 	// CheckDatabase alerts under the shared "database:connection" key; always
 	// return nil so the runner does not raise a duplicate generic alert.
-	_ = CheckDatabase(ctx, s.db, s.alerts)
+	_ = checkDatabase(ctx, s.db, s.alerts, true)
 	return nil
 }
