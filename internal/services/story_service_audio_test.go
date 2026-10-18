@@ -57,7 +57,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(), TempPath: t.TempDir(),
 			}}
 			story := storyForTTSTest("News bulletin")
 			story.AudioFile = utils.StoryFilename(story.ID)
@@ -439,7 +439,7 @@ func newPublishAudioTestService(t *testing.T) *StoryService {
 		t.Skip("ffprobe not available")
 	}
 	cfg := &config.Config{Audio: config.AudioConfig{
-		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(), TempPath: t.TempDir(),
 	}}
 	return &StoryService{
 		storyRepo: acceptingAudioRepository{}, audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: notify.Discard,
@@ -458,7 +458,7 @@ func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
 	}
 	story := storyForTTSTest("news")
 	service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: []byte("not audio")})
-	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
+	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), TempPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
 	service.audioSvc = audio.NewService(service.config, nil)
 	alerts := &capturingAlerter{}
 	service.alerts = alerts
