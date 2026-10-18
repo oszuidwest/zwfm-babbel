@@ -15,6 +15,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 const testFrontendURL = "https://app.example.com/"
@@ -109,7 +110,22 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 				t.Fatalf("logged provider_error = %v, provider_error_description = %v, want the query values only when error is set",
 					providerErr, providerDesc)
 			}
+
+			assertReplayRejected(t, router, request, exchanged)
 		})
+	}
+}
+
+// assertReplayRejected replays a callback, whose state was either consumed or
+// never matched, and expects a rejection before the token exchange.
+func assertReplayRejected(t *testing.T, router *gin.Engine, callback *http.Request, exchanged *atomic.Bool) {
+	t.Helper()
+	exchanged.Store(false)
+	replay := httptest.NewRecorder()
+	router.ServeHTTP(replay, callback.Clone(t.Context()))
+	want := testFrontendURL + "?error=" + url.QueryEscape("OIDC login rejected: invalid or expired login state")
+	if got := replay.Header().Get("Location"); got != want || exchanged.Load() {
+		t.Fatalf("replay: Location = %q, exchanged = %v; want the state rejected before the exchange", got, exchanged.Load())
 	}
 }
 
@@ -125,8 +141,29 @@ func TestHandleOAuthCallbackTruncatesProviderValues(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), request)
 
 	// The bound covers every attribute, also one that would copy a provider value.
-	if logs.Len() == 0 || logs.Len() > 4*maxProviderLogBytes {
-		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*maxProviderLogBytes)
+	if logs.Len() == 0 || logs.Len() > 4*logger.MaxValueBytes {
+		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*logger.MaxValueBytes)
+	}
+}
+
+func TestStartOAuthFlowBoundsRejectedFrontendLog(t *testing.T) {
+	router, _ := newOAuthTestRouter(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	value := "https://untrusted.example/" + strings.Repeat("x", 1<<20)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth?frontend_url="+url.QueryEscape(value), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("status = %d, want redirect", rec.Code)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	logged, ok := record["url"].(string)
+	if !ok || logged != value[:logger.MaxValueBytes]+" (truncated)" || record["url_bytes"] != float64(len(value)) ||
+		record["level"] != "WARN" || record["msg"] != "Rejected invalid frontend_url" {
+		t.Fatalf("logged URL length = %d, url_bytes = %v; want a bounded prefix and original length", len(logged), record["url_bytes"])
 	}
 }
 

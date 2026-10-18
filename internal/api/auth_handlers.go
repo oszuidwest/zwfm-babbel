@@ -18,6 +18,7 @@ type AuthHandlers struct {
 	authService *auth.Service
 	frontendURL string
 	handlers    *handlers.Handlers
+	permissions func(string) (auth.PermissionSet, error)
 }
 
 // NewAuthHandlers uses frontendURL as the default OAuth callback redirect.
@@ -26,6 +27,7 @@ func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.
 		authService: authService,
 		frontendURL: frontendURL,
 		handlers:    h,
+		permissions: authService.EffectivePermissions,
 	}
 }
 
@@ -56,6 +58,9 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
 	if frontendURL == "" {
+		// Config validation requires BABBEL_FRONTEND_URL for OIDC, so this is a
+		// callback while OIDC is disabled; the route is public, hence Warn.
+		logger.Warn("OIDC callback has no frontend URL; OIDC is disabled or BABBEL_FRONTEND_URL is not set")
 		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
 	}
@@ -65,8 +70,8 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		// They go only into the log, cut to a fixed length.
 		attrs := []any{"error", err}
 		if providerErr, ok := c.GetQuery("error"); ok {
-			attrs = append(attrs, "provider_error", truncateForLog(providerErr),
-				"provider_error_description", truncateForLog(c.Query("error_description")))
+			attrs = append(attrs, "provider_error", logger.TruncateValue(providerErr),
+				"provider_error_description", logger.TruncateValue(c.Query("error_description")))
 		}
 		// Only login rejections are safe to show to the user.
 		message := "Login failed; try again or contact an administrator"
@@ -83,16 +88,6 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
 }
 
-// maxProviderLogBytes caps each provider value in the OIDC callback log line.
-const maxProviderLogBytes = 1024
-
-func truncateForLog(s string) string {
-	if len(s) <= maxProviderLogBytes {
-		return s
-	}
-	return s[:maxProviderLogBytes] + " (truncated)"
-}
-
 // Logout clears the current session. It is safe to call repeatedly.
 func (h *AuthHandlers) Logout(c *gin.Context) {
 	if err := h.authService.Logout(c); err != nil {
@@ -104,6 +99,9 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 
 // GetCurrentUser returns the authenticated user's profile and effective permissions.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	userID, ok := auth.UserID(c)
 	if !ok {
 		utils.ProblemAuthentication(c, "Not authenticated")
@@ -115,8 +113,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		utils.ProblemAuthentication(c, "Invalid session")
 		return
 	}
-	permissions, err := h.authService.EffectivePermissions(role)
+	permissions, err := h.permissions(role)
 	if err != nil {
+		logger.Error("Failed to resolve current user permissions", "role", role, "error", err)
 		utils.ProblemInternalServer(c, "Failed to resolve permissions")
 		return
 	}
@@ -126,6 +125,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 
 // GetAuthConfig returns enabled login methods and the OAuth URL, if enabled.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},
 	}

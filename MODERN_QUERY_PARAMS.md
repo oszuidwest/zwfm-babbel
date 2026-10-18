@@ -30,13 +30,15 @@ GET /api/v1/stories?page=2&per_page=10  # 422, one error each for "page" and "pe
 ```
 
 `GET /{resource}/{id}` endpoints, such as `/stations/{id}`, and
-`/stations/{id}/bulletins/latest` read no query keys and reject every key the
-same way, even with an empty value and including list options. The `/audio` downloads ignore query keys, so
+`/stations/{id}/bulletins/latest`, `/settings/tts`, `/settings/tts/pronunciations`,
+`/sessions/current` and `/auth/config` read no query keys and reject every key the
+same way, even with an empty value and including list options. `/health` and the `/audio` downloads ignore query keys, so
 a cache-busting key such as `v=2` still returns the file.
 
 ```http
 GET /api/v1/stations/1?fields=name      # 422, errors[0].field = "fields", code "unknown_field"
 GET /api/v1/stories/1?trashed=with      # 422, field "trashed"
+GET /api/v1/settings/tts?fields=x      # 422, field "fields"
 ```
 
 Malformed URL encoding or an unescaped semicolon returns 422 with field `query`
@@ -46,6 +48,11 @@ them in sorted order; a repeated unknown key reports as
 `unknown_field`, not `duplicate`. `/stations/{id}/bulletins` answers the
 removed `latest` key with `unsupported` and a `detail` that points to
 `/stations/{id}/bulletins/latest`.
+
+Nested lists validate query syntax before checking whether their parent exists.
+The non-list `force`, automation `key` and `max_age` parameters accept only one
+value each; repeating one returns 422 with code `duplicate` and that key as
+the field. OAuth redirect parameters are unchanged.
 
 ## Modern Query Parameter Formats
 

@@ -12,12 +12,15 @@ const createUser = async (username, fullName, password, role) => {
   } else if (response.status === 409) {
     // User already exists, find it
     const userResponse = await global.api.apiCall('GET', '/users');
+    if (userResponse.status !== 200) {
+      throw new Error(`Fixture GET /users failed: HTTP ${userResponse.status}; body ${JSON.stringify(userResponse.data)}`);
+    }
     if (userResponse.status === 200 && userResponse.data.data) {
       const user = userResponse.data.data.find(u => u.username === username);
       if (user) return user.id;
     }
   }
-  return null;
+  throw new Error(`Fixture POST /users failed: HTTP ${response.status}; body ${JSON.stringify(response.data)}`);
 };
 
 const switchToUser = async (username, password) => {

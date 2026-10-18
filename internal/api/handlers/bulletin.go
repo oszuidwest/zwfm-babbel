@@ -145,12 +145,7 @@ var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
 // serveAudioFile serves a download with range and conditional request support.
 // It handles the response and returns file access or delivery errors, including
 // errUnverifiedDelivery when the writer does not support flushing.
-func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
-	info, err := file.Stat()
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to access audio file")
-		return err
-	}
+func serveAudioFile(c *gin.Context, file *os.File, info os.FileInfo, filename string, bulletinID int64, cached bool) error {
 	if !validateAudioRange(c, info.Size()) {
 		return nil
 	}
@@ -189,6 +184,10 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	if !ok {
 		return
 	}
+	limit, offset, ok := utils.ParsePaginationOnly(c)
+	if !ok {
+		return
+	}
 
 	exists, err := h.bulletinSvc.Exists(c.Request.Context(), bulletinID)
 	if err != nil {
@@ -197,11 +196,6 @@ func (h *Handlers) GetBulletinStories(c *gin.Context) {
 	}
 	if !exists {
 		utils.ProblemNotFound(c, "Bulletin")
-		return
-	}
-
-	limit, offset, ok := utils.ParsePaginationOnly(c)
-	if !ok {
 		return
 	}
 
@@ -221,10 +215,6 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 		return
 	}
 
-	if !h.requireStation(c, stationID) {
-		return
-	}
-
 	if _, present := c.GetQuery("latest"); present {
 		utils.ProblemQueryValidation(c, "Use /stations/{id}/bulletins/latest for a single bulletin", apperrors.FieldError{
 			Field: "latest", Code: apperrors.CodeUnsupported, Message: "parameter is no longer supported on the list endpoint",
@@ -234,6 +224,9 @@ func (h *Handlers) GetStationBulletins(c *gin.Context) {
 
 	params, ok := utils.ParseListQuery(c)
 	if !ok {
+		return
+	}
+	if !h.requireStation(c, stationID) {
 		return
 	}
 
@@ -307,6 +300,10 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	if !ok {
 		return
 	}
+	params, ok := utils.ParseListQuery(c)
+	if !ok {
+		return
+	}
 
 	exists, err := h.storySvc.Exists(c.Request.Context(), storyID)
 	if err != nil {
@@ -315,11 +312,6 @@ func (h *Handlers) GetStoryBulletinHistory(c *gin.Context) {
 	}
 	if !exists {
 		utils.ProblemNotFound(c, "Story")
-		return
-	}
-
-	params, ok := utils.ParseListQuery(c)
-	if !ok {
 		return
 	}
 

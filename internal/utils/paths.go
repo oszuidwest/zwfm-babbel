@@ -24,6 +24,17 @@ func JingleFilename(stationID, voiceID int64) string {
 	return fmt.Sprintf("station_%d_voice_%d_jingle.wav", stationID, voiceID)
 }
 
+// ParseJingleFilename returns the station/voice pair filename is named after.
+// ok is false unless JingleFilename returns filename for that pair, so a name
+// with a directory or any other shape never parses.
+func ParseJingleFilename(filename string) (stationID, voiceID int64, ok bool) {
+	if _, err := fmt.Sscanf(filename, "station_%d_voice_%d_jingle.wav", &stationID, &voiceID); err != nil ||
+		stationID <= 0 || voiceID <= 0 || JingleFilename(stationID, voiceID) != filename {
+		return 0, 0, false
+	}
+	return stationID, voiceID, true
+}
+
 // BulletinFilename returns the output filename for a generated station bulletin.
 func BulletinFilename(stationID int64, timestamp time.Time) string {
 	return fmt.Sprintf("bulletin_%d_%s.wav", stationID, timestamp.Format("20060102_150405.000000000"))

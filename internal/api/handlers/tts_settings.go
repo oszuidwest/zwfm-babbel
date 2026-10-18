@@ -23,6 +23,9 @@ type TTSSettingsResponse struct {
 
 // GetTTSSettings returns the singleton settings used for generated story audio.
 func (h *Handlers) GetTTSSettings(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	settings, err := h.ttsSettingsSvc.Get(c.Request.Context())
 	if err != nil {
 		handleServiceError(c, err, "TTSSettings")

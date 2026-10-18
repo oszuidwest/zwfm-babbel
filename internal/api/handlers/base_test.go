@@ -267,6 +267,9 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 	}
 	canceledQuery := apperrors.TranslateRepoError("Story", apperrors.OpQuery,
 		repository.ParseDBError(fmt.Errorf("query: %w", context.Canceled)))
+	// Driver text names the key or constraint for the log.
+	duplicateKey := repository.ParseDBError(errors.New("Duplicate entry 'Zuid' for key 'stations.name'"))
+	blockedDelete := repository.ParseDBError(errors.New("Cannot delete or update a parent row: a foreign key constraint fails (`babbel`.`stories`)"))
 	// endRequest ends the request context with end before it maps err.
 	endRequest := func(end func(context.Context) (context.Context, context.CancelFunc), err error) func(*gin.Context) {
 		return func(c *gin.Context) {
@@ -330,8 +333,8 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		},
 		{
 			name:       "dependency blocks delete",
-			respond:    serviceError(apperrors.TranslateRepoError("Voice", apperrors.OpDelete, repository.ErrForeignKeyViolation)),
-			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "has_dependencies",
+			respond:    serviceError(apperrors.TranslateRepoError("Voice", apperrors.OpDelete, blockedDelete)),
+			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "has_dependencies", wantCause: blockedDelete.Error(),
 		},
 		{
 			name:       "body validation",
@@ -403,9 +406,21 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			wantStatus: http.StatusServiceUnavailable, wantLevel: "ERROR", wantType: "not_initialized", wantCause: repository.ErrSchemaUnavailable.Error(),
 		},
 		{
+			name:       "duplicate from the database",
+			respond:    serviceError(apperrors.TranslateRepoError("Station", apperrors.OpCreate, duplicateKey)),
+			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "duplicate", wantCause: duplicateKey.Error(),
+		},
+		{
+			// A server failure logs the driver's key name at Error.
+			name:       "duplicate in a server failure",
+			respond:    serviceError(apperrors.Database("Bulletin", "create", duplicateKey)),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error",
+			wantCause: "duplicate key violation: Duplicate entry 'Zuid' for key 'stations.name'", wantAlerts: 1,
+		},
+		{
 			name:       "timeout",
 			respond:    serviceError(context.DeadlineExceeded),
-			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR",
+			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR", wantType: "timeout", wantCause: context.DeadlineExceeded.Error(),
 		},
 		{
 			name:       "unhandled error",
