@@ -24,13 +24,6 @@ function getSearchFields(endpoint) {
   return fields;
 }
 
-function assertSearchFields(endpoint, fields = []) {
-  const expected = getSearchFields(endpoint);
-  if (JSON.stringify(fields.toSorted()) !== JSON.stringify(expected.toSorted())) {
-    throw new Error(`${endpoint} searchFields ${JSON.stringify(fields)} differ from OpenAPI x-search-fields ${JSON.stringify(expected)}`);
-  }
-}
-
 function getJsonRequestSchema(endpoint, method = 'post') {
   const operation = document.paths[`/api/v1${endpoint}`]?.[method];
   const schema = operation?.requestBody?.content?.['application/json']?.schema;
@@ -132,7 +125,6 @@ function invalidFilterCases(contract) {
 
 module.exports = {
   getSearchFields,
-  assertSearchFields,
   declaresQueryParameter,
   getFilterContracts,
   getJsonRequestSchema,

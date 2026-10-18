@@ -13,17 +13,17 @@ describe('Users', () => {
     const stamp = `${Date.now()}${process.pid}`;
     const fixtures = [
       // [username, full_name, role, created_at, updated_at]
-      ['b', 'B', 'viewer', 3, 4],
-      ['a', 'C', 'editor', 2, 6],
+      ['b', 'B', 'viewer', 2, 4],
+      ['a', 'C', 'editor', 0, 6],
       ['d', 'D', 'viewer', 1, 7],
-      ['c', 'A', 'editor', 0, 5]
+      ['c', 'A', 'editor', 3, 5]
     ];
     const ids = [];
     const timestamps = [];
-    for (const [letter, fullName, role, createdAt, updatedAt] of fixtures) {
+    for (const [index, [letter, fullName, role, createdAt, updatedAt]] of fixtures.entries()) {
       const response = await global.api.apiCall('POST', '/users', {
         ...usersSchema.createValidData(),
-        username: `querysort${letter}${stamp}`,
+        username: `querysort${letter}${index < 3 ? 'querykeep' : 'querydrop'}${stamp}`,
         full_name: `Query Sort ${fullName}`,
         role
       });

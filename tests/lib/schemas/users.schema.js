@@ -16,7 +16,6 @@ module.exports = {
   }),
 
   query: {
-    searchFields: ['username', 'full_name'],
     sortableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at'],
     filterableFields: ['id', 'username', 'role'],
     selectableFields: ['id', 'username', 'full_name', 'role', 'created_at', 'updated_at']

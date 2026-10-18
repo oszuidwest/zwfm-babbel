@@ -46,3 +46,14 @@ does), because it reads the stored local times in that zone. It converts
 from local time to UTC; running it twice shifts them twice. It also succeeds
 on databases created from the current `001` snapshot, where those columns
 already hold UTC, so do not apply it there: it would shift them again.
+
+Stop Babbel, apply `016_clear_moved_jingles.sql` once, remove the files it
+lists, then start Babbel. Apply it only after deploying a Babbel version that
+refuses pair changes on a station-voice with a jingle and jingle uploads whose
+pair changed. It clears `audio_file` on rows that store a jingle named after a
+pair they no longer have; bulletins never played those files. Its first result
+lists the files no station-voice owns afterwards: save it, because a second
+run lists nothing, and remove those files from the processed audio directory
+by hand before Babbel starts again, since a running Babbel can recreate the
+pair and upload a jingle under the same name. Running it again changes
+nothing.
