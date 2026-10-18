@@ -120,7 +120,7 @@ describe('Bulletins', () => {
     test('when breaking stories exceed available slots, then bulletin includes only breaking stories', async () => {
       const { station, voice } = await createStationVoiceFixture('BreakingPriorityStation', 'BreakingPriorityVoice', 2);
 
-      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.requireStoriesWithReadyAudio(
+      const [breakingStoryA, breakingStoryB, regularStory] = await global.helpers.createStoriesWithAudio(
         global.resources,
         voice.id,
         [
@@ -147,7 +147,7 @@ describe('Bulletins', () => {
       // Station with 3 slots, 1 breaking + 4 non-breaking stories
       const { station, voice } = await createStationVoiceFixture('BreakingAlwaysStation', 'BreakingAlwaysVoice', 3);
 
-      const [breakingStory] = await global.helpers.requireStoriesWithReadyAudio(
+      const [breakingStory] = await global.helpers.createStoriesWithAudio(
         global.resources,
         voice.id,
         [{
@@ -159,7 +159,7 @@ describe('Bulletins', () => {
 
       const regularStoryIds = [];
       for (let i = 0; i < 4; i++) {
-        const [story] = await global.helpers.requireStoriesWithReadyAudio(global.resources, voice.id, [{
+        const [story] = await global.helpers.createStoriesWithAudio(global.resources, voice.id, [{
           title: `BreakingAlwaysRegular${i}_${Date.now()}`,
           text: `Regular story ${i}`,
           is_breaking: false
@@ -195,7 +195,7 @@ describe('Bulletins', () => {
       const todayBit = 1 << new Date().getDay();
       const wrongWeekdays = 127 ^ todayBit; // all days except today
       const [draftBreaking, expiredBreaking, wrongDayBreaking, eligibleStory] =
-        await global.helpers.requireStoriesWithReadyAudio(global.resources, voice.id, [
+        await global.helpers.createStoriesWithAudio(global.resources, voice.id, [
           { title: `BreakingDraft_${Date.now()}`, text: 'Breaking but draft', status: 'draft', is_breaking: true },
           {
             title: `BreakingExpired_${Date.now()}`,
@@ -232,7 +232,7 @@ describe('Bulletins', () => {
       const date = daysFromToday => new Date(Date.now() + daysFromToday * 86400000).toISOString().slice(0, 10);
       const endDate = date(365);
 
-      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.requireStoriesWithReadyAudio(
+      const [oldBreaking, midBreaking, newBreaking] = await global.helpers.createStoriesWithAudio(
         global.resources,
         voice.id,
         [

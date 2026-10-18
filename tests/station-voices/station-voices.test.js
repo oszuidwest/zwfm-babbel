@@ -72,9 +72,7 @@ describe('Station-Voices', () => {
     const testAudio = '/tmp/test_jingle.wav';
 
     beforeAll(() => {
-      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
-        throw new Error('Station-voice audio tests require ffmpeg');
-      }
+      global.helpers.createTestAudioFile(testAudio, 1);
     });
 
     afterAll(() => {

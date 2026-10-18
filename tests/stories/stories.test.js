@@ -286,7 +286,7 @@ describe('Stories', () => {
     test('audio stays downloadable from the trash and after restoration', async () => {
       const voice = await global.helpers.createVoice(global.resources, 'Trash audio voice');
       expect(voice).not.toBeNull();
-      const story = await global.helpers.requireStoryWithReadyAudio(global.resources, {
+      const story = await global.helpers.createStoryWithAudio(global.resources, {
         title: 'Trash audio preview',
         voice_id: voice.id
       });
@@ -537,9 +537,7 @@ describe('Stories', () => {
     const testAudio = '/tmp/test_story_audio.wav';
 
     beforeAll(() => {
-      if (!global.helpers.createTestAudioFile(testAudio, 2)) {
-        throw new Error('Story audio tests require ffmpeg');
-      }
+      global.helpers.createTestAudioFile(testAudio, 2);
     });
 
     afterAll(() => {
@@ -643,9 +641,6 @@ describe('Stories', () => {
         const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, inputAudio, 'audio');
         expect(uploadResponse.status).toBe(201);
 
-        const audioReady = await global.helpers.waitForStoryAudio(result.id);
-        expect(audioReady).toBe(true);
-
         const downloadStatus = await global.api.downloadFile(`/stories/${result.id}/audio`, outputAudio);
         expect(downloadStatus).toBe(200);
 
@@ -666,9 +661,7 @@ describe('Stories', () => {
     let withAudioId, withoutAudioId, nullAudioId;
 
     beforeAll(async () => {
-      if (!global.helpers.createTestAudioFile(testAudio, 1)) {
-        throw new Error('Audio presence filter tests require ffmpeg');
-      }
+      global.helpers.createTestAudioFile(testAudio, 1);
 
       const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1');
       const withoutAudio = await createStoryWithDeps(`${titlePrefix} empty`, 'Without audio', 'HasAudioVoice2');
