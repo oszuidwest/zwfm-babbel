@@ -620,6 +620,7 @@ paths:
         This endpoint is called by the OAuth provider after user authentication.
         Users are bound to the token's issuer and subject (`sub`); a missing
         subject is rejected.
+        Returns 404 when OAuth/OIDC authentication is disabled.
       parameters:
         - name: code
           in: query
@@ -661,10 +662,10 @@ paths:
                   value: "https://your-frontend.com/dashboard?login=success"
                 error:
                   value: "https://your-frontend.com/dashboard?error=OIDC+login+rejected%3A+invalid+or+expired+login+state"
+        '404':
+          $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/sessions/current:
     get:
