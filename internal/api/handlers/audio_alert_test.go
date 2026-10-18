@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 )
+
+func TestCanceledAudioUploadDoesNotCreateOrResolveIncident(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	alerts := &automationAlertRecorder{}
+	c, rec := newProblemContext(t)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, "/stories/7/audio", nil)
+	c.Set(alertContextKey, alerts)
+	handleServiceError(c, apperrors.Audio("Story", "convert", context.Canceled), "Story")
+	if rec.Code != statusClientClosedRequest || len(alerts.events) != 0 || len(alerts.resolved) != 0 {
+		t.Fatalf("status = %d, events = %+v, resolved = %v", rec.Code, alerts.events, alerts.resolved)
+	}
+}
 
 func TestAudioServerFailuresAlertAndResolveByRoute(t *testing.T) {
 	for _, resource := range []string{"Story", "StationVoice"} {
