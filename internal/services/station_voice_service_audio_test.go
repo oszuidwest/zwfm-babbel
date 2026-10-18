@@ -16,15 +16,30 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 type jingleAudioRepository struct {
 	stationVoiceRepository
+	// row is what GetForUpdate returns; newJingleTestService seeds it with the
+	// loaded station-voice.
+	row       models.StationVoice
 	update    func()
 	err       error
 	id        int64
 	audioFile string
+}
+
+func (r *jingleAudioRepository) GetForUpdate(ctx context.Context, id int64) (*models.StationVoice, error) {
+	if ctx.Value(jingleTxKey{}) == nil {
+		return nil, errors.New("GetForUpdate ran outside the transaction")
+	}
+	if r.row.ID != id {
+		return nil, repository.ErrNotFound
+	}
+	row := r.row
+	return &row, nil
 }
 
 func (r *jingleAudioRepository) UpdateAudio(ctx context.Context, id int64, filename string) error {
@@ -279,6 +294,64 @@ func TestStationVoiceService_JingleRenameFailure(t *testing.T) {
 	}
 }
 
+func TestStationVoiceService_JingleRefusesChangedPair(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name               string
+		stationID, voiceID int64
+	}{
+		{"station changed", 4, 2},
+		{"voice changed", 1, 5},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			repo := &jingleAudioRepository{}
+			service, stationVoice := newJingleTestService(t, repo)
+			input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
+			existing := seedJingle(t, service, stationVoice)
+			// An Update moved the row after the upload loaded it.
+			repo.row.StationID, repo.row.VoiceID = tt.stationID, tt.voiceID
+
+			err := service.ProcessJingle(t.Context(), stationVoice, input)
+			_, isDatabaseErr := errors.AsType[*apperrors.DatabaseError](err)
+			if conflict, ok := errors.AsType[*apperrors.ConflictError](err); !ok || conflict.Code != "stationvoice.pair_changed" || isDatabaseErr {
+				t.Fatalf("ProcessJingle() = %v, want stationvoice.pair_changed conflict", err)
+			}
+			if repo.audioFile != "" {
+				t.Fatalf("row jingle = %q, want unchanged", repo.audioFile)
+			}
+			if !service.txManager.(*jingleTxManager).rolledBack {
+				t.Fatal("transaction was not rolled back")
+			}
+			// Nothing is published; the helper also rejects a file under the new pair.
+			assertJingleContent(t, service, stationVoice, existing)
+			assertNoProcessingJingles(t, service, stationVoice)
+		})
+	}
+}
+
+func TestStationVoiceService_JingleForDeletedStationVoice(t *testing.T) {
+	t.Parallel()
+	repo := &jingleAudioRepository{}
+	service, stationVoice := newJingleTestService(t, repo)
+	input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
+	repo.row = models.StationVoice{}
+
+	err := service.ProcessJingle(t.Context(), stationVoice, input)
+	if notFound, ok := errors.AsType[*apperrors.NotFoundError](err); !ok || notFound.Resource != "StationVoice" ||
+		notFound.ID == nil || *notFound.ID != stationVoice.ID {
+		t.Fatalf("ProcessJingle() = %v, want StationVoice %d not found", err, stationVoice.ID)
+	}
+	if repo.audioFile != "" {
+		t.Fatalf("row jingle = %q, want none", repo.audioFile)
+	}
+	entries, err := os.ReadDir(service.config.Audio.ProcessedPath)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("jingle directory = %v, %v; want empty", entries, err)
+	}
+}
+
 func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVoiceService, *models.StationVoice) {
 	t.Helper()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
@@ -298,7 +371,11 @@ func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVo
 		audioSvc:         audio.NewService(cfg, nil),
 		config:           cfg,
 	}
-	return service, &models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
+	stationVoice := &models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
+	if repo, ok := repo.(*jingleAudioRepository); ok {
+		repo.row = *stationVoice
+	}
+	return service, stationVoice
 }
 
 func seedJingle(t *testing.T, service *StationVoiceService, stationVoice *models.StationVoice) []byte {

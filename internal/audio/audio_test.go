@@ -3,13 +3,13 @@ package audio
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -348,7 +348,7 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 	// decodes none of it.
 	garbage := make([]byte, 64<<10)
 	_, _ = rand.NewChaCha8([32]byte{}).Read(garbage) // Deterministic bytes.
-	var randomInputs []string
+	var inputs []string
 	// Both headers describe a positive sample rate/channel count. One names
 	// an unavailable decoder; the other contains no samples at all.
 	for _, tt := range []struct {
@@ -363,18 +363,18 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 		if err := os.WriteFile(path, wavFixture(tt.tag, tt.samples), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		randomInputs = append(randomInputs, path)
+		inputs = append(inputs, path)
 	}
 	for _, ext := range []string{".aac", ".flac"} {
 		path := filepath.Join(tempDir, "random"+ext)
 		if err := os.WriteFile(path, garbage, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		randomInputs = append(randomInputs, path)
+		inputs = append(inputs, path)
 	}
 
 	for kind, convert := range conversions(svc) {
-		for _, input := range append([]string{text, imageUpload}, randomInputs...) {
+		for _, input := range append([]string{text, imageUpload}, inputs...) {
 			t.Run(kind+" "+filepath.Base(input), func(t *testing.T) {
 				outputPath := filepath.Join(t.TempDir(), "output.wav")
 				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {
@@ -409,7 +409,8 @@ func wavFixture(tag uint16, samples int) []byte {
 func TestService_ConvertAcceptsSupportedFormatsAndShortJingles(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
-	for _, ext := range []string{"wav", "mp3", "flac", "opus"} {
+	// AAC (m4a) emits its first frame only after a later packet.
+	for _, ext := range []string{"wav", "mp3", "flac", "opus", "m4a"} {
 		t.Run(ext, func(t *testing.T) {
 			input := filepath.Join(t.TempDir(), "input."+ext)
 			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", input)
@@ -451,33 +452,20 @@ func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
 	}
 }
 
-// Vorbis needs a later packet before it can emit its first audio frame.
-func TestService_ProbeAcceptsDelayedAudioFrame(t *testing.T) {
+// os/exec copies stderr with io.Copy; the bound must hold on that path.
+func TestProbeDiagnosticBoundsCommandStderr(t *testing.T) {
 	t.Parallel()
-	svc, ffmpegPath := newFFmpegService(t)
-	input := filepath.Join(t.TempDir(), "delayed.ogg")
-	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-c:a", "libvorbis", "-y", input)
-	// Verify this fixture actually defeats the original one-packet probe.
-	// #nosec G204 - local binary with controlled fixture arguments.
-	cmd := exec.CommandContext(t.Context(), svc.config.Audio.FFprobePath, "-v", "error", "-select_streams", "a",
-		"-read_intervals", "%+#1", "-count_frames", "-show_entries", "stream=nb_read_frames", "-of", "json", input)
-	output, err := cmd.Output()
-	if err != nil {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts are not executable on windows")
+	}
+	var stderr probeDiagnostic
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", "head -c 100000 /dev/zero >&2")
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
-	var probe struct {
-		Streams []struct {
-			Frames string `json:"nb_read_frames"`
-		} `json:"streams"`
-	}
-	if err := json.Unmarshal(output, &probe); err != nil || len(probe.Streams) != 1 {
-		t.Fatalf("one-packet fixture probe = %s, %v", output, err)
-	}
-	if positiveInt(probe.Streams[0].Frames) {
-		t.Fatal("fixture no longer exercises a packet without a decoded frame")
-	}
-	if err := svc.probeAudio(t.Context(), input); err != nil {
-		t.Fatalf("valid audio with delayed first frame: %v", err)
+	if stderr.buf.Len() != 32*1024 {
+		t.Fatalf("captured %d bytes, want 32 KiB", stderr.buf.Len())
 	}
 }
 
