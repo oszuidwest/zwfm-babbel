@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -81,13 +82,16 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	records := processingLogRecords(t, logs)
+	if len(records) != 3 {
+		t.Errorf("logs = %s, want one record per removed leftover", logs)
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			want := ""
+			var want []string
 			if tt.removed {
-				want = "Removed abandoned audio conversion leftover"
+				want = []string{"Removed abandoned audio conversion leftover"}
 			}
-			assertProcessingLog(t, records, filepath.Join(dir, tt.name), want)
+			assertProcessingLog(t, records, filepath.Join(dir, tt.name), want...)
 			_, err := os.Lstat(filepath.Join(dir, tt.name))
 			if tt.removed {
 				if !errors.Is(err, os.ErrNotExist) {
@@ -99,7 +103,7 @@ func TestCleanProcessingLeftovers(t *testing.T) {
 		})
 	}
 	for _, path := range []string{dirLink, fileLink, outsideDir, filepath.Join(outsideDir, "output.wav"), outsideFile} {
-		assertProcessingLog(t, records, path, "")
+		assertProcessingLog(t, records, path)
 		if _, err := os.Lstat(path); err != nil {
 			t.Errorf("protected path %s: %v", path, err)
 		}
@@ -170,21 +174,18 @@ func processingLogRecords(t *testing.T, logs *bytes.Buffer) []map[string]any {
 	return records
 }
 
-// assertProcessingLog requires exactly one record for path with message, or
-// no record for path when message is empty (a retained entry).
-func assertProcessingLog(t *testing.T, records []map[string]any, path, message string) {
+// assertProcessingLog requires the records for path to carry exactly want, in
+// order; no want means no record names path.
+func assertProcessingLog(t *testing.T, records []map[string]any, path string, want ...string) {
 	t.Helper()
-	count := 0
+	var got []string
 	for _, record := range records {
 		if record["path"] == path {
-			count++
-			if message == "" || record["msg"] != message {
-				t.Errorf("unexpected log for %s: %v; want message %q", path, record, message)
-			}
+			got = append(got, fmt.Sprint(record["msg"]))
 		}
 	}
-	if message != "" && count != 1 {
-		t.Errorf("logs for %s = %d, want exactly one with message %q", path, count, message)
+	if !slices.Equal(got, want) {
+		t.Errorf("log messages for %s = %q, want %q", path, got, want)
 	}
 }
 
@@ -243,14 +244,7 @@ func TestCleanProcessingLeftoversReportsStatFailure(t *testing.T) {
 	if !errors.Is(err, fs.ErrPermission) || !strings.Contains(err.Error(), failed) {
 		t.Fatalf("cleanProcessingLeftovers = %v, want stat failure for %s", err, failed)
 	}
-	// Comparing the decoded path keeps JSON escaping out of the check.
-	if !slices.ContainsFunc(bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte("\n")), func(line []byte) bool {
-		var record map[string]any
-		return json.Unmarshal(line, &record) == nil &&
-			record["msg"] == "Failed to stat audio conversion leftover" && record["path"] == failed
-	}) {
-		t.Errorf("stat failure not logged: %s", logs)
-	}
+	assertProcessingLog(t, processingLogRecords(t, logs), failed, "Failed to stat audio conversion leftover")
 	if _, err := os.Lstat(kept); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Lstat = %v, want remaining leftover removed", err)
 	}
