@@ -3,6 +3,7 @@ package scheduler
 import (
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,12 +21,8 @@ func TestCleanInputLeftovers(t *testing.T) {
 	for _, name := range []string{"story_42_old.wav", "tts_story_42_old.opus"} {
 		writeCleanupFile(t, filepath.Join(dir, name), now.Add(-25*time.Hour))
 	}
-	for _, name := range []string{"station_1_voice_2_recent.wav", "exact-boundary.opus"} {
-		writeCleanupFile(t, filepath.Join(dir, name), now.Add(-24*time.Hour))
-	}
-	if err := os.Chtimes(filepath.Join(dir, "station_1_voice_2_recent.wav"), now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	writeCleanupFile(t, filepath.Join(dir, "station_1_voice_2_recent.wav"), now.Add(-time.Hour))
+	writeCleanupFile(t, filepath.Join(dir, "exact-boundary.opus"), now.Add(-24*time.Hour))
 	writeCleanupDir(t, filepath.Join(dir, "old-directory"), now.Add(-25*time.Hour))
 	outside := filepath.Join(t.TempDir(), "outside.wav")
 	writeCleanupFile(t, outside, now.Add(-25*time.Hour))
@@ -78,5 +75,63 @@ func TestCleanupSweepsInputsEvenWhenDatabaseFails(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("old input remains: %v", err)
+	}
+}
+
+// Published audio is a regular file too: never sweep a persistent directory,
+// even through a symlinked alias.
+func TestCleanInputLeftoversRefusesPersistentDirectories(t *testing.T) {
+	now := time.Now().Add(72 * time.Hour)
+	for _, field := range []string{"processed", "output"} {
+		t.Run(field, func(t *testing.T) {
+			persistent := t.TempDir()
+			published := filepath.Join(persistent, "story_42.wav")
+			writeCleanupFile(t, published, now.Add(-25*time.Hour))
+			alias := filepath.Join(t.TempDir(), "temp")
+			if err := os.Symlink(persistent, alias); err != nil {
+				t.Fatal(err)
+			}
+			audio := config.AudioConfig{TempPath: alias, ProcessedPath: t.TempDir(), OutputPath: t.TempDir()}
+			if field == "processed" {
+				audio.ProcessedPath = persistent
+			} else {
+				audio.OutputPath = persistent
+			}
+			testutil.CaptureLogs(t, slog.LevelInfo)
+			s := &BulletinCleanupService{config: &config.Config{Audio: audio}}
+			if err := s.cleanInputLeftovers(now); err == nil {
+				t.Fatal("cleanInputLeftovers = nil, want a refusal")
+			}
+			if _, err := os.Lstat(published); err != nil {
+				t.Fatalf("published audio: %v", err)
+			}
+		})
+	}
+}
+
+// A file replaced by a directory after ReadDir is skipped, never removed
+// recursively.
+func TestCleanInputLeftoversSkipsEntryReplacedByDirectory(t *testing.T) {
+	now := time.Now().Add(72 * time.Hour)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "input.wav")
+	writeCleanupFile(t, path, now.Add(-25*time.Hour))
+	kept := filepath.Join(path, "kept.wav")
+	t.Cleanup(func() { processingEntryInfo = fs.DirEntry.Info })
+	processingEntryInfo = func(entry fs.DirEntry) (fs.FileInfo, error) {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		writeCleanupDir(t, path, now.Add(-25*time.Hour))
+		writeCleanupFile(t, kept, now.Add(-25*time.Hour))
+		return entry.Info()
+	}
+	testutil.CaptureLogs(t, slog.LevelInfo)
+	s := &BulletinCleanupService{config: &config.Config{Audio: config.AudioConfig{TempPath: dir}}}
+	if err := s.cleanInputLeftovers(now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(kept); err != nil {
+		t.Fatalf("file inside the replacing directory: %v", err)
 	}
 }
