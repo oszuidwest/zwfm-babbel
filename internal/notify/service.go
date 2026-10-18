@@ -303,7 +303,8 @@ func formatMessage(prefix string, event Event, timestamp time.Time, count int) (
 		body.WriteString("\n\n")
 		body.WriteString(boundedText(event.Details, maxMessageBytes-body.Len()))
 	}
-	return prefix + " " + summary + " - Babbel", body.String()
+	subjectSummary := strings.NewReplacer("\r", " ", "\n", " ").Replace(summary)
+	return prefix + " " + subjectSummary + " - Babbel", body.String()
 }
 
 // boundedText includes its marker in the byte budget and preserves UTF-8 boundaries.
