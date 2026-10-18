@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -135,6 +136,75 @@ func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
 	}
 	if len(alerts.events) != 0 {
 		t.Fatalf("alerts = %d, want 0", len(alerts.events))
+	}
+}
+
+// A directory opens and stats fine but cannot be served as audio.
+func TestServeAudio_DirectoryReturnsProblem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "story.wav"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	h := &Handlers{audioRepo: audioPathRepository{path: "story.wav"}, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	c, recorder := newProblemContext(t)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+	if recorder.Code != http.StatusInternalServerError || recorder.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("status = %d, headers = %v", recorder.Code, recorder.Header())
+	}
+	decodeProblem(t, recorder)
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" || record["path"] != filepath.Join(dir, "story.wav") {
+		t.Fatalf("logs = %s; want one ERROR naming the path", logs)
+	}
+}
+
+func TestServeAudio_UnreadableFileReturnsProblem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "unreadable.wav")
+	if err := os.WriteFile(path, []byte("audio"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	// Privileged test users can bypass permissions; the ENOTDIR test above
+	// still exercises the same server-failure path in those environments.
+	if file, err := os.Open(path); err == nil { //nolint:gosec // Test-owned path in t.TempDir.
+		_ = file.Close()
+		t.Skip("test user can read files without mode permissions")
+	} else if !errors.Is(err, os.ErrPermission) {
+		t.Fatal(err)
+	}
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	h := &Handlers{audioRepo: audioPathRepository{path: "unreadable.wav"}, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	c, recorder := newProblemContext(t)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+	if recorder.Code != http.StatusInternalServerError || recorder.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("status = %d, headers = %v", recorder.Code, recorder.Header())
+	}
+	decodeProblem(t, recorder)
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" ||
+		record["path"] != path || !strings.Contains(fmt.Sprint(record["error"]), "permission denied") {
+		t.Fatalf("logs = %s; want one ERROR with path and cause", logs)
+	}
+}
+
+func TestServeAudio_OpenedFileSupportsRanges(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "story.wav"), []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handlers{audioRepo: audioPathRepository{path: "story.wav"}, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
+	c, recorder := newProblemContext(t)
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/stories/7/audio", nil)
+	c.Params = gin.Params{{Key: "id", Value: "7"}}
+	c.Request.Header.Set("Range", "bytes=2-4")
+	h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+	if recorder.Code != http.StatusPartialContent || recorder.Body.String() != "234" ||
+		recorder.Header().Get("Content-Type") != "audio/wav" || recorder.Header().Get("Content-Range") != "bytes 2-4/10" {
+		t.Fatalf("status = %d, headers = %v, body = %s", recorder.Code, recorder.Header(), recorder.Body)
 	}
 }
 
