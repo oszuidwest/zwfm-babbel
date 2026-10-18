@@ -112,6 +112,32 @@ func TestUploadsRejectUndecodableAudioAndKeepExistingFiles(t *testing.T) {
 		t.Skip("ffprobe not available")
 	}
 	inputs := undecodableUploadFixtures(t, ffmpegPath)
+	testUndecodableUploads(t, ffmpegPath, ffprobePath, inputs)
+}
+
+func TestUploadsRejectLateDecoderFailure(t *testing.T) {
+	t.Parallel()
+	t.Run("deterministic decoder exit", func(t *testing.T) {
+		ffmpeg, ffprobe := testutil.DecoderErrorTools(t)
+		testUndecodableUploads(t, ffmpeg, ffprobe, []string{"input.opus"})
+	})
+	t.Run("real corrupt packets", func(t *testing.T) {
+		ffmpeg, err := exec.LookPath("ffmpeg")
+		if err != nil {
+			t.Skip("ffmpeg not available")
+		}
+		ffprobe, err := exec.LookPath("ffprobe")
+		if err != nil {
+			t.Skip("ffprobe not available")
+		}
+		input := testutil.CorruptOpus(t, ffmpeg)
+		testutil.RequireDecoderError(t, ffmpeg, input)
+		testUndecodableUploads(t, ffmpeg, ffprobe, []string{input})
+	})
+}
+
+func testUndecodableUploads(t *testing.T, ffmpegPath, ffprobePath string, inputs []string) {
+	t.Helper()
 	story := storyForTTSTest("News bulletin")
 	stationVoice := &models.StationVoice{ID: 1, StationID: 2, VoiceID: 3}
 
@@ -198,7 +224,7 @@ func undecodableUploadFixtures(t *testing.T, ffmpegPath string) []string {
 		t.Fatal(err)
 	}
 	empty := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=0")
-	return []string{text, unknownCodec, empty, testutil.CorruptOpus(t, ffmpegPath)}
+	return []string{text, unknownCodec, empty}
 }
 
 // lavfiFixture renders an FFmpeg lavfi source to a WAV file in a test temp
@@ -485,18 +511,31 @@ func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
 
 func TestGenerateTTS_LateDecoderFailureIsUpstreamFailure(t *testing.T) {
 	t.Parallel()
-	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		t.Skip("ffmpeg not available")
-	}
-	ffprobe, err := exec.LookPath("ffprobe")
-	if err != nil {
-		t.Skip("ffprobe not available")
-	}
-	data, err := os.ReadFile(testutil.CorruptOpus(t, ffmpeg))
-	if err != nil {
-		t.Fatal(err)
-	}
+	t.Run("deterministic decoder exit", func(t *testing.T) {
+		ffmpeg, ffprobe := testutil.DecoderErrorTools(t)
+		testLateDecoderTTS(t, ffmpeg, ffprobe, []byte("corrupt speech"))
+	})
+	t.Run("real corrupt packets", func(t *testing.T) {
+		ffmpeg, err := exec.LookPath("ffmpeg")
+		if err != nil {
+			t.Skip("ffmpeg not available")
+		}
+		ffprobe, err := exec.LookPath("ffprobe")
+		if err != nil {
+			t.Skip("ffprobe not available")
+		}
+		input := testutil.CorruptOpus(t, ffmpeg)
+		testutil.RequireDecoderError(t, ffmpeg, input)
+		data, err := os.ReadFile(input) // #nosec G304 -- generated fixture in t.TempDir.
+		if err != nil {
+			t.Fatal(err)
+		}
+		testLateDecoderTTS(t, ffmpeg, ffprobe, data)
+	})
+}
+
+func testLateDecoderTTS(t *testing.T, ffmpeg, ffprobe string, data []byte) {
+	t.Helper()
 	story := storyForTTSTest("news")
 	service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: data})
 	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), TempPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
@@ -508,7 +547,7 @@ func TestGenerateTTS_LateDecoderFailureIsUpstreamFailure(t *testing.T) {
 	if err := os.WriteFile(path, existing, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = service.GenerateTTS(t.Context(), story.ID, true, nil)
+	err := service.GenerateTTS(t.Context(), story.ID, true, nil)
 	assertUpstreamError(t, err, http.StatusBadGateway)
 	if !errors.Is(err, audio.ErrUndecodable) || !strings.Contains(err.Error(), "upstream") {
 		t.Fatalf("TTS error = %v, want undecodable upstream failure", err)
@@ -516,12 +555,18 @@ func TestGenerateTTS_LateDecoderFailureIsUpstreamFailure(t *testing.T) {
 	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
 		t.Fatalf("events = %+v, resolved = %v", alerts.events, alerts.resolved)
 	}
+	assertLateDecoderFiles(t, service.config, path, existing)
+}
+
+func assertLateDecoderFiles(t *testing.T, cfg *config.Config, path string, existing []byte) {
+	t.Helper()
+	// #nosec G304 -- canonical audio fixture path in t.TempDir.
 	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, existing) {
 		t.Fatalf("existing audio = %q, %v", got, err)
 	}
-	for _, dir := range []string{service.config.Audio.TempPath, service.config.Audio.ProcessedPath} {
+	for dir, want := range map[string]int{cfg.Audio.TempPath: 0, cfg.Audio.ProcessedPath: 1} {
 		entries, err := os.ReadDir(dir)
-		if err != nil || (dir == service.config.Audio.TempPath && len(entries) != 0) || (dir == service.config.Audio.ProcessedPath && len(entries) != 1) {
+		if err != nil || len(entries) != want {
 			t.Fatalf("conversion leftovers in %s: %v, %v", dir, entries, err)
 		}
 	}

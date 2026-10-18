@@ -494,6 +494,7 @@ func TestService_ConvertRejectsLateDecoderFailures(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
 	input := testutil.CorruptOpus(t, ffmpegPath)
+	testutil.RequireDecoderError(t, ffmpegPath, input)
 	if err := svc.probeAudio(t.Context(), input); err != nil {
 		t.Fatalf("first frame must decode to exercise later corruption: %v", err)
 	}

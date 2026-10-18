@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestFFmpegErrorPreservesOperationalFailures(t *testing.T) {
@@ -29,14 +32,15 @@ func TestFFmpegErrorPreservesOperationalFailures(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			// #nosec G204 -- exit codes are controlled integer literals in this table.
 			err := exec.CommandContext(t.Context(), "/bin/sh", "-c", "exit "+strconv.Itoa(tt.code)).Run()
 			ctx := t.Context()
-			switch tt.contextErr {
-			case context.Canceled:
+			switch {
+			case errors.Is(tt.contextErr, context.Canceled):
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
 				cancel()
-			case context.DeadlineExceeded:
+			case errors.Is(tt.contextErr, context.DeadlineExceeded):
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
 				defer cancel()
@@ -47,4 +51,22 @@ func TestFFmpegErrorPreservesOperationalFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestService_ClassifiesDecoderFailureInBothPasses(t *testing.T) {
+	t.Parallel()
+	ffmpeg, _ := testutil.DecoderErrorTools(t)
+	svc := NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg}}, nil)
+	t.Run("measurement", func(t *testing.T) {
+		_, err := svc.measureLoudness(t.Context(), "input.opus")
+		if !errors.Is(err, ErrUndecodable) {
+			t.Fatalf("measurement = %v, want ErrUndecodable", err)
+		}
+	})
+	t.Run("conversion", func(t *testing.T) {
+		err := svc.convertToWAV(t.Context(), "input.opus", "output.wav", 1, "")
+		if !errors.Is(err, ErrUndecodable) {
+			t.Fatalf("conversion = %v, want ErrUndecodable", err)
+		}
+	})
 }
