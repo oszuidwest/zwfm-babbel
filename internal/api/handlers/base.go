@@ -74,10 +74,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Timeouts take precedence over wrapped domain errors.
 	if errors.Is(err, context.DeadlineExceeded) {
-		logger.Error("Request timeout", "error", err)
-		if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
-			alertAudioFailure(c, audioError) // For example a hung ffprobe.
-		}
+		reportTimeout(c, err)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
 			apperrors.CodeTimeout,
@@ -189,6 +186,15 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 		"internal.unknown_error",
 		"Please try again later or contact support",
 	)
+}
+
+// reportTimeout logs a timeout; an upload's audio timeout, such as a hung
+// ffprobe, also counts toward the route's audio incident.
+func reportTimeout(c *gin.Context, err error) {
+	logger.Error("Request timeout", "error", err)
+	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		alertAudioFailure(c, audioError)
+	}
 }
 
 // alertAudioFailure counts a server-side upload processing failure toward the
