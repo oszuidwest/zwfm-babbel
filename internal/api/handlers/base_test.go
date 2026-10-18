@@ -411,6 +411,13 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 			wantStatus: http.StatusConflict, wantLevel: "DEBUG", wantType: "duplicate", wantCause: duplicateKey.Error(),
 		},
 		{
+			// A server failure logs the driver's key name at Error.
+			name:       "duplicate in a server failure",
+			respond:    serviceError(apperrors.Database("Bulletin", "create", duplicateKey)),
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "database_error",
+			wantCause: "duplicate key violation: Duplicate entry 'Zuid' for key 'stations.name'", wantAlerts: 1,
+		},
+		{
 			name:       "timeout",
 			respond:    serviceError(context.DeadlineExceeded),
 			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR",
