@@ -209,6 +209,83 @@ func (m *afterCommitTxManager) WithTransaction(ctx context.Context, fn func(cont
 	return err
 }
 
+func TestStationVoiceService_JingleUploadRefusesChangedPair(t *testing.T) {
+	f := newJingleDeleteFixture(t)
+	otherStation := createNamedStation(t, f.db, t.Name()+"/other")
+
+	stored, err := f.uploadDuringUpdate(t, &UpdateStationVoiceRequest{StationID: &otherStation.ID})
+	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); !ok || conflict.Code != "stationvoice.pair_changed" {
+		t.Fatalf("ProcessJingle() = %v, want stationvoice.pair_changed conflict", err)
+	}
+	if stored.StationID != otherStation.ID || stored.AudioFile != "" {
+		t.Fatalf("stored row = %+v, want station %d without a jingle", stored, otherStation.ID)
+	}
+	// Nothing is published under the loaded pair or the new one.
+	for _, path := range []string{f.jinglePath, utils.JinglePath(f.service.config, otherStation.ID, f.stationVoice.VoiceID)} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("jingle %s: %v, want none", path, err)
+		}
+	}
+	assertNoProcessingJingles(t, f.service, f.stationVoice)
+}
+
+func TestStationVoiceService_JingleUploadKeepsUnchangedPair(t *testing.T) {
+	f := newJingleDeleteFixture(t)
+	mixPoint := 2.5
+
+	stored, err := f.uploadDuringUpdate(t, &UpdateStationVoiceRequest{MixPoint: &mixPoint})
+	if err != nil {
+		t.Fatalf("ProcessJingle() = %v, want success", err)
+	}
+	filename := utils.JingleFilename(f.stationVoice.StationID, f.stationVoice.VoiceID)
+	if stored.StationID != f.stationVoice.StationID || stored.MixPoint != mixPoint || stored.AudioFile != filename {
+		t.Fatalf("stored row = %+v, want station %d, mix point %v and jingle %q", stored, f.stationVoice.StationID, mixPoint, filename)
+	}
+	if _, err := os.Stat(f.jinglePath); err != nil {
+		t.Fatalf("jingle after upload: %v", err)
+	}
+	assertNoProcessingJingles(t, f.service, f.stationVoice)
+}
+
+// uploadDuringUpdate uploads a jingle for the loaded fixture row while req
+// commits after the conversion, right before the publication transaction. It
+// returns the stored row and the upload's error.
+func (f jingleDeleteFixture) uploadDuringUpdate(t *testing.T, req *UpdateStationVoiceRequest) (models.StationVoice, error) {
+	t.Helper()
+	updated := false
+	f.service.txManager = &beforeTxManager{TxManager: f.service.txManager, beforeTx: func() {
+		updated = true
+		if _, err := f.service.Update(t.Context(), f.stationVoice.ID, req); err != nil {
+			t.Errorf("Update() during upload: %v", err)
+		}
+	}}
+
+	uploadErr := f.service.ProcessJingle(t.Context(), f.stationVoice, f.input)
+	if !updated {
+		t.Fatal("update did not run during the upload")
+	}
+	var stored models.StationVoice
+	if err := f.db.First(&stored, f.stationVoice.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	return stored, uploadErr
+}
+
+// beforeTxManager calls beforeTx once, right before the next transaction
+// begins.
+type beforeTxManager struct {
+	repository.TxManager
+	beforeTx func()
+}
+
+func (m *beforeTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if hook := m.beforeTx; hook != nil {
+		m.beforeTx = nil
+		hook()
+	}
+	return m.TxManager.WithTransaction(ctx, fn)
+}
+
 func TestStationVoiceService_UpdateKeepsJingleWithItsPair(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	service := newStationVoiceTestService(db)
