@@ -432,7 +432,7 @@ func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
 	}
 	story := storyForTTSTest("news")
 	service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: []byte("not audio")})
-	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
+	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), TempPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
 	service.audioSvc = audio.NewService(service.config, nil)
 	alerts := &capturingAlerter{}
 	service.alerts = alerts
