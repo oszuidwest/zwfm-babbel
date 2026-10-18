@@ -90,25 +90,33 @@ func (r *StationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 	return count > 0, nil
 }
 
-// GetStationVoiceIDs retrieves the station ID, voice ID, and audio file path for a record.
-func (r *StationVoiceRepository) GetStationVoiceIDs(ctx context.Context, id int64) (stationID, voiceID int64, audioFile string, err error) {
-	var record struct {
-		StationID int64  `gorm:"column:station_id"`
-		VoiceID   int64  `gorm:"column:voice_id"`
-		AudioFile string `gorm:"column:audio_file"`
+// IsJingleInUse reports whether a station-voice relationship stores the jingle
+// filename or owns the station/voice pair it is named after.
+// Call within a REPEATABLE READ transaction: the indexed locking read keeps
+// a new pair owner from publishing before the caller removes an unused file.
+func (r *StationVoiceRepository) IsJingleInUse(ctx context.Context, filename string, stationID, voiceID int64) (bool, error) {
+	db := DBFromContext(ctx, r.db).WithContext(ctx)
+	var owners []models.StationVoice
+	if err := db.Model(&models.StationVoice{}).
+		Select("id").
+		Clauses(clause.Locking{Strength: clause.LockingStrengthShare}).
+		Where("station_id = ? AND voice_id = ?", stationID, voiceID).
+		Find(&owners).Error; err != nil {
+		return false, ParseDBError(err)
+	}
+	if len(owners) > 0 {
+		return true, nil
 	}
 
-	err = r.db.WithContext(ctx).
+	var count int64
+	if err := db.
 		Model(&models.StationVoice{}).
-		Select("station_id, voice_id, audio_file").
-		Where("id = ?", id).
-		First(&record).Error
-
-	if err != nil {
-		return 0, 0, "", ParseDBError(err)
+		Where("audio_file = ?", filename).
+		Count(&count).Error; err != nil {
+		return false, ParseDBError(err)
 	}
 
-	return record.StationID, record.VoiceID, record.AudioFile, nil
+	return count > 0, nil
 }
 
 // UpdateAudio updates the audio file reference for a station-voice relationship.
