@@ -151,7 +151,6 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	cmd := exec.CommandContext(probeCtx, s.config.Audio.FFprobePath,
 		"-v", "error",
 		"-select_streams", "a",
-		"-show_frames",
 		"-show_entries", "frame=nb_samples,channels:frame_side_data=",
 		"-of", "csv=p=0",
 		inputPath,
@@ -173,7 +172,7 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 		if len(fields) >= 2 && positiveInt(fields[0]) && positiveInt(fields[1]) {
 			cancel()
 			_ = cmd.Wait() // The first frame is enough; reap the stopped probe.
-			return commandError(ctx, nil)
+			return ctx.Err()
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -182,7 +181,7 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	}
 	err = cmd.Wait()
 	if err == nil {
-		return fmt.Errorf("%w: no decoded audio frame: %s", ErrUndecodable, bytes.TrimSpace(stderr.Bytes()))
+		return fmt.Errorf("%w: no decoded audio frame: %s", ErrUndecodable, bytes.TrimSpace(stderr.buf.Bytes()))
 	}
 	// ffprobe exits with status 1 when it cannot open or parse its input. A
 	// canceled probe, a crash, or an input file the server cannot read is a
@@ -192,19 +191,21 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 		// #nosec G304 - inputPath is internally validated
 		if f, openErr := os.Open(inputPath); openErr == nil {
 			_ = f.Close()
-			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(stderr.Bytes()))
+			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(stderr.buf.Bytes()))
 		}
 	}
 	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(probeCtx, err))
 }
 
 // probeDiagnostic bounds stderr while continuing to drain the child process.
-type probeDiagnostic struct{ bytes.Buffer }
+// The buffer is a named field: an embedded one would promote ReadFrom, which
+// os/exec's io.Copy prefers over the bounded Write.
+type probeDiagnostic struct{ buf bytes.Buffer }
 
 func (b *probeDiagnostic) Write(p []byte) (int, error) {
 	n := len(p)
-	if remaining := 32*1024 - b.Len(); remaining > 0 {
-		_, _ = b.Buffer.Write(p[:min(n, remaining)])
+	if remaining := 32*1024 - b.buf.Len(); remaining > 0 {
+		_, _ = b.buf.Write(p[:min(n, remaining)])
 	}
 	return n, nil
 }

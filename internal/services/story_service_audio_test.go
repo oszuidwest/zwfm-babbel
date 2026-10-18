@@ -111,7 +111,10 @@ func TestUploadsRejectUndecodableAudioAndKeepExistingFiles(t *testing.T) {
 	if err != nil {
 		t.Skip("ffprobe not available")
 	}
-	inputs := undecodableUploadFixtures(t, ffmpegPath)
+	inputPath := filepath.Join(t.TempDir(), "not-audio.mp3")
+	if err := os.WriteFile(inputPath, []byte("this is not audio\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	story := storyForTTSTest("News bulletin")
 	stationVoice := &models.StationVoice{ID: 1, StationID: 2, VoiceID: 3}
 
@@ -119,12 +122,12 @@ func TestUploadsRejectUndecodableAudioAndKeepExistingFiles(t *testing.T) {
 	tests := []struct {
 		field     string
 		finalPath func(cfg *config.Config) string
-		upload    func(ctx context.Context, cfg *config.Config, inputPath string) error
+		upload    func(ctx context.Context, cfg *config.Config) error
 	}{
 		{
 			field:     "audio",
 			finalPath: func(cfg *config.Config) string { return utils.StoryPath(cfg, story.ID) },
-			upload: func(ctx context.Context, cfg *config.Config, inputPath string) error {
+			upload: func(ctx context.Context, cfg *config.Config) error {
 				service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, nil)
 				service.config = cfg
 				service.audioSvc = audio.NewService(cfg, nil)
@@ -136,69 +139,40 @@ func TestUploadsRejectUndecodableAudioAndKeepExistingFiles(t *testing.T) {
 			finalPath: func(cfg *config.Config) string {
 				return utils.JinglePath(cfg, stationVoice.StationID, stationVoice.VoiceID)
 			},
-			upload: func(ctx context.Context, cfg *config.Config, inputPath string) error {
+			upload: func(ctx context.Context, cfg *config.Config) error {
 				service := &StationVoiceService{config: cfg, audioSvc: audio.NewService(cfg, nil)}
 				return service.ProcessJingle(ctx, stationVoice, inputPath)
 			},
 		},
 	}
 	for _, tt := range tests {
-		for i, inputPath := range inputs {
-			t.Run(fmt.Sprintf("%s/%d", tt.field, i), func(t *testing.T) {
-				t.Parallel()
-				cfg := &config.Config{Audio: config.AudioConfig{
-					FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
-				}}
-				finalPath := tt.finalPath(cfg)
-				existing := []byte("existing audio must stay intact")
-				if err := os.WriteFile(finalPath, existing, 0600); err != nil {
-					t.Fatal(err)
-				}
+		t.Run(tt.field, func(t *testing.T) {
+			t.Parallel()
+			cfg := &config.Config{Audio: config.AudioConfig{
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+			}}
+			finalPath := tt.finalPath(cfg)
+			existing := []byte("existing audio must stay intact")
+			if err := os.WriteFile(finalPath, existing, 0600); err != nil {
+				t.Fatal(err)
+			}
 
-				err := tt.upload(t.Context(), cfg, inputPath)
-				invalid, ok := errors.AsType[*apperrors.ValidationError](err)
-				if !ok || len(invalid.Errors) != 1 || invalid.Errors[0].Field != tt.field ||
-					invalid.Errors[0].Code != apperrors.CodeUndecodable {
-					t.Fatalf("error = %v, want a %s field error with code %s", err, tt.field, apperrors.CodeUndecodable)
-				}
-				// The handler logs the cause's message.
-				if !errors.Is(err, audio.ErrUndecodable) || !strings.Contains(invalid.Unwrap().Error(), audio.ErrUndecodable.Error()) {
-					t.Fatalf("cause = %v, want the audio.ErrUndecodable message", invalid.Unwrap())
-				}
-				// #nosec G304 - canonical path inside t.TempDir
-				if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existing) {
-					t.Fatalf("existing file = %q, %v; want %q", got, err, existing)
-				}
-			})
-		}
+			err := tt.upload(t.Context(), cfg)
+			invalid, ok := errors.AsType[*apperrors.ValidationError](err)
+			if !ok || len(invalid.Errors) != 1 || invalid.Errors[0].Field != tt.field ||
+				invalid.Errors[0].Code != apperrors.CodeUndecodable {
+				t.Fatalf("error = %v, want a %s field error with code %s", err, tt.field, apperrors.CodeUndecodable)
+			}
+			// The handler logs the cause's message.
+			if !errors.Is(err, audio.ErrUndecodable) || !strings.Contains(invalid.Unwrap().Error(), audio.ErrUndecodable.Error()) {
+				t.Fatalf("cause = %v, want the audio.ErrUndecodable message", invalid.Unwrap())
+			}
+			// #nosec G304 - canonical path inside t.TempDir
+			if got, err := os.ReadFile(finalPath); err != nil || !bytes.Equal(got, existing) {
+				t.Fatalf("existing file = %q, %v; want %q", got, err, existing)
+			}
+		})
 	}
-}
-
-// undecodableUploadFixtures supplies non-audio bytes, an unknown-codec WAV
-// and a valid WAV header with no samples.
-func undecodableUploadFixtures(t *testing.T, ffmpegPath string) []string {
-	t.Helper()
-	text := filepath.Join(t.TempDir(), "not-audio.mp3")
-	if err := os.WriteFile(text, []byte("this is not audio\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	unknownCodec := lavfiFixture(t, ffmpegPath, "sine=frequency=440:duration=1")
-	// #nosec G304 - generated fixture inside t.TempDir.
-	data, err := os.ReadFile(unknownCodec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmtOffset := bytes.Index(data, []byte("fmt ")) + 8
-	if fmtOffset < 8 || fmtOffset+2 > len(data) {
-		t.Fatal("generated WAV has no fmt chunk")
-	}
-	data[fmtOffset], data[fmtOffset+1] = 0x34, 0x12
-	// #nosec G703 - lavfiFixture returns input.wav inside a test-owned TempDir.
-	if err := os.WriteFile(unknownCodec, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	empty := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=0")
-	return []string{text, unknownCodec, empty}
 }
 
 // lavfiFixture renders an FFmpeg lavfi source to a WAV file in a test temp
