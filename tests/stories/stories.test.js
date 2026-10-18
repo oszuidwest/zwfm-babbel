@@ -75,7 +75,7 @@ describe('Stories', () => {
       status
     });
 
-    return result ? { id: result.id, voiceId: voice.id } : null;
+    return { id: result.id, voiceId: voice.id };
   };
 
   // Every two sortable fields order some pair of fixtures oppositely, so a
@@ -88,9 +88,7 @@ describe('Stories', () => {
   const setupQueryTestData = async () => {
     const year = new Date().getFullYear();
     const voice = await global.helpers.createVoice(global.resources, 'QueryVoice');
-    expect(voice).not.toBeNull();
     const expiredVoice = await global.helpers.createVoice(global.resources, 'QueryExpiredVoice');
-    expect(expiredVoice).not.toBeNull();
     const fixtures = [
       // [title, status, start_date day, end_date day, created_at, updated_at]
       ['C', 'active', 2, 31, 1, 4],
@@ -112,7 +110,6 @@ describe('Stories', () => {
         start_date: `${year}-01-0${startDay}`,
         end_date: `${year + 1}-12-${endDay}`
       });
-      expect(story).not.toBeNull();
       ids.push(story.id);
       timestamps.push([story.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
@@ -247,7 +244,6 @@ describe('Stories', () => {
       ['POST audio', 'POST', '/audio', null]
     ])('%s distinguishes deleted and missing stories', async (name, method, suffix, body) => {
       const story = await createStoryWithDeps(name, 'To be deleted', 'WriteVoice');
-      expect(story).not.toBeNull();
       const deletion = await global.api.apiCall('DELETE', `/stories/${story.id}`);
       expect(deletion.status).toBe(204);
 
@@ -270,7 +266,6 @@ describe('Stories', () => {
       ['PATCH', { deleted_at: '2026-09-26T12:00:00Z' }]
     ])('%s soft deletion is idempotent and restorable', async (method, body) => {
       const story = await createStoryWithDeps('DeleteTest', 'To be deleted', 'DeleteVoice');
-      expect(story).not.toBeNull();
       const path = `/stories/${story.id}`;
       for (let attempt = 0; attempt < 2; attempt++) {
         const response = await global.api.apiCall(method, path, body);
@@ -320,7 +315,6 @@ describe('Stories', () => {
         const story = await global.helpers.createStory(global.resources, {
           title: name, text: 'Restore with fields', status: 'draft', is_breaking: true
         });
-        expect(story).not.toBeNull();
         const path = `/stories/${story.id}`;
         expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
         return { id: story.id, path };
@@ -329,7 +323,6 @@ describe('Stories', () => {
       test('when restoring with story fields, then the story comes back with them', async () => {
         const { path } = await deletedStory('RestoreFields');
         const voice = await global.helpers.createVoice(global.resources, 'RestoredVoice');
-        expect(voice).not.toBeNull();
 
         const restore = await global.api.apiCall('PATCH', path, {
           deleted_at: '', title: 'Restored &amp; updated', text: 'News &amp; context',
@@ -367,7 +360,6 @@ describe('Stories', () => {
         active = await global.helpers.createStory(global.resources, {
           title: 'TrashedActive', text: 'Stays active', voice_id: deleted.voiceId
         });
-        expect(active).not.toBeNull();
         expect((await global.api.apiCall('DELETE', `/stories/${deleted.id}`)).status).toBe(204);
       });
 
@@ -415,7 +407,6 @@ describe('Stories', () => {
 
       beforeAll(async () => {
         story = await createStoryWithDeps('null', 'Literal null title', 'NullTitleVoice');
-        expect(story).not.toBeNull();
       });
 
       test.each([
@@ -456,7 +447,6 @@ describe('Stories', () => {
         title: 'Calendar dates', text: 'Scheduled news', voice_id: voiceId,
         start_date: '2026-09-26', end_date: '2026-10-25'
       });
-      expect(story).not.toBeNull();
       const path = `/stories/${story.id}`;
       const dates = { start_date: '2026-09-26', end_date: '2026-10-25' };
       const getResponse = await global.api.apiCall('GET', path);
@@ -491,7 +481,6 @@ describe('Stories', () => {
       const story = await global.helpers.createStory(global.resources, {
         title: 'Reversed dates', text: 'Scheduled news', voice_id: voiceId, ...dates
       });
-      expect(story).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${story.id}`, update);
 
@@ -532,7 +521,6 @@ describe('Stories', () => {
 
     test('when updating weekday schedule, then persisted', async () => {
       const result = await createStoryWithDeps('WeekdayUpdate', 'Test', 'WkdyVoice');
-      expect(result).not.toBeNull();
 
       // 42 encodes Monday, Wednesday, and Friday.
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, { weekdays: 42 });
@@ -559,7 +547,6 @@ describe('Stories', () => {
 
     test('when uploading audio, then attached to story', async () => {
       const result = await createStoryWithDeps('AudioUpload', 'Has audio', 'AudioVoice');
-      expect(result).not.toBeNull();
 
       const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
 
@@ -574,7 +561,6 @@ describe('Stories', () => {
       try {
         fs.writeFileSync(notAudio, 'this is not audio\n');
         const result = await createStoryWithDeps('NotAudio', 'Reject non-audio', 'NotAudioVoice');
-        expect(result).not.toBeNull();
 
         const response = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, notAudio, 'audio');
         expect(response.status).toBe(422);
@@ -592,7 +578,6 @@ describe('Stories', () => {
       const outputAudio = `${global.helpers.uniqueName('/tmp/test_story_cache_bust')}.wav`;
       try {
         const result = await createStoryWithDeps('CacheBustAudio', 'Has audio', 'CacheBustVoice');
-        expect(result).not.toBeNull();
         const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, testAudio, 'audio');
         expect(uploadResponse.status).toBe(201);
 
@@ -610,7 +595,6 @@ describe('Stories', () => {
       try {
         runFFmpeg(['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=1', '-y', inputAudio]);
         const result = await createStoryWithDeps('SilentAudio', 'Reject silence', 'SilentVoice');
-        expect(result).not.toBeNull();
         const endpoint = `/stories/${result.id}/audio`;
 
         const validUpload = await global.api.uploadFile(endpoint, {}, testAudio, 'audio');
@@ -635,7 +619,6 @@ describe('Stories', () => {
 
     test('when fetching story, then audio fields present', async () => {
       const result = await createStoryWithDeps('AudioFields', 'Check fields', 'FieldsVoice');
-      expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('GET', `/stories/${result.id}`);
 
@@ -655,7 +638,6 @@ describe('Stories', () => {
           'Quiet story audio',
           'LoudnessVoice'
         );
-        expect(result).not.toBeNull();
 
         const uploadResponse = await global.api.uploadFile(`/stories/${result.id}/audio`, {}, inputAudio, 'audio');
         expect(uploadResponse.status).toBe(201);
@@ -690,9 +672,6 @@ describe('Stories', () => {
       const withAudio = await createStoryWithDeps(`${titlePrefix} uploaded`, 'With audio', 'HasAudioVoice1');
       const withoutAudio = await createStoryWithDeps(`${titlePrefix} empty`, 'Without audio', 'HasAudioVoice2');
       const nullAudio = await createStoryWithDeps(`${titlePrefix} null`, 'NULL audio', 'HasAudioVoice3');
-      expect(withAudio).not.toBeNull();
-      expect(withoutAudio).not.toBeNull();
-      expect(nullAudio).not.toBeNull();
 
       const uploadResponse = await global.api.uploadFile(`/stories/${withAudio.id}/audio`, {}, testAudio, 'audio');
       expect(uploadResponse.status).toBe(201);
@@ -773,7 +752,6 @@ describe('Stories', () => {
 
     test('when updating metadata, then persisted', async () => {
       const result = await createStoryWithDeps('UpdateMeta', 'For update', 'MetaUpdVoice');
-      expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, {
         metadata: { source: 'updated', version: 2 }
@@ -826,7 +804,6 @@ describe('Stories', () => {
 
     test('when updating is_breaking to true, then persists', async () => {
       const result = await createStoryWithDeps('BreakingUpdate', 'Test', 'BrkUpdVoice');
-      expect(result).not.toBeNull();
 
       const response = await global.api.apiCall('PUT', `/stories/${result.id}`, { is_breaking: true });
 
