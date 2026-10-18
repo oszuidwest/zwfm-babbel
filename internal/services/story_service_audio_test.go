@@ -413,7 +413,7 @@ func newPublishAudioTestService(t *testing.T) *StoryService {
 		t.Skip("ffprobe not available")
 	}
 	cfg := &config.Config{Audio: config.AudioConfig{
-		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+		FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(), TempPath: t.TempDir(),
 	}}
 	return &StoryService{
 		storyRepo: acceptingAudioRepository{}, audioSvc: audio.NewService(cfg, nil), config: cfg, alerts: notify.Discard,
