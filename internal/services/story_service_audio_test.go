@@ -198,7 +198,7 @@ func undecodableUploadFixtures(t *testing.T, ffmpegPath string) []string {
 		t.Fatal(err)
 	}
 	empty := lavfiFixture(t, ffmpegPath, "anullsrc=r=48000:cl=mono:d=0")
-	return []string{text, unknownCodec, empty}
+	return []string{text, unknownCodec, empty, testutil.CorruptOpus(t, ffmpegPath)}
 }
 
 // lavfiFixture renders an FFmpeg lavfi source to a WAV file in a test temp
@@ -480,6 +480,50 @@ func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
 	// #nosec G304 - canonical fixture in t.TempDir.
 	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, existing) {
 		t.Fatalf("existing audio = %q, %v; want unchanged", data, err)
+	}
+}
+
+func TestGenerateTTS_LateDecoderFailureIsUpstreamFailure(t *testing.T) {
+	t.Parallel()
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	data, err := os.ReadFile(testutil.CorruptOpus(t, ffmpeg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	story := storyForTTSTest("news")
+	service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: data})
+	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), TempPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
+	service.audioSvc = audio.NewService(service.config, nil)
+	alerts := &capturingAlerter{}
+	service.alerts = alerts
+	path := utils.StoryPath(service.config, story.ID)
+	existing := []byte("previous audio")
+	if err := os.WriteFile(path, existing, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = service.GenerateTTS(t.Context(), story.ID, true, nil)
+	assertUpstreamError(t, err, http.StatusBadGateway)
+	if !errors.Is(err, audio.ErrUndecodable) || !strings.Contains(err.Error(), "upstream") {
+		t.Fatalf("TTS error = %v, want undecodable upstream failure", err)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
+		t.Fatalf("events = %+v, resolved = %v", alerts.events, alerts.resolved)
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, existing) {
+		t.Fatalf("existing audio = %q, %v", got, err)
+	}
+	for _, dir := range []string{service.config.Audio.TempPath, service.config.Audio.ProcessedPath} {
+		entries, err := os.ReadDir(dir)
+		if err != nil || (dir == service.config.Audio.TempPath && len(entries) != 0) || (dir == service.config.Audio.ProcessedPath && len(entries) != 1) {
+			t.Fatalf("conversion leftovers in %s: %v, %v", dir, entries, err)
+		}
 	}
 }
 
