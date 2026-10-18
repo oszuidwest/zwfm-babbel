@@ -118,6 +118,9 @@ type DatabaseConfig struct {
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
 	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
+	ConnectTimeout  time.Duration `env:"CONNECT_TIMEOUT" envDefault:"10s"`
+	ReadTimeout     time.Duration `env:"READ_TIMEOUT" envDefault:"2m"`
+	WriteTimeout    time.Duration `env:"WRITE_TIMEOUT" envDefault:"2m"`
 }
 
 // MaxPasswordBytes is the longest password bcrypt accepts.
@@ -413,6 +416,16 @@ func (c *Config) validateDatabasePool() error {
 	}
 	if c.Database.ConnMaxLifetime <= 0 {
 		return fmt.Errorf("BABBEL_DB_CONN_MAX_LIFETIME must be > 0 (got %s)", c.Database.ConnMaxLifetime)
+	}
+	for _, setting := range []struct {
+		name  string
+		value time.Duration
+	}{
+		{"CONNECT_TIMEOUT", c.Database.ConnectTimeout}, {"READ_TIMEOUT", c.Database.ReadTimeout}, {"WRITE_TIMEOUT", c.Database.WriteTimeout},
+	} {
+		if setting.value <= 0 {
+			return fmt.Errorf("BABBEL_DB_%s must be > 0 (got %s)", setting.name, setting.value)
+		}
 	}
 	return nil
 }

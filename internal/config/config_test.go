@@ -476,6 +476,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 			MaxOpenConns:    25,
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
+			ConnectTimeout:  10 * time.Second,
+			ReadTimeout:     2 * time.Minute,
+			WriteTimeout:    2 * time.Minute,
 		},
 		Auth: AuthConfig{
 			Method:        AuthMethodLocal,
