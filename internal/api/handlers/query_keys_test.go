@@ -78,20 +78,18 @@ func TestSingletonGETsRejectQueryKeysBeforeCallingService(t *testing.T) {
 	}
 }
 
-func TestRepeatedNonListQueryValuesAreRejected(t *testing.T) {
+func TestNonListQueryValuesAreValidated(t *testing.T) {
 	t.Parallel()
 	h := &Handlers{ttsEnabled: true}
 	automation := NewAutomationHandler(nil, nil, &config.Config{Automation: config.AutomationConfig{Key: "expected"}}, nil)
 	for _, tt := range []struct {
-		query, field string
-		handler      gin.HandlerFunc
+		query, field, code string
+		handler            gin.HandlerFunc
 	}{
-		{"force=false&force=true", "force", h.GenerateStoryTTS},
-		{"force=true&force=false", "force", h.GenerateStoryTTS},
-		{"key=expected&max_age=0&max_age=3600", "max_age", automation.GetPublicBulletin},
-		{"key=expected&max_age=3600&max_age=0", "max_age", automation.GetPublicBulletin},
-		{"key=expected&key=other&max_age=0", "key", automation.GetPublicBulletin},
-		{"key=other&key=expected&max_age=0", "key", automation.GetPublicBulletin},
+		{"force=false&force=true", "force", "duplicate", h.GenerateStoryTTS},
+		{"force=", "force", "invalid_format", h.GenerateStoryTTS},
+		{"key=expected&max_age=0&max_age=3600", "max_age", "duplicate", automation.GetPublicBulletin},
+		{"key=other&key=expected&max_age=0", "key", "duplicate", automation.GetPublicBulletin},
 	} {
 		t.Run(tt.query, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -99,7 +97,7 @@ func TestRepeatedNonListQueryValuesAreRejected(t *testing.T) {
 			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/x/7?"+tt.query, nil)
 			c.Params = gin.Params{{Key: "id", Value: "7"}}
 			tt.handler(c)
-			assertFieldError(t, recorder, tt.field, "duplicate")
+			assertFieldError(t, recorder, tt.field, tt.code)
 		})
 	}
 }

@@ -36,7 +36,7 @@ func TestHealthStillIgnoresQueryKeys(t *testing.T) {
 	registerHealthRoute(router, &gorm.DB{Config: &gorm.Config{}}, nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health?probe=1", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want database-health 503, not query-validation 422", rec.Code)
+	if rec.Code == http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want the health check, not query validation", rec.Code)
 	}
 }

@@ -106,7 +106,7 @@ func SingleQueryValue(c *gin.Context, key string) (string, bool) {
 		return "", false
 	}
 	if len(query[key]) > 1 {
-		emitQueryError(c, queryError(key, apperrors.CodeDuplicate, "received multiple values; only one is allowed"))
+		emitQueryError(c, duplicateQueryError(key))
 		return "", false
 	}
 	return query.Get(key), true
@@ -298,6 +298,10 @@ var filterOperators = map[string]repository.FilterOperator{
 	"between": repository.FilterBetween,
 }
 
+func duplicateQueryError(key string) *apperrors.FieldError {
+	return queryError(key, apperrors.CodeDuplicate, "received multiple values; only one is allowed")
+}
+
 // rejectDuplicateSingleValueParams rejects repeated non-filter keys before
 // query.Get can discard extra values. parseFilters checks duplicate filter keys.
 func rejectDuplicateSingleValueParams(query url.Values) *apperrors.FieldError {
@@ -306,7 +310,7 @@ func rejectDuplicateSingleValueParams(query url.Values) *apperrors.FieldError {
 			continue
 		}
 		if len(values) > 1 {
-			return queryError(key, apperrors.CodeDuplicate, "received multiple values; only one is allowed")
+			return duplicateQueryError(key)
 		}
 	}
 	return nil

@@ -422,10 +422,11 @@ paths:
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
           description: |
-            Invalid path or query parameter. `errors[].field` is `id`,
+            Invalid path or query parameter. `errors[].field` is `id`, `key`,
             `max_age`, or `query` for a query string that cannot be decoded;
             `max_age` fails with `required`, `invalid_format` or
-            `out_of_range`.
+            `out_of_range`, and a repeated `key` or `max_age` with
+            `duplicate`.
           content:
             application/problem+json:
               schema:
