@@ -128,7 +128,7 @@ func TestHandleServiceError_TimeoutLogsCauseAndRoute(t *testing.T) {
 			logs := testutil.CaptureLogs(t, slog.LevelDebug)
 			alerts := &automationAlertRecorder{}
 			cause := fmt.Errorf("driver read stalled: %w", context.DeadlineExceeded)
-			var err error = cause
+			err := cause
 			resource := "Operation"
 			if database {
 				err = apperrors.Database("Bulletin", "query", cause)
