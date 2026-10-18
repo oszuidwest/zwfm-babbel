@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -37,6 +38,12 @@ func TestParseLoudnormStats(t *testing.T) {
 	"normalization_type" : "dynamic",
 	"target_offset" : "0.43"
 }`,
+			want: loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43},
+		},
+		{
+			name: "metadata braces before measurement",
+			output: "title : {x} and }\n[Parsed_loudnorm_1 @ 0x123]\n" +
+				`{"input_i":"-19.76","input_tp":"-1.00","input_lra":"4.00","input_thresh":"-30.03","target_offset":"0.43"}`,
 			want: loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43},
 		},
 		{
@@ -177,7 +184,7 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 			for _, story := range stories {
 				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
 			}
-			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
+			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-metadata", "title={x} and }", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
 			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")
 
 			if err := svc.CreateBulletin(t.Context(), station, stories, tt.jingle, outputPath); err != nil {
@@ -198,6 +205,36 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 				t.Fatalf("true peak = %.1f dBTP, want at most -1 dBTP", stats.TruePeak)
 			}
 		})
+	}
+}
+
+func TestService_ConvertStoryWithBracesInMetadata(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+	input := filepath.Join(t.TempDir(), "metadata.mp3")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-metadata", "title={x} and }", "-y", input)
+	if duration, err := svc.ConvertStoryToWAV(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil || duration <= 0 {
+		t.Fatalf("ConvertStoryToWAV = %v, %v; want audio with a duration", duration, err)
+	}
+}
+
+func TestService_LoudnormParseFailureAlertsImmediately(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts are not executable on Windows")
+	}
+	ffmpeg := filepath.Join(t.TempDir(), "ffmpeg")
+	// #nosec G306 - controlled test executable emits invalid FFmpeg stats.
+	if err := os.WriteFile(ffmpeg, []byte("#!/bin/sh\nprintf '%s\\n' '[Parsed_loudnorm_1 @ test]' '{not-json}'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	alerts := &alertRecorder{}
+	svc := NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg}}, alerts)
+	if _, err := svc.measureLoudnessWithArgs(t.Context()); err == nil {
+		t.Fatal("expected invalid stats to fail")
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "audio:loudnorm-parse" || alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
+		t.Fatalf("alerts = %+v, resolved = %v; want one immediate parse alert", alerts.events, alerts.resolved)
 	}
 }
 

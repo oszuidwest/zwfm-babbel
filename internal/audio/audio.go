@@ -229,10 +229,9 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	stats, err := parseLoudnormStats(string(output))
 	if err != nil {
 		s.alerts.Alert(ctx, notify.Event{
-			Key:               "audio:loudnorm-parse",
-			Summary:           "FFmpeg loudnorm output could not be parsed",
-			Details:           err.Error(),
-			RequiresThreshold: true,
+			Key:     "audio:loudnorm-parse",
+			Summary: "FFmpeg loudnorm output could not be parsed",
+			Details: err.Error(),
 		})
 		return loudnormStats{}, err
 	}
@@ -266,7 +265,8 @@ func bulletinNormalizationFilter(stats loudnormStats) string {
 }
 
 func parseLoudnormStats(output string) (loudnormStats, error) {
-	start := strings.Index(output, "{")
+	// Loudnorm's final object is flat; earlier braces can come from input tags.
+	start := strings.LastIndex(output, "{")
 	end := strings.LastIndex(output, "}")
 	if start == -1 || end <= start {
 		return loudnormStats{}, fmt.Errorf("failed to find loudnorm JSON stats in ffmpeg output")
