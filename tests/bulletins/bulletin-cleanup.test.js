@@ -52,13 +52,16 @@ describe('Bulletin Cleanup', () => {
     purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
 
-    // Keep creation timestamps distinct for latest-bulletin selection.
-    await global.helpers.sleep(1000);
-
     const bulletin2 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin2.status).toBe(200);
     unpurgedBulletinId = bulletin2.data.id;
     global.resources.track('bulletins', unpurgedBulletinId);
+
+    // Keep latest-bulletin selection independent of wall-clock timing.
+    mysql.setTimestamps('bulletins', [
+      [purgedBulletinId, { created_at: 0 }],
+      [unpurgedBulletinId, { created_at: 1 }]
+    ]);
 
     markBulletinPurged(purgedBulletinId);
   });
