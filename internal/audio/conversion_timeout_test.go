@@ -58,23 +58,33 @@ func TestConversionTimeoutStopsEachProcess(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrUndecodable) || t.Context().Err() != nil {
 				t.Fatalf("conversion error = %v, caller error = %v; want local deadline", err, t.Context().Err())
 			}
-			pidBytes, err := os.ReadFile(pidPath)
-			if err != nil {
-				t.Fatalf("hung %s process never started: %v", phase, err)
-			}
-			pid, err := strconv.Atoi(string(pidBytes))
-			if err != nil {
-				t.Fatal(err)
-			}
-			process, err := os.FindProcess(pid)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer process.Release()
-			if err := process.Signal(syscall.Signal(0)); err == nil {
-				t.Fatalf("hung process %d survived the conversion deadline", pid)
-			}
+			assertAudioProcessStopped(t, pidPath)
 		})
+	}
+}
+
+func assertAudioProcessStopped(t *testing.T, pidPath string) {
+	t.Helper()
+	// #nosec G304 - PID marker is written by a test-owned tool in t.TempDir.
+	pidBytes, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("hung process never started: %v", err)
+	}
+	pid, err := strconv.Atoi(string(pidBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := process.Release(); err != nil {
+			t.Error(err)
+		}
+	})
+	if err := process.Signal(syscall.Signal(0)); err == nil {
+		t.Fatalf("hung process %d survived the conversion deadline", pid)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -47,6 +48,7 @@ func TestAudioConversionDeadlinePreservesPublishedFiles(t *testing.T) {
 			case "story upload":
 				err = service.ProcessAudio(ctx, story.ID, input, nil)
 			case "TTS":
+				// #nosec G304 - generated WAV fixture in t.TempDir.
 				data, readErr := os.ReadFile(input)
 				if readErr != nil {
 					t.Fatal(readErr)
@@ -61,15 +63,24 @@ func TestAudioConversionDeadlinePreservesPublishedFiles(t *testing.T) {
 			if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, audio.ErrUndecodable) {
 				t.Fatalf("error = %v, want preserved deadline", err)
 			}
-			if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, existing) {
-				t.Fatalf("published audio = %q, %v", got, err)
-			}
-			for _, dir := range []string{service.config.Audio.TempPath, service.config.Audio.ProcessedPath} {
-				entries, err := os.ReadDir(dir)
-				if err != nil || (dir == service.config.Audio.TempPath && len(entries) != 0) || (dir == service.config.Audio.ProcessedPath && len(entries) != 1) {
-					t.Fatalf("conversion leftovers in %s: %v, %v", dir, entries, err)
-				}
-			}
+			assertConversionFiles(t, service.config, path, existing)
 		})
+	}
+}
+
+func assertConversionFiles(t *testing.T, cfg *config.Config, path string, existing []byte) {
+	t.Helper()
+	// #nosec G304 - published test fixture in t.TempDir.
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, existing) {
+		t.Fatalf("published audio = %q, %v", got, err)
+	}
+	for dir, want := range map[string]int{cfg.Audio.TempPath: 0, cfg.Audio.ProcessedPath: 1} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != want {
+			t.Fatalf("conversion leftovers in %s: %v", dir, entries)
+		}
 	}
 }
