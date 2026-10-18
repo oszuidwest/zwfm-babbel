@@ -85,7 +85,7 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       editorUsername = `testeditor${Date.now()}`;
-      const editorId = await createUser(editorUsername, 'Test Editor', 'TestPass123!', 'editor');
+      await createUser(editorUsername, 'Test Editor', 'TestPass123!', 'editor');
 
       const switched = await switchToUser(editorUsername, 'TestPass123!');
       expect(switched).toBe(true);
@@ -161,7 +161,7 @@ describe('Permissions', () => {
       await restoreAdmin();
 
       viewerUsername = `testviewer${Date.now()}`;
-      const viewerId = await createUser(viewerUsername, 'Test Viewer', 'TestPass123!', 'viewer');
+      await createUser(viewerUsername, 'Test Viewer', 'TestPass123!', 'viewer');
 
       const switched = await switchToUser(viewerUsername, 'TestPass123!');
       expect(switched).toBe(true);

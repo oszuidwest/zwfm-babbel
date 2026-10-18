@@ -130,7 +130,7 @@ describe('Automation', () => {
       stationId = station.id;
       voiceId = voice.id;
 
-      const sv = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
+      await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
     });
 
     test('when single-day story, then scheduling works correctly', async () => {

@@ -32,7 +32,7 @@ class TestHelpers {
     while (Date.now() < deadline) {
       const response = await this.api.apiCall('GET', `/stories/${storyId}`);
       this.fixtureResponse(response, 'GET', `/stories/${storyId}`, 200, false);
-      if (response.status === 200 && response.data.audio_url) {
+      if (response.data.audio_url) {
         return true;
       }
       await this.sleep(intervalMs);
@@ -51,9 +51,7 @@ class TestHelpers {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const response = await this.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
-      if (response.status !== 200) {
-        this.fixtureResponse(response, 'GET', `/bulletin-jobs/${jobId}`, 200, false);
-      }
+      this.fixtureResponse(response, 'GET', `/bulletin-jobs/${jobId}`, 200, false);
       if (['succeeded', 'failed'].includes(response.data.status)) {
         return response;
       }
@@ -171,7 +169,7 @@ class TestHelpers {
    * @param {string} name
    * @param {number} [maxStories]
    * @param {number} [pauseSeconds]
-   * @returns {Promise<{id: number, name: string}|null>}
+   * @returns {Promise<{id: number, name: string}>}
    */
   async createStation(resourceManager, name, maxStories = 4, pauseSeconds = 2.0) {
     const uniqueName = this.uniqueName(name);
@@ -182,18 +180,15 @@ class TestHelpers {
       pause_seconds: pauseSeconds
     });
 
-    if (response.status === 201 && response.data?.id) {
-      resourceManager.track('stations', response.data.id);
-      return { id: response.data.id, name: uniqueName };
-    }
-
-    this.fixtureResponse(response, 'POST', '/stations');
+    const { id } = this.fixtureResponse(response, 'POST', '/stations');
+    resourceManager.track('stations', id);
+    return { id, name: uniqueName };
   }
 
   /**
    * @param {Object} resourceManager
    * @param {string} name
-   * @returns {Promise<{id: number, name: string}|null>}
+   * @returns {Promise<{id: number, name: string}>}
    */
   async createVoice(resourceManager, name) {
     const uniqueName = this.uniqueName(name);
@@ -202,18 +197,15 @@ class TestHelpers {
       name: uniqueName
     });
 
-    if (response.status === 201 && response.data?.id) {
-      resourceManager.track('voices', response.data.id);
-      return { id: response.data.id, name: uniqueName };
-    }
-
-    this.fixtureResponse(response, 'POST', '/voices');
+    const { id } = this.fixtureResponse(response, 'POST', '/voices');
+    resourceManager.track('voices', id);
+    return { id, name: uniqueName };
   }
 
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @returns {Promise<{id: number}|null>}
+   * @returns {Promise<{id: number}>}
    */
   async createStory(resourceManager, data) {
     const today = new Date();
@@ -235,18 +227,15 @@ class TestHelpers {
 
     const response = await this.api.apiCall('POST', '/stories', storyData);
 
-    if (response.status === 201 && response.data?.id) {
-      resourceManager.track('stories', response.data.id);
-      return { id: response.data.id };
-    }
-
-    this.fixtureResponse(response, 'POST', '/stories');
+    const { id } = this.fixtureResponse(response, 'POST', '/stories');
+    resourceManager.track('stories', id);
+    return { id };
   }
 
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @returns {Promise<{id: number}|null>}
+   * @returns {Promise<{id: number}>}
    */
   async createStoryWithAudio(resourceManager, data) {
     this.requireFFmpeg();
@@ -276,7 +265,7 @@ class TestHelpers {
   /**
    * @param {Object} resourceManager
    * @param {Object} data
-   * @returns {Promise<{id: number}|null>}
+   * @returns {Promise<{id: number}>}
    */
   async createStoryWithReadyAudio(resourceManager, data) {
     const story = await this.createStoryWithAudio(resourceManager, data);
@@ -304,7 +293,7 @@ class TestHelpers {
    * @param {Object} resourceManager
    * @param {string|number} voiceId
    * @param {Object[]} stories
-   * @returns {Promise<Array<{id: number}>|null>}
+   * @returns {Promise<Array<{id: number}>>}
    */
   async createStoriesWithReadyAudio(resourceManager, voiceId, stories) {
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
@@ -343,7 +332,7 @@ class TestHelpers {
    * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {number} [mixPoint]
-   * @returns {Promise<{id: number}|null>}
+   * @returns {Promise<{id: number}>}
    */
   async createStationVoice(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const response = await this.api.apiCall('POST', '/station-voices', {
@@ -352,12 +341,9 @@ class TestHelpers {
       mix_point: parseFiniteNumber(mixPoint, 'mix point')
     });
 
-    if (response.status === 201 && response.data?.id) {
-      resourceManager.track('stationVoices', response.data.id);
-      return { id: response.data.id };
-    }
-
-    this.fixtureResponse(response, 'POST', '/station-voices');
+    const { id } = this.fixtureResponse(response, 'POST', '/station-voices');
+    resourceManager.track('stationVoices', id);
+    return { id };
   }
 
   /**
@@ -365,7 +351,7 @@ class TestHelpers {
    * @param {string|number} stationId
    * @param {string|number} voiceId
    * @param {number} [mixPoint]
-   * @returns {Promise<{id: number}|null>}
+   * @returns {Promise<{id: number}>}
    */
   async createStationVoiceWithJingle(resourceManager, stationId, voiceId, mixPoint = 3.0) {
     const safeStationId = parseSafeInteger(stationId, 'station ID');
