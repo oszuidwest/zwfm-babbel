@@ -23,8 +23,8 @@ describe('Soft-deleted story audio', () => {
     expect(trash.status).toBe(200);
     expect(trash.data.data).toHaveLength(1);
     expect(trash.data.data[0].id).toBe(story.id);
-    expect(trash.data.data[0].audio_url).toContain(audioPath);
-    const inTrash = await download();
+    expect(trash.data.data[0].audio_url).toBe(audioPath);
+    const inTrash = await global.api.apiCall('GET', trash.data.data[0].audio_url, null, { responseType: 'arraybuffer' });
     expect(inTrash.status).toBe(200);
     expect(Buffer.from(inTrash.data).equals(Buffer.from(before.data))).toBe(true);
 
