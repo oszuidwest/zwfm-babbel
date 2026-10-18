@@ -488,7 +488,7 @@ describe('Bulletins', () => {
     });
 
     // Nested bulletin lists search only bulletin filenames, within the parent:
-    // a term every filename contains lists just this fixture's bulletin, and
+    // this fixture's exact filename lists just its bulletin, and
     // the station name, which no filename contains, lists none.
     test.each([
       ['/stations/{id}/bulletins', () => stationId],
@@ -497,7 +497,7 @@ describe('Bulletins', () => {
       expect(declaresQueryParameter(template, 'search')).toBe(true);
       const search = term => global.api.apiCall('GET', `${template.replace('{id}', id())}?search=${encodeURIComponent(term)}`);
 
-      const matching = await search(bulletinsSchema.query.searchTerm);
+      const matching = await search(bulletin.filename);
       expect(matching.status).toBe(200);
       expect(matching.data).toMatchObject({ total: 1, data: [{ id: bulletin.id }] });
 
