@@ -37,8 +37,9 @@ describe('Bulletins', () => {
 
   // Every two sortable fields order some pair of fixtures oppositely, so a
   // field mapped to another field's column fails a sort test. id rises with
-  // the fixture index, station_id runs high, low, low and created_at, the
-  // default sort key, lists them as 1, 0, 2 (newest first).
+  // the fixture index, station_id runs middle, low, high, low and created_at
+  // uses a separate nonmonotonic permutation. Three station IDs let between
+  // exclude a fixture at either end.
   const setupQueryTestData = async () => {
     const { station, voice } = await global.helpers.createBroadcastFixture(global.resources, {
       stationName: 'QueryBulletinStation',
@@ -48,9 +49,11 @@ describe('Bulletins', () => {
     });
     const second = await global.helpers.createStation(global.resources, 'QueryBulletinStation2');
     await global.helpers.createStationVoiceWithJingle(global.resources, second.id, voice.id);
+    const third = await global.helpers.createStation(global.resources, 'QueryBulletinStation3');
+    await global.helpers.createStationVoiceWithJingle(global.resources, third.id, voice.id);
 
     const ids = [];
-    for (const stationId of [second.id, station.id, station.id]) {
+    for (const stationId of [second.id, station.id, third.id, station.id]) {
       const response = await global.helpers.generateBulletin(stationId);
       // A failed fixture must fail the suite; pre-seeded rows would otherwise
       // keep the generated query tests green without exercising this data.
@@ -58,7 +61,11 @@ describe('Bulletins', () => {
       expect(response.data.id).toBeDefined();
       ids.push(response.data.id);
     }
-    mysql.setTimestamps('bulletins', ids.map((id, index) => [id, { created_at: [1, 2, 0][index] }]));
+    mysql.setTimestamps('bulletins', ids.map((id, index) => [id, { created_at: [1, 0, 3, 2][index] }]));
+    for (const [index, id] of ids.entries()) {
+      const filename = `QueryBulletin${['B', 'A', 'D', 'C'][index]}_${index < 3 ? 'querykeep' : 'querydrop'}.wav`;
+      mysql.execSQL(`UPDATE bulletins SET filename=${sqlString(filename)} WHERE id=${sqlInteger(id)}`);
+    }
     return ids;
   };
 
@@ -475,7 +482,7 @@ describe('Bulletins', () => {
     });
 
     // Nested bulletin lists search only bulletin filenames, within the parent:
-    // a term every filename contains lists just this fixture's bulletin, and
+    // this fixture's exact filename lists just its bulletin, and
     // the station name, which no filename contains, lists none.
     test.each([
       ['/stations/{id}/bulletins', () => stationId],
@@ -484,7 +491,7 @@ describe('Bulletins', () => {
       expect(declaresQueryParameter(template, 'search')).toBe(true);
       const search = term => global.api.apiCall('GET', `${template.replace('{id}', id())}?search=${encodeURIComponent(term)}`);
 
-      const matching = await search(bulletinsSchema.query.searchTerm);
+      const matching = await search(bulletin.filename);
       expect(matching.status).toBe(200);
       expect(matching.data).toMatchObject({ total: 1, data: [{ id: bulletin.id }] });
 
