@@ -56,14 +56,12 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 
 // HandleOAuthCallback completes authentication and redirects to the frontend.
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
-	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
-	if frontendURL == "" {
-		// Config validation requires BABBEL_FRONTEND_URL for OIDC, so this is a
-		// callback while OIDC is disabled; the route is public, hence Warn.
-		logger.Warn("OIDC callback has no frontend URL; OIDC is disabled or BABBEL_FRONTEND_URL is not set")
-		utils.ProblemInternalServer(c, "No frontend URL configured")
+	if !h.authService.IsOAuthEnabled() {
+		utils.ProblemCustom(c, utils.ProblemTypeResourceNotFound, "Resource Not Found", http.StatusNotFound,
+			"OAuth authentication is disabled")
 		return
 	}
+	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
 
 	if err := h.authService.FinishOAuthFlow(c); err != nil {
 		// The provider's values come from the query, also with an invalid state.
