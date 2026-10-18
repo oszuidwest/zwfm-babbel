@@ -201,7 +201,6 @@ describe('OpenAPI Contract', () => {
       apiScenario('PUT', '/api/v1/stations/{id}', () => `/stations/${ctx.station.id}`, () => stationBody('Contract Updated Station')),
       scenario('DELETE', '/api/v1/stations/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Delete Station');
-          expect(station).not.toBeNull();
           const response = await apiCall('DELETE', '/api/v1/stations/{id}', `/stations/${station.id}`);
           global.resources.untrack('stations', station.id);
           return response;
@@ -212,7 +211,6 @@ describe('OpenAPI Contract', () => {
       apiScenario('PUT', '/api/v1/voices/{id}', () => `/voices/${ctx.voice.id}`, () => voiceBody('Contract Updated Voice')),
       scenario('DELETE', '/api/v1/voices/{id}', async () => {
           const voice = await global.helpers.createVoice(global.resources, 'Contract Delete Voice');
-          expect(voice).not.toBeNull();
           const response = await apiCall('DELETE', '/api/v1/voices/{id}', `/voices/${voice.id}`);
           global.resources.untrack('voices', voice.id);
           return response;
@@ -300,13 +298,11 @@ describe('OpenAPI Contract', () => {
         })),
       scenario('DELETE', '/api/v1/stories/{id}', async () => {
           const story = await global.helpers.createStory(global.resources, storyBody('Contract Delete Story'));
-          expect(story).not.toBeNull();
           return apiCall('DELETE', '/api/v1/stories/{id}', `/stories/${story.id}`);
         }),
       apiScenario('PATCH', '/api/v1/stories/{id}', () => `/stories/${ctx.story.id}`, { status: 'active' }),
       scenario('PUT', '/api/v1/stories/{id}', async () => {
           const story = await global.helpers.createStory(global.resources, storyBody('Contract Deleted Story'));
-          expect(story).not.toBeNull();
           expect((await global.api.apiCall('DELETE', `/stories/${story.id}`)).status).toBe(204);
           const response = await apiCall('PUT', '/api/v1/stories/{id}', `/stories/${story.id}`, { title: 'Changed' });
           expect(response.status).toBe(410);
@@ -369,7 +365,6 @@ describe('OpenAPI Contract', () => {
         }),
       scenario('POST', '/api/v1/stations/{id}/bulletins', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract Empty Station');
-          expect(station).not.toBeNull();
           const response = await apiCall('POST', '/api/v1/stations/{id}/bulletins', `/stations/${station.id}/bulletins`);
           expect(response.status).toBe(202);
           await global.helpers.waitForBulletinJob(response.data.id);
@@ -392,8 +387,6 @@ describe('OpenAPI Contract', () => {
       scenario('POST', '/api/v1/station-voices', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Post Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Post Voice');
-          expect(station).not.toBeNull();
-          expect(voice).not.toBeNull();
 
           const response = await apiCall('POST', '/api/v1/station-voices', '/station-voices', {
             station_id: station.id,
@@ -417,11 +410,8 @@ describe('OpenAPI Contract', () => {
       scenario('DELETE', '/api/v1/station-voices/{id}', async () => {
           const station = await global.helpers.createStation(global.resources, 'Contract SV Delete Station');
           const voice = await global.helpers.createVoice(global.resources, 'Contract SV Delete Voice');
-          expect(station).not.toBeNull();
-          expect(voice).not.toBeNull();
 
           const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.5);
-          expect(stationVoice).not.toBeNull();
 
           const response = await apiCall('DELETE', '/api/v1/station-voices/{id}', `/station-voices/${stationVoice.id}`);
           global.resources.untrack('stationVoices', stationVoice.id);
@@ -643,15 +633,11 @@ describe('OpenAPI Contract', () => {
 async function createContractContext() {
   const station = await global.helpers.createStation(global.resources, 'Contract Station');
   const voice = await global.helpers.createVoice(global.resources, 'Contract Voice');
-  expect(station).not.toBeNull();
-  expect(voice).not.toBeNull();
 
   const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 3.0);
-  expect(stationVoice).not.toBeNull();
   await uploadFixture(`/station-voices/${stationVoice.id}/audio`, 'jingle');
 
   const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id));
-  expect(story).not.toBeNull();
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
   expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);
 
