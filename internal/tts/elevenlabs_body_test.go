@@ -11,7 +11,7 @@ import (
 )
 
 // Returning less than Content-Length closes the server response mid-body.
-func TestGenerateSpeech_TruncatedBodyIsTransportFailure(t *testing.T) {
+func TestService_GenerateSpeech_TruncatedBodyIsTransportFailure(t *testing.T) {
 	t.Parallel()
 	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
@@ -32,26 +32,22 @@ func TestGenerateSpeech_TruncatedBodyIsTransportFailure(t *testing.T) {
 }
 
 // Cancelling in Read exercises the body-read path after client.Do succeeded.
-func TestGenerateSpeech_CancelledBodyReadIsNotTransportFailure(t *testing.T) {
+// The read error differs from ctx.Err(), so both must survive the join.
+func TestService_GenerateSpeech_CancelledBodyReadIsNotTransportFailure(t *testing.T) {
 	t.Parallel()
 	for _, status := range []int{http.StatusOK, http.StatusServiceUnavailable} {
-		for _, readErr := range []error{context.Canceled, io.ErrUnexpectedEOF} {
-			t.Run(strconv.Itoa(status)+"/"+readErr.Error(), func(t *testing.T) {
-				t.Parallel()
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				service := &Service{baseURL: "http://tts.test", client: &http.Client{
-					Transport: bodyCancelTransport{status: status, cancel: cancel, err: readErr},
-				}}
-				_, err := service.GenerateSpeech(ctx, "news", "voice", Options{})
-				if _, ok := errors.AsType[*TransportError](err); ok || !errors.Is(err, context.Canceled) {
-					t.Fatalf("error = %v, want context.Canceled without TransportError", err)
-				}
-				if !errors.Is(err, readErr) {
-					t.Fatalf("error = %v, want original read error %v preserved", err, readErr)
-				}
-			})
-		}
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			t.Parallel()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			service := &Service{baseURL: "http://tts.test", client: &http.Client{
+				Transport: bodyCancelTransport{status: status, cancel: cancel, err: io.ErrUnexpectedEOF},
+			}}
+			_, err := service.GenerateSpeech(ctx, "news", "voice", Options{})
+			if _, ok := errors.AsType[*TransportError](err); ok || !errors.Is(err, context.Canceled) || !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("error = %v, want context.Canceled joined with the read error, without TransportError", err)
+			}
+		})
 	}
 }
 

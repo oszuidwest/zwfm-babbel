@@ -73,17 +73,17 @@ func (e *APIError) Error() string {
 	return msg
 }
 
-// TransportError reports an ElevenLabs request that failed without a response,
-// such as a DNS, connection or TLS failure, or the client timeout (whose cause
-// matches context.DeadlineExceeded). The caller's own cancellation or deadline
-// is not wrapped.
+// TransportError reports an ElevenLabs request that failed in transport: a DNS,
+// connection or TLS failure, a response cut off mid-body, or the client
+// timeout (whose cause matches context.DeadlineExceeded). The caller's own
+// cancellation or deadline is not wrapped.
 type TransportError struct {
 	Err error
 }
 
 // Error returns the transport failure.
 func (e *TransportError) Error() string {
-	return fmt.Sprintf("ElevenLabs request failed without a response: %v", e.Err)
+	return fmt.Sprintf("ElevenLabs request failed in transport: %v", e.Err)
 }
 
 // Unwrap exposes the underlying network error for errors.Is/As.

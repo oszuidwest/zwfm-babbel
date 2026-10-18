@@ -4635,7 +4635,7 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
         - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
-        - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent audio
+        - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent or undecodable audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
@@ -5269,7 +5269,7 @@ components:
       description: |
         Upstream service failed (`tts.upstream_failed`): ElevenLabs could not be
         reached, returned an error, rejected the generated request, or returned
-        silent audio.
+        silent or undecodable audio.
       content:
         application/problem+json:
           schema:
