@@ -29,11 +29,8 @@ describe('Bulletins', () => {
   const createStationVoiceFixture = async (stationName, voiceName, maxStories, pauseSeconds = 2.0, mixPoint = 3.0) => {
     const station = await global.helpers.createStation(global.resources, stationName, maxStories, pauseSeconds);
     const voice = await global.helpers.createVoice(global.resources, voiceName);
-    expect(station).not.toBeNull();
-    expect(voice).not.toBeNull();
 
     const stationVoice = await global.helpers.createStationVoiceWithJingle(global.resources, station.id, voice.id, mixPoint);
-    expect(stationVoice).not.toBeNull();
 
     return { station, voice, stationVoice };
   };
@@ -51,11 +48,9 @@ describe('Bulletins', () => {
       storyText: 'Query test story'
     });
     const second = await global.helpers.createStation(global.resources, 'QueryBulletinStation2');
-    expect(second).not.toBeNull();
-    expect(await global.helpers.createStationVoiceWithJingle(global.resources, second.id, voice.id)).not.toBeNull();
+    await global.helpers.createStationVoiceWithJingle(global.resources, second.id, voice.id);
     const third = await global.helpers.createStation(global.resources, 'QueryBulletinStation3');
-    expect(third).not.toBeNull();
-    expect(await global.helpers.createStationVoiceWithJingle(global.resources, third.id, voice.id)).not.toBeNull();
+    await global.helpers.createStationVoiceWithJingle(global.resources, third.id, voice.id);
 
     const ids = [];
     for (const stationId of [second.id, station.id, third.id, station.id]) {
@@ -376,7 +371,6 @@ describe('Bulletins', () => {
 
     test('when generation has no eligible stories, then the asynchronous job fails safely', async () => {
       const emptyStation = await global.helpers.createStation(global.resources, 'AsyncEmptyStation');
-      expect(emptyStation).not.toBeNull();
       const accepted = await enqueueBulletin(emptyStation.id);
       expect(accepted.status).toBe(202);
 
@@ -565,7 +559,6 @@ describe('Bulletins', () => {
   describe('Bulletin History', () => {
     test('when filtering by date-time, then bounds and every spelling of an instant select the right rows', async () => {
       const station = await global.helpers.createStation(global.resources, 'BulletinRangeStation');
-      expect(station).not.toBeNull();
 
       const stationId = sqlInteger(station.id, 'station ID');
       const suffix = `${Date.now()}_${process.pid}`;

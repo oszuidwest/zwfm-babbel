@@ -11,7 +11,10 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-const sendTimeout = 2 * time.Minute
+const (
+	sendTimeout     = 2 * time.Minute
+	maxDetailsBytes = 16 * 1024
+)
 
 // Event describes one operational condition. Key must be stable and include
 // the affected resource when alerts should be isolated per resource.
@@ -295,9 +298,18 @@ func formatMessage(prefix string, event Event, timestamp time.Time, count int) (
 	}
 	if event.Details != "" {
 		body.WriteString("\n\n")
-		body.WriteString(event.Details)
+		body.WriteString(truncateDetails(event.Details))
 	}
 	return prefix + " " + event.Summary + " - Babbel", body.String()
+}
+
+// truncateDetails caps details that grow with the work, such as joined
+// per-record errors, without splitting a UTF-8 character.
+func truncateDetails(details string) string {
+	if len(details) <= maxDetailsBytes {
+		return details
+	}
+	return strings.ToValidUTF8(details[:maxDetailsBytes], "") + "\n[truncated]"
 }
 
 var _ Alerter = (*Service)(nil)

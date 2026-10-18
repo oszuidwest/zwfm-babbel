@@ -74,7 +74,7 @@ func NewHandlers(deps HandlersDeps) *Handlers {
 func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// Timeouts take precedence over wrapped domain errors.
 	if errors.Is(err, context.DeadlineExceeded) {
-		logger.Error("Request timeout", "error", err)
+		logRequestTimeout(c, err, fallbackResource)
 		utils.ProblemExtended(c, http.StatusGatewayTimeout,
 			fmt.Sprintf("%s operation timed out", fallbackResource),
 			apperrors.CodeTimeout,
@@ -108,7 +108,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
-		logError(duplicate.Resource, "duplicate", err)
+		logErrorWithCause(duplicate.Resource, "duplicate", err, duplicate.Unwrap())
 		hint := "Use a different value"
 		if duplicate.Field != "" {
 			hint = fmt.Sprintf("Use a different %s or update the existing %s",
@@ -123,7 +123,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
-		logError(dependency.Resource, "has_dependencies", err)
+		logErrorWithCause(dependency.Resource, "has_dependencies", err, dependency.Unwrap())
 		utils.ProblemExtended(c, http.StatusConflict,
 			dependency.Error(),
 			strings.ToLower(dependency.Resource)+".has_dependencies",
@@ -164,8 +164,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
-		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
+		alertDatabaseFailure(c, dbError)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -188,10 +187,49 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	)
 }
 
+// alertAudioFailure counts a server-side upload processing failure toward the
+// route's audio incident. Bulletin generation (bulletin:generation:*) and TTS
+// synthesis (tts:*) alert in their services.
+func alertAudioFailure(c *gin.Context, audioError *apperrors.AudioError) {
+	if audioError.Resource == "Bulletin" || audioError.Operation == "tts_generate" {
+		return
+	}
+	alertRequestFailure(c, notify.Event{
+		Key:               audioAlertKeyPrefix + utils.RouteKey(c),
+		Summary:           "Audio processing requests repeatedly fail",
+		Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), audioError.Resource, audioError.Unwrap()),
+		RequiresThreshold: true,
+	})
+}
+
+func alertDatabaseFailure(c *gin.Context, dbError *apperrors.DatabaseError) {
+	alertRequestFailure(c, databaseRequestEvent(c,
+		fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
+}
+
+func logRequestTimeout(c *gin.Context, err error, resource string) {
+	cause := errors.Unwrap(err)
+	if cause == nil {
+		cause = err
+	}
+	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
+		resource, cause = dbError.Resource, dbError.Unwrap()
+		alertDatabaseFailure(c, dbError)
+	}
+	// An upload's audio timeout, such as a hung ffprobe, also counts toward
+	// the route's audio incident.
+	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
+		alertAudioFailure(c, audioError)
+	}
+	logger.Error("Request timeout", "resource", resource, "error_type", "timeout",
+		"route", utils.RouteKey(c), "error", err, "cause", cause)
+}
+
 // handleAudioError reports whether it wrote an audio error response.
 func handleAudioError(c *gin.Context, err error) bool {
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
+		alertAudioFailure(c, audioError)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			apperrors.CodeAudioProcessingFailed,
@@ -215,6 +253,7 @@ const (
 	// Resolve calls in NotificationMiddleware.
 	databaseAlertKeyPrefix = "database:request:"
 	internalAlertKeyPrefix = "http:internal:"
+	audioAlertKeyPrefix    = "audio:request:"
 )
 
 // databaseRequestEvent builds the shared alert for failing database-backed
@@ -243,6 +282,8 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 			"Database request path recovered", "Requests to "+route+" succeed again.")
 		alerts.Resolve(c.Request.Context(), internalAlertKeyPrefix+route,
 			"API request path recovered", "Requests to "+route+" succeed again.")
+		alerts.Resolve(c.Request.Context(), audioAlertKeyPrefix+route,
+			"Audio request path recovered", "Audio processing requests to "+route+" succeed again.")
 	}
 }
 

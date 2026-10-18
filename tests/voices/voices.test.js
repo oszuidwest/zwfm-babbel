@@ -11,7 +11,6 @@ describe('Voices', () => {
     const ids = [];
     for (const [index, letter] of ['B', 'A', 'D', 'C'].entries()) {
       const voice = await global.helpers.createVoice(global.resources, `QuerySort${letter}_${index < 3 ? 'querykeep' : 'querydrop'}`);
-      expect(voice).not.toBeNull();
       ids.push(voice.id);
     }
     createMySQLExecutor().setTimestamps('voices', ids.map((id, index) => [id, { created_at: [2, 0, 1, 3][index], updated_at: [0, 3, 2, 1][index] }]));
@@ -27,7 +26,6 @@ describe('Voices', () => {
 
     beforeAll(async () => {
       const voice = await global.helpers.createVoice(global.resources, 'AssociatedVoice');
-      expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 

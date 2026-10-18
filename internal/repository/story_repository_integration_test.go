@@ -50,6 +50,9 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 	if saved.AudioFile != "original.wav" || saved.DurationSeconds == nil || *saved.DurationSeconds != 12 {
 		t.Fatalf("deleted story audio changed: %+v", saved)
 	}
+	if path, err := NewAudioRepository(db).GetFilePath(t.Context(), "stories", story.ID); err != nil || path != "original.wav" {
+		t.Fatalf("deleted story audio lookup = %q, %v; want retained original audio", path, err)
+	}
 	if err := repo.UpdateAudio(t.Context(), math.MaxInt64, StoryAudioUpdate{
 		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20,
 	}); !errors.Is(err, ErrNotFound) {

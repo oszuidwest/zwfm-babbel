@@ -36,7 +36,6 @@ describe('Station-Voices', () => {
     const timestamps = [];
     for (const [station, voice, mix, createdAt, updatedAt] of fixtures) {
       const stationVoice = await global.helpers.createStationVoice(global.resources, stations[station].id, voices[voice].id, mix);
-      expect(stationVoice).not.toBeNull();
       ids.push(stationVoice.id);
       timestamps.push([stationVoice.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
@@ -110,7 +109,6 @@ describe('Station-Voices', () => {
         const station = await global.helpers.createStation(global.resources, 'NotAudioStation');
         const voice = await global.helpers.createVoice(global.resources, 'NotAudioVoice');
         const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.5);
-        expect(stationVoice).not.toBeNull();
 
         const uploadResponse = await global.api.uploadFile(
           `/station-voices/${stationVoice.id}/audio`,
@@ -197,7 +195,6 @@ describe('Station-Voices', () => {
       const voice = await global.helpers.createVoice(global.resources, 'JingleLockVoice');
       const otherVoice = await global.helpers.createVoice(global.resources, 'JingleLockVoice2');
       const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
-      expect(stationVoice).not.toBeNull();
 
       const uploadResponse = await global.api.uploadFile(
         `/station-voices/${stationVoice.id}/audio`,
@@ -233,7 +230,6 @@ describe('Station-Voices', () => {
       const voice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice');
       const otherVoice = await global.helpers.createVoice(global.resources, 'NoJingleMoveVoice2');
       const stationVoice = await global.helpers.createStationVoice(global.resources, station.id, voice.id, 1.0);
-      expect(stationVoice).not.toBeNull();
 
       const moved = await global.api.apiCall('PUT', `/station-voices/${stationVoice.id}`, {
         station_id: otherStation.id,
