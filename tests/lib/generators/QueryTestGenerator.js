@@ -1,6 +1,7 @@
 const { declaresQueryParameter, assertSearchFields, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
-const { unnoticedSortMappings } = require('../SortMutationModel');
+const { unnoticedSortMappings, unnoticedIDOrders } = require('../SortMutationModel');
+const { isolatedSearchCase, independentFilters, matchingSearchIDs } = require('../QueryFixtureModel');
 
 /**
  * Generates list-query contract tests from a resource schema.
@@ -13,6 +14,11 @@ const { unnoticedSortMappings } = require('../SortMutationModel');
  * Every two fields must also order some pair of fixtures oppositely: a field
  * mapped to the column of a field it never contradicts can pass both
  * directions.
+ * Fixtures must also contradict ascending ID reads in both directions, have
+ * three levels for numeric between filters, and isolate a positive term in
+ * each search field. Searchable fixtures include "querykeep" in at least
+ * three rows but not all rows, so combined search/filter/sort/fields/limit
+ * tests can independently detect every omitted part.
  *
  * Multi-field sort tests run only with tiedSortField: a sortable field with
  * two distinct values among the fixtures, one of them shared, so the second
@@ -28,9 +34,6 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
   assertSearchFields(endpoint, query.searchFields);
-  // Must occur in a query.searchFields value of at least one row. The default
-  // matches rows that other tests leave behind, not only the fixtures.
-  const searchTerm = query.searchTerm ?? 'test';
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
   const expectStatus = async (qs, status = 200) => {
@@ -65,7 +68,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   const sorted = (keys, direction) => keys.toSorted((a, b) => direction * (a - b));
 
   describe(`${name} Query Parameters`, () => {
-    let fixtureIds;
+    let fixtureIds, fixtureItems;
     // Lists only the fixtures and checks that the page holds exactly the
     // expected ones. Rows from other tests could otherwise fill the page.
     const listFixtures = async (qs = '', expected = fixtureIds) => {
@@ -76,17 +79,15 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
 
     beforeAll(async () => {
       fixtureIds = await setupFn();
+      fixtureItems = (await listFixtures()).data.data;
     });
 
     // Field names are checked against the operation's machine-readable contract.
     const searchable = declaresQueryParameter(endpoint, 'search');
     describe('Search scope', () => {
-      // searchTerm may match every row (bulletins search '.wav'), so the Search
-      // test cannot tell an ignored search from a working one; a term no row
-      // contains can.
       test(searchable ? 'when search matches nothing, then returns total 0' : 'when searching, then returns a search 422', async () => {
         expect.hasAssertions();
-        const response = await expectStatus('search=__no_such_term__', searchable ? 200 : 422);
+        const response = await expectStatus(`filter[id][in]=${fixtureIds.join(',')}&search=__no_such_term__`, searchable ? 200 : 422);
         if (searchable) expect(response.data).toMatchObject({ total: 0, data: [] });
         else expect(response.data.errors.map(error => [error.field, error.code])).toEqual([['search', 'unsupported']]);
       });
@@ -94,14 +95,11 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
 
     if (searchable) {
       describe('Search', () => {
-        test(`when searching "${searchTerm}", then returns only matches`, async () => {
+        test.each(query.searchFields)('when searching an isolated term in %s, then finds exactly its fixtures', async field => {
           expect.hasAssertions();
-          const response = await expectStatus(`search=${encodeURIComponent(searchTerm)}`);
-          expect(response.data.data.length).toBeGreaterThan(0);
-          const term = searchTerm.toLowerCase();
-          for (const item of response.data.data) {
-            expect(query.searchFields.some(field => String(item[field]).toLowerCase().includes(term))).toBe(true);
-          }
+          const { term, ids } = isolatedSearchCase(fixtureItems, query.searchFields, field);
+          const response = await listFixtures(`&search=${encodeURIComponent(term)}`, ids);
+          expect(response.data.total).toBe(ids.length);
         });
       });
     }
@@ -146,6 +144,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
           // The model pairs keys by position, so every field needs every fixture.
           Object.values(keysByField).forEach(keys => expect(keys).toHaveLength(fixtureIds.length));
           expect(unnoticedSortMappings(keysByField).map(([field, column]) => `${field} -> ${column}`)).toEqual([]);
+          expect(unnoticedIDOrders(keysByField, response.data.data.map(item => item.id))).toEqual([]);
         });
 
         test.each([
@@ -242,16 +241,19 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
               expect.hasAssertions();
               const levels = sorted([...new Set(expectValuesFor(listed, field))], 1);
               expect(levels.length).toBeGreaterThan(1);
+              if (operator === 'between') expect(levels.length).toBeGreaterThanOrEqual(3);
               const [raw, inRange] = bounds({ secondLowest: levels[1], secondHighest: levels.at(-2) });
               await expectFiltered(field, `filter[${field}][${operator}]=${raw}`, inRange);
             });
           });
 
         if (query.filterableFields.length >= 2) {
-          test('when combining multiple filters, then accepted', async () => {
+          test('when combining multiple filters, then each predicate removes independent fixtures', async () => {
             expect.hasAssertions();
-            const [f1, f2] = query.filterableFields;
-            await expectStatus(`filter[${f1}][gte]=1&filter[${f2}][not]=999999`);
+            const plan = independentFilters(fixtureItems, query.filterableFields);
+            const qs = plan.filters.map(({ field, value }) => `&filter[${field}][not]=${encodeURIComponent(value)}`).join('');
+            const response = await listFixtures(qs, plan.ids);
+            expect(response.data.total).toBe(plan.ids.length);
           });
         }
       });
@@ -359,15 +361,23 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
     }
 
     describe('Combined Queries', () => {
-      test('when combining all query types, then accepted', async () => {
+      test('when combining all query types, then every part changes the result', async () => {
         expect.hasAssertions();
-        const params = new URLSearchParams();
-        if (searchable) params.append('search', searchTerm);
-        if (query.sortableFields?.length > 0) params.append('sort', `-${query.sortableFields[0]}`);
-        if (query.filterableFields?.length > 0) params.append(`filter[${query.filterableFields[0]}][gte]`, '1');
-        if (query.selectableFields?.length > 0) params.append('fields', query.selectableFields.slice(0, 3).join(','));
-        params.append('limit', '10');
-        await expectStatus(params.toString());
+        const term = 'querykeep';
+        const searched = searchable ? matchingSearchIDs(fixtureItems, query.searchFields, term) : fixtureIds;
+        if (searchable) expect(searched.length).toBeLessThan(fixtureIds.length);
+        expect(searched.length).toBeGreaterThanOrEqual(3);
+        const excluded = searched[0];
+        const remaining = searched.filter(id => id !== excluded);
+        const fields = ['id', query.selectableFields.find(field => field !== 'id')];
+        for (const direction of [1, -1]) {
+          const params = new URLSearchParams({ sort: direction === 1 ? 'id' : '-id', fields: fields.join(','), limit: '1', 'filter[id][not]': String(excluded) });
+          if (searchable) params.set('search', term);
+          const expected = sorted(remaining, direction).slice(0, 1);
+          const response = await listFixtures(`&${params}`, expected);
+          expect(response.data.total).toBe(remaining.length);
+          expect(Object.keys(response.data.data[0]).sort()).toEqual([...fields].sort());
+        }
       });
 
     });

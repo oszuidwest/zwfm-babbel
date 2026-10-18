@@ -40,8 +40,9 @@ describe('Bulletins', () => {
 
   // Every two sortable fields order some pair of fixtures oppositely, so a
   // field mapped to another field's column fails a sort test. id rises with
-  // the fixture index, station_id runs high, low, low and created_at, the
-  // default sort key, lists them as 1, 0, 2 (newest first).
+  // the fixture index, station_id runs middle, low, high, low and created_at
+  // uses a separate nonmonotonic permutation. Three station IDs let between
+  // exclude a fixture at either end.
   const setupQueryTestData = async () => {
     const { station, voice } = await global.helpers.createBroadcastFixture(global.resources, {
       stationName: 'QueryBulletinStation',
@@ -52,9 +53,12 @@ describe('Bulletins', () => {
     const second = await global.helpers.createStation(global.resources, 'QueryBulletinStation2');
     expect(second).not.toBeNull();
     expect(await global.helpers.createStationVoiceWithJingle(global.resources, second.id, voice.id)).not.toBeNull();
+    const third = await global.helpers.createStation(global.resources, 'QueryBulletinStation3');
+    expect(third).not.toBeNull();
+    expect(await global.helpers.createStationVoiceWithJingle(global.resources, third.id, voice.id)).not.toBeNull();
 
     const ids = [];
-    for (const stationId of [second.id, station.id, station.id]) {
+    for (const stationId of [second.id, station.id, third.id, station.id]) {
       const response = await global.helpers.generateBulletin(stationId);
       // A failed fixture must fail the suite; pre-seeded rows would otherwise
       // keep the generated query tests green without exercising this data.
@@ -62,7 +66,11 @@ describe('Bulletins', () => {
       expect(response.data.id).toBeDefined();
       ids.push(response.data.id);
     }
-    mysql.setTimestamps('bulletins', ids.map((id, index) => [id, { created_at: [1, 2, 0][index] }]));
+    mysql.setTimestamps('bulletins', ids.map((id, index) => [id, { created_at: [1, 0, 3, 2][index] }]));
+    for (const [index, id] of ids.entries()) {
+      const filename = `QueryBulletin${['B', 'A', 'D', 'C'][index]}_${index < 3 ? 'querykeep' : 'querydrop'}.wav`;
+      mysql.execSQL(`UPDATE bulletins SET filename=${sqlString(filename)} WHERE id=${sqlInteger(id)}`);
+    }
     return ids;
   };
 

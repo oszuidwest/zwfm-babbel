@@ -19,4 +19,15 @@ function unnoticedSortMappings(keysByField) {
     .map(column => [field, column]));
 }
 
-module.exports = { unnoticedSortMappings };
+// A dropped ORDER BY can read the primary index in ascending ID order. Model
+// that fixed order separately for both directions of every non-ID field.
+function unnoticedIDOrders(keysByField, ids) {
+  const order = ids.map((id, index) => ({ id, index })).sort((a, b) => a.id - b.id);
+  return Object.entries(keysByField).filter(([field]) => field !== 'id').flatMap(([field, values]) => {
+    const keys = order.map(({ index }) => values[index]);
+    return [1, -1].filter(direction => keys.every((value, index) => index === 0 || direction * (value - keys[index - 1]) >= 0))
+      .map(direction => [field, direction === 1 ? 'asc' : 'desc']);
+  });
+}
+
+module.exports = { unnoticedSortMappings, unnoticedIDOrders };

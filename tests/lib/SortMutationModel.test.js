@@ -1,6 +1,15 @@
-const { unnoticedSortMappings } = require('./SortMutationModel');
+const { unnoticedSortMappings, unnoticedIDOrders } = require('./SortMutationModel');
 
 describe('SortMutationModel', () => {
+  test('fixed ID order is checked for both sort directions, including ties', () => {
+    expect(unnoticedIDOrders({ id:[1,2,3], rising:[0,1,2], falling:[2,1,0], tied:[2,1,1], mixed:[1,0,2] },[1,2,3])).toEqual([
+      ['rising','asc'],['falling','desc'],['tied','desc']
+    ]);
+  });
+
+  test('the fixed-order model aligns rows by ID rather than response position', () => {
+    expect(unnoticedIDOrders({ id:[3,1,2], field:[0,2,1] },[3,1,2])).toEqual([['field','desc']]);
+  });
   test.each([
     ['fields that rise together', { a: [0, 1, 2], b: [0, 1, 2] }, [['a', 'b'], ['b', 'a']]],
     ['a column whose ties can be arranged in field order', { a: [0, 1, 2], b: [0, 1, 1] }, [['a', 'b'], ['b', 'a']]],
