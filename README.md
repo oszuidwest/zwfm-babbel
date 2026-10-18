@@ -107,6 +107,7 @@ Each bulletin WAV file uses approximately 15 MB. A background service deletes th
 - The service always keeps the latest bulletin of each station.
 - The service removes the files that have no database record.
 - The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
+- The service removes regular files older than 24 hours from `BABBEL_TEMP_PATH` (upload and TTS inputs). It never follows symlinks or enters directories, and it refuses to sweep a temporary directory that is also the processed or output directory.
 - Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days).
 
 ## Loudness Normalization
@@ -243,7 +244,7 @@ When Babbel maps a service error to an error response, or a bulletin job fails, 
 | Class | Level | Examples |
 |---|---|---|
 | Client error | debug | 404 for an unknown ID, 409 for a duplicate value, a resource that is in use or another state conflict, 410 for a deleted story, 422 for request data or query parameters that are not valid, for a silent audio upload, or for an uploaded file that FFmpeg cannot decode (`undecodable_audio`) |
-| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs could not be reached, rejected the credentials or the request, failed, or returned silent audio), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job, a 404 for audio whose record exists but whose file is missing on disk |
+| Operational signal | warn | 429 `tts.rate_limited` (ElevenLabs quota), 502 or 503 `tts.upstream_failed` (ElevenLabs could not be reached, rejected the credentials or the request, failed, or returned silent or undecodable audio), `bulletin.no_stories` as a 409 response or as the error code of a failed bulletin job, a 404 for audio whose record exists but whose file is missing on disk |
 | Server failure | error | 500 for a database error, an audio processing error, an audio file that Babbel cannot stat on disk or an unhandled error, 503 for a missing migration or seed row, 504 for a timeout, and the other failures of a bulletin job |
 
 A client error is a problem with the request. The response tells the client what to fix, and the access log records the status. At the default level, Babbel does not write these logs. These errors do not cause an alert. For invalid query parameters, the 422 response shows each field that is not valid, and the log line has the route and the field errors.
@@ -293,8 +294,9 @@ These conditions cause an immediate alert:
 - The stories in a bulletin do not use the same voice.
 - The audio file of a story is missing, or a jingle is missing.
 - New story audio is live, but Babbel cannot confirm that its database record was saved. The next successful upload or TTS generation for that story sends the recovery.
-- Bulletin generation fails, and the cause is not a timeout.
+- Bulletin generation fails or times out, or the generated bulletin cannot be stored. The next stored bulletin for that station sends the recovery.
 - Babbel cannot read the bulletin output directory.
+- Babbel cannot parse the FFmpeg loudnorm output.
 - The ElevenLabs credentials are not valid.
 - The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the default failure window. While the failure continues, each run after the cooldown sends the alert again.
 - A scheduler job stops because of a panic.
@@ -304,9 +306,7 @@ These conditions cause an immediate alert:
 These conditions cause a thresholded alert:
 
 - ElevenLabs sends error 429 or an upstream error, cannot be reached, or does not reply in time.
-- Bulletin generation stops because of a timeout.
 - A database request or the database connection fails.
-- Babbel cannot parse the FFmpeg loudnorm output.
 - Requests to the public bulletin endpoint use a bad automation key.
 
 Babbel groups the alerts by condition and by resource. In the cooldown time, Babbel does not send the same alert again. When the condition stops, Babbel sends a recovery e-mail. The subject of an alert is `[ALERT] <summary> - Babbel`. The subject of a recovery is `[RESOLVED] <summary> - Babbel`.

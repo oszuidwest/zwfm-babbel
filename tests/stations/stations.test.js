@@ -11,15 +11,14 @@ describe('Stations', () => {
     const fixtures = [
       // [name, max_stories_per_block, pause_seconds, created_at, updated_at]
       ['B', 5, 2, 3, 4],
-      ['A', 3, 4, 2, 6],
-      ['D', 6, 1, 1, 7],
-      ['C', 4, 3, 0, 5]
+      ['A', 3, 4, 0, 6],
+      ['D', 6, 1, 2, 7],
+      ['C', 4, 3, 1, 5]
     ];
     const ids = [];
     const timestamps = [];
-    for (const [letter, maxStories, pauseSeconds, createdAt, updatedAt] of fixtures) {
-      const station = await global.helpers.createStation(global.resources, `QuerySort${letter}`, maxStories, pauseSeconds);
-      expect(station).not.toBeNull();
+    for (const [index, [letter, maxStories, pauseSeconds, createdAt, updatedAt]] of fixtures.entries()) {
+      const station = await global.helpers.createStation(global.resources, `QuerySort${letter}_${index < 3 ? 'querykeep' : 'querydrop'}`, maxStories, pauseSeconds);
       ids.push(station.id);
       timestamps.push([station.id, { created_at: createdAt, updated_at: updatedAt }]);
     }
@@ -42,11 +41,9 @@ describe('Stations', () => {
         5,
         2.0
       );
-      expect(station).not.toBeNull();
       stationId = station.id;
 
       const voice = await global.helpers.createVoice(global.resources, 'DependencyTestVoice');
-      expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 

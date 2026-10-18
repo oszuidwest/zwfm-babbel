@@ -22,7 +22,7 @@ describe('Audit events', () => {
 
     for (const role of ['viewer', 'editor']) {
       const username = `audit${role}${Date.now()}`;
-      expect(await createUser(username, `Audit ${role}`, password, role)).not.toBeNull();
+      await createUser(username, `Audit ${role}`, password, role);
       roles[role] = username;
     }
   });
@@ -173,9 +173,7 @@ describe('Audit events', () => {
   });
 
   async function createStory(title) {
-    const story = await global.helpers.createStory(global.resources, { title, status: 'draft' });
-    expect(story).not.toBeNull();
-    return story;
+    return global.helpers.createStory(global.resources, { title, status: 'draft' });
   }
 
   async function listEvents(query) {

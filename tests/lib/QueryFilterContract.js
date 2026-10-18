@@ -14,6 +14,16 @@ const queryParameter = (endpoint, name) => document.paths[`/api/v1${endpoint}`].
 
 const declaresQueryParameter = (endpoint, name) => queryParameter(endpoint, name) !== undefined;
 
+function getSearchFields(endpoint) {
+  if (!declaresQueryParameter(endpoint, 'search')) return [];
+  const fields = document.paths[`/api/v1${endpoint}`].get['x-search-fields'];
+  if (!Array.isArray(fields) || fields.length === 0 || fields.some(field => typeof field !== 'string' || !field) ||
+      new Set(fields).size !== fields.length) {
+    throw new Error(`${endpoint} must declare non-empty, distinct x-search-fields in OpenAPI`);
+  }
+  return fields;
+}
+
 function getJsonRequestSchema(endpoint, method = 'post') {
   const operation = document.paths[`/api/v1${endpoint}`]?.[method];
   const schema = operation?.requestBody?.content?.['application/json']?.schema;
@@ -114,6 +124,7 @@ function invalidFilterCases(contract) {
 }
 
 module.exports = {
+  getSearchFields,
   declaresQueryParameter,
   getFilterContracts,
   getJsonRequestSchema,

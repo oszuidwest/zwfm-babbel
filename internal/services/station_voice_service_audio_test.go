@@ -16,6 +16,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
@@ -75,7 +76,11 @@ func (m *jingleTxManager) WithTransaction(ctx context.Context, fn func(context.C
 		m.rolledBack = true
 		return err
 	}
-	return m.err
+	if m.err != nil {
+		return m.err
+	}
+	// database/sql rolls back a transaction whose context is cancelled.
+	return ctx.Err()
 }
 
 func TestStationVoiceService_CancelledJingleKeepsExistingAudio(t *testing.T) {
@@ -370,6 +375,7 @@ func newJingleTestService(t *testing.T, repo stationVoiceRepository) (*StationVo
 		stationVoiceRepo: repo,
 		audioSvc:         audio.NewService(cfg, nil),
 		config:           cfg,
+		alerts:           notify.Discard,
 	}
 	stationVoice := &models.StationVoice{ID: 3, StationID: 1, VoiceID: 2}
 	if repo, ok := repo.(*jingleAudioRepository); ok {

@@ -118,6 +118,9 @@ type DatabaseConfig struct {
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
 	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
+	ConnectTimeout  time.Duration `env:"CONNECT_TIMEOUT" envDefault:"10s"`
+	ReadTimeout     time.Duration `env:"READ_TIMEOUT" envDefault:"2m"`
+	WriteTimeout    time.Duration `env:"WRITE_TIMEOUT" envDefault:"2m"`
 }
 
 // MaxPasswordBytes is the longest password bcrypt accepts.
@@ -163,7 +166,8 @@ type AudioConfig struct {
 	FFprobePath   string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
 	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
+	// TempPath owns upload/TTS inputs; cleanup removes old regular files here.
+	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
 	// BulletinRetention controls when bulletin audio files and finished job
 	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
@@ -413,6 +417,15 @@ func (c *Config) validateDatabasePool() error {
 	}
 	if c.Database.ConnMaxLifetime <= 0 {
 		return fmt.Errorf("BABBEL_DB_CONN_MAX_LIFETIME must be > 0 (got %s)", c.Database.ConnMaxLifetime)
+	}
+	if c.Database.ConnectTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_CONNECT_TIMEOUT must be > 0 (got %s)", c.Database.ConnectTimeout)
+	}
+	if c.Database.ReadTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_READ_TIMEOUT must be > 0 (got %s)", c.Database.ReadTimeout)
+	}
+	if c.Database.WriteTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_WRITE_TIMEOUT must be > 0 (got %s)", c.Database.WriteTimeout)
 	}
 	return nil
 }

@@ -5,16 +5,15 @@ const { createMySQLExecutor } = require('../lib/MySQLHelper');
 describe('Voices', () => {
   // Every two sortable fields order some pair of fixtures oppositely, so a
   // field mapped to another field's column fails a sort test. id rises with
-  // the fixture index, name, the default sort key, lists them as 1, 0, 2,
-  // created_at as 2, 1, 0 and updated_at as 0, 2, 1.
+  // the fixture index. The other three keys use distinct, nonmonotonic
+  // permutations so neither direction can be satisfied by an ID-order read.
   const setupQueryTestData = async () => {
     const ids = [];
-    for (const letter of ['B', 'A', 'C']) {
-      const voice = await global.helpers.createVoice(global.resources, `QuerySort${letter}`);
-      expect(voice).not.toBeNull();
+    for (const [index, letter] of ['B', 'A', 'D', 'C'].entries()) {
+      const voice = await global.helpers.createVoice(global.resources, `QuerySort${letter}_${index < 3 ? 'querykeep' : 'querydrop'}`);
       ids.push(voice.id);
     }
-    createMySQLExecutor().setTimestamps('voices', ids.map((id, index) => [id, { created_at: 2 - index, updated_at: [3, 5, 4][index] }]));
+    createMySQLExecutor().setTimestamps('voices', ids.map((id, index) => [id, { created_at: [2, 0, 1, 3][index], updated_at: [0, 3, 2, 1][index] }]));
     return ids;
   };
 
@@ -27,7 +26,6 @@ describe('Voices', () => {
 
     beforeAll(async () => {
       const voice = await global.helpers.createVoice(global.resources, 'AssociatedVoice');
-      expect(voice).not.toBeNull();
       voiceId = voice.id;
     });
 

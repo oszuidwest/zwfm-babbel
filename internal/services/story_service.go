@@ -38,9 +38,9 @@ type StoryServiceDeps struct {
 	TxManager             repository.TxManager
 }
 
-// storyAudioPublishTimeout bounds the publication transaction, which ignores
-// request cancellation.
-const storyAudioPublishTimeout = 10 * time.Second
+// audioPublishTimeout bounds a story or jingle publication transaction, which
+// ignores request cancellation.
+const audioPublishTimeout = 10 * time.Second
 
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
@@ -374,7 +374,7 @@ func undecodableUpload(field string, cause error) error {
 
 // publishAudio converts audio at tempPath and publishes it, recording action
 // in the story's history. Cancelling ctx stops the conversion; publication
-// then ignores cancellation and is bounded by storyAudioPublishTimeout.
+// then ignores cancellation and is bounded by audioPublishTimeout.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
@@ -395,7 +395,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	//
 	// A client disconnect after the rename must not roll back the row and
 	// audit event behind the live file.
-	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), audioPublishTimeout)
 	defer cancel()
 	alertKey := fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 	published := false
@@ -494,7 +494,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return translateTTSError(err)
 	}
 
-	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
+	tempPath, err := utils.WriteTempFile(s.config.Audio.TempPath, bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}
@@ -505,6 +505,14 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
+		if errors.Is(err, audio.ErrUndecodable) {
+			// AudioError omits its cause from Error(); retain ffprobe's message
+			// for both the handler's log and the operational alert.
+			cause := errors.Unwrap(err)
+			s.alertTTSError(ctx, storyID, cause)
+			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+				"ElevenLabs returned audio that could not be decoded; try again", cause)
+		}
 		if silent, ok := errors.AsType[*audio.SilentError](err); ok {
 			// The cause carries the loudness for the handler's Warn log.
 			s.alertTTSError(ctx, storyID, silent)
@@ -519,6 +527,9 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 // alertTTSError maps operational TTS failures to stable alert categories.
 func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
+	if errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
 	event := notify.Event{
 		Key:               "tts:upstream",
 		Summary:           "ElevenLabs TTS is repeatedly unavailable",
