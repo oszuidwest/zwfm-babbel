@@ -90,35 +90,6 @@ func (r *StationVoiceRepository) IsCombinationTaken(ctx context.Context, station
 	return count > 0, nil
 }
 
-// IsJingleInUse reports whether a station-voice relationship stores the jingle
-// filename or owns the station/voice pair it is named after.
-// Call within a REPEATABLE READ transaction: the indexed locking read keeps
-// a new pair owner from publishing before the caller removes an unused file.
-func (r *StationVoiceRepository) IsJingleInUse(ctx context.Context, filename string, stationID, voiceID int64) (bool, error) {
-	db := DBFromContext(ctx, r.db).WithContext(ctx)
-	var owners []models.StationVoice
-	if err := db.Model(&models.StationVoice{}).
-		Select("id").
-		Clauses(clause.Locking{Strength: clause.LockingStrengthShare}).
-		Where("station_id = ? AND voice_id = ?", stationID, voiceID).
-		Find(&owners).Error; err != nil {
-		return false, ParseDBError(err)
-	}
-	if len(owners) > 0 {
-		return true, nil
-	}
-
-	var count int64
-	if err := db.
-		Model(&models.StationVoice{}).
-		Where("audio_file = ?", filename).
-		Count(&count).Error; err != nil {
-		return false, ParseDBError(err)
-	}
-
-	return count > 0, nil
-}
-
 // UpdateAudio updates the audio file reference for a station-voice relationship.
 func (r *StationVoiceRepository) UpdateAudio(ctx context.Context, id int64, audioFile string) error {
 	return r.UpdateByID(ctx, id, map[string]any{"audio_file": audioFile})

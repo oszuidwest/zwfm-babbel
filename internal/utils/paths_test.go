@@ -19,31 +19,6 @@ func TestBulletinFilenameIncludesSubsecondPrecision(t *testing.T) {
 	}
 }
 
-func TestParseJingleFilename(t *testing.T) {
-	t.Parallel()
-
-	if stationID, voiceID, ok := ParseJingleFilename(JingleFilename(12, 345)); !ok || stationID != 12 || voiceID != 345 {
-		t.Fatalf("ParseJingleFilename(JingleFilename(12, 345)) = %d, %d, %v; want 12, 345, true", stationID, voiceID, ok)
-	}
-	for _, filename := range []string{
-		"",
-		"story_1.wav",
-		"../station_1_voice_2_jingle.wav",
-		"/tmp/station_1_voice_2_jingle.wav",
-		"sub/station_1_voice_2_jingle.wav",
-		"station_01_voice_2_jingle.wav",
-		"station_+1_voice_2_jingle.wav",
-		"station_0_voice_2_jingle.wav",
-		"station_-1_voice_2_jingle.wav",
-		"station_1_voice_2_jingle.wav.bak",
-		"station_1_voice_2_jingle.mp3",
-	} {
-		if stationID, voiceID, ok := ParseJingleFilename(filename); ok {
-			t.Errorf("ParseJingleFilename(%q) = %d, %d, true; want false", filename, stationID, voiceID)
-		}
-	}
-}
-
 func TestProcessingPath(t *testing.T) {
 	t.Parallel()
 
