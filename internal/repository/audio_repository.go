@@ -43,11 +43,14 @@ func (r *audioRepository) GetFilePath(ctx context.Context, tableName string, id 
 	}
 
 	var filePath *string
-	err := r.db.WithContext(ctx).
+	query := r.db.WithContext(ctx).
 		Table(tableName).
 		Select("audio_file").
-		Where("id = ?", id).
-		Scan(&filePath).Error
+		Where("id = ?", id)
+	if tableName == "bulletins" {
+		query = query.Where("file_purged_at IS NULL")
+	}
+	err := query.Scan(&filePath).Error
 
 	if err != nil {
 		return "", ParseDBError(err)

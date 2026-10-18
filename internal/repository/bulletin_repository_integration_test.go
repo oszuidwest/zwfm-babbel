@@ -64,3 +64,22 @@ func TestBulletinRepositoryIntegration_GetLatestLocalDay(t *testing.T) {
 		})
 	}
 }
+
+func TestAudioRepositoryIntegration_PurgedBulletinHasNoAudio(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	station := createBulletinJobStation(t, db)
+	bulletin := createBulletin(t, db, station.ID)
+	if err := db.Model(&bulletin).Update("audio_file", "retained.wav").Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewAudioRepository(db)
+	if path, err := repo.GetFilePath(t.Context(), "bulletins", bulletin.ID); err != nil || path != "retained.wav" {
+		t.Fatalf("GetFilePath before purge = %q, %v", path, err)
+	}
+	if err := NewBulletinRepository(db).MarkFilePurged(t.Context(), bulletin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := repo.GetFilePath(t.Context(), "bulletins", bulletin.ID); path != "" || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetFilePath after purge = %q, %v; want not found", path, err)
+	}
+}
