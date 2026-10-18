@@ -395,7 +395,7 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		{
 			name:       "audio processing failure",
 			respond:    serviceError(apperrors.Audio("Story", "convert", errors.New("ffmpeg failed"))),
-			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed",
+			wantStatus: http.StatusInternalServerError, wantLevel: "ERROR", wantType: "audio_failed", wantCause: "ffmpeg failed", wantAlerts: 1,
 		},
 		{
 			name:       "missing migration",

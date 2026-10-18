@@ -192,6 +192,13 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 func handleAudioError(c *gin.Context, err error) bool {
 	if audioError, ok := errors.AsType[*apperrors.AudioError](err); ok {
 		logErrorWithCause(audioError.Resource, "audio_failed", err, audioError.Unwrap())
+		if audioError.Resource != "Bulletin" && audioError.Operation != "tts_generate" {
+			alertRequestFailure(c, notify.Event{
+				Key: audioAlertKeyPrefix + utils.RouteKey(c), Summary: "Audio processing requests repeatedly fail",
+				Details:           fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), audioError.Resource, audioError.Unwrap()),
+				RequiresThreshold: true,
+			})
+		}
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"Audio processing failed",
 			apperrors.CodeAudioProcessingFailed,
@@ -215,6 +222,7 @@ const (
 	// Resolve calls in NotificationMiddleware.
 	databaseAlertKeyPrefix = "database:request:"
 	internalAlertKeyPrefix = "http:internal:"
+	audioAlertKeyPrefix    = "audio:request:"
 )
 
 // databaseRequestEvent builds the shared alert for failing database-backed
@@ -243,6 +251,8 @@ func NotificationMiddleware(alerts notify.Alerter) gin.HandlerFunc {
 			"Database request path recovered", "Requests to "+route+" succeed again.")
 		alerts.Resolve(c.Request.Context(), internalAlertKeyPrefix+route,
 			"API request path recovered", "Requests to "+route+" succeed again.")
+		alerts.Resolve(c.Request.Context(), audioAlertKeyPrefix+route,
+			"Audio request path recovered", "Audio processing requests to "+route+" succeed again.")
 	}
 }
 
