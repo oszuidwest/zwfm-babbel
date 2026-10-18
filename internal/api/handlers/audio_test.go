@@ -16,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
-	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
@@ -140,16 +139,25 @@ func TestServeAudio_MissingFileLogsWarning(t *testing.T) {
 	}
 }
 
-func TestServeAudio_PurgedBulletinDoesNotWarn(t *testing.T) {
+// A directory opens and stats fine but cannot be served as audio.
+func TestServeAudio_DirectoryReturnsProblem(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "story.wav"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	logs := testutil.CaptureLogs(t, slog.LevelDebug)
-	h := &Handlers{audioRepo: audioPathRepository{err: repository.ErrNotFound}}
+	h := &Handlers{audioRepo: audioPathRepository{path: "story.wav"}, config: &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}}
 	c, recorder := newProblemContext(t)
 	c.Params = gin.Params{{Key: "id", Value: "7"}}
-	h.ServeAudio(c, AudioConfig{TableName: "bulletins", FilePrefix: "bulletin", FromOutput: true})
-	if recorder.Code != http.StatusNotFound || logs.Len() != 0 {
-		t.Fatalf("status = %d, logs = %s; want 404 without storage warning", recorder.Code, logs)
+	h.ServeAudio(c, AudioConfig{TableName: "stories", FilePrefix: "story"})
+	if recorder.Code != http.StatusInternalServerError || recorder.Header().Get("Content-Disposition") != "" {
+		t.Fatalf("status = %d, headers = %v", recorder.Code, recorder.Header())
 	}
 	decodeProblem(t, recorder)
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" || record["path"] != filepath.Join(dir, "story.wav") {
+		t.Fatalf("logs = %s; want one ERROR naming the path", logs)
+	}
 }
 
 func TestServeAudio_UnreadableFileReturnsProblem(t *testing.T) {
