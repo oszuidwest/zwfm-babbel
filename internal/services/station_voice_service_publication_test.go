@@ -58,20 +58,7 @@ func TestStationVoiceService_JingleCommitFailureReportsLiveFile(t *testing.T) {
 				!strings.Contains(alerts.events[0].Details, cause.Error()) || len(alerts.resolved) != 0 {
 				t.Fatalf("alerts = %+v, resolved = %v; want one immediate alert naming the path and cause", alerts.events, alerts.resolved)
 			}
-			found := false
-			for line := range bytes.Lines(logs.Bytes()) {
-				var record map[string]any
-				if err := json.Unmarshal(line, &record); err != nil {
-					t.Fatal(err)
-				}
-				if record["level"] == "ERROR" && record["path"] == path && record["station_voice_id"] == float64(stationVoice.ID) &&
-					strings.Contains(fmt.Sprint(record["error"]), cause.Error()) {
-					found = true
-				}
-			}
-			if !found {
-				t.Fatalf("logs = %s, want an Error record naming the row, path and cause", logs)
-			}
+			assertJinglePublicationLog(t, logs, stationVoice.ID, path, cause)
 			// A later successful upload resolves precisely this incident.
 			service.txManager = &jingleTxManager{}
 			if err := service.ProcessJingle(t.Context(), stationVoice, input); err != nil {
@@ -82,6 +69,22 @@ func TestStationVoiceService_JingleCommitFailureReportsLiveFile(t *testing.T) {
 			}
 		})
 	}
+}
+
+// assertJinglePublicationLog requires one Error record with all incident fields.
+func assertJinglePublicationLog(t *testing.T, logs *bytes.Buffer, id int64, path string, cause error) {
+	t.Helper()
+	for line := range bytes.Lines(logs.Bytes()) {
+		var record map[string]any
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatal(err)
+		}
+		if record["level"] == "ERROR" && record["path"] == path && record["station_voice_id"] == float64(id) &&
+			strings.Contains(fmt.Sprint(record["error"]), cause.Error()) {
+			return
+		}
+	}
+	t.Fatalf("logs = %s, want an Error record naming the row, path and cause", logs)
 }
 
 // jingleContextTxManager supplies the fake repository's transaction marker
