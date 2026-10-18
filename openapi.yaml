@@ -1373,12 +1373,10 @@ paths:
         ranges return 416, and conditional requests (e.g. `If-Modified-Since`)
         can return 304 Not Modified.
 
-        Audio remains downloadable after the story is soft-deleted, with the
-        same authentication and `stories:read` permission. This supports
-        previewing audio from the trash: `GET /stories?trashed=only` keeps the
-        story's `audio_url`, even though `GET /stories/{id}` returns 404 until
-        the story is restored. Soft deletion and restoration preserve the
-        audio file.
+        Audio of a soft-deleted story stays downloadable with `stories:read`,
+        so a trash view can play the `audio_url` from
+        `GET /stories?trashed=only`, although `GET /stories/{id}` returns 404
+        until the story is restored.
       tags:
         - Stories
       parameters:
