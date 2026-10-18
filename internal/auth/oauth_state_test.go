@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/securecookie"
 	gorillasessions "github.com/gorilla/sessions"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 )
@@ -20,6 +21,7 @@ import (
 func TestFinishOAuthFlow_ConcurrentCallbacksConsumeStateOnce(t *testing.T) {
 	cfg := &Config{Session: SessionConfig{CookieName: "oauth-state-test", CookiePath: "/", MaxAge: 3600, SecretKey: strings.Repeat("k", 32)}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
+	s.store = &lockedStateStore{Store: s.store, service: s, t: t}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	var requests sync.WaitGroup
 	defer func() { cancel(); requests.Wait() }()
@@ -97,17 +99,61 @@ func TestFinishOAuthFlow_StateSaveFailureStopsExchange(t *testing.T) {
 
 type failedStateStore struct {
 	sessions.Store
-	err   error
-	saved bool
+	err     error
+	loadErr error
+	saved   bool
 }
 
 func (s *failedStateStore) New(_ *http.Request, name string) (*gorillasessions.Session, error) {
 	session := gorillasessions.NewSession(s, name)
 	session.Values[sessKeyOAuthState] = "state"
-	return session, nil
+	return session, s.loadErr
 }
 
 func (s *failedStateStore) Save(*http.Request, http.ResponseWriter, *gorillasessions.Session) error {
 	s.saved = true
 	return s.err
+}
+
+// Assert the lock at the actual write boundary, independently of scheduling.
+// The initial fixture save still has its state; consumption deletes it first.
+type lockedStateStore struct {
+	sessions.Store
+	service *Service
+	t       *testing.T
+}
+
+func (s *lockedStateStore) Save(r *http.Request, w http.ResponseWriter, session *gorillasessions.Session) error {
+	if _, hasState := session.Values[sessKeyOAuthState]; !hasState && s.service.oauthStateMu.TryLock() {
+		s.service.oauthStateMu.Unlock()
+		s.t.Error("OAuth state consumption saved without holding the state lock")
+	}
+	return s.Store.Save(r, w, session)
+}
+
+func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
+	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
+	c.Request.AddCookie(&http.Cookie{Name: "session", Value: "corrupt-cookie"})
+	if err := s.FinishOAuthFlow(c); !errors.Is(err, ErrLoginRejected) {
+		t.Fatalf("FinishOAuthFlow = %v, want rejected login", err)
+	}
+}
+
+func TestFinishOAuthFlow_StateLoadFailureRemainsInternal(t *testing.T) {
+	var decoded string
+	usageErr := securecookie.New(nil, nil).Decode("session", "cookie", &decoded)
+	for _, cause := range []error{errors.New("session backend unavailable"), usageErr} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			store := &failedStateStore{loadErr: cause}
+			s := &Service{config: &Config{Session: SessionConfig{CookieName: "session"}}, store: store, alerts: notify.Discard}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
+			if err := s.FinishOAuthFlow(c); !errors.Is(err, cause) || errors.Is(err, ErrLoginRejected) || store.saved {
+				t.Fatalf("FinishOAuthFlow = %v, saved = %v; want original internal error", err, store.saved)
+			}
+		})
+	}
 }

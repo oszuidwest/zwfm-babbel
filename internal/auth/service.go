@@ -15,6 +15,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/securecookie"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -426,6 +427,9 @@ func (s *Service) consumeOAuthState(c *gin.Context) error {
 	defer s.oauthStateMu.Unlock()
 	session, err := s.store.New(c.Request, s.config.Session.CookieName)
 	if err != nil {
+		if cookieErr, ok := errors.AsType[securecookie.Error](err); ok && cookieErr.IsDecode() {
+			return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
+		}
 		return fmt.Errorf("failed to load OAuth login state: %w", err)
 	}
 	savedState, ok := session.Values[sessKeyOAuthState].(string)
@@ -434,7 +438,7 @@ func (s *Service) consumeOAuthState(c *gin.Context) error {
 	}
 	delete(session.Values, sessKeyOAuthState)
 	delete(session.Values, sessKeyFrontendURL)
-	if err := session.Save(c.Request, c.Writer); err != nil {
+	if err := s.store.Save(c.Request, c.Writer, session); err != nil {
 		return fmt.Errorf("failed to consume OAuth login state: %w", err)
 	}
 	// Keep later CreateSession saves from restoring the old cached state.
