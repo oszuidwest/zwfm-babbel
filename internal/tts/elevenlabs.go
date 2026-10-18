@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -213,8 +214,8 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 // requestFailure classifies connection and body-read failures consistently.
 // The caller's own cancellation or deadline is not an ElevenLabs failure.
 func requestFailure(ctx context.Context, err error) error {
-	if ctx.Err() != nil {
-		return err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return errors.Join(ctxErr, err)
 	}
 	return &TransportError{Err: err}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,6 +27,7 @@ func TestGenerateTTS_CallerCancellationDoesNotAlert(t *testing.T) {
 		wantAlerts int
 	}{
 		{name: "caller disconnect", err: fmt.Errorf("request: %w", context.Canceled), cancel: true},
+		{name: "disconnect and truncated response", err: errors.Join(context.Canceled, io.ErrUnexpectedEOF), cancel: true},
 		{name: "upstream cancellation", err: context.Canceled, wantAlerts: 1},
 		{name: "client timeout", err: &tts.TransportError{Err: context.DeadlineExceeded}, wantAlerts: 1},
 		{name: "transport failure", err: &tts.TransportError{Err: errors.New("connection reset")}, wantAlerts: 1},
