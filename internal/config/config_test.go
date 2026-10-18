@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/caarlos0/env/v11"
 	"time"
 )
 
@@ -95,6 +97,9 @@ func TestValidateDatabasePoolConfig(t *testing.T) {
 			},
 			wantErr: "BABBEL_DB_MAX_OPEN_CONNS must be >= 1",
 		},
+		{name: "connect timeout not positive", mutate: func(cfg *Config) { cfg.Database.ConnectTimeout = 0 }, wantErr: "BABBEL_DB_CONNECT_TIMEOUT must be > 0"},
+		{name: "read timeout not positive", mutate: func(cfg *Config) { cfg.Database.ReadTimeout = 0 }, wantErr: "BABBEL_DB_READ_TIMEOUT must be > 0"},
+		{name: "write timeout not positive", mutate: func(cfg *Config) { cfg.Database.WriteTimeout = 0 }, wantErr: "BABBEL_DB_WRITE_TIMEOUT must be > 0"},
 		{
 			name: "max idle connections negative",
 			mutate: func(cfg *Config) {
@@ -476,6 +481,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 			MaxOpenConns:    25,
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
+			ConnectTimeout:  10 * time.Second,
+			ReadTimeout:     2 * time.Minute,
+			WriteTimeout:    2 * time.Minute,
 		},
 		Auth: AuthConfig{
 			Method:        AuthMethodLocal,
@@ -600,5 +608,16 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 
 	if failed {
 		t.FailNow()
+	}
+}
+
+func TestDatabaseTimeoutDefaults(t *testing.T) {
+	t.Parallel()
+	cfg, err := env.ParseAsWithOptions[Config](env.Options{Prefix: "BABBEL_", Environment: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.Database; d.ConnectTimeout != 10*time.Second || d.ReadTimeout != 2*time.Minute || d.WriteTimeout != 2*time.Minute {
+		t.Fatalf("timeouts = %v/%v/%v, want 10s/2m/2m as documented in .env.example", d.ConnectTimeout, d.ReadTimeout, d.WriteTimeout)
 	}
 }

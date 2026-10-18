@@ -31,6 +31,12 @@ const processingMinAge = 24 * time.Hour
 // processingEntryInfo lets tests remove an entry between ReadDir and its stat.
 var processingEntryInfo = fs.DirEntry.Info
 
+// Orphan operations let tests interleave publication with a directory sweep.
+var (
+	orphanEntryInfo = fs.DirEntry.Info
+	orphanRemove    = os.Remove
+)
+
 // BulletinCleanupService purges expired audio, abandoned conversions and terminal job state while retaining bulletins.
 type BulletinCleanupService struct {
 	repo   *repository.BulletinRepository
@@ -157,7 +163,10 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 	var stats purgeStats
 	var cleanupErr error
 
-	for _, b := range bulletins {
+	for i, b := range bulletins {
+		if err := ctx.Err(); err != nil {
+			return stats, errors.Join(cleanupErr, purgeInterrupted(err, len(bulletins)-i))
+		}
 		var fileBytes int64
 		if b.AudioFile != "" {
 			filePath := utils.BulletinPath(s.config, b.AudioFile)
@@ -177,6 +186,9 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 			}
 		}
 		if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return stats, errors.Join(cleanupErr, purgeInterrupted(ctxErr, len(bulletins)-i))
+			}
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("mark bulletin %d purged: %w", b.ID, err))
 			logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			continue
@@ -188,6 +200,10 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 	}
 
 	return stats, cleanupErr
+}
+
+func purgeInterrupted(err error, remaining int) error {
+	return fmt.Errorf("purge interrupted with %d bulletin records remaining: %w", remaining, err)
 }
 
 // cleanOrphanedFiles removes files in the output directory that have no matching database record
@@ -239,8 +255,12 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 
 		fullPath := filepath.Join(outputDir, entry.Name())
 
-		info, err := entry.Info()
+		info, err := orphanEntryInfo(entry)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // Publication renamed or discarded the candidate after ReadDir.
+		}
 		if err != nil {
+			logger.Error("Failed to stat orphaned file", "path", fullPath, "error", err)
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat orphan %s: %w", fullPath, err))
 			continue
 		}
@@ -249,7 +269,10 @@ func (s *BulletinCleanupService) cleanOrphanedFiles(ctx context.Context) (int, i
 		}
 
 		fileBytes := info.Size()
-		if err := os.Remove(fullPath); err != nil {
+		if err := orphanRemove(fullPath); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue // Another owner already removed it; count only our removals.
+			}
 			logger.Error("Failed to remove orphaned file", "path", fullPath, "error", err)
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove orphan %s: %w", fullPath, err))
 			continue
