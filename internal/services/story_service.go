@@ -494,7 +494,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		return translateTTSError(err)
 	}
 
-	tempPath, err := utils.WriteTempFile(bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
+	tempPath, err := utils.WriteTempFile(s.config.Audio.TempPath, bytes.NewReader(audioData), fmt.Sprintf("tts_story_%d_*.opus", storyID))
 	if err != nil {
 		return apperrors.Audio("Story", "tts_write_temp", err)
 	}

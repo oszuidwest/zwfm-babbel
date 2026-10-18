@@ -57,7 +57,7 @@ func TestStoryService_RejectsSilenceAndKeepsExistingAudio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{Audio: config.AudioConfig{
-				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(),
+				FFmpegPath: ffmpegPath, FFprobePath: ffprobePath, ProcessedPath: t.TempDir(), TempPath: t.TempDir(),
 			}}
 			story := storyForTTSTest("News bulletin")
 			story.AudioFile = utils.StoryFilename(story.ID)

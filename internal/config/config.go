@@ -163,7 +163,8 @@ type AudioConfig struct {
 	FFprobePath   string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
 	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
 	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
-	TempPath      string `env:"TEMP_PATH" envDefault:"./audio/temp"`
+	// TempPath owns upload/TTS inputs; cleanup removes old regular files here.
+	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
 	// BulletinRetention controls when bulletin audio files and finished job
 	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`

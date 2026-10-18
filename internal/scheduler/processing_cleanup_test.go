@@ -230,7 +230,7 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "story_42_123.processing")
 	writeCleanupDir(t, path, time.Now().Add(-25*time.Hour))
-	service := NewBulletinCleanupService(db, &config.Config{Audio: config.AudioConfig{ProcessedPath: dir}}, nil)
+	service := NewBulletinCleanupService(db, &config.Config{Audio: config.AudioConfig{ProcessedPath: dir, TempPath: t.TempDir()}}, nil)
 	if err := service.cleanup(t.Context()); !errors.Is(err, queryErr) {
 		t.Fatalf("cleanup = %v, want database failure", err)
 	}
@@ -247,7 +247,7 @@ func TestBulletinCleanupSweepsProcessingLeftoversBeforeDatabaseQuery(t *testing.
 
 func TestBulletinCleanupReportsProcessingFailureAfterDatabaseSuccess(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &config.Config{Audio: config.AudioConfig{ProcessedPath: filepath.Join(dir, "missing"), OutputPath: dir}}
+	cfg := &config.Config{Audio: config.AudioConfig{ProcessedPath: filepath.Join(dir, "missing"), OutputPath: dir, TempPath: t.TempDir()}}
 	service := NewBulletinCleanupService(offlineDB(t), cfg, nil)
 	err := service.cleanup(t.Context())
 	if pathErr, ok := errors.AsType[*fs.PathError](err); !ok || pathErr.Path != cfg.Audio.ProcessedPath {

@@ -70,7 +70,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
 	now := time.Now()
-	processingErr := s.cleanProcessingLeftovers(now)
+	processingErr := errors.Join(s.cleanProcessingLeftovers(now), s.cleanInputLeftovers(now))
 	cutoff := now.Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {

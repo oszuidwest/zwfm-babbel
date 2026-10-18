@@ -187,7 +187,7 @@ func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 		return
 	}
 
-	tempPath, cleanup, ok := utils.SaveAudioUpload(c, "audio", fmt.Sprintf("story_%d", id))
+	tempPath, cleanup, ok := utils.SaveAudioUpload(c, h.config.Audio.TempPath, "audio", fmt.Sprintf("story_%d", id))
 	if !ok {
 		return
 	}
@@ -216,7 +216,7 @@ func (h *Handlers) UploadStationVoiceAudio(c *gin.Context) {
 		return
 	}
 
-	tempPath, cleanup, ok := utils.SaveAudioUpload(c, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
+	tempPath, cleanup, ok := utils.SaveAudioUpload(c, h.config.Audio.TempPath, "jingle", fmt.Sprintf("station_%d_voice_%d", stationVoice.StationID, stationVoice.VoiceID))
 	if !ok {
 		return
 	}
