@@ -29,6 +29,37 @@ func (disconnectedAudioWriter) Write([]byte) (int, error) {
 	return 0, errors.New("client connection closed")
 }
 
+type blockedAudioReader struct {
+	io.ReadSeeker
+	started, release chan struct{}
+}
+
+func (r blockedAudioReader) Read([]byte) (int, error) {
+	close(r.started)
+	<-r.release
+	return 0, io.ErrClosedPipe
+}
+
+func TestAudioReadTrackerInspectionDoesNotWaitForInFlightIO(t *testing.T) {
+	t.Parallel()
+	started, release, readDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	reader := &audioReadTracker{source: blockedAudioReader{strings.NewReader(""), started, release}, size: 10}
+	go func() { _, _ = reader.Read(make([]byte, 1)); close(readDone) }()
+	<-started
+	inspected := make(chan error, 1)
+	go func() { inspected <- reader.failure() }()
+	select {
+	case err := <-inspected:
+		if err != nil {
+			t.Errorf("inspection before read completion = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Error("failure inspection waited for unfinished I/O")
+	}
+	close(release)
+	<-readDone
+}
+
 func TestAudioReadTrackerDoesNotLabelWriterFailureAsStorageFailure(t *testing.T) {
 	t.Parallel()
 	reader := &audioReadTracker{source: strings.NewReader("0123456789"), size: 10}

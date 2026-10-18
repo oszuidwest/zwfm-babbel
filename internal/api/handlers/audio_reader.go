@@ -18,9 +18,9 @@ type audioReadTracker struct {
 }
 
 func (r *audioReadTracker) Read(p []byte) (int, error) {
+	n, err := r.source.Read(p)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	n, err := r.source.Read(p)
 	r.position += int64(n)
 	if err != nil && r.err == nil {
 		if errors.Is(err, io.EOF) {
@@ -35,9 +35,9 @@ func (r *audioReadTracker) Read(p []byte) (int, error) {
 }
 
 func (r *audioReadTracker) Seek(offset int64, whence int) (int64, error) {
+	position, err := r.source.Seek(offset, whence)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	position, err := r.source.Seek(offset, whence)
 	if err == nil {
 		r.position = position
 	} else if r.err == nil {
@@ -47,6 +47,8 @@ func (r *audioReadTracker) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (r *audioReadTracker) failure() error {
+	// Do not wait for filesystem I/O: ServeContent can return after a socket
+	// failure while a multipart read is still in flight.
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.err
