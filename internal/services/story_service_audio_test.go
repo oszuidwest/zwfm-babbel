@@ -443,8 +443,10 @@ func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
 	}
 	err = service.GenerateTTS(t.Context(), story.ID, true, nil)
 	assertUpstreamError(t, err, http.StatusBadGateway)
-	if !errors.Is(err, audio.ErrUndecodable) {
-		t.Fatalf("error = %v, want ffprobe rejection as cause", err)
+	// The handler logs the cause, so it must carry ffprobe's diagnostic.
+	upstream, _ := errors.AsType[*apperrors.UpstreamError](err)
+	if cause := upstream.Unwrap(); !errors.Is(cause, audio.ErrUndecodable) || !strings.Contains(cause.Error(), "Invalid data") {
+		t.Fatalf("upstream cause = %v, want ffprobe's diagnostic", cause)
 	}
 	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
 		t.Fatalf("alerts = %+v, resolved = %v; want one thresholded upstream alert", alerts.events, alerts.resolved)
