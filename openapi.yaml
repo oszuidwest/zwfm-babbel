@@ -302,6 +302,7 @@ paths:
         - If `max_age = 0`: Always generates a fresh bulletin
         - If endpoint is disabled (no API key configured): Returns 404
         - If the station has no eligible stories: Returns 409 `bulletin.no_stories`
+        - If a referenced resource disappears during generation: Returns 409 `bulletin.reference_missing`
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
         Concurrent requests for the same station will queue for up to
@@ -355,7 +356,7 @@ paths:
               required: true
               schema:
                 type: string
-                example: 'attachment; filename="bulletin_1_20240115_143000.wav"'
+                example: 'attachment; filename="bulletin_1_20240115_143000.123456789.wav"'
             Cache-Control:
               required: true
               schema:
@@ -405,19 +406,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
         '409':
-          description: The station has no eligible stories for a new bulletin (`bulletin.no_stories`)
+          description: The station has no eligible stories (`bulletin.no_stories`), or a referenced resource disappeared during generation (`bulletin.reference_missing`)
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ConflictError'
-              example:
-                type: "https://babbel.api/problems/bulletin.no_stories"
-                title: "Conflict"
-                status: 409
-                detail: "no active stories available for station 1"
-                instance: "/public/stations/1/bulletin.wav"
-                code: "bulletin.no_stories"
-                hint: "Add active stories with audio before generating a bulletin"
+              examples:
+                no_stories:
+                  summary: No eligible stories
+                  value:
+                    type: "https://babbel.api/problems/bulletin.no_stories"
+                    title: "Conflict"
+                    status: 409
+                    detail: "no active stories available for station 1"
+                    instance: "/public/stations/1/bulletin.wav"
+                    code: "bulletin.no_stories"
+                    hint: "Add active stories with audio before generating a bulletin"
+                reference_missing:
+                  summary: A resource disappeared during generation
+                  value:
+                    type: "https://babbel.api/problems/bulletin.reference_missing"
+                    title: "Conflict"
+                    status: 409
+                    detail: "Bulletin references a resource that no longer exists"
+                    instance: "/public/stations/1/bulletin.wav"
+                    code: "bulletin.reference_missing"
+                    hint: "Reload the referenced resources and try again"
         '416':
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
@@ -645,7 +659,7 @@ paths:
                 success:
                   value: "https://your-frontend.com/dashboard?login=success"
                 error:
-                  value: "https://your-frontend.com/dashboard?error=invalid_credentials"
+                  value: "https://your-frontend.com/dashboard?error=OIDC+login+rejected%3A+invalid+or+expired+login+state"
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
@@ -1999,7 +2013,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2008,7 +2022,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
@@ -2320,7 +2334,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2329,7 +2343,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
@@ -2372,7 +2386,7 @@ paths:
                 id: 150
                 station_id: 1
                 station_name: "Radio Station 1"
-                filename: "bulletin_1_20240120_140500.wav"
+                filename: "bulletin_1_20240120_140500.123456789.wav"
                 audio_url: "/bulletins/150/audio"
                 duration_seconds: 185.4
                 file_size: 2965440
@@ -2458,7 +2472,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2467,7 +2481,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
