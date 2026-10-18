@@ -456,17 +456,21 @@ func (f *fakeTTSSettingsGetter) Get(context.Context) (*models.TTSSettings, error
 }
 
 type fakeSpeechGenerator struct {
-	data  []byte
-	ctx   context.Context
-	text  string
-	err   error
-	calls int
+	beforeReturn func()
+	data         []byte
+	ctx          context.Context
+	text         string
+	err          error
+	calls        int
 }
 
 func (f *fakeSpeechGenerator) GenerateSpeech(ctx context.Context, text, _ string, _ tts.Options) ([]byte, error) {
 	f.calls++
 	f.ctx = ctx
 	f.text = text
+	if f.beforeReturn != nil {
+		f.beforeReturn()
+	}
 	if f.err != nil {
 		return nil, f.err
 	}

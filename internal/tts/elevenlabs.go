@@ -173,11 +173,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 	started := time.Now()
 	resp, err := s.client.Do(req)
 	if err != nil {
-		// The caller's own cancellation or deadline is not an ElevenLabs failure.
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("TTS API request failed: %w", err)
-		}
-		return nil, &TransportError{Err: err}
+		return nil, requestFailure(ctx, fmt.Errorf("TTS API request failed: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -189,7 +185,7 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 		}
 		logElevenLabsResponse(ctx, resp.StatusCode, time.Since(started), resp.Header, detail)
 		if readErr != nil {
-			return nil, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, readErr)
+			return nil, requestFailure(ctx, fmt.Errorf("failed to read TTS error response body for status %d: %w", resp.StatusCode, readErr))
 		}
 		if int64(len(respBody)) > maxErrorResponseBytes {
 			respBody = append(respBody[:maxErrorResponseBytes], []byte(" (truncated)")...)
@@ -205,13 +201,22 @@ func (s *Service) GenerateSpeech(ctx context.Context, text string, voiceID strin
 
 	audio, err := io.ReadAll(io.LimitReader(resp.Body, maxAudioResponseBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("failed to read TTS response: %w", err)
+		return nil, requestFailure(ctx, fmt.Errorf("failed to read TTS response: %w", err))
 	}
 	if int64(len(audio)) > maxAudioResponseBytes {
 		return nil, fmt.Errorf("TTS response exceeded maximum allowed size of %d bytes", maxAudioResponseBytes)
 	}
 
 	return audio, nil
+}
+
+// requestFailure classifies connection and body-read failures consistently.
+// The caller's own cancellation or deadline is not an ElevenLabs failure.
+func requestFailure(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
+	return &TransportError{Err: err}
 }
 
 func parseElevenLabsErrorDetail(body []byte) elevenLabsErrorDetail {
