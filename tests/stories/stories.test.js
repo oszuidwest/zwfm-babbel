@@ -287,6 +287,31 @@ describe('Stories', () => {
       expect(restore.data.deleted_at).toBeNull();
     });
 
+    test('audio stays downloadable from the trash and after restoration', async () => {
+      const voice = await global.helpers.createVoice(global.resources, 'Trash audio voice');
+      expect(voice).not.toBeNull();
+      const story = await global.helpers.requireStoryWithReadyAudio(global.resources, {
+        title: 'Trash audio preview',
+        voice_id: voice.id
+      });
+      const path = `/stories/${story.id}`;
+      const download = async (url) => {
+        const response = await global.api.apiCall('GET', url, null, { responseType: 'arraybuffer' });
+        expect(response.status).toBe(200);
+        return Buffer.from(response.data);
+      };
+      const before = await download(`${path}/audio`);
+      expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+
+      const trash = await global.api.apiCall('GET', `/stories?trashed=only&filter[id]=${story.id}`);
+      expect(trash.status).toBe(200);
+      expect(trash.data.data.map((item) => item.audio_url)).toEqual([`${path}/audio`]);
+      expect((await download(trash.data.data[0].audio_url)).equals(before)).toBe(true);
+
+      expect((await global.api.apiCall('PATCH', path, { deleted_at: '' })).status).toBe(200);
+      expect((await download(`${path}/audio`)).equals(before)).toBe(true);
+    });
+
     describe('restore with fields', () => {
       const start = dateFromToday(10);
       const end = dateFromToday(12);
