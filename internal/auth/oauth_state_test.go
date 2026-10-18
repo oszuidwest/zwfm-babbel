@@ -136,7 +136,7 @@ func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
-	c.Request.AddCookie(&http.Cookie{Name: "session", Value: "corrupt-cookie"})
+	c.Request.AddCookie(&http.Cookie{Name: "session", Value: "corrupt-cookie", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	if err := s.FinishOAuthFlow(c); !errors.Is(err, ErrLoginRejected) {
 		t.Fatalf("FinishOAuthFlow = %v, want rejected login", err)
 	}
