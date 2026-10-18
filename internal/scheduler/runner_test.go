@@ -116,6 +116,29 @@ func TestRunnerStoppedBeforeStartDoesNotRun(t *testing.T) {
 	r.Stop()
 }
 
+func TestRunnerStopDuringTickerJobDoesNotNotify(t *testing.T) {
+	t.Parallel()
+	alerts := &schedulerAlertRecorder{}
+	started := make(chan struct{})
+	runs := 0
+	r := newRunner("ticker job", time.Millisecond, time.Second, func(ctx context.Context) error {
+		runs++
+		if runs == 1 {
+			return nil
+		}
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}, alerts)
+	r.Start()
+	events, resolved := len(alerts.events), len(alerts.resolved)
+	<-started
+	r.Stop()
+	if runs != 2 || len(alerts.events) != events || len(alerts.resolved) != resolved {
+		t.Fatalf("runs = %d, events = %+v, resolved = %v; shutdown must not notify", runs, alerts.events, alerts.resolved)
+	}
+}
+
 func TestRunnerStillAlertsForDeadlineOrIndependentCancellation(t *testing.T) {
 	t.Parallel()
 	for _, err := range []error{context.DeadlineExceeded, context.Canceled} {
