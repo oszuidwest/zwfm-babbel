@@ -38,9 +38,9 @@ type StoryServiceDeps struct {
 	TxManager             repository.TxManager
 }
 
-// storyAudioPublishTimeout bounds the publication transaction, which ignores
-// request cancellation.
-const storyAudioPublishTimeout = 10 * time.Second
+// audioPublishTimeout bounds a story or jingle publication transaction, which
+// ignores request cancellation.
+const audioPublishTimeout = 10 * time.Second
 
 type storyRepository interface {
 	Create(context.Context, *repository.StoryCreateData) (*models.Story, error)
@@ -374,7 +374,7 @@ func undecodableUpload(field string, cause error) error {
 
 // publishAudio converts audio at tempPath and publishes it, recording action
 // in the story's history. Cancelling ctx stops the conversion; publication
-// then ignores cancellation and is bounded by storyAudioPublishTimeout.
+// then ignores cancellation and is bounded by audioPublishTimeout.
 func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
@@ -395,7 +395,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 	//
 	// A client disconnect after the rename must not roll back the row and
 	// audit event behind the live file.
-	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storyAudioPublishTimeout)
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), audioPublishTimeout)
 	defer cancel()
 	alertKey := fmt.Sprintf("story:unrecorded-audio:%d", storyID)
 	published := false
