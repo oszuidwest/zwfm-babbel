@@ -161,7 +161,7 @@ func TestServeAudio_UnreadableFileReturnsProblem(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
 	// Privileged test users can bypass permissions; the ENOTDIR test above
 	// still exercises the same server-failure path in those environments.
-	if file, err := os.Open(path); err == nil {
+	if file, err := os.Open(path); err == nil { //nolint:gosec // Test-owned path in t.TempDir.
 		_ = file.Close()
 		t.Skip("test user can read files without mode permissions")
 	} else if !errors.Is(err, os.ErrPermission) {
