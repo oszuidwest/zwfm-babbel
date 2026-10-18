@@ -99,6 +99,9 @@ func (h *AuthHandlers) Logout(c *gin.Context) {
 
 // GetCurrentUser returns the authenticated user's profile and effective permissions.
 func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	userID, ok := auth.UserID(c)
 	if !ok {
 		utils.ProblemAuthentication(c, "Not authenticated")
@@ -122,6 +125,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 
 // GetAuthConfig returns enabled login methods and the OAuth URL, if enabled.
 func (h *AuthHandlers) GetAuthConfig(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	response := handlers.AuthConfigResponse{
 		Methods: []string{},
 	}
