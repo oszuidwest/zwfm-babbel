@@ -140,19 +140,12 @@ func (h *Handlers) requireStation(c *gin.Context, stationID int64) bool {
 	return true
 }
 
-var (
-	errUnverifiedDelivery = errors.New("audio delivery could not be verified")
-	errAudioFileAccess    = errors.New("audio file access failed")
-)
+var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
 
 // serveAudioFile serves a download with range and conditional request support.
 // It handles the response and returns file access or delivery errors, including
 // errUnverifiedDelivery when the writer does not support flushing.
-func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
-	info, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("%w: %w", errAudioFileAccess, err)
-	}
+func serveAudioFile(c *gin.Context, file *os.File, info os.FileInfo, filename string, bulletinID int64, cached bool) error {
 	if !validateAudioRange(c, info.Size()) {
 		return nil
 	}

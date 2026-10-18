@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,33 +23,6 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
-
-func TestServeAudioFileClassifiesStatFailure(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "audio-*.wav")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	c, rec := newProblemContext(t)
-	err = serveAudioFile(c, file, "bulletin.wav", 42, true)
-	if !errors.Is(err, errAudioFileAccess) || !errors.Is(err, os.ErrClosed) || rec.Body.Len() != 0 {
-		t.Fatalf("serveAudioFile = %v, body = %s; want access failure before response", err, rec.Body)
-	}
-}
-
-func TestAutomationWrappedMissingStatRemainsNotFound(t *testing.T) {
-	alerts := &automationAlertRecorder{}
-	h := NewAutomationHandler(nil, nil, nil, alerts)
-	c, rec := newProblemContext(t)
-	err := fmt.Errorf("%w: %w", errAudioFileAccess, &os.PathError{Op: "stat", Path: "bulletin.wav", Err: os.ErrNotExist})
-	h.audioAccessFailure(c, "bulletin:served-audio:station:7", "bulletin.wav", 42, 7, err)
-	if rec.Code != http.StatusNotFound || len(alerts.events) != 1 {
-		t.Fatalf("status = %d, events = %+v; want missing-file response", rec.Code, alerts.events)
-	}
-	decodeProblem(t, rec)
-}
 
 func TestAutomationQueryFailuresUseSharedErrorHandling(t *testing.T) {
 	for _, path := range []string{"station", "cache"} {

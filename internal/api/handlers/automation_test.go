@@ -156,7 +156,11 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 			router := gin.New()
 			router.GET("/", func(c *gin.Context) {
 				time.Sleep(100 * time.Millisecond) // Simulate generation before delivery.
-				served <- serveAudioFile(c, file, "bulletin.wav", 1, false)
+				info, err := file.Stat()
+				if err != nil {
+					t.Error(err)
+				}
+				served <- serveAudioFile(c, file, info, "bulletin.wav", 1, false)
 			})
 			server := httptest.NewUnstartedServer(router)
 			server.Config.WriteTimeout = tt.timeout

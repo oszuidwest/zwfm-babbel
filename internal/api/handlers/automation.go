@@ -108,7 +108,6 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 // GetPublicBulletin serves API-key-authenticated audio to automation clients.
 // max_age=0 forces generation; larger values permit a fresh cached bulletin.
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
-	c.Set(alertContextKey, h.alerts)
 	req := h.validateBulletinRequest(c)
 	if req == nil {
 		return
@@ -164,7 +163,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 	release, err := h.bulletinSvc.LockStation(waitCtx, req.stationID)
 	cancelWait()
 	if err != nil {
-		handleServiceError(c, err, "Bulletin generation lock")
+		handleServiceError(c, err, "Bulletin generation")
 		return nil, false, false
 	}
 	defer release()
@@ -206,16 +205,16 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 		return
 	}
 	defer func() { _ = file.Close() }() // Read-only; close errors cannot affect the response.
-	c.Header("Cache-Control", "no-store")
-	deliveryKey := "bulletin:delivery:station:" + station
-	err = serveAudioFile(c, file, audioFile, bulletinID, cached)
-	if errors.Is(err, errAudioFileAccess) {
+	info, err := file.Stat()
+	if err != nil {
 		h.audioAccessFailure(c, alertKey, filePath, bulletinID, stationID, err)
 		return
 	}
 	h.alerts.Resolve(c.Request.Context(), alertKey,
 		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
-	if err != nil {
+	c.Header("Cache-Control", "no-store")
+	deliveryKey := "bulletin:delivery:station:" + station
+	if err := serveAudioFile(c, file, info, audioFile, bulletinID, cached); err != nil {
 		if errors.Is(err, errUnverifiedDelivery) {
 			logger.Warn("Automation: bulletin audio delivery could not be verified", "station_id", stationID, "bulletin_id", bulletinID)
 			return

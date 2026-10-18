@@ -164,8 +164,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		logErrorWithCause(dbError.Resource, "database_error", err, dbError.Unwrap())
-		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
+		alertDatabaseFailure(c, dbError)
 		utils.ProblemExtended(c, http.StatusInternalServerError,
 			"An internal error occurred",
 			"internal.database_error",
@@ -188,6 +187,11 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	)
 }
 
+func alertDatabaseFailure(c *gin.Context, dbError *apperrors.DatabaseError) {
+	alertRequestFailure(c, databaseRequestEvent(c,
+		fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), dbError.Resource, dbError.Unwrap())))
+}
+
 func logRequestTimeout(c *gin.Context, err error, resource string) {
 	cause := errors.Unwrap(err)
 	if cause == nil {
@@ -195,8 +199,7 @@ func logRequestTimeout(c *gin.Context, err error, resource string) {
 	}
 	if dbError, ok := errors.AsType[*apperrors.DatabaseError](err); ok {
 		resource, cause = dbError.Resource, dbError.Unwrap()
-		alertRequestFailure(c, databaseRequestEvent(c,
-			fmt.Sprintf("Route %s, resource %s: %v", utils.RouteKey(c), resource, cause)))
+		alertDatabaseFailure(c, dbError)
 	}
 	logger.Error("Request timeout", "resource", resource, "error_type", "timeout",
 		"route", utils.RouteKey(c), "error", err, "cause", cause)
