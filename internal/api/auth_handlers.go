@@ -65,8 +65,8 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 		// They go only into the log, cut to a fixed length.
 		attrs := []any{"error", err}
 		if providerErr, ok := c.GetQuery("error"); ok {
-			attrs = append(attrs, "provider_error", truncateForLog(providerErr),
-				"provider_error_description", truncateForLog(c.Query("error_description")))
+			attrs = append(attrs, "provider_error", logger.TruncateValue(providerErr),
+				"provider_error_description", logger.TruncateValue(c.Query("error_description")))
 		}
 		// Only login rejections are safe to show to the user.
 		message := "Login failed; try again or contact an administrator"
@@ -81,16 +81,6 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	}
 
 	c.Redirect(http.StatusSeeOther, frontendURL+"?login=success")
-}
-
-// maxProviderLogBytes caps each provider value in the OIDC callback log line.
-const maxProviderLogBytes = 1024
-
-func truncateForLog(s string) string {
-	if len(s) <= maxProviderLogBytes {
-		return s
-	}
-	return s[:maxProviderLogBytes] + " (truncated)"
 }
 
 // Logout clears the current session. It is safe to call repeatedly.

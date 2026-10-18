@@ -3,6 +3,7 @@ package api
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +12,12 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
 const testFrontendURL = "https://app.example.com/"
@@ -125,10 +128,101 @@ func TestHandleOAuthCallbackTruncatesProviderValues(t *testing.T) {
 	router.ServeHTTP(httptest.NewRecorder(), request)
 
 	// The bound covers every attribute, also one that would copy a provider value.
-	if logs.Len() == 0 || logs.Len() > 4*maxProviderLogBytes {
-		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*maxProviderLogBytes)
+	if logs.Len() == 0 || logs.Len() > 4*logger.MaxValueBytes {
+		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*logger.MaxValueBytes)
 	}
 }
+
+func TestFailedOAuthCallbackConsumesState(t *testing.T) {
+	for _, query := range []string{"error=access_denied", "error=server_error", "", "code=used-code"} {
+		t.Run(cmp.Or(query, "missing code"), func(t *testing.T) {
+			router, exchanged := newOAuthTestRouter(t)
+			cookie, state := startOAuthFlow(t, router)
+			callback := "/callback?state=" + url.QueryEscape(state) + "&" + query
+			for attempt := range 2 {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, callback, nil)
+				req.AddCookie(cookie)
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				if rec.Code != http.StatusSeeOther {
+					t.Fatalf("attempt %d: status = %d", attempt, rec.Code)
+				}
+				if attempt == 0 {
+					exchanged.Store(false)
+					continue
+				}
+				location, err := url.Parse(rec.Header().Get("Location"))
+				if err != nil || location.Query().Get("error") != "OIDC login rejected: invalid or expired login state" {
+					t.Fatalf("replayed callback: Location = %q, parse error = %v", rec.Header().Get("Location"), err)
+				}
+				if exchanged.Load() {
+					t.Fatal("replayed callback reached the token endpoint")
+				}
+			}
+		})
+	}
+}
+
+func TestStartOAuthFlowBoundsRejectedFrontendLog(t *testing.T) {
+	router, _ := newOAuthTestRouter(t)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	value := "https://untrusted.example/" + strings.Repeat("x", 1<<20)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth?frontend_url="+url.QueryEscape(value), nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("status = %d, want redirect", rec.Code)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	logged, ok := record["url"].(string)
+	if !ok || logged != value[:logger.MaxValueBytes]+" (truncated)" || record["url_bytes"] != float64(len(value)) ||
+		record["level"] != "WARN" || record["msg"] != "Rejected invalid frontend_url" {
+		t.Fatalf("logged URL length = %d, url_bytes = %v; want a bounded prefix and original length", len(logged), record["url_bytes"])
+	}
+}
+
+func TestOAuthStateSaveFailureIsLoggedAndStopsExchange(t *testing.T) {
+	service, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewAuthHandlers(service, testFrontendURL, nil)
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	router := gin.New()
+	router.GET("/callback", func(c *gin.Context) {
+		c.Set(sessions.DefaultKey, &failedOAuthSession{err: errors.New("session backend unavailable")})
+		h.HandleOAuthCallback(c)
+	})
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil))
+	// The service has no OAuth client: reaching exchange would panic.
+	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "session backend") {
+		t.Fatalf("response = %d %q, want a safe login failure redirect", rec.Code, rec.Header().Get("Location"))
+	}
+	var record map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" ||
+		record["error"] != "failed to consume OAuth login state: session backend unavailable" {
+		t.Fatalf("logs = %s, want one Error with the session-save cause", logs)
+	}
+}
+
+// failedOAuthSession supplies a matching state but refuses to persist consumption.
+type failedOAuthSession struct {
+	sessions.Session
+	err error
+}
+
+func (*failedOAuthSession) Get(key any) any {
+	if key == "oauth_state" {
+		return "state"
+	}
+	return nil
+}
+func (*failedOAuthSession) Delete(any)    {}
+func (s *failedOAuthSession) Save() error { return s.err }
 
 // newOAuthTestRouter serves the OAuth handlers against a fake OIDC provider
 // whose token endpoint always fails.

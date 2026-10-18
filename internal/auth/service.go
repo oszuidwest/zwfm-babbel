@@ -311,7 +311,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		if s.isAllowedFrontendURL(frontendURL) {
 			session.Set(sessKeyFrontendURL, frontendURL)
 		} else {
-			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
+			logger.Warn("Rejected invalid frontend_url", "url", logger.TruncateValue(frontendURL), "url_bytes", len(frontendURL))
 		}
 	}
 	if err := session.Save(); err != nil {
@@ -339,9 +339,13 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	// CreateSession's save persists these deletions on success.
+	// Persist consumption before any callback failure can return, including
+	// provider rejections and failed code exchanges.
 	session.Delete(sessKeyOAuthState)
 	session.Delete(sessKeyFrontendURL)
+	if err := session.Save(); err != nil {
+		return fmt.Errorf("failed to consume OAuth login state: %w", err)
+	}
 
 	// access_denied means the user cancelled or the provider denied the user. Any
 	// other error code points to the provider or the client configuration (RFC
