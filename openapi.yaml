@@ -2903,6 +2903,9 @@ paths:
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
         - 408: the upload did not complete within the time limit.
+        - 409 `stationvoice.pair_changed`: the station-voice moved to another
+          station or voice while the upload ran. Nothing is stored; upload the
+          jingle again.
         - 413: the file is larger than 100 MB.
         - 422: the `jingle` file is missing (`required`), has an unsupported
           extension (`unsupported`), or cannot be decoded as audio
@@ -2947,6 +2950,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '408':
           $ref: '#/components/responses/RequestTimeout'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
@@ -4635,6 +4640,7 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
         - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
+        - `stationvoice.pair_changed` - 409 the station-voice moved to another station or voice while its jingle upload ran
         - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
@@ -5168,6 +5174,7 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
         - `stationvoice.jingle_locked` - The station or voice cannot change while the station-voice has a jingle
+        - `stationvoice.pair_changed` - The station-voice moved to another station or voice while its jingle upload ran; upload it again
       content:
         application/problem+json:
           schema:
@@ -5233,6 +5240,16 @@ components:
                 instance: "/api/v1/station-voices/1"
                 code: "stationvoice.jingle_locked"
                 hint: "Create a station-voice for the new station and voice, upload its jingle, then delete this one"
+            pair_changed:
+              summary: Station-voice pair changed during a jingle upload
+              value:
+                type: "https://babbel.api/problems/stationvoice.pair_changed"
+                title: "Conflict"
+                status: 409
+                detail: "the station-voice moved to another station or voice during the upload"
+                instance: "/api/v1/station-voices/1/audio"
+                code: "stationvoice.pair_changed"
+                hint: "Upload the jingle again"
     RequestTimeout:
       description: Upload did not complete within the time limit
       content:

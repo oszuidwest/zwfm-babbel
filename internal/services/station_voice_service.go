@@ -124,7 +124,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// The row lock makes a jingle write that has not committed yet finish
 		// first, so the check sees it. An upload that loaded the pair before
-		// this commit still writes that pair's filename afterwards.
+		// this commit finds the pair changed and is refused.
 		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
 		if err != nil {
 			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
@@ -237,8 +237,10 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 }
 
 // ProcessJingle converts an uploaded audio file and associates it with the
-// already-loaded station-voice relationship. The database stores the
-// canonical filename, not the absolute output path.
+// already-loaded station-voice relationship. It refuses to publish when the
+// row moved to another pair since it was loaded, because the file is named
+// after the loaded pair. The database stores the canonical filename, not the
+// absolute output path.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
@@ -256,13 +258,22 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
-	// Rename while the row update holds the row lock, so a concurrent Delete
-	// cannot remove the row and its jingle between the update and the rename.
-	// A failed update or rename rolls back and keeps the old jingle; a failed
-	// commit leaves the new jingle published and may leave the database
-	// outcome unknown.
+	// Check the pair and rename under the row lock, so a concurrent Update
+	// cannot move the row and a concurrent Delete cannot remove the row and its
+	// jingle before the rename. A failed check, update or rename rolls back and
+	// keeps the old jingle; a failed commit leaves the new jingle published and
+	// may leave the database outcome unknown.
 	published := false
 	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, stationVoice.ID)
+		if err != nil {
+			return err
+		}
+		if current.StationID != stationVoice.StationID || current.VoiceID != stationVoice.VoiceID {
+			return apperrors.Conflict("stationvoice.pair_changed",
+				"the station-voice moved to another station or voice during the upload",
+				"Upload the jingle again")
+		}
 		if err := s.stationVoiceRepo.UpdateAudio(txCtx, stationVoice.ID, filename); err != nil {
 			return err
 		}
@@ -273,10 +284,14 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		return nil
 	})
 	if err != nil {
-		// A failed rename is already an audio error. Anything else came from
-		// the transaction: begin, the row update, or commit.
+		// A failed rename is already an audio error and a changed pair a
+		// conflict. Anything else came from the transaction: begin, the row
+		// read or update, or commit.
 		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
 			return audioErr
+		}
+		if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+			return conflict
 		}
 		if published {
 			// The handler logs the cause; name the live file there.
