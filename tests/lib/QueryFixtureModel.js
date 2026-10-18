@@ -1,16 +1,16 @@
 const contains = (value, term) => value != null && String(value).toLowerCase().includes(term.toLowerCase());
 const matchingSearchIDs = (items, fields, term) => items.filter(item => fields.some(field => contains(item[field], term))).map(item => item.id);
 
-// A whole field value is a literal substring term. No other search field may
-// match it, or omitting the intended field could go unnoticed.
+// Trim both ends so equality cannot satisfy a substring test. No other
+// search field may match the term, or omitting this field could go unnoticed.
 function isolatedSearchCase(items, fields, field) {
   for (const item of items) {
-    const term = item[field] == null ? '' : String(item[field]);
+    const term = item[field] == null ? '' : String(item[field]).slice(1, -1);
     if (!term || items.some(row => fields.some(other => other !== field && contains(row[other], term)))) continue;
     const ids = matchingSearchIDs(items, fields, term);
     if (ids.length < items.length) return { term, ids };
   }
-  throw new Error(`Search fixtures need an isolated non-universal term for ${field}`);
+  throw new Error(`Search fixtures need an isolated non-universal strict substring for ${field}`);
 }
 
 // Each filter must remove a different row, and their intersection must be
