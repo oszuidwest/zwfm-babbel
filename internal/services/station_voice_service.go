@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -24,7 +26,11 @@ type StationVoiceServiceDeps struct {
 	VoiceRepo        *repository.VoiceRepository
 	AudioSvc         *audio.Service
 	Config           *config.Config
+	Alerts           notify.Alerter
 }
+
+// jinglePublishTimeout bounds publication independently of the upload request.
+const jinglePublishTimeout = 10 * time.Second
 
 type stationVoiceRepository interface {
 	Create(context.Context, int64, int64, float64) (*models.StationVoice, error)
@@ -47,6 +53,7 @@ type StationVoiceService struct {
 	voiceRepo        *repository.VoiceRepository
 	audioSvc         *audio.Service
 	config           *config.Config
+	alerts           notify.Alerter
 }
 
 // NewStationVoiceService returns a station-voice service wired to deps.
@@ -58,6 +65,7 @@ func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 		voiceRepo:        deps.VoiceRepo,
 		audioSvc:         deps.AudioSvc,
 		config:           deps.Config,
+		alerts:           notify.OrDiscard(deps.Alerts),
 	}
 }
 
@@ -239,6 +247,8 @@ func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
 // ProcessJingle converts an uploaded audio file and associates it with the
 // already-loaded station-voice relationship. The database stores the
 // canonical filename, not the absolute output path.
+// Conversion follows ctx; publication ignores request cancellation and has
+// its own deadline so a disconnect cannot roll back an already-live jingle.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
@@ -261,8 +271,11 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	// A failed update or rename rolls back and keeps the old jingle; a failed
 	// commit leaves the new jingle published and may leave the database
 	// outcome unknown.
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jinglePublishTimeout)
+	defer cancel()
+	alertKey := fmt.Sprintf("stationvoice:unrecorded-audio:%d", stationVoice.ID)
 	published := false
-	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
 		if err := s.stationVoiceRepo.UpdateAudio(txCtx, stationVoice.ID, filename); err != nil {
 			return err
 		}
@@ -279,11 +292,20 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 			return audioErr
 		}
 		if published {
-			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("station-voice %d jingle published to %s but commit failed: %w", stationVoice.ID, outputPath, err)
+			logger.Error("Jingle is live but its database record may be missing",
+				"station_voice_id", stationVoice.ID, "path", outputPath, "error", err)
+			notify.OrDiscard(s.alerts).Alert(ctx, notify.Event{
+				Key:     alertKey,
+				Summary: fmt.Sprintf("Station-voice %d jingle is live but its database record may be missing", stationVoice.ID),
+				Details: err.Error() + "\n\nUpload this station-voice's jingle again to record it.",
+			})
 		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
+	notify.OrDiscard(s.alerts).Resolve(ctx, alertKey,
+		fmt.Sprintf("Station-voice %d jingle recorded again", stationVoice.ID),
+		"A later publication saved the station-voice's jingle file.")
 
 	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)
 	return nil

@@ -21,6 +21,26 @@ import (
 	"gorm.io/gorm"
 )
 
+// A real MySQL commit must survive cancellation after the jingle is live.
+func TestStationVoiceService_JinglePersistsAfterRequestCancel(t *testing.T) {
+	f := newJingleDeleteFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	f.service.txManager = cancelAfterPublish{TxManager: repository.NewTxManager(f.db),
+		t: t, finalPath: f.jinglePath, cancel: cancel}
+	if err := f.service.ProcessJingle(ctx, f.stationVoice, f.input); err != nil {
+		t.Fatalf("ProcessJingle = %v, want success after cancellation", err)
+	}
+	stored, err := f.service.GetByID(t.Context(), f.stationVoice.ID)
+	want := utils.JingleFilename(f.stationVoice.StationID, f.stationVoice.VoiceID)
+	if err != nil || stored.AudioFile != want {
+		t.Fatalf("GetByID = %+v, %v; want audio_file %q", stored, err, want)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("request was not cancelled during publication")
+	}
+}
+
 func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
 	f := newJingleDeleteFixture(t)
 
