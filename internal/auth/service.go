@@ -193,7 +193,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			if saveErr := s.clearSessionUser(c); saveErr != nil {
+			if saveErr := s.clearSessionUser(c, userID); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -439,13 +439,17 @@ func (s *Service) consumeOAuthState(c *gin.Context) error {
 	return nil
 }
 
-// clearSessionUser removes the user from the stored session. It reloads under
-// the OAuth state lock: saving this request's snapshot could restore a state
-// that a concurrent callback consumed, or drop a fresh one.
-func (s *Service) clearSessionUser(c *gin.Context) error {
+// clearSessionUser removes the rejected userID from the stored session. It
+// reloads under the OAuth state lock: saving this request's snapshot could
+// restore a state that a concurrent callback consumed, or drop a fresh one. A
+// session that a concurrent login gave another user is left alone.
+func (s *Service) clearSessionUser(c *gin.Context, userID int64) error {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
 	session, _ := s.store.New(c.Request, s.config.Session.CookieName)
+	if stored, ok := coerceInt64(session.Values[sessKeyUserID]); !ok || stored != userID {
+		return nil
+	}
 	delete(session.Values, sessKeyUserID)
 	return s.store.Save(c.Request, c.Writer, session)
 }
@@ -462,8 +466,12 @@ func (s *Service) Logout(c *gin.Context) error {
 }
 
 // CreateSession stores the authenticated user's ID in the session.
-// Middleware reads their role from the database on each request.
+// Middleware reads their role from the database on each request. It saves
+// under the OAuth state lock, so it cannot land between the reload and save
+// of a concurrent session cleanup, which would then remove this login.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
 	session.Set(sessKeyUserID, userID)
 	// A login ends any pending OAuth flow; this save must not restore a state

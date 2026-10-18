@@ -175,44 +175,83 @@ func TestCreateSessionDropsPendingOAuthState(t *testing.T) {
 	}
 }
 
-// Session cleanup must not save back a state that a callback consumed after
-// this request loaded its session.
-func TestClearSessionUserKeepsConsumedState(t *testing.T) {
+// A login must not save between the reload and save of a session cleanup,
+// which would then remove it.
+func TestCreateSessionWaitsForStateLock(t *testing.T) {
 	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
-	router.GET("/start", func(c *gin.Context) {
-		session := sessions.Default(c)
-		session.Set(sessKeyUserID, int64(1))
-		session.Set(sessKeyOAuthState, "consumed")
-		_ = session.Save()
-	})
-	router.GET("/cleanup", func(c *gin.Context) {
-		_ = sessions.Default(c).Get(sessKeyUserID) // This request's snapshot.
-		consumed, _ := s.store.New(c.Request, cfg.Session.CookieName)
-		delete(consumed.Values, sessKeyOAuthState)
-		if err := s.store.Save(c.Request, httptest.NewRecorder(), consumed); err != nil {
-			t.Error(err)
-		}
-		if err := s.clearSessionUser(c); err != nil {
-			t.Error(err)
-		}
-	})
-	var userID, state any
-	router.GET("/check", func(c *gin.Context) {
-		userID, state = sessions.Default(c).Get(sessKeyUserID), sessions.Default(c).Get(sessKeyOAuthState)
-	})
-	start := httptest.NewRecorder()
-	router.ServeHTTP(start, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/start", nil))
-	for _, path := range []string{"/cleanup", "/check"} {
-		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
-		for _, cookie := range start.Result().Cookies() {
-			req.AddCookie(cookie)
-		}
-		router.ServeHTTP(httptest.NewRecorder(), req)
+	router.GET("/login", func(c *gin.Context) { _ = s.CreateSession(c, 1) })
+
+	s.oauthStateMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/login", nil))
+	}()
+	select {
+	case <-done:
+		t.Error("CreateSession saved while the OAuth state lock was held")
+	case <-time.After(50 * time.Millisecond):
 	}
-	if userID != nil || state != nil {
-		t.Fatalf("session after cleanup: user = %v, state = %v; want both gone", userID, state)
+	s.oauthStateMu.Unlock()
+	<-done
+}
+
+// Session cleanup reloads the stored session, so it neither saves back a state
+// that a callback consumed after this request loaded its session, nor removes
+// another user that a concurrent login stored.
+func TestClearSessionUserReloadsStoredSession(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		concurrent func(values map[any]any)
+		wantUser   any
+	}{
+		{name: "consumed state", concurrent: func(values map[any]any) { delete(values, sessKeyOAuthState) }},
+		{name: "login as another user", concurrent: func(values map[any]any) {
+			values[sessKeyUserID] = int64(2)
+			delete(values, sessKeyOAuthState)
+		}, wantUser: int64(2)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+			s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
+			router := gin.New()
+			router.Use(s.SessionMiddleware())
+			router.GET("/start", func(c *gin.Context) {
+				session := sessions.Default(c)
+				session.Set(sessKeyUserID, int64(1))
+				session.Set(sessKeyOAuthState, "consumed")
+				_ = session.Save()
+			})
+			router.GET("/cleanup", func(c *gin.Context) {
+				_ = sessions.Default(c).Get(sessKeyUserID) // This request's snapshot.
+				stored, _ := s.store.New(c.Request, cfg.Session.CookieName)
+				tt.concurrent(stored.Values)
+				if err := s.store.Save(c.Request, httptest.NewRecorder(), stored); err != nil {
+					t.Error(err)
+				}
+				if err := s.clearSessionUser(c, 1); err != nil {
+					t.Error(err)
+				}
+			})
+			var userID, state any
+			router.GET("/check", func(c *gin.Context) {
+				userID, state = sessions.Default(c).Get(sessKeyUserID), sessions.Default(c).Get(sessKeyOAuthState)
+			})
+			start := httptest.NewRecorder()
+			router.ServeHTTP(start, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/start", nil))
+			for _, path := range []string{"/cleanup", "/check"} {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+				for _, cookie := range start.Result().Cookies() {
+					req.AddCookie(cookie)
+				}
+				router.ServeHTTP(httptest.NewRecorder(), req)
+			}
+			if userID != tt.wantUser || state != nil {
+				t.Fatalf("session after cleanup: user = %v, state = %v; want user %v and no state", userID, state, tt.wantUser)
+			}
+		})
 	}
 }
