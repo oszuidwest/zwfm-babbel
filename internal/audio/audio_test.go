@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -208,29 +207,12 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 	}
 }
 
-func TestService_ConvertStoryWithBracesInMetadata(t *testing.T) {
-	t.Parallel()
-	svc, ffmpegPath := newFFmpegService(t)
-	input := filepath.Join(t.TempDir(), "metadata.mp3")
-	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-metadata", "title={x} and }", "-y", input)
-	if duration, err := svc.ConvertStoryToWAV(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil || duration <= 0 {
-		t.Fatalf("ConvertStoryToWAV = %v, %v; want audio with a duration", duration, err)
-	}
-}
-
 func TestService_LoudnormParseFailureAlertsImmediately(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("shell scripts are not executable on Windows")
-	}
-	ffmpeg := filepath.Join(t.TempDir(), "ffmpeg")
-	// #nosec G306 - controlled test executable emits invalid FFmpeg stats.
-	if err := os.WriteFile(ffmpeg, []byte("#!/bin/sh\nprintf '%s\\n' '[Parsed_loudnorm_1 @ test]' '{not-json}'\n"), 0700); err != nil {
-		t.Fatal(err)
-	}
+	svc := newShellService(t)
 	alerts := &alertRecorder{}
-	svc := NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg}}, alerts)
-	if _, err := svc.measureLoudnessWithArgs(t.Context()); err == nil {
+	svc.alerts = alerts
+	if _, err := svc.measureLoudnessWithArgs(t.Context(), "-c", "echo '{not-json}'"); err == nil {
 		t.Fatal("expected invalid stats to fail")
 	}
 	if len(alerts.events) != 1 || alerts.events[0].Key != "audio:loudnorm-parse" || alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
@@ -411,10 +393,11 @@ func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
 
-	// ffprobe prints ReplayGain side data as an extra CSV field.
+	// ffprobe prints ReplayGain side data as an extra CSV field, and FFmpeg
+	// prints tags with braces before the loudnorm stats.
 	input := filepath.Join(t.TempDir(), "replaygain.flac")
 	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
-		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-y", input)
+		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-metadata", "title={x} and }", "-y", input)
 
 	for kind, convert := range conversions(svc) {
 		t.Run(kind, func(t *testing.T) {
