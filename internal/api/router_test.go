@@ -84,6 +84,7 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 	router.Any("/probe", func(c *gin.Context) {
 		c.String(http.StatusOK, "reached")
 	})
+	router.GET("/stations/:id/bulletins", (&handlers.Handlers{}).GetStationBulletins)
 
 	tests := []struct {
 		name       string
@@ -93,6 +94,7 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 		wantField  string
 	}{
 		{name: "invalid escape in page", target: "/probe?page=%ZZ", wantStatus: 422, wantField: "query"},
+		{name: "invalid escape wins over removed latest key", target: "/stations/1/bulletins?latest=1&x=%ZZ", wantStatus: 422, wantField: "query"},
 		{name: "semicolon separator", target: "/probe?limit=5;page=2", wantStatus: 422, wantField: "query"},
 		{name: "automation key behind semicolon", target: "/public/stations/1/bulletin.wav?key=expected;max_age=0", wantStatus: 422, wantField: "query"},
 		{name: "automation key with invalid escape", target: "/public/stations/1/bulletin.wav?key=%ZZ&max_age=0", wantStatus: 422, wantField: "query"},
