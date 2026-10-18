@@ -417,15 +417,14 @@ func (c *Config) validateDatabasePool() error {
 	if c.Database.ConnMaxLifetime <= 0 {
 		return fmt.Errorf("BABBEL_DB_CONN_MAX_LIFETIME must be > 0 (got %s)", c.Database.ConnMaxLifetime)
 	}
-	for _, setting := range []struct {
-		name  string
-		value time.Duration
-	}{
-		{"CONNECT_TIMEOUT", c.Database.ConnectTimeout}, {"READ_TIMEOUT", c.Database.ReadTimeout}, {"WRITE_TIMEOUT", c.Database.WriteTimeout},
-	} {
-		if setting.value <= 0 {
-			return fmt.Errorf("BABBEL_DB_%s must be > 0 (got %s)", setting.name, setting.value)
-		}
+	if c.Database.ConnectTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_CONNECT_TIMEOUT must be > 0 (got %s)", c.Database.ConnectTimeout)
+	}
+	if c.Database.ReadTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_READ_TIMEOUT must be > 0 (got %s)", c.Database.ReadTimeout)
+	}
+	if c.Database.WriteTimeout <= 0 {
+		return fmt.Errorf("BABBEL_DB_WRITE_TIMEOUT must be > 0 (got %s)", c.Database.WriteTimeout)
 	}
 	return nil
 }
