@@ -22,6 +22,9 @@ describe('Query fixture mutation models',()=>{
     expect(plan.ids.length).toBeGreaterThan(0);
     for(const filter of plan.filters)expect(rows.filter(filter.keep).map(row=>row.id)).not.toEqual(plan.ids);
   });
+  test('fixtures without two independently selective predicates are rejected',()=>{
+    expect(()=>independentFilters([{id:1,role:'viewer'},{id:2,role:'viewer'}],['id','role'])).toThrow(/independently selective/);
+  });
   test('a universal search term is distinct from the combined selective term',()=>{
     expect(matchingSearchIDs(rows,['title','text'],'querykeep')).toEqual([1,2,3]);
     expect(matchingSearchIDs(rows,['title','text'],'Headline')).toEqual([1,2,3,4]);
