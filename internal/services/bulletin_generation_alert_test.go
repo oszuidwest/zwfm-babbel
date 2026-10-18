@@ -33,9 +33,15 @@ func TestBulletinGenerationTimeoutAlertsImmediatelyButShutdownDoesNot(t *testing
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	s.reportGenerationFailure(ctx, 7, apperrors.Audio("Bulletin", "generate", context.Canceled))
+	s.reportGenerationFailure(ctx, 7, apperrors.Database("Bulletin", "create", errors.New("connection closed during shutdown")))
 	s.reportGenerationFailure(t.Context(), 7, apperrors.Database("Bulletin", "create", repository.ErrBulletinJobStateConflict))
 	if len(alerts.events) != 1 {
 		t.Fatalf("shutdown added alert: %+v", alerts.events)
+	}
+	// Deterministic audio failures stay terminal even when shutdown races them.
+	s.reportGenerationFailure(ctx, 7, apperrors.Audio("Bulletin", "generate", errors.New("read-only file system")))
+	if len(alerts.events) != 2 {
+		t.Fatalf("real audio failure was suppressed: %+v", alerts.events)
 	}
 }
 

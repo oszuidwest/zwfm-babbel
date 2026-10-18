@@ -293,11 +293,8 @@ func (s *BulletinService) saveBulletinToDatabase(
 }
 
 func (s *BulletinService) reportGenerationFailure(ctx context.Context, stationID int64, err error) {
-	if errors.Is(err, repository.ErrBulletinJobStateConflict) {
-		return // Another authoritative job outcome must not raise a new incident.
-	}
-	if errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		return // A client disconnect or worker shutdown is not an incident.
+	if outcome := resolveJobOutcome(ctx, err); outcome == jobInterrupted || outcome == jobConflict {
+		return // Match worker interruption policy, including canceled driver connections.
 	}
 	details := err.Error()
 	if cause := errors.Unwrap(err); cause != nil {
