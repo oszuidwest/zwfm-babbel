@@ -3,8 +3,10 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +21,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 type automationAlertRecorder struct {
@@ -153,7 +156,11 @@ func TestServeAudioFileReportsWriteDeadline(t *testing.T) {
 			router := gin.New()
 			router.GET("/", func(c *gin.Context) {
 				time.Sleep(100 * time.Millisecond) // Simulate generation before delivery.
-				served <- serveAudioFile(c, file, "bulletin.wav", 1, false)
+				info, err := file.Stat()
+				if err != nil {
+					t.Error(err)
+				}
+				served <- serveAudioFile(c, file, info, "bulletin.wav", 1, false)
 			})
 			server := httptest.NewUnstartedServer(router)
 			server.Config.WriteTimeout = tt.timeout
@@ -301,11 +308,18 @@ func TestAutomationBulletinUnavailableFile(t *testing.T) {
 			if err := tt.make(filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav")); err != nil {
 				t.Fatal(err)
 			}
+			logs := testutil.CaptureLogs(t, slog.LevelDebug)
 			c, rec := newProblemContext(t)
 			c.Request.Method = http.MethodGet
 			handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
 			if rec.Code != tt.status || len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:served-audio:station:7" {
 				t.Fatalf("response = %d, alerts = %+v; want %d and an unavailable-file alert", rec.Code, alerts.events, tt.status)
+			}
+			var record map[string]any
+			if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" ||
+				record["station_id"] != float64(7) || record["bulletin_id"] != float64(42) ||
+				record["path"] != filepath.Join(handler.config.Audio.OutputPath, "bulletin.wav") || record["error"] == nil {
+				t.Fatalf("logs = %s; want path, station, bulletin and cause", logs)
 			}
 		})
 	}

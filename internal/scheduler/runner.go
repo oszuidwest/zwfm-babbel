@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,8 +13,8 @@ import (
 
 // runner executes a job immediately on Start and then at a fixed interval in a
 // background goroutine until Stop is called. Each run receives a context that
-// is cancelled after runTimeout. A run that returns an error or panics raises
-// an immediate operational alert; a successful run resolves it.
+// is cancelled after runTimeout or by Stop. A run that returns an error or
+// panics raises an immediate operational alert; a successful run resolves it.
 type runner struct {
 	name       string
 	interval   time.Duration
@@ -21,47 +22,58 @@ type runner struct {
 	fn         func(ctx context.Context) error
 	alerts     notify.Alerter
 
-	ticker   *time.Ticker
-	done     chan bool
-	stopOnce sync.Once
+	ctx       context.Context // cancelled by Stop
+	cancel    context.CancelFunc
+	done      chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // newRunner returns a stopped runner that executes fn every interval.
 // alerts must be non-nil; pass notify.Discard when notifications are absent.
 func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx context.Context) error, alerts notify.Alerter) *runner {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &runner{
 		name:       name,
 		interval:   interval,
 		runTimeout: runTimeout,
 		fn:         fn,
 		alerts:     alerts,
-		done:       make(chan bool),
+		ctx:        ctx,
+		cancel:     cancel,
+		done:       make(chan struct{}),
 	}
 }
 
 // Start runs the job immediately and then every interval in a background
-// goroutine.
+// goroutine. Later calls do nothing.
 func (r *runner) Start() {
-	r.runOnce()
+	r.startOnce.Do(func() {
+		r.runOnce(r.ctx)
 
-	r.ticker = time.NewTicker(r.interval)
-
-	go func() {
-		for {
-			select {
-			case <-r.ticker.C:
-				r.runOnce()
-			case <-r.done:
-				return
+		go func() {
+			defer close(r.done)
+			ticker := time.NewTicker(r.interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					r.runOnce(r.ctx)
+				case <-r.ctx.Done():
+					return
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // runOnce executes the job with a per-run timeout context and maintains the
 // job's shared failure/recovery alert state.
-func (r *runner) runOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), r.runTimeout)
+func (r *runner) runOnce(parent context.Context) {
+	if parent.Err() != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, r.runTimeout)
 	defer cancel()
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -73,6 +85,9 @@ func (r *runner) runOnce() {
 		}
 	}()
 	if err := r.fn(ctx); err != nil {
+		if parent.Err() != nil && onlyCanceled(err) {
+			return // Stop cancelled the job; this is not an operational failure.
+		}
 		// Immediate, not thresholded: the jobs that can fail here run hourly
 		// or daily, too rarely to reach the default failure threshold within
 		// its window. A persistent failure alerts again on the first run after
@@ -82,23 +97,40 @@ func (r *runner) runOnce() {
 		})
 		return
 	}
+	if parent.Err() != nil {
+		return // A shutdown is not evidence that a prior incident recovered.
+	}
 	r.alerts.Resolve(ctx, "scheduler:"+r.name,
 		"Scheduler job recovered: "+r.name, "The "+r.name+" completed successfully again.")
 	r.alerts.Resolve(ctx, "scheduler:panic:"+r.name,
 		"Scheduler job recovered after panic: "+r.name, "The "+r.name+" completed successfully again.")
 }
 
-// Stop signals shutdown once, waiting at most five seconds for the receiver.
+// Stop cancels the active job and waits at most five seconds for the loop to
+// exit.
 func (r *runner) Stop() {
 	r.stopOnce.Do(func() {
 		logger.Info("Stopping " + r.name)
+		r.cancel()
 		select {
-		case r.done <- true:
+		case <-r.done:
 		case <-time.After(5 * time.Second):
 			logger.Info("Shutdown timeout", "service", r.name)
 		}
-		if r.ticker != nil {
-			r.ticker.Stop()
-		}
 	})
+}
+
+// onlyCanceled reports whether err consists of cancellations only, so a
+// failure joined with Stop's cancellation still alerts.
+func onlyCanceled(err error) bool {
+	var joined interface{ Unwrap() []error }
+	if errors.As(err, &joined) {
+		for _, inner := range joined.Unwrap() {
+			if !onlyCanceled(inner) {
+				return false
+			}
+		}
+		return true
+	}
+	return errors.Is(err, context.Canceled)
 }

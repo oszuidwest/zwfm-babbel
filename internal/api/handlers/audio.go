@@ -63,7 +63,7 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	defer func() { _ = file.Close() }() // Read-only; closing cannot change the response.
 	fileInfo, err := file.Stat()
 	if err == nil && !fileInfo.Mode().IsRegular() {
-		err = fmt.Errorf("not a regular audio file")
+		err = errors.New("not a regular audio file")
 	}
 	if err != nil {
 		audioFileError(c, config.TableName, id, audioPath, err)

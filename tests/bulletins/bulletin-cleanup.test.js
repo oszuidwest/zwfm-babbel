@@ -52,9 +52,6 @@ describe('Bulletin Cleanup', () => {
     purgedBulletinId = bulletin1.data.id;
     global.resources.track('bulletins', purgedBulletinId);
 
-    // Keep creation timestamps distinct for latest-bulletin selection.
-    await global.helpers.sleep(1000);
-
     const bulletin2 = await global.helpers.generateBulletin(testStationId);
     expect(bulletin2.status).toBe(200);
     unpurgedBulletinId = bulletin2.data.id;
@@ -118,7 +115,9 @@ describe('Bulletin Cleanup', () => {
     });
 
     test('when requesting latest bulletin, then skips purged', async () => {
-      // The newest bulletin must be purged to exercise the fallback.
+      // The newest bulletin must be purged to exercise the fallback. Backdate
+      // the unpurged one so the two cannot share a created_at second.
+      mysql.setTimestamps('bulletins', [[unpurgedBulletinId, { created_at: 0 }]]);
       const thirdResponse = await global.helpers.generateBulletin(testStationId);
       expect(thirdResponse.status).toBe(200);
       const thirdBulletinId = thirdResponse.data.id;
@@ -129,10 +128,7 @@ describe('Bulletin Cleanup', () => {
       const latestResponse = await global.api.apiCall('GET', `/stations/${testStationId}/bulletins/latest`);
 
       expect(latestResponse.status).toBe(200);
-      const latestId = String(latestResponse.data.id);
-
-      expect(latestId).not.toBe(String(thirdBulletinId));
-      expect(latestId).not.toBe(String(purgedBulletinId));
+      expect(latestResponse.data.id).toBe(unpurgedBulletinId);
       expect(latestResponse.data.audio_url).toBeTruthy();
     });
   });

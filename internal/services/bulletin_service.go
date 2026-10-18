@@ -127,19 +127,11 @@ func (s *BulletinService) create(
 
 	jingle := prepareStoriesForPlayback(stories, rand.Shuffle)
 
-	generationKey := fmt.Sprintf("bulletin:generation:station:%d", stationID)
 	bulletinPath, err := s.generateBulletinAudio(ctx, station, stories, jingle)
 	if err != nil {
-		s.alerts.Alert(ctx, notify.Event{
-			Key:               generationKey,
-			Summary:           fmt.Sprintf("Bulletin generation failed for station %d", stationID),
-			Details:           err.Error(),
-			RequiresThreshold: errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled),
-		})
+		s.reportGeneration(ctx, stationID, err)
 		return 0, err
 	}
-	s.alerts.Resolve(ctx, generationKey,
-		fmt.Sprintf("Bulletin generation recovered for station %d", stationID), "Audio generation succeeded again.")
 
 	var fileSize int64
 	if fi, err := os.Stat(bulletinPath); err == nil {
@@ -290,10 +282,38 @@ func (s *BulletinService) saveBulletinToDatabase(
 		if errors.Is(err, repository.ErrForeignKeyViolation) {
 			return 0, apperrors.TranslateRepoError("Bulletin", apperrors.OpCreate, err)
 		}
-		return 0, apperrors.Database("Bulletin", apperrors.OpCreate.String(), err)
+		dbErr := apperrors.Database("Bulletin", apperrors.OpCreate.String(), err)
+		s.reportGeneration(ctx, params.StationID, dbErr)
+		return 0, dbErr
 	}
 
+	s.reportGeneration(ctx, params.StationID, nil)
 	return bulletinID, nil
+}
+
+// reportGeneration alerts on a failed generation and resolves the incident
+// once a bulletin is stored.
+func (s *BulletinService) reportGeneration(ctx context.Context, stationID int64, err error) {
+	key := fmt.Sprintf("bulletin:generation:station:%d", stationID)
+	if err == nil {
+		s.alerts.Resolve(ctx, key, fmt.Sprintf("Bulletin generation recovered for station %d", stationID),
+			"Bulletin audio was generated and stored successfully again.")
+		return
+	}
+	// Shutdown or a client cancel is no generation failure, an expired budget
+	// is: a commit can then fail with a bare "invalid connection".
+	if outcome := resolveJobOutcome(ctx, err); outcome == jobConflict ||
+		outcome == jobInterrupted && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return
+	}
+	details := err.Error()
+	if cause := errors.Unwrap(err); cause != nil {
+		details += ": " + cause.Error()
+	}
+	s.alerts.Alert(ctx, notify.Event{
+		Key:     key,
+		Summary: fmt.Sprintf("Bulletin generation failed for station %d", stationID), Details: details,
+	}) // Immediate: an hourly station cannot reach a short-window threshold.
 }
 
 // GetLatest loads the most recent unpurged bulletin for a station.

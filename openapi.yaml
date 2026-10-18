@@ -436,10 +436,11 @@ paths:
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
           description: |
-            Invalid path or query parameter. `errors[].field` is `id`,
+            Invalid path or query parameter. `errors[].field` is `id`, `key`,
             `max_age`, or `query` for a query string that cannot be decoded;
             `max_age` fails with `required`, `invalid_format` or
-            `out_of_range`.
+            `out_of_range`, and a repeated `key` or `max_age` with
+            `duplicate`.
           content:
             application/problem+json:
               schema:
@@ -457,7 +458,7 @@ paths:
     get:
       operationId: getAuthConfig
       summary: Get authentication configuration
-      description: Returns available authentication methods for the API
+      description: Returns available authentication methods for the API. Query parameters are not supported and return 422.
       tags:
         - Authentication
       security: []
@@ -671,7 +672,7 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy. Query parameters are not supported and return 422.
       responses:
         '200':
           description: Current user information
@@ -703,6 +704,7 @@ paths:
   /api/v1/stations:
     get:
       operationId: getStations
+      x-search-fields: [name]
       summary: List all stations
       description: |
         Returns a paginated list of radio stations with modern query parameter support.
@@ -922,6 +924,7 @@ paths:
   /api/v1/voices:
     get:
       operationId: getVoices
+      x-search-fields: [name]
       summary: List all voices
       description: |
         Returns a paginated list of newsreader voices with modern query parameter support.
@@ -1211,6 +1214,7 @@ paths:
   /api/v1/stories:
     get:
       operationId: getStories
+      x-search-fields: [title, text]
       summary: List all stories
       description: |
         List stories with modern query parameter support.
@@ -1614,6 +1618,7 @@ paths:
         Returns the singleton ElevenLabs text-to-speech settings row.
         The response includes whether an API key is configured, but never returns the key value.
         All authenticated roles can read these settings.
+        Query parameters are not supported and return 422.
       tags:
         - Settings
       responses:
@@ -1685,6 +1690,7 @@ paths:
       description: |
         Returns local pronunciation rules used for ElevenLabs inline IPA
         injection. No ElevenLabs API call is made for this management route.
+        Query parameters are not supported and return 422.
       tags:
         - Settings
       responses:
@@ -1955,6 +1961,7 @@ paths:
   /api/v1/stories/{id}/bulletins:
     get:
       operationId: getStoriesIdBulletins
+      x-search-fields: [filename]
       summary: Get bulletin history for a story
       description: |
         Returns all bulletins that have included this specific story with modern query parameter support.
@@ -2050,6 +2057,7 @@ paths:
   /api/v1/users:
     get:
       operationId: getUsers
+      x-search-fields: [username, full_name]
       summary: List all users
       description: |
         Returns a paginated list of users with modern query parameter support.
@@ -2274,6 +2282,7 @@ paths:
   /api/v1/bulletins:
     get:
       operationId: getBulletins
+      x-search-fields: [filename]
       summary: List bulletins
       description: |
         Returns a paginated list of generated bulletins with modern query parameter support.
@@ -2411,6 +2420,7 @@ paths:
   /api/v1/stations/{id}/bulletins:
     get:
       operationId: getStationsIdBulletins
+      x-search-fields: [filename]
       summary: List bulletins for a station
       description: |
         Returns a paginated list of bulletins generated for a specific station with modern query parameter support.

@@ -288,7 +288,11 @@ func (s *BulletinJobService) processJob(workerCtx context.Context, job *models.B
 		if isNoStories(err) {
 			logFailure = logger.Warn
 		}
-		logFailure("Bulletin generation job failed", "job_id", job.ID, "station_id", job.StationID, "error", err)
+		attrs := []any{"job_id", job.ID, "station_id", job.StationID, "error", err}
+		if cause := errors.Unwrap(err); cause != nil {
+			attrs = append(attrs, "cause", cause)
+		}
+		logFailure("Bulletin generation job failed", attrs...)
 		return s.recordFailure(workerCtx, job, code, detail)
 	}
 }

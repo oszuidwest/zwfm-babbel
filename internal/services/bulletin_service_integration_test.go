@@ -9,6 +9,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
@@ -17,6 +18,7 @@ func TestBulletinService_SaveWithDeletedStoryIsConflict(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	station := createTestStation(t, db)
 	service := &BulletinService{
+		alerts:       notify.Discard,
 		txManager:    repository.NewTxManager(db),
 		bulletinRepo: repository.NewBulletinRepository(db),
 	}
