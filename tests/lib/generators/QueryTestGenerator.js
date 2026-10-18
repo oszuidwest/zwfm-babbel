@@ -1,4 +1,4 @@
-const { declaresQueryParameter, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, assertSearchFields, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
 const { unnoticedSortMappings } = require('../SortMutationModel');
 
@@ -27,6 +27,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
+  assertSearchFields(endpoint, query.searchFields);
   // Must occur in a query.searchFields value of at least one row. The default
   // matches rows that other tests leave behind, not only the fixtures.
   const searchTerm = query.searchTerm ?? 'test';
@@ -77,10 +78,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       fixtureIds = await setupFn();
     });
 
-    // OpenAPI declares search only where the repository has search fields, so
-    // query.searchFields must be non-empty exactly where search is declared.
     const searchable = declaresQueryParameter(endpoint, 'search');
-    if (searchable !== (query.searchFields?.length > 0)) throw new Error(`${name} searchFields: ${endpoint} ${searchable ? 'declares search but lists no fields' : 'does not declare search'}`);
     describe('Search scope', () => {
       // searchTerm may match every row (bulletins search '.wav'), so the Search
       // test cannot tell an ignored search from a working one; a term no row
