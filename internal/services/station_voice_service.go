@@ -34,7 +34,7 @@ type stationVoiceRepository interface {
 	GetForUpdate(context.Context, int64) (*models.StationVoice, error)
 	Update(context.Context, int64, *repository.StationVoiceUpdate) error
 	IsCombinationTaken(context.Context, int64, int64, *int64) (bool, error)
-	GetStationVoiceIDs(context.Context, int64) (int64, int64, string, error)
+	IsJingleInUse(context.Context, string, int64, int64) (bool, error)
 	Delete(context.Context, int64) error
 	UpdateAudio(context.Context, int64, string) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.StationVoice], error)
@@ -128,7 +128,7 @@ func (s *StationVoiceService) Update(ctx context.Context, id int64, req *UpdateS
 	err := s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
 		// The row lock makes a jingle write that has not committed yet finish
 		// first, so the check sees it. An upload that loaded the pair before
-		// this commit still writes that pair's filename afterwards.
+		// this commit finds the pair changed and is refused.
 		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
 		if err != nil {
 			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
@@ -211,38 +211,75 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 	return stationVoice, nil
 }
 
-// Delete removes a relationship and its canonical jingle file, even when the
-// row recorded none, because a first upload may have committed after the row
-// was read. The file is removed before commit, while the uncommitted delete
-// still blocks a replacement for the same pair, so the cleanup cannot remove
-// the replacement's jingle. A file that cannot be removed rolls the delete
-// back, so a recreated pair never picks up the stale jingle. A failed commit
-// can keep the row without its jingle; bulletins then play without a bed until
-// a new upload.
+// Delete removes a relationship and its jingle files. The row is locked before
+// it is read, so a pair change or upload either commits first and is seen, or
+// waits for the delete. The canonical file of the locked pair is removed even
+// when the row recorded none, because an upload whose commit failed can leave
+// it published. A row can also store a jingle named after an earlier pair;
+// that file is removed too unless a remaining row stores it or owns that pair.
+// Files are removed before commit, while the uncommitted delete still blocks a
+// replacement for the same pair, so the cleanup cannot remove the
+// replacement's jingle. A file that cannot be removed rolls the delete back, so
+// a recreated pair never picks up the stale jingle. A failed commit can keep
+// the row without its jingle; bulletins then play without a bed until a new
+// upload.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	stationID, voiceID, _, err := s.stationVoiceRepo.GetStationVoiceIDs(ctx, id)
-	if err != nil {
-		return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
-	}
-
-	return s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	return inTransaction(ctx, s.txManager, "StationVoice", apperrors.OpDelete, func(txCtx context.Context) error {
+		stationVoice, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
+		if err != nil {
+			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
+		}
 		if err := s.stationVoiceRepo.Delete(txCtx, id); err != nil {
 			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpDelete, err)
 		}
 
-		jinglePath := utils.JinglePath(s.config, stationID, voiceID)
-		if err := os.Remove(jinglePath); err == nil {
-			logger.Info("Removed jingle file", "station_voice_id", id, "station_id", stationID, "voice_id", voiceID)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove jingle %s of station-voice %d: %w", jinglePath, id, err)
+		if err := s.removeJingle(id, stationVoice.StationID, stationVoice.VoiceID); err != nil {
+			return err
 		}
-		return nil
+		return s.removeStoredJingle(txCtx, stationVoice)
 	})
 }
 
+// removeStoredJingle removes the jingle a deleted row stores under another
+// pair's name, unless a remaining row stores it or owns that pair. A stored
+// name that is not a jingle filename is left alone, so nothing outside the
+// jingle directory is removed.
+func (s *StationVoiceService) removeStoredJingle(ctx context.Context, stationVoice *models.StationVoice) error {
+	if stationVoice.AudioFile == "" || stationVoice.AudioFile == utils.JingleFilename(stationVoice.StationID, stationVoice.VoiceID) {
+		return nil
+	}
+	stationID, voiceID, ok := utils.ParseJingleFilename(stationVoice.AudioFile)
+	if !ok {
+		logger.Warn("Kept stored jingle with an unexpected filename", "station_voice_id", stationVoice.ID, "audio_file", stationVoice.AudioFile)
+		return nil
+	}
+	inUse, err := s.stationVoiceRepo.IsJingleInUse(ctx, stationVoice.AudioFile, stationID, voiceID)
+	if err != nil {
+		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpQuery, err)
+	}
+	if inUse {
+		return nil
+	}
+	return s.removeJingle(stationVoice.ID, stationID, voiceID)
+}
+
+// removeJingle removes the jingle named after a station/voice pair on behalf
+// of station-voice id. A missing file is not an error.
+func (s *StationVoiceService) removeJingle(id, stationID, voiceID int64) error {
+	jinglePath := utils.JinglePath(s.config, stationID, voiceID)
+	if err := os.Remove(jinglePath); err == nil {
+		logger.Info("Removed jingle file", "station_voice_id", id, "station_id", stationID, "voice_id", voiceID)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove jingle %s of station-voice %d: %w", jinglePath, id, err)
+	}
+	return nil
+}
+
 // ProcessJingle converts an uploaded audio file and associates it with the
-// already-loaded station-voice relationship. The database stores the
-// canonical filename, not the absolute output path.
+// already-loaded station-voice relationship. It refuses to publish when the
+// row moved to another pair since it was loaded, because the file is named
+// after the loaded pair. The database stores the canonical filename, not the
+// absolute output path.
 // Conversion follows ctx; publication ignores request cancellation and has
 // its own deadline so a disconnect cannot roll back an already-live jingle.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
@@ -262,16 +299,25 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		return apperrors.Audio("StationVoice", "convert", err)
 	}
 
-	// Rename while the row update holds the row lock, so a concurrent Delete
-	// cannot remove the row and its jingle between the update and the rename.
-	// A failed update or rename rolls back and keeps the old jingle; a failed
-	// commit leaves the new jingle published and may leave the database
-	// outcome unknown.
+	// Check the pair and rename under the row lock, so a concurrent Update
+	// cannot move the row and a concurrent Delete cannot remove the row and its
+	// jingle before the rename. A failed check, update or rename rolls back and
+	// keeps the old jingle; a failed commit leaves the new jingle published and
+	// may leave the database outcome unknown.
 	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), audioPublishTimeout)
 	defer cancel()
 	alertKey := fmt.Sprintf("stationvoice:unrecorded-audio:%d", stationVoice.ID)
 	published := false
 	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
+		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, stationVoice.ID)
+		if err != nil {
+			return err
+		}
+		if current.StationID != stationVoice.StationID || current.VoiceID != stationVoice.VoiceID {
+			return apperrors.Conflict("stationvoice.pair_changed",
+				"the station-voice moved to another station or voice during the upload",
+				"Upload the jingle again")
+		}
 		if err := s.stationVoiceRepo.UpdateAudio(txCtx, stationVoice.ID, filename); err != nil {
 			return err
 		}
@@ -282,10 +328,14 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		return nil
 	})
 	if err != nil {
-		// A failed rename is already an audio error. Anything else came from
-		// the transaction: begin, the row update, or commit.
+		// A failed rename is already an audio error and a changed pair a
+		// conflict. Anything else came from the transaction: begin, the row
+		// read or update, or commit.
 		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
 			return audioErr
+		}
+		if conflict, ok := errors.AsType[*apperrors.ConflictError](err); ok {
+			return conflict
 		}
 		if published {
 			err = fmt.Errorf("station-voice %d jingle published to %s but commit failed: %w", stationVoice.ID, outputPath, err)

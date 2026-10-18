@@ -2,12 +2,14 @@ package audio
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -346,17 +348,33 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 	// decodes none of it.
 	garbage := make([]byte, 64<<10)
 	_, _ = rand.NewChaCha8([32]byte{}).Read(garbage) // Deterministic bytes.
-	var randomInputs []string
+	var inputs []string
+	// Both headers describe a positive sample rate/channel count. One names
+	// an unavailable decoder; the other contains no samples at all.
+	for _, tt := range []struct {
+		name    string
+		tag     uint16
+		samples int
+	}{
+		{name: "unknown-codec", tag: 0x1234, samples: 48000},
+		{name: "empty", tag: 1},
+	} {
+		path := filepath.Join(tempDir, tt.name+".wav")
+		if err := os.WriteFile(path, wavFixture(tt.tag, tt.samples), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		inputs = append(inputs, path)
+	}
 	for _, ext := range []string{".aac", ".flac"} {
 		path := filepath.Join(tempDir, "random"+ext)
 		if err := os.WriteFile(path, garbage, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		randomInputs = append(randomInputs, path)
+		inputs = append(inputs, path)
 	}
 
 	for kind, convert := range conversions(svc) {
-		for _, input := range append([]string{text, imageUpload}, randomInputs...) {
+		for _, input := range append([]string{text, imageUpload}, inputs...) {
 			t.Run(kind+" "+filepath.Base(input), func(t *testing.T) {
 				outputPath := filepath.Join(t.TempDir(), "output.wav")
 				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {
@@ -368,6 +386,52 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 			})
 		}
 	}
+}
+
+// wavFixture builds a mono 48 kHz WAV with an explicit format tag and size.
+func wavFixture(tag uint16, samples int) []byte {
+	data := make([]byte, 44+2*samples)
+	copy(data, "RIFF")
+	binary.LittleEndian.PutUint32(data[4:], uint32(len(data)-8)) //nolint:gosec // Small controlled fixtures.
+	copy(data[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(data[16:], 16)
+	binary.LittleEndian.PutUint16(data[20:], tag)
+	binary.LittleEndian.PutUint16(data[22:], 1)
+	binary.LittleEndian.PutUint32(data[24:], 48000)
+	binary.LittleEndian.PutUint32(data[28:], 96000)
+	binary.LittleEndian.PutUint16(data[32:], 2)
+	binary.LittleEndian.PutUint16(data[34:], 16)
+	copy(data[36:], "data")
+	binary.LittleEndian.PutUint32(data[40:], uint32(2*samples)) //nolint:gosec // Small controlled fixtures.
+	return data
+}
+
+func TestService_ConvertAcceptsSupportedFormatsAndShortJingles(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+	// AAC (m4a) emits its first frame only after a later packet.
+	for _, ext := range []string{"wav", "mp3", "flac", "opus", "m4a"} {
+		t.Run(ext, func(t *testing.T) {
+			input := filepath.Join(t.TempDir(), "input."+ext)
+			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", input)
+			for kind, convert := range conversions(svc) {
+				t.Run(kind, func(t *testing.T) {
+					if err := convert(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+		})
+	}
+	t.Run("single-sample jingle", func(t *testing.T) {
+		input := filepath.Join(t.TempDir(), "one-sample.wav")
+		if err := os.WriteFile(input, wavFixture(1, 1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.ConvertJingleToWAV(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
@@ -385,6 +449,23 @@ func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
 				t.Fatalf("error = %v, want nil", err)
 			}
 		})
+	}
+}
+
+// os/exec copies stderr with io.Copy; the bound must hold on that path.
+func TestProbeDiagnosticBoundsCommandStderr(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts are not executable on windows")
+	}
+	var stderr probeDiagnostic
+	cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", "head -c 100000 /dev/zero >&2")
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if stderr.buf.Len() != 32*1024 {
+		t.Fatalf("captured %d bytes, want 32 KiB", stderr.buf.Len())
 	}
 }
 

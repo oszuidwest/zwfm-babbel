@@ -48,6 +48,9 @@ func TestTransactionFailuresAreDatabaseErrors(t *testing.T) {
 			_, err := (&StationVoiceService{txManager: beginFails}).Create(ctx, &CreateStationVoiceRequest{StationID: 1, VoiceID: 1})
 			return err
 		}},
+		{"StationVoiceService.Delete begin", "StationVoice", apperrors.OpDelete, func(ctx context.Context) error {
+			return (&StationVoiceService{txManager: beginFails}).Delete(ctx, 1)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
