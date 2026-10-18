@@ -76,7 +76,11 @@ func (h *Handlers) ServeAudio(c *gin.Context, config AudioConfig) {
 	c.Header("Content-Disposition",
 		fmt.Sprintf("inline; filename=\"%s_%d.wav\"", config.FilePrefix, id))
 
-	http.ServeContent(c.Writer, c.Request, fileInfo.Name(), fileInfo.ModTime(), file)
+	reader := &audioReadTracker{source: file, size: fileInfo.Size()}
+	http.ServeContent(c.Writer, c.Request, fileInfo.Name(), fileInfo.ModTime(), reader)
+	if err := reader.failure(); err != nil {
+		logger.Error("Failed to read audio file", "resource", config.TableName, "id", id, "path", audioPath, "error", err)
+	}
 }
 
 // audioFileError reports storage failures before any audio headers are written.
