@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 	"gorm.io/gorm"
 )
 
@@ -45,7 +44,8 @@ func (e *StoryDeletedError) Error() string {
 	return fmt.Sprintf("Story with id %d has been deleted", e.ID)
 }
 
-// ParseDBError converts database-specific errors to repository sentinel errors.
+// ParseDBError classifies database-specific errors with repository sentinels
+// while preserving the driver's cause and diagnostic text for callers' logs.
 // Returns nil if err is nil.
 func ParseDBError(err error) error {
 	if err == nil {
@@ -59,17 +59,13 @@ func ParseDBError(err error) error {
 	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		switch mysqlErr.Number {
 		case 1062: // ER_DUP_ENTRY
-			logger.Debug("MySQL duplicate key", "error", err)
-			return ErrDuplicateKey
+			return fmt.Errorf("%w: %w", ErrDuplicateKey, err)
 		case 1452: // ER_NO_REFERENCED_ROW_2
-			logger.Debug("MySQL foreign key violation", "error", err)
-			return ErrForeignKeyViolation
+			return fmt.Errorf("%w: %w", ErrForeignKeyViolation, err)
 		case 1406: // ER_DATA_TOO_LONG
-			logger.Debug("MySQL data too long", "error", err)
-			return ErrDataTooLong
+			return fmt.Errorf("%w: %w", ErrDataTooLong, err)
 		case 1146: // ER_NO_SUCH_TABLE
-			logger.Debug("MySQL schema unavailable", "error", err)
-			return ErrSchemaUnavailable
+			return fmt.Errorf("%w: %w", ErrSchemaUnavailable, err)
 		}
 	}
 
@@ -77,17 +73,13 @@ func ParseDBError(err error) error {
 	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
-		logger.Debug("Duplicate entry detected", "error", err)
-		return ErrDuplicateKey
+		return fmt.Errorf("%w: %w", ErrDuplicateKey, err)
 	case strings.Contains(errStr, "foreign key constraint"):
-		logger.Debug("Foreign key constraint violation", "error", err)
-		return ErrForeignKeyViolation
+		return fmt.Errorf("%w: %w", ErrForeignKeyViolation, err)
 	case strings.Contains(errStr, "Data too long"):
-		logger.Debug("Data too long for column", "error", err)
-		return ErrDataTooLong
+		return fmt.Errorf("%w: %w", ErrDataTooLong, err)
 	case isTableMissingMessage(errStr):
-		logger.Debug("Schema unavailable", "error", err)
-		return ErrSchemaUnavailable
+		return fmt.Errorf("%w: %w", ErrSchemaUnavailable, err)
 	default:
 		return err
 	}
