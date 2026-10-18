@@ -1,6 +1,6 @@
-const { declaresQueryParameter, assertSearchFields, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
+const { declaresQueryParameter, getSearchFields, getFilterContracts, validFilterCases, invalidFilterCases } = require('../QueryFilterContract');
 const { createMySQLExecutor } = require('../MySQLHelper');
-const { unnoticedSortMappings, unnoticedIDOrders } = require('../SortMutationModel');
+const { unnoticedSortMappings } = require('../SortMutationModel');
 const { isolatedSearchCase, independentFilters, matchingSearchIDs } = require('../QueryFixtureModel');
 
 /**
@@ -33,7 +33,8 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
   if (!query) throw new Error(`Schema for ${name} missing 'query' configuration`);
   if (!setupFn) throw new Error(`${name} query tests need a setupFn that resolves to fixture ids`);
   const filters = getFilterContracts(endpoint);
-  assertSearchFields(endpoint, query.searchFields);
+  // OpenAPI x-search-fields is the one list; a Go test checks it against the repository.
+  const searchFields = getSearchFields(endpoint);
 
   const get = qs => global.api.apiCall('GET', `${endpoint}?${qs}`);
   const expectStatus = async (qs, status = 200) => {
@@ -82,8 +83,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       fixtureItems = (await listFixtures()).data.data;
     });
 
-    // Field names are checked against the operation's machine-readable contract.
-    const searchable = declaresQueryParameter(endpoint, 'search');
+    const searchable = searchFields.length > 0;
     describe('Search scope', () => {
       test(searchable ? 'when search matches nothing, then returns total 0' : 'when searching, then returns a search 422', async () => {
         expect.hasAssertions();
@@ -95,9 +95,9 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
 
     if (searchable) {
       describe('Search', () => {
-        test.each(query.searchFields)('when searching an isolated term in %s, then finds exactly its fixtures', async field => {
+        test.each(searchFields)('when searching an isolated term in %s, then finds exactly its fixtures', async field => {
           expect.hasAssertions();
-          const { term, ids } = isolatedSearchCase(fixtureItems, query.searchFields, field);
+          const { term, ids } = isolatedSearchCase(fixtureItems, searchFields, field);
           const response = await listFixtures(`&search=${encodeURIComponent(term)}`, ids);
           expect(response.data.total).toBe(ids.length);
         });
@@ -143,8 +143,10 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
           const keysByField = Object.fromEntries(query.sortableFields.map(field => [field, sortKeys(response, field)]));
           // The model pairs keys by position, so every field needs every fixture.
           Object.values(keysByField).forEach(keys => expect(keys).toHaveLength(fixtureIds.length));
-          expect(unnoticedSortMappings(keysByField).map(([field, column]) => `${field} -> ${column}`)).toEqual([]);
-          expect(unnoticedIDOrders(keysByField, response.data.data.map(item => item.id))).toEqual([]);
+          // A dropped ORDER BY reads ascending IDs in both directions; for a
+          // descending sort that equals a mapping to a reversed ID column.
+          const withReversedID = { ...keysByField, '-id': keysByField.id.map(id => -id) };
+          expect(unnoticedSortMappings(withReversedID).map(([field, column]) => `${field} -> ${column}`)).toEqual([]);
         });
 
         test.each([
@@ -228,8 +230,8 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
 
         // Bounds come from the distinct fixture values: gte the second lowest
         // drops the lowest, lte the second highest drops the highest, and
-        // between on the second lowest alone also drops the highest when
-        // there are at least three values.
+        // between on the second lowest alone also drops the highest, so it
+        // needs three values.
         query.filterableFields
           .filter(field => ['integer', 'number'].includes(filters[field].value.type) && filters[field].operators.between)
           .forEach(field => {
@@ -240,8 +242,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
             ])(`when filtering ${field} with %s, then lists only the fixtures in range`, async (operator, bounds) => {
               expect.hasAssertions();
               const levels = sorted([...new Set(expectValuesFor(listed, field))], 1);
-              expect(levels.length).toBeGreaterThan(1);
-              if (operator === 'between') expect(levels.length).toBeGreaterThanOrEqual(3);
+              expect(levels.length).toBeGreaterThanOrEqual(operator === 'between' ? 3 : 2);
               const [raw, inRange] = bounds({ secondLowest: levels[1], secondHighest: levels.at(-2) });
               await expectFiltered(field, `filter[${field}][${operator}]=${raw}`, inRange);
             });
@@ -364,7 +365,7 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       test('when combining all query types, then every part changes the result', async () => {
         expect.hasAssertions();
         const term = 'querykeep';
-        const searched = searchable ? matchingSearchIDs(fixtureItems, query.searchFields, term) : fixtureIds;
+        const searched = searchable ? matchingSearchIDs(fixtureItems, searchFields, term) : fixtureIds;
         if (searchable) expect(searched.length).toBeLessThan(fixtureIds.length);
         expect(searched.length).toBeGreaterThanOrEqual(3);
         const excluded = searched[0];

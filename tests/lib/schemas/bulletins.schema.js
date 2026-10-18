@@ -9,7 +9,6 @@ module.exports = {
   updateData: null,
 
   query: {
-    searchFields: ['filename'],
     sortableFields: ['id', 'station_id', 'created_at'],
     filterableFields: ['id', 'station_id'],
     selectableFields: ['id', 'station_id', 'created_at']

@@ -12,7 +12,6 @@ module.exports = {
   }),
 
   query: {
-    searchFields: ['name'],
     sortableFields: ['id', 'name', 'created_at', 'updated_at'],
     filterableFields: ['id', 'name'],
     selectableFields: ['id', 'name', 'created_at', 'updated_at']

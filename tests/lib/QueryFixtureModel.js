@@ -8,7 +8,7 @@ function isolatedSearchCase(items, fields, field) {
     const term = item[field] == null ? '' : String(item[field]);
     if (!term || items.some(row => fields.some(other => other !== field && contains(row[other], term)))) continue;
     const ids = matchingSearchIDs(items, fields, term);
-    if (ids.length > 0 && ids.length < items.length) return { term, ids };
+    if (ids.length < items.length) return { term, ids };
   }
   throw new Error(`Search fixtures need an isolated non-universal term for ${field}`);
 }
