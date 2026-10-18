@@ -31,6 +31,7 @@ class TestHelpers {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const response = await this.api.apiCall('GET', `/stories/${storyId}`);
+      this.fixtureResponse(response, 'GET', `/stories/${storyId}`, 200, false);
       if (response.status === 200 && response.data.audio_url) {
         return true;
       }
@@ -51,7 +52,7 @@ class TestHelpers {
     while (Date.now() < deadline) {
       const response = await this.api.apiCall('GET', `/bulletin-jobs/${jobId}`);
       if (response.status !== 200) {
-        throw new Error(`Bulletin job ${jobId} poll returned HTTP ${response.status}`);
+        this.fixtureResponse(response, 'GET', `/bulletin-jobs/${jobId}`, 200, false);
       }
       if (['succeeded', 'failed'].includes(response.data.status)) {
         return response;
@@ -87,10 +88,24 @@ class TestHelpers {
         this._ffmpegAvailable = true;
       } catch (error) {
         this._ffmpegAvailable = false;
-        console.warn(`ffmpeg is not available: ${commandErrorMessage(error)}`);
+        this._ffmpegFailure = commandErrorMessage(error);
+        console.warn(`ffmpeg is not available: ${this._ffmpegFailure}`);
       }
     }
     return this._ffmpegAvailable;
+  }
+
+  requireFFmpeg() {
+    if (!this.isFFmpegAvailable()) {
+      throw new Error(`Fixture requires FFmpeg, but ffmpeg is not available: ${this._ffmpegFailure || 'availability check failed'}`);
+    }
+  }
+
+  fixtureResponse(response, method, endpoint, expectedStatus = 201, requireID = true) {
+    if (response.status !== expectedStatus || (requireID && !response.data?.id)) {
+      throw new Error(`Fixture ${method} ${endpoint} failed: HTTP ${response.status}; body ${JSON.stringify(response.data)}`);
+    }
+    return response.data;
   }
 
   /**
@@ -126,7 +141,8 @@ class TestHelpers {
       }
       return true;
     } catch (error) {
-      console.warn(`Failed to create test audio file ${outputPath}: ${commandErrorMessage(error)}`);
+      this._audioCreationFailure = commandErrorMessage(error);
+      console.warn(`Failed to create test audio file ${outputPath}: ${this._audioCreationFailure}`);
       return false;
     }
   }
@@ -171,7 +187,7 @@ class TestHelpers {
       return { id: response.data.id, name: uniqueName };
     }
 
-    return null;
+    this.fixtureResponse(response, 'POST', '/stations');
   }
 
   /**
@@ -191,7 +207,7 @@ class TestHelpers {
       return { id: response.data.id, name: uniqueName };
     }
 
-    return null;
+    this.fixtureResponse(response, 'POST', '/voices');
   }
 
   /**
@@ -224,7 +240,7 @@ class TestHelpers {
       return { id: response.data.id };
     }
 
-    return null;
+    this.fixtureResponse(response, 'POST', '/stories');
   }
 
   /**
@@ -233,22 +249,15 @@ class TestHelpers {
    * @returns {Promise<{id: number}|null>}
    */
   async createStoryWithAudio(resourceManager, data) {
-    if (!this.isFFmpegAvailable()) {
-      return null;
-    }
+    this.requireFFmpeg();
 
     const audioFile = `/tmp/test_story_${Date.now()}.wav`;
 
-    if (!this.createTestAudioFile(audioFile, 3, 220)) {
-      return null;
-    }
-
     try {
-      const story = await this.createStory(resourceManager, data);
-
-      if (!story) {
-        return null;
+      if (!this.createTestAudioFile(audioFile, 3, 220)) {
+        throw new Error(`FFmpeg could not create story audio fixture: ${this._audioCreationFailure || audioFile}`);
       }
+      const story = await this.createStory(resourceManager, data);
 
       const uploadResponse = await this.api.uploadFile(
         `/stories/${story.id}/audio`,
@@ -257,7 +266,8 @@ class TestHelpers {
         'audio'
       );
 
-      return uploadResponse.status === 201 ? story : null;
+      this.fixtureResponse(uploadResponse, 'POST', `/stories/${story.id}/audio`, 201, false);
+      return story;
     } finally {
       this.cleanupTempFile(audioFile);
     }
@@ -270,12 +280,9 @@ class TestHelpers {
    */
   async createStoryWithReadyAudio(resourceManager, data) {
     const story = await this.createStoryWithAudio(resourceManager, data);
-    if (!story) {
-      return null;
-    }
-
     const audioReady = await this.waitForStoryAudio(story.id);
-    return audioReady ? story : null;
+    if (!audioReady) throw new Error(`Fixture GET /stories/${story.id}: audio did not become ready within 10 seconds`);
+    return story;
   }
 
   /**
@@ -293,7 +300,7 @@ class TestHelpers {
   }
 
   /**
-   * Returns null if any fixture fails; created resources remain tracked for cleanup.
+   * Throws if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
    * @param {string|number} voiceId
    * @param {Object[]} stories
@@ -310,10 +317,6 @@ class TestHelpers {
         status: 'active',
         ...story
       });
-
-      if (!createdStory) {
-        return null;
-      }
 
       created.push(createdStory);
     }
@@ -354,7 +357,7 @@ class TestHelpers {
       return { id: response.data.id };
     }
 
-    return null;
+    this.fixtureResponse(response, 'POST', '/station-voices');
   }
 
   /**
@@ -368,22 +371,15 @@ class TestHelpers {
     const safeStationId = parseSafeInteger(stationId, 'station ID');
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
 
-    if (!this.isFFmpegAvailable()) {
-      return null;
-    }
+    this.requireFFmpeg();
 
     const jingleFile = `/tmp/test_jingle_${safeStationId}_${safeVoiceId}_${Date.now()}.wav`;
 
-    if (!this.createTestAudioFile(jingleFile, 5, 440)) {
-      return null;
-    }
-
     try {
-      const stationVoice = await this.createStationVoice(resourceManager, safeStationId, safeVoiceId, mixPoint);
-
-      if (!stationVoice) {
-        return null;
+      if (!this.createTestAudioFile(jingleFile, 5, 440)) {
+        throw new Error(`FFmpeg could not create jingle fixture: ${this._audioCreationFailure || jingleFile}`);
       }
+      const stationVoice = await this.createStationVoice(resourceManager, safeStationId, safeVoiceId, mixPoint);
 
       const uploadResponse = await this.api.uploadFile(
         `/station-voices/${stationVoice.id}/audio`,
@@ -392,10 +388,7 @@ class TestHelpers {
         'jingle'
       );
 
-      if (uploadResponse.status !== 201) {
-        console.warn(`Failed to upload jingle for station-voice ${stationVoice.id}: HTTP ${uploadResponse.status}`);
-        return null;
-      }
+      this.fixtureResponse(uploadResponse, 'POST', `/station-voices/${stationVoice.id}/audio`, 201, false);
 
       return stationVoice;
     } finally {

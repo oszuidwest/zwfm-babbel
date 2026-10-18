@@ -174,7 +174,6 @@ describe('Audit events', () => {
 
   async function createStory(title) {
     const story = await global.helpers.createStory(global.resources, { title, status: 'draft' });
-    expect(story).not.toBeNull();
     return story;
   }
 

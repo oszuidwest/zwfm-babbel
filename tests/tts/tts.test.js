@@ -14,7 +14,7 @@ describe('TTS', () => {
     }
 
     const response = await global.api.apiCall('POST', '/voices', payload);
-    if (response.status !== 201 || !response.data?.id) return null;
+    global.helpers.fixtureResponse(response, 'POST', '/voices');
 
     global.resources.track('voices', response.data.id);
     return response.data.id;
@@ -29,7 +29,7 @@ describe('TTS', () => {
       weekdays: 127
     });
 
-    return result ? result.id : null;
+    return result.id;
   };
 
   const uploadTestAudio = async (storyId) => {
@@ -65,7 +65,6 @@ describe('TTS', () => {
 
     test('when story is deleted, then returns 410', async () => {
       const storyId = await createStory('TTS Deleted Story', 'Some text content for TTS');
-      expect(storyId).not.toBeNull();
       expect((await global.api.apiCall('DELETE', `/stories/${storyId}`)).status).toBe(204);
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
@@ -76,7 +75,6 @@ describe('TTS', () => {
 
     test('when story has no voice, then returns 409', async () => {
       const storyId = await createStory('TTS No Voice Story', 'Some text content for TTS');
-      expect(storyId).not.toBeNull();
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
@@ -86,10 +84,8 @@ describe('TTS', () => {
 
     test('when voice has no ElevenLabs ID, then returns 409', async () => {
       const voiceId = await createVoice('TTS No EL Voice');
-      expect(voiceId).not.toBeNull();
 
       const storyId = await createStory('TTS No EL ID Story', 'Some text content for TTS', voiceId);
-      expect(storyId).not.toBeNull();
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
@@ -101,10 +97,8 @@ describe('TTS', () => {
       expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       const voiceId = await createVoice('TTS Audio Exists Voice', 'dummy-el-voice-id');
-      expect(voiceId).not.toBeNull();
 
       const storyId = await createStory('TTS Audio Exists Story', 'Some text content for TTS', voiceId);
-      expect(storyId).not.toBeNull();
 
       const uploaded = await uploadTestAudio(storyId);
       expect(uploaded).toBe(true);
@@ -123,14 +117,12 @@ describe('TTS', () => {
       expect(global.helpers.isFFmpegAvailable()).toBe(true);
 
       const voiceId = await createVoice('TTS Force Voice', ELEVENLABS_VOICE_ID);
-      expect(voiceId).not.toBeNull();
 
       const storyId = await createStory(
         'TTS Force Overwrite Story',
         'Dit is een test verhaal voor tekst naar spraak.',
         voiceId
       );
-      expect(storyId).not.toBeNull();
 
       const uploaded = await uploadTestAudio(storyId);
       expect(uploaded).toBe(true);
@@ -142,14 +134,12 @@ describe('TTS', () => {
 
     test('when generating TTS for story without audio, then returns 201', async () => {
       const voiceId = await createVoice('TTS Happy Path Voice', ELEVENLABS_VOICE_ID);
-      expect(voiceId).not.toBeNull();
 
       const storyId = await createStory(
         'TTS Happy Path Story',
         'Dit is een test verhaal voor tekst naar spraak.',
         voiceId
       );
-      expect(storyId).not.toBeNull();
 
       const beforeResponse = await global.api.apiCall('GET', `/stories/${storyId}`);
       expect(beforeResponse.status).toBe(200);

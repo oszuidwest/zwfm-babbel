@@ -51,7 +51,6 @@ describe('Automation', () => {
 
     test('when station has no stories, then returns 409', async () => {
       const station = await global.helpers.createStation(global.resources, 'Empty Automation Station');
-      expect(station).not.toBeNull();
 
       const response = await global.helpers.publicBulletinRequest(station.id, {
         key: automationKey,
@@ -132,7 +131,6 @@ describe('Automation', () => {
       voiceId = voice.id;
 
       const sv = await global.helpers.createStationVoiceWithJingle(global.resources, stationId, voiceId);
-      expect(sv).not.toBeNull();
     });
 
     test('when single-day story, then scheduling works correctly', async () => {
