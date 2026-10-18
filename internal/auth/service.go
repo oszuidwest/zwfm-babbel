@@ -4,8 +4,10 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/casbin/casbin/v2"
@@ -32,13 +34,14 @@ const (
 
 // Service manages login sessions and role-based permissions.
 type Service struct {
-	config   *Config
-	db       *gorm.DB
-	enforcer *casbin.Enforcer
-	store    sessions.Store
-	alerts   notify.Alerter
-	oauth    *oauth2.Config
-	verifier *oidc.IDTokenVerifier
+	oauthStateMu sync.Mutex
+	config       *Config
+	db           *gorm.DB
+	enforcer     *casbin.Enforcer
+	store        sessions.Store
+	alerts       notify.Alerter
+	oauth        *oauth2.Config
+	verifier     *oidc.IDTokenVerifier
 }
 
 // IsLocalEnabled reports whether local authentication is enabled.
@@ -190,8 +193,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete(sessKeyUserID)
-			if saveErr := session.Save(); saveErr != nil {
+			if saveErr := s.clearSessionUser(c, userID); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -222,6 +224,7 @@ func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 
 		allowed, err := s.enforcer.Enforce(role, string(obj), string(act))
 		if err != nil {
+			logger.Error("Permission check failed", "role", role, "resource", obj, "action", act, "error", err)
 			utils.ProblemInternalServer(c, "Permission check failed")
 			c.Abort()
 			return
@@ -304,6 +307,8 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	// Bind the callback to this session to prevent login CSRF.
 	state := rand.Text()
 
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
 	session.Set(sessKeyOAuthState, state)
 
@@ -311,7 +316,7 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 		if s.isAllowedFrontendURL(frontendURL) {
 			session.Set(sessKeyFrontendURL, frontendURL)
 		} else {
-			logger.Warn("Rejected invalid frontend_url", "url", frontendURL)
+			logger.Warn("Rejected invalid frontend_url", "url", logger.TruncateValue(frontendURL), "url_bytes", len(frontendURL))
 		}
 	}
 	if err := session.Save(); err != nil {
@@ -325,23 +330,18 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 
 // FinishOAuthFlow validates the OIDC callback and creates a session.
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
-	session := sessions.Default(c)
-
-	state := c.Query("state")
-	savedState, ok := session.Get(sessKeyOAuthState).(string)
-	if !ok || state != savedState {
-		s.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     oauthInvalidStateAlertKey,
-			Summary: "OAuth callback has an invalid CSRF state",
-			Details: "The OAuth callback state was missing or did not match the server-side session.",
-		})
-		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
+	if err := s.consumeOAuthState(c); err != nil {
+		if errors.Is(err, ErrLoginRejected) {
+			s.alerts.Alert(c.Request.Context(), notify.Event{
+				Key:     oauthInvalidStateAlertKey,
+				Summary: "OAuth callback has an invalid CSRF state",
+				Details: "The OAuth callback state was missing or did not match the server-side session.",
+			})
+		}
+		return err
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	// CreateSession's save persists these deletions on success.
-	session.Delete(sessKeyOAuthState)
-	session.Delete(sessKeyFrontendURL)
 
 	// access_denied means the user cancelled or the provider denied the user. Any
 	// other error code points to the provider or the client configuration (RFC
@@ -417,6 +417,44 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 	return nil
 }
 
+// consumeOAuthState reloads and consumes state under one lock. The handler
+// can already have cached a session snapshot while reading its frontend URL;
+// checking that snapshot would allow concurrent callbacks to reuse the state.
+// The configured store is local memory, so the critical section has no remote I/O.
+func (s *Service) consumeOAuthState(c *gin.Context) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
+	// The memory store fails only to decode a cookie, and then returns an
+	// empty session that fails the check below.
+	session, _ := s.store.New(c.Request, s.config.Session.CookieName)
+	savedState, ok := session.Values[sessKeyOAuthState].(string)
+	if !ok || c.Query("state") != savedState {
+		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
+	}
+	delete(session.Values, sessKeyOAuthState)
+	delete(session.Values, sessKeyFrontendURL)
+	if err := s.store.Save(c.Request, c.Writer, session); err != nil {
+		return fmt.Errorf("failed to consume OAuth login state: %w", err)
+	}
+	// CreateSession drops the keys from this request's cached copy.
+	return nil
+}
+
+// clearSessionUser removes the rejected userID from the stored session. It
+// reloads under the OAuth state lock: saving this request's snapshot could
+// restore a state that a concurrent callback consumed, or drop a fresh one. A
+// session that a concurrent login gave another user is left alone.
+func (s *Service) clearSessionUser(c *gin.Context, userID int64) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
+	session, _ := s.store.New(c.Request, s.config.Session.CookieName)
+	if stored, ok := coerceInt64(session.Values[sessKeyUserID]); !ok || stored != userID {
+		return nil
+	}
+	delete(session.Values, sessKeyUserID)
+	return s.store.Save(c.Request, c.Writer, session)
+}
+
 // Logout clears and saves the current session.
 func (s *Service) Logout(c *gin.Context) error {
 	session := sessions.Default(c)
@@ -429,10 +467,18 @@ func (s *Service) Logout(c *gin.Context) error {
 }
 
 // CreateSession stores the authenticated user's ID in the session.
-// Middleware reads their role from the database on each request.
+// Middleware reads their role from the database on each request. It saves
+// under the OAuth state lock, so it cannot land between the reload and save
+// of a concurrent session cleanup, which would then remove this login.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
 	session.Set(sessKeyUserID, userID)
+	// A login ends any pending OAuth flow; this save must not restore a state
+	// that a concurrent callback consumed after this request loaded it.
+	session.Delete(sessKeyOAuthState)
+	session.Delete(sessKeyFrontendURL)
 	return session.Save()
 }
 

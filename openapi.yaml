@@ -31,7 +31,7 @@ info:
       that do not exist (such as `voice_id` or `station_id`), an update that
       sets no field, an invalid path `id`, a query string that cannot be
       decoded on any endpoint, unknown or invalid query parameters, and a
-      missing, unsupported or silent uploaded file.
+      missing, unsupported, undecodable or silent uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
@@ -302,6 +302,7 @@ paths:
         - If `max_age = 0`: Always generates a fresh bulletin
         - If endpoint is disabled (no API key configured): Returns 404
         - If the station has no eligible stories: Returns 409 `bulletin.no_stories`
+        - If a referenced resource disappears during generation: Returns 409 `bulletin.reference_missing`
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
         Concurrent requests for the same station will queue for up to
@@ -355,7 +356,7 @@ paths:
               required: true
               schema:
                 type: string
-                example: 'attachment; filename="bulletin_1_20240115_143000.wav"'
+                example: 'attachment; filename="bulletin_1_20240115_143000.123456789.wav"'
             Cache-Control:
               required: true
               schema:
@@ -405,19 +406,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
         '409':
-          description: The station has no eligible stories for a new bulletin (`bulletin.no_stories`)
+          description: The station has no eligible stories (`bulletin.no_stories`), or a referenced resource disappeared during generation (`bulletin.reference_missing`)
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ConflictError'
-              example:
-                type: "https://babbel.api/problems/bulletin.no_stories"
-                title: "Conflict"
-                status: 409
-                detail: "no active stories available for station 1"
-                instance: "/public/stations/1/bulletin.wav"
-                code: "bulletin.no_stories"
-                hint: "Add active stories with audio before generating a bulletin"
+              examples:
+                no_stories:
+                  summary: No eligible stories
+                  value:
+                    type: "https://babbel.api/problems/bulletin.no_stories"
+                    title: "Conflict"
+                    status: 409
+                    detail: "no active stories available for station 1"
+                    instance: "/public/stations/1/bulletin.wav"
+                    code: "bulletin.no_stories"
+                    hint: "Add active stories with audio before generating a bulletin"
+                reference_missing:
+                  summary: A resource disappeared during generation
+                  value:
+                    type: "https://babbel.api/problems/bulletin.reference_missing"
+                    title: "Conflict"
+                    status: 409
+                    detail: "Bulletin references a resource that no longer exists"
+                    instance: "/public/stations/1/bulletin.wav"
+                    code: "bulletin.reference_missing"
+                    hint: "Reload the referenced resources and try again"
         '416':
           $ref: '#/components/responses/RangeNotSatisfiable'
         '422':
@@ -645,7 +659,7 @@ paths:
                 success:
                   value: "https://your-frontend.com/dashboard?login=success"
                 error:
-                  value: "https://your-frontend.com/dashboard?error=invalid_credentials"
+                  value: "https://your-frontend.com/dashboard?error=OIDC+login+rejected%3A+invalid+or+expired+login+state"
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '500':
@@ -1372,6 +1386,11 @@ paths:
         support: `Range` requests return 206 Partial Content, unsatisfiable
         ranges return 416, and conditional requests (e.g. `If-Modified-Since`)
         can return 304 Not Modified.
+
+        Audio of a soft-deleted story stays downloadable with `stories:read`,
+        so a trash view can play the `audio_url` from
+        `GET /stories?trashed=only`, although `GET /stories/{id}` returns 404
+        until the story is restored.
       tags:
         - Stories
       parameters:
@@ -1999,7 +2018,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2008,7 +2027,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
@@ -2320,7 +2339,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2329,7 +2348,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
@@ -2372,7 +2391,7 @@ paths:
                 id: 150
                 station_id: 1
                 station_name: "Radio Station 1"
-                filename: "bulletin_1_20240120_140500.wav"
+                filename: "bulletin_1_20240120_140500.123456789.wav"
                 audio_url: "/bulletins/150/audio"
                 duration_seconds: 185.4
                 file_size: 2965440
@@ -2458,7 +2477,7 @@ paths:
                       - id: 150
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_150_20240120_140500.wav"
+                        filename: "bulletin_1_20240120_140500.123456789.wav"
                         audio_url: "/bulletins/150/audio"
                         duration_seconds: 185.4
                         file_size: 2965440
@@ -2467,7 +2486,7 @@ paths:
                       - id: 149
                         station_id: 1
                         station_name: "Radio Station 1"
-                        filename: "bulletin_149_20240120_140200.wav"
+                        filename: "bulletin_1_20240120_140200.987654321.wav"
                         audio_url: "/bulletins/149/audio"
                         duration_seconds: 178.2
                         file_size: 2845568
@@ -2903,6 +2922,9 @@ paths:
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
         - 408: the upload did not complete within the time limit.
+        - 409 `stationvoice.pair_changed`: the station-voice moved to another
+          station or voice while the upload ran. Nothing is stored; upload the
+          jingle again.
         - 413: the file is larger than 100 MB.
         - 422: the `jingle` file is missing (`required`), has an unsupported
           extension (`unsupported`), or cannot be decoded as audio
@@ -2947,6 +2969,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '408':
           $ref: '#/components/responses/RequestTimeout'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
@@ -4635,7 +4659,8 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
         - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
-        - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent audio
+        - `stationvoice.pair_changed` - 409 the station-voice moved to another station or voice while its jingle upload ran
+        - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent or undecodable audio
           (503 when ElevenLabs rejects the API credentials)
         - `audio.processing_failed` - 500 FFmpeg processing error
         - `internal.database_error` - 500 unexpected database error
@@ -4752,7 +4777,7 @@ components:
               another field
             - `silent_audio` - uploaded story audio is silent or below -50 LUFS; `field` is `audio`
             - `undecodable_audio` - the uploaded file is not audio that FFmpeg
-              can decode, such as a corrupt or non-audio file; `field` is
+              can decode, such as a corrupt, empty or non-audio file; `field` is
               `audio` or `jingle`
           enum:
             - required
@@ -5168,6 +5193,7 @@ components:
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
         - `stationvoice.jingle_locked` - The station or voice cannot change while the station-voice has a jingle
+        - `stationvoice.pair_changed` - The station-voice moved to another station or voice while its jingle upload ran; upload it again
       content:
         application/problem+json:
           schema:
@@ -5233,6 +5259,16 @@ components:
                 instance: "/api/v1/station-voices/1"
                 code: "stationvoice.jingle_locked"
                 hint: "Create a station-voice for the new station and voice, upload its jingle, then delete this one"
+            pair_changed:
+              summary: Station-voice pair changed during a jingle upload
+              value:
+                type: "https://babbel.api/problems/stationvoice.pair_changed"
+                title: "Conflict"
+                status: 409
+                detail: "the station-voice moved to another station or voice during the upload"
+                instance: "/api/v1/station-voices/1/audio"
+                code: "stationvoice.pair_changed"
+                hint: "Upload the jingle again"
     RequestTimeout:
       description: Upload did not complete within the time limit
       content:
@@ -5269,7 +5305,7 @@ components:
       description: |
         Upstream service failed (`tts.upstream_failed`): ElevenLabs could not be
         reached, returned an error, rejected the generated request, or returned
-        silent audio.
+        silent or undecodable audio.
       content:
         application/problem+json:
           schema:
