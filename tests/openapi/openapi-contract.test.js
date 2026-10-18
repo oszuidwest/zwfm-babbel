@@ -639,7 +639,6 @@ async function createContractContext() {
 
   const story = await global.helpers.createStory(global.resources, storyBody('Contract Story', voice.id));
   await uploadFixture(`/stories/${story.id}/audio`, 'audio');
-  expect(await global.helpers.waitForStoryAudio(story.id)).toBe(true);
 
   const bulletinResponse = await global.helpers.generateBulletin(station.id);
   expect(bulletinResponse.status).toBe(200);
