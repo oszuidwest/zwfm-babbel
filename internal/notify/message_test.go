@@ -31,33 +31,18 @@ func TestAlertSendsAfterParentDeadline(t *testing.T) {
 	}
 }
 
-func TestFormatMessageBoundsBody(t *testing.T) {
-	t.Parallel()
-	for _, text := range []string{strings.Repeat("x", 100000), strings.Repeat("😀", 25000)} {
-		t.Run(fmt.Sprintf("first rune %q", []rune(text)[0]), func(t *testing.T) {
-			subject, body := formatMessage("[ALERT]", Event{Summary: text, Key: text, Details: text}, time.Now(), 1000)
-			if strings.ContainsAny(subject, "\r\n") {
-				t.Fatalf("subject contains a line break: %q", subject)
-			}
-			if len(body) > maxMessageBytes || !utf8.ValidString(body) || !strings.HasSuffix(body, "\n[truncated]") {
-				t.Fatalf("body size = %d, valid UTF-8 = %v, want bounded marked body", len(body), utf8.ValidString(body))
-			}
-		})
-	}
-}
-
-func TestFormatMessageExactBodyBudget(t *testing.T) {
+func TestFormatMessageBoundsDetails(t *testing.T) {
 	t.Parallel()
 	at := time.Now()
 	event := Event{Summary: "Failure", Key: "key"}
 	_, header := formatMessage("[ALERT]", event, at, 1)
-	budget := maxMessageBytes - len(header) - len("\n\n")
-	for _, extra := range []int{-1, 0, 1} {
-		t.Run(fmt.Sprint(extra), func(t *testing.T) {
-			event.Details = strings.Repeat("x", budget+extra)
+	for _, details := range []string{strings.Repeat("x", 100000), "x" + strings.Repeat("😀", 25000)} {
+		t.Run(fmt.Sprintf("first rune %q", []rune(details)[0]), func(t *testing.T) {
+			event.Details = details
 			_, body := formatMessage("[ALERT]", event, at, 1)
-			if len(body) != min(maxMessageBytes, maxMessageBytes+extra) || strings.Contains(body, "[truncated]") != (extra > 0) {
-				t.Fatalf("extra = %d, length = %d, marked = %v", extra, len(body), strings.Contains(body, "[truncated]"))
+			kept := strings.TrimSuffix(strings.TrimPrefix(body, header+"\n\n"), "\n[truncated]")
+			if len(kept) > maxDetailsBytes || len(kept) < maxDetailsBytes-3 || !utf8.ValidString(body) || !strings.HasSuffix(body, "\n[truncated]") {
+				t.Fatalf("kept %d detail bytes, valid UTF-8 = %v; want a marked prefix of up to %d bytes", len(kept), utf8.ValidString(body), maxDetailsBytes)
 			}
 		})
 	}

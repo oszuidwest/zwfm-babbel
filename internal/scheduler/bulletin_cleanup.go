@@ -78,12 +78,6 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 		return errors.Join(processingErr, err)
 	}
 	stats, purgeErr := s.purgeExpiredBulletins(ctx, bulletins)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		if purgeErr == nil {
-			purgeErr = purgeInterrupted(ctxErr, 0)
-		}
-		return errors.Join(processingErr, purgeErr)
-	}
 	orphansRemoved, orphanBytes, orphanErr := s.cleanOrphanedFiles(ctx)
 
 	jobsDeleted, jobsErr := s.jobs.DeleteTerminalBefore(ctx, cutoff)

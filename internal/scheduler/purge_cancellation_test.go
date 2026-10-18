@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 )
 
 func TestPurgeExpiredBulletinsStopsAtDeadline(t *testing.T) {
@@ -45,14 +45,11 @@ func TestPurgeExpiredBulletinsStopsDuringUpdateWithoutErrorSpam(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var logs bytes.Buffer
-	original := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(original) })
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
 	s := NewBulletinCleanupService(db, &config.Config{}, nil)
 	_, err := s.purgeExpiredBulletins(ctx, make([]models.Bulletin, 10))
 	if updates != 2 || !errors.Is(err, context.Canceled) || strings.Count(err.Error(), "context canceled") != 1 ||
 		!strings.Contains(err.Error(), "9 bulletin records remaining") || logs.Len() != 0 {
-		t.Fatalf("updates = %d, err = %v, logs = %s", updates, err, &logs)
+		t.Fatalf("updates = %d, err = %v, logs = %s", updates, err, logs)
 	}
 }

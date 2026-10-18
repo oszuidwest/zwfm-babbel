@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -14,8 +13,7 @@ import (
 
 const (
 	sendTimeout     = 2 * time.Minute
-	maxMessageBytes = 16 * 1024
-	maxHeaderBytes  = 1024
+	maxDetailsBytes = 16 * 1024
 )
 
 // Event describes one operational condition. Key must be stable and include
@@ -293,34 +291,25 @@ func (s *Service) send(ctx context.Context, subject, body string) error {
 
 // formatMessage renders the shared e-mail layout; count 0 omits the occurrence line.
 func formatMessage(prefix string, event Event, timestamp time.Time, count int) (string, string) {
-	summary := boundedText(event.Summary, maxHeaderBytes)
 	var body strings.Builder
-	fmt.Fprintf(&body, "%s\n\nTimestamp: %s\nAlert key: %s", summary, timestamp.Format(time.RFC3339), boundedText(event.Key, maxHeaderBytes))
+	fmt.Fprintf(&body, "%s\n\nTimestamp: %s\nAlert key: %s", event.Summary, timestamp.Format(time.RFC3339), event.Key)
 	if count > 0 {
 		fmt.Fprintf(&body, "\nOccurrences in current window: %d", count)
 	}
 	if event.Details != "" {
 		body.WriteString("\n\n")
-		body.WriteString(boundedText(event.Details, maxMessageBytes-body.Len()))
+		body.WriteString(truncateDetails(event.Details))
 	}
-	subjectSummary := strings.NewReplacer("\r", " ", "\n", " ").Replace(summary)
-	return prefix + " " + subjectSummary + " - Babbel", body.String()
+	return prefix + " " + event.Summary + " - Babbel", body.String()
 }
 
-// boundedText includes its marker in the byte budget and preserves UTF-8 boundaries.
-func boundedText(value string, limit int) string {
-	if len(value) <= limit {
-		return value
+// truncateDetails caps details that grow with the work, such as joined
+// per-record errors, without splitting a UTF-8 character.
+func truncateDetails(details string) string {
+	if len(details) <= maxDetailsBytes {
+		return details
 	}
-	const marker = "\n[truncated]"
-	if limit < len(marker) {
-		return marker[:max(0, limit)]
-	}
-	end := limit - len(marker)
-	for end > 0 && !utf8.RuneStart(value[end]) {
-		end--
-	}
-	return value[:end] + marker
+	return strings.ToValidUTF8(details[:maxDetailsBytes], "") + "\n[truncated]"
 }
 
 var _ Alerter = (*Service)(nil)
