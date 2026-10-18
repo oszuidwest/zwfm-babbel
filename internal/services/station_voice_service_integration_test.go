@@ -24,11 +24,11 @@ import (
 func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
 	f := newJingleDeleteFixture(t)
 
-	// The first upload commits after Delete has read the row without a
-	// jingle, just before its DELETE runs.
+	// The first upload commits just before Delete locks and reads the row. An
+	// upload after the lock waits for the delete; see below.
 	uploaded := false
-	if err := f.db.Callback().Delete().Before("gorm:delete").Register("test:upload_jingle", func(tx *gorm.DB) {
-		if tx.Statement.Table != "station_voices" || uploaded {
+	if err := f.db.Callback().Query().Before("gorm:query").Register("test:upload_jingle", func(tx *gorm.DB) {
+		if _, locking := tx.Statement.Clauses["FOR"]; tx.Statement.Table != "station_voices" || !locking || uploaded {
 			return
 		}
 		uploaded = true
@@ -117,6 +117,124 @@ func TestStationVoiceService_DeleteRollsBackWhenJingleRemovalFails(t *testing.T)
 	if _, err := f.service.GetByID(t.Context(), f.stationVoice.ID); err != nil {
 		t.Fatalf("GetByID() after failed delete = %v, want the row kept", err)
 	}
+}
+
+func TestStationVoiceService_DeleteRemovesJingleOfCommittedPair(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newJingleDirTestService(t, db)
+	stations, voices, stationVoice := createStationVoiceFixture(t, db, noJingle)
+	oldPair := utils.JinglePath(service.config, stations[0].ID, voices[0].ID)
+	newPair := utils.JinglePath(service.config, stations[1].ID, voices[0].ID)
+
+	// An open transaction moves the row to the second station and gives it a
+	// jingle there, and gives the old pair and its jingle to a new row.
+	move := db.Begin()
+	if move.Error != nil {
+		t.Fatal(move.Error)
+	}
+	t.Cleanup(func() { move.Rollback() })
+	if err := move.Model(&models.StationVoice{}).Where("id = ?", stationVoice.ID).Updates(map[string]any{
+		"station_id": stations[1].ID,
+		"audio_file": utils.JingleFilename(stations[1].ID, voices[0].ID),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Deleting the voice on cleanup cascades to this row.
+	other := models.StationVoice{StationID: stations[0].ID, VoiceID: voices[0].ID, MixPoint: 1,
+		AudioFile: utils.JingleFilename(stations[0].ID, voices[0].ID)}
+	if err := move.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldPair, newPair} {
+		if err := os.WriteFile(path, []byte("jingle"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	errc := make(chan error, 1)
+	go func() { errc <- service.Delete(t.Context(), stationVoice.ID) }()
+	// Let Delete reach its read before the move commits. Without the lock it
+	// reads the old pair and removes the other row's jingle.
+	time.Sleep(200 * time.Millisecond)
+	if err := move.Commit().Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := <-errc; err != nil {
+		t.Fatalf("Delete() = %v", err)
+	}
+	if _, err := os.Stat(newPair); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("jingle of the deleted row: %v, want removed", err)
+	}
+	if _, err := os.Stat(oldPair); err != nil {
+		t.Fatalf("jingle of the row that owns the old pair: %v, want kept", err)
+	}
+}
+
+func TestStationVoiceService_DeleteRemovesUnusedStoredJingle(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newJingleDirTestService(t, db)
+
+	const none = -1
+	tests := []struct {
+		name string
+		// otherVoice indexes the voice of another row on the second station,
+		// or is none. otherStores makes that row store the jingle too.
+		otherVoice  int
+		otherStores bool
+		wantKept    bool
+	}{
+		{name: "unused stored jingle is removed", otherVoice: none},
+		{name: "row that owns its pair keeps it", otherVoice: 0, wantKept: true},
+		{name: "row that stores it keeps it", otherVoice: 1, otherStores: true, wantKept: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// The row is on the first pair but stores the jingle of the second
+			// station and first voice.
+			stations, voices, stationVoice := createStationVoiceFixture(t, db, staleJingle)
+			canonical := utils.JinglePath(service.config, stations[0].ID, voices[0].ID)
+			stored := filepath.Join(service.config.Audio.ProcessedPath, stationVoice.AudioFile)
+			if tt.otherVoice != none {
+				other := models.StationVoice{StationID: stations[1].ID, VoiceID: voices[tt.otherVoice].ID, MixPoint: 1}
+				if tt.otherStores {
+					other.AudioFile = stationVoice.AudioFile
+				}
+				// Deleting the voice on cleanup cascades to this row.
+				if err := db.Create(&other).Error; err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, path := range []string{canonical, stored} {
+				if err := os.WriteFile(path, []byte("jingle"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
+				t.Fatalf("Delete() = %v", err)
+			}
+			if _, err := os.Stat(canonical); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("canonical jingle after delete: %v, want removed", err)
+			}
+			_, err := os.Stat(stored)
+			if tt.wantKept && err != nil {
+				t.Fatalf("stored jingle after delete: %v, want kept", err)
+			}
+			if !tt.wantKept && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("stored jingle after delete: %v, want removed", err)
+			}
+		})
+	}
+}
+
+// newJingleDirTestService returns a station-voice service whose jingles go to
+// a temp directory.
+func newJingleDirTestService(t *testing.T, db *gorm.DB) *StationVoiceService {
+	t.Helper()
+	service := newStationVoiceTestService(db)
+	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir()}}
+	return service
 }
 
 // jingleDeleteFixture is a station-voice without a jingle and a service whose
