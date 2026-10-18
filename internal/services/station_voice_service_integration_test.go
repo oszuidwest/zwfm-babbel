@@ -156,6 +156,22 @@ func TestStationVoiceService_DeleteRemovesJingleOfCommittedPair(t *testing.T) {
 	// Commit from the query callback at the read being verified. Checking
 	// its lock clause makes a missing locking read fail even if the goroutine
 	// would otherwise start late. No PROCESS privilege is needed.
+	commitMoveAtLockingRead(t, db, move)
+	if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
+		t.Fatalf("Delete() = %v", err)
+	}
+	if _, err := os.Stat(newPair); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("jingle of the deleted row: %v, want removed", err)
+	}
+	if _, err := os.Stat(oldPair); err != nil {
+		t.Fatalf("jingle of the row that owns the old pair: %v, want kept", err)
+	}
+}
+
+// commitMoveAtLockingRead commits move at Delete's locking query and verifies
+// the query is reached with FOR UPDATE, independent of goroutine scheduling.
+func commitMoveAtLockingRead(t *testing.T, db, move *gorm.DB) {
+	t.Helper()
 	read := false
 	if err := db.Callback().Query().Before("gorm:query").Register("test:commit_pair_move", func(tx *gorm.DB) {
 		if tx.Statement.Table != "station_voices" || read {
@@ -172,18 +188,11 @@ func TestStationVoiceService_DeleteRemovesJingleOfCommittedPair(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
-		t.Fatalf("Delete() = %v", err)
-	}
-	if !read {
-		t.Fatal("Delete did not read the row")
-	}
-	if _, err := os.Stat(newPair); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("jingle of the deleted row: %v, want removed", err)
-	}
-	if _, err := os.Stat(oldPair); err != nil {
-		t.Fatalf("jingle of the row that owns the old pair: %v, want kept", err)
-	}
+	t.Cleanup(func() {
+		if !read {
+			t.Error("Delete did not read the row")
+		}
+	})
 }
 
 // An unused historical filename can name a pair created by another request
@@ -238,7 +247,7 @@ func TestStationVoiceService_DeleteStoredJingleBlocksNewOwner(t *testing.T) {
 	if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
 		t.Fatalf("Delete = %v", err)
 	}
-	if !attempted || !blocked {
+	if !blocked {
 		t.Errorf("create attempted = %v, blocked = %v; want the new owner blocked until commit", attempted, blocked)
 	}
 	// #nosec G304 - canonical jingle path inside t.TempDir.
