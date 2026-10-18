@@ -2,6 +2,7 @@
 package audio
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
@@ -139,56 +141,72 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 	return s.Duration(ctx, outputPath)
 }
 
-// probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
-// finds no audio stream with a decoded frame, sample rate and channel count. FFmpeg's exit
-// status and messages vary between versions, and its loudness pass accepts a
-// video-only input without printing stats.
+// probeAudio reads until ffprobe decodes an audio frame, including codecs
+// that need multiple packets. Cancellation stops probing; a separate timeout
+// bounds malformed inputs even when the caller has no deadline.
 func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
+	probeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	// #nosec G204 - FFprobePath is from config, inputPath is internally validated
-	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
+	cmd := exec.CommandContext(probeCtx, s.config.Audio.FFprobePath,
 		"-v", "error",
 		"-select_streams", "a",
-		"-read_intervals", "%+#1",
-		"-count_frames",
-		"-show_entries", "stream=sample_rate,channels,nb_read_frames",
-		"-of", "json",
+		"-show_frames",
+		"-show_entries", "frame=nb_samples,channels:frame_side_data=",
+		"-of", "csv=p=0",
 		inputPath,
 	)
-	output, err := cmd.Output()
-	if err == nil {
-		// Headers can describe valid rates/channels without a usable decoder
-		// or any samples. Require a decoded frame too. JSON keeps optional
-		// fields and ReplayGain side data from changing field positions.
-		var probe struct {
-			Streams []struct {
-				SampleRate string `json:"sample_rate"`
-				Channels   int    `json:"channels"`
-				ReadFrames string `json:"nb_read_frames"`
-			} `json:"streams"`
-		}
-		if err := json.Unmarshal(output, &probe); err != nil {
-			return fmt.Errorf("failed to parse ffprobe audio output: %w", err)
-		}
-		for _, stream := range probe.Streams {
-			if positiveInt(stream.SampleRate) && stream.Channels > 0 && positiveInt(stream.ReadFrames) {
-				return nil
-			}
-		}
-		return fmt.Errorf("%w: no decodable audio stream", ErrUndecodable)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("open ffprobe audio output: %w", err)
 	}
-
+	var stderr probeDiagnostic
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start ffprobe audio probe: %w", commandError(probeCtx, err))
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		// Frame fields always precede side data. Disabling its entries keeps
+		// values out, but FFprobe may still append an empty CSV field.
+		fields := strings.Split(strings.TrimSpace(scanner.Text()), ",")
+		if len(fields) >= 2 && positiveInt(fields[0]) && positiveInt(fields[1]) {
+			cancel()
+			_ = cmd.Wait() // The first frame is enough; reap the stopped probe.
+			return commandError(ctx, nil)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		cancel()
+		return fmt.Errorf("read ffprobe audio output: %w", errors.Join(err, cmd.Wait()))
+	}
+	err = cmd.Wait()
+	if err == nil {
+		return fmt.Errorf("%w: no decoded audio frame: %s", ErrUndecodable, bytes.TrimSpace(stderr.Bytes()))
+	}
 	// ffprobe exits with status 1 when it cannot open or parse its input. A
 	// canceled probe, a crash, or an input file the server cannot read is a
 	// server failure.
 	exitErr, ok := errors.AsType[*exec.ExitError](err)
-	if ok && exitErr.ExitCode() == 1 && ctx.Err() == nil {
+	if ok && exitErr.ExitCode() == 1 && probeCtx.Err() == nil {
 		// #nosec G304 - inputPath is internally validated
 		if f, openErr := os.Open(inputPath); openErr == nil {
 			_ = f.Close()
-			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(exitErr.Stderr))
+			return fmt.Errorf("%w: %s", ErrUndecodable, bytes.TrimSpace(stderr.Bytes()))
 		}
 	}
-	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(ctx, err))
+	return fmt.Errorf("ffprobe failed to probe audio: %w", commandError(probeCtx, err))
+}
+
+// probeDiagnostic bounds stderr while continuing to drain the child process.
+type probeDiagnostic struct{ bytes.Buffer }
+
+func (b *probeDiagnostic) Write(p []byte) (int, error) {
+	n := len(p)
+	if remaining := 32*1024 - b.Len(); remaining > 0 {
+		_, _ = b.Buffer.Write(p[:min(n, remaining)])
+	}
+	return n, nil
 }
 
 func positiveInt(value string) bool {

@@ -3,6 +3,7 @@ package audio
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"math"
 	"math/rand/v2"
@@ -447,6 +448,36 @@ func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
 				t.Fatalf("error = %v, want nil", err)
 			}
 		})
+	}
+}
+
+// Vorbis needs a later packet before it can emit its first audio frame.
+func TestService_ProbeAcceptsDelayedAudioFrame(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+	input := filepath.Join(t.TempDir(), "delayed.ogg")
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-c:a", "libvorbis", "-y", input)
+	// Verify this fixture actually defeats the original one-packet probe.
+	// #nosec G204 - local binary with controlled fixture arguments.
+	cmd := exec.CommandContext(t.Context(), svc.config.Audio.FFprobePath, "-v", "error", "-select_streams", "a",
+		"-read_intervals", "%+#1", "-count_frames", "-show_entries", "stream=nb_read_frames", "-of", "json", input)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probe struct {
+		Streams []struct {
+			Frames string `json:"nb_read_frames"`
+		} `json:"streams"`
+	}
+	if err := json.Unmarshal(output, &probe); err != nil || len(probe.Streams) != 1 {
+		t.Fatalf("one-packet fixture probe = %s, %v", output, err)
+	}
+	if positiveInt(probe.Streams[0].Frames) {
+		t.Fatal("fixture no longer exercises a packet without a decoded frame")
+	}
+	if err := svc.probeAudio(t.Context(), input); err != nil {
+		t.Fatalf("valid audio with delayed first frame: %v", err)
 	}
 }
 
