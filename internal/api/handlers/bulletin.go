@@ -156,7 +156,8 @@ func serveAudioFile(c *gin.Context, file *os.File, info os.FileInfo, filename st
 	c.Header("Content-Type", "audio/wav")
 	c.Header("X-Bulletin-Id", strconv.FormatInt(bulletinID, 10))
 	c.Header("X-Bulletin-Cached", strconv.FormatBool(cached))
-	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), file)
+	reader := &audioReadTracker{source: file, size: info.Size()}
+	http.ServeContent(c.Writer, c.Request, filename, info.ModTime(), reader)
 	c.Writer.WriteHeaderNow()
 	// Flush exposes write errors hidden by ServeContent and Gin.
 	var raw http.ResponseWriter = c.Writer
@@ -169,9 +170,13 @@ func serveAudioFile(c *gin.Context, file *os.File, info os.FileInfo, filename st
 	} else if flushErr != nil {
 		return flushErr
 	}
-	// Detect incomplete reads hidden by ServeContent.
+	// Detect incomplete deliveries hidden by ServeContent, naming the storage
+	// failure when a read caused them.
 	if c.Request.Method != http.MethodHead {
 		if length, err := strconv.ParseInt(c.Writer.Header().Get("Content-Length"), 10, 64); err == nil && int64(c.Writer.Size()) != length {
+			if err := reader.failure(); err != nil {
+				return err
+			}
 			return io.ErrUnexpectedEOF
 		}
 	}

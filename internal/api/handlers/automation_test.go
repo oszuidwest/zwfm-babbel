@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,13 +97,21 @@ func newBulletinFileHandler(t *testing.T, alerts notify.Alerter) *AutomationHand
 	return NewAutomationHandler(nil, nil, &config.Config{Audio: config.AudioConfig{OutputPath: dir}}, alerts)
 }
 
+// deliveryAlert returns the only alert if it is station 7's delivery failure.
+func deliveryAlert(alerts *automationAlertRecorder) (notify.Event, bool) {
+	if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:delivery:station:7" {
+		return notify.Event{}, false
+	}
+	return alerts.events[0], true
+}
+
 func TestAutomationBulletinDeliveryFailureAlerts(t *testing.T) {
 	alerts := &automationAlertRecorder{}
 	handler := newBulletinFileHandler(t, alerts)
 	c, _ := gin.CreateTestContext(failingFlushWriter{httptest.NewRecorder()})
 	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	handler.serveBulletinAudio(c, "bulletin.wav", 42, 7, false)
-	if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:delivery:station:7" {
+	if _, ok := deliveryAlert(alerts); !ok {
 		t.Fatalf("alerts = %+v, want delivery failure", alerts.events)
 	}
 	if slices.Contains(alerts.resolved, "bulletin:delivery:station:7") {
@@ -273,8 +282,8 @@ func TestAutomationBulletinDelivery(t *testing.T) {
 			}
 			failed := tt.change == "truncate"
 			if failed {
-				if len(alerts.events) != 1 || alerts.events[0].Key != "bulletin:delivery:station:7" {
-					t.Errorf("alerts = %+v, want delivery failure", alerts.events)
+				if event, ok := deliveryAlert(alerts); !ok || !strings.Contains(event.Details, "audio ended at byte") {
+					t.Errorf("alerts = %+v, want delivery failure naming the truncated read", alerts.events)
 				}
 			} else if len(alerts.events) != 0 {
 				t.Errorf("unexpected alerts: %+v", alerts.events)
