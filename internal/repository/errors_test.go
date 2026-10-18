@@ -19,6 +19,7 @@ func TestParseDBErrorPreservesDriverDetails(t *testing.T) {
 	}{
 		{"duplicate key", 1062, "Duplicate entry '1-2' for key 'bulletins.unique_filename'", ErrDuplicateKey},
 		{"foreign key", 1452, "Cannot add child row: foreign key constraint fails (`bulletins`, CONSTRAINT `fk_station`)", ErrForeignKeyViolation},
+		{"blocked delete", 1451, "Cannot delete or update a parent row: a foreign key constraint fails (`stories`, CONSTRAINT `fk_voice`)", ErrForeignKeyViolation},
 		{"long column", 1406, "Data too long for column 'filename' at row 1", ErrDataTooLong},
 		{"missing table", 1146, "Table 'babbel.bulletins' doesn't exist", ErrSchemaUnavailable},
 	} {

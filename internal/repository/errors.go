@@ -69,7 +69,8 @@ func ParseDBError(err error) error {
 		}
 	}
 
-	// SQLite test errors and some wrapped driver errors only expose a message.
+	// MySQL 1451 (a delete blocked by a foreign key), SQLite test errors and
+	// some wrapped driver errors are classified by their message.
 	errStr := err.Error()
 	switch {
 	case strings.Contains(errStr, "Duplicate entry"):
