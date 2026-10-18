@@ -5,6 +5,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -64,6 +65,9 @@ func TestDatabaseReadTimeoutIsLoggedAndAlerted(t *testing.T) {
 		if queryErr == nil {
 			t.Error("slow query succeeded despite read timeout")
 			return
+		}
+		if !errors.Is(queryErr, mysql.ErrInvalidConn) {
+			t.Errorf("query error = %v; want driver's transport failure, not a server SQL error", queryErr)
 		}
 		if c.Request.Context().Err() != nil {
 			t.Errorf("request context ended before driver timeout: %v", c.Request.Context().Err())
