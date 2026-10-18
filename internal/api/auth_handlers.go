@@ -18,6 +18,7 @@ type AuthHandlers struct {
 	authService *auth.Service
 	frontendURL string
 	handlers    *handlers.Handlers
+	permissions func(string) (auth.PermissionSet, error)
 }
 
 // NewAuthHandlers uses frontendURL as the default OAuth callback redirect.
@@ -26,6 +27,7 @@ func NewAuthHandlers(authService *auth.Service, frontendURL string, h *handlers.
 		authService: authService,
 		frontendURL: frontendURL,
 		handlers:    h,
+		permissions: authService.EffectivePermissions,
 	}
 }
 
@@ -56,6 +58,9 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
 	if frontendURL == "" {
+		// Config validation requires BABBEL_FRONTEND_URL for OIDC, so this is a
+		// callback while OIDC is disabled; the route is public, hence Warn.
+		logger.Warn("OIDC callback has no frontend URL; OIDC is disabled or BABBEL_FRONTEND_URL is not set")
 		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
 	}
@@ -105,8 +110,9 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 		utils.ProblemAuthentication(c, "Invalid session")
 		return
 	}
-	permissions, err := h.authService.EffectivePermissions(role)
+	permissions, err := h.permissions(role)
 	if err != nil {
+		logger.Error("Failed to resolve current user permissions", "role", role, "error", err)
 		utils.ProblemInternalServer(c, "Failed to resolve permissions")
 		return
 	}

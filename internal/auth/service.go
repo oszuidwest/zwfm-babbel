@@ -224,6 +224,7 @@ func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 
 		allowed, err := s.enforcer.Enforce(role, string(obj), string(act))
 		if err != nil {
+			logger.Error("Permission check failed", "role", role, "resource", obj, "action", act, "error", err)
 			utils.ProblemInternalServer(c, "Permission check failed")
 			c.Abort()
 			return
