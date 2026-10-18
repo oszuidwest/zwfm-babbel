@@ -108,7 +108,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if duplicate, ok := errors.AsType[*apperrors.DuplicateError](err); ok {
-		logError(duplicate.Resource, "duplicate", err)
+		logErrorWithCause(duplicate.Resource, "duplicate", err, duplicate.Unwrap())
 		hint := "Use a different value"
 		if duplicate.Field != "" {
 			hint = fmt.Sprintf("Use a different %s or update the existing %s",
@@ -123,7 +123,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	}
 
 	if dependency, ok := errors.AsType[*apperrors.DependencyError](err); ok {
-		logError(dependency.Resource, "has_dependencies", err)
+		logErrorWithCause(dependency.Resource, "has_dependencies", err, dependency.Unwrap())
 		utils.ProblemExtended(c, http.StatusConflict,
 			dependency.Error(),
 			strings.ToLower(dependency.Resource)+".has_dependencies",

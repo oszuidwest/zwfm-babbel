@@ -703,6 +703,7 @@ paths:
   /api/v1/stations:
     get:
       operationId: getStations
+      x-search-fields: [name]
       summary: List all stations
       description: |
         Returns a paginated list of radio stations with modern query parameter support.
@@ -922,6 +923,7 @@ paths:
   /api/v1/voices:
     get:
       operationId: getVoices
+      x-search-fields: [name]
       summary: List all voices
       description: |
         Returns a paginated list of newsreader voices with modern query parameter support.
@@ -1211,6 +1213,7 @@ paths:
   /api/v1/stories:
     get:
       operationId: getStories
+      x-search-fields: [title, text]
       summary: List all stories
       description: |
         List stories with modern query parameter support.
@@ -1955,6 +1958,7 @@ paths:
   /api/v1/stories/{id}/bulletins:
     get:
       operationId: getStoriesIdBulletins
+      x-search-fields: [filename]
       summary: Get bulletin history for a story
       description: |
         Returns all bulletins that have included this specific story with modern query parameter support.
@@ -2050,6 +2054,7 @@ paths:
   /api/v1/users:
     get:
       operationId: getUsers
+      x-search-fields: [username, full_name]
       summary: List all users
       description: |
         Returns a paginated list of users with modern query parameter support.
@@ -2274,6 +2279,7 @@ paths:
   /api/v1/bulletins:
     get:
       operationId: getBulletins
+      x-search-fields: [filename]
       summary: List bulletins
       description: |
         Returns a paginated list of generated bulletins with modern query parameter support.
@@ -2411,6 +2417,7 @@ paths:
   /api/v1/stations/{id}/bulletins:
     get:
       operationId: getStationsIdBulletins
+      x-search-fields: [filename]
       summary: List bulletins for a station
       description: |
         Returns a paginated list of bulletins generated for a specific station with modern query parameter support.
