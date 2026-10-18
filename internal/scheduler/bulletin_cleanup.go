@@ -22,10 +22,8 @@ import (
 
 // processingMinAge must exceed the longest audio conversion. A conversion
 // directory's mtime changes only when an entry inside it is created, renamed
-// or removed, not while FFmpeg writes its output, and the conversion runs
-// under the request context without a timeout. Normal conversions take
-// minutes, so a day leaves a wide margin. Removing a live conversion at worst
-// fails that request; the published audio stays as it was.
+// or removed, not while FFmpeg writes its output. The audio service bounds
+// upload and TTS conversions to three minutes, so a day leaves a wide margin.
 const processingMinAge = 24 * time.Hour
 
 // processingEntryInfo lets tests remove an entry between ReadDir and its stat.

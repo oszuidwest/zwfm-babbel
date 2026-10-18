@@ -33,6 +33,11 @@ func commandError(ctx context.Context, err error) error {
 }
 
 const (
+	// conversionTimeout bounds all passes of an upload or TTS conversion.
+	// Keep it well below the cleanup sweeps' 24-hour processingMinAge, and
+	// leave room for body transfer/TTS within the server's write timeout.
+	conversionTimeout = 3 * time.Minute
+
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
 	loudnessMeasurementFilter   = loudnessNormalizationFilter + ":print_format=json"
 	// minStoryLoudnessLUFS is the minimum accepted story loudness.
@@ -97,18 +102,21 @@ type JingleContext struct {
 
 // Service runs FFmpeg operations using configured storage paths and binaries.
 type Service struct {
-	config *config.Config
-	alerts notify.Alerter
+	config            *config.Config
+	alerts            notify.Alerter
+	conversionTimeout time.Duration
 }
 
 // NewService returns an audio service using cfg.
 func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
-	return &Service{config: cfg, alerts: notify.OrDiscard(alerts)}
+	return &Service{config: cfg, alerts: notify.OrDiscard(alerts), conversionTimeout: conversionTimeout}
 }
 
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
 // It returns [ErrUndecodable] when the input is not decodable audio.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.conversionTimeout)
+	defer cancel()
 	if err := s.probeAudio(ctx, inputPath); err != nil {
 		return err
 	}
@@ -123,6 +131,8 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // [SilentError] without writing outputPath when the input is silent or below
 // -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.conversionTimeout)
+	defer cancel()
 	if err := s.probeAudio(ctx, inputPath); err != nil {
 		return 0, err
 	}
