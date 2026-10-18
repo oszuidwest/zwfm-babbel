@@ -4,8 +4,10 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/casbin/casbin/v2"
@@ -32,13 +34,14 @@ const (
 
 // Service manages login sessions and role-based permissions.
 type Service struct {
-	config   *Config
-	db       *gorm.DB
-	enforcer *casbin.Enforcer
-	store    sessions.Store
-	alerts   notify.Alerter
-	oauth    *oauth2.Config
-	verifier *oidc.IDTokenVerifier
+	oauthStateMu sync.Mutex
+	config       *Config
+	db           *gorm.DB
+	enforcer     *casbin.Enforcer
+	store        sessions.Store
+	alerts       notify.Alerter
+	oauth        *oauth2.Config
+	verifier     *oidc.IDTokenVerifier
 }
 
 // IsLocalEnabled reports whether local authentication is enabled.
@@ -304,6 +307,8 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	// Bind the callback to this session to prevent login CSRF.
 	state := rand.Text()
 
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
 	session.Set(sessKeyOAuthState, state)
 
@@ -325,27 +330,18 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 
 // FinishOAuthFlow validates the OIDC callback and creates a session.
 func (s *Service) FinishOAuthFlow(c *gin.Context) error {
-	session := sessions.Default(c)
-
-	state := c.Query("state")
-	savedState, ok := session.Get(sessKeyOAuthState).(string)
-	if !ok || state != savedState {
-		s.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     oauthInvalidStateAlertKey,
-			Summary: "OAuth callback has an invalid CSRF state",
-			Details: "The OAuth callback state was missing or did not match the server-side session.",
-		})
-		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
+	if err := s.consumeOAuthState(c); err != nil {
+		if errors.Is(err, ErrLoginRejected) {
+			s.alerts.Alert(c.Request.Context(), notify.Event{
+				Key:     oauthInvalidStateAlertKey,
+				Summary: "OAuth callback has an invalid CSRF state",
+				Details: "The OAuth callback state was missing or did not match the server-side session.",
+			})
+		}
+		return err
 	}
 	s.alerts.Resolve(c.Request.Context(), oauthInvalidStateAlertKey,
 		"OAuth callback state validation recovered", "The OAuth callback state matches the server-side session again.")
-	// Persist consumption before any callback failure can return, including
-	// provider rejections and failed code exchanges.
-	session.Delete(sessKeyOAuthState)
-	session.Delete(sessKeyFrontendURL)
-	if err := session.Save(); err != nil {
-		return fmt.Errorf("failed to consume OAuth login state: %w", err)
-	}
 
 	// access_denied means the user cancelled or the provider denied the user. Any
 	// other error code points to the provider or the client configuration (RFC
@@ -418,6 +414,33 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
+	return nil
+}
+
+// consumeOAuthState reloads and consumes state under one lock. The handler
+// can already have cached a session snapshot while reading its frontend URL;
+// checking that snapshot would allow concurrent callbacks to reuse the state.
+// The configured store is local memory, so the critical section has no remote I/O.
+func (s *Service) consumeOAuthState(c *gin.Context) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
+	session, err := s.store.New(c.Request, s.config.Session.CookieName)
+	if err != nil {
+		return fmt.Errorf("failed to load OAuth login state: %w", err)
+	}
+	savedState, ok := session.Values[sessKeyOAuthState].(string)
+	if !ok || c.Query("state") != savedState {
+		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
+	}
+	delete(session.Values, sessKeyOAuthState)
+	delete(session.Values, sessKeyFrontendURL)
+	if err := session.Save(c.Request, c.Writer); err != nil {
+		return fmt.Errorf("failed to consume OAuth login state: %w", err)
+	}
+	// Keep later CreateSession saves from restoring the old cached state.
+	cached := sessions.Default(c)
+	cached.Delete(sessKeyOAuthState)
+	cached.Delete(sessKeyFrontendURL)
 	return nil
 }
 

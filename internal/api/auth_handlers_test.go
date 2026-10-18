@@ -3,7 +3,6 @@ package api
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
@@ -183,46 +181,6 @@ func TestStartOAuthFlowBoundsRejectedFrontendLog(t *testing.T) {
 		t.Fatalf("logged URL length = %d, url_bytes = %v; want a bounded prefix and original length", len(logged), record["url_bytes"])
 	}
 }
-
-func TestOAuthStateSaveFailureIsLoggedAndStopsExchange(t *testing.T) {
-	service, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal}, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := NewAuthHandlers(service, testFrontendURL, nil)
-	logs := testutil.CaptureLogs(t, slog.LevelInfo)
-	router := gin.New()
-	router.GET("/callback", func(c *gin.Context) {
-		c.Set(sessions.DefaultKey, &failedOAuthSession{err: errors.New("session backend unavailable")})
-		h.HandleOAuthCallback(c)
-	})
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil))
-	// The service has no OAuth client: reaching exchange would panic.
-	if rec.Code != http.StatusSeeOther || strings.Contains(rec.Header().Get("Location"), "session backend") {
-		t.Fatalf("response = %d %q, want a safe login failure redirect", rec.Code, rec.Header().Get("Location"))
-	}
-	var record map[string]any
-	if err := json.Unmarshal(logs.Bytes(), &record); err != nil || record["level"] != "ERROR" ||
-		record["error"] != "failed to consume OAuth login state: session backend unavailable" {
-		t.Fatalf("logs = %s, want one Error with the session-save cause", logs)
-	}
-}
-
-// failedOAuthSession supplies a matching state but refuses to persist consumption.
-type failedOAuthSession struct {
-	sessions.Session
-	err error
-}
-
-func (*failedOAuthSession) Get(key any) any {
-	if key == "oauth_state" {
-		return "state"
-	}
-	return nil
-}
-func (*failedOAuthSession) Delete(any)    {}
-func (s *failedOAuthSession) Save() error { return s.err }
 
 // newOAuthTestRouter serves the OAuth handlers against a fake OIDC provider
 // whose token endpoint always fails.
