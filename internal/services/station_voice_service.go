@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -28,9 +27,6 @@ type StationVoiceServiceDeps struct {
 	Config           *config.Config
 	Alerts           notify.Alerter
 }
-
-// jinglePublishTimeout bounds publication independently of the upload request.
-const jinglePublishTimeout = 10 * time.Second
 
 type stationVoiceRepository interface {
 	Create(context.Context, int64, int64, float64) (*models.StationVoice, error)
@@ -271,7 +267,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	// A failed update or rename rolls back and keeps the old jingle; a failed
 	// commit leaves the new jingle published and may leave the database
 	// outcome unknown.
-	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jinglePublishTimeout)
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), audioPublishTimeout)
 	defer cancel()
 	alertKey := fmt.Sprintf("stationvoice:unrecorded-audio:%d", stationVoice.ID)
 	published := false
@@ -293,9 +289,12 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		}
 		if published {
 			err = fmt.Errorf("station-voice %d jingle published to %s but commit failed: %w", stationVoice.ID, outputPath, err)
+			// Report the live file now and per station-voice: on a timeout the
+			// handler logs neither this cause nor an alert, and its database
+			// alert is per route and waits for a threshold.
 			logger.Error("Jingle is live but its database record may be missing",
 				"station_voice_id", stationVoice.ID, "path", outputPath, "error", err)
-			notify.OrDiscard(s.alerts).Alert(ctx, notify.Event{
+			s.alerts.Alert(ctx, notify.Event{
 				Key:     alertKey,
 				Summary: fmt.Sprintf("Station-voice %d jingle is live but its database record may be missing", stationVoice.ID),
 				Details: err.Error() + "\n\nUpload this station-voice's jingle again to record it.",
@@ -303,7 +302,7 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
-	notify.OrDiscard(s.alerts).Resolve(ctx, alertKey,
+	s.alerts.Resolve(ctx, alertKey,
 		fmt.Sprintf("Station-voice %d jingle recorded again", stationVoice.ID),
 		"A later publication saved the station-voice's jingle file.")
 

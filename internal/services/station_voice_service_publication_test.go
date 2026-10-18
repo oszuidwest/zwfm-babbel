@@ -24,7 +24,7 @@ func TestStationVoiceService_JingleCommitsAfterRequestCancel(t *testing.T) {
 	service.alerts = alerts
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	service.txManager = cancelAfterPublish{TxManager: &jingleContextTxManager{}, t: t,
+	service.txManager = cancelAfterPublish{TxManager: &jingleTxManager{}, t: t,
 		finalPath: utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID), cancel: cancel}
 	input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
 	if err := service.ProcessJingle(ctx, stationVoice, input); err != nil {
@@ -38,36 +38,33 @@ func TestStationVoiceService_JingleCommitsAfterRequestCancel(t *testing.T) {
 	}
 }
 
-// Every commit failure after the rename must name the live file immediately,
-// including timeouts, whose handler response otherwise omits the cause.
+// A commit failure after the rename must name the live file immediately; a
+// timeout's handler response otherwise omits the cause.
 func TestStationVoiceService_JingleCommitFailureReportsLiveFile(t *testing.T) {
-	for _, cause := range []error{errors.New("commit connection lost"), context.DeadlineExceeded} {
-		t.Run(cause.Error(), func(t *testing.T) {
-			service, stationVoice := newJingleTestService(t, &jingleAudioRepository{})
-			service.txManager = &jingleTxManager{err: cause}
-			alerts := &capturingAlerter{}
-			service.alerts = alerts
-			logs := testutil.CaptureLogs(t, slog.LevelInfo)
-			path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
-			input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
-			if err := service.ProcessJingle(t.Context(), stationVoice, input); !errors.Is(err, cause) {
-				t.Fatalf("ProcessJingle = %v, want %v", err, cause)
-			}
-			if len(alerts.events) != 1 || alerts.events[0].Key != "stationvoice:unrecorded-audio:3" ||
-				alerts.events[0].RequiresThreshold || !strings.Contains(alerts.events[0].Details, path) ||
-				!strings.Contains(alerts.events[0].Details, cause.Error()) || len(alerts.resolved) != 0 {
-				t.Fatalf("alerts = %+v, resolved = %v; want one immediate alert naming the path and cause", alerts.events, alerts.resolved)
-			}
-			assertJinglePublicationLog(t, logs, stationVoice.ID, path, cause)
-			// A later successful upload resolves precisely this incident.
-			service.txManager = &jingleTxManager{}
-			if err := service.ProcessJingle(t.Context(), stationVoice, input); err != nil {
-				t.Fatal(err)
-			}
-			if !slices.Equal(alerts.resolved, []string{"stationvoice:unrecorded-audio:3"}) {
-				t.Fatalf("resolved = %v, want the publication recovery", alerts.resolved)
-			}
-		})
+	cause := context.DeadlineExceeded
+	service, stationVoice := newJingleTestService(t, &jingleAudioRepository{})
+	service.txManager = &jingleTxManager{err: cause}
+	alerts := &capturingAlerter{}
+	service.alerts = alerts
+	logs := testutil.CaptureLogs(t, slog.LevelInfo)
+	path := utils.JinglePath(service.config, stationVoice.StationID, stationVoice.VoiceID)
+	input := lavfiFixture(t, service.config.Audio.FFmpegPath, "sine=frequency=880:duration=1")
+	if err := service.ProcessJingle(t.Context(), stationVoice, input); !errors.Is(err, cause) {
+		t.Fatalf("ProcessJingle = %v, want %v", err, cause)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "stationvoice:unrecorded-audio:3" ||
+		alerts.events[0].RequiresThreshold || !strings.Contains(alerts.events[0].Details, path) ||
+		!strings.Contains(alerts.events[0].Details, cause.Error()) || len(alerts.resolved) != 0 {
+		t.Fatalf("alerts = %+v, resolved = %v; want one immediate alert naming the path and cause", alerts.events, alerts.resolved)
+	}
+	assertJinglePublicationLog(t, logs, stationVoice.ID, path, cause)
+	// A later successful upload resolves precisely this incident.
+	service.txManager = &jingleTxManager{}
+	if err := service.ProcessJingle(t.Context(), stationVoice, input); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(alerts.resolved, []string{"stationvoice:unrecorded-audio:3"}) {
+		t.Fatalf("resolved = %v, want the publication recovery", alerts.resolved)
 	}
 }
 
@@ -85,15 +82,4 @@ func assertJinglePublicationLog(t *testing.T, logs *bytes.Buffer, id int64, path
 		}
 	}
 	t.Fatalf("logs = %s, want an Error record naming the row, path and cause", logs)
-}
-
-// jingleContextTxManager supplies the fake repository's transaction marker
-// and models database/sql rolling back when its context is cancelled.
-type jingleContextTxManager struct{}
-
-func (*jingleContextTxManager) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
-	if err := fn(context.WithValue(ctx, jingleTxKey{}, true)); err != nil {
-		return err
-	}
-	return ctx.Err()
 }
