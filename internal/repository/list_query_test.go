@@ -127,6 +127,8 @@ func TestApplySorting_SQL(t *testing.T) {
 	}{
 		{name: "ascending", userSort: []SortField{{Field: "title", Direction: SortAsc}}, wantSQL: "ORDER BY title ASC"},
 		{name: "descending", userSort: []SortField{{Field: "title", Direction: SortDesc}}, wantSQL: "ORDER BY title DESC"},
+		{name: "two keys in mixed directions", userSort: []SortField{{Field: "title", Direction: SortDesc}, {Field: "id", Direction: SortAsc}}, wantSQL: "ORDER BY title DESC,id ASC"},
+		{name: "three keys in supplied order", userSort: []SortField{{Field: "voice_id", Direction: SortAsc}, {Field: "title", Direction: SortDesc}, {Field: "id", Direction: SortDesc}}, wantSQL: "ORDER BY voice_id ASC,title DESC,id DESC"},
 		{name: "unknown direction falls back to ascending", userSort: []SortField{{Field: "title", Direction: SortDirection("sideways")}}, wantSQL: "ORDER BY title ASC"},
 		{name: "default skips unmapped fields", defaultSort: []SortField{{Field: "bogus", Direction: SortDesc}, {Field: "id", Direction: SortDesc}}, wantSQL: "ORDER BY id DESC"},
 	}
@@ -138,8 +140,24 @@ func TestApplySorting_SQL(t *testing.T) {
 				t.Fatalf("applySorting: %v", err)
 			}
 			stmt := out.Find(&[]struct{}{}).Statement
-			if !strings.Contains(stmt.SQL.String(), tt.wantSQL) {
+			if !strings.HasSuffix(stmt.SQL.String(), tt.wantSQL) {
 				t.Fatalf("SQL = %q, want fragment %q", stmt.SQL.String(), tt.wantSQL)
+			}
+		})
+	}
+}
+
+func TestApplySorting_RejectsInvalidLaterKeys(t *testing.T) {
+	t.Parallel()
+	for _, field := range []string{"unknown", "has_audio"} {
+		t.Run(field, func(t *testing.T) {
+			t.Parallel()
+			_, err := applySorting(dryRunDB(t).Table("stories"), []SortField{
+				{Field: "title", Direction: SortDesc}, {Field: field, Direction: SortAsc},
+			}, nil, storyFieldMapping)
+			invalid, ok := errors.AsType[*UnknownFieldError](err)
+			if !ok || invalid.Kind != "sort" || invalid.Key != "sort" || invalid.Field != field {
+				t.Fatalf("error = %v, want UnknownFieldError for sort/%s", err, field)
 			}
 		})
 	}
@@ -390,11 +408,24 @@ func TestFieldMappingsAreWellFormed(t *testing.T) {
 	t.Parallel()
 	known := []filterType{filterString, filterInteger, filterNumber, filterDate, filterDateTime, filterBoolean, filterBitmask, filterEnum, filterPresence}
 	mappings := map[string]FieldMapping{
-		"bulletin": bulletinFieldMapping, "station": stationFieldMapping, "stationVoice": stationVoiceFieldMapping,
-		"story": storyFieldMapping, "user": userFieldMapping, "voice": voiceFieldMapping,
+		"bulletins": bulletinFieldMapping, "stations": stationFieldMapping, "station_voices": stationVoiceFieldMapping,
+		"stories": storyFieldMapping, "users": userFieldMapping, "voices": voiceFieldMapping, "audit_events": auditEventFieldMapping,
+	}
+	exceptions := map[string]string{
+		"stories.audio_url":        "audio_file",
+		"stories.has_audio":        "(COALESCE(audio_file, '') != '')",
+		"station_voices.audio_url": "station_voices.audio_file",
+		"station_voices.has_audio": "(COALESCE(station_voices.audio_file, '') != '')",
 	}
 	for name, mapping := range mappings {
 		for field, f := range mapping {
+			if want, ok := exceptions[name+"."+field]; ok {
+				if f.Column != want {
+					t.Errorf("%s.%s: column = %q, want explicit alias %q", name, field, f.Column, want)
+				}
+			} else if f.Column != field && f.Column != name+"."+field {
+				t.Errorf("%s.%s: column = %q, want own column (optionally table-qualified)", name, field, f.Column)
+			}
 			switch {
 			case f.Column == "", !slices.Contains(known, f.Type):
 				t.Errorf("%s.%s: missing column or unknown type %q", name, field, f.Type)
