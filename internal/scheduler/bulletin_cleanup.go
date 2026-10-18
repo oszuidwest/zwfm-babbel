@@ -78,6 +78,12 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 		return errors.Join(processingErr, err)
 	}
 	stats, purgeErr := s.purgeExpiredBulletins(ctx, bulletins)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if purgeErr == nil {
+			purgeErr = purgeInterrupted(ctxErr, 0)
+		}
+		return errors.Join(processingErr, purgeErr)
+	}
 	orphansRemoved, orphanBytes, orphanErr := s.cleanOrphanedFiles(ctx)
 
 	jobsDeleted, jobsErr := s.jobs.DeleteTerminalBefore(ctx, cutoff)
@@ -157,7 +163,10 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 	var stats purgeStats
 	var cleanupErr error
 
-	for _, b := range bulletins {
+	for i, b := range bulletins {
+		if err := ctx.Err(); err != nil {
+			return stats, errors.Join(cleanupErr, purgeInterrupted(err, len(bulletins)-i))
+		}
 		var fileBytes int64
 		if b.AudioFile != "" {
 			filePath := utils.BulletinPath(s.config, b.AudioFile)
@@ -177,6 +186,9 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 			}
 		}
 		if err := s.repo.MarkFilePurged(ctx, b.ID); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return stats, errors.Join(cleanupErr, purgeInterrupted(ctxErr, len(bulletins)-i))
+			}
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("mark bulletin %d purged: %w", b.ID, err))
 			logger.Error("Failed to mark bulletin as purged", "bulletin_id", b.ID, "error", err)
 			continue
@@ -188,6 +200,10 @@ func (s *BulletinCleanupService) purgeExpiredBulletins(
 	}
 
 	return stats, cleanupErr
+}
+
+func purgeInterrupted(err error, remaining int) error {
+	return fmt.Errorf("purge interrupted with %d bulletin records remaining: %w", remaining, err)
 }
 
 // cleanOrphanedFiles removes files in the output directory that have no matching database record
