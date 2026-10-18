@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -17,12 +18,7 @@ import (
 
 func TestGetCurrentUserLogsPermissionCause(t *testing.T) {
 	cause := errors.New("evaluate stories/read permission: evaluator unavailable")
-	h := &AuthHandlers{permissions: func(role string) (auth.PermissionSet, error) {
-		if role != "viewer" {
-			t.Errorf("role = %q", role)
-		}
-		return nil, cause
-	}}
+	h := &AuthHandlers{permissions: func(string) (auth.PermissionSet, error) { return nil, cause }}
 	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -31,7 +27,7 @@ func TestGetCurrentUserLogsPermissionCause(t *testing.T) {
 	h.GetCurrentUser(c)
 	var record map[string]any
 	if rec.Code != http.StatusInternalServerError || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "ERROR" ||
-		record["role"] != "viewer" || record["resource"] != "sessions/current" || record["action"] != "read" || record["error"] != cause.Error() {
+		record["role"] != "viewer" || record["error"] != cause.Error() {
 		t.Fatalf("status = %d, logs = %s", rec.Code, logs)
 	}
 }
@@ -49,8 +45,8 @@ func TestOAuthCallbackLogsMissingFrontendConfiguration(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", nil))
 	var record map[string]any
-	if rec.Code != http.StatusInternalServerError || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "ERROR" ||
-		!strings.Contains(record["error"].(string), "BABBEL_FRONTEND_URL") {
+	if rec.Code != http.StatusInternalServerError || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "WARN" ||
+		!strings.Contains(fmt.Sprint(record["msg"]), "BABBEL_FRONTEND_URL") {
 		t.Fatalf("status = %d, logs = %s", rec.Code, logs)
 	}
 }

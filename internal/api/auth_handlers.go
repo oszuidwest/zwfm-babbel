@@ -58,7 +58,9 @@ func (h *AuthHandlers) StartOAuthFlow(c *gin.Context) {
 func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 	frontendURL := cmp.Or(auth.SessionFrontendURL(c), h.frontendURL)
 	if frontendURL == "" {
-		logger.Error("OIDC callback has no frontend URL", "error", "no session frontend URL and BABBEL_FRONTEND_URL is not configured")
+		// Config validation requires BABBEL_FRONTEND_URL for OIDC, so this is a
+		// callback while OIDC is disabled; the route is public, hence Warn.
+		logger.Warn("OIDC callback has no frontend URL; OIDC is disabled or BABBEL_FRONTEND_URL is not set")
 		utils.ProblemInternalServer(c, "No frontend URL configured")
 		return
 	}
@@ -120,7 +122,7 @@ func (h *AuthHandlers) GetCurrentUser(c *gin.Context) {
 	}
 	permissions, err := h.permissions(role)
 	if err != nil {
-		logger.Error("Failed to resolve current user permissions", "role", role, "resource", "sessions/current", "action", "read", "error", err)
+		logger.Error("Failed to resolve current user permissions", "role", role, "error", err)
 		utils.ProblemInternalServer(c, "Failed to resolve permissions")
 		return
 	}
