@@ -505,6 +505,14 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 	}()
 
 	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
+		if errors.Is(err, audio.ErrUndecodable) {
+			// AudioError omits its cause from Error(); retain ffprobe's message
+			// for both the handler's log and the operational alert.
+			cause := errors.Unwrap(err)
+			s.alertTTSError(ctx, storyID, cause)
+			return apperrors.Upstream("TTS", "ElevenLabs", http.StatusBadGateway,
+				"ElevenLabs returned audio that could not be decoded; try again", cause)
+		}
 		if silent, ok := errors.AsType[*audio.SilentError](err); ok {
 			// The cause carries the loudness for the handler's Warn log.
 			s.alertTTSError(ctx, storyID, silent)
@@ -519,6 +527,9 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 
 // alertTTSError maps operational TTS failures to stable alert categories.
 func (s *StoryService) alertTTSError(ctx context.Context, storyID int64, err error) {
+	if errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled) {
+		return
+	}
 	event := notify.Event{
 		Key:               "tts:upstream",
 		Summary:           "ElevenLabs TTS is repeatedly unavailable",
