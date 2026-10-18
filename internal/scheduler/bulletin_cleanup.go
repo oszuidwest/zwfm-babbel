@@ -76,7 +76,7 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 	logger.Info("Running bulletin file cleanup...")
 
 	now := time.Now()
-	processingErr := s.cleanProcessingLeftovers(now)
+	processingErr := errors.Join(s.cleanProcessingLeftovers(now), s.cleanInputLeftovers(now))
 	cutoff := now.Add(-s.config.Audio.BulletinRetention)
 	bulletins, err := s.repo.GetExpiredBulletins(ctx, cutoff)
 	if err != nil {
@@ -103,52 +103,13 @@ func (s *BulletinCleanupService) cleanup(ctx context.Context) error {
 // cleanProcessingLeftovers removes conversion leftovers older than
 // processingMinAge that a crash or restart left directly in ProcessedPath:
 // per-request "*.processing" directories, and "*.processing.wav" files from
-// v0.17.0 and earlier. Symlinks are skipped, and os.RemoveAll does not follow
-// symlinks inside a directory.
-// An entry that vanishes during the sweep is not an error: a missing entry is
-// skipped at the stat, and os.RemoveAll returns nil for a path that is gone.
+// v0.17.0 and earlier. Symlinks are skipped.
 func (s *BulletinCleanupService) cleanProcessingLeftovers(now time.Time) error {
-	dir := s.config.Audio.ProcessedPath
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		logger.Error("Failed to read processed audio directory", "path", dir, "error", err)
-		return fmt.Errorf("read processed audio directory: %w", err)
-	}
-
-	cutoff := now.Add(-processingMinAge)
-	var cleanupErr error
-	for _, entry := range entries {
+	return sweepOldEntries(s.config.Audio.ProcessedPath, "processed audio", "audio conversion leftover", now, func(entry fs.DirEntry) bool {
 		name := entry.Name()
-		isDirName := strings.HasSuffix(name, utils.ProcessingDirSuffix)
-		if !isDirName && !strings.HasSuffix(name, ".processing.wav") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		info, err := processingEntryInfo(entry)
-		if errors.Is(err, fs.ErrNotExist) {
-			// The owning request removed it after ReadDir.
-			continue
-		}
-		if err != nil {
-			logger.Error("Failed to stat audio conversion leftover", "path", path, "error", err)
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("stat audio conversion leftover %s: %w", path, err))
-			continue
-		}
-		typeMatches := info.Mode().IsRegular()
-		if isDirName {
-			typeMatches = info.IsDir()
-		}
-		if !typeMatches || !info.ModTime().Before(cutoff) {
-			continue
-		}
-		if err := os.RemoveAll(path); err != nil {
-			logger.Error("Failed to remove audio conversion leftover", "path", path, "error", err)
-			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove audio conversion leftover %s: %w", path, err))
-			continue
-		}
-		logger.Info("Removed abandoned audio conversion leftover", "path", path)
-	}
-	return cleanupErr
+		return strings.HasSuffix(name, utils.ProcessingDirSuffix) && entry.IsDir() ||
+			strings.HasSuffix(name, ".processing.wav") && entry.Type().IsRegular()
+	})
 }
 
 type purgeStats struct {

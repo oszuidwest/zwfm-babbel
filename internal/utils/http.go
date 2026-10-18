@@ -63,7 +63,7 @@ var audioUploadExtensions = []string{".wav", ".mp3", ".m4a", ".aac", ".ogg", ".f
 // a body that is not multipart form data, 422 for a missing file or an
 // unsupported extension, 408 when the body exceeds the read deadline, and 500
 // when the file cannot be stored.
-func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
+func SaveAudioUpload(c *gin.Context, tempDir, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
 	// Allow form overhead around a file at the size limit.
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxAudioUploadBytes+1<<20)
 	// MultipartReader also accepts multipart/mixed, which FormFile rejected.
@@ -77,10 +77,10 @@ func SaveAudioUpload(c *gin.Context, field, prefix string) (tempPath string, cle
 		return "", nil, false
 	}
 
-	return saveAudioUploadParts(c, reader, field, prefix)
+	return saveAudioUploadParts(c, reader, tempDir, field, prefix)
 }
 
-func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
+func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, tempDir, field, prefix string) (tempPath string, cleanup func() error, ok bool) {
 	var storedPath, ext string
 	var found, tooLarge bool
 	defer func() {
@@ -100,7 +100,7 @@ func saveAudioUploadParts(c *gin.Context, reader *multipart.Reader, field, prefi
 		if err == nil && !found && part.FormName() == field && part.FileName() != "" {
 			found = true
 			ext = strings.ToLower(filepath.Ext(part.FileName()))
-			storedPath, tooLarge, err = readAudioPart(part, prefix, ext)
+			storedPath, tooLarge, err = readAudioPart(part, tempDir, prefix, ext)
 		}
 		if err == nil {
 			// Discard other parts and the rest of an oversized file here:
@@ -145,12 +145,12 @@ func nextAudioPart(reader *multipart.Reader, parts int) (*multipart.Part, error)
 // readAudioPart reads part up to one byte past maxAudioUploadBytes and reports
 // whether it is larger than that. It stores the file only for a supported ext,
 // the only part of the client filename that reaches the temp file name.
-func readAudioPart(part io.Reader, prefix, ext string) (path string, tooLarge bool, err error) {
+func readAudioPart(part io.Reader, tempDir, prefix, ext string) (path string, tooLarge bool, err error) {
 	limited := &io.LimitedReader{R: part, N: maxAudioUploadBytes + 1}
 	if slices.Contains(audioUploadExtensions, ext) {
 		// CreateTemp gives each upload its own file; the extension helps
 		// FFmpeg detect the format.
-		path, err = WriteTempFile(limited, prefix+"_*"+ext)
+		path, err = WriteTempFile(tempDir, limited, prefix+"_*"+ext)
 	} else {
 		_, err = io.Copy(io.Discard, limited)
 	}
@@ -185,10 +185,13 @@ func problemAudioUpload(c *gin.Context, err error) {
 	}
 }
 
-// WriteTempFile copies r to a new OS temp file named by pattern and removes
+// WriteTempFile copies r to a new file in the owned temp directory and removes
 // partial output on failure.
-func WriteTempFile(r io.Reader, pattern string) (string, error) {
-	out, err := os.CreateTemp("", pattern)
+func WriteTempFile(dir string, r io.Reader, pattern string) (string, error) {
+	if dir == "" {
+		return "", &fs.PathError{Op: "create", Path: dir, Err: errors.New("temporary audio directory is not configured")}
+	}
+	out, err := os.CreateTemp(dir, pattern)
 	if err != nil {
 		return "", err
 	}
