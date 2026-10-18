@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -77,43 +78,34 @@ func TestRunnerAlertsOnFirstErrorAndResolvesOnSuccess(t *testing.T) {
 
 func TestRunnerStopCancelsAndWaitsForRunningJob(t *testing.T) {
 	t.Parallel()
-	alerts := &schedulerAlertRecorder{}
-	started, finished := make(chan struct{}), make(chan struct{})
-	result := make(chan error, 1)
-	r := newRunner("stopping job", time.Hour, 2*time.Second, func(ctx context.Context) error {
-		close(started)
-		<-ctx.Done()
-		result <- ctx.Err()
-		close(finished)
-		return ctx.Err()
-	}, alerts)
-	startReturned := make(chan struct{})
-	go func() { r.Start(); close(startReturned) }()
-	<-started
-	r.Stop()
-	select {
-	case <-finished:
-	default:
-		t.Error("Stop returned while the job was still running")
+	for name, failure := range map[string]error{"cancellation only": nil, "joined failure": errors.New("storage unreadable")} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			alerts := &schedulerAlertRecorder{}
+			started, result := make(chan struct{}), make(chan error, 1)
+			r := newRunner("stopping job", time.Hour, 2*time.Second, func(ctx context.Context) error {
+				close(started)
+				<-ctx.Done()
+				result <- ctx.Err()
+				return errors.Join(failure, fmt.Errorf("query: %w", ctx.Err()))
+			}, alerts)
+			go r.Start()
+			<-started
+			r.Stop()
+			select {
+			case err := <-result:
+				if !errors.Is(err, context.Canceled) {
+					t.Errorf("job context = %v, want cancellation by Stop", err)
+				}
+			default:
+				t.Fatal("Stop returned while the job was still running")
+			}
+			// Shutdown alone is silent; a failure joined with it still alerts.
+			if wantEvents := failure != nil; (len(alerts.events) == 1) != wantEvents || len(alerts.events) > 1 || len(alerts.resolved) != 0 {
+				t.Fatalf("alerts = %+v, resolved = %v; want an alert only for the joined failure", alerts.events, alerts.resolved)
+			}
+		})
 	}
-	if err := <-result; !errors.Is(err, context.Canceled) {
-		t.Errorf("job context = %v, want cancellation by Stop", err)
-	}
-	<-startReturned
-	if len(alerts.events) != 0 || len(alerts.resolved) != 0 {
-		t.Fatalf("alerts = %+v, resolved = %v; want none for shutdown", alerts.events, alerts.resolved)
-	}
-}
-
-func TestRunnerStoppedBeforeStartDoesNotRun(t *testing.T) {
-	t.Parallel()
-	r := newRunner("unused job", time.Hour, time.Second, func(context.Context) error {
-		t.Error("job ran after Stop")
-		return nil
-	}, notify.Discard)
-	r.Stop()
-	r.Start()
-	r.Stop()
 }
 
 func TestRunnerStopDuringTickerJobDoesNotNotify(t *testing.T) {

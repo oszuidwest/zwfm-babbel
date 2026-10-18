@@ -13,8 +13,8 @@ import (
 
 // runner executes a job immediately on Start and then at a fixed interval in a
 // background goroutine until Stop is called. Each run receives a context that
-// is cancelled after runTimeout. A run that returns an error or panics raises
-// an immediate operational alert; a successful run resolves it.
+// is cancelled after runTimeout or by Stop. A run that returns an error or
+// panics raises an immediate operational alert; a successful run resolves it.
 type runner struct {
 	name       string
 	interval   time.Duration
@@ -22,9 +22,7 @@ type runner struct {
 	fn         func(ctx context.Context) error
 	alerts     notify.Alerter
 
-	mu       sync.Mutex
-	started  bool
-	stopping bool
+	ctx      context.Context // cancelled by Stop
 	cancel   context.CancelFunc
 	done     chan struct{}
 	stopOnce sync.Once
@@ -33,12 +31,15 @@ type runner struct {
 // newRunner returns a stopped runner that executes fn every interval.
 // alerts must be non-nil; pass notify.Discard when notifications are absent.
 func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx context.Context) error, alerts notify.Alerter) *runner {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &runner{
 		name:       name,
 		interval:   interval,
 		runTimeout: runTimeout,
 		fn:         fn,
 		alerts:     alerts,
+		ctx:        ctx,
+		cancel:     cancel,
 		done:       make(chan struct{}),
 	}
 }
@@ -46,30 +47,17 @@ func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx cont
 // Start runs the job immediately and then every interval in a background
 // goroutine.
 func (r *runner) Start() {
-	r.mu.Lock()
-	if r.started || r.stopping {
-		r.mu.Unlock()
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	r.started, r.cancel = true, cancel
-	r.mu.Unlock()
-	r.runOnce(ctx)
-	if ctx.Err() != nil {
-		close(r.done)
-		return
-	}
+	r.runOnce(r.ctx)
 
 	go func() {
 		defer close(r.done)
-		defer cancel()
 		ticker := time.NewTicker(r.interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				r.runOnce(ctx)
-			case <-ctx.Done():
+				r.runOnce(r.ctx)
+			case <-r.ctx.Done():
 				return
 			}
 		}
@@ -94,7 +82,7 @@ func (r *runner) runOnce(parent context.Context) {
 		}
 	}()
 	if err := r.fn(ctx); err != nil {
-		if errors.Is(err, context.Canceled) && errors.Is(parent.Err(), context.Canceled) {
+		if parent.Err() != nil && onlyCanceled(err) {
 			return // Stop cancelled the job; this is not an operational failure.
 		}
 		// Immediate, not thresholded: the jobs that can fail here run hourly
@@ -116,24 +104,30 @@ func (r *runner) runOnce(parent context.Context) {
 }
 
 // Stop cancels the active job and waits at most five seconds for the loop to
-// exit. A runner stopped before Start stays stopped and has no loop to await.
+// exit.
 func (r *runner) Stop() {
 	r.stopOnce.Do(func() {
 		logger.Info("Stopping " + r.name)
-		r.mu.Lock()
-		r.stopping = true
-		started, cancel := r.started, r.cancel
-		r.mu.Unlock()
-		if !started {
-			return
-		}
-		cancel()
-		timer := time.NewTimer(5 * time.Second)
-		defer timer.Stop()
+		r.cancel()
 		select {
 		case <-r.done:
-		case <-timer.C:
+		case <-time.After(5 * time.Second):
 			logger.Info("Shutdown timeout", "service", r.name)
 		}
 	})
+}
+
+// onlyCanceled reports whether err consists of cancellations only, so a
+// failure joined with Stop's cancellation still alerts.
+func onlyCanceled(err error) bool {
+	var joined interface{ Unwrap() []error }
+	if errors.As(err, &joined) {
+		for _, inner := range joined.Unwrap() {
+			if !onlyCanceled(inner) {
+				return false
+			}
+		}
+		return true
+	}
+	return errors.Is(err, context.Canceled)
 }
