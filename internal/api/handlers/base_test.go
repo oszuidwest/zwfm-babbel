@@ -420,7 +420,7 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		{
 			name:       "timeout",
 			respond:    serviceError(context.DeadlineExceeded),
-			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR",
+			wantStatus: http.StatusGatewayTimeout, wantLevel: "ERROR", wantType: "timeout", wantCause: context.DeadlineExceeded.Error(),
 		},
 		{
 			name:       "unhandled error",

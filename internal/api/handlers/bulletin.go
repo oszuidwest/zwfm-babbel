@@ -145,12 +145,7 @@ var errUnverifiedDelivery = errors.New("audio delivery could not be verified")
 // serveAudioFile serves a download with range and conditional request support.
 // It handles the response and returns file access or delivery errors, including
 // errUnverifiedDelivery when the writer does not support flushing.
-func serveAudioFile(c *gin.Context, file *os.File, filename string, bulletinID int64, cached bool) error {
-	info, err := file.Stat()
-	if err != nil {
-		utils.ProblemInternalServer(c, "Failed to access audio file")
-		return err
-	}
+func serveAudioFile(c *gin.Context, file *os.File, info os.FileInfo, filename string, bulletinID int64, cached bool) error {
 	if !validateAudioRange(c, info.Size()) {
 		return nil
 	}
