@@ -539,3 +539,38 @@ func createNamedVoice(t *testing.T, db *gorm.DB, name string) models.Voice {
 	})
 	return voice
 }
+
+// A client that disconnects after the row's DELETE must not roll back a
+// delete whose jingle is already removed.
+func TestStationVoiceService_DeleteCommitsAfterRequestCancel(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newJingleDirTestService(t, db)
+	_, _, stationVoice := createStationVoiceFixture(t, db, pairJingle)
+	jinglePath := filepath.Join(service.config.Audio.ProcessedPath, stationVoice.AudioFile)
+	if err := os.WriteFile(jinglePath, []byte("jingle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if err := db.Callback().Delete().After("gorm:delete").Register("test:cancel_delete", func(tx *gorm.DB) {
+		if tx.Statement.Table == "station_voices" {
+			cancel()
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.Delete(ctx, stationVoice.ID); err != nil {
+		t.Fatalf("Delete() after cancellation = %v, want committed", err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("request was not canceled during the delete")
+	}
+	_, err := service.GetByID(t.Context(), stationVoice.ID)
+	if _, ok := errors.AsType[*apperrors.NotFoundError](err); !ok {
+		t.Fatalf("GetByID() after delete = %v, want not found", err)
+	}
+	if _, err := os.Stat(jinglePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("jingle after delete: %v, want removed", err)
+	}
+}

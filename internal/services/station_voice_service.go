@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
@@ -15,6 +16,10 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
+
+// stationVoiceDeleteTimeout bounds the delete transaction, which ignores
+// request cancellation.
+const stationVoiceDeleteTimeout = 10 * time.Second
 
 // StationVoiceServiceDeps groups the collaborators required to validate and
 // mutate station-voice relationships.
@@ -219,9 +224,13 @@ func (s *StationVoiceService) GetByID(ctx context.Context, id int64) (*models.St
 // remove the replacement's jingle. A file that cannot be removed rolls the
 // delete back, so a recreated pair never picks up the stale jingle. A failed
 // commit can keep the row without its jingle; bulletins then play without a
-// bed until a new upload.
+// bed until a new upload. The transaction ignores request cancellation, so a
+// client that disconnects after the file is removed cannot roll the delete
+// back; stationVoiceDeleteTimeout bounds it instead.
 func (s *StationVoiceService) Delete(ctx context.Context, id int64) error {
-	return inTransaction(ctx, s.txManager, "StationVoice", apperrors.OpDelete, func(txCtx context.Context) error {
+	deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stationVoiceDeleteTimeout)
+	defer cancel()
+	return inTransaction(deleteCtx, s.txManager, "StationVoice", apperrors.OpDelete, func(txCtx context.Context) error {
 		stationVoice, err := s.stationVoiceRepo.GetForUpdate(txCtx, id)
 		if err != nil {
 			return apperrors.TranslateRepoErrorWithID("StationVoice", id, apperrors.OpQuery, err)
