@@ -73,7 +73,10 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		return nil
 	}
 
-	providedKey := c.Query("key")
+	providedKey, ok := utils.SingleQueryValue(c, "key")
+	if !ok {
+		return nil
+	}
 	if providedKey == "" {
 		utils.ProblemAuthentication(c, "API key required")
 		return nil
@@ -96,7 +99,11 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 		return nil
 	}
 
-	maxAgeSeconds, fieldErr := parseMaxAge(c.Query("max_age"))
+	maxAge, ok := utils.SingleQueryValue(c, "max_age")
+	if !ok {
+		return nil
+	}
+	maxAgeSeconds, fieldErr := parseMaxAge(maxAge)
 	if fieldErr != nil {
 		utils.ProblemQueryValidation(c, "Invalid query parameter", *fieldErr)
 		return nil

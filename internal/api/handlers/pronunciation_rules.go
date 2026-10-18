@@ -29,6 +29,9 @@ type pronunciationRulesResponse struct {
 
 // GetPronunciationRules returns the local inline-IPA pronunciation rules.
 func (h *Handlers) GetPronunciationRules(c *gin.Context) {
+	if !utils.RejectQueryParams(c) {
+		return
+	}
 	result, err := h.pronunciationRulesSvc.Get(c.Request.Context())
 	if err != nil {
 		handleServiceError(c, err, "PronunciationRules")
