@@ -96,9 +96,11 @@ func TestConversionTimeoutIsSharedAcrossPasses(t *testing.T) {
 	dir := t.TempDir()
 	ffprobe, ffmpeg := filepath.Join(dir, "ffprobe"), filepath.Join(dir, "ffmpeg")
 	writeAudioTool(t, ffprobe, "case \"$*\" in *frame=*) printf '48000,1\\n';; *) printf '1\\n';; esac\n")
-	writeAudioTool(t, ffmpeg, "sleep 0.35\nprintf '%s' '"+`{"input_i":"-16","input_tp":"-1","input_lra":"1","input_thresh":"-26","target_offset":"0"}`+"'\n")
+	writeAudioTool(t, ffmpeg, "sleep 1.1\nprintf '%s' '"+`{"input_i":"-16","input_tp":"-1","input_lra":"1","input_thresh":"-26","target_offset":"0"}`+"'\n")
 	svc := NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg, FFprobePath: ffprobe}}, nil)
-	svc.conversionTimeout = 500 * time.Millisecond
+	// Both passes fit individually, but not together. Leave ample scheduling
+	// headroom for the first pass on a busy CI runner.
+	svc.conversionTimeout = 2 * time.Second
 	_, err := svc.ConvertStoryToWAV(t.Context(), "input", "output")
 	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "convert audio") {
 		t.Fatalf("conversion error = %v, want shared budget exhausted on the second pass", err)

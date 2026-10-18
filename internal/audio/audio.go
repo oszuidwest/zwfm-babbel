@@ -34,8 +34,8 @@ func commandError(ctx context.Context, err error) error {
 
 const (
 	// conversionTimeout bounds all passes of an upload or TTS conversion.
-	// Keep it well below the cleanup sweeps' 24-hour processingMinAge, and
-	// leave room for body transfer/TTS within the server's write timeout.
+	// Keep it well below the cleanup sweeps' 24-hour processingMinAge.
+	// This is a processing budget, not an end-to-end HTTP deadline.
 	conversionTimeout = 3 * time.Minute
 
 	loudnessNormalizationFilter = "loudnorm=I=-16:TP=-1:LRA=11"
