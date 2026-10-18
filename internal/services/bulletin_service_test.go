@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
@@ -47,6 +48,7 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 			t.Parallel()
 			db := insertFailingDB(t, tt.insertErr)
 			service := &BulletinService{
+				alerts:       notify.Discard,
 				txManager:    tt.tx,
 				bulletinRepo: repository.NewBulletinRepository(db),
 			}
@@ -88,6 +90,7 @@ func TestBulletinService_SaveFailures(t *testing.T) {
 func TestBulletinService_SavePanicRemovesFile(t *testing.T) {
 	t.Parallel()
 	service := &BulletinService{
+		alerts:       notify.Discard,
 		txManager:    failingTxManager{},
 		bulletinRepo: repository.NewBulletinRepository(insertFailingDB(t, nil)),
 	}
