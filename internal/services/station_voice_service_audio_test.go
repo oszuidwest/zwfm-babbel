@@ -324,11 +324,8 @@ func TestStationVoiceService_JingleRefusesChangedPair(t *testing.T) {
 			if !service.txManager.(*jingleTxManager).rolledBack {
 				t.Fatal("transaction was not rolled back")
 			}
-			// Nothing is published under either pair.
+			// Nothing is published; the helper also rejects a file under the new pair.
 			assertJingleContent(t, service, stationVoice, existing)
-			if _, err := os.Stat(utils.JinglePath(service.config, tt.stationID, tt.voiceID)); !errors.Is(err, os.ErrNotExist) {
-				t.Fatalf("jingle of the new pair: %v, want none", err)
-			}
 			assertNoProcessingJingles(t, service, stationVoice)
 		})
 	}
