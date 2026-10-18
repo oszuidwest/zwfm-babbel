@@ -78,7 +78,6 @@ function generateQueryTests(schema, setupFn, { tiedSortField } = {}) {
       fixtureIds = await setupFn();
     });
 
-    // Field names are checked against the operation's machine-readable contract.
     const searchable = declaresQueryParameter(endpoint, 'search');
     describe('Search scope', () => {
       // searchTerm may match every row (bulletins search '.wav'), so the Search
