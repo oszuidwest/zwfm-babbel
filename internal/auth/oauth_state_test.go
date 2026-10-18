@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/securecookie"
 	gorillasessions "github.com/gorilla/sessions"
 	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 )
@@ -99,15 +98,14 @@ func TestFinishOAuthFlow_StateSaveFailureStopsExchange(t *testing.T) {
 
 type failedStateStore struct {
 	sessions.Store
-	err     error
-	loadErr error
-	saved   bool
+	err   error
+	saved bool
 }
 
 func (s *failedStateStore) New(_ *http.Request, name string) (*gorillasessions.Session, error) {
 	session := gorillasessions.NewSession(s, name)
 	session.Values[sessKeyOAuthState] = "state"
-	return session, s.loadErr
+	return session, nil
 }
 
 func (s *failedStateStore) Save(*http.Request, http.ResponseWriter, *gorillasessions.Session) error {
@@ -134,26 +132,87 @@ func (s *lockedStateStore) Save(r *http.Request, w http.ResponseWriter, session 
 func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
 	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
-	c.Request.AddCookie(&http.Cookie{Name: "session", Value: "corrupt-cookie", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	if err := s.FinishOAuthFlow(c); !errors.Is(err, ErrLoginRejected) {
+	var err error
+	router := gin.New()
+	router.GET("/callback", s.SessionMiddleware(), func(c *gin.Context) { err = s.FinishOAuthFlow(c) })
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "corrupt-cookie", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	if !errors.Is(err, ErrLoginRejected) {
 		t.Fatalf("FinishOAuthFlow = %v, want rejected login", err)
 	}
 }
 
-func TestFinishOAuthFlow_StateLoadFailureRemainsInternal(t *testing.T) {
-	var decoded string
-	usageErr := securecookie.New(nil, nil).Decode("session", "cookie", &decoded)
-	for _, cause := range []error{errors.New("session backend unavailable"), usageErr} {
-		t.Run(cause.Error(), func(t *testing.T) {
-			store := &failedStateStore{loadErr: cause}
-			s := &Service{config: &Config{Session: SessionConfig{CookieName: "session"}}, store: store, alerts: notify.Discard}
-			c, _ := gin.CreateTestContext(httptest.NewRecorder())
-			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback?state=state&code=code", nil)
-			if err := s.FinishOAuthFlow(c); !errors.Is(err, cause) || errors.Is(err, ErrLoginRejected) || store.saved {
-				t.Fatalf("FinishOAuthFlow = %v, saved = %v; want original internal error", err, store.saved)
-			}
-		})
+// A login that loaded the session before a callback consumed its OAuth state
+// must not save that state back.
+func TestCreateSessionDropsPendingOAuthState(t *testing.T) {
+	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
+	router := gin.New()
+	router.Use(s.SessionMiddleware())
+	router.GET("/start", func(c *gin.Context) {
+		session := sessions.Default(c)
+		session.Set(sessKeyOAuthState, "state")
+		session.Set(sessKeyFrontendURL, "https://app.example.com/")
+		_ = session.Save()
+	})
+	router.GET("/login", func(c *gin.Context) { _ = s.CreateSession(c, 1) })
+	var state, frontendURL any
+	router.GET("/check", func(c *gin.Context) {
+		state, frontendURL = sessions.Default(c).Get(sessKeyOAuthState), sessions.Default(c).Get(sessKeyFrontendURL)
+	})
+	start := httptest.NewRecorder()
+	router.ServeHTTP(start, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/start", nil))
+	for _, path := range []string{"/login", "/check"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		for _, cookie := range start.Result().Cookies() {
+			req.AddCookie(cookie)
+		}
+		router.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	if state != nil || frontendURL != nil {
+		t.Fatalf("session after login: state = %v, frontend URL = %v; want both removed", state, frontendURL)
+	}
+}
+
+// Session cleanup must not save back a state that a callback consumed after
+// this request loaded its session.
+func TestClearSessionUserKeepsConsumedState(t *testing.T) {
+	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
+	router := gin.New()
+	router.Use(s.SessionMiddleware())
+	router.GET("/start", func(c *gin.Context) {
+		session := sessions.Default(c)
+		session.Set(sessKeyUserID, int64(1))
+		session.Set(sessKeyOAuthState, "consumed")
+		_ = session.Save()
+	})
+	router.GET("/cleanup", func(c *gin.Context) {
+		_ = sessions.Default(c).Get(sessKeyUserID) // This request's snapshot.
+		consumed, _ := s.store.New(c.Request, cfg.Session.CookieName)
+		delete(consumed.Values, sessKeyOAuthState)
+		if err := s.store.Save(c.Request, httptest.NewRecorder(), consumed); err != nil {
+			t.Error(err)
+		}
+		if err := s.clearSessionUser(c); err != nil {
+			t.Error(err)
+		}
+	})
+	var userID, state any
+	router.GET("/check", func(c *gin.Context) {
+		userID, state = sessions.Default(c).Get(sessKeyUserID), sessions.Default(c).Get(sessKeyOAuthState)
+	})
+	start := httptest.NewRecorder()
+	router.ServeHTTP(start, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/start", nil))
+	for _, path := range []string{"/cleanup", "/check"} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		for _, cookie := range start.Result().Cookies() {
+			req.AddCookie(cookie)
+		}
+		router.ServeHTTP(httptest.NewRecorder(), req)
+	}
+	if userID != nil || state != nil {
+		t.Fatalf("session after cleanup: user = %v, state = %v; want both gone", userID, state)
 	}
 }

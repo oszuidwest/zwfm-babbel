@@ -110,7 +110,22 @@ func TestHandleOAuthCallbackLogLevels(t *testing.T) {
 				t.Fatalf("logged provider_error = %v, provider_error_description = %v, want the query values only when error is set",
 					providerErr, providerDesc)
 			}
+
+			assertReplayRejected(t, router, request, exchanged)
 		})
+	}
+}
+
+// assertReplayRejected replays a callback, whose state was either consumed or
+// never matched, and expects a rejection before the token exchange.
+func assertReplayRejected(t *testing.T, router *gin.Engine, callback *http.Request, exchanged *atomic.Bool) {
+	t.Helper()
+	exchanged.Store(false)
+	replay := httptest.NewRecorder()
+	router.ServeHTTP(replay, callback.Clone(t.Context()))
+	want := testFrontendURL + "?error=" + url.QueryEscape("OIDC login rejected: invalid or expired login state")
+	if got := replay.Header().Get("Location"); got != want || exchanged.Load() {
+		t.Fatalf("replay: Location = %q, exchanged = %v; want the state rejected before the exchange", got, exchanged.Load())
 	}
 }
 
@@ -128,36 +143,6 @@ func TestHandleOAuthCallbackTruncatesProviderValues(t *testing.T) {
 	// The bound covers every attribute, also one that would copy a provider value.
 	if logs.Len() == 0 || logs.Len() > 4*logger.MaxValueBytes {
 		t.Fatalf("log is %d bytes, want 1 to %d", logs.Len(), 4*logger.MaxValueBytes)
-	}
-}
-
-func TestFailedOAuthCallbackConsumesState(t *testing.T) {
-	for _, query := range []string{"error=access_denied", "error=server_error", "", "code=used-code"} {
-		t.Run(cmp.Or(query, "missing code"), func(t *testing.T) {
-			router, exchanged := newOAuthTestRouter(t)
-			cookie, state := startOAuthFlow(t, router)
-			callback := "/callback?state=" + url.QueryEscape(state) + "&" + query
-			for attempt := range 2 {
-				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, callback, nil)
-				req.AddCookie(cookie)
-				rec := httptest.NewRecorder()
-				router.ServeHTTP(rec, req)
-				if rec.Code != http.StatusSeeOther {
-					t.Fatalf("attempt %d: status = %d", attempt, rec.Code)
-				}
-				if attempt == 0 {
-					exchanged.Store(false)
-					continue
-				}
-				location, err := url.Parse(rec.Header().Get("Location"))
-				if err != nil || location.Query().Get("error") != "OIDC login rejected: invalid or expired login state" {
-					t.Fatalf("replayed callback: Location = %q, parse error = %v", rec.Header().Get("Location"), err)
-				}
-				if exchanged.Load() {
-					t.Fatal("replayed callback reached the token endpoint")
-				}
-			}
-		})
 	}
 }
 

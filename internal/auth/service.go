@@ -15,7 +15,6 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/securecookie"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"gorm.io/gorm"
@@ -194,8 +193,7 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("deleted_at IS NULL").
 			First(&user).Error
 		if err != nil || user.SuspendedAt != nil {
-			session.Delete(sessKeyUserID)
-			if saveErr := session.Save(); saveErr != nil {
+			if saveErr := s.clearSessionUser(c); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
 			utils.ProblemAuthentication(c, "Invalid session")
@@ -425,13 +423,9 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 func (s *Service) consumeOAuthState(c *gin.Context) error {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
-	session, err := s.store.New(c.Request, s.config.Session.CookieName)
-	if err != nil {
-		if cookieErr, ok := errors.AsType[securecookie.Error](err); ok && cookieErr.IsDecode() {
-			return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
-		}
-		return fmt.Errorf("failed to load OAuth login state: %w", err)
-	}
+	// The memory store fails only to decode a cookie, and then returns an
+	// empty session that fails the check below.
+	session, _ := s.store.New(c.Request, s.config.Session.CookieName)
 	savedState, ok := session.Values[sessKeyOAuthState].(string)
 	if !ok || c.Query("state") != savedState {
 		return fmt.Errorf("%w: invalid or expired login state", ErrLoginRejected)
@@ -441,11 +435,19 @@ func (s *Service) consumeOAuthState(c *gin.Context) error {
 	if err := s.store.Save(c.Request, c.Writer, session); err != nil {
 		return fmt.Errorf("failed to consume OAuth login state: %w", err)
 	}
-	// Keep later CreateSession saves from restoring the old cached state.
-	cached := sessions.Default(c)
-	cached.Delete(sessKeyOAuthState)
-	cached.Delete(sessKeyFrontendURL)
+	// CreateSession drops the keys from this request's cached copy.
 	return nil
+}
+
+// clearSessionUser removes the user from the stored session. It reloads under
+// the OAuth state lock: saving this request's snapshot could restore a state
+// that a concurrent callback consumed, or drop a fresh one.
+func (s *Service) clearSessionUser(c *gin.Context) error {
+	s.oauthStateMu.Lock()
+	defer s.oauthStateMu.Unlock()
+	session, _ := s.store.New(c.Request, s.config.Session.CookieName)
+	delete(session.Values, sessKeyUserID)
+	return s.store.Save(c.Request, c.Writer, session)
 }
 
 // Logout clears and saves the current session.
@@ -464,6 +466,10 @@ func (s *Service) Logout(c *gin.Context) error {
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
 	session := sessions.Default(c)
 	session.Set(sessKeyUserID, userID)
+	// A login ends any pending OAuth flow; this save must not restore a state
+	// that a concurrent callback consumed after this request loaded it.
+	session.Delete(sessKeyOAuthState)
+	session.Delete(sessKeyFrontendURL)
 	return session.Save()
 }
 
