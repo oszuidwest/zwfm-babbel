@@ -2,6 +2,7 @@ package audio
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"math"
 	"math/rand/v2"
@@ -347,6 +348,22 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 	garbage := make([]byte, 64<<10)
 	_, _ = rand.NewChaCha8([32]byte{}).Read(garbage) // Deterministic bytes.
 	var randomInputs []string
+	// Both headers describe a positive sample rate/channel count. One names
+	// an unavailable decoder; the other contains no samples at all.
+	for _, tt := range []struct {
+		name    string
+		tag     uint16
+		samples int
+	}{
+		{name: "unknown-codec", tag: 0x1234, samples: 48000},
+		{name: "empty", tag: 1},
+	} {
+		path := filepath.Join(tempDir, tt.name+".wav")
+		if err := os.WriteFile(path, wavFixture(tt.tag, tt.samples), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		randomInputs = append(randomInputs, path)
+	}
 	for _, ext := range []string{".aac", ".flac"} {
 		path := filepath.Join(tempDir, "random"+ext)
 		if err := os.WriteFile(path, garbage, 0o600); err != nil {
@@ -368,6 +385,51 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 			})
 		}
 	}
+}
+
+// wavFixture builds a mono 48 kHz WAV with an explicit format tag and size.
+func wavFixture(tag uint16, samples int) []byte {
+	data := make([]byte, 44+2*samples)
+	copy(data, "RIFF")
+	binary.LittleEndian.PutUint32(data[4:], uint32(len(data)-8)) //nolint:gosec // Small controlled fixtures.
+	copy(data[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(data[16:], 16)
+	binary.LittleEndian.PutUint16(data[20:], tag)
+	binary.LittleEndian.PutUint16(data[22:], 1)
+	binary.LittleEndian.PutUint32(data[24:], 48000)
+	binary.LittleEndian.PutUint32(data[28:], 96000)
+	binary.LittleEndian.PutUint16(data[32:], 2)
+	binary.LittleEndian.PutUint16(data[34:], 16)
+	copy(data[36:], "data")
+	binary.LittleEndian.PutUint32(data[40:], uint32(2*samples)) //nolint:gosec // Small controlled fixtures.
+	return data
+}
+
+func TestService_ConvertAcceptsSupportedFormatsAndShortJingles(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+	for _, ext := range []string{"wav", "mp3", "flac", "opus"} {
+		t.Run(ext, func(t *testing.T) {
+			input := filepath.Join(t.TempDir(), "input."+ext)
+			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-y", input)
+			for kind, convert := range conversions(svc) {
+				t.Run(kind, func(t *testing.T) {
+					if err := convert(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+		})
+	}
+	t.Run("single-sample jingle", func(t *testing.T) {
+		input := filepath.Join(t.TempDir(), "one-sample.wav")
+		if err := os.WriteFile(input, wavFixture(1, 1), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.ConvertJingleToWAV(t.Context(), input, filepath.Join(t.TempDir(), "output.wav")); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {

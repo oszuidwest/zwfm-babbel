@@ -43,8 +43,7 @@ const (
 var ErrSilent = errors.New("audio is silent or too quiet")
 
 // ErrUndecodable indicates input that ffprobe cannot open or parse, or in which
-// it finds no audio stream with a sample rate and channel count, such as a
-// corrupt or non-audio file.
+// it finds no decodable audio frame, such as a corrupt, empty or non-audio file.
 var ErrUndecodable = errors.New("input is not decodable audio")
 
 // SilentError matches [ErrSilent] and names the loudness measurements. The
@@ -141,7 +140,7 @@ func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath s
 }
 
 // probeAudio returns [ErrUndecodable] when ffprobe cannot open inputPath or
-// finds no audio stream with a sample rate and channel count. FFmpeg's exit
+// finds no audio stream with a decoded frame, sample rate and channel count. FFmpeg's exit
 // status and messages vary between versions, and its loudness pass accepts a
 // video-only input without printing stats.
 func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
@@ -149,19 +148,29 @@ func (s *Service) probeAudio(ctx context.Context, inputPath string) error {
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFprobePath,
 		"-v", "error",
 		"-select_streams", "a",
-		"-show_entries", "stream=sample_rate,channels",
-		"-of", "csv=p=0",
+		"-read_intervals", "%+#1",
+		"-count_frames",
+		"-show_entries", "stream=sample_rate,channels,nb_read_frames",
+		"-of", "json",
 		inputPath,
 	)
 	output, err := cmd.Output()
 	if err == nil {
-		// ffprobe reports a zero sample rate or channel count when it detected
-		// an audio stream, for example from the file extension, but could not
-		// decode any of it. Side data such as ReplayGain adds fields after
-		// these two.
-		for line := range strings.Lines(string(output)) {
-			fields := strings.Split(strings.TrimSpace(line), ",")
-			if len(fields) >= 2 && positiveInt(fields[0]) && positiveInt(fields[1]) {
+		// Headers can describe valid rates/channels without a usable decoder
+		// or any samples. Require a decoded frame too. JSON keeps optional
+		// fields and ReplayGain side data from changing field positions.
+		var probe struct {
+			Streams []struct {
+				SampleRate string `json:"sample_rate"`
+				Channels   int    `json:"channels"`
+				ReadFrames string `json:"nb_read_frames"`
+			} `json:"streams"`
+		}
+		if err := json.Unmarshal(output, &probe); err != nil {
+			return fmt.Errorf("failed to parse ffprobe audio output: %w", err)
+		}
+		for _, stream := range probe.Streams {
+			if positiveInt(stream.SampleRate) && stream.Channels > 0 && positiveInt(stream.ReadFrames) {
 				return nil
 			}
 		}
