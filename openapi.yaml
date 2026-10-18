@@ -443,7 +443,7 @@ paths:
     get:
       operationId: getAuthConfig
       summary: Get authentication configuration
-      description: Returns available authentication methods for the API
+      description: Returns available authentication methods for the API. Query parameters are not supported and return 422.
       tags:
         - Authentication
       security: []
@@ -657,7 +657,7 @@ paths:
       summary: Get current user information
       tags:
         - Authentication
-      description: Returns the authenticated user and effective permissions derived from the server RBAC policy.
+      description: Returns the authenticated user and effective permissions derived from the server RBAC policy. Query parameters are not supported and return 422.
       responses:
         '200':
           description: Current user information
@@ -1595,6 +1595,7 @@ paths:
         Returns the singleton ElevenLabs text-to-speech settings row.
         The response includes whether an API key is configured, but never returns the key value.
         All authenticated roles can read these settings.
+        Query parameters are not supported and return 422.
       tags:
         - Settings
       responses:
@@ -1666,6 +1667,7 @@ paths:
       description: |
         Returns local pronunciation rules used for ElevenLabs inline IPA
         injection. No ElevenLabs API call is made for this management route.
+        Query parameters are not supported and return 422.
       tags:
         - Settings
       responses:

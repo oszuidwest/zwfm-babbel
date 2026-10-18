@@ -219,7 +219,11 @@ func (h *Handlers) GenerateStoryTTS(c *gin.Context) {
 	}
 
 	force := false
-	if raw, present := c.GetQuery("force"); present {
+	raw, ok := utils.SingleQueryValue(c, "force")
+	if !ok {
+		return
+	}
+	if raw != "" {
 		parsed, err := strconv.ParseBool(raw)
 		if err != nil {
 			utils.ProblemQueryValidation(c, "Invalid query parameter", apperrors.FieldError{

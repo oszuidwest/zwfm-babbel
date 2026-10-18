@@ -96,6 +96,22 @@ func RejectQueryParams(c *gin.Context) bool {
 	return ok
 }
 
+// SingleQueryValue reads an optional single-valued parameter, rejecting
+// malformed encoding or repeated values with the list parser's 422 format.
+// Missing and empty values both return an empty string, as Gin's Query does.
+func SingleQueryValue(c *gin.Context, key string) (string, bool) {
+	query, err := parseRawQuery(c)
+	if err != nil {
+		emitQueryError(c, err)
+		return "", false
+	}
+	if len(query[key]) > 1 {
+		emitQueryError(c, queryError(key, apperrors.CodeDuplicate, "received multiple values; only one is allowed"))
+		return "", false
+	}
+	return query.Get(key), true
+}
+
 // parseKnownQueryParams rejects malformed encoding and unknown keys before
 // [parseQueryParams] runs, so a repeated unknown key reports as unknown rather
 // than duplicate. On errors it writes an RFC 9457 response and returns false.

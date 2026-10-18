@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 )
 
@@ -26,6 +27,9 @@ func TestSingleResourceGETsRejectQueryKeysBeforeCallingService(t *testing.T) {
 		"GetBulletin":              h.GetBulletin,
 		"GetBulletinJob":           h.GetBulletinJob,
 		"GetLatestStationBulletin": h.GetLatestStationBulletin,
+		"GetStationBulletins":      h.GetStationBulletins,
+		"GetBulletinStories":       h.GetBulletinStories,
+		"GetStoryBulletinHistory":  h.GetStoryBulletinHistory,
 	}
 	cases := []struct {
 		name, id, field, code string
@@ -57,6 +61,46 @@ func TestSingleResourceGETsRejectQueryKeysBeforeCallingService(t *testing.T) {
 				assertFieldError(t, recorder, tt.field, tt.code)
 			})
 		}
+	}
+}
+
+func TestSingletonGETsRejectQueryKeysBeforeCallingService(t *testing.T) {
+	t.Parallel()
+	h := &Handlers{}
+	for name, handler := range map[string]gin.HandlerFunc{"settings": h.GetTTSSettings, "pronunciations": h.GetPronunciationRules} {
+		t.Run(name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/settings?fields=x", nil)
+			handler(c) // Nil services must not be touched.
+			assertFieldError(t, recorder, "fields", "unknown_field")
+		})
+	}
+}
+
+func TestRepeatedNonListQueryValuesAreRejected(t *testing.T) {
+	t.Parallel()
+	h := &Handlers{ttsEnabled: true}
+	automation := NewAutomationHandler(nil, nil, &config.Config{Automation: config.AutomationConfig{Key: "expected"}}, nil)
+	for _, tt := range []struct {
+		query, field string
+		handler      gin.HandlerFunc
+	}{
+		{"force=false&force=true", "force", h.GenerateStoryTTS},
+		{"force=true&force=false", "force", h.GenerateStoryTTS},
+		{"key=expected&max_age=0&max_age=3600", "max_age", automation.GetPublicBulletin},
+		{"key=expected&max_age=3600&max_age=0", "max_age", automation.GetPublicBulletin},
+		{"key=expected&key=other&max_age=0", "key", automation.GetPublicBulletin},
+		{"key=other&key=expected&max_age=0", "key", automation.GetPublicBulletin},
+	} {
+		t.Run(tt.query, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/x/7?"+tt.query, nil)
+			c.Params = gin.Params{{Key: "id", Value: "7"}}
+			tt.handler(c)
+			assertFieldError(t, recorder, tt.field, "duplicate")
+		})
 	}
 }
 
