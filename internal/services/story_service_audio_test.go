@@ -193,6 +193,7 @@ func undecodableUploadFixtures(t *testing.T, ffmpegPath string) []string {
 		t.Fatal("generated WAV has no fmt chunk")
 	}
 	data[fmtOffset], data[fmtOffset+1] = 0x34, 0x12
+	// #nosec G703 - lavfiFixture returns input.wav inside a test-owned TempDir.
 	if err := os.WriteFile(unknownCodec, data, 0600); err != nil {
 		t.Fatal(err)
 	}
