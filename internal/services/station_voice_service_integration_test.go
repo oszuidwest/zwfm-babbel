@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func TestStationVoiceService_DeleteRacingFirstJingleUpload(t *testing.T) {
@@ -151,23 +153,97 @@ func TestStationVoiceService_DeleteRemovesJingleOfCommittedPair(t *testing.T) {
 		}
 	}
 
-	errc := make(chan error, 1)
-	go func() { errc <- service.Delete(t.Context(), stationVoice.ID) }()
-	// Let Delete reach its read before the move commits. Without the lock it
-	// reads the old pair and removes the other row's jingle.
-	time.Sleep(200 * time.Millisecond)
-	if err := move.Commit().Error; err != nil {
+	// Commit from the query callback at the read being verified. Checking
+	// its lock clause makes a missing locking read fail even if the goroutine
+	// would otherwise start late. No PROCESS privilege is needed.
+	read := false
+	if err := db.Callback().Query().Before("gorm:query").Register("test:commit_pair_move", func(tx *gorm.DB) {
+		if tx.Statement.Table != "station_voices" || read {
+			return
+		}
+		read = true
+		locking, ok := tx.Statement.Clauses["FOR"].Expression.(clause.Locking)
+		if !ok || locking.Strength != clause.LockingStrengthUpdate {
+			t.Error("Delete must lock the row before reading the committed pair")
+		}
+		if err := move.Commit().Error; err != nil {
+			_ = tx.AddError(err)
+		}
+	}); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := <-errc; err != nil {
+	if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
 		t.Fatalf("Delete() = %v", err)
+	}
+	if !read {
+		t.Fatal("Delete did not read the row")
 	}
 	if _, err := os.Stat(newPair); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("jingle of the deleted row: %v, want removed", err)
 	}
 	if _, err := os.Stat(oldPair); err != nil {
 		t.Fatalf("jingle of the row that owns the old pair: %v, want kept", err)
+	}
+}
+
+// An unused historical filename can name a pair created by another request
+// between the in-use query and removal. That create must wait until deletion
+// commits, so its subsequent upload cannot be removed by this cleanup.
+func TestStationVoiceService_DeleteStoredJingleBlocksNewOwner(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	service := newJingleDirTestService(t, db)
+	stations, voices, stationVoice := createStationVoiceFixture(t, db, staleJingle)
+	stored := utils.JinglePath(service.config, stations[1].ID, voices[0].ID)
+	if err := os.WriteFile(stored, []byte("old jingle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := &afterCommitTxManager{TxManager: repository.NewTxManager(db)}
+	service.txManager = manager
+	attempted, blocked := false, false
+	var replacement models.StationVoice
+	create := func(ctx context.Context) error {
+		replacement = models.StationVoice{StationID: stations[1].ID, VoiceID: voices[0].ID, MixPoint: 1}
+		return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			return tx.Create(&replacement).Error
+		})
+	}
+	// Run after the final in-use read but before removeStoredJingle returns.
+	// The hook is at the same point for the old OR count and the new reads.
+	if err := db.Callback().Query().After("gorm:query").Register("test:create_stored_pair", func(tx *gorm.DB) {
+		if attempted || tx.Statement.Table != "station_voices" || !strings.Contains(tx.Statement.SQL.String(), "audio_file =") {
+			return
+		}
+		attempted = true
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		err := create(ctx)
+		blocked = errors.Is(err, context.DeadlineExceeded)
+		if blocked {
+			manager.afterCommit = func() {
+				if err := create(t.Context()); err != nil {
+					t.Errorf("create after delete committed: %v", err)
+				}
+				if err := os.WriteFile(stored, []byte("replacement jingle"), 0o600); err != nil {
+					t.Error(err)
+				}
+			}
+		} else if err != nil {
+			t.Errorf("create: %v", err)
+		} else if err := os.WriteFile(stored, []byte("replacement jingle"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Delete(t.Context(), stationVoice.ID); err != nil {
+		t.Fatalf("Delete = %v", err)
+	}
+	if !attempted || !blocked {
+		t.Errorf("create attempted = %v, blocked = %v; want the new owner blocked until commit", attempted, blocked)
+	}
+	// #nosec G304 - canonical jingle path inside t.TempDir.
+	if data, err := os.ReadFile(stored); err != nil || string(data) != "replacement jingle" {
+		t.Fatalf("replacement jingle = %q, %v; want kept", data, err)
 	}
 }
 
