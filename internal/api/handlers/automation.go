@@ -238,7 +238,7 @@ func (h *AutomationHandler) audioAccessFailure(c *gin.Context, key, path string,
 		Details: fmt.Sprintf("Bulletin %d for station %d could not be served from %s: %v", bulletinID, stationID, path, err),
 	})
 	logger.Error("Automation: failed to access audio file", "path", path, "bulletin_id", bulletinID, "station_id", stationID, "error", err)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		utils.ProblemNotFound(c, "Audio file")
 	} else {
 		utils.ProblemInternalServer(c, "Failed to access audio file")

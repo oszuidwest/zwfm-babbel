@@ -40,6 +40,18 @@ func TestServeAudioFileClassifiesStatFailure(t *testing.T) {
 	}
 }
 
+func TestAutomationWrappedMissingStatRemainsNotFound(t *testing.T) {
+	alerts := &automationAlertRecorder{}
+	h := NewAutomationHandler(nil, nil, nil, alerts)
+	c, rec := newProblemContext(t)
+	err := fmt.Errorf("%w: %w", errAudioFileAccess, &os.PathError{Op: "stat", Path: "bulletin.wav", Err: os.ErrNotExist})
+	h.audioAccessFailure(c, "bulletin:served-audio:station:7", "bulletin.wav", 42, 7, err)
+	if rec.Code != http.StatusNotFound || len(alerts.events) != 1 {
+		t.Fatalf("status = %d, events = %+v; want missing-file response", rec.Code, alerts.events)
+	}
+	decodeProblem(t, rec)
+}
+
 func TestAutomationQueryFailuresUseSharedErrorHandling(t *testing.T) {
 	for _, path := range []string{"station", "cache"} {
 		for _, cause := range []error{context.Canceled, errors.New("driver connection lost"), fmt.Errorf("query exceeded deadline: %w", context.DeadlineExceeded)} {
