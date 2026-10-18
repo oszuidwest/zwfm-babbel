@@ -446,6 +446,43 @@ func newPublishAudioTestService(t *testing.T) *StoryService {
 	}
 }
 
+func TestGenerateTTS_UndecodableOutputIsUpstreamFailure(t *testing.T) {
+	t.Parallel()
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg not available")
+	}
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe not available")
+	}
+	story := storyForTTSTest("news")
+	service := newGenerateTTSTestService(story, &models.TTSSettings{}, nil, &fakeSpeechGenerator{data: []byte("not audio")})
+	service.config = &config.Config{Audio: config.AudioConfig{ProcessedPath: t.TempDir(), FFmpegPath: ffmpeg, FFprobePath: ffprobe}}
+	service.audioSvc = audio.NewService(service.config, nil)
+	alerts := &capturingAlerter{}
+	service.alerts = alerts
+	path := utils.StoryPath(service.config, story.ID)
+	existing := []byte("previous audio")
+	if err := os.WriteFile(path, existing, 0600); err != nil {
+		t.Fatal(err)
+	}
+	err = service.GenerateTTS(t.Context(), story.ID, true, nil)
+	assertUpstreamError(t, err, http.StatusBadGateway)
+	// The handler logs the cause, so it must carry ffprobe's diagnostic.
+	upstream, _ := errors.AsType[*apperrors.UpstreamError](err)
+	if cause := upstream.Unwrap(); !errors.Is(cause, audio.ErrUndecodable) || !strings.Contains(cause.Error(), "Invalid data") {
+		t.Fatalf("upstream cause = %v, want ffprobe's diagnostic", cause)
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "tts:upstream" || !alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
+		t.Fatalf("alerts = %+v, resolved = %v; want one thresholded upstream alert", alerts.events, alerts.resolved)
+	}
+	// #nosec G304 - canonical fixture in t.TempDir.
+	if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, existing) {
+		t.Fatalf("existing audio = %q, %v; want unchanged", data, err)
+	}
+}
+
 func assertSilentTTSFailure(t *testing.T, err error, alerts *capturingAlerter) {
 	t.Helper()
 	upstream, ok := errors.AsType[*apperrors.UpstreamError](err)

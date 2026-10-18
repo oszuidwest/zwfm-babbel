@@ -42,6 +42,12 @@ func TestParseLoudnormStats(t *testing.T) {
 			want: loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43},
 		},
 		{
+			name: "metadata braces before measurement",
+			output: "title : {x} and }\n[Parsed_loudnorm_1 @ 0x123]\n" +
+				`{"input_i":"-19.76","input_tp":"-1.00","input_lra":"4.00","input_thresh":"-30.03","target_offset":"0.43"}`,
+			want: loudnormStats{Integrated: -19.76, TruePeak: -1, LRA: 4, Threshold: -30.03, TargetOffset: 0.43},
+		},
+		{
 			name:   "silence",
 			output: `{"input_i":"-inf","input_tp":"-inf","input_lra":"0.00","input_thresh":"-70.00","target_offset":"inf"}`,
 			want:   loudnormStats{Integrated: math.Inf(-1), TruePeak: math.Inf(-1), Threshold: -70, TargetOffset: math.Inf(1)},
@@ -179,7 +185,7 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 			for _, story := range stories {
 				runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", tt.source, "-af", "volume=5dB", "-ar", "48000", "-ac", "1", "-y", utils.StoryPath(svc.config, story.ID))
 			}
-			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
+			runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=200:duration=10", "-af", "volume=-30dB", "-ar", "48000", "-ac", "2", "-metadata", "title={x} and }", "-y", utils.JinglePath(svc.config, station.ID, voiceID))
 			outputPath := filepath.Join(t.TempDir(), "bulletin.wav")
 
 			if err := svc.CreateBulletin(t.Context(), station, stories, tt.jingle, outputPath); err != nil {
@@ -200,6 +206,19 @@ func TestService_CreateBulletinNormalizesLoudness(t *testing.T) {
 				t.Fatalf("true peak = %.1f dBTP, want at most -1 dBTP", stats.TruePeak)
 			}
 		})
+	}
+}
+
+func TestService_LoudnormParseFailureAlertsImmediately(t *testing.T) {
+	t.Parallel()
+	svc := newShellService(t)
+	alerts := &alertRecorder{}
+	svc.alerts = alerts
+	if _, err := svc.measureLoudnessWithArgs(t.Context(), "-c", "echo '{not-json}'"); err == nil {
+		t.Fatal("expected invalid stats to fail")
+	}
+	if len(alerts.events) != 1 || alerts.events[0].Key != "audio:loudnorm-parse" || alerts.events[0].RequiresThreshold || len(alerts.resolved) != 0 {
+		t.Fatalf("alerts = %+v, resolved = %v; want one immediate parse alert", alerts.events, alerts.resolved)
 	}
 }
 
@@ -438,10 +457,11 @@ func TestService_ConvertAcceptsAudioWithSideData(t *testing.T) {
 	t.Parallel()
 	svc, ffmpegPath := newFFmpegService(t)
 
-	// ffprobe prints ReplayGain side data as an extra CSV field.
+	// ffprobe prints ReplayGain side data as an extra CSV field, and FFmpeg
+	// prints tags with braces before the loudnorm stats.
 	input := filepath.Join(t.TempDir(), "replaygain.flac")
 	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1",
-		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-y", input)
+		"-metadata", "REPLAYGAIN_TRACK_GAIN=-3.00 dB", "-metadata", "title={x} and }", "-y", input)
 
 	for kind, convert := range conversions(svc) {
 		t.Run(kind, func(t *testing.T) {

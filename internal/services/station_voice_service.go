@@ -10,6 +10,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/audio"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -24,6 +25,7 @@ type StationVoiceServiceDeps struct {
 	VoiceRepo        *repository.VoiceRepository
 	AudioSvc         *audio.Service
 	Config           *config.Config
+	Alerts           notify.Alerter
 }
 
 type stationVoiceRepository interface {
@@ -47,6 +49,7 @@ type StationVoiceService struct {
 	voiceRepo        *repository.VoiceRepository
 	audioSvc         *audio.Service
 	config           *config.Config
+	alerts           notify.Alerter
 }
 
 // NewStationVoiceService returns a station-voice service wired to deps.
@@ -58,6 +61,7 @@ func NewStationVoiceService(deps StationVoiceServiceDeps) *StationVoiceService {
 		voiceRepo:        deps.VoiceRepo,
 		audioSvc:         deps.AudioSvc,
 		config:           deps.Config,
+		alerts:           notify.OrDiscard(deps.Alerts),
 	}
 }
 
@@ -276,6 +280,8 @@ func (s *StationVoiceService) removeJingle(id, stationID, voiceID int64) error {
 // row moved to another pair since it was loaded, because the file is named
 // after the loaded pair. The database stores the canonical filename, not the
 // absolute output path.
+// Conversion follows ctx; publication ignores request cancellation and has
+// its own deadline so a disconnect cannot roll back an already-live jingle.
 func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *models.StationVoice, tempPath string) error {
 	outputPath := utils.JinglePath(s.config, stationVoice.StationID, stationVoice.VoiceID)
 	convertedPath, cleanup, err := utils.ProcessingPath(outputPath,
@@ -298,8 +304,11 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 	// jingle before the rename. A failed check, update or rename rolls back and
 	// keeps the old jingle; a failed commit leaves the new jingle published and
 	// may leave the database outcome unknown.
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), audioPublishTimeout)
+	defer cancel()
+	alertKey := fmt.Sprintf("stationvoice:unrecorded-audio:%d", stationVoice.ID)
 	published := false
-	err = s.txManager.WithTransaction(ctx, func(txCtx context.Context) error {
+	err = s.txManager.WithTransaction(publishCtx, func(txCtx context.Context) error {
 		current, err := s.stationVoiceRepo.GetForUpdate(txCtx, stationVoice.ID)
 		if err != nil {
 			return err
@@ -329,11 +338,23 @@ func (s *StationVoiceService) ProcessJingle(ctx context.Context, stationVoice *m
 			return conflict
 		}
 		if published {
-			// The handler logs the cause; name the live file there.
 			err = fmt.Errorf("station-voice %d jingle published to %s but commit failed: %w", stationVoice.ID, outputPath, err)
+			// Report the live file now and per station-voice: on a timeout the
+			// handler logs neither this cause nor an alert, and its database
+			// alert is per route and waits for a threshold.
+			logger.Error("Jingle is live but its database record may be missing",
+				"station_voice_id", stationVoice.ID, "path", outputPath, "error", err)
+			s.alerts.Alert(ctx, notify.Event{
+				Key:     alertKey,
+				Summary: fmt.Sprintf("Station-voice %d jingle is live but its database record may be missing", stationVoice.ID),
+				Details: err.Error() + "\n\nUpload this station-voice's jingle again to record it.",
+			})
 		}
 		return apperrors.TranslateRepoErrorWithID("StationVoice", stationVoice.ID, apperrors.OpUpdate, err)
 	}
+	s.alerts.Resolve(ctx, alertKey,
+		fmt.Sprintf("Station-voice %d jingle recorded again", stationVoice.ID),
+		"A later publication saved the station-voice's jingle file.")
 
 	logger.Info("Processed jingle for station-voice", "station_voice_id", stationVoice.ID, "filename", outputPath)
 	return nil
