@@ -61,6 +61,7 @@ func TestServeAudioLogsServerFailures(t *testing.T) {
 			wantStatus: http.StatusGatewayTimeout,
 			wantField:  "msg",
 			wantCause:  "Request timeout",
+			wantAlerts: 1,
 		},
 		{
 			name:       "file cannot be accessed",

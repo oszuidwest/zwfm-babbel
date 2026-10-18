@@ -108,6 +108,7 @@ func (h *AutomationHandler) validateBulletinRequest(c *gin.Context) *bulletinReq
 // GetPublicBulletin serves API-key-authenticated audio to automation clients.
 // max_age=0 forces generation; larger values permit a fresh cached bulletin.
 func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
+	c.Set(alertContextKey, h.alerts)
 	req := h.validateBulletinRequest(c)
 	if req == nil {
 		return
@@ -115,9 +116,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 
 	exists, err := h.stationSvc.Exists(c.Request.Context(), req.stationID)
 	if err != nil {
-		logger.Error("Automation: failed to check station existence", "error", err)
-		h.alerts.Alert(c.Request.Context(), databaseRequestEvent(c, err.Error()))
-		utils.ProblemInternalServer(c, "Failed to check station")
+		handleServiceError(c, err, "Station")
 		return
 	}
 	if !exists {
@@ -152,9 +151,7 @@ func (h *AutomationHandler) GetPublicBulletin(c *gin.Context) {
 func (h *AutomationHandler) lookupFreshBulletin(c *gin.Context, ctx context.Context, stationID int64, maxAge time.Duration) (*models.Bulletin, bool) {
 	bulletin, err := h.bulletinSvc.GetLatest(ctx, stationID, &maxAge)
 	if _, isNotFound := errors.AsType[*apperrors.NotFoundError](err); err != nil && !isNotFound {
-		logger.Error("Automation: failed to check existing bulletin", "error", err)
-		h.alerts.Alert(ctx, databaseRequestEvent(c, err.Error()))
-		utils.ProblemInternalServer(c, "Failed to check existing bulletin")
+		handleServiceError(c, err, "Bulletin")
 		return nil, false
 	}
 	return bulletin, true
@@ -167,12 +164,7 @@ func (h *AutomationHandler) getOrGenerateBulletin(c *gin.Context, req *bulletinR
 	release, err := h.bulletinSvc.LockStation(waitCtx, req.stationID)
 	cancelWait()
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			logger.Warn("Automation: timed out waiting for station lock", "station_id", req.stationID, "waited", h.config.Automation.GenerationTimeout)
-			utils.ProblemExtended(c, http.StatusGatewayTimeout, "Timed out waiting for bulletin generation", apperrors.CodeTimeout, "Retry the request")
-		} else {
-			utils.ProblemInternalServer(c, "Bulletin generation was interrupted")
-		}
+		handleServiceError(c, err, "Bulletin generation lock")
 		return nil, false, false
 	}
 	defer release()
@@ -210,27 +202,20 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 
 	file, err := os.Open(filePath) //nolint:gosec // Path uses the configured storage root and stored file names.
 	if err != nil {
-		h.alerts.Alert(c.Request.Context(), notify.Event{
-			Key:     alertKey,
-			Summary: "Radio automation bulletin file is unavailable",
-			Details: "Bulletin " + strconv.FormatInt(bulletinID, 10) + " could not be served from " + filePath + ": " + err.Error(),
-		})
-		if os.IsNotExist(err) {
-			logger.Error("Automation: audio file not found", "path", filePath)
-			utils.ProblemNotFound(c, "Audio file")
-		} else {
-			logger.Error("Automation: failed to access audio file", "error", err)
-			utils.ProblemInternalServer(c, "Failed to access audio file")
-		}
+		h.audioAccessFailure(c, alertKey, filePath, bulletinID, stationID, err)
 		return
 	}
 	defer func() { _ = file.Close() }() // Read-only; close errors cannot affect the response.
-	h.alerts.Resolve(c.Request.Context(), alertKey,
-		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
-
 	c.Header("Cache-Control", "no-store")
 	deliveryKey := "bulletin:delivery:station:" + station
-	if err := serveAudioFile(c, file, audioFile, bulletinID, cached); err != nil {
+	err = serveAudioFile(c, file, audioFile, bulletinID, cached)
+	if errors.Is(err, errAudioFileAccess) {
+		h.audioAccessFailure(c, alertKey, filePath, bulletinID, stationID, err)
+		return
+	}
+	h.alerts.Resolve(c.Request.Context(), alertKey,
+		"Radio automation bulletin file recovered", "Bulletin audio is readable again.")
+	if err != nil {
 		if errors.Is(err, errUnverifiedDelivery) {
 			logger.Warn("Automation: bulletin audio delivery could not be verified", "station_id", stationID, "bulletin_id", bulletinID)
 			return
@@ -244,5 +229,18 @@ func (h *AutomationHandler) serveBulletinAudio(c *gin.Context, audioFile string,
 	}
 	if c.Writer.Status() == http.StatusOK || c.Writer.Status() == http.StatusPartialContent {
 		h.alerts.Resolve(c.Request.Context(), deliveryKey, "Radio automation bulletin delivery recovered", "Bulletin audio was written successfully again.")
+	}
+}
+
+func (h *AutomationHandler) audioAccessFailure(c *gin.Context, key, path string, bulletinID, stationID int64, err error) {
+	h.alerts.Alert(c.Request.Context(), notify.Event{
+		Key: key, Summary: "Radio automation bulletin file is unavailable",
+		Details: fmt.Sprintf("Bulletin %d for station %d could not be served from %s: %v", bulletinID, stationID, path, err),
+	})
+	logger.Error("Automation: failed to access audio file", "path", path, "bulletin_id", bulletinID, "station_id", stationID, "error", err)
+	if os.IsNotExist(err) {
+		utils.ProblemNotFound(c, "Audio file")
+	} else {
+		utils.ProblemInternalServer(c, "Failed to access audio file")
 	}
 }
