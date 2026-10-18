@@ -22,10 +22,11 @@ type runner struct {
 	fn         func(ctx context.Context) error
 	alerts     notify.Alerter
 
-	ctx      context.Context // cancelled by Stop
-	cancel   context.CancelFunc
-	done     chan struct{}
-	stopOnce sync.Once
+	ctx       context.Context // cancelled by Stop
+	cancel    context.CancelFunc
+	done      chan struct{}
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // newRunner returns a stopped runner that executes fn every interval.
@@ -45,23 +46,25 @@ func newRunner(name string, interval, runTimeout time.Duration, fn func(ctx cont
 }
 
 // Start runs the job immediately and then every interval in a background
-// goroutine.
+// goroutine. Later calls do nothing.
 func (r *runner) Start() {
-	r.runOnce(r.ctx)
+	r.startOnce.Do(func() {
+		r.runOnce(r.ctx)
 
-	go func() {
-		defer close(r.done)
-		ticker := time.NewTicker(r.interval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				r.runOnce(r.ctx)
-			case <-r.ctx.Done():
-				return
+		go func() {
+			defer close(r.done)
+			ticker := time.NewTicker(r.interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					r.runOnce(r.ctx)
+				case <-r.ctx.Done():
+					return
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // runOnce executes the job with a per-run timeout context and maintains the

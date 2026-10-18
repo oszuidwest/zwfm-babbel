@@ -131,6 +131,21 @@ func TestRunnerStopDuringTickerJobDoesNotNotify(t *testing.T) {
 	}
 }
 
+func TestRunnerStartTwiceRunsOneLoop(t *testing.T) {
+	runs := 0
+	r := newRunner("started twice", time.Hour, time.Second, func(context.Context) error {
+		runs++
+		return nil
+	}, notify.Discard)
+
+	r.Start()
+	r.Start()
+	r.Stop() // A second loop would close done again and panic.
+	if runs != 1 {
+		t.Fatalf("runs = %d, want 1", runs)
+	}
+}
+
 func TestRunnerStillAlertsForDeadlineOrIndependentCancellation(t *testing.T) {
 	t.Parallel()
 	for _, err := range []error{context.DeadlineExceeded, context.Canceled} {
