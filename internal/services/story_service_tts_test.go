@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -335,6 +336,7 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 	tests := []struct {
 		name                  string
 		err                   error
+		canceled              bool // the caller's context is cancelled
 		wantKey               string
 		wantRequiresThreshold bool
 	}{
@@ -353,6 +355,12 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 		},
 		{name: "request timeout", err: context.DeadlineExceeded, wantKey: "tts:upstream", wantRequiresThreshold: true},
 		{name: "voice not found is user error", err: &tts.APIError{StatusCode: http.StatusNotFound}},
+		{name: "caller disconnect", err: fmt.Errorf("request: %w", context.Canceled), canceled: true},
+		{name: "upstream cancellation", err: context.Canceled, wantKey: "tts:upstream", wantRequiresThreshold: true},
+		{
+			name: "server error after caller disconnect", err: &tts.APIError{StatusCode: http.StatusServiceUnavailable}, canceled: true,
+			wantKey: "tts:upstream", wantRequiresThreshold: true,
+		},
 		{
 			name: "upstream rejects request", err: &tts.APIError{StatusCode: http.StatusUnprocessableEntity},
 			wantKey: "tts:upstream", wantRequiresThreshold: true,
@@ -363,7 +371,12 @@ func TestStoryServiceAlertTTSError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			alerts := &capturingAlerter{}
 			service := &StoryService{alerts: alerts}
-			service.alertTTSError(t.Context(), 123, tt.err)
+			ctx, cancel := context.WithCancel(t.Context())
+			if tt.canceled {
+				cancel()
+			}
+			defer cancel()
+			service.alertTTSError(ctx, 123, tt.err)
 			if tt.wantKey == "" {
 				if len(alerts.events) != 0 {
 					t.Fatalf("events = %+v, want none", alerts.events)
