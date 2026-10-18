@@ -31,7 +31,7 @@ info:
       that do not exist (such as `voice_id` or `station_id`), an update that
       sets no field, an invalid path `id`, a query string that cannot be
       decoded on any endpoint, unknown or invalid query parameters, and a
-      missing, unsupported or silent uploaded file.
+      missing, unsupported, undecodable or silent uploaded file.
     - **409 Conflict**: the request conflicts with the current server state,
       for example a duplicate name, a resource with dependencies, a story
       that is not ready for TTS, or the last admin. The `code` member names
