@@ -21,26 +21,6 @@ class TestHelpers {
   }
 
   /**
-   * Polls instead of assuming audio processing latency.
-   * @param {number} storyId
-   * @param {number} [timeoutMs]
-   * @param {number} [intervalMs]
-   * @returns {Promise<boolean>}
-   */
-  async waitForStoryAudio(storyId, timeoutMs = 10000, intervalMs = 500) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const response = await this.api.apiCall('GET', `/stories/${storyId}`);
-      this.fixtureResponse(response, 'GET', `/stories/${storyId}`, 200, false);
-      if (response.data.audio_url) {
-        return true;
-      }
-      await this.sleep(intervalMs);
-    }
-    return false;
-  }
-
-  /**
    * Polls to a terminal state; throws on HTTP errors or timeout.
    * @param {number} jobId
    * @param {number} [timeoutMs]
@@ -86,8 +66,8 @@ class TestHelpers {
         this._ffmpegAvailable = true;
       } catch (error) {
         this._ffmpegAvailable = false;
-        this._ffmpegFailure = commandErrorMessage(error);
-        console.warn(`ffmpeg is not available: ${this._ffmpegFailure}`);
+        this._ffmpegFailure = error;
+        console.warn(`ffmpeg is not available: ${commandErrorMessage(error)}`);
       }
     }
     return this._ffmpegAvailable;
@@ -95,7 +75,7 @@ class TestHelpers {
 
   requireFFmpeg() {
     if (!this.isFFmpegAvailable()) {
-      throw new Error(`Fixture requires FFmpeg, but ffmpeg is not available: ${this._ffmpegFailure || 'availability check failed'}`);
+      throw new Error(`Fixture requires FFmpeg, but ffmpeg is not available: ${this._ffmpegFailure ? commandErrorMessage(this._ffmpegFailure) : 'availability check failed'}`, { cause: this._ffmpegFailure });
     }
   }
 
@@ -110,15 +90,13 @@ class TestHelpers {
    * @param {string} outputPath
    * @param {number} [duration=3]
    * @param {number} [frequency=440]
-   * @returns {boolean}
+   * @returns {string} Path of the created audio file; throws on failure.
    */
   createTestAudioFile(outputPath, duration = 3, frequency = 440) {
     const numericDuration = parseFiniteNumber(duration, 'audio duration');
     const numericFrequency = parseFiniteNumber(frequency, 'audio frequency');
 
-    if (!this.isFFmpegAvailable()) {
-      return false;
-    }
+    this.requireFFmpeg();
 
     try {
       execFileSync(
@@ -132,16 +110,14 @@ class TestHelpers {
           outputPath,
           '-y'
         ],
-        { stdio: 'ignore' }
+        { stdio: ['ignore', 'pipe', 'pipe'] }
       );
       if (!fsSync.existsSync(outputPath)) {
         throw new Error('ffmpeg completed but output file was not created');
       }
-      return true;
+      return outputPath;
     } catch (error) {
-      this._audioCreationFailure = commandErrorMessage(error);
-      console.warn(`Failed to create test audio file ${outputPath}: ${this._audioCreationFailure}`);
-      return false;
+      throw new Error(`FFmpeg could not create audio fixture ${outputPath}: ${commandErrorMessage(error)}`, { cause: error });
     }
   }
 
@@ -238,14 +214,10 @@ class TestHelpers {
    * @returns {Promise<{id: number}>}
    */
   async createStoryWithAudio(resourceManager, data) {
-    this.requireFFmpeg();
-
     const audioFile = `/tmp/test_story_${Date.now()}.wav`;
 
     try {
-      if (!this.createTestAudioFile(audioFile, 3, 220)) {
-        throw new Error(`FFmpeg could not create story audio fixture: ${this._audioCreationFailure || audioFile}`);
-      }
+      this.createTestAudioFile(audioFile, 3, 220);
       const story = await this.createStory(resourceManager, data);
 
       const uploadResponse = await this.api.uploadFile(
@@ -263,44 +235,18 @@ class TestHelpers {
   }
 
   /**
-   * @param {Object} resourceManager
-   * @param {Object} data
-   * @returns {Promise<{id: number}>}
-   */
-  async createStoryWithReadyAudio(resourceManager, data) {
-    const story = await this.createStoryWithAudio(resourceManager, data);
-    const audioReady = await this.waitForStoryAudio(story.id);
-    if (!audioReady) throw new Error(`Fixture GET /stories/${story.id}: audio did not become ready within 10 seconds`);
-    return story;
-  }
-
-  /**
-   * Fails fast when the fixture cannot be prepared.
-   * @param {Object} resourceManager
-   * @param {Object} data
-   * @returns {Promise<{id: number}>}
-   */
-  async requireStoryWithReadyAudio(resourceManager, data) {
-    const story = await this.createStoryWithReadyAudio(resourceManager, data);
-    if (!story) {
-      throw new Error(`Failed to create ready story audio fixture: ${data.title || 'untitled story'}`);
-    }
-    return story;
-  }
-
-  /**
    * Throws if any fixture fails; created resources remain tracked for cleanup.
    * @param {Object} resourceManager
    * @param {string|number} voiceId
    * @param {Object[]} stories
    * @returns {Promise<Array<{id: number}>>}
    */
-  async createStoriesWithReadyAudio(resourceManager, voiceId, stories) {
+  async createStoriesWithAudio(resourceManager, voiceId, stories) {
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
     const created = [];
 
     for (const story of stories) {
-      const createdStory = await this.createStoryWithReadyAudio(resourceManager, {
+      const createdStory = await this.createStoryWithAudio(resourceManager, {
         voice_id: safeVoiceId,
         weekdays: 127,
         status: 'active',
@@ -310,20 +256,6 @@ class TestHelpers {
       created.push(createdStory);
     }
 
-    return created;
-  }
-
-  /**
-   * @param {Object} resourceManager
-   * @param {string|number} voiceId
-   * @param {Object[]} stories
-   * @returns {Promise<Array<{id: number}>>}
-   */
-  async requireStoriesWithReadyAudio(resourceManager, voiceId, stories) {
-    const created = await this.createStoriesWithReadyAudio(resourceManager, voiceId, stories);
-    if (!created) {
-      throw new Error(`Failed to create ready story audio fixtures for voice ${voiceId}`);
-    }
     return created;
   }
 
@@ -357,14 +289,10 @@ class TestHelpers {
     const safeStationId = parseSafeInteger(stationId, 'station ID');
     const safeVoiceId = parseSafeInteger(voiceId, 'voice ID');
 
-    this.requireFFmpeg();
-
     const jingleFile = `/tmp/test_jingle_${safeStationId}_${safeVoiceId}_${Date.now()}.wav`;
 
     try {
-      if (!this.createTestAudioFile(jingleFile, 5, 440)) {
-        throw new Error(`FFmpeg could not create jingle fixture: ${this._audioCreationFailure || jingleFile}`);
-      }
+      this.createTestAudioFile(jingleFile, 5, 440);
       const stationVoice = await this.createStationVoice(resourceManager, safeStationId, safeVoiceId, mixPoint);
 
       const uploadResponse = await this.api.uploadFile(
@@ -401,19 +329,10 @@ class TestHelpers {
     } = options;
 
     const station = await this.createStation(resourceManager, stationName, maxStories, pauseSeconds);
-    if (!station) {
-      throw new Error(`Failed to create station fixture: ${stationName}`);
-    }
 
     const voice = await this.createVoice(resourceManager, voiceName);
-    if (!voice) {
-      throw new Error(`Failed to create voice fixture: ${voiceName}`);
-    }
 
     const stationVoice = await this.createStationVoiceWithJingle(resourceManager, station.id, voice.id, mixPoint);
-    if (!stationVoice) {
-      throw new Error(`Failed to create station-voice fixture for station ${station.id} and voice ${voice.id}`);
-    }
 
     const storyData = {
       title: this.uniqueName(storyTitle),
@@ -424,7 +343,7 @@ class TestHelpers {
       ...storyOverrides
     };
 
-    const story = await this.requireStoryWithReadyAudio(resourceManager, storyData);
+    const story = await this.createStoryWithAudio(resourceManager, storyData);
 
     return { station, voice, stationVoice, story };
   }

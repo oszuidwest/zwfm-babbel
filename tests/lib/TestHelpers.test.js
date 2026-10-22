@@ -44,31 +44,31 @@ describe('TestHelpers', () => {
   });
 
   test('when ffmpeg generation fails, then command details are preserved', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = new Error('ffmpeg failed');
+    error.stderr = Buffer.from('invalid sine filter');
     execFileSync.mockImplementation((bin, args) => {
       if (bin === 'ffmpeg' && args[0] === '-version') {
         return '';
       }
-      const error = new Error('ffmpeg failed');
-      error.stderr = Buffer.from('invalid sine filter');
       throw error;
     });
 
     const helpers = new TestHelpers({});
 
-    expect(helpers.createTestAudioFile('/tmp/out.wav', 1, 440)).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalid sine filter'));
+    expect(() => helpers.createTestAudioFile('/tmp/out.wav', 1, 440)).toThrow(expect.objectContaining({
+      message: expect.stringContaining('invalid sine filter'), cause: error
+    }));
   });
 
-  test('when ffmpeg succeeds without creating output, then returns false with warning', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  test('when ffmpeg succeeds without creating output, then throws with its cause', () => {
     execFileSync.mockReturnValue('');
     jest.spyOn(fsSync, 'existsSync').mockReturnValue(false);
 
     const helpers = new TestHelpers({});
 
-    expect(helpers.createTestAudioFile('/tmp/out.wav', 1, 440)).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('output file was not created'));
+    expect(() => helpers.createTestAudioFile('/tmp/out.wav', 1, 440)).toThrow(expect.objectContaining({
+      message: expect.stringContaining('output file was not created'), cause: expect.any(Error)
+    }));
   });
 
   test('when checking ffmpeg repeatedly, then result is memoized', () => {
@@ -95,17 +95,37 @@ describe('TestHelpers', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
   });
 
-  test('when waiting for story audio times out, then returns false', async () => {
-    const api = {
-      apiCall: jest.fn().mockResolvedValue({ status: 200, data: {} })
-    };
+  test('when ffmpeg is missing, then audio creation throws with its cause', () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const cause = new Error('spawn ffmpeg ENOENT');
+    execFileSync.mockImplementation(() => { throw cause; });
+    const helpers = new TestHelpers({});
+    expect(() => helpers.createTestAudioFile('/tmp/out.wav')).toThrow(expect.objectContaining({
+      message: expect.stringContaining('ENOENT'), cause
+    }));
+  });
+
+  test('when audio creation succeeds, then returns the file path', () => {
+    execFileSync.mockReturnValue('');
+    jest.spyOn(fsSync, 'existsSync').mockReturnValue(true);
+    expect(new TestHelpers({}).createTestAudioFile('/tmp/out.wav')).toBe('/tmp/out.wav');
+  });
+
+  test('story audio fixture resolves only after the upload completes', async () => {
+    let finishUpload;
+    const api = { uploadFile: jest.fn().mockReturnValue(new Promise(resolve => { finishUpload = resolve; })) };
     const helpers = new TestHelpers(api);
-
-    // Eliminate poll delays while the wall clock expires.
-    jest.spyOn(helpers, 'sleep').mockResolvedValue();
-
-    await expect(helpers.waitForStoryAudio(40, 3, 1)).resolves.toBe(false);
-    expect(api.apiCall).toHaveBeenCalledWith('GET', '/stories/40');
+    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue('/tmp/out.wav');
+    jest.spyOn(helpers, 'createStory').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'cleanupTempFile').mockImplementation(() => {});
+    let finished = false;
+    const fixture = helpers.createStoryWithAudio({ track: jest.fn() }, {}).then(story => { finished = true; return story; });
+    await Promise.resolve();
+    expect(api.uploadFile).toHaveBeenCalledWith('/stories/40/audio', {}, expect.any(String), 'audio');
+    expect(finished).toBe(false);
+    finishUpload({ status: 201, data: { message: 'Audio uploaded successfully' } });
+    await expect(fixture).resolves.toEqual({ id: 40 });
+    expect(helpers.cleanupTempFile).toHaveBeenCalledTimes(1);
   });
 
   test('when bulletin job reaches a terminal state, then returns the API response', async () => {
@@ -173,8 +193,7 @@ describe('TestHelpers', () => {
 
   test('story audio upload failure retains the response and cleans temporary audio', async () => {
     const helpers = new TestHelpers({ uploadFile: jest.fn().mockResolvedValue({ status: 422, data: { errors: [{ code: 'undecodable_audio' }] } }) });
-    jest.spyOn(helpers, 'isFFmpegAvailable').mockReturnValue(true);
-    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue(true);
+    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue('/tmp/out.wav');
     jest.spyOn(helpers, 'createStory').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'cleanupTempFile').mockImplementation(() => {});
     await expect(helpers.createStoryWithAudio({ track: jest.fn() }, {})).rejects.toThrow('POST /stories/40/audio failed: HTTP 422; body {"errors":[{"code":"undecodable_audio"}]}');
@@ -199,53 +218,15 @@ describe('TestHelpers', () => {
     expect(api.apiCall).not.toHaveBeenCalled();
   });
 
-  test('when creating story with ready audio, then waits until audio is exposed', async () => {
+  test('when creating stories with audio, then applies shared voice defaults', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
 
-    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
-    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(true);
-
-    const story = await helpers.createStoryWithReadyAudio(resourceManager, { title: 'Story with audio' });
-
-    expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
-      resourceManager,
-      { title: 'Story with audio' }
-    );
-    expect(helpers.waitForStoryAudio).toHaveBeenCalledWith(40);
-    expect(story).toEqual({ id: 40 });
-  });
-
-  test('when creating story with ready audio times out, then reports the story path', async () => {
-    const helpers = new TestHelpers({});
-
-    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
-    jest.spyOn(helpers, 'waitForStoryAudio').mockResolvedValue(false);
-
-    await expect(
-      helpers.createStoryWithReadyAudio({ track: jest.fn() }, { title: 'Story with audio' })
-    ).rejects.toThrow('GET /stories/40: audio did not become ready');
-  });
-
-  test('when requiring story with ready audio fails, then throws', async () => {
-    const helpers = new TestHelpers({});
-
-    jest.spyOn(helpers, 'createStoryWithReadyAudio').mockResolvedValue(null);
-
-    await expect(
-      helpers.requireStoryWithReadyAudio({ track: jest.fn() }, { title: 'Required story' })
-    ).rejects.toThrow(/Required story/);
-  });
-
-  test('when creating stories with ready audio, then applies shared voice defaults', async () => {
-    const helpers = new TestHelpers({});
-    const resourceManager = { track: jest.fn() };
-
-    jest.spyOn(helpers, 'createStoryWithReadyAudio')
+    jest.spyOn(helpers, 'createStoryWithAudio')
       .mockResolvedValueOnce({ id: 1 })
       .mockResolvedValueOnce({ id: 2 });
 
-    const stories = await helpers.createStoriesWithReadyAudio(
+    const stories = await helpers.createStoriesWithAudio(
       resourceManager,
       20,
       [
@@ -254,7 +235,7 @@ describe('TestHelpers', () => {
       ]
     );
 
-    expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
+    expect(helpers.createStoryWithAudio).toHaveBeenNthCalledWith(
       1,
       resourceManager,
       expect.objectContaining({
@@ -266,7 +247,7 @@ describe('TestHelpers', () => {
         is_breaking: true
       })
     );
-    expect(helpers.createStoryWithReadyAudio).toHaveBeenNthCalledWith(
+    expect(helpers.createStoryWithAudio).toHaveBeenNthCalledWith(
       2,
       resourceManager,
       expect.objectContaining({
@@ -281,24 +262,13 @@ describe('TestHelpers', () => {
     expect(stories).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
-  test('when requiring station stories with ready audio fails, then throws', async () => {
-    const helpers = new TestHelpers({});
-
-    jest.spyOn(helpers, 'createStoriesWithReadyAudio').mockResolvedValue(null);
-
-    await expect(
-      helpers.requireStoriesWithReadyAudio({ track: jest.fn() }, 20, [{ title: 'Missing audio' }])
-    ).rejects.toThrow(/voice 20/);
-  });
-
   test('when jingle upload fails, then station voice with jingle reports status and body', async () => {
     const api = {
       uploadFile: jest.fn().mockResolvedValue({ status: 500, data: { detail: 'read-only volume' } })
     };
     const helpers = new TestHelpers(api);
 
-    jest.spyOn(helpers, 'isFFmpegAvailable').mockReturnValue(true);
-    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue(true);
+    jest.spyOn(helpers, 'createTestAudioFile').mockReturnValue('/tmp/out.wav');
     jest.spyOn(helpers, 'createStationVoice').mockResolvedValue({ id: 30 });
     jest.spyOn(helpers, 'cleanupTempFile').mockImplementation(() => {});
 
@@ -307,14 +277,14 @@ describe('TestHelpers', () => {
     expect(helpers.cleanupTempFile).toHaveBeenCalledTimes(1);
   });
 
-  test('when creating broadcast fixture, then dependencies are created and audio is awaited', async () => {
+  test('when creating broadcast fixture, then dependencies and uploaded audio are created', async () => {
     const helpers = new TestHelpers({});
     const resourceManager = { track: jest.fn() };
 
     jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
     jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
     jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
-    jest.spyOn(helpers, 'requireStoryWithReadyAudio').mockResolvedValue({ id: 40 });
+    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
     jest.spyOn(helpers, 'uniqueName').mockReturnValue('Unique Story');
 
     const fixture = await helpers.createBroadcastFixture(resourceManager, {
@@ -331,7 +301,7 @@ describe('TestHelpers', () => {
     expect(helpers.createStation).toHaveBeenCalledWith(resourceManager, 'Station', 3, 1.5);
     expect(helpers.createVoice).toHaveBeenCalledWith(resourceManager, 'Voice');
     expect(helpers.createStationVoiceWithJingle).toHaveBeenCalledWith(resourceManager, 10, 20, 2.5);
-    expect(helpers.requireStoryWithReadyAudio).toHaveBeenCalledWith(
+    expect(helpers.createStoryWithAudio).toHaveBeenCalledWith(
       resourceManager,
       expect.objectContaining({
         title: 'Unique Story',
@@ -351,20 +321,21 @@ describe('TestHelpers', () => {
   });
 
   test.each([
-    ['station', 'createStation', () => null, /Failed to create station fixture/],
-    ['voice', 'createVoice', () => null, /Failed to create voice fixture/],
-    ['station voice', 'createStationVoiceWithJingle', () => null, /Failed to create station-voice fixture/],
-    ['story audio', 'requireStoryWithReadyAudio', () => Promise.reject(new Error('story setup failed')), /story setup failed/]
-  ])('when creating broadcast fixture fails at %s, then throws', async (_label, methodName, resultFactory, errorPattern) => {
+    ['station', 'createStation'],
+    ['voice', 'createVoice'],
+    ['station voice', 'createStationVoiceWithJingle'],
+    ['story audio', 'createStoryWithAudio']
+  ])('when creating broadcast fixture fails at %s, then preserves its cause', async (_label, methodName) => {
     const helpers = new TestHelpers({});
 
     jest.spyOn(helpers, 'createStation').mockResolvedValue({ id: 10, name: 'Station' });
     jest.spyOn(helpers, 'createVoice').mockResolvedValue({ id: 20, name: 'Voice' });
     jest.spyOn(helpers, 'createStationVoiceWithJingle').mockResolvedValue({ id: 30 });
-    jest.spyOn(helpers, 'requireStoryWithReadyAudio').mockResolvedValue({ id: 40 });
-    jest.spyOn(helpers, methodName).mockImplementation(resultFactory);
+    jest.spyOn(helpers, 'createStoryWithAudio').mockResolvedValue({ id: 40 });
+    const cause = new Error(`${_label} setup failed`);
+    jest.spyOn(helpers, methodName).mockRejectedValue(cause);
 
-    await expect(helpers.createBroadcastFixture({ track: jest.fn() })).rejects.toThrow(errorPattern);
+    await expect(helpers.createBroadcastFixture({ track: jest.fn() })).rejects.toBe(cause);
   });
 
   test('when public bulletin request is made, then station ID and query params are encoded', async () => {

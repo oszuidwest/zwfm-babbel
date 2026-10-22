@@ -34,13 +34,12 @@ describe('TTS', () => {
 
   const uploadTestAudio = async (storyId) => {
     const audioPath = `/tmp/tts_test_audio_${Date.now()}.wav`;
-    if (!global.helpers.createTestAudioFile(audioPath, 1)) return false;
-
     try {
+      global.helpers.createTestAudioFile(audioPath, 1);
       const response = await global.api.uploadFile(
         `/stories/${storyId}/audio`, {}, audioPath, 'audio'
       );
-      return response.status === 201;
+      global.helpers.fixtureResponse(response, 'POST', `/stories/${storyId}/audio`, 201, false);
     } finally {
       global.helpers.cleanupTempFile(audioPath);
     }
@@ -100,8 +99,7 @@ describe('TTS', () => {
 
       const storyId = await createStory('TTS Audio Exists Story', 'Some text content for TTS', voiceId);
 
-      const uploaded = await uploadTestAudio(storyId);
-      expect(uploaded).toBe(true);
+      await uploadTestAudio(storyId);
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
@@ -124,8 +122,7 @@ describe('TTS', () => {
         voiceId
       );
 
-      const uploaded = await uploadTestAudio(storyId);
-      expect(uploaded).toBe(true);
+      await uploadTestAudio(storyId);
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts?force=true`);
 
