@@ -16,7 +16,8 @@ const { isolatedSearchCase, independentFilters, matchingSearchIDs } = require('.
  * directions.
  * Fixtures must also contradict ascending ID reads in both directions, have
  * three levels for numeric between filters, and isolate a positive term in
- * each search field. Searchable fixtures include "querykeep" in at least
+ * each search field after trimming both ends of its value. Searchable
+ * fixtures include "querykeep" in at least
  * three rows but not all rows, so combined search/filter/sort/fields/limit
  * tests can independently detect every omitted part.
  *

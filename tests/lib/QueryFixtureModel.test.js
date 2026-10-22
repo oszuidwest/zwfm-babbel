@@ -8,11 +8,25 @@ describe('Query fixture mutation models', () => {
     { id: 4, title: 'Headline Delta', text: 'Body Four querydrop', role: 'editor' }
   ];
 
-  test.each(['title', 'text'])('isolated %s search fails if that field is omitted', field => {
+  test.each(['title', 'text'])('isolated %s search fails if that field is omitted or uses equality', field => {
     const fields = ['title', 'text'];
     const plan = isolatedSearchCase(rows, fields, field);
+    expect(plan.term.length).toBeGreaterThan(0);
+    const target = rows.find(row => plan.ids.includes(row.id));
+    expect(target[field]).toContain(plan.term);
+    expect(plan.term.length).toBeLessThan(target[field].length);
     expect(plan.ids.length).toBeLessThan(rows.length);
     expect(matchingSearchIDs(rows, fields.filter(other => other !== field), plan.term)).not.toEqual(plan.ids);
+    const equalityIDs = rows.filter(row => fields.some(other => other === field
+      ? row[other].toLowerCase() === plan.term.toLowerCase()
+      : row[other].toLowerCase().includes(plan.term.toLowerCase()))).map(row => row.id);
+    expect(equalityIDs).not.toEqual(plan.ids);
+  });
+
+  test('short or universally shared inner terms cannot create weak search tests', () => {
+    for (const titles of [['a', 'ab'], ['AxZ', 'BxY']]) {
+      expect(() => isolatedSearchCase(titles.map((title, index) => ({ id: index, title })), ['title'], 'title')).toThrow(/strict substring/);
+    }
   });
 
   test('ambiguous search fields cannot silently produce a weak test', () => {
