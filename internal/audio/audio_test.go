@@ -16,6 +16,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
+	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
@@ -486,6 +487,27 @@ func TestProbeDiagnosticBoundsCommandStderr(t *testing.T) {
 	}
 	if stderr.buf.Len() != 32*1024 {
 		t.Fatalf("captured %d bytes, want 32 KiB", stderr.buf.Len())
+	}
+}
+
+func TestService_ConvertRejectsLateDecoderFailures(t *testing.T) {
+	t.Parallel()
+	svc, ffmpegPath := newFFmpegService(t)
+	input := testutil.CorruptOpus(t, ffmpegPath)
+	testutil.RequireDecoderError(t, ffmpegPath, input)
+	if err := svc.probeAudio(t.Context(), input); err != nil {
+		t.Fatalf("first frame must decode to exercise later corruption: %v", err)
+	}
+	for kind, convert := range conversions(svc) {
+		t.Run(kind, func(t *testing.T) {
+			err := convert(t.Context(), input, filepath.Join(t.TempDir(), "output.wav"))
+			if !errors.Is(err, ErrUndecodable) {
+				t.Fatalf("conversion = %v, want ErrUndecodable", err)
+			}
+			if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 69 {
+				t.Fatalf("conversion = %v, want preserved decoder failure", err)
+			}
+		})
 	}
 }
 

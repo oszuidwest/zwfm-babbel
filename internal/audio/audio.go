@@ -44,8 +44,8 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
-// ErrUndecodable indicates input that ffprobe cannot open or parse, or in which
-// it finds no decodable audio frame, such as a corrupt, empty or non-audio file.
+// ErrUndecodable indicates input that ffprobe cannot open or decode, or whose
+// later frames exceed FFmpeg's tolerated decode error rate.
 var ErrUndecodable = errors.New("input is not decodable audio")
 
 // SilentError matches [ErrSilent] and names the loudness measurements. The
@@ -233,7 +233,7 @@ func (s *Service) convertToWAV(
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, args...)
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("ffmpeg failed to convert audio: %w", commandError(ctx, err))
+		return fmt.Errorf("ffmpeg failed to convert audio: %w", ffmpegError(ctx, err))
 	}
 	return nil
 }
@@ -251,7 +251,7 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	cmd := exec.CommandContext(ctx, s.config.Audio.FFmpegPath, append(args, "-f", "null", "-")...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return loudnormStats{}, fmt.Errorf("ffmpeg failed to measure loudness: %w. output: %s", commandError(ctx, err), string(output))
+		return loudnormStats{}, fmt.Errorf("ffmpeg failed to measure loudness: %w. output: %s", ffmpegError(ctx, err), string(output))
 	}
 
 	stats, err := parseLoudnormStats(string(output))
@@ -265,6 +265,19 @@ func (s *Service) measureLoudnessWithArgs(ctx context.Context, args ...string) (
 	}
 	s.alerts.Resolve(ctx, "audio:loudnorm-parse", "FFmpeg loudnorm parsing recovered", "Loudness measurements can be parsed again.")
 	return stats, nil
+}
+
+// ffmpegError recognizes FFmpeg's documented max_error_rate exit status.
+// Do not infer invalid input from generic tool failures or stderr text: the
+// latter can contain user-supplied tags. Cancellation takes precedence.
+// https://ffmpeg.org/ffmpeg.html (max_error_rate)
+func ffmpegError(ctx context.Context, err error) error {
+	if ctx.Err() == nil {
+		if exit, ok := errors.AsType[*exec.ExitError](err); ok && exit.ExitCode() == 69 {
+			return errors.Join(ErrUndecodable, err)
+		}
+	}
+	return commandError(ctx, err)
 }
 
 // storyNormalizationFilter uses dynamic mode when integrated loudness is unavailable.
