@@ -1,7 +1,7 @@
 ---
 services:
   mysql:
-    image: mysql:9.1
+    image: mysql:9.7
     container_name: babbel-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
