@@ -203,6 +203,8 @@ docker pull ghcr.io/oszuidwest/zwfm-babbel:latest
 docker compose up -d
 ```
 
+A newer MySQL version in the compose file upgrades the database files on its first start. An older version cannot start on them again, so make the backup above first.
+
 ### Troubleshooting
 
 **API not responding?**
