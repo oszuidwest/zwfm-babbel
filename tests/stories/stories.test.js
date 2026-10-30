@@ -102,7 +102,7 @@ describe('Stories', () => {
     for (const [index, [letter, status, startDay, endDay, createdAt, updatedAt]] of fixtures.entries()) {
       const expired = status === 'expired';
       const story = await global.helpers.createStory(global.resources, {
-        title: `QueryStory${letter}`,
+        title: `QueryStory${letter}_Title`,
         text: `Query test content ${letter} ${index < 3 ? 'querykeep' : 'querydrop'}`,
         voice_id: [voice.id, expiredVoice.id, thirdVoice.id, voice.id][index],
         weekdays: expired ? 31 : 127,
