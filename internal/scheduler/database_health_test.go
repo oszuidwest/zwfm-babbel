@@ -47,10 +47,22 @@ func TestCheckDatabaseDeadlineStillNotifies(t *testing.T) {
 }
 
 func TestCheckDatabaseCancellationWithLiveContextNotifies(t *testing.T) {
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 	db := dialDB(t, func(context.Context, string, string) (net.Conn, error) { return nil, context.Canceled })
 	alerts := &schedulerAlertRecorder{}
-	if err := CheckDatabase(t.Context(), db, alerts); !errors.Is(err, context.Canceled) || len(alerts.events) != 1 {
-		t.Fatalf("CheckDatabase = %v, events = %+v; want a cancellation the caller did not ask for to count", err, alerts.events)
+	if err := CheckDatabase(t.Context(), db, alerts); !errors.Is(err, context.Canceled) || len(alerts.events) != 1 || logs.Len() == 0 {
+		t.Fatalf("CheckDatabase = %v, events = %+v, logs = %s; want a cancellation the caller did not ask for to count", err, alerts.events, logs)
+	}
+}
+
+func TestDatabaseHealthShutdownCancellationDoesNotNotify(t *testing.T) {
+	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	alerts := &schedulerAlertRecorder{}
+	s := NewDatabaseHealthService(offlineDB(t), alerts)
+	if err := s.check(ctx); err != nil || len(alerts.events) != 0 || len(alerts.resolved) != 0 || logs.Len() != 0 {
+		t.Fatalf("check = %v, events = %+v, resolved = %v, logs = %s", err, alerts.events, alerts.resolved, logs)
 	}
 }
 
