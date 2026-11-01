@@ -24,10 +24,16 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
 )
 
-// commandError preserves context errors so callers can recognize canceled commands.
+// commandError preserves context errors so callers can recognize canceled
+// commands, and marks input that FFmpeg could not decode as [ErrUndecodable].
 func commandError(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return errors.Join(ctxErr, err)
+	}
+	// FFmpeg exits with status 69 when more than two thirds of its decode
+	// attempts fail.
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 69 {
+		return fmt.Errorf("%w: %w", ErrUndecodable, err)
 	}
 	return err
 }
@@ -44,8 +50,9 @@ const (
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
-// ErrUndecodable indicates input that ffprobe cannot open or parse, or in which
-// it finds no decodable audio frame, such as a corrupt, empty or non-audio file.
+// ErrUndecodable indicates input that ffprobe cannot open or parse, in which
+// it finds no decodable audio frame, or most of whose packets FFmpeg cannot
+// decode, such as a corrupt, empty or non-audio file.
 var ErrUndecodable = errors.New("input is not decodable audio")
 
 // SilentError matches [ErrSilent] and names the loudness measurements. The
