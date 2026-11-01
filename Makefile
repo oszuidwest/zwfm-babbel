@@ -25,8 +25,9 @@ test:
 
 # Packages share one database: -p 1 keeps global-row assertions isolated from
 # other packages' fixtures. Tests run in the Alpine image of the Dockerfile, so
-# they use the same FFmpeg as production, and as a non-root user, so permission
-# tests do not skip.
+# they use the same FFmpeg as production. They run with the caller's uid, so they
+# can read the checkout, and permission tests that skip as root still run. The
+# babbel-go volume keeps the Go module and build caches between runs.
 GO_IMAGE := $(shell sed -n 's/^FROM \(golang:[^ ]*\).*/\1/p' Dockerfile)
 
 test-integration:
@@ -40,9 +41,9 @@ test-integration:
 		sleep 1; \
 	done
 	$(MAKE) db-reset
-	docker run --rm --network container:babbel-mysql -v "$(CURDIR)":/src -w /src -e TZ -e GOCACHE=/tmp/go-build \
+	docker run --rm --network container:babbel-mysql -v "$(CURDIR)":/src -w /src -v babbel-go:/go -e TZ -e GOCACHE=/go/cache \
 		-e BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%27%2B00%3A00%27&clientFoundRows=true' \
-		$(GO_IMAGE) sh -c 'apk add --no-cache ffmpeg tzdata >/dev/null && su nobody -s /bin/sh -c "go test -p 1 -tags=integration ./internal/..."'
+		$(GO_IMAGE) sh -c 'apk add --no-cache ffmpeg tzdata >/dev/null && adduser -D -u $(shell id -u) tester && su tester -s /bin/sh -c "go test -p 1 -tags=integration ./internal/..."'
 
 # Quality
 lint:
