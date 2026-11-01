@@ -33,10 +33,11 @@ Apply `013_audit_events.sql` before deploying persistent audit history. Audit
 history is retained indefinitely; there are no foreign keys to users or entities
 and no cleanup job.
 
-Apply `014_story_idempotency_key.sql` once, before deploying a Babbel version
-that accepts `idempotency_key` on `POST /stories`; without the column every
-story create fails, also without a key. It fails on databases created from the
-current `001` snapshot, which already has the column.
+Skip `014_story_idempotency_key.sql`: no release used it, it fails on MariaDB,
+and `017_drop_story_idempotency_key.sql` removes its column again. Apply `017`
+only to databases that have `stories.idempotency_key`, from `014` or from an
+earlier `001` snapshot, after deploying a Babbel version that no longer accepts
+`idempotency_key`. It fails on databases without the column.
 
 Stop Babbel, apply `015_utc_datetime_columns.sql` once, then deploy the Babbel
 version whose database session runs in UTC. Run it with the server's default
