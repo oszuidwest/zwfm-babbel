@@ -31,16 +31,15 @@ type StoryUpdate struct {
 type StoryCreateData struct {
 	ActorUserID *int64
 
-	Title          string
-	Text           string
-	VoiceID        *int64
-	Status         string
-	StartDate      time.Time
-	EndDate        time.Time
-	Weekdays       models.Weekdays
-	IsBreaking     bool
-	Metadata       *datatypes.JSONMap
-	IdempotencyKey *string
+	Title      string
+	Text       string
+	VoiceID    *int64
+	Status     string
+	StartDate  time.Time
+	EndDate    time.Time
+	Weekdays   models.Weekdays
+	IsBreaking bool
+	Metadata   *datatypes.JSONMap
 }
 
 // StoryRepository provides story data access using GORM.
@@ -55,19 +54,18 @@ func NewStoryRepository(db *gorm.DB) *StoryRepository {
 	}
 }
 
-// Create inserts a story; an idempotency key already in use fails with ErrDuplicateKey.
+// Create inserts a story and records its audit event.
 func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*models.Story, error) {
 	story := &models.Story{
-		Title:          data.Title,
-		Text:           data.Text,
-		VoiceID:        data.VoiceID,
-		Status:         models.StoryStatus(data.Status),
-		StartDate:      models.Date(data.StartDate),
-		EndDate:        models.Date(data.EndDate),
-		Weekdays:       data.Weekdays,
-		IsBreaking:     data.IsBreaking,
-		Metadata:       data.Metadata,
-		IdempotencyKey: data.IdempotencyKey,
+		Title:      data.Title,
+		Text:       data.Text,
+		VoiceID:    data.VoiceID,
+		Status:     models.StoryStatus(data.Status),
+		StartDate:  models.Date(data.StartDate),
+		EndDate:    models.Date(data.EndDate),
+		Weekdays:   data.Weekdays,
+		IsBreaking: data.IsBreaking,
+		Metadata:   data.Metadata,
 	}
 
 	err := r.inTx(ctx, func(ctx context.Context) error {
@@ -87,17 +85,6 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		return nil, err
 	}
 	return story, nil
-}
-
-// GetIDByIdempotencyKey returns the ID of the story created with key, deleted
-// stories included, or ErrNotFound.
-func (r *StoryRepository) GetIDByIdempotencyKey(ctx context.Context, key string) (int64, error) {
-	var story models.Story
-	db := DBFromContext(ctx, r.db)
-	if err := db.WithContext(ctx).Unscoped().Select("id").Where("idempotency_key = ?", key).Take(&story).Error; err != nil {
-		return 0, ParseDBError(err)
-	}
-	return story.ID, nil
 }
 
 // GetByID loads a story with its associated voice.
