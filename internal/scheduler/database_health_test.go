@@ -19,18 +19,23 @@ func TestCheckDatabaseAcceptsNilAlerter(t *testing.T) {
 	}
 }
 
-func TestDatabaseHealthShutdownCancellationDoesNotNotify(t *testing.T) {
+func TestCheckDatabaseCallerCancellationDoesNotNotify(t *testing.T) {
 	logs := testutil.CaptureLogs(t, slog.LevelDebug)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	alerts := &schedulerAlertRecorder{}
-	s := NewDatabaseHealthService(offlineDB(t), alerts)
-	if err := s.check(ctx); err != nil || len(alerts.events) != 0 || len(alerts.resolved) != 0 || logs.Len() != 0 {
-		t.Fatalf("check = %v, events = %+v, resolved = %v, logs = %s", err, alerts.events, alerts.resolved, logs)
+	err := CheckDatabase(ctx, offlineDB(t), alerts)
+	if !errors.Is(err, context.Canceled) || len(alerts.events) != 0 || len(alerts.resolved) != 0 || logs.Len() != 0 {
+		t.Fatalf("CheckDatabase = %v, events = %+v, resolved = %v, logs = %s", err, alerts.events, alerts.resolved, logs)
 	}
-	// The exported HTTP-health helper retains its original behavior.
-	if err := CheckDatabase(ctx, s.db, alerts); !errors.Is(err, context.Canceled) || len(alerts.events) != 1 {
-		t.Fatalf("CheckDatabase = %v, events = %+v; want original public behavior", err, alerts.events)
+}
+
+func TestCheckDatabaseDeadlineStillNotifies(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 0)
+	defer cancel()
+	alerts := &schedulerAlertRecorder{}
+	if err := CheckDatabase(ctx, offlineDB(t), alerts); !errors.Is(err, context.DeadlineExceeded) || len(alerts.events) != 1 {
+		t.Fatalf("CheckDatabase = %v, events = %+v; want a deadline to count", err, alerts.events)
 	}
 }
 
