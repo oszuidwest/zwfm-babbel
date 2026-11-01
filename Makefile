@@ -24,7 +24,11 @@ test:
 	go test ./... -v
 
 # Packages share one database: -p 1 keeps global-row assertions isolated from
-# other packages' fixtures.
+# other packages' fixtures. Tests run in the Alpine image of the Dockerfile, so
+# they use the same FFmpeg as production, and as a non-root user, so permission
+# tests do not skip.
+GO_IMAGE := $(shell sed -n 's/^FROM \(golang:[^ ]*\).*/\1/p' Dockerfile)
+
 test-integration:
 	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }
 	docker compose up -d mysql
@@ -36,8 +40,9 @@ test-integration:
 		sleep 1; \
 	done
 	$(MAKE) db-reset
-	BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%27%2B00%3A00%27&clientFoundRows=true' \
-		go test -p 1 -tags=integration ./internal/...
+	docker run --rm --network container:babbel-mysql -v "$(CURDIR)":/src -w /src -e TZ -e GOCACHE=/tmp/go-build \
+		-e BABBEL_TEST_DB_DSN='babbel:babbel@tcp(127.0.0.1:3306)/babbel?charset=utf8mb4&parseTime=True&loc=UTC&time_zone=%27%2B00%3A00%27&clientFoundRows=true' \
+		$(GO_IMAGE) sh -c 'apk add --no-cache ffmpeg tzdata >/dev/null && su nobody -s /bin/sh -c "go test -p 1 -tags=integration ./internal/..."'
 
 # Quality
 lint:
