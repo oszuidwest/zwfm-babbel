@@ -11,6 +11,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.5
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gorilla/sessions v1.4.0
+	github.com/oszuidwest/zw-graphmail v0.0.2
 	golang.org/x/crypto v0.58.0
 	golang.org/x/oauth2 v0.37.0
 	gopkg.in/yaml.v3 v3.0.1
