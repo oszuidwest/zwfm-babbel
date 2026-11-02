@@ -1,3 +1,4 @@
+// Package notify sends deduplicated operational alerts through Microsoft Graph.
 package notify
 
 import (
@@ -6,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	graphmail "github.com/oszuidwest/zw-graphmail"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/pkg/logger"
@@ -51,7 +54,7 @@ func (discardAlerter) Alert(context.Context, Event)                    {}
 func (discardAlerter) Resolve(context.Context, string, string, string) {}
 
 type mailer interface {
-	SendMail(context.Context, []string, string, string) error
+	Send(context.Context, *graphmail.Message) error
 }
 
 type alertState struct {
@@ -100,8 +103,18 @@ func New(cfg *config.NotificationConfig) *Service {
 	if cfg == nil || !cfg.Email.IsComplete() {
 		return s
 	}
+	client, err := graphmail.New(graphmail.Config{
+		TenantID:     cfg.Email.TenantID,
+		ClientID:     cfg.Email.ClientID,
+		ClientSecret: cfg.Email.ClientSecret,
+		From:         cfg.Email.FromAddress,
+	})
+	if err != nil {
+		logger.Error("E-mail notifications disabled", "error", err)
+		return s
+	}
 	s.recipients = cfg.Email.RecipientList()
-	s.mailer = newGraphClient(&cfg.Email)
+	s.mailer = client
 	return s
 }
 
@@ -286,7 +299,7 @@ func (s *Service) pruneStates(now time.Time) {
 
 // send delegates a formatted message to the configured mail transport.
 func (s *Service) send(ctx context.Context, subject, body string) error {
-	return s.mailer.SendMail(ctx, s.recipients, subject, body)
+	return s.mailer.Send(ctx, &graphmail.Message{To: s.recipients, Subject: subject, Body: body})
 }
 
 // formatMessage renders the shared e-mail layout; count 0 omits the occurrence line.
