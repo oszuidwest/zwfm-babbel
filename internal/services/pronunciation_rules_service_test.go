@@ -197,8 +197,7 @@ func TestMaterializePronunciationRulesMaxRules(t *testing.T) {
 func TestPronunciationRulesServiceGet(t *testing.T) {
 	updatedAt := time.Unix(1717200000, 0).UTC()
 	repo := &fakePronunciationRuleRepo{
-		listRules: []models.PronunciationRule{rule("PSV", "piː ɛs veː", true, true)},
-		updatedAt: &updatedAt,
+		listRules: []models.PronunciationRule{{StringToReplace: "PSV", IPA: "piː ɛs veː", UpdatedAt: updatedAt}},
 	}
 	service := NewPronunciationRulesService(repo, nil)
 
@@ -212,8 +211,62 @@ func TestPronunciationRulesServiceGet(t *testing.T) {
 	if got.UpdatedAt == nil || !got.UpdatedAt.Equal(updatedAt) {
 		t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, updatedAt)
 	}
-	if repo.listCalls != 1 || repo.maxCalls != 1 {
-		t.Fatalf("calls list=%d max=%d, want 1 each", repo.listCalls, repo.maxCalls)
+	if repo.listCalls != 1 {
+		t.Fatalf("list calls = %d, want 1", repo.listCalls)
+	}
+}
+
+func TestPronunciationRulesServiceResponseUpdatedAt(t *testing.T) {
+	latest := time.Unix(1717200000, 0).UTC()
+	for _, test := range []struct {
+		name  string
+		rules []models.PronunciationRule
+		want  *time.Time
+	}{
+		{name: "empty"},
+		{
+			name: "timestamps differ from alphabetical order",
+			rules: []models.PronunciationRule{
+				{StringToReplace: "Alpha", IPA: "a", UpdatedAt: latest.Add(-time.Hour)},
+				{StringToReplace: "Bravo", IPA: "b", UpdatedAt: latest},
+				{StringToReplace: "Charlie", IPA: "c", UpdatedAt: latest.Add(-time.Minute)},
+			},
+			want: &latest,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, method := range []string{"Get", "Update"} {
+				t.Run(method, func(t *testing.T) {
+					repo := &fakePronunciationRuleRepo{listRules: test.rules}
+					tx := &fakePronunciationRulesTxManager{}
+					service := NewPronunciationRulesService(repo, tx)
+					var got *PronunciationRulesResponse
+					var err error
+					if method == "Get" {
+						got, err = service.Get(t.Context())
+					} else {
+						rules := make([]PronunciationRuleUpdate, len(test.rules))
+						for i, rule := range test.rules {
+							rules[i] = PronunciationRuleUpdate{StringToReplace: rule.StringToReplace, IPA: rule.IPA}
+						}
+						got, err = service.Update(t.Context(), &UpdatePronunciationRulesRequest{Rules: rules})
+						if !tx.committed || tx.rolledBack {
+							t.Fatalf("transaction committed=%v rolledBack=%v, want committed only", tx.committed, tx.rolledBack)
+						}
+					}
+					if err != nil {
+						t.Fatalf("%s() error = %v", method, err)
+					}
+					if test.want == nil {
+						if got.UpdatedAt != nil {
+							t.Fatalf("UpdatedAt = %v, want nil", got.UpdatedAt)
+						}
+					} else if got.UpdatedAt == nil || !got.UpdatedAt.Equal(*test.want) {
+						t.Fatalf("UpdatedAt = %v, want %v", got.UpdatedAt, test.want)
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -229,8 +282,8 @@ func TestPronunciationRulesServiceGetTranslatesRepoErrors(t *testing.T) {
 			wantError: &apperrors.NotInitializedError{},
 		},
 		{
-			name:      "max updated at failed",
-			repo:      &fakePronunciationRuleRepo{maxErr: errors.New("max failed")},
+			name:      "list failed",
+			repo:      &fakePronunciationRuleRepo{listErr: errors.New("list failed")},
 			wantError: &apperrors.DatabaseError{},
 		},
 	}
@@ -269,7 +322,6 @@ func TestPronunciationRulesServiceUpdateHappyPath(t *testing.T) {
 				UpdatedAt:       updatedAt,
 			},
 		},
-		updatedAt: &updatedAt,
 	}
 	tx := &fakePronunciationRulesTxManager{}
 	service := NewPronunciationRulesService(repo, tx)
@@ -294,8 +346,8 @@ func assertHappyPathTxCommitted(t *testing.T, tx *fakePronunciationRulesTxManage
 	if !tx.committed || tx.rolledBack {
 		t.Fatalf("transaction committed=%v rolledBack=%v, want committed only", tx.committed, tx.rolledBack)
 	}
-	if repo.replaceCalls != 1 || repo.listCalls != 1 || repo.maxCalls != 1 {
-		t.Fatalf("calls replace=%d list=%d max=%d, want 1 each", repo.replaceCalls, repo.listCalls, repo.maxCalls)
+	if repo.replaceCalls != 1 || repo.listCalls != 1 {
+		t.Fatalf("calls replace=%d list=%d, want 1 each", repo.replaceCalls, repo.listCalls)
 	}
 }
 
@@ -336,15 +388,14 @@ func TestPronunciationRulesServiceUpdateReplaceAllErrorRollsBack(t *testing.T) {
 	if !tx.rolledBack || tx.committed {
 		t.Fatalf("transaction committed=%v rolledBack=%v, want rollback only", tx.committed, tx.rolledBack)
 	}
-	if repo.listCalls != 0 || repo.maxCalls != 0 {
-		t.Fatalf("calls list=%d max=%d, want no post-replace reads", repo.listCalls, repo.maxCalls)
+	if repo.listCalls != 0 {
+		t.Fatalf("list calls = %d, want no post-replace reads", repo.listCalls)
 	}
 }
 
-func TestPronunciationRulesServiceUpdateAnnotatesMaxUpdatedAtError(t *testing.T) {
+func TestPronunciationRulesServiceUpdateAnnotatesListError(t *testing.T) {
 	repo := &fakePronunciationRuleRepo{
-		listRules: []models.PronunciationRule{rule("PSV", "piː ɛs veː", true, true)},
-		maxErr:    errors.New("max failed"),
+		listErr: errors.New("list failed"),
 	}
 	tx := &fakePronunciationRulesTxManager{}
 	service := NewPronunciationRulesService(repo, tx)
@@ -357,8 +408,8 @@ func TestPronunciationRulesServiceUpdateAnnotatesMaxUpdatedAtError(t *testing.T)
 	if !errors.As(err, &dbErr) {
 		t.Fatalf("Update() error = %T, want *apperrors.DatabaseError", err)
 	}
-	if !strings.Contains(dbErr.Unwrap().Error(), "max_updated_at") {
-		t.Fatalf("DatabaseError cause = %q, want max_updated_at context", dbErr.Unwrap().Error())
+	if !strings.Contains(dbErr.Unwrap().Error(), "list_after_replace") {
+		t.Fatalf("DatabaseError cause = %q, want list_after_replace context", dbErr.Unwrap().Error())
 	}
 	if !tx.rolledBack || tx.committed {
 		t.Fatalf("transaction committed=%v rolledBack=%v, want rollback only", tx.committed, tx.rolledBack)
@@ -481,15 +532,12 @@ func assertErrorAs(t *testing.T, err error, target any) {
 type fakePronunciationRuleRepo struct {
 	listRules []models.PronunciationRule
 	listErr   error
-	updatedAt *time.Time
-	maxErr    error
 
 	replaceErr error
 	replaced   []models.PronunciationRule
 
 	listCalls    int
 	replaceCalls int
-	maxCalls     int
 }
 
 func (f *fakePronunciationRuleRepo) List(context.Context) ([]models.PronunciationRule, error) {
@@ -510,14 +558,6 @@ func (f *fakePronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models
 	f.replaced = make([]models.PronunciationRule, len(rules))
 	copy(f.replaced, rules)
 	return nil
-}
-
-func (f *fakePronunciationRuleRepo) MaxUpdatedAt(context.Context) (*time.Time, error) {
-	f.maxCalls++
-	if f.maxErr != nil {
-		return nil, f.maxErr
-	}
-	return f.updatedAt, nil
 }
 
 type fakePronunciationRulesTxManager struct {
