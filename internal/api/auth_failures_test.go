@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -32,21 +31,17 @@ func TestGetCurrentUserLogsPermissionCause(t *testing.T) {
 	}
 }
 
-func TestOAuthCallbackLogsMissingFrontendConfiguration(t *testing.T) {
+func TestOAuthCallbackWhenOAuthDisabled(t *testing.T) {
 	s, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal, Session: auth.SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := NewAuthHandlers(s, "", nil)
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
-	router.GET("/callback", h.HandleOAuthCallback)
-	logs := testutil.CaptureLogs(t, slog.LevelDebug)
+	router.GET("/callback", NewAuthHandlers(s, testFrontendURL, nil).HandleOAuthCallback)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/callback", nil))
-	var record map[string]any
-	if rec.Code != http.StatusInternalServerError || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "WARN" ||
-		!strings.Contains(fmt.Sprint(record["msg"]), "BABBEL_FRONTEND_URL") {
-		t.Fatalf("status = %d, logs = %s", rec.Code, logs)
+	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "OAuth authentication is disabled") {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
 	}
 }
