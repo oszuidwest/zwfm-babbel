@@ -393,6 +393,7 @@ func securityHeaders(cfg *config.Config) gin.HandlerFunc {
 
 func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 	originChecker := config.NewOriginChecker(cfg.Server.AllowedOrigins)
+	crossOrigin := http.NewCrossOriginProtection()
 
 	return func(c *gin.Context) {
 		// An empty allowlist matches no origin, disabling cross-origin access.
@@ -408,6 +409,13 @@ func corsMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		// A simple POST skips the preflight, so CORS alone does not stop it.
+		if err := crossOrigin.Check(c.Request); err != nil && !originChecker.Allowed(c.GetHeader("Origin")) {
+			utils.ProblemCustom(c, utils.ProblemTypeInsufficientPermissions, "Insufficient Permissions", http.StatusForbidden, "Cross-origin request rejected")
+			c.Abort()
 			return
 		}
 
