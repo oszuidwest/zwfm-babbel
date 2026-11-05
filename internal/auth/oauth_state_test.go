@@ -143,35 +143,53 @@ func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
 	}
 }
 
-// A login that loaded the session before a callback consumed its OAuth state
-// must not save that state back.
-func TestCreateSessionDropsPendingOAuthState(t *testing.T) {
-	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+// A login replaces the session: the old cookie is logged out and has lost its
+// OAuth state, and the response carries one working cookie.
+func TestCreateSessionReplacesSession(t *testing.T) {
+	cfg := &Config{Session: SessionConfig{CookieName: "session", MaxAge: 3600, SecretKey: strings.Repeat("k", 32)}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
 	router.GET("/start", func(c *gin.Context) {
 		session := sessions.Default(c)
+		session.Set(sessKeyUserID, int64(2))
 		session.Set(sessKeyOAuthState, "state")
 		session.Set(sessKeyFrontendURL, "https://app.example.com/")
 		_ = session.Save()
 	})
-	router.GET("/login", func(c *gin.Context) { _ = s.CreateSession(c, 1) })
-	var state, frontendURL any
-	router.GET("/check", func(c *gin.Context) {
-		state, frontendURL = sessions.Default(c).Get(sessKeyOAuthState), sessions.Default(c).Get(sessKeyFrontendURL)
+	var cachedUserID, userID, state, frontendURL any
+	router.GET("/login", func(c *gin.Context) {
+		_ = s.CreateSession(c, 1)
+		cachedUserID = sessions.Default(c).Get(sessKeyUserID)
 	})
-	start := httptest.NewRecorder()
-	router.ServeHTTP(start, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/start", nil))
-	for _, path := range []string{"/login", "/check"} {
+	router.GET("/check", func(c *gin.Context) {
+		session := sessions.Default(c)
+		userID, state, frontendURL = session.Get(sessKeyUserID), session.Get(sessKeyOAuthState), session.Get(sessKeyFrontendURL)
+	})
+	send := func(path string, cookie *http.Cookie) []*http.Cookie {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
-		for _, cookie := range start.Result().Cookies() {
+		if cookie != nil {
 			req.AddCookie(cookie)
 		}
-		router.ServeHTTP(httptest.NewRecorder(), req)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec.Result().Cookies()
 	}
-	if state != nil || frontendURL != nil {
-		t.Fatalf("session after login: state = %v, frontend URL = %v; want both removed", state, frontendURL)
+	oldCookie := send("/start", nil)[0]
+	loginCookies := send("/login", oldCookie)
+	if len(loginCookies) != 1 || loginCookies[0].MaxAge != cfg.Session.MaxAge {
+		t.Fatalf("login cookies = %v, want one that lasts %d seconds", loginCookies, cfg.Session.MaxAge)
+	}
+	if cachedUserID != int64(1) {
+		t.Fatalf("request's cached session: user = %v, want 1", cachedUserID)
+	}
+	send("/check", oldCookie)
+	if userID != nil || state != nil || frontendURL != nil {
+		t.Fatalf("old cookie: user = %v, state = %v, frontend URL = %v; want an empty session", userID, state, frontendURL)
+	}
+	send("/check", loginCookies[0])
+	if userID != int64(1) || state != nil || frontendURL != nil {
+		t.Fatalf("new cookie: user = %v, state = %v, frontend URL = %v; want only user 1", userID, state, frontendURL)
 	}
 }
 
