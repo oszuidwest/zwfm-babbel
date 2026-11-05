@@ -323,7 +323,7 @@ func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStor
 
 // ProcessAudio converts uploaded audio and atomically replaces the published file.
 func (s *StoryService) ProcessAudio(ctx context.Context, storyID int64, tempPath string, actorUserID *int64) error {
-	err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID)
+	err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionAudio, actorUserID, false)
 	if errors.Is(err, audio.ErrUndecodable) {
 		// The AudioError message omits its cause, which has ffprobe's message.
 		return undecodableUpload("audio", errors.Unwrap(err))
@@ -345,8 +345,10 @@ func undecodableUpload(field string, cause error) error {
 
 // publishAudio converts audio at tempPath and publishes it, recording action
 // in the story's history. Cancelling ctx stops the conversion; publication
-// then ignores cancellation and is bounded by audioPublishTimeout.
-func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64) error {
+// then ignores cancellation and is bounded by audioPublishTimeout. With
+// keepExisting, audio that arrived during processing stays and the new file is
+// dropped.
+func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath string, action models.AuditAction, actorUserID *int64, keepExisting bool) error {
 	finalPath := utils.StoryPath(s.config, storyID)
 	convertedPath, cleanup, err := utils.ProcessingPath(finalPath, fmt.Sprintf("story_%d", storyID))
 	if err != nil {
@@ -376,6 +378,7 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 			Action:          action,
 			AudioFile:       utils.StoryFilename(storyID),
 			DurationSeconds: duration,
+			KeepExisting:    keepExisting,
 		}); err != nil {
 			return err
 		}
@@ -390,6 +393,9 @@ func (s *StoryService) publishAudio(ctx context.Context, storyID int64, tempPath
 		// the transaction: begin, the row and audit writes, or commit.
 		if audioErr, ok := errors.AsType[*apperrors.AudioError](err); ok {
 			return audioErr
+		}
+		if errors.Is(err, repository.ErrStoryHasAudio) {
+			return errStoryAudioExists
 		}
 		if published {
 			err = fmt.Errorf("story %d audio published to %s but commit failed: %w", storyID, finalPath, err)
@@ -475,7 +481,7 @@ func (s *StoryService) GenerateTTS(ctx context.Context, storyID int64, force boo
 		}
 	}()
 
-	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID); err != nil {
+	if err := s.publishAudio(ctx, storyID, tempPath, models.AuditActionTTS, actorUserID, !force); err != nil {
 		if errors.Is(err, audio.ErrUndecodable) {
 			// AudioError omits its cause from Error(); retain ffprobe's message
 			// for both the handler's log and the operational alert.
@@ -530,10 +536,12 @@ func (s *StoryService) resolveTTSAlerts(ctx context.Context) {
 	s.alerts.Resolve(ctx, "tts:upstream", "ElevenLabs service recovered", "TTS generation succeeded again.")
 }
 
+var errStoryAudioExists = apperrors.Conflict("story.audio_exists", "Story already has audio",
+	"Use ?force=true to overwrite the existing audio")
+
 func validateStoryTTSPrerequisites(story *models.Story, force bool) error {
 	if story.AudioFile != "" && !force {
-		return apperrors.Conflict("story.audio_exists", "Story already has audio",
-			"Use ?force=true to overwrite the existing audio")
+		return errStoryAudioExists
 	}
 	if story.Text == "" {
 		return apperrors.Conflict("story.no_text", "Story has no text for TTS generation",

@@ -166,6 +166,8 @@ type StoryAudioUpdate struct {
 
 	AudioFile       string
 	DurationSeconds float64
+	// KeepExisting returns ErrStoryHasAudio if the story already has audio.
+	KeepExisting bool
 }
 
 // UpdateAudio updates the row and records the audit event atomically. Inside
@@ -173,6 +175,15 @@ type StoryAudioUpdate struct {
 // so the caller can publish the file before commit in row-lock order.
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
 	return r.withAudit(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
+		if u.KeepExisting {
+			story, err := r.GetByIDForWrite(ctx, id)
+			if err != nil {
+				return err
+			}
+			if story.AudioFile != "" {
+				return ErrStoryHasAudio
+			}
+		}
 		return r.UpdateByID(ctx, id, map[string]any{
 			"audio_file":       u.AudioFile,
 			"duration_seconds": u.DurationSeconds,

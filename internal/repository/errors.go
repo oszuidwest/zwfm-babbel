@@ -31,6 +31,9 @@ var (
 	// It deliberately does not wrap ErrSchemaUnavailable, so callers whose
 	// recovery hint names their own table do not misreport it.
 	ErrAuditSchemaUnavailable = errors.New("audit_events table unavailable")
+
+	// ErrStoryHasAudio indicates a StoryAudioUpdate with KeepExisting found audio.
+	ErrStoryHasAudio = errors.New("story already has audio")
 )
 
 // StoryDeletedError indicates a write targeted a soft-deleted story.
