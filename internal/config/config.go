@@ -116,7 +116,7 @@ type DatabaseConfig struct {
 	Password        string        `env:"PASSWORD" envDefault:"babbel"`
 	Database        string        `env:"NAME" envDefault:"babbel"`
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
-	MaxIdleConns    int           `env:"MAX_IDLE_CONNS" envDefault:"10"`
+	MaxIdleConns    int           `env:"MAX_IDLE_CONNS"`
 	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
 	ConnectTimeout  time.Duration `env:"CONNECT_TIMEOUT" envDefault:"10s"`
 	ReadTimeout     time.Duration `env:"READ_TIMEOUT" envDefault:"2m"`
@@ -180,6 +180,11 @@ func Load() (*Config, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	// A request can hold several connections at once. Keeping them all idle
+	// avoids a reconnect for each connection above the limit during a burst.
+	if os.Getenv("BABBEL_DB_MAX_IDLE_CONNS") == "" {
+		cfg.Database.MaxIdleConns = cfg.Database.MaxOpenConns
 	}
 	return &cfg, nil
 }

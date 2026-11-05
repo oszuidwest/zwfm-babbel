@@ -89,7 +89,7 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 
 // GetByID loads a story with its associated voice.
 func (r *StoryRepository) GetByID(ctx context.Context, id int64) (*models.Story, error) {
-	return r.GetByIDWithPreload(ctx, id, "Voice")
+	return r.GetByIDWithJoins(ctx, id, "Voice")
 }
 
 // GetByIDForWrite loads a story with its voice before a write, distinguishing deleted rows.

@@ -199,8 +199,8 @@ func TestPronunciationRulesHandlers_GetSuccess(t *testing.T) {
 					IPA:             "piː ɛs veː",
 					CaseSensitive:   true,
 					WordBoundaries:  false,
+					UpdatedAt:       updatedAt,
 				}},
-				updatedAt: &updatedAt,
 			},
 			nil,
 		),
@@ -319,10 +319,8 @@ func (s *capturingPronunciationRulesService) Update(
 }
 
 type handlerPronunciationRuleRepo struct {
-	rules     []models.PronunciationRule
-	listErr   error
-	updatedAt *time.Time
-	maxErr    error
+	rules   []models.PronunciationRule
+	listErr error
 }
 
 func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.PronunciationRule, error) {
@@ -337,13 +335,6 @@ func (h *handlerPronunciationRuleRepo) List(context.Context) ([]models.Pronuncia
 func (h *handlerPronunciationRuleRepo) ReplaceAll(_ context.Context, rules []models.PronunciationRule, _ *int64) error {
 	h.rules = rules
 	return nil
-}
-
-func (h *handlerPronunciationRuleRepo) MaxUpdatedAt(context.Context) (*time.Time, error) {
-	if h.maxErr != nil {
-		return nil, h.maxErr
-	}
-	return h.updatedAt, nil
 }
 
 type handlerTxManager struct{}
