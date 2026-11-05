@@ -3,31 +3,34 @@ package notify
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
+	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
 )
 
 func TestAlertSendsAfterParentDeadline(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.WriteHeader(http.StatusAccepted)
-	}))
-	defer server.Close()
 	now := time.Now()
-	svc, _ := newTestService(&now)
-	svc.mailer = &graphClient{fromAddress: "sender@example.com", baseURL: server.URL, httpClient: server.Client()}
+	svc, mailer := newTestService(&now)
 	ctx, cancel := context.WithDeadline(t.Context(), now.Add(-time.Second))
 	defer cancel()
 	svc.Alert(ctx, Event{Key: "scheduler:cleanup", Summary: "Cleanup deadline exceeded", Details: ctx.Err().Error()})
 	svc.Close()
-	if requests.Load() != 1 {
-		t.Fatalf("Graph requests = %d, want an alert despite the expired parent", requests.Load())
+	if mailer.count() != 1 || mailer.messages[0].ctxErr != nil {
+		t.Fatalf("messages = %+v, want one alert sent with a live context despite the expired parent", mailer.messages)
+	}
+}
+
+func TestSendAddressesConfiguredRecipients(t *testing.T) {
+	now := time.Now()
+	svc, mailer := newTestService(&now)
+	if err := svc.SendCritical(t.Context(), Event{Key: "process:exit", Summary: "Stopping"}); err != nil {
+		t.Fatalf("SendCritical: %v", err)
+	}
+	got := mailer.messages[0]
+	if !slices.Equal(got.recipients, []string{"one@example.com", "two@example.com"}) || got.subject != "[ALERT] Stopping - Babbel" || !strings.HasPrefix(got.body, "Stopping\n\n") || got.html {
+		t.Fatalf("message = %+v, want a plain text subject and body addressed to both configured recipients", got)
 	}
 }
 

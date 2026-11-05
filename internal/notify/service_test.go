@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	graphmail "github.com/oszuidwest/zw-graphmail"
+
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
@@ -15,6 +17,8 @@ type recordedMessage struct {
 	recipients []string
 	subject    string
 	body       string
+	html       bool
+	ctxErr     error
 }
 
 type recordingMailer struct {
@@ -27,12 +31,14 @@ func newRecordingMailer() *recordingMailer {
 	return &recordingMailer{notify: make(chan struct{}, 20)}
 }
 
-func (m *recordingMailer) SendMail(_ context.Context, recipients []string, subject, body string) error {
+func (m *recordingMailer) Send(ctx context.Context, msg *graphmail.Message) error {
 	m.mu.Lock()
 	m.messages = append(m.messages, recordedMessage{
-		recipients: append([]string(nil), recipients...),
-		subject:    subject,
-		body:       body,
+		recipients: append([]string(nil), msg.To...),
+		subject:    msg.Subject,
+		body:       msg.Body,
+		html:       msg.HTML,
+		ctxErr:     ctx.Err(),
 	})
 	m.mu.Unlock()
 	m.notify <- struct{}{}
@@ -66,7 +72,7 @@ type flakyMailer struct {
 	attempts     int
 }
 
-func (m *flakyMailer) SendMail(ctx context.Context, recipients []string, subject, body string) error {
+func (m *flakyMailer) Send(ctx context.Context, msg *graphmail.Message) error {
 	m.mu.Lock()
 	m.attempts++
 	fail := m.failuresLeft > 0
@@ -77,7 +83,7 @@ func (m *flakyMailer) SendMail(ctx context.Context, recipients []string, subject
 	if fail {
 		return errors.New("graph unavailable")
 	}
-	return m.inner.SendMail(ctx, recipients, subject, body)
+	return m.inner.Send(ctx, msg)
 }
 
 func (m *flakyMailer) attemptCount() int {
@@ -96,12 +102,12 @@ type gatedMailer struct {
 	gateSubject string
 }
 
-func (m *gatedMailer) SendMail(ctx context.Context, recipients []string, subject, body string) error {
-	if strings.Contains(subject, m.gateSubject) {
+func (m *gatedMailer) Send(ctx context.Context, msg *graphmail.Message) error {
+	if strings.Contains(msg.Subject, m.gateSubject) {
 		m.started <- struct{}{}
 		<-m.release
 	}
-	return m.inner.SendMail(ctx, recipients, subject, body)
+	return m.inner.Send(ctx, msg)
 }
 
 func newTestService(now *time.Time) (*Service, *recordingMailer) {
