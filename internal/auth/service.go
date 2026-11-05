@@ -310,6 +310,9 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
+	// This save refreshes the cookie's signed timestamp, so it must not carry
+	// a login along: only a completed login may start a new session lifetime.
+	session.Delete(sessKeyUserID)
 	session.Set(sessKeyOAuthState, state)
 
 	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
