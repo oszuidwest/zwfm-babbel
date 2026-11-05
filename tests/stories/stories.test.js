@@ -735,6 +735,71 @@ describe('Stories', () => {
     });
   });
 
+  describe('External identity', () => {
+    const externalId = suffix => `${Date.now()}-${process.pid}-${suffix}`;
+    const createExternal = fields => global.api.apiCall('POST', '/stories', { ...storiesSchema.createValidData('External'), ...fields });
+    const expectCreated = response => {
+      expect(response.status).toBe(201);
+      global.resources.track('stories', response.data.id);
+      return response.data.id;
+    };
+
+    test('when creating with an external ID and URL, then reads return them', async () => {
+      const fields = { external_id: externalId('read'), external_url: 'https://example.org/wp-admin/post.php?post=1&action=edit' };
+      const id = expectCreated(await createExternal(fields));
+
+      const response = await global.api.apiCall('GET', `/stories/${id}`);
+      expect(response.data).toMatchObject(fields);
+    });
+
+    test('when an external ID is taken, also by a deleted story, then returns 409', async () => {
+      const fields = { external_id: externalId('taken') };
+      const id = expectCreated(await createExternal(fields));
+
+      const live = await createExternal(fields);
+      expect([live.status, live.data.code]).toEqual([409, 'story.duplicate']);
+
+      expect((await global.api.apiCall('DELETE', `/stories/${id}`)).status).toBe(204);
+      const deleted = await createExternal(fields);
+      expect([deleted.status, deleted.data.code]).toEqual([409, 'story.duplicate']);
+    });
+
+    test.each([
+      ['case', id => id.toUpperCase()],
+      ['trailing space', id => `${id} `]
+    ])('when an external ID differs in %s, then it is another ID', async (_difference, change) => {
+      const id = `k${externalId('exact')}`;
+      expectCreated(await createExternal({ external_id: id }));
+      expectCreated(await createExternal({ external_id: change(id) }));
+    });
+
+    test.each([
+      ['external_id', 'blank', ' '],
+      ['external_id', 'too long', 'x'.repeat(101)],
+      ['external_url', 'javascript', 'javascript:alert(1)'],
+      ['external_url', 'too long', `https://example.org/${'x'.repeat(500)}`]
+    ])('when %s is %s, then returns 422 on that field', async (field, _problem, value) => {
+      const response = await createExternal({ [field]: value });
+
+      expect(response.status).toBe(422);
+      expect(response.data.errors.map(error => error.field)).toEqual([field]);
+    });
+
+    test.each([
+      ['PUT', 'external_id'],
+      ['PUT', 'external_url'],
+      ['PATCH', 'external_id'],
+      ['PATCH', 'external_url']
+    ])('when sending %s with %s, then rejects it as unknown', async (method, field) => {
+      const id = expectCreated(await createExternal({}));
+
+      const response = await global.api.apiCall(method, `/stories/${id}`, { [field]: 'https://example.org/changed' });
+
+      expect(response.status).toBe(400);
+      expect(response.data.errors).toEqual([expect.objectContaining({ field, code: 'unknown_field' })]);
+    });
+  });
+
   describe('Breaking News', () => {
     let voiceId;
 

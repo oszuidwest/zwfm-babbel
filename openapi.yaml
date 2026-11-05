@@ -1298,6 +1298,8 @@ paths:
                         end_date: "2024-01-27"
                         weekdays: 62
                         is_breaking: false
+                        external_id: "177604"
+                        external_url: "https://example.org/wp-admin/post.php?post=177604&action=edit"
                         created_at: "2024-01-20T10:00:00Z"
                         updated_at: "2024-01-20T10:00:00Z"
                         deleted_at: null
@@ -4082,6 +4084,8 @@ components:
         - end_date
         - weekdays
         - is_breaking
+        - external_id
+        - external_url
         - created_at
         - updated_at
         - deleted_at
@@ -4139,6 +4143,13 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        external_id:
+          type: [string, 'null']
+          description: ID of the story in the system that sent it, null if none. Set on create only.
+        external_url:
+          type: [string, 'null']
+          format: uri
+          description: Link to the story in the system that sent it, null if none. Set on create only.
         created_at:
           type: string
           format: date-time
@@ -4214,6 +4225,21 @@ components:
             priority: "high"
             category: "breaking"
             source: "AP"
+        external_id:
+          type: string
+          maxLength: 100
+          pattern: '\S'
+          description: |
+            ID of the story in the system that sent it. Compared byte for byte. It cannot change
+            afterwards. An ID that any story already has, also a soft-deleted one, fails with 409
+            (`story.duplicate`). The limit counts bytes in the database, so an ID within `maxLength`
+            that is longer than 100 bytes also fails with 422.
+        external_url:
+          type: string
+          format: uri
+          maxLength: 500
+          pattern: '^[hH][tT][tT][pP][sS]?://'
+          description: Link to the story in the system that sent it, http or https. It cannot change afterwards.
 
     StoryUpdate:
       type: object

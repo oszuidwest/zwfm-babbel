@@ -41,9 +41,12 @@ type Story struct {
 	// IsBreaking takes priority over fair rotation.
 	IsBreaking bool               `gorm:"not null;default:false;index" json:"is_breaking"`
 	Metadata   *datatypes.JSONMap `gorm:"type:json" json:"metadata,omitempty"`
-	CreatedAt  time.Time          `json:"created_at"`
-	UpdatedAt  time.Time          `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt     `gorm:"index" json:"deleted_at"`
+	// ExternalID and ExternalURL point to the story's origin; only a create sets them.
+	ExternalID  *string        `json:"external_id"`
+	ExternalURL *string        `json:"external_url"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 
 	Voice *Voice `gorm:"foreignKey:VoiceID" json:"-"`
 

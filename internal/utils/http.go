@@ -278,8 +278,10 @@ type StoryCreateRequest struct {
 	// Weekdays is a models.Weekdays bitmask; 0 or omitted is stored as 127 (every day).
 	Weekdays int `json:"weekdays" binding:"gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
-	IsBreaking bool               `json:"is_breaking"`
-	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
+	IsBreaking  bool               `json:"is_breaking"`
+	Metadata    *datatypes.JSONMap `json:"metadata,omitempty"`
+	ExternalID  *string            `json:"external_id" binding:"omitempty,notblank,max=100"`
+	ExternalURL *string            `json:"external_url" binding:"omitempty,http_url,max=500"`
 }
 
 // NormalizeText decodes HTML entities in text fields to plain Unicode.

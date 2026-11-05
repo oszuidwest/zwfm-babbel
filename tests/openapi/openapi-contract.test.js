@@ -217,6 +217,16 @@ describe('OpenAPI Contract', () => {
         }),
       sparseListScenario('GET', '/api/v1/stories', '/stories', ['id', 'title', 'status']),
       trackedApiScenario('POST', '/api/v1/stories', '/stories', () => storyBody('Contract Created Story'), 'stories'),
+      scenario('POST', '/api/v1/stories', async () => {
+          const body = { ...storyBody('Contract External Story'), external_id: uniqueName('contract') };
+          const created = await apiCall('POST', '/api/v1/stories', '/stories', body);
+          expect(created.status).toBe(201);
+          global.resources.track('stories', created.data.id);
+          const response = await apiCall('POST', '/api/v1/stories', '/stories', body);
+          expect(response.status).toBe(409);
+          expect(response.data.code).toBe('story.duplicate');
+          return response;
+        }, 'POST /api/v1/stories duplicate external_id'),
       rawScenario('GET', '/api/v1/stories/{id}/audio', () => `${global.api.apiUrl}/stories/${ctx.story.id}/audio`, { responseType: 'arraybuffer' }),
       byteRangeScenario(
         '/api/v1/stories/{id}/audio',
