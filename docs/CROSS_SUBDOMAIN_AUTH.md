@@ -38,7 +38,7 @@ BABBEL_ALLOWED_ORIGINS=https://babbel.zuidwest.cloud
 
 3. **Secure Flag**: Automatically set when `BABBEL_ENV=production`. Required when using `SameSite=None`.
 
-4. **CORS Origins**: Must include your frontend URL to allow browser-based requests.
+4. **CORS Origins**: Must include your frontend URL to allow browser-based requests. Cross-origin writes from a browser on an unlisted origin get a 403, also from another subdomain of the same domain.
 
 ## Configuration Examples
 
