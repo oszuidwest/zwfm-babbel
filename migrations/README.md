@@ -81,10 +81,6 @@ one to keep:
 Stories from a client that still sends only `metadata.wordpress_id` get no
 `external_id`. Once all clients send it, run the `UPDATE` from `018` once more
 for those stories, with `@wordpress_url` set as above: without it they get
-the ID but no link, and a rerun does not add it. If one of them has the post of
-a story that already has the ID, the `UPDATE` stops with error 1062 and changes
-nothing. The newest story gets the ID, so clear it from the older story. Then
-run the `UPDATE` again with `@wordpress_url` set, which also gives the newest
-story its link. Repeat this for every conflict until it succeeds:
-
-    UPDATE stories SET external_id = NULL, external_url = NULL, updated_at = updated_at WHERE id = <older>;
+the ID but no link, and a rerun does not add it. A post whose ID a story already
+has is skipped: that story keeps the ID and its link, also when it is older or
+soft-deleted.

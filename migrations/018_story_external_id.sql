@@ -1,5 +1,5 @@
 -- Adds the external ID and link to stories and fills them from metadata.wordpress_id.
--- Set @wordpress_url first, see README.md. Of stories sharing a post, the newest gets the ID.
+-- Set @wordpress_url first, see README.md. Of stories sharing a post, the newest gets the ID, unless a story already has it.
 SET @url_check = IF(COALESCE(@wordpress_url, '') REGEXP '^https?://.*[^/]$', 'DO 0',
     'DO `Set @wordpress_url, see migrations/README.md`');
 PREPARE url_check FROM @url_check;  -- A bad value fails here on the unknown column, so no EXECUTE.
@@ -10,6 +10,7 @@ ALTER TABLE stories
 UPDATE stories s
 JOIN (SELECT MAX(id) AS id, JSON_VALUE(metadata, '$.wordpress_id') AS wordpress_id FROM stories
       GROUP BY wordpress_id HAVING wordpress_id IS NOT NULL) newest ON newest.id = s.id
+LEFT JOIN stories holder ON holder.external_id = newest.wordpress_id
 SET s.external_id = newest.wordpress_id,
     s.external_url = CONCAT(@wordpress_url, '/wp-admin/post.php?post=', newest.wordpress_id, '&action=edit'),
-    s.updated_at = s.updated_at WHERE s.external_id IS NULL;  -- the column has ON UPDATE, and clients sort on it
+    s.updated_at = s.updated_at WHERE s.external_id IS NULL AND holder.id IS NULL;  -- the column has ON UPDATE, and clients sort on it
