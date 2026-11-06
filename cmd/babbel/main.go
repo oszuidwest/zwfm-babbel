@@ -130,8 +130,8 @@ func validateConfig(cfg *config.Config) error {
 	if err := cfg.EnsureDirectories(); err != nil {
 		return fmt.Errorf("create application directories: %w", err)
 	}
-	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
+	log.Printf("Database config: Host=%s, User=%s, Database=%s",
+		cfg.Database.Host, cfg.Database.User, cfg.Database.Database)
 	log.Printf("Server config: Address=%s", listenAddress)
 	return nil
 }

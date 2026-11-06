@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/caarlos0/env/v11"
 	"time"
 )
 
@@ -53,59 +51,11 @@ func TestValidateAcceptsBinariesFromPATH(t *testing.T) {
 	assertVersionCheckRan(t, ffprobePath)
 }
 
-func TestValidateDatabasePoolConfig(t *testing.T) {
+func TestValidateMaxOpenConns(t *testing.T) {
 	t.Parallel()
-
-	tests := []struct {
-		name    string
-		mutate  func(*Config)
-		wantErr string
-	}{
-		{
-			name: "max open connections too low",
-			mutate: func(cfg *Config) {
-				cfg.Database.MaxOpenConns = 0
-			},
-			wantErr: "BABBEL_DB_MAX_OPEN_CONNS must be >= 1",
-		},
-		{name: "connect timeout not positive", mutate: func(cfg *Config) { cfg.Database.ConnectTimeout = 0 }, wantErr: "BABBEL_DB_CONNECT_TIMEOUT must be > 0"},
-		{name: "read timeout not positive", mutate: func(cfg *Config) { cfg.Database.ReadTimeout = 0 }, wantErr: "BABBEL_DB_READ_TIMEOUT must be > 0"},
-		{name: "write timeout not positive", mutate: func(cfg *Config) { cfg.Database.WriteTimeout = 0 }, wantErr: "BABBEL_DB_WRITE_TIMEOUT must be > 0"},
-		{
-			name: "max idle connections negative",
-			mutate: func(cfg *Config) {
-				cfg.Database.MaxIdleConns = -1
-			},
-			wantErr: "BABBEL_DB_MAX_IDLE_CONNS must be >= 0",
-		},
-		{
-			name: "max idle connections exceeds max open connections",
-			mutate: func(cfg *Config) {
-				cfg.Database.MaxOpenConns = 5
-				cfg.Database.MaxIdleConns = 6
-			},
-			wantErr: "BABBEL_DB_MAX_IDLE_CONNS must be <= BABBEL_DB_MAX_OPEN_CONNS",
-		},
-		{
-			name: "connection lifetime too low",
-			mutate: func(cfg *Config) {
-				cfg.Database.ConnMaxLifetime = 0
-			},
-			wantErr: "BABBEL_DB_CONN_MAX_LIFETIME must be > 0",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := validTestConfig(t)
-			tt.mutate(cfg)
-
-			err := cfg.Validate()
-			assertErrorContains(t, err, tt.wantErr)
-		})
-	}
+	cfg := validTestConfig(t)
+	cfg.Database.MaxOpenConns = 0
+	assertErrorContains(t, cfg.Validate(), "BABBEL_DB_MAX_OPEN_CONNS must be >= 1")
 }
 
 func TestLoadFixedAudioSettings(t *testing.T) {
@@ -431,14 +381,8 @@ func testRunnablePath(t *testing.T) string {
 func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 	return &Config{
 		Database: DatabaseConfig{
-			Port:            3306,
-			Password:        "secret",
-			MaxOpenConns:    25,
-			MaxIdleConns:    5,
-			ConnMaxLifetime: 5 * time.Minute,
-			ConnectTimeout:  10 * time.Second,
-			ReadTimeout:     2 * time.Minute,
-			WriteTimeout:    2 * time.Minute,
+			Password:     "secret",
+			MaxOpenConns: 25,
 		},
 		Auth: AuthConfig{
 			Method:         AuthMethodLocal,
@@ -561,39 +505,6 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 	}
 }
 
-func TestLoadDefaultsIdleConnsToMaxOpenConns(t *testing.T) {
-	const maxOpen, maxIdle = "BABBEL_DB_MAX_OPEN_CONNS", "BABBEL_DB_MAX_IDLE_CONNS"
-	for name, test := range map[string]struct {
-		env                map[string]string
-		wantOpen, wantIdle int
-	}{
-		"defaults":          {wantOpen: 100, wantIdle: 100},
-		"follows max open":  {env: map[string]string{maxOpen: "25"}, wantOpen: 25, wantIdle: 25},
-		"empty is unset":    {env: map[string]string{maxOpen: "25", maxIdle: ""}, wantOpen: 25, wantIdle: 25},
-		"explicit":          {env: map[string]string{maxOpen: "25", maxIdle: "5"}, wantOpen: 25, wantIdle: 5},
-		"explicit disabled": {env: map[string]string{maxOpen: "25", maxIdle: "0"}, wantOpen: 25, wantIdle: 0},
-	} {
-		t.Run(name, func(t *testing.T) {
-			for _, key := range []string{maxOpen, maxIdle} {
-				t.Setenv(key, "") // Restores the variable after the test.
-				if err := os.Unsetenv(key); err != nil {
-					t.Fatal(err)
-				}
-			}
-			for key, value := range test.env {
-				t.Setenv(key, value)
-			}
-			cfg, err := Load()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if d := cfg.Database; d.MaxOpenConns != test.wantOpen || d.MaxIdleConns != test.wantIdle {
-				t.Fatalf("open/idle = %d/%d, want %d/%d", d.MaxOpenConns, d.MaxIdleConns, test.wantOpen, test.wantIdle)
-			}
-		})
-	}
-}
-
 func TestLoadHasNoUnsafeDefaults(t *testing.T) {
 	// The env library treats an empty variable as unset.
 	for _, key := range []string{"BABBEL_ENV", "BABBEL_DB_PASSWORD", "BABBEL_OIDC_REDIRECT_URL"} {
@@ -622,13 +533,21 @@ func TestLoadFixedTimeouts(t *testing.T) {
 	}
 }
 
-func TestDatabaseTimeoutDefaults(t *testing.T) {
-	t.Parallel()
-	cfg, err := env.ParseAsWithOptions[Config](env.Options{Prefix: "BABBEL_", Environment: map[string]string{}})
+func TestLoadDatabaseSettings(t *testing.T) {
+	const maxOpen = "BABBEL_DB_MAX_OPEN_CONNS"
+	t.Setenv(maxOpen, "") // Restores the variable after the test.
+	if err := os.Unsetenv(maxOpen); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := cfg.Database; d.ConnectTimeout != 10*time.Second || d.ReadTimeout != 2*time.Minute || d.WriteTimeout != 2*time.Minute {
-		t.Fatalf("timeouts = %v/%v/%v, want 10s/2m/2m as documented in .env.example", d.ConnectTimeout, d.ReadTimeout, d.WriteTimeout)
+	d := cfg.Database
+	if d.MaxOpenConns != 100 || d.ConnMaxLifetime != time.Hour {
+		t.Fatalf("open/lifetime = %d/%v, want 100/1h", d.MaxOpenConns, d.ConnMaxLifetime)
+	}
+	if d.ConnectTimeout != 10*time.Second || d.ReadTimeout != 2*time.Minute || d.WriteTimeout != 2*time.Minute {
+		t.Fatalf("timeouts = %v/%v/%v, want 10s/2m/2m", d.ConnectTimeout, d.ReadTimeout, d.WriteTimeout)
 	}
 }
