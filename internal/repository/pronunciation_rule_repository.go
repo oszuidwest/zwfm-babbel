@@ -2,9 +2,7 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/oszuidwest/zwfm-babbel/internal/models"
 	"gorm.io/gorm"
@@ -63,23 +61,6 @@ func (r *PronunciationRuleRepository) ReplaceAll(ctx context.Context, rules []mo
 	return RecordAudit(ctx, models.AuditEvent{
 		UserID: actorUserID, EntityType: models.AuditEntityPronunciationRules, EntityID: 1, Action: models.AuditActionUpdate,
 	}, pronunciationAuditValues(before), pronunciationAuditValues(rules))
-}
-
-// MaxUpdatedAt returns the maximum updated_at timestamp, or nil when there are no rules.
-func (r *PronunciationRuleRepository) MaxUpdatedAt(ctx context.Context) (*time.Time, error) {
-	db := DBFromContext(ctx, r.db)
-
-	var max sql.NullTime
-	if err := db.WithContext(ctx).
-		Model(&models.PronunciationRule{}).
-		Select("MAX(updated_at)").
-		Scan(&max).Error; err != nil {
-		return nil, ParseDBError(err)
-	}
-	if !max.Valid {
-		return nil, nil
-	}
-	return &max.Time, nil
 }
 
 func pronunciationAuditValues(rules []models.PronunciationRule) map[string]any {

@@ -30,7 +30,7 @@ test:
 # still run for non-root callers. The babbel-go volume keeps the Go module and
 # build caches between runs; -count=1 keeps go test from reusing cached test
 # results.
-GO_IMAGE := $(shell sed -n 's/^FROM \(golang:[^ ]*\).*/\1/p' Dockerfile)
+GO_IMAGE := $(shell sed -n 's/^FROM .*\(golang:[^ ]*\).*/\1/p' Dockerfile)
 
 test-integration:
 	@command -v docker >/dev/null || { echo "Docker not installed"; exit 1; }

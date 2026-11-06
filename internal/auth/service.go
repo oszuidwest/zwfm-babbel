@@ -310,6 +310,9 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
 	session := sessions.Default(c)
+	// This save refreshes the cookie's signed timestamp, so it must not carry
+	// a login along: only a completed login may start a new session lifetime.
+	session.Delete(sessKeyUserID)
 	session.Set(sessKeyOAuthState, state)
 
 	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
@@ -466,20 +469,27 @@ func (s *Service) Logout(c *gin.Context) error {
 	return nil
 }
 
-// CreateSession stores the authenticated user's ID in the session.
-// Middleware reads their role from the database on each request. It saves
-// under the OAuth state lock, so it cannot land between the reload and save
-// of a concurrent session cleanup, which would then remove this login.
+// CreateSession replaces the request's session with a new one for the user, so
+// a copy of the old cookie is never logged in. A login also ends any pending
+// OAuth flow. Middleware reads the user's role from the database on each
+// request. It saves under the OAuth state lock, so it cannot land between the
+// reload and save of a concurrent session cleanup, which would then remove this
+// login.
 func (s *Service) CreateSession(c *gin.Context, userID int64) error {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
-	session := sessions.Default(c)
-	session.Set(sessKeyUserID, userID)
-	// A login ends any pending OAuth flow; this save must not restore a state
-	// that a concurrent callback consumed after this request loaded it.
-	session.Delete(sessKeyOAuthState)
-	session.Delete(sessKeyFrontendURL)
-	return session.Save()
+	session, _ := s.store.Get(c.Request, s.config.Session.CookieName)
+	maxAge := session.Options.MaxAge
+	session.Options.MaxAge = -1
+	if err := s.store.Save(c.Request, c.Writer, session); err != nil {
+		return err
+	}
+	// Only the new cookie below goes out. Clients need not handle a stale one.
+	c.Writer.Header().Del("Set-Cookie")
+	session.Options.MaxAge = maxAge
+	session.ID = ""
+	session.Values = map[any]any{sessKeyUserID: userID}
+	return s.store.Save(c.Request, c.Writer, session)
 }
 
 func (s *Service) updateLoginSuccess(ctx context.Context, userID int64) error {

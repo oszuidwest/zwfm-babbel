@@ -54,24 +54,3 @@ func TestPronunciationRuleRepositoryIntegration_CaseSensitivePrimaryKey(t *testi
 		t.Fatalf("ReplaceAll() error = %v, want nil for case-distinct terms", err)
 	}
 }
-
-func TestPronunciationRuleRepositoryIntegration_MaxUpdatedAtEmpty(t *testing.T) {
-	db := testutil.OpenIntegrationDB(t)
-	repo := NewPronunciationRuleRepository(db)
-	txManager := NewTxManager(db)
-
-	err := txManager.WithTransaction(t.Context(), func(ctx context.Context) error {
-		return repo.ReplaceAll(ctx, nil, nil)
-	})
-	if err != nil {
-		t.Fatalf("clear rules: %v", err)
-	}
-
-	updatedAt, err := repo.MaxUpdatedAt(t.Context())
-	if err != nil {
-		t.Fatalf("MaxUpdatedAt() error = %v", err)
-	}
-	if updatedAt != nil {
-		t.Fatalf("updatedAt = %v, want nil", updatedAt)
-	}
-}

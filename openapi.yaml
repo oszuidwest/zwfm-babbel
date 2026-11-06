@@ -209,6 +209,8 @@ info:
     - Empty/unset: API-only access (no browser access)
     - Comma-separated list: Only listed origins can access from browsers
     - Credentials (cookies) are supported when origin is allowed
+    - Cross-origin writes from a browser on an unlisted origin get a 403. Requests
+      without `Origin` and `Sec-Fetch-Site`, such as those from curl, are not affected
   version: 1.0.0
   license:
     name: MIT
@@ -533,6 +535,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '413':
           $ref: '#/components/responses/PayloadTooLarge'
         '422':
