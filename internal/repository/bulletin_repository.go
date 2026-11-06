@@ -154,8 +154,7 @@ func (r *BulletinRepository) GetBulletinStories(
 	}
 
 	query := r.db.WithContext(ctx).
-		Preload("Story").
-		Preload("Story.Voice").
+		Preload("Story", func(db *gorm.DB) *gorm.DB { return db.Joins("Voice") }).
 		Where("bulletin_id = ?", bulletinID).
 		Order("story_order ASC")
 	query = applyPagination(query, limit, offset)

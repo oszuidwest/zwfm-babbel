@@ -8,11 +8,16 @@ describe('Query fixture mutation models', () => {
     { id: 4, title: 'Headline Delta', text: 'Body Four querydrop', role: 'editor' }
   ];
 
-  test.each(['title', 'text'])('isolated %s search fails if that field is omitted', field => {
+  test.each(['title', 'text'])('isolated %s search fails if that field is omitted or uses equality', field => {
     const fields = ['title', 'text'];
     const plan = isolatedSearchCase(rows, fields, field);
     expect(plan.ids.length).toBeLessThan(rows.length);
     expect(matchingSearchIDs(rows, fields.filter(other => other !== field), plan.term)).not.toEqual(plan.ids);
+    expect(rows.map(row => row[field])).not.toContain(plan.term);
+  });
+
+  test('a universally shared inner term cannot create a weak search test', () => {
+    expect(() => isolatedSearchCase([{ id: 1, title: 'AxZ' }, { id: 2, title: 'BxY' }], ['title'], 'title')).toThrow(/isolated/);
   });
 
   test('ambiguous search fields cannot silently produce a weak test', () => {
