@@ -64,7 +64,7 @@ stores `external_id` and `external_url`; Babbel can keep running. It fails on
 databases created from the current `001` snapshot, and on a second run. Set
 `@wordpress_url` in the same session to the WordPress address (`wp option get
 siteurl`), without a trailing slash, because the edit links are built from it.
-If the value is missing, does not start with http or ends in a slash, it stops
+If the value is missing, not http:// or https://, or ends in a slash, it stops
 before changing anything, with an unknown column error that names this file:
 
     mysql --init-command="SET @wordpress_url='https://example.org'" ... < 018_story_external_id.sql
@@ -80,6 +80,7 @@ one to keep:
 
 Stories from a client that still sends only `metadata.wordpress_id` get no
 `external_id`. Once all clients send it, run the `UPDATE` from `018` once more
-for those stories, with `@wordpress_url` set as above: without it the `UPDATE`
-clears the links. If one of them has the post of a story that already has the
-ID, the `UPDATE` stops with error 1062 and changes nothing; set that row by hand.
+for those stories, with `@wordpress_url` set as above: without it they get
+the ID but no link, and a rerun does not add it. If one of them has the post of
+a story that already has the ID, the `UPDATE` stops with error 1062 and changes
+nothing; set that row by hand.

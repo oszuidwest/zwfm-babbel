@@ -4148,7 +4148,6 @@ components:
           description: ID of the story in the system that sent it, null if none. Set on create only.
         external_url:
           type: [string, 'null']
-          format: uri
           description: Link to the story in the system that sent it, null if none. Set on create only.
         created_at:
           type: string
@@ -4236,7 +4235,6 @@ components:
             that is longer than 100 bytes also fails with 422.
         external_url:
           type: string
-          format: uri
           maxLength: 500
           pattern: '^[hH][tT][tT][pP][sS]?://'
           description: Link to the story in the system that sent it, http or https. It cannot change afterwards.
