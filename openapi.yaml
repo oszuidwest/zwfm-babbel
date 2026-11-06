@@ -1434,6 +1434,7 @@ paths:
         Errors:
         - 400: the body is not valid multipart form data (`request`, `invalid_format`).
         - 408: the upload did not complete within the time limit.
+        - 409: the story has no voice (`story.no_voice`). Assign one first.
         - 413: the file is larger than 100 MB.
         - 422: the `audio` file is missing (`required`), has an unsupported
           extension (`unsupported`), cannot be decoded as audio
@@ -1481,6 +1482,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '408':
           $ref: '#/components/responses/RequestTimeout'
+        '409':
+          description: The story has no voice (`story.no_voice`). Assign one first.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ConflictError'
         '410':
           $ref: '#/components/responses/StoryDeleted'
         '413':
@@ -4654,7 +4661,8 @@ components:
         - `user.last_admin` - 409 cannot delete, demote or suspend the last active admin user
         - `bulletin.no_stories` - 409 no active stories for bulletin generation
         - `story.audio_exists`, `story.no_text`, `story.no_voice`, `voice.no_elevenlabs_id`,
-          `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS
+          `voice.elevenlabs_not_found`, `story.tts_text_too_long` - 409 story or voice not ready for TTS.
+          `story.no_voice` also applies to an audio upload.
         - `stationvoice.jingle_locked` - 409 `station_id` or `voice_id` cannot change while the station-voice has a jingle
         - `stationvoice.pair_changed` - 409 the station-voice moved to another station or voice while its jingle upload ran
         - `tts.upstream_failed` - 502 ElevenLabs could not be reached, failed, rejected the request or returned silent or undecodable audio

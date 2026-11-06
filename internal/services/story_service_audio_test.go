@@ -259,6 +259,31 @@ func (acceptingAudioRepository) UpdateAudio(context.Context, int64, repository.S
 	return nil
 }
 
+// storyLookupRepository returns story from GetByIDForWrite.
+type storyLookupRepository struct {
+	storyRepository
+	story *models.Story
+}
+
+func (r storyLookupRepository) GetByIDForWrite(context.Context, int64) (*models.Story, error) {
+	return r.story, nil
+}
+
+func TestStoryService_CheckAudioUpload(t *testing.T) {
+	t.Parallel()
+
+	voiceID := int64(1)
+	if err := (&StoryService{storyRepo: storyLookupRepository{story: &models.Story{VoiceID: &voiceID}}}).
+		CheckAudioUpload(t.Context(), 1); err != nil {
+		t.Fatalf("story with a voice: %v", err)
+	}
+
+	err := (&StoryService{storyRepo: storyLookupRepository{story: &models.Story{}}}).CheckAudioUpload(t.Context(), 1)
+	if appErr, ok := errors.AsType[*apperrors.ConflictError](err); !ok || appErr.Code != "story.no_voice" {
+		t.Fatalf("story without a voice: got %v, want conflict story.no_voice", err)
+	}
+}
+
 func TestStoryService_PublishAudioReportsTransactionFailuresAsDatabaseErrors(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
