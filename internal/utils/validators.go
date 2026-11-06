@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gin-gonic/gin/binding"
 	"github.com/go-playground/validator/v10"
@@ -40,11 +41,15 @@ func InitializeValidators() {
 	}
 }
 
-// notBlankValidator validates that a string field is not empty or whitespace-only.
-// More strict than the standard required validator which allows whitespace.
+// notBlankValidator validates that a string field has a character other than
+// whitespace. It agrees with the pattern [^\s\x85] in openapi.yaml: Go also counts
+// U+0085 as whitespace, and JavaScript also counts U+FEFF.
 func notBlankValidator(fl validator.FieldLevel) bool {
-	value := fl.Field().String()
-	return strings.TrimSpace(value) != ""
+	return strings.TrimFunc(fl.Field().String(), isBlankRune) != ""
+}
+
+func isBlankRune(r rune) bool {
+	return unicode.IsSpace(r) || r == '\uFEFF'
 }
 
 // maxBytesValidator limits a string to the size of its VARBINARY column. The

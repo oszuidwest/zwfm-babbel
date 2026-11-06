@@ -240,6 +240,10 @@ func TestBindJSON_StoryCreateRequest(t *testing.T) {
 		want   bindExpect
 		verify func(t *testing.T, req *StoryCreateRequest)
 	}{
+		{name: "ID of only U+0085", body: external("external_id", "\u0085"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID of only U+FEFF", body: external("external_id", "\uFEFF"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID of whitespace mix", body: external("external_id", " \u0085\uFEFF\u00A0"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID with a character next to U+FEFF", body: external("external_id", "a\uFEFF"), want: bindExpect{ok: true}},
 		{name: "external ID of 100 bytes", body: external("external_id", strings.Repeat("é", 50)), want: bindExpect{ok: true}},
 		{
 			name: "external ID of 51 characters and 102 bytes",
