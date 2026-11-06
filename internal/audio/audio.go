@@ -41,6 +41,10 @@ const (
 	monoDownmixFilter = "aformat=channel_layouts=mono"
 )
 
+// conversionTimeout bounds all passes of one story, TTS or jingle conversion.
+// It must stay well below the cleanup sweeps' 24-hour processingMinAge.
+var conversionTimeout = 3 * time.Minute
+
 // ErrSilent indicates story audio below the usable loudness floor.
 var ErrSilent = errors.New("audio is silent or too quiet")
 
@@ -109,6 +113,8 @@ func NewService(cfg *config.Config, alerts notify.Alerter) *Service {
 // ConvertJingleToWAV converts a jingle to stereo WAV without changing its level.
 // It returns [ErrUndecodable] when the input is not decodable audio.
 func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath string) error {
+	ctx, cancel := context.WithTimeout(ctx, conversionTimeout)
+	defer cancel()
 	if err := s.probeAudio(ctx, inputPath); err != nil {
 		return err
 	}
@@ -123,6 +129,8 @@ func (s *Service) ConvertJingleToWAV(ctx context.Context, inputPath, outputPath 
 // [SilentError] without writing outputPath when the input is silent or below
 // -50 LUFS (-50 dBTP when integrated loudness is unavailable).
 func (s *Service) ConvertStoryToWAV(ctx context.Context, inputPath, outputPath string) (float64, error) {
+	ctx, cancel := context.WithTimeout(ctx, conversionTimeout)
+	defer cancel()
 	if err := s.probeAudio(ctx, inputPath); err != nil {
 		return 0, err
 	}

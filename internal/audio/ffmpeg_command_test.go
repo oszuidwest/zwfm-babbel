@@ -65,3 +65,41 @@ func TestExecuteFFmpegCommandCanceledContext(t *testing.T) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 }
+
+func TestConversionTimeoutStopsHungFFmpeg(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell scripts are not executable on windows")
+	}
+	old := conversionTimeout
+	conversionTimeout = 200 * time.Millisecond
+	t.Cleanup(func() { conversionTimeout = old })
+
+	dir := t.TempDir()
+	ffprobe := filepath.Join(dir, "ffprobe")
+	ffmpeg := filepath.Join(dir, "ffmpeg")
+	for path, script := range map[string]string{ffprobe: "echo 48000,1", ffmpeg: "exec sleep 30"} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil { //nolint:gosec // Test executable.
+			t.Fatal(err)
+		}
+	}
+	svc := NewService(&config.Config{Audio: config.AudioConfig{FFmpegPath: ffmpeg, FFprobePath: ffprobe}}, nil)
+
+	for name, convert := range map[string]func() error{
+		"story": func() error {
+			_, err := svc.ConvertStoryToWAV(t.Context(), "input", "output")
+			return err
+		},
+		"jingle": func() error { return svc.ConvertJingleToWAV(t.Context(), "input", "output") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			start := time.Now()
+			err := convert()
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("error = %v, want context.DeadlineExceeded", err)
+			}
+			if elapsed := time.Since(start); elapsed > 10*time.Second {
+				t.Fatalf("conversion took %s, want the deadline to stop it", elapsed)
+			}
+		})
+	}
+}
