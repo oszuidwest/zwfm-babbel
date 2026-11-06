@@ -4,10 +4,10 @@ services:
     image: mysql:9.7
     container_name: babbel-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
       MYSQL_DATABASE: ${BABBEL_DB_NAME:-babbel}
       MYSQL_USER: ${BABBEL_DB_USER:-babbel}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_PASSWORD: ${BABBEL_DB_PASSWORD:?Set BABBEL_DB_PASSWORD in .env}
       TZ: ${TZ}
     volumes:
       - mysql_data:/var/lib/mysql
@@ -28,63 +28,16 @@ services:
   babbel:
     image: ghcr.io/oszuidwest/zwfm-babbel:latest
     container_name: babbel-app
-    environment:
-      # Database configuration - can be overridden in .env
-      BABBEL_DB_HOST: ${BABBEL_DB_HOST:-mysql}
-      BABBEL_DB_USER: ${BABBEL_DB_USER:-babbel}
-      BABBEL_DB_PASSWORD: ${MYSQL_PASSWORD}
-      BABBEL_DB_NAME: ${BABBEL_DB_NAME:-babbel}
-      BABBEL_DB_MAX_OPEN_CONNS: ${BABBEL_DB_MAX_OPEN_CONNS:-100}
-      BABBEL_DB_MAX_IDLE_CONNS: ${BABBEL_DB_MAX_IDLE_CONNS:-}
-      BABBEL_DB_CONN_MAX_LIFETIME: ${BABBEL_DB_CONN_MAX_LIFETIME:-1h}
-      BABBEL_DB_CONNECT_TIMEOUT: ${BABBEL_DB_CONNECT_TIMEOUT:-10s}
-      BABBEL_DB_READ_TIMEOUT: ${BABBEL_DB_READ_TIMEOUT:-2m}
-      BABBEL_DB_WRITE_TIMEOUT: ${BABBEL_DB_WRITE_TIMEOUT:-2m}
-      BABBEL_SERVER_ADDRESS: ":8080"
-      BABBEL_AUTH_METHOD: ${AUTH_METHOD}
-      BABBEL_SESSION_SECRET: ${SESSION_SECRET}
-      BABBEL_ENV: ${BABBEL_ENV:-production}
-      BABBEL_FFMPEG_PATH: "ffmpeg"
-      BABBEL_FFPROBE_PATH: "ffprobe"
-      # Optional OAuth/OIDC
-      BABBEL_OIDC_PROVIDER_URL: ${OIDC_PROVIDER_URL}
-      BABBEL_OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
-      BABBEL_OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
-      BABBEL_OIDC_REDIRECT_URL: ${OIDC_REDIRECT_URL}
-      # CORS configuration - set in .env file
-      # Empty = API-only (no browser), or comma-separated origins
-      BABBEL_ALLOWED_ORIGINS: ${BABBEL_ALLOWED_ORIGINS}
-      # Cookie configuration for cross-subdomain auth
-      BABBEL_COOKIE_DOMAIN: ${BABBEL_COOKIE_DOMAIN}
-      BABBEL_COOKIE_SAMESITE: ${BABBEL_COOKIE_SAMESITE}
-      # Asynchronous bulletin generation
-      BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT: ${BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT:-120s}
-      # ElevenLabs TTS (leave empty to disable; endpoint returns 501 when unset)
-      BABBEL_ELEVENLABS_API_KEY: ${BABBEL_ELEVENLABS_API_KEY:-}
-      BABBEL_ELEVENLABS_TIMEOUT: ${BABBEL_ELEVENLABS_TIMEOUT:-60s}
-      # Optional Microsoft Graph operational notifications
-      BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID: ${BABBEL_NOTIFICATIONS_EMAIL_TENANT_ID:-}
-      BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID: ${BABBEL_NOTIFICATIONS_EMAIL_CLIENT_ID:-}
-      BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET: ${BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET:-}
-      BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS: ${BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS:-}
-      BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS: ${BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS:-}
-      BABBEL_NOTIFICATIONS_COOLDOWN: ${BABBEL_NOTIFICATIONS_COOLDOWN:-1h}
-      BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD: ${BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD:-3}
-      BABBEL_NOTIFICATIONS_FAILURE_WINDOW: ${BABBEL_NOTIFICATIONS_FAILURE_WINDOW:-10m}
-      TZ: ${TZ}
+    # All settings come from .env. See .env.example.
+    env_file: .env
     ports:
-      - "${API_PORT}:8080"
+      - "8080:8080"
     volumes:
       - babbel_uploads:/app/uploads
       - babbel_audio:/app/audio
     depends_on:
       mysql:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     restart: always
     # Babbel writes the log data to stdout. Docker rotates the log files.
     # Docker keeps a maximum of 5 files of 50 MB.

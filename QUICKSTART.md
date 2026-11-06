@@ -32,9 +32,8 @@ wget -O migrations/001_complete_schema.sql \
 cp .env.example .env
 
 # Generate passwords
-openssl rand -hex 32  # Save as MYSQL_ROOT_PASSWORD
-openssl rand -hex 32  # Save as MYSQL_PASSWORD
-openssl rand -hex 16  # Save as SESSION_SECRET
+openssl rand -hex 32  # Save as BABBEL_DB_PASSWORD
+openssl rand -hex 16  # Save as BABBEL_SESSION_SECRET
 
 # Edit .env file
 nano .env
@@ -43,13 +42,13 @@ nano .env
 **Minimal .env configuration:**
 ```env
 # Database
-MYSQL_ROOT_PASSWORD=your_generated_64_char_password_here
-MYSQL_PASSWORD=your_generated_64_char_password_here
+BABBEL_DB_HOST=mysql
+BABBEL_DB_PASSWORD=your_generated_64_char_password_here
 
 # API
-SESSION_SECRET=your_generated_32_char_secret_here
-AUTH_METHOD=local
-API_PORT=8080
+BABBEL_ENV=production
+BABBEL_SESSION_SECRET=your_generated_32_char_secret_here
+BABBEL_AUTH_METHOD=local
 BABBEL_ALLOWED_ORIGINS=
 
 # Timezone (adjust to your location)
@@ -194,7 +193,7 @@ docker compose up -d
 # View logs
 docker compose logs -f
 
-# Backup database (use your MYSQL_PASSWORD from .env)
+# Backup database
 docker exec babbel-mysql sh -c \
   'mysqldump --no-tablespaces -u babbel -p"$MYSQL_PASSWORD" babbel' > backup.sql
 
@@ -217,7 +216,7 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 - Verify you're using the correct endpoint: `/api/v1/sessions` (not `/session/login`)
 - Check if cookies are being saved: `cat cookies.txt`
 - Verify timezone in .env matches your location
-- For OIDC/OAuth issues, check `AUTH_METHOD`, `OIDC_*`, and `BABBEL_FRONTEND_URL` configuration
+- For OIDC/OAuth issues, check `BABBEL_AUTH_METHOD`, `BABBEL_OIDC_*`, and `BABBEL_FRONTEND_URL` configuration
 
 **Audio generation fails?**
 - Check disk space: `df -h`
@@ -392,11 +391,11 @@ To enable SSO with Microsoft, Google, or other OIDC providers:
 
 1. Set environment variables:
 ```bash
-AUTH_METHOD=oidc  # or "both" for local + OIDC
-OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
-OIDC_CLIENT_ID=your-client-id
-OIDC_CLIENT_SECRET=your-client-secret
-OIDC_REDIRECT_URL=https://your-api.com/api/v1/auth/oauth/callback
+BABBEL_AUTH_METHOD=oidc  # or "both" for local + OIDC
+BABBEL_OIDC_PROVIDER_URL=https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0
+BABBEL_OIDC_CLIENT_ID=your-client-id
+BABBEL_OIDC_CLIENT_SECRET=your-client-secret
+BABBEL_OIDC_REDIRECT_URL=https://your-api.com/api/v1/auth/oauth/callback
 BABBEL_FRONTEND_URL=https://your-frontend.com
 ```
 
