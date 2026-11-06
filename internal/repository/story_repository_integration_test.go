@@ -3,6 +3,7 @@
 package repository
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,6 +58,100 @@ func TestStoryRepositoryIntegration_AudioWriteAfterDeletion(t *testing.T) {
 		Action: models.AuditActionAudio, AudioFile: "replacement.wav", DurationSeconds: 20,
 	}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UpdateAudio missing = %v, want ErrNotFound", err)
+	}
+}
+
+// A write that still holds the row lock decides what KeepExisting sees.
+func TestStoryRepositoryIntegration_KeepExistingWaitsForRowLock(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	repo := NewStoryRepository(db)
+	date := time.Date(2026, 9, 26, 0, 0, 0, 0, time.Local)
+	story, err := repo.Create(t.Context(), &StoryCreateData{
+		Title: "Row lock", Text: "News", Status: "active", StartDate: date, EndDate: date, Weekdays: models.WeekdaysAll,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, err := range []error{
+			db.Unscoped().Delete(&models.Story{}, story.ID).Error,
+			db.Where("entity_type = ? AND entity_id = ?", models.AuditEntityStory, story.ID).Delete(&models.AuditEvent{}).Error,
+		} {
+			if err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
+	})
+
+	locked := make(chan struct{})
+	upload := make(chan error, 1)
+	go func() {
+		upload <- NewTxManager(db).WithTransaction(t.Context(), func(ctx context.Context) error {
+			err := repo.UpdateAudio(ctx, story.ID, StoryAudioUpdate{
+				Action: models.AuditActionAudio, AudioFile: "upload.wav", DurationSeconds: 2,
+			})
+			close(locked)
+			time.Sleep(200 * time.Millisecond) // Commit after the other write reached the lock.
+			return err
+		})
+	}()
+	<-locked
+
+	err = repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{
+		Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 1, KeepExisting: true,
+	})
+	if !errors.Is(err, ErrStoryHasAudio) {
+		t.Fatalf("UpdateAudio = %v, want ErrStoryHasAudio", err)
+	}
+	if err := <-upload; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A snapshot from earlier in the transaction must not hide newer audio from KeepExisting.
+func TestStoryRepositoryIntegration_KeepExistingIgnoresEarlierSnapshot(t *testing.T) {
+	db := testutil.OpenIntegrationDB(t)
+	repo := NewStoryRepository(db)
+	date := time.Date(2026, 9, 26, 0, 0, 0, 0, time.Local)
+	story, err := repo.Create(t.Context(), &StoryCreateData{
+		Title: "Snapshot", Text: "News", Status: "active", StartDate: date, EndDate: date, Weekdays: models.WeekdaysAll,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, err := range []error{
+			db.Unscoped().Delete(&models.Story{}, story.ID).Error,
+			db.Where("entity_type = ? AND entity_id = ?", models.AuditEntityStory, story.ID).Delete(&models.AuditEvent{}).Error,
+		} {
+			if err != nil {
+				t.Errorf("cleanup: %v", err)
+			}
+		}
+	})
+
+	err = NewTxManager(db).WithTransaction(t.Context(), func(ctx context.Context) error {
+		if _, err := repo.GetByID(ctx, story.ID); err != nil { // Starts the snapshot.
+			return err
+		}
+		if err := repo.UpdateAudio(t.Context(), story.ID, StoryAudioUpdate{ // Commits outside the transaction.
+			Action: models.AuditActionAudio, AudioFile: "upload.wav", DurationSeconds: 2,
+		}); err != nil {
+			return err
+		}
+		return repo.UpdateAudio(ctx, story.ID, StoryAudioUpdate{
+			Action: models.AuditActionTTS, AudioFile: "tts.wav", DurationSeconds: 1, KeepExisting: true,
+		})
+	})
+	if !errors.Is(err, ErrStoryHasAudio) {
+		t.Fatalf("transaction = %v, want ErrStoryHasAudio", err)
+	}
+	saved, err := repo.GetByID(t.Context(), story.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AudioFile != "upload.wav" {
+		t.Fatalf("audio_file = %q, want upload.wav", saved.AudioFile)
 	}
 }
 

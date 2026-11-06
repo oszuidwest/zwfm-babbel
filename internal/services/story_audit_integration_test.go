@@ -100,6 +100,70 @@ func TestStoryService_ConcurrentAudioRequestsPublishOwnFiles(t *testing.T) {
 	}
 }
 
+// An upload that lands while ElevenLabs generates must survive a non-forced
+// request; force keeps replacing it.
+func TestGenerateTTS_AudioUploadedDuringGeneration(t *testing.T) {
+	tests := []struct {
+		name         string
+		force        bool
+		wantCode     string
+		wantDuration float64
+		wantEvents   int
+	}{
+		{name: "without force keeps the upload", wantCode: "story.audio_exists", wantDuration: 2, wantEvents: 1},
+		{name: "force replaces the upload", force: true, wantDuration: 1, wantEvents: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := testutil.OpenIntegrationDB(t)
+			service := newAudioIntegrationService(t, db)
+			repo := &interleavingRepository{storyRepository: service.storyRepo}
+			service.storyRepo = repo
+			voice := models.Voice{Name: t.Name(), ElevenLabsVoiceID: new("test-voice")}
+			if err := db.Create(&voice).Error; err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Delete(&voice).Error; err != nil {
+					t.Errorf("cleanup: %v", err)
+				}
+			})
+			story := createAudioIntegrationStory(t, db, &voice.ID)
+			speech, err := os.ReadFile(audioFixture(t, service, "sine=frequency=440:duration=1")) // #nosec G304 - test temp file.
+			if err != nil {
+				t.Fatal(err)
+			}
+			service.ttsSvc = &fakeSpeechGenerator{data: speech}
+			service.ttsSettingsSvc = &fakeTTSSettingsGetter{settings: &models.TTSSettings{}}
+			service.pronunciationInjector = NewPronunciationInjector(&fakePronunciationRuleLister{})
+			upload := audioFixture(t, service, "sine=frequency=880:duration=2")
+			repo.during = func() {
+				if err := service.ProcessAudio(t.Context(), story.ID, upload, nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			err = service.GenerateTTS(t.Context(), story.ID, tt.force, nil)
+
+			if tt.wantCode != "" {
+				assertConflict(t, err, tt.wantCode)
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			finalPath := utils.StoryPath(service.config, story.ID)
+			duration, err := service.audioSvc.Duration(t.Context(), finalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			state := audioStateOf(t, service, db, story.ID)
+			if math.Abs(duration-tt.wantDuration) > 0.1 || math.Abs(state.Duration-tt.wantDuration) > 0.1 ||
+				len(state.Files) != 1 || len(state.EventIDs) != tt.wantEvents {
+				t.Fatalf("file %.3f s, state %+v, want %.0f s, one file and %d events", duration, state, tt.wantDuration, tt.wantEvents)
+			}
+		})
+	}
+}
+
 func TestGenerateTTSAuditAndFailedPublication(t *testing.T) {
 	db := testutil.OpenIntegrationDB(t)
 	service := newAudioIntegrationService(t, db)
