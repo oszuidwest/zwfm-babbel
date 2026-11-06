@@ -176,11 +176,16 @@ type StoryAudioUpdate struct {
 func (r *StoryRepository) UpdateAudio(ctx context.Context, id int64, u StoryAudioUpdate) error {
 	return r.withAudit(ctx, id, u.Action, u.ActorUserID, func(ctx context.Context) error {
 		if u.KeepExisting {
-			story, err := r.GetByIDForWrite(ctx, id)
-			if err != nil {
-				return err
+			// A locking read sees committed audio, also when an earlier read in
+			// this transaction started an older snapshot. UpdateByID reports a
+			// deleted story.
+			var audioFile *string
+			if err := DBFromContext(ctx, r.db).WithContext(ctx).Table("stories").
+				Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}).
+				Where("id = ? AND deleted_at IS NULL", id).Select("audio_file").Scan(&audioFile).Error; err != nil {
+				return ParseDBError(err)
 			}
-			if story.AudioFile != "" {
+			if audioFile != nil && *audioFile != "" {
 				return ErrStoryHasAudio
 			}
 		}
