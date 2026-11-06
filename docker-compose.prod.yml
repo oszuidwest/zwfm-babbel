@@ -30,6 +30,11 @@ services:
     container_name: babbel-app
     # All settings come from .env. See .env.example.
     env_file: .env
+    # The mysql service reads these through Compose, so a shell value must win here too.
+    environment:
+      - BABBEL_DB_USER
+      - BABBEL_DB_PASSWORD
+      - BABBEL_DB_NAME
     ports:
       - "8080:8080"
     volumes:
