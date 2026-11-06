@@ -25,6 +25,7 @@ import (
 
 const (
 	debugLogLevel            = 5
+	listenAddress            = ":8080"
 	serverReadTimeout        = 15 * time.Second
 	audioTransferMargin      = 2 * time.Minute
 	serverIdleTimeout        = 60 * time.Second
@@ -80,7 +81,7 @@ func run() error {
 	}
 
 	srv := newServer(cfg, router)
-	serverErr := startServer(srv, cfg)
+	serverErr := startServer(srv)
 
 	bulletinWorker.Start()
 
@@ -131,7 +132,7 @@ func validateConfig(cfg *config.Config) error {
 	}
 	log.Printf("Database config: Host=%s, Port=%d, User=%s, Database=%s",
 		cfg.Database.Host, cfg.Database.Port, cfg.Database.User, cfg.Database.Database)
-	log.Printf("Server config: Address=%s", cfg.Server.Address)
+	log.Printf("Server config: Address=%s", listenAddress)
 	return nil
 }
 
@@ -159,7 +160,7 @@ func closeDatabase(db *gorm.DB, alerts *notify.Service) {
 
 func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 	return &http.Server{
-		Addr:        cfg.Server.Address,
+		Addr:        listenAddress,
 		Handler:     handler,
 		ReadTimeout: serverReadTimeout,
 		IdleTimeout: serverIdleTimeout,
@@ -169,10 +170,10 @@ func newServer(cfg *config.Config, handler http.Handler) *http.Server {
 }
 
 // startServer serves in the background and reports unexpected listener errors.
-func startServer(srv *http.Server, cfg *config.Config) <-chan error {
+func startServer(srv *http.Server) <-chan error {
 	serverErr := make(chan error, 1)
 	go func() {
-		logger.Info("Starting Babbel API server", "address", cfg.Server.Address, "version", version.Version, "commit", version.Commit)
+		logger.Info("Starting Babbel API server", "address", listenAddress, "version", version.Version, "commit", version.Commit)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
